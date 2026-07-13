@@ -254,13 +254,13 @@
 </aside>
 
 <!-- ── Phase 2: Configure — a guided vertical stepper (hidden until Phase 1
-     has a key + title). Repositories → Approach → Create. ─────────────────── -->
+     has a key + title). Services → Approach → Create. ─────────────────── -->
 <div id="phase2" class="hidden">
   <div class="card">
-    <!-- Step 1: Repositories -->
+    <!-- Step 1: Services -->
     <div class="step done" id="stepRepos">
       <span class="dot" id="dotRepos">1</span>
-      <span class="st">Repositories<span class="stcount" id="repoCount"></span></span>
+      <span class="st">Services<span class="stcount" id="repoCount"></span></span>
     </div>
     <div class="stepbody">
       <div class="sub">Which services does this ticket change? Pre-selected from the classifier.</div>
@@ -325,7 +325,7 @@
     el('subhead').textContent = state.mode === 'edit'
       ? (state.title || '(untitled)')
       : 'Name the ticket, write a prompt, pick an approach.';
-    el('submitBtn').textContent = state.mode === 'edit' ? 'Save' : 'Create ticket';
+    el('submitBtn').textContent = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
     renderProvider(state.provider);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
@@ -475,10 +475,12 @@
     // handler (delegated) which flips `draft.repos` and posts `set-repos`.
     el('repoList').innerHTML = repos.map((r) => {
       const on = repoSelected(r);
-      return `<span class="chip${on ? ' on' : ''}" role="button" tabindex="0" data-repo="${esc(r.service)}">`
+      // The classifier score is a relevance hint, not user-facing data — keep it
+      // as a hover title so it stops leaking onto the chip as a stray number.
+      const title = r.score ? ` title="classifier score: ${esc(r.score)}"` : '';
+      return `<span class="chip${on ? ' on' : ''}" role="button" tabindex="0" data-repo="${esc(r.service)}"${title}>`
         + `<span class="tick" aria-hidden="true">✓</span>`
         + `<span>${esc(r.service)}</span>`
-        + (r.score ? `<span class="score">${r.score}</span>` : '')
         + `</span>`;
     }).join('');
     syncStepper();
