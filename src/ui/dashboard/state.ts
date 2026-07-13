@@ -9,6 +9,8 @@ import {
   type PrView,
 } from '../../store/dashboard.js';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../../model/types.js';
+import type { TicketProvider } from '../../manifest/types.js';
+import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 
 export type { PathContext };
@@ -30,6 +32,14 @@ export interface DashboardState {
   servers: ServerView[];
   worktrees: WorktreeView[];
   prs: PrView[];
+  /** Configured ticketing provider ('clickup' | 'manual'); null when unknown. */
+  provider: string | null;
+  /** The board ref the ticket was fetched from, or null. */
+  sourceRef: string | null;
+  /** External board URL for the ticket, or null (manual/unfetched → no link). */
+  ticketUrl: string | null;
+  /** Synthesized context brief, shown as a hover on the provider link; or null. */
+  brief: string | null;
 }
 
 /**
@@ -41,6 +51,7 @@ export function buildDashboardState(
   store: Store,
   ticketId: number,
   pathContext?: PathContext,
+  ticketing?: { provider?: TicketProvider },
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const byKey = new Map(ticket.stages.map((s) => [s.stageKey, s]));
@@ -64,5 +75,9 @@ export function buildDashboardState(
     servers: listServersByTicket(store, ticketId),
     worktrees,
     prs: listPrsByTicket(store, ticketId),
+    provider: ticketing?.provider ?? null,
+    sourceRef: ticket.sourceRef,
+    ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
+    brief: ticket.brief,
   };
 }

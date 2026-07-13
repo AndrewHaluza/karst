@@ -6,9 +6,12 @@ function actions(): DashboardActions {
     stopServer: vi.fn(),
     restartServer: vi.fn(),
     openServer: vi.fn(),
+    copyServerUrl: vi.fn(),
+    spinServers: vi.fn(),
     diffWorktree: vi.fn(),
     openWorktreeFolder: vi.fn(),
     openPr: vi.fn(),
+    openTicketLink: vi.fn(),
     editTicket: vi.fn(),
   };
 }
@@ -40,6 +43,32 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'open-pr', url: 'http://pr/1' }, a);
     expect(a.openPr).toHaveBeenCalledWith('http://pr/1');
+  });
+
+  it('dispatches copy-server-url by server id', () => {
+    const a = actions();
+    routeAction({ type: 'copy-server-url', serverId: 9 }, a);
+    expect(a.copyServerUrl).toHaveBeenCalledWith(9);
+  });
+
+  it('dispatches spin-servers (no payload)', () => {
+    const a = actions();
+    routeAction({ type: 'spin-servers' }, a);
+    expect(a.spinServers).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches open-ticket-link only for http(s) urls', () => {
+    const a = actions();
+    routeAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/x' }, a);
+    routeAction({ type: 'open-ticket-link', url: 'file:///etc/passwd' }, a);
+    expect(a.openTicketLink).toHaveBeenCalledTimes(1);
+    expect(a.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/x');
+  });
+
+  it('rejects copy-server-url whose serverId is not a number', () => {
+    const a = actions();
+    routeAction({ type: 'copy-server-url', serverId: '9' }, a);
+    expect(a.copyServerUrl).not.toHaveBeenCalled();
   });
 
   it('ignores an unknown message shape without throwing', () => {

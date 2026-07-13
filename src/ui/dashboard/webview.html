@@ -34,6 +34,8 @@
   .dhead h1{font-size:17px;margin:0}
   .dhead .key{font-family:var(--mono);font-size:12px;color:var(--text-dim)}
   .dhead .agent{margin-left:auto;font-size:11px;color:var(--text-dim);font-family:var(--mono)}
+  .dhead .ticketlink a{font-size:11px;font-family:var(--mono);display:inline-flex;align-items:center;gap:4px}
+  .dhead .ticketlink a:hover{text-decoration:underline}
 
   /* stepper */
   .stepper{margin:20px 0 26px;padding:20px 8px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-bg)}
@@ -77,6 +79,7 @@
 <div class="dhead">
   <span class="key" id="key"></span>
   <h1 id="title"></h1>
+  <span class="ticketlink" id="ticketLink"></span>
   <span class="agent" id="agent"></span>
   <button id="editBtn" title="Edit ticket">Edit</button>
 </div>
@@ -118,10 +121,14 @@
         + `<span class="addr">${esc(s.host || 'localhost')}:${esc(s.port)}</span>`
         + `<span class="sacts">`
         + `<button data-act="open-server" data-id="${s.id}">Open</button>`
+        + `<button data-act="copy-server-url" data-id="${s.id}" data-copy>Copy</button>`
         + `<button data-act="restart-server" data-id="${s.id}">Restart</button>`
         + `<button data-act="stop-server" data-id="${s.id}">Stop</button>`
         + `</span></div>`;
-    }).join('') : '<div class="empty">No servers.</div>';
+    }).join('')
+      // No servers → a live affordance to spin them (todo-5: was a dead end).
+      : `<div class="empty">No servers running.`
+        + ` <button data-act="spin-servers">Start servers</button></div>`;
   }
 
   function renderWorktrees(wts) {
@@ -163,9 +170,20 @@
       + `agent: ${esc(st)}</span>`;
   }
 
+  // A link to the source board (ClickUp, …) when the ticket was fetched from one.
+  // The brief (if any) rides along as a hover title. Manual/unfetched → nothing.
+  function renderTicketLink(state) {
+    if (!state.ticketUrl) { el('ticketLink').innerHTML = ''; return; }
+    const label = state.provider ? `${esc(state.provider)}: ${esc(state.sourceRef || 'ticket')}` : esc(state.sourceRef || 'ticket');
+    const tip = state.brief ? ` title="${esc(state.brief)}"` : '';
+    el('ticketLink').innerHTML =
+      `<a href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>↗ ${label}</a>`;
+  }
+
   function render(state) {
     el('key').textContent = state.key || `#${state.ticketId}`;
     el('title').textContent = state.title || '(untitled)';
+    renderTicketLink(state);
     renderAgent(state.agentState);
     renderStepper(state.stepper, state.stageCurrent);
     renderServers(state.servers);
@@ -175,14 +193,28 @@
 
   el('editBtn').addEventListener('click', () => post({ type: 'edit-ticket' }));
 
-  // Delegate button clicks → action messages (messages.ts routeAction).
+  // Optimistic feedback for the copy button — the host does the actual clipboard
+  // write; the webview just confirms it so the click feels responsive.
+  function flashCopied(btn) {
+    const prev = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1200);
+  }
+
+  // Delegate clicks (buttons + the ticket-link anchor) → action messages
+  // (messages.ts routeAction). A no-payload action (e.g. spin-servers) posts
+  // just its type.
   document.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-act]');
+    const btn = e.target.closest('[data-act]');
     if (!btn) return;
+    e.preventDefault();
     const act = btn.dataset.act;
     if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
     else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
     else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
+    else post({ type: act });
+    if (btn.hasAttribute('data-copy')) flashCopied(btn);
   });
 
   window.addEventListener('message', (e) => {

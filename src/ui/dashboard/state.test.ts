@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket } from '../../store/tickets.js';
+import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { buildDashboardState } from './state.js';
 
@@ -37,6 +37,31 @@ describe('buildDashboardState', () => {
 
   it('throws for an unknown ticket', () => {
     expect(() => buildDashboardState(store, 999)).toThrow();
+  });
+
+  it('builds a provider ticket URL from the source ref for a clickup ticket', () => {
+    const t = createTicket(store, { key: 'CU-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { sourceRef: 'abc123' });
+    const state = buildDashboardState(store, t.id, undefined, { provider: 'clickup' });
+    expect(state.provider).toBe('clickup');
+    expect(state.sourceRef).toBe('abc123');
+    expect(state.ticketUrl).toBe('https://app.clickup.com/t/abc123');
+  });
+
+  it('has no ticket URL for a manual provider or a missing source ref', () => {
+    const manual = createTicket(store, { key: 'M-1', title: 't' });
+    updateTicketOnboarding(store, manual.id, { sourceRef: 'abc123' });
+    expect(buildDashboardState(store, manual.id, undefined, { provider: 'manual' }).ticketUrl).toBeNull();
+    const noRef = createTicket(store, { key: 'CU-2', title: 't' });
+    expect(buildDashboardState(store, noRef.id, undefined, { provider: 'clickup' }).ticketUrl).toBeNull();
+  });
+
+  it('defaults provider fields to null when no ticketing config is passed', () => {
+    const t = createTicket(store, { key: 'N-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { sourceRef: 'abc123' });
+    const state = buildDashboardState(store, t.id);
+    expect(state.provider).toBeNull();
+    expect(state.ticketUrl).toBeNull();
   });
 
   function seedWorktree(ticketId: number, repo: string): void {

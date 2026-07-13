@@ -8,9 +8,12 @@ export type WebviewMessage =
   | { type: 'stop-server'; serverId: number }
   | { type: 'restart-server'; serverId: number }
   | { type: 'open-server'; serverId: number }
+  | { type: 'copy-server-url'; serverId: number }
+  | { type: 'spin-servers' }
   | { type: 'diff-worktree'; path: string }
   | { type: 'open-worktree-folder'; path: string }
   | { type: 'open-pr'; url: string }
+  | { type: 'open-ticket-link'; url: string }
   | { type: 'edit-ticket' };
 
 /** Host → webview messages: state pushes drive the stepper + panels. */
@@ -21,9 +24,12 @@ export interface DashboardActions {
   stopServer: (serverId: number) => void;
   restartServer: (serverId: number) => void;
   openServer: (serverId: number) => void;
+  copyServerUrl: (serverId: number) => void;
+  spinServers: () => void;
   diffWorktree: (path: string) => void;
   openWorktreeFolder: (path: string) => void;
   openPr: (url: string) => void;
+  openTicketLink: (url: string) => void;
   editTicket: () => void;
 }
 
@@ -47,6 +53,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return num ? { type: 'restart-server', serverId: m.serverId as number } : null;
     case 'open-server':
       return num ? { type: 'open-server', serverId: m.serverId as number } : null;
+    case 'copy-server-url':
+      return num ? { type: 'copy-server-url', serverId: m.serverId as number } : null;
+    case 'spin-servers':
+      return { type: 'spin-servers' };
     case 'diff-worktree':
       return path ? { type: 'diff-worktree', path: m.path as string } : null;
     case 'open-worktree-folder':
@@ -54,6 +64,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'open-pr':
       return typeof m.url === 'string' && /^https?:\/\//.test(m.url)
         ? { type: 'open-pr', url: m.url }
+        : null;
+    case 'open-ticket-link':
+      return typeof m.url === 'string' && /^https?:\/\//.test(m.url)
+        ? { type: 'open-ticket-link', url: m.url }
         : null;
     case 'edit-ticket':
       return { type: 'edit-ticket' };
@@ -80,6 +94,12 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
     case 'open-server':
       actions.openServer(msg.serverId);
       return;
+    case 'copy-server-url':
+      actions.copyServerUrl(msg.serverId);
+      return;
+    case 'spin-servers':
+      actions.spinServers();
+      return;
     case 'diff-worktree':
       actions.diffWorktree(msg.path);
       return;
@@ -88,6 +108,9 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'open-pr':
       actions.openPr(msg.url);
+      return;
+    case 'open-ticket-link':
+      actions.openTicketLink(msg.url);
       return;
     case 'edit-ticket':
       actions.editTicket();

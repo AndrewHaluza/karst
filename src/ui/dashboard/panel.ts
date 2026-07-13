@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
+import type { TicketProvider } from '../../manifest/types.js';
 import { buildDashboardState, type PathContext } from './state.js';
 import { routeAction, type DashboardActions } from './messages.js';
 
@@ -54,6 +55,11 @@ export class DashboardManager {
     private readonly pathContext?: () => PathContext | undefined,
     /** Live ticket-label template getter (honors manifest `ticketLabelTemplate`). */
     private readonly labelTemplate?: () => string | undefined,
+    /**
+     * Live ticketing config getter (honors manifest `ticketing.provider`) so the
+     * dashboard can render a link to the source board (§ C3). Absent → no link.
+     */
+    private readonly ticketing?: () => { provider?: TicketProvider } | undefined,
   ) {}
 
   /** Open (or reveal) the dashboard for a ticket and push its initial state. */
@@ -89,7 +95,12 @@ export class DashboardManager {
   pushState(ticketId: number): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
-    const state = buildDashboardState(this.store, ticketId, this.pathContext?.());
+    const state = buildDashboardState(
+      this.store,
+      ticketId,
+      this.pathContext?.(),
+      this.ticketing?.(),
+    );
     panel.postMessage({ type: 'state', state });
   }
 

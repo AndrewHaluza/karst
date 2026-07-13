@@ -422,6 +422,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }),
     () => worktreePathContext(currentManifest),
     () => currentManifest?.ticketLabelTemplate,
+    // Live ticketing config so the dashboard links to the source board (§ C3).
+    () => currentManifest?.ticketing,
   );
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
@@ -885,6 +887,18 @@ function makeDashboardActions(
       }
       void vscode.env.openExternal(vscode.Uri.parse(`http://${addr.host}:${addr.port}`));
     },
+    // Copy the server URL to the clipboard (the webview flashes its own feedback).
+    copyServerUrl: (serverId) => {
+      const addr = serverAddress(store, serverId);
+      if (!addr) {
+        void vscode.window.showWarningMessage('That server is no longer running.');
+        return;
+      }
+      void vscode.env.clipboard.writeText(`http://${addr.host}:${addr.port}`);
+    },
+    // No servers yet → let the user spin them from the dashboard (the command
+    // owns the service picker + progress; it refreshes the dashboard on success).
+    spinServers: () => void vscode.commands.executeCommand('karst.spinTicket', ticketId),
     // Diff → register the worktree with Git, then open the Source Control view
     // so its changes (vs the branch point) are shown. The SCM view is the right
     // whole-worktree affordance (per-file `git.openChange` needs a file target).
@@ -902,6 +916,7 @@ function makeDashboardActions(
     openWorktreeFolder: (path) =>
       void vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path)),
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+    openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
   };
 }
