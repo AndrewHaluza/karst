@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+# karst config lives at .karst/karst.yml and is committed; only the generated
+# worktrees under it are ignored. (Note: worktree.ts excludes the whole .karst/
+# in each *service* repo via .git/info/exclude — that asymmetry is intentional:
+# service repos never track karst artifacts, but the karst project commits its yml.)
+.karst/worktrees/
+.claude/settings.local.json

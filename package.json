@@ -1,0 +1,152 @@
+{
+  "name": "karst",
+  "displayName": "Karst",
+  "version": "1.0.0",
+  "description": "Orchestrate AI-agent ticket workflows across a multi-repo stack.",
+  "publisher": "karst",
+  "type": "module",
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "compile": "tsc -p tsconfig.build.json",
+    "copy-assets": "node scripts/copy-assets.mjs",
+    "build": "npm run compile && npm run copy-assets",
+    "vscode:prepublish": "npm run build",
+    "rebuild:electron": "cp node_modules/better-sqlite3/bin/darwin-arm64-140/better-sqlite3.node node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "pretest": "npm run rebuild:node",
+    "dev:extension": "npm run build && npm run rebuild:electron"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "karst",
+          "title": "Karst",
+          "icon": "media/karst.svg"
+        }
+      ]
+    },
+    "views": {
+      "karst": [
+        {
+          "id": "karst.tickets",
+          "name": "Tickets",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "karst.createTicket",
+        "title": "Karst: Create Ticket",
+        "icon": "$(add)"
+      },
+      {
+        "command": "karst.openDashboard",
+        "title": "Karst: Open Dashboard"
+      },
+      {
+        "command": "karst.openSession",
+        "title": "Karst: Open AI Session",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "karst.openOnboarding",
+        "title": "Karst: New Ticket (onboarding)",
+        "icon": "$(add)"
+      },
+      {
+        "command": "karst.editTicket",
+        "title": "Karst: Edit Ticket",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "karst.spinTicket",
+        "title": "Karst: Spin Ticket (scope + start servers)",
+        "icon": "$(play)"
+      },
+      {
+        "command": "karst.refresh",
+        "title": "Karst: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "karst.search",
+        "title": "Karst: Filter Tickets",
+        "icon": "$(search)"
+      },
+      {
+        "command": "karst.filterState",
+        "title": "Karst: Filter by State",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "karst.archiveTicket",
+        "title": "Karst: Archive Ticket",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "karst.unarchiveTicket",
+        "title": "Karst: Unarchive Ticket",
+        "icon": "$(history)"
+      },
+      {
+        "command": "karst.deleteTicket",
+        "title": "Karst: Delete Ticket",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "karst.openSettings",
+        "title": "Karst: Settings",
+        "icon": "$(gear)"
+      }
+    ],
+    "configuration": {
+      "title": "Karst",
+      "properties": {
+        "karst.manifestPath": {
+          "type": "string",
+          "default": "./.karst/karst.yml",
+          "description": "Path to the karst manifest (karst.yml), resolved against the workspace root."
+        },
+        "karst.approachesDir": {
+          "type": "string",
+          "default": "./.karst/approaches",
+          "description": "Directory where installed approach packages are stored (relative to the workspace root)."
+        },
+        "karst.agentsDir": {
+          "type": "string",
+          "default": "./.karst/agents",
+          "description": "Directory where karst agent files are stored."
+        }
+      }
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "js-yaml": "^5.2.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^26.1.1",
+    "@types/vscode": "^1.125.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

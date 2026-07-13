@@ -1,0 +1,260 @@
+<!--
+  Karst ticket-list sidebar webview (§14 redesign). Replaces the native TreeView.
+  Self-contained (webview CSP forbids external assets). Themed with VS Code's
+  `--vscode-*` variables so it inherits light/dark. Renders from the `state`
+  postMessage the host pushes (state.ts → SidebarState) and posts action messages
+  back (messages.ts → SidebarWebviewMessage). Row actions carry a numeric
+  ticketId; the host routes them to the existing karst.* commands.
+-->
+<style>
+  :root{
+    --mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
+    --g-running:var(--vscode-charts-blue,#3794ff);
+    --g-input:var(--vscode-charts-yellow,#cca700);
+    --g-failed:var(--vscode-charts-red,#f14c4c);
+    --g-done:var(--vscode-charts-green,#4bb64b);
+    --g-gray:var(--vscode-descriptionForeground,#8b8b8b);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:0;
+    background:var(--vscode-sideBar-background,var(--vscode-editor-background));
+    color:var(--vscode-foreground);
+    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
+    font-size:var(--vscode-font-size,13px);
+  }
+  button{font-family:inherit;color:inherit;cursor:pointer;background:none;border:0}
+
+  /* toolbar */
+  .toolbar{display:flex;align-items:center;gap:2px;padding:6px 8px;
+    border-bottom:1px solid var(--vscode-panel-border,transparent)}
+  .toolbar .sp{flex:1}
+  .tool{width:26px;height:24px;display:grid;place-items:center;border-radius:5px;
+    color:var(--vscode-icon-foreground,var(--vscode-foreground))}
+  .tool:hover{background:var(--vscode-toolbar-hoverBackground,rgba(127,127,127,.16))}
+
+  /* search + facets */
+  .search{display:flex;align-items:center;gap:6px;margin:8px 8px 6px;padding:4px 8px;
+    border-radius:4px;background:var(--vscode-input-background);
+    border:1px solid var(--vscode-input-border,var(--vscode-panel-border,transparent))}
+  .search:focus-within{border-color:var(--vscode-focusBorder)}
+  .search svg{color:var(--vscode-input-placeholderForeground,var(--g-gray));flex:0 0 auto}
+  .search input{flex:1;background:none;border:0;outline:none;color:var(--vscode-input-foreground);font-size:12px}
+  .search input::placeholder{color:var(--vscode-input-placeholderForeground,var(--g-gray))}
+  .facets{display:flex;gap:5px;flex-wrap:wrap;padding:0 8px 8px;
+    border-bottom:1px solid var(--vscode-panel-border,transparent)}
+  .facet{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:11px;font-size:11px;
+    border:1px solid var(--vscode-badge-background,rgba(127,127,127,.25));
+    background:transparent;color:var(--vscode-descriptionForeground)}
+  .facet:hover{background:var(--vscode-toolbar-hoverBackground,rgba(127,127,127,.12));color:var(--vscode-foreground)}
+  .facet.on{background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+    border-color:var(--vscode-badge-background)}
+  .facet .dot{width:7px;height:7px;border-radius:50%}
+  .facet .n{font-family:var(--mono);font-size:10px;opacity:.8}
+
+  /* rows */
+  .list{padding:4px 0 12px}
+  .empty{padding:16px 12px;color:var(--vscode-descriptionForeground);font-size:12px}
+  .empty a{color:var(--vscode-textLink-foreground);cursor:pointer;text-decoration:none}
+  .empty a:hover{text-decoration:underline}
+  .ticket{margin:1px 4px;border-radius:6px}
+  .ticket.arch{opacity:.6}
+  .row{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 4px;border-radius:6px;position:relative}
+  .row:hover{background:var(--vscode-list-hoverBackground)}
+  .chev{width:16px;flex:0 0 auto;color:var(--g-gray);display:grid;place-items:center;transition:transform .12s}
+  .ticket.open .chev{transform:rotate(90deg)}
+  .glyph{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .g-running{background:var(--g-running)}
+  .g-blue{background:var(--g-running)}
+  .g-input{background:var(--g-input)}
+  .g-amber{background:var(--g-input)}
+  .g-failed{background:var(--g-failed)}
+  .g-red{background:var(--g-failed)}
+  .g-done{background:var(--g-done)}
+  .g-green{background:var(--g-done)}
+  .g-gray{background:var(--g-gray)}
+  .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
+  .stage{font-size:10px;padding:1px 6px;border-radius:9px;flex:0 0 auto;
+    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);opacity:.85}
+  /* Actions overlay the row's right edge on hover so showing them never reflows
+     the row. The stage pill hides under them (same slot) to avoid overlap. */
+  .rowacts{display:flex;gap:1px;position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    background:var(--vscode-list-hoverBackground);border-radius:5px;padding-left:4px;
+    opacity:0;pointer-events:none}
+  .row:hover .rowacts{opacity:1;pointer-events:auto}
+  .row:hover .stage{opacity:0}
+  .ia{width:22px;height:20px;display:grid;place-items:center;border-radius:4px;color:var(--vscode-icon-foreground,var(--vscode-foreground))}
+  .ia:hover{background:var(--vscode-toolbar-hoverBackground,rgba(127,127,127,.18))}
+  .ia.danger:hover{background:var(--vscode-inputValidation-errorBackground,rgba(241,76,76,.2));color:var(--g-failed)}
+
+  /* expanded body */
+  .body{display:none;padding:2px 8px 10px 28px}
+  .ticket.open .body{display:block}
+  .mline{display:flex;gap:8px;align-items:baseline;color:var(--vscode-descriptionForeground);font-size:11.5px;margin:2px 0}
+  .mline .k{color:var(--g-gray);width:64px;flex:0 0 auto}
+  .mline .v{color:var(--vscode-foreground);font-family:var(--mono);font-size:11px}
+  .tags{display:flex;gap:4px;flex-wrap:wrap}
+  .tag{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:3px;
+    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
+  .actions{display:flex;gap:6px;margin-top:6px}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:4px;font-size:11.5px;
+    background:var(--vscode-button-secondaryBackground,rgba(127,127,127,.16));
+    color:var(--vscode-button-secondaryForeground,var(--vscode-foreground))}
+  .btn:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(127,127,127,.24))}
+  .btn.pri{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+  .btn.pri:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+</style>
+
+<div class="toolbar">
+  <button class="tool" id="btnNew" title="New ticket"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg></button>
+  <span class="sp"></span>
+  <button class="tool" id="btnSettings" title="Settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.1 1l.35 1.9c.42.14.82.31 1.19.53l1.6-1.08 1.42 1.42-1.08 1.6c.22.37.39.77.53 1.19L15 6.9v2l-1.9.35c-.14.42-.31.82-.53 1.19l1.08 1.6-1.42 1.42-1.6-1.08c-.37.22-.77.39-1.19.53L9.1 15h-2l-.35-1.9a5.5 5.5 0 0 1-1.19-.53l-1.6 1.08-1.42-1.42 1.08-1.6a5.5 5.5 0 0 1-.53-1.19L1 8.9v-2l1.9-.35c.14-.42.31-.82.53-1.19L2.35 3.76l1.42-1.42 1.6 1.08c.37-.22.77-.39 1.19-.53L6.9 1h2zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg></button>
+</div>
+
+<div class="search">
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+  <input id="search" placeholder="Search tickets…"/>
+</div>
+<div class="facets" id="facets"></div>
+<div class="list" id="list"></div>
+
+<script>
+  const vscode = acquireVsCodeApi();
+  const post = (m) => vscode.postMessage(m);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  const FACET_META = [
+    { key:'all', label:'All', color:null },
+    { key:'running', label:'In progress', color:'running' },
+    { key:'input', label:'Needs you', color:'input' },
+    { key:'failed', label:'Blocked', color:'failed' },
+    { key:'done', label:'Shipped', color:'done' },
+    { key:'archived', label:'Archived', color:null },
+  ];
+
+  // Current state snapshot + which rows are expanded (kept across re-renders).
+  let state = { facet:'all', filter:'', counts:{}, rows:[] };
+  const open = new Set();
+
+  const chev = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>';
+  const ic = {
+    dash:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="1.5"/></svg>',
+    sess:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M4.5 7l2 1.5-2 1.5"/></svg>',
+    spin:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5 3.5l7 4.5-7 4.5z"/></svg>',
+    edit:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z"/></svg>',
+    arch:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="4" width="11" height="3"/><path d="M3.5 7v5.5h9V7M6.5 9.5h3"/></svg>',
+    unarch:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 12.5V6M5.5 8L8 5.5 10.5 8"/><rect x="2.5" y="11.5" width="11" height="2"/></svg>',
+    del:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/></svg>',
+  };
+
+  function renderFacets() {
+    el('facets').innerHTML = FACET_META.map((f) => {
+      const n = state.counts[f.key] ?? 0;
+      const on = state.facet === f.key ? ' on' : '';
+      const dot = f.color ? `<span class="dot g-${f.color}"></span>` : '';
+      return `<button class="facet${on}" data-facet="${f.key}">${dot}${f.label} <span class="n">${n}</span></button>`;
+    }).join('');
+  }
+
+  function portsText(row) {
+    const p = (row.servers || []).map((s) => s.port).filter(Boolean).join(', ');
+    return p || '—';
+  }
+  function worktreeTags(row) {
+    const wts = (row.worktrees || []).map((w) => `<span class="tag">${esc(w.repoDisplay || w.repo)}</span>`);
+    return wts.join('') || '—';
+  }
+
+  function renderList() {
+    const L = el('list');
+    if (!state.rows.length) {
+      L.innerHTML = state.filter
+        ? '<div class="empty">No tickets match.</div>'
+        : (state.facet === 'archived'
+            ? '<div class="empty">No archived tickets.</div>'
+            : '<div class="empty">No tickets yet. <a id="emptyNew">Create ticket</a></div>');
+      const a = el('emptyNew'); if (a) a.onclick = () => post({ type:'create' });
+      return;
+    }
+    L.innerHTML = state.rows.map((row) => {
+      const isOpen = open.has(row.ticketId);
+      const acts = row.archived
+        ? `<button class="ia" data-act="unarchive" data-id="${row.ticketId}" title="Unarchive">${ic.unarch}</button>`
+          + `<button class="ia danger" data-act="delete" data-id="${row.ticketId}" title="Delete permanently">${ic.del}</button>`
+        : `<button class="ia" data-act="spin" data-id="${row.ticketId}" title="Spin">${ic.spin}</button>`
+          + `<button class="ia" data-act="open-session" data-id="${row.ticketId}" title="Open session">${ic.sess}</button>`
+          + `<button class="ia" data-act="edit" data-id="${row.ticketId}" title="Edit">${ic.edit}</button>`
+          + `<button class="ia" data-act="archive" data-id="${row.ticketId}" title="Archive">${ic.arch}</button>`;
+      const bodyActs = row.archived
+        ? `<button class="btn" data-act="unarchive" data-id="${row.ticketId}">${ic.unarch} Unarchive</button>`
+          + `<button class="btn" data-act="delete" data-id="${row.ticketId}">${ic.del} Delete</button>`
+        : `<button class="btn pri" data-act="open-dashboard" data-id="${row.ticketId}">${ic.dash} Open dashboard</button>`
+          + `<button class="btn" data-act="open-session" data-id="${row.ticketId}">${ic.sess} Session</button>`;
+      return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
+        + `<div class="row" data-toggle="${row.ticketId}">`
+        + `<span class="chev">${chev}</span>`
+        + `<span class="glyph g-${esc(row.glyph)}"></span>`
+        + `<span class="name">${esc(row.label)}</span>`
+        + `<span class="stage">${esc(row.description)}</span>`
+        + `<span class="rowacts">${acts}</span>`
+        + `</div>`
+        + `<div class="body">`
+        + `<div class="mline"><span class="k">Ports</span><span class="v">${esc(portsText(row))}</span></div>`
+        + `<div class="mline"><span class="k">Worktrees</span><span class="tags">${worktreeTags(row)}</span></div>`
+        + `<div class="actions">${bodyActs}</div>`
+        + `</div></div>`;
+    }).join('');
+  }
+
+  // ---- interactions ----
+  el('btnNew').onclick = () => post({ type:'create' });
+  el('btnSettings').onclick = () => post({ type:'open-settings' });
+
+  let searchTimer;
+  el('search').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    const q = e.target.value;
+    searchTimer = setTimeout(() => post({ type:'set-filter', query:q }), 150);
+  });
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-act],[data-facet],[data-toggle]');
+    if (!t) return;
+    if (t.dataset.act) {
+      e.stopPropagation();
+      const id = Number(t.dataset.id);
+      post({ type: t.dataset.act, ticketId: id });
+      return;
+    }
+    if (t.dataset.facet) {
+      post({ type:'set-facet', facet: t.dataset.facet });
+      return;
+    }
+    if (t.dataset.toggle) {
+      const id = Number(t.dataset.toggle);
+      if (open.has(id)) open.delete(id); else open.add(id);
+      renderList();
+    }
+  });
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg || msg.type !== 'state') return;
+    state = msg.state;
+    vscode.setState(state);
+    // Prune expanded ids that no longer exist so the set can't grow unbounded.
+    const ids = new Set(state.rows.map((r) => r.ticketId));
+    for (const id of [...open]) if (!ids.has(id)) open.delete(id);
+    // Keep the search box in sync only when the host changed the filter.
+    if (el('search').value !== state.filter) el('search').value = state.filter;
+    renderFacets();
+    renderList();
+  });
+
+  // Restore last snapshot immediately (view re-resolve), then ask for fresh.
+  const prev = vscode.getState();
+  if (prev) { state = prev; renderFacets(); renderList(); }
+  post({ type:'request-state' });
+</script>

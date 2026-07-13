@@ -1,0 +1,137 @@
+# Karst manifest — copy to `karst.yml` and point repoPath at your real repos.
+# Resolved by the `karst.manifestPath` setting (default ./karst.yml), relative
+# to the workspace root. Every hot service's repoPath must be a real git repo
+# that contains `baselineBranch`; `start` must be a runnable command and its
+# `health` URL must become reachable, or spin fails.
+
+host: 127.0.0.1
+
+# Inclusive [min, max] port window Karst allocates ticket-hot ports from.
+portRange: [4000, 4100]
+
+# The branch every worktree is created off, and baseline services run.
+baselineBranch: develop
+
+# How the dashboard renders worktree paths: 'relative' (default, to the
+# workspace root — e.g. ./frontend) or 'absolute'.
+worktreePathDisplay: relative
+
+# Which coding-agent CLI karst launches sessions with: 'claude' (default) or 'codex'.
+agentProvider: claude
+
+services:
+  backend:
+    repoPath: /absolute/path/to/backend
+    start: node server.mjs
+    health: http://{host}:{port}/health
+    ports:
+      - name: port        # slot identity, referenced by dependsOn.port
+        env: PORT          # env var that sets this port on spawn
+        default: 8000      # baseline / default-mode value
+    dependsOn: []
+    hasMigrations: false   # true → flagged "not first-class under shared-DB"
+    # Repo-classifier signal words: ticket title/description/tag tokens that
+    # point a ticket at this service. Empty/absent = unclassified (onboarding
+    # prompts to author these before the first ticket).
+    signals: [api, endpoint, backend, database, migration, service, model, query]
+
+  frontend:
+    repoPath: /absolute/path/to/frontend
+    start: node server.mjs
+    health: http://{host}:{port}/health
+    ports:
+      - name: port
+        env: PORT
+        default: 3000
+    dependsOn:
+      - target: backend    # another service
+        port: port         # a port slot on that service
+        bind:
+          # env var the dependent gets, rendered from the target's (host, port)
+          - env: VITE_API_URL
+            template: http://{host}:{port}
+    hasMigrations: false
+    signals: [ui, frontend, react, page, component, dashboard, modal, form]
+
+# Development approaches offered on the onboarding page. Each approach
+# includes a description, entrypoint, and optional source recipe. Extensible — add custom entries.
+approaches:
+  # `include`/`collect` paths are classified by their well-known layout and
+  # fetched STRUCTURE-PRESERVING (agent-agnostic): `.claude/agents` → agents/,
+  # `.claude/commands` → commands/, `skills/<name>` → skills/<name>/ (a skill IS
+  # its folder). At launch the agent adapter materializes these into the agent's
+  # own format (Claude: a plugin dir), so the session gets REAL dispatchable
+  # agents / slash-commands / skills — not just one prompt.
+  #
+  # `entrypoint` is a BARE name (no .md) that must resolve against what was
+  # collected, or install fails (assertEntrypointResolvable). It resolves to:
+  #   - a skill folder name (skills/<entrypoint>/SKILL.md), OR
+  #   - an agent/command file basename (agents|commands/<entrypoint>.md), OR
+  #   - a flat prompt basename (prompts/<entrypoint>.md) for unclassified paths.
+  - id: rpi
+    label: "Research → Plan → Implement"
+    description: "Scope unclear; API/contract undefined — discover before coding."
+    # Fetch ONLY the rpi subfolder — the repo ROOT .claude/commands ships demo
+    # commands (weather-orchestrator, time-command, …) that would pollute the
+    # plugin. The subfolder ships the real agents + research/plan/implement.
+    # Resolves to commands/research.md (from .claude/commands/rpi).
+    entrypoint: research
+    source: { type: git, repo: shanraisshan/claude-code-best-practice, ref: main,
+              include: [development-workflows/rpi/.claude/agents,
+                        development-workflows/rpi/.claude/commands/rpi] }
+    # Phases in order; `command` is a native slash command to invoke for the
+    # phase (absent = no dispatchable command for that phase). Every command
+    # here MUST resolve to a fetched commands/<name>.md or install fails.
+    workflow:
+      - { name: describe }
+      - { name: research, command: /rpi:research }
+      - { name: plan, command: /rpi:plan }
+      - { name: implement, command: /rpi:implement }
+  # NOTE: no `gsd` example here. The npm package `get-shit-done` is a Pomodoro
+  # timer CLI (`gsd <minutes>`), NOT an agent workflow — it ships no
+  # agents/skills/commands and has no `init` subcommand (verified: `npm pack`
+  # yields only README + gsd.js). If you want a phased-delivery approach, point
+  # `source` at a repo/package that actually ships the workflow files and set a
+  # real `entrypoint` that resolves against them.
+  - id: "superpowers:writing-plans"
+    label: "Write a plan first"
+    description: "Scope known but non-trivial — plan before executing."
+    # Resolves to the skill folder skills/writing-plans/SKILL.md.
+    entrypoint: writing-plans
+    source: { type: git, repo: obra/superpowers, ref: main,
+              include: [skills/writing-plans] }
+  - id: "superpowers:test-driven-development"
+    label: "TDD"
+    description: "Bug fix or feature with clear acceptance criteria — tests first."
+    # Resolves to the skill folder skills/test-driven-development/SKILL.md.
+    entrypoint: test-driven-development
+    source: { type: git, repo: obra/superpowers, ref: main,
+              include: [skills/test-driven-development] }
+  - id: single-subagent
+    label: "Direct implementation with a subagent"
+    description: "Small, well-scoped change; delegate to one focused subagent."
+    # no source: built-in, no install
+  - id: direct
+    label: "Direct implementation"
+    description: "Small, fully-clear change; just implement."
+    # no source: built-in
+
+# Configured agents per workflow role. `command` is optional (a role can be
+# declared before its runner is wired).
+agents:
+  research: { role: research }
+  plan: { role: plan }
+  implement-fe: { role: implement }
+  implement-be: { role: implement }
+  test: { role: test }
+  review: { role: review }
+
+# Ticketing integration (optional; default { provider: manual }). `manual` is
+# local-only. `clickup` fetches ticket context; set `teamId` (ClickUp workspace
+# id, for custom task ids) and optionally `listId` (reserved). The API token is
+# NOT stored here — set it in Settings → Ticketing (kept in the OS keychain).
+ticketing:
+  provider: manual
+  # provider: clickup
+  # teamId: "9001"
+  # listId: "42"

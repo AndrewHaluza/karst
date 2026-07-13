@@ -1,0 +1,826 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket Orchestrator — extension mock</title>
+<style>
+  :root{
+    /* VS Code Dark+ chrome */
+    --editor:#1e1e1e; --sidebar:#252526; --activitybar:#333333; --titlebar:#3c3c3c;
+    --border:#2b2b2b; --border-2:#1b1b1b; --input:#3c3c3c; --hover:#2a2d2e; --sel:#094771; --sel-border:#007fd4;
+    --text:#cccccc; --text-dim:#8b8b8b; --text-faint:#6a6a6a; --text-bright:#ffffff;
+    --accent:#0e639c; --accent-hi:#1177bb; --link:#3794ff; --focus:#007fd4;
+    /* semantic state */
+    --st-done:#4bb64b; --st-running:#3794ff; --st-pending:#6e7681; --st-input:#cca700; --st-failed:#f14c4c; --st-stopped:#6e7681;
+    --mono:"SF Mono",ui-monospace,Menlo,Monaco,"Cascadia Code",Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#111;color:var(--text);font-family:var(--ui);font-size:13px;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;color:inherit;cursor:pointer}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#424242;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+  ::-webkit-scrollbar-thumb:hover{background:#4f4f4f;background-clip:padding-box}
+  :focus-visible{outline:1px solid var(--focus);outline-offset:-1px}
+
+  /* window frame */
+  .win{height:100vh;display:flex;flex-direction:column;background:var(--editor);overflow:hidden}
+  .titlebar{height:30px;flex:0 0 auto;background:var(--titlebar);display:flex;align-items:center;padding:0 10px;gap:8px;border-bottom:1px solid var(--border-2);user-select:none}
+  .lights{display:flex;gap:8px}
+  .lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+  .title{flex:1;text-align:center;color:var(--text-dim);font-size:12px;letter-spacing:.02em}
+
+  .body{flex:1;display:flex;min-height:0}
+  /* activity bar */
+  .activitybar{width:48px;flex:0 0 auto;background:var(--activitybar);display:flex;flex-direction:column;align-items:center;padding:8px 0}
+  .ab{width:48px;height:48px;display:grid;place-items:center;color:#858585;position:relative}
+  .ab:hover{color:#e6e6e6}
+  .ab.active{color:#fff}
+  .ab.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;background:#fff;border-radius:2px}
+  .ab .badge{position:absolute;top:9px;right:7px;min-width:14px;height:14px;padding:0 3px;background:var(--accent);color:#fff;border-radius:8px;font-size:9px;line-height:14px;text-align:center;font-family:var(--mono)}
+  .ab.spacer{flex:1}
+
+  /* sidebar */
+  .sidebar{width:300px;flex:0 0 auto;background:var(--sidebar);display:flex;flex-direction:column;border-right:1px solid var(--border-2);min-height:0}
+  .sb-title{height:35px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 20px;color:var(--text-dim);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .sb-title .tools{display:flex;gap:2px}
+  .sb-tool{width:22px;height:22px;display:grid;place-items:center;border-radius:5px;color:#c5c5c5;background:none;border:0}
+  .sb-tool:hover{background:#ffffff14}
+  .sb-search{padding:6px 8px 8px;display:flex;flex-direction:column;gap:7px;border-bottom:1px solid var(--border)}
+  .search{display:flex;align-items:center;gap:6px;background:var(--input);border:1px solid #3c3c3c;border-radius:4px;padding:3px 7px}
+  .search:focus-within{border-color:var(--focus)}
+  .search input{flex:1;background:none;border:0;color:var(--text);outline:none;font-size:12px}
+  .search input::placeholder{color:var(--text-faint)}
+  .facets{display:flex;gap:5px;flex-wrap:wrap}
+  .facet{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:11px;border:1px solid #ffffff1f;background:#ffffff0a;color:var(--text-dim);font-size:11px}
+  .facet:hover{background:#ffffff14;color:var(--text)}
+  .facet.on{background:#0e639c33;border-color:#1177bb;color:#eaf3fb}
+  .facet .n{font-family:var(--mono);font-size:10px;opacity:.8}
+  .facet .fdot{width:7px;height:7px;border-radius:50%}
+
+  .list{flex:1;overflow:auto;padding:4px 0 40px}
+  .ticket{margin:1px 4px;border-radius:6px}
+  .ticket.sel{background:#04395e66;box-shadow:inset 0 0 0 1px #0e5a8f}
+  .row{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:6px;background:none;border:0;width:100%;text-align:left}
+  .row:hover{background:var(--hover)}
+  .ticket.sel .row:hover{background:#04466f66}
+  .chev{color:var(--text-faint);display:grid;place-items:center;transition:transform .12s ease;flex:0 0 auto}
+  .ticket.open .chev{transform:rotate(90deg)}
+  .glyph{width:9px;height:9px;border-radius:50%;flex:0 0 auto;position:relative}
+  .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text);font-size:12.5px}
+  .num{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);flex:0 0 auto}
+  .ticket.sel .name{color:#fff}
+
+  .body-in{display:none;padding:0 8px 10px 30px}
+  .ticket.open .body-in{display:block}
+  .meta{display:flex;flex-direction:column;gap:3px;margin:2px 0 8px}
+  .mline{display:flex;gap:7px;align-items:center;color:var(--text-dim);font-size:11.5px}
+  .mline .k{color:var(--text-faint);width:44px;flex:0 0 auto}
+  .mline .v{color:var(--text);font-family:var(--mono);font-size:11px}
+  .mline .stg{font-family:var(--ui);font-size:11.5px}
+  .tags{display:flex;gap:4px;flex-wrap:wrap}
+  .tag{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:3px;background:#ffffff12;color:#c8c8c8}
+  .actions{display:flex;gap:6px;margin-top:2px}
+
+  /* buttons */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:4px;border:1px solid transparent;font-size:11.5px;line-height:1.2;background:#ffffff12;color:#e2e2e2}
+  .btn:hover{background:#ffffff1f}
+  .btn.pri{background:var(--accent);color:#fff}
+  .btn.pri:hover{background:var(--accent-hi)}
+  .btn.sm{padding:3px 9px;font-size:11px}
+  .iconbtn{width:26px;height:24px;display:inline-grid;place-items:center;border-radius:4px;border:1px solid transparent;background:#ffffff0f;color:#cfcfcf}
+  .iconbtn:hover{background:#ffffff1f}
+  .iconbtn.danger:hover{background:#f14c4c22;color:#f88}
+
+  /* editor + tabs */
+  .editor{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--editor)}
+  .tabbar{height:35px;flex:0 0 auto;background:#252526;display:flex;align-items:stretch;border-bottom:1px solid var(--border-2)}
+  .tab{display:flex;align-items:center;gap:8px;padding:0 12px;background:#2d2d2d;color:var(--text-dim);border-right:1px solid var(--border-2);max-width:220px;position:relative}
+  .tab .tglyph{width:8px;height:8px;border-radius:50%}
+  .tab .tname{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
+  .tab .x{width:18px;height:18px;display:grid;place-items:center;border-radius:4px;color:transparent}
+  .tab:hover .x{color:#bbb}
+  .tab:hover{color:#e6e6e6}
+  .tab.active{background:var(--editor);color:#fff}
+  .tab.active::after{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:var(--link)}
+  .tabfill{flex:1;background:#252526;border-bottom:1px solid var(--border-2)}
+
+  .view{flex:1;overflow:auto;min-height:0}
+  .view.hidden{display:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 30px 60px}
+
+  /* dashboard head */
+  .dhead{display:flex;align-items:flex-start;gap:14px;margin-bottom:4px}
+  .dhead .big{width:11px;height:11px;border-radius:50%;margin-top:6px;flex:0 0 auto}
+  .dhead h1{font-size:20px;font-weight:600;color:#fff;margin:0;line-height:1.3}
+  .dhead .sub{display:flex;align-items:center;gap:9px;margin-top:3px;color:var(--text-dim);font-size:12px}
+  .dhead .sub .id{font-family:var(--mono);color:#bcbcbc}
+  .stagepill{margin-left:2px;padding:2px 9px;border-radius:11px;font-size:11px;font-weight:500}
+  .dhead .headacts{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+
+  /* stepper — the hero */
+  .stepper{margin:20px 0 26px;padding:20px 8px 8px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(180deg,#232323,#1f1f1f)}
+  .steps{display:flex;align-items:flex-start}
+  .step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
+  .step .line{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--st-pending);z-index:0}
+  .step:first-child .line{display:none}
+  .step .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#2b2b2b;border:2px solid var(--st-pending);color:#0d0d0d;position:relative;z-index:1}
+  .step .node svg{width:15px;height:15px}
+  .step .lbl{margin-top:9px;font-size:11.5px;color:var(--text-dim);text-align:center;line-height:1.25}
+  .step .note{margin-top:2px;font-size:10px;font-family:var(--mono)}
+  .step.done .node{background:var(--st-done);border-color:var(--st-done);color:#08240a}
+  .step.done .line{background:var(--st-done)}
+  .step.done .lbl{color:#cfe8cf}
+  .step.running .node{background:var(--st-running);border-color:var(--st-running);color:#03203f;box-shadow:0 0 0 0 #3794ff88;animation:pulse 1.8s infinite}
+  .step.running .lbl{color:#dcecff}
+  .step.input .node{background:var(--st-input);border-color:var(--st-input);color:#2b2400;animation:pulse-a 1.8s infinite}
+  .step.input .lbl{color:#f2e3ad}
+  .step.failed .node{background:var(--st-failed);border-color:var(--st-failed);color:#2b0606}
+  .step.failed .lbl{color:#f6bcbc}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 #3794ff77}70%{box-shadow:0 0 0 7px #3794ff00}100%{box-shadow:0 0 0 0 #3794ff00}}
+  @keyframes pulse-a{0%{box-shadow:0 0 0 0 #cca70088}70%{box-shadow:0 0 0 7px #cca70000}100%{box-shadow:0 0 0 0 #cca70000}}
+
+  /* panels grid */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .panel{border:1px solid var(--border);border-radius:10px;background:#212121;overflow:hidden}
+  .panel.span{grid-column:1 / -1}
+  .phead{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);color:#e8e8e8;font-size:12.5px;font-weight:600}
+  .phead .live{width:7px;height:7px;border-radius:50%;background:var(--st-running);animation:blink 1.4s infinite}
+  @keyframes blink{50%{opacity:.25}}
+  .phead .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-faint);font-weight:400}
+  .pbody{padding:6px 8px 10px}
+  .empty{padding:16px 14px;color:var(--text-faint);font-size:12px}
+
+  /* server rows */
+  .srv{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:6px}
+  .srv:hover{background:var(--hover)}
+  .srv .sdot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .srv .snm{font-size:12.5px;color:#eaeaea;min-width:74px}
+  .srv .addr{font-family:var(--mono);font-size:11.5px;color:#d7d7d7}
+  .srv .wire{font-family:var(--mono);font-size:11px;color:var(--text-dim)}
+  .srv .wire b{color:#9fd0ff;font-weight:500}
+  .srv .branch{font-family:var(--mono);font-size:10.5px;color:var(--text-faint)}
+  .srv .sacts{margin-left:auto;display:flex;gap:4px}
+
+  /* worktree rows */
+  .wt{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:6px}
+  .wt:hover{background:var(--hover)}
+  .wt .wrepo{font-size:12.5px;color:#eaeaea;min-width:74px}
+  .wt .wbr{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .wt .stat{font-family:var(--mono);font-size:11px}
+  .wt .add{color:var(--st-done)}.wt .del{color:var(--st-failed)}
+  .wt .wacts{display:flex;gap:4px}
+
+  /* feed */
+  .feed{max-height:240px;overflow:auto}
+  .frow{display:flex;align-items:baseline;gap:10px;padding:4px 6px;border-radius:5px;font-size:12px}
+  .frow:hover{background:var(--hover)}
+  .frow .ts{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);flex:0 0 58px}
+  .frow .tk{font-family:var(--mono);font-size:10px;padding:0 5px;border-radius:3px;background:#ffffff14;color:#c9c9c9;flex:0 0 auto}
+  .frow .tx{color:#d2d2d2;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .frow.q .tx{color:#f2e3ad}
+  .frow.q .tk{background:#cca70026;color:#e9d18a}
+  .frow.wait .tx{color:#e9d18a;font-style:italic}
+  .frow.fail .tx{color:#f6a5a5}
+  .frow.fail .tk{background:#f14c4c22;color:#f6a5a5}
+  .frow.sess .tx{color:#9fb6c9}
+
+  /* PR rows */
+  .pr{display:flex;align-items:center;gap:9px;padding:8px 6px;border-radius:6px}
+  .pr:hover{background:var(--hover)}
+  .pr .pst{font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:#2ea04326;color:#7fd18f}
+  .pr .prepo{font-family:var(--mono);font-size:11px;color:var(--text-dim)}
+  .pr .ptitle{flex:1;color:#d6d6d6;font-size:12.5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .pr .pnum{font-family:var(--mono);color:var(--link)}
+
+  /* ---- settings ---- */
+  .shead{margin-bottom:18px}
+  .shead h1{font-size:19px;color:#fff;margin:0 0 3px}
+  .shead p{margin:0;color:var(--text-dim);font-size:12.5px;max-width:640px}
+  .sect{margin-bottom:22px}
+  .sect > h2{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-faint);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .sect > h2 .rule{flex:1;height:1px;background:var(--border)}
+
+  .field{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+  .field label{width:150px;flex:0 0 auto;color:var(--text-dim);font-size:12px}
+  .inp{background:var(--input);border:1px solid #3c3c3c;border-radius:4px;color:var(--text);padding:4px 8px;font-size:12px;font-family:var(--mono);min-width:0}
+  .inp:focus{outline:none;border-color:var(--focus)}
+  .inp.short{width:82px}
+  .dash-sep{color:var(--text-faint)}
+
+  .repocard{border:1px solid var(--border);border-radius:10px;background:#212121;margin-bottom:12px;overflow:hidden}
+  .rchead{display:flex;align-items:center;gap:10px;padding:11px 14px;background:#262626;border-bottom:1px solid var(--border)}
+  .rchead .rname{font-size:13.5px;color:#fff;font-weight:600}
+  .rchead .rpath{font-family:var(--mono);font-size:11px;color:var(--text-faint)}
+  .rchead .rstart{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-dim);background:#ffffff0d;padding:2px 8px;border-radius:4px}
+  .rcbody{padding:12px 14px;display:grid;grid-template-columns:1fr 1.25fr;gap:16px}
+  .subh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);margin:0 0 7px;display:flex;align-items:center;gap:6px}
+  .subh .add{margin-left:auto;color:var(--link);background:none;border:0;font-size:11px;display:inline-flex;align-items:center;gap:4px}
+  .subh .add:hover{text-decoration:underline}
+
+  table.t{width:100%;border-collapse:collapse;font-size:12px}
+  table.t th{text-align:left;color:var(--text-faint);font-weight:500;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:0 8px 5px;border-bottom:1px solid var(--border)}
+  table.t td{padding:5px 8px;border-bottom:1px solid #262626;vertical-align:middle}
+  table.t tr:last-child td{border-bottom:0}
+  table.t .cell{background:#2b2b2b;border:1px solid #383838;border-radius:4px;padding:3px 7px;font-family:var(--mono);font-size:11.5px;color:#e0e0e0;display:inline-block;min-width:60px}
+  table.t .arrow{color:var(--text-faint);padding:0 5px}
+  table.t .tmpl{color:#9fd0ff}
+  .infra{margin-top:12px;padding:9px 12px;border:1px dashed #4a4a4a;border-radius:8px;background:#00000020;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-dim)}
+  .infra svg{color:#c99a3a;flex:0 0 auto}
+  .switch{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:11.5px;color:#d6d6d6}
+  .toggle{width:34px;height:18px;border-radius:10px;background:#4a4a4a;position:relative;border:0;flex:0 0 auto}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#ddd;transition:left .14s}
+  .toggle.on{background:var(--accent)}
+  .toggle.on::after{left:18px;background:#fff}
+
+  /* preview panel */
+  .preview{border:1px solid #2f3c48;border-radius:10px;background:linear-gradient(180deg,#1b2530,#182029);overflow:hidden}
+  .pvhead{padding:12px 14px;border-bottom:1px solid #2a3947}
+  .pvhead .pvtitle{display:flex;align-items:center;gap:9px;color:#eaf3fb;font-size:13px;font-weight:600}
+  .pvhead .pvsub{margin-top:3px;color:#89a7bd;font-size:11.5px}
+  .pvpick{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid #2a3947;flex-wrap:wrap}
+  .pvpick .lab{font-size:11.5px;color:#89a7bd;margin-right:2px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:13px;border:1px solid #3a5064;background:#1d2a36;color:#a9c2d4;font-size:12px}
+  .chip:hover{border-color:#4d6c85}
+  .chip.hot{background:#0e639c;border-color:#1177bb;color:#fff}
+  .chip .cd{width:7px;height:7px;border-radius:50%;background:#5b7387}
+  .chip.hot .cd{background:#7fd0ff}
+  .pvout{padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+  .svcblock{border:1px solid #26333f;border-radius:8px;overflow:hidden}
+  .svcblock .sb-h{display:flex;align-items:center;gap:9px;padding:7px 11px;background:#18222c;font-size:12px}
+  .svcblock .sb-h .role{margin-left:auto;font-family:var(--mono);font-size:10px;padding:1px 7px;border-radius:9px}
+  .role.hot{background:#0e639c40;color:#8fd0ff}
+  .role.base{background:#ffffff10;color:#9aa}
+  .svcblock .sb-h .snm{font-family:var(--ui);color:#fff;font-weight:600}
+  .envtable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px}
+  .envtable td{padding:4px 11px;border-top:1px solid #1f2a34}
+  .envtable .var{color:#c8a6ff;width:150px}
+  .envtable .eq{color:#5f7183;width:14px;text-align:center}
+  .envtable .val{color:#d7e6f2}
+  .envtable .val .pt{color:#7fd18f}
+  .envtable .from{color:#5f7183;font-family:var(--ui);font-size:10.5px}
+  .base-note{font-family:var(--ui);font-size:11.5px;color:#7f97a9;padding:2px 2px 0}
+  .base-note b{color:#a9c2d4;font-weight:500;font-family:var(--mono)}
+
+  /* status bar */
+  .statusbar{height:22px;flex:0 0 auto;background:var(--accent);display:flex;align-items:center;padding:0 6px;font-size:11.5px;color:#eef6fc;gap:2px}
+  .sbi{display:flex;align-items:center;gap:5px;padding:0 8px;height:100%}
+  .sbi:hover{background:#ffffff1f}
+  .sbi .sd{width:7px;height:7px;border-radius:50%}
+  .sbi.right{margin-left:auto}
+  .sb-mono{font-family:var(--mono);font-size:11px}
+
+  /* toast */
+  .toast{position:fixed;bottom:34px;right:16px;background:#2d2d2d;border:1px solid #3a3a3a;border-left:3px solid var(--link);border-radius:6px;padding:9px 14px;font-size:12px;color:#e4e4e4;box-shadow:0 8px 30px #0008;opacity:0;transform:translateY(6px);transition:.18s;pointer-events:none;z-index:50}
+  .toast.show{opacity:1;transform:none}
+
+  @media (max-width:820px){ .grid{grid-template-columns:1fr} .rcbody{grid-template-columns:1fr} .sidebar{width:260px} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+
+  .s-done{background:var(--st-done)}.s-running{background:var(--st-running)}.s-pending{background:var(--st-pending)}
+  .s-input{background:var(--st-input)}.s-failed{background:var(--st-failed)}.s-stopped{background:var(--st-stopped)}
+</style>
+
+<div class="win">
+  <div class="titlebar">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="title">acme-platform — Ticket Orchestrator</div>
+  </div>
+
+  <div class="body">
+    <div class="activitybar">
+      <div class="ab" title="Explorer"><svg viewBox="0 0 16 16" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 3h5l1.2 1.4H14v8H2z"/></svg></div>
+      <div class="ab" title="Search"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.2"/><path d="M10.5 10.5L14 14"/></svg></div>
+      <div class="ab" title="Source Control"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="1.8"/><circle cx="4" cy="12" r="1.8"/><circle cx="12" cy="6" r="1.8"/><path d="M4 5.8v4.4M4 12h4c2 0 4-.6 4-3.8"/></svg></div>
+      <div class="ab active" title="Ticket Orchestrator"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="2" y="2.5" width="12" height="3" rx="1"/><rect x="2" y="6.6" width="12" height="3" rx="1"/><rect x="2" y="10.7" width="12" height="3" rx="1"/><circle cx="4.4" cy="4" r=".7" fill="currentColor" stroke="none"/><circle cx="4.4" cy="8.1" r=".7" fill="currentColor" stroke="none"/><circle cx="4.4" cy="12.2" r=".7" fill="currentColor" stroke="none"/></svg><span class="badge" id="abBadge">6</span></div>
+      <div class="ab spacer"></div>
+      <div class="ab" title="Settings" id="abGear"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.6v1.6M8 12.8v1.6M2.3 8H.7M15.3 8h-1.6M4 4l-1.1-1.1M13.1 13.1L12 12M12 4l1.1-1.1M2.9 13.1L4 12"/></svg></div>
+    </div>
+
+    <div class="sidebar">
+      <div class="sb-title">
+        <span>Tickets</span>
+        <div class="tools">
+          <button class="sb-tool" title="Sync from Jira" data-toast="Syncing tickets from Jira…"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 7a5 5 0 0 0-8.6-3M3 9a5 5 0 0 0 8.6 3"/><path d="M13 2.5V5.4h-2.9M3 13.5V10.6h2.9"/></svg></button>
+          <button class="sb-tool" title="New ticket" data-toast="New ticket…"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg></button>
+          <button class="sb-tool" title="Collapse all" id="collapseAll"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6l4-3 4 3M4 10l4 3 4-3"/></svg></button>
+        </div>
+      </div>
+      <div class="sb-search">
+        <div class="search">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" style="color:#8b8b8b"><circle cx="7" cy="7" r="4.2"/><path d="M10.5 10.5L14 14"/></svg>
+          <input id="search" placeholder="Search tickets…" autocomplete="off">
+        </div>
+        <div class="facets" id="facets"></div>
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+
+    <div class="editor">
+      <div class="tabbar" id="tabbar"></div>
+
+      <!-- DASHBOARD -->
+      <div class="view" id="viewDash">
+        <div class="wrap" id="dash"></div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="view hidden" id="viewSet">
+        <div class="wrap">
+          <div class="shead">
+            <h1>Orchestrator settings</h1>
+            <p>Describe each repo's ports and how services reference one another. The extension uses this to spin the changed repos on alternate ports and wire them to the rest of your stack running from <code style="font-family:var(--mono);color:#9fd0ff">develop</code>.</p>
+          </div>
+
+          <div class="sect">
+            <h2>Global<span class="rule"></span></h2>
+            <div class="field"><label>Alternate port range</label>
+              <input class="inp short" value="4000"><span class="dash-sep">–</span><input class="inp short" value="4999">
+              <span style="color:var(--text-faint);font-size:11.5px">allocated per ticket, contiguous</span>
+            </div>
+            <div class="field"><label>Default host</label><input class="inp" style="width:160px" value="localhost"></div>
+            <div class="field"><label>Baseline branch</label><input class="inp" style="width:160px" value="develop"></div>
+          </div>
+
+          <div class="sect">
+            <h2>Repositories<span class="rule"></span>
+              <button class="btn sm" data-toast="Add repository…" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3.5v9M3.5 8h9"/></svg>Add repo</button>
+            </h2>
+            <div id="repos"></div>
+          </div>
+
+          <div class="sect">
+            <h2>Preview resolved env<span class="rule"></span></h2>
+            <div class="preview">
+              <div class="pvhead">
+                <div class="pvtitle"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="#7fd0ff" stroke-width="1.3"><path d="M8 1.5l6 3.2v6.6L8 14.5 2 11.3V4.7z"/><path d="M8 8v6.5M2 4.7L8 8l6-3.3"/></svg>Dry run</div>
+                <div class="pvsub">Pick which repos this ticket changes. Everything else stays on its default port from <b style="font-family:var(--mono);color:#9fd0ff">develop</b>.</div>
+              </div>
+              <div class="pvpick" id="pvpick"><span class="lab">Changed in this ticket:</span></div>
+              <div class="pvout" id="pvout"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar" id="statusbar"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- icons ---------- */
+const I = {
+  play:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M4.5 3l8 5-8 5z"/></svg>',
+  stop:'<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1"/></svg>',
+  restart:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 7a5 5 0 1 0-.6 3"/><path d="M13 2.6V5.5h-2.9"/></svg>',
+  folder:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 4h4l1.1 1.3H14v7H2z"/></svg>',
+  diff:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2v7M4 13.5v-1.5M4 9a2 2 0 0 0 2 2h4"/><circle cx="4" cy="12.5" r="1.4"/><circle cx="4" cy="2" r="1.1"/><circle cx="12" cy="11" r="1.4"/><path d="M12 9.4V6.5a2 2 0 0 0-2-2H8.5M10 3v3M8.5 4.5H12"/></svg>',
+  term:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4"/><path d="M4.5 6l2 2-2 2M8.5 10.2H11"/></svg>',
+  link:'<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.5 9.5L9.5 6.5M6 4.5l1-1a2.2 2.2 0 0 1 3.1 3.1l-1 1M10 11.5l-1 1A2.2 2.2 0 0 1 5.9 10.4l1-1"/></svg>',
+  sync:'<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 7a5 5 0 0 0-8.6-3M3 9a5 5 0 0 0 8.6 3"/><path d="M13 2.5V5.4h-2.9M3 13.5V10.6h2.9"/></svg>',
+  db:'<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.2"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/></svg>',
+  check:'<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3.5 8.5l3 3 6-6.5"/></svg>',
+  x:'<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>',
+  bang:'<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 4v4.5"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>',
+  dot:'<svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor"><circle cx="8" cy="8" r="3.4"/></svg>',
+  gear:'<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.8v1.5M8 12.7v1.5M2.4 8H.9M15.1 8h-1.5M4 4L3 3M13 13l-1-1M12 4l1-1M3 13l1-1"/></svg>',
+};
+
+/* ---------- workflow definition ---------- */
+const STAGES = [
+  {key:'fetch',  label:'Fetched'},
+  {key:'scope',  label:'Scoped'},
+  {key:'impl',   label:'Implement'},
+  {key:'uat',    label:'UAT'},
+  {key:'review', label:'Review'},
+  {key:'ship',   label:'Ship'},
+  {key:'done',   label:'Ticket updated'},
+];
+const STATE_COLOR = {done:'#4bb64b',running:'#3794ff',pending:'#6e7681',input:'#cca700',failed:'#f14c4c',stopped:'#6e7681'};
+
+/* ---------- data (one source of truth; sidebar + dashboard both render from this) ---------- */
+const tickets = [
+  { id:'PROJ-142', name:'Add invoice PDF export', glyph:'running', stageBadge:'Implementing',
+    stages:{fetch:'done',scope:'done',impl:'running',uat:'pending',review:'pending',ship:'pending',done:'pending'},
+    servers:[
+      {svc:'backend', branch:'feature/PROJ-142', addr:'localhost:4000', status:'running', wires:[]},
+      {svc:'frontend',branch:'feature/PROJ-142', addr:'localhost:4001', status:'running', wires:[{k:'api',v:'localhost:4000'}]},
+    ],
+    wts:[{repo:'backend',br:'feature/PROJ-142',add:214,del:37},{repo:'frontend',br:'feature/PROJ-142',add:96,del:12}],
+    feed:[
+      {ts:'14:32:19',cls:'',tool:'Edit',tx:'src/pdf/invoice-renderer.ts'},
+      {ts:'14:32:11',cls:'',tool:'Bash',tx:'npm run test -- invoice'},
+      {ts:'14:31:58',cls:'',tool:'Read',tx:'src/invoices/model.ts'},
+      {ts:'14:31:40',cls:'',tool:'Write',tx:'src/pdf/templates/invoice.hbs'},
+      {ts:'14:31:22',cls:'sess',tx:'Session started · feature/PROJ-142'},
+    ], prs:[], agent:'running' },
+
+  { id:'PROJ-138', name:'Fix login redirect loop', glyph:'input', stageBadge:'Needs you',
+    stages:{fetch:'done',scope:'done',impl:'input',uat:'pending',review:'pending',ship:'pending',done:'pending'},
+    servers:[{svc:'frontend',branch:'feature/PROJ-138',addr:'localhost:4010',status:'running',wires:[{k:'api',v:'localhost:3000'}]}],
+    wts:[{repo:'frontend',br:'feature/PROJ-138',add:22,del:9}],
+    feed:[
+      {ts:'15:02:12',cls:'wait',tx:'Waiting for your answer'},
+      {ts:'15:02:12',cls:'q',tool:'Ask',tx:'Should the redirect preserve the original query string?'},
+      {ts:'15:01:30',cls:'',tool:'Read',tx:'src/auth/redirect-guard.ts'},
+      {ts:'15:01:12',cls:'sess',tx:'Session started · feature/PROJ-138'},
+    ], prs:[], agent:'waiting' },
+
+  { id:'PROJ-151', name:'Migrate payments to Stripe v3', glyph:'pending', stageBadge:'Awaiting review',
+    stages:{fetch:'done',scope:'done',impl:'done',uat:'done',review:'pending',ship:'pending',done:'pending'},
+    stageNotes:{uat:'41/41'},
+    servers:[
+      {svc:'backend', branch:'feature/PROJ-151',addr:'localhost:4020',status:'running',wires:[{k:'db',v:'localhost:55432 · isolated'}]},
+      {svc:'frontend',branch:'feature/PROJ-151',addr:'localhost:4021',status:'running',wires:[{k:'api',v:'localhost:4020'}]},
+      {svc:'contracts',branch:'feature/PROJ-151',addr:'localhost:4022',status:'stopped',wires:[]},
+    ],
+    wts:[{repo:'backend',br:'feature/PROJ-151',add:640,del:210},{repo:'frontend',br:'feature/PROJ-151',add:180,del:64},{repo:'contracts',br:'feature/PROJ-151',add:52,del:8}],
+    feed:[
+      {ts:'13:58:02',cls:'',tool:'Bash',tx:'npm run uat — passed 41/41'},
+      {ts:'13:41:50',cls:'',tool:'Edit',tx:'src/payments/stripe/client.ts'},
+      {ts:'13:20:11',cls:'sess',tx:'Session resumed · 3 worktrees'},
+    ], prs:[], agent:'idle' },
+
+  { id:'PROJ-129', name:'Dark mode design tokens', glyph:'done', stageBadge:'Shipped',
+    stages:{fetch:'done',scope:'done',impl:'done',uat:'done',review:'done',ship:'done',done:'done'},
+    servers:[],
+    wts:[{repo:'frontend',br:'feature/PROJ-129',add:308,del:120}],
+    feed:[
+      {ts:'Yesterday',cls:'sess',tx:'Ticket moved to In Review · PR opened'},
+      {ts:'Yesterday',cls:'',tool:'Bash',tx:'gh pr create'},
+    ], prs:[{repo:'frontend',num:482,title:'Dark mode design tokens'}], agent:'none' },
+
+  { id:'PROJ-160', name:'Rename webhook events', glyph:'failed', stageBadge:'UAT failed',
+    stages:{fetch:'done',scope:'done',impl:'done',uat:'failed',review:'pending',ship:'pending',done:'pending'},
+    stageNotes:{uat:'3 failed'},
+    servers:[{svc:'backend',branch:'feature/PROJ-160',addr:'localhost:4030',status:'running',wires:[]}],
+    wts:[{repo:'backend',br:'feature/PROJ-160',add:74,del:88}],
+    feed:[
+      {ts:'11:20:03',cls:'fail',tool:'UAT',tx:'Failed · 3 of 41 checks (event name mismatch)'},
+      {ts:'11:12:44',cls:'',tool:'Bash',tx:'npm run uat'},
+      {ts:'11:02:10',cls:'sess',tx:'Session started · feature/PROJ-160'},
+    ], prs:[], agent:'idle' },
+
+  { id:'PROJ-165', name:'Add rate limiting to public API', glyph:'pending', stageBadge:'Not scoped',
+    stages:{fetch:'done',scope:'pending',impl:'pending',uat:'pending',review:'pending',ship:'pending',done:'pending'},
+    servers:[], wts:[],
+    feed:[{ts:'—',cls:'sess',tx:'Fetched from Jira · not yet scoped'}], prs:[], agent:'none' },
+];
+
+/* ---------- manifest (drives settings + preview) ---------- */
+const manifest = {
+  host:'localhost', rangeStart:4000,
+  services:[
+    { name:'backend', path:'../backend', start:'npm run dev',
+      ports:[{name:'http',env:'PORT',def:3000},{name:'debug',env:'DEBUG_PORT',def:9229}],
+      deps:[], infra:{name:'postgres', isolate:true} },
+    { name:'frontend', path:'../frontend', start:'npm run dev',
+      ports:[{name:'http',env:'PORT',def:5173}],
+      deps:[{target:'backend',port:'http',bind:[{env:'VITE_API_URL',tmpl:'http://{host}:{port}'}]}], infra:null },
+    { name:'contracts', path:'../contracts', start:'npm run watch',
+      ports:[{name:'http',env:'PORT',def:6000}], deps:[], infra:null },
+  ],
+};
+
+/* ---------- ui state ---------- */
+let ui = { tab:'dash', ticketId:'PROJ-142', facet:'all', query:'', hot:new Set(['frontend']) };
+const $ = s => document.querySelector(s);
+const el = (t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+const cur = () => tickets.find(t=>t.id===ui.ticketId);
+
+/* ---------- toast ---------- */
+let toT;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toT);toT=setTimeout(()=>t.classList.remove('show'),1600);}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-toast]');if(b){toast(b.getAttribute('data-toast'));}});
+
+/* ---------- facets ---------- */
+const FACETS=[
+  {key:'all',label:'All',color:null,f:()=>true},
+  {key:'progress',label:'In progress',color:'running',f:t=>t.stages.impl==='running'||t.stages.review==='running'||t.stages.uat==='running'},
+  {key:'input',label:'Needs you',color:'input',f:t=>Object.values(t.stages).includes('input')},
+  {key:'failed',label:'Blocked',color:'failed',f:t=>Object.values(t.stages).includes('failed')},
+  {key:'done',label:'Shipped',color:'done',f:t=>t.stages.done==='done'},
+];
+function renderFacets(){
+  const c=$('#facets');c.innerHTML='';
+  FACETS.forEach(fc=>{
+    const n=tickets.filter(fc.f).length;
+    const b=el('button','facet'+(ui.facet===fc.key?' on':''));
+    b.innerHTML=(fc.color?`<span class="fdot s-${fc.color}"></span>`:'')+fc.label+` <span class="n">${n}</span>`;
+    b.onclick=()=>{ui.facet=fc.key;renderList();renderFacets();};
+    c.appendChild(b);
+  });
+}
+
+/* ---------- sidebar list ---------- */
+const openSet=new Set();
+function matches(t){
+  const fc=FACETS.find(f=>f.key===ui.facet); if(fc&&!fc.f(t))return false;
+  if(ui.query){const q=ui.query.toLowerCase();return (t.name+' '+t.id).toLowerCase().includes(q);}
+  return true;
+}
+function renderList(){
+  const L=$('#list');L.innerHTML='';
+  const rows=tickets.filter(matches);
+  if(!rows.length){L.appendChild(el('div','empty','No tickets match.'));return;}
+  rows.forEach(t=>{
+    const open=openSet.has(t.id);
+    const wrap=el('div','ticket'+(open?' open':'')+(t.id===ui.ticketId?' sel':''));
+    // row
+    const row=el('button','row');
+    row.innerHTML=`<span class="chev">${chev()}</span><span class="glyph s-${t.glyph}"></span><span class="name">${t.name}</span><span class="num">${t.id}</span>`;
+    row.onclick=()=>{ if(openSet.has(t.id))openSet.delete(t.id); else openSet.add(t.id); renderList(); };
+    wrap.appendChild(row);
+    // body
+    const body=el('div','body-in');
+    const portTxt=t.servers.filter(s=>s.status==='running').map(s=>s.addr.split(':')[1]).join(', ')||'—';
+    const wtTxt=t.wts.map(w=>w.repo);
+    body.innerHTML=`
+      <div class="meta">
+        <div class="mline"><span class="k">Stage</span><span class="stg" style="color:${STATE_COLOR[stageState(t)]}">${t.stageBadge}</span></div>
+        <div class="mline"><span class="k">Ports</span><span class="v">${portTxt}</span></div>
+        <div class="mline"><span class="k">Worktrees</span><span class="tags">${wtTxt.map(r=>`<span class="tag">${r}</span>`).join('')||'—'}</span></div>
+      </div>`;
+    const acts=el('div','actions');
+    const openBtn=el('button','btn pri sm',`Open dashboard`);
+    openBtn.onclick=()=>{ui.ticketId=t.id;setTab('dash');render();};
+    const sessBtn=el('button','btn sm',`${I.term} Session`);
+    sessBtn.setAttribute('data-toast',`Opening session for ${t.id} in a terminal…`);
+    acts.append(openBtn,sessBtn);
+    body.appendChild(acts);
+    wrap.appendChild(body);
+    L.appendChild(wrap);
+  });
+}
+function chev(){return '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4l4 4-4 4"/></svg>';}
+function stageState(t){
+  // the state color the badge should use = status of the "current" stage
+  for(let i=STAGES.length-1;i>=0;i--){const s=t.stages[STAGES[i].key];if(s==='running')return 'running';if(s==='input')return 'input';if(s==='failed')return 'failed';}
+  return t.stages.done==='done'?'done':'pending';
+}
+
+/* ---------- tabs ---------- */
+function renderTabs(){
+  const t=cur();const tb=$('#tabbar');tb.innerHTML='';
+  const dtab=el('div','tab'+(ui.tab==='dash'?' active':''));
+  dtab.innerHTML=`<span class="tglyph s-${t.glyph}"></span><span class="tname">${t.id}  ${t.name}</span><span class="x">${closeX()}</span>`;
+  dtab.onclick=()=>{setTab('dash');};
+  const stab=el('div','tab'+(ui.tab==='set'?' active':''));
+  stab.innerHTML=`<span class="tglyph" style="background:#c99a3a"></span><span class="tname">Orchestrator settings</span><span class="x">${closeX()}</span>`;
+  stab.onclick=()=>{setTab('set');};
+  tb.append(dtab,stab,el('div','tabfill'));
+}
+function closeX(){return '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg>';}
+function setTab(t){ui.tab=t;$('#viewDash').classList.toggle('hidden',t!=='dash');$('#viewSet').classList.toggle('hidden',t!=='set');document.querySelector('.ab.active')?.classList.remove('active');$( t==='set'?'#abGear':'.activitybar .ab:nth-child(4)').classList.add('active');render();}
+
+/* ---------- dashboard ---------- */
+function renderDash(){
+  const t=cur();const D=$('#dash');D.innerHTML='';
+  // head
+  const head=el('div','dhead');
+  head.innerHTML=`
+    <span class="big s-${t.glyph}"></span>
+    <div>
+      <h1>${t.name}</h1>
+      <div class="sub"><span class="id">${t.id}</span> · <span>Jira</span>
+        <span class="stagepill" style="background:${STATE_COLOR[stageState(t)]}22;color:${STATE_COLOR[stageState(t)]}">${t.stageBadge}</span>
+      </div>
+    </div>
+    <div class="headacts">
+      <button class="btn pri" data-toast="Opening session in a terminal…">${I.term} Open session</button>
+      <button class="btn" data-toast="Opening worktree folder…">${I.folder} Open folder</button>
+      <button class="btn" data-toast="Pushing status to Jira…">${I.sync} Sync ticket</button>
+    </div>`;
+  D.appendChild(head);
+  // stepper
+  D.appendChild(renderStepper(t));
+  // panels
+  const grid=el('div','grid');
+  grid.appendChild(panelServers(t));
+  grid.appendChild(panelWts(t));
+  grid.appendChild(panelFeed(t));
+  grid.appendChild(panelPrs(t));
+  D.appendChild(grid);
+}
+function renderStepper(t){
+  const box=el('div','stepper');const steps=el('div','steps');
+  STAGES.forEach(s=>{
+    const st=t.stages[s.key];
+    const node=el('div','step '+st);
+    let ic='';
+    if(st==='done')ic=I.check; else if(st==='failed')ic=I.x; else if(st==='input')ic=I.bang; else if(st==='running')ic=I.dot;
+    const note=t.stageNotes&&t.stageNotes[s.key];
+    node.innerHTML=`<div class="line"></div><div class="node">${ic}</div><div class="lbl">${s.label}</div>${note?`<div class="note" style="color:${STATE_COLOR[st]}">${note}</div>`:''}`;
+    steps.appendChild(node);
+  });
+  box.appendChild(steps);
+  return box;
+}
+function panel(title,extra,liveDot){
+  const p=el('div','panel');
+  const h=el('div','phead',(liveDot?'<span class="live"></span>':'')+title+(extra?`<span class="count">${extra}</span>`:''));
+  p.appendChild(h);const b=el('div','pbody');p.appendChild(b);p._b=b;return p;
+}
+function panelServers(t){
+  const p=panel('Running servers', t.servers.length?`${t.servers.filter(s=>s.status==='running').length} up`:'');
+  if(!t.servers.length){p._b.appendChild(el('div','empty','No servers running for this ticket.'));return p;}
+  t.servers.forEach(s=>{
+    const r=el('div','srv');
+    const wires=s.wires.map(w=>`<span class="wire">→ <b>${w.k}</b> ${w.v}</span>`).join(' ');
+    r.innerHTML=`<span class="sdot s-${s.status}"></span>
+      <span class="snm">${s.svc}</span>
+      <span class="addr">${s.addr}</span>
+      ${wires}
+      <span class="branch">${s.branch}</span>
+      <span class="sacts">
+        ${s.status==='running'
+          ? `<button class="iconbtn danger" title="Stop" data-toast="Stopping ${s.svc}…">${I.stop}</button><button class="iconbtn" title="Open in browser" data-toast="Opening http://${s.addr}">${I.link}</button>`
+          : `<button class="iconbtn" title="Start" data-toast="Starting ${s.svc}…">${I.play}</button>`}
+        <button class="iconbtn" title="Restart" data-toast="Restarting ${s.svc}…">${I.restart}</button>
+      </span>`;
+    p._b.appendChild(r);
+  });
+  return p;
+}
+function panelWts(t){
+  const p=panel('Worktrees', t.wts.length?`${t.wts.length}`:'');
+  if(!t.wts.length){p._b.appendChild(el('div','empty','Not scoped yet — no worktrees created.'));return p;}
+  t.wts.forEach(w=>{
+    const r=el('div','wt');
+    r.innerHTML=`<span class="wrepo">${w.repo}</span>
+      <span class="wbr">${w.br}</span>
+      <span class="stat"><span class="add">+${w.add}</span> <span class="del">−${w.del}</span></span>
+      <span class="wacts">
+        <button class="iconbtn" title="View diff" data-toast="Opening diff for ${w.repo}…">${I.diff}</button>
+        <button class="iconbtn" title="Open folder" data-toast="Opening ${w.repo} worktree…">${I.folder}</button>
+      </span>`;
+    p._b.appendChild(r);
+  });
+  return p;
+}
+function panelFeed(t){
+  const p=panel('Live activity', t.agent==='running'?'agent working':(t.agent==='waiting'?'waiting on you':(t.agent==='idle'?'idle':'')), t.agent==='running'||t.agent==='waiting');
+  p.classList.add('span');
+  const feed=el('div','feed');
+  t.feed.forEach(f=>{
+    const r=el('div','frow '+(f.cls||''));
+    r.innerHTML=`<span class="ts">${f.ts}</span>${f.tool?`<span class="tk">${f.tool}</span>`:''}<span class="tx">${f.tx}</span>`;
+    feed.appendChild(r);
+  });
+  p._b.appendChild(feed);
+  // hint on how the feed is fed
+  p._b.appendChild(el('div','base-note',`Streamed from Claude Code hooks · <b>${t.id}</b> bound by worktree`));
+  return p;
+}
+function panelPrs(t){
+  const p=panel('Pull requests', t.prs.length?`${t.prs.length} open`:'');
+  if(!t.prs.length){p._b.appendChild(el('div','empty','No PRs yet — opens on ship.'));return p;}
+  t.prs.forEach(pr=>{
+    const r=el('div','pr');
+    r.innerHTML=`<span class="pst">open</span><span class="prepo">${pr.repo}</span><span class="ptitle">${pr.title}</span><span class="pnum">#${pr.num}</span>
+      <button class="iconbtn" title="Open PR" data-toast="Opening ${pr.repo} #${pr.num}…">${I.link}</button>`;
+    p._b.appendChild(r);
+  });
+  return p;
+}
+
+/* ---------- settings: repo cards ---------- */
+function renderRepos(){
+  const R=$('#repos');R.innerHTML='';
+  manifest.services.forEach(s=>{
+    const card=el('div','repocard');
+    card.innerHTML=`
+      <div class="rchead">
+        <span class="rname">${s.name}</span>
+        <span class="rpath">${s.path}</span>
+        <span class="rstart">$ ${s.start}</span>
+      </div>`;
+    const body=el('div','rcbody');
+    // owned ports
+    const left=el('div');
+    left.innerHTML=`<div class="subh">Owned ports<button class="add" data-toast="Add port…">+ add</button></div>`;
+    const pt=el('table','t');
+    pt.innerHTML=`<tr><th>Name</th><th>Env var</th><th>Default</th></tr>`+
+      s.ports.map(p=>`<tr><td><span class="cell" style="min-width:52px">${p.name}</span></td><td><span class="cell">${p.env}</span></td><td><span class="cell" style="min-width:48px">${p.def}</span></td></tr>`).join('');
+    left.appendChild(pt);
+    // dependencies
+    const right=el('div');
+    right.innerHTML=`<div class="subh">Dependencies<button class="add" data-toast="Add dependency…">+ add</button></div>`;
+    const dt=el('table','t');
+    if(!s.deps.length){
+      dt.innerHTML=`<tr><td style="color:var(--text-faint);padding:6px 8px">No peer services — runs standalone.</td></tr>`;
+    }else{
+      dt.innerHTML=`<tr><th>Target</th><th>Port</th><th>Reference (env → value)</th></tr>`+
+        s.deps.map(d=>d.bind.map(b=>`<tr>
+          <td><span class="cell" style="min-width:64px">${d.target}</span></td>
+          <td><span class="cell" style="min-width:44px">${d.port}</span></td>
+          <td><span class="cell">${b.env}</span><span class="arrow">=</span><span class="tmpl">${b.tmpl}</span></td></tr>`).join('')).join('');
+    }
+    right.appendChild(dt);
+    body.append(left,right);
+    card.appendChild(body);
+    // infra
+    if(s.infra){
+      const inf=el('div','infra');
+      inf.innerHTML=`${I.db}<span>Backing service: <b style="font-family:var(--mono);color:#e0c07a">${s.infra.name}</b></span>
+        <span class="switch">Isolate per ticket<button class="toggle ${s.infra.isolate?'on':''}" title="toggle"></button></span>`;
+      inf.querySelector('.toggle').onclick=(ev)=>{s.infra.isolate=!s.infra.isolate;ev.currentTarget.classList.toggle('on',s.infra.isolate);toast(s.infra.isolate?`${s.name}: database isolated per ticket`:`${s.name}: sharing the develop database`);renderPreview();};
+      card.appendChild(inf);
+    }
+    R.appendChild(card);
+  });
+}
+
+/* ---------- settings: live env resolution ---------- */
+function resolve(hot){
+  // allocate contiguous alt ports for hot services' owned ports
+  let next=manifest.rangeStart; const alloc={};
+  manifest.services.forEach(s=>{ if(hot.has(s.name)){alloc[s.name]={};s.ports.forEach(p=>alloc[s.name][p.name]=next++);} });
+  const out=[];
+  manifest.services.forEach(s=>{
+    if(!hot.has(s.name))return;
+    const rows=[];
+    s.ports.forEach(p=>rows.push({var:p.env,val:String(alloc[s.name][p.name]),port:true,from:`own · ${p.name}`}));
+    s.deps.forEach(d=>{
+      const tHot=hot.has(d.target);
+      const tsvc=manifest.services.find(x=>x.name===d.target);
+      const tport=tsvc.ports.find(x=>x.name===d.port);
+      const port=tHot?alloc[d.target][d.port]:tport.def;
+      d.bind.forEach(b=>{
+        const val=b.tmpl.replace('{host}',manifest.host).replace('{port}',port).replace('{http}',port);
+        rows.push({var:b.env,val,port:false,port2:String(port),from:`${d.target} · ${tHot?'alt':'develop'} port`});
+      });
+    });
+    // infra
+    if(s.infra){
+      const dbPort = s.infra.isolate ? (50000 + (next)) : 5432;
+      rows.push({var:'DATABASE_URL',val:`postgres://localhost:${dbPort}/${s.name}${s.infra.isolate?'_'+ 'ticket':''}`,port:false,from:s.infra.isolate?'isolated db':'develop db'});
+    }
+    out.push({name:s.name,rows});
+  });
+  return out;
+}
+function renderPvPick(){
+  const c=$('#pvpick');
+  [...c.querySelectorAll('.chip')].forEach(n=>n.remove());
+  manifest.services.forEach(s=>{
+    const on=ui.hot.has(s.name);
+    const chip=el('button','chip'+(on?' hot':''),`<span class="cd"></span>${s.name}`);
+    chip.onclick=()=>{ if(ui.hot.has(s.name))ui.hot.delete(s.name); else ui.hot.add(s.name); renderPvPick(); renderPreview(); };
+    c.appendChild(chip);
+  });
+}
+function renderPreview(){
+  const O=$('#pvout');O.innerHTML='';
+  if(!ui.hot.size){O.appendChild(el('div','base-note','Select at least one changed repo.'));return;}
+  const res=resolve(ui.hot);
+  res.forEach(svc=>{
+    const block=el('div','svcblock');
+    block.innerHTML=`<div class="sb-h"><span class="snm">${svc.name}</span><span class="role hot">ticket worktree · alt ports</span></div>`;
+    const tb=el('table','envtable');
+    tb.innerHTML=svc.rows.map(r=>`<tr><td class="var">${r.var}</td><td class="eq">=</td><td class="val">${r.port?`<span class="pt">${r.val}</span>`:hl(r.val)}<span class="from">  ${r.from}</span></td></tr>`).join('');
+    block.appendChild(tb);
+    O.appendChild(block);
+  });
+  // baseline note
+  const base=manifest.services.filter(s=>!ui.hot.has(s.name));
+  if(base.length){
+    const names=base.map(s=>`<b>${s.name}</b> :${s.ports[0].def}`).join(' · ');
+    O.appendChild(el('div','base-note',`From develop, unchanged: ${names} — hot services above point here.`));
+  }
+}
+function hl(v){ // color the :port inside a url
+  return v.replace(/:(\d{2,5})/,':<span class="pt">$1</span>');
+}
+
+/* ---------- status bar ---------- */
+function renderStatus(){
+  const t=cur();const sb=$('#statusbar');
+  const ports=t.servers.filter(s=>s.status==='running').map(s=>s.addr.split(':')[1]);
+  const agentMap={running:['#7fd18f','Agent working'],waiting:['#e9d18a','Waiting on you'],idle:['#cfcfcf','Agent idle'],none:['#cfcfcf','No session']};
+  const [ac,at]=agentMap[t.agent];
+  sb.innerHTML=`
+    <span class="sbi"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.6v4.8M4 12h4c2 0 4-.6 4-3.8"/></svg> develop</span>
+    <span class="sbi"><span class="sd s-running"></span><span class="sb-mono">${ports.length?ports.length+' servers · '+ports.join(', '):'no servers'}</span></span>
+    <span class="sbi right"><span class="sd" style="background:${ac}"></span>${t.id} · ${at}</span>
+    <span class="sbi"><span class="sb-mono">${tickets.length} tickets</span></span>`;
+}
+
+/* ---------- render all ---------- */
+function render(){
+  renderTabs();
+  if(ui.tab==='dash')renderDash();
+  renderStatus();
+}
+function boot(){
+  renderFacets();renderList();renderRepos();renderPvPick();renderPreview();render();
+  $('#search').addEventListener('input',e=>{ui.query=e.target.value;renderList();});
+  $('#collapseAll').onclick=()=>{openSet.clear();renderList();};
+  $('#abGear').onclick=()=>setTab('set');
+  document.querySelector('.activitybar .ab:nth-child(4)').onclick=()=>setTab('dash');
+}
+boot();
+</script>

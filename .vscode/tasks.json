@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "dev:extension",
+      "problemMatcher": "$tsc",
+      "label": "npm: dev:extension",
+      "group": "build",
+      "detail": "compile to dist/ + copy webview asset + rebuild better-sqlite3 for Electron"
+    }
+  ]
+}

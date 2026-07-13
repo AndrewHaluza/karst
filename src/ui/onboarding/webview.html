@@ -1,0 +1,910 @@
+<!--
+  Karst ticket onboarding webview. Self-contained (webview CSP forbids external
+  assets). Themed with VS Code's `--vscode-*` variables so it inherits light/dark.
+  Renders from the `state` postMessage the host pushes (state.ts → OnboardingState)
+  and posts action messages back (messages.ts → OnboardingMessage). One surface
+  serves create and edit modes; the webview holds a working draft in create mode.
+-->
+<style>
+  :root{
+    --gap:16px;
+    --mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:22px 26px;
+    background:var(--vscode-editor-background);
+    color:var(--vscode-foreground);
+    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
+    font-size:var(--vscode-font-size,13px);
+  }
+  h1{font-size:18px;margin:0 0 4px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:0 0 8px}
+  .sub{opacity:.6;font-size:12px;margin-bottom:20px}
+  .card{
+    border:1px solid var(--vscode-panel-border);border-radius:8px;
+    padding:14px 16px;margin-bottom:var(--gap);
+    background:var(--vscode-editorWidget-background,transparent);
+  }
+  .hidden{display:none !important}
+  label{display:block;font-size:12px;opacity:.8;margin:10px 0 4px}
+  input[type=text],textarea,select{
+    width:100%;padding:6px 8px;border-radius:5px;
+    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
+    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    font-family:inherit;font-size:13px;
+  }
+  textarea{resize:vertical;min-height:64px}
+  .row{display:flex;gap:8px;align-items:center}
+  .row input[type=text]{flex:1}
+  button{
+    font-family:inherit;font-size:12px;cursor:pointer;
+    background:var(--vscode-button-background);color:var(--vscode-button-foreground);
+    border:none;border-radius:5px;padding:5px 12px;
+  }
+  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+  button.secondary{
+    background:var(--vscode-button-secondaryBackground,transparent);
+    color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));
+    border:1px solid var(--vscode-panel-border);
+  }
+  .svc{display:flex;align-items:center;gap:10px;padding:6px 4px}
+  .svc input.signals{font-family:var(--mono);font-size:12px;flex:1;width:auto}
+  .badge{font-size:10px;padding:1px 7px;border-radius:9px;
+    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
+  .badge.ai{background:transparent;
+    color:var(--vscode-textLink-foreground);
+    border:1px solid var(--vscode-textLink-foreground);margin-right:2px}
+  .footer{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+  .err{color:var(--vscode-errorForeground);font-size:12px;margin-top:8px}
+  .busy{opacity:.6;font-size:11px}
+  .empty{opacity:.5;font-size:12px;padding:6px 4px}
+
+  /* Card heading row: title on the left, provider chip pinned top-right. */
+  .cardhead{display:flex;align-items:center;justify-content:space-between;
+    gap:10px;margin:0 0 8px}
+  .cardhead h2{margin:0}
+  .cardhead .provline{margin:0}
+
+  /* Provider chip (top-right of the Ticket card): tells the user WHERE a fetch
+     pulls from. The gradient icon is the ClickUp mark; `manual` is a muted note. */
+  .provline{display:flex;align-items:center;gap:7px;font-size:11.5px;
+    opacity:.85;margin:0 0 8px;white-space:nowrap}
+  .provline .provicon{flex:none;width:14px;height:14px;display:inline-flex}
+  .provline .provname{font-weight:600;display:inline-flex;align-items:center;gap:5px}
+  .provline .provname svg{flex:none}
+  .provline.manual{opacity:.6}
+
+  /* Fetch button doubles as the status. Fixed min-width so Fetch → Fetching… →
+     ✓ Fetched never shifts the row. The done state is a quiet green outline. */
+  #fetchBtn{min-width:104px;display:inline-flex;align-items:center;
+    justify-content:center;gap:6px;white-space:nowrap}
+  #fetchBtn.done{background:transparent;cursor:default;
+    color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950));
+    border:1px solid var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950))}
+  #fetchBtn.done:hover{background:transparent}
+  /* "Show details" link, shown next to the field once a brief exists. */
+  .detailslink{background:none;border:none;padding:2px 4px;
+    color:var(--vscode-textLink-foreground);text-decoration:underline;
+    font-size:11.5px;margin-top:8px}
+  .detailslink:hover{background:none}
+
+  /* ── Phase 2: vertical stepper (repos → approach → create) ─────────────── */
+  .step{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+  .step .dot{flex:none;width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:11px;
+    border:1px solid var(--vscode-panel-border);
+    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.75}
+  .step.active .dot{background:var(--vscode-button-background);
+    color:var(--vscode-button-foreground);border-color:var(--vscode-button-background);opacity:1}
+  .step.done .dot{background:transparent;opacity:1;
+    color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950));
+    border-color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950))}
+  .step .st{font-size:12.5px;font-weight:600}
+  .step.pending .st{opacity:.55;font-weight:500}
+  .step .stcount{margin-left:6px;font-weight:500;opacity:.6;font-size:11.5px}
+  .step .stright{margin-left:auto;display:flex;align-items:center;gap:8px}
+  /* The rail: a left border joining each step body to the next dot. */
+  .stepbody{border-left:2px solid var(--vscode-panel-border);
+    margin-left:10px;padding:2px 0 16px 20px}
+  .stepbody.last{border-left-color:transparent;padding-bottom:0}
+
+  /* Repos as toggle chips. */
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+    padding:5px 11px;border-radius:16px;font-size:12px;user-select:none;
+    border:1px solid var(--vscode-panel-border);
+    background:transparent;color:var(--vscode-foreground)}
+  .chip.on{border-color:var(--vscode-focusBorder,var(--vscode-button-background));
+    background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+  .chip .tick{font-size:10px;opacity:0}
+  .chip.on .tick{opacity:1}
+  .chip .score{font-family:var(--mono);font-size:10px;opacity:.6}
+
+  /* Approaches as selectable cards. */
+  .approaches{display:flex;flex-direction:column;gap:8px}
+  .acard{display:flex;gap:10px;align-items:flex-start;cursor:pointer;
+    padding:10px 12px;border-radius:7px;
+    border:1px solid var(--vscode-panel-border);background:transparent}
+  .acard.on{border-color:var(--vscode-focusBorder,var(--vscode-button-background));
+    background:var(--vscode-editorWidget-background,rgba(127,127,127,.06))}
+  .acard .radio{flex:none;width:14px;height:14px;border-radius:50%;margin-top:2px;
+    border:1.5px solid var(--vscode-descriptionForeground,var(--vscode-foreground))}
+  .acard.on .radio{border-color:var(--vscode-button-background);
+    background:radial-gradient(circle,var(--vscode-button-background) 42%,transparent 46%)}
+  .acard .amain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .acard .aname{font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .acard .adesc{opacity:.7;font-size:11.5px}
+
+  /* Inline prefill control (dirty-state model): an Auto-prefill switch, a status
+     that flips ✓ in sync ↔ Δ <why>, and Regenerate — all beside the Prompt
+     label. Interface STATE speaks in mono; the Δ badge names the divergence so
+     the enabled/disabled flip is never a mystery. */
+  .labelrow{display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;
+    margin:12px 0 6px;min-height:26px}
+  .labelrow > label{margin:0}
+  .prefill-ctl{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .autopf{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;
+    cursor:pointer;user-select:none;opacity:.85;
+    color:var(--vscode-descriptionForeground,var(--vscode-foreground))}
+  .autopf .sw{width:26px;height:15px;border-radius:9px;flex:none;position:relative;
+    background:var(--vscode-panel-border);transition:background .15s}
+  .autopf .sw::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;
+    border-radius:50%;background:var(--vscode-foreground);opacity:.85;transition:transform .15s}
+  .autopf.on .sw{background:var(--vscode-button-background);opacity:1}
+  .autopf.on .sw::after{transform:translateX(11px);background:var(--vscode-button-foreground);opacity:1}
+  .synctag{font-family:var(--mono);font-size:11px;
+    color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950))}
+  .synctag::before{content:"✓ "}
+  .delta{font-family:var(--mono);font-size:11px;white-space:nowrap;
+    color:var(--vscode-charts-yellow,#d7a740);
+    border:1px solid var(--vscode-charts-yellow,#d7a740);
+    border-radius:4px;padding:1px 6px;opacity:.9}
+  #analyzeBtn{display:inline-flex;align-items:center;gap:5px}
+  #analyzeBtn .rico{font-size:12px;line-height:1}
+
+  /* Slide-over brief drawer — the page's signature moment. Off-canvas by
+     default; `.open` slides it in. Scrim dims the form behind it. */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);
+    opacity:0;pointer-events:none;z-index:10}
+  .scrim.open{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;height:100%;
+    width:min(460px,86vw);z-index:11;display:flex;flex-direction:column;
+    transform:translateX(100%);
+    background:var(--vscode-editor-background);
+    border-left:1px solid var(--vscode-panel-border);
+    box-shadow:-8px 0 24px rgba(0,0,0,.28)}
+  .drawer.open{transform:translateX(0)}
+  @media (prefers-reduced-motion: no-preference){
+    .scrim{transition:opacity .18s ease}
+    .drawer{transition:transform .22s cubic-bezier(.2,.8,.2,1)}
+  }
+  .drawer .head{display:flex;align-items:center;gap:10px;
+    padding:16px 18px 12px;border-bottom:1px solid var(--vscode-panel-border)}
+  .drawer .head h3{margin:0;font-size:14px;line-height:1.3;flex:1;min-width:0}
+  .drawer .head .close{flex:none;background:none;border:none;font-size:16px;
+    line-height:1;padding:2px 6px;color:var(--vscode-foreground);opacity:.7}
+  .drawer .head .close:hover{background:none;opacity:1}
+  .drawer .body{padding:14px 18px;overflow:auto;white-space:pre-wrap;
+    font-family:var(--mono);font-size:12px;line-height:1.55}
+</style>
+
+<h1 id="heading">New ticket</h1>
+<div class="sub" id="subhead"></div>
+
+<!-- 1. Classify gate (only when services lack signals) -->
+<div class="card hidden" id="gateCard">
+  <h2>Classify services</h2>
+  <div class="sub">These services have no signal words yet. Add them once so tickets classify automatically.</div>
+  <div id="gateList"></div>
+</div>
+
+<!-- ── Phase 1: Identify the ticket (always visible) ─────────────────────── -->
+
+<!-- Ticket identity + optional fetch. The key IS the fetch id — one field, no
+     redundant "source" vs "key" split. Fetch pulls the brief for that id. The
+     provider chip in the top-right corner says WHERE a fetch pulls from;
+     `manual` has no board. -->
+<div class="card">
+  <div class="cardhead">
+    <h2>Ticket</h2>
+    <div class="provline hidden" id="provline">
+      <span class="provicon" id="provicon" aria-hidden="true"></span>
+      <span id="provtext"></span>
+    </div>
+  </div>
+  <label for="ref">Key</label>
+  <div class="row">
+    <input type="text" id="ref" placeholder="PROJ-142  ·  or a board id like CU-1234" />
+    <button id="fetchBtn" class="secondary">Fetch</button>
+  </div>
+  <button class="detailslink hidden" id="detailsBtn">Show details</button>
+
+  <label for="title">Title</label>
+  <input type="text" id="title" placeholder="Short summary" />
+  <div class="labelrow">
+    <label for="desc">Prompt</label>
+    <span class="prefill-ctl">
+      <span class="autopf on" id="autoPrefill" role="switch" aria-checked="true"
+            tabindex="0" title="Run the AI prefill automatically after a fetch">
+        <span class="sw" aria-hidden="true"></span>Auto-prefill
+      </span>
+      <span class="synctag hidden" id="syncTag">in sync</span>
+      <span class="delta hidden" id="deltaBadge"></span>
+      <button class="secondary" id="analyzeBtn"
+              title="Fill the prompt, services & approach together from the brief">
+        <span class="rico" aria-hidden="true">⟳</span><span id="analyzeLbl">Prefill</span>
+      </button>
+      <span class="busy hidden" id="analyzeBusy">analyzing…</span>
+    </span>
+  </div>
+  <textarea id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
+  <div class="err hidden" id="err"></div>
+</div>
+
+<!-- Slide-over brief drawer + scrim (the fetched context, on demand) -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true"
+       aria-labelledby="drawerTitle" aria-hidden="true">
+  <div class="head">
+    <h3 id="drawerTitle">Context brief</h3>
+    <button class="close" id="drawerClose" aria-label="Close details">✕</button>
+  </div>
+  <div class="body" id="drawerBody"></div>
+</aside>
+
+<!-- ── Phase 2: Configure — a guided vertical stepper (hidden until Phase 1
+     has a key + title). Repositories → Approach → Create. ─────────────────── -->
+<div id="phase2" class="hidden">
+  <div class="card">
+    <!-- Step 1: Repositories -->
+    <div class="step done" id="stepRepos">
+      <span class="dot" id="dotRepos">1</span>
+      <span class="st">Repositories<span class="stcount" id="repoCount"></span></span>
+    </div>
+    <div class="stepbody">
+      <div class="sub">Which services does this ticket change? Pre-selected from the classifier.</div>
+      <div class="chips" id="repoList"></div>
+    </div>
+
+    <!-- Step 2: Approach -->
+    <div class="step active" id="stepApproach">
+      <span class="dot" id="dotApproach">2</span>
+      <span class="st">Approach</span>
+    </div>
+    <div class="stepbody">
+      <div class="approaches" id="approachList"></div>
+      <div id="agentPicker" class="hidden">
+        <label for="agentSelect">Subagent</label>
+        <select id="agentSelect"></select>
+        <div class="empty hidden" id="agentEmpty">No agents available — add them in Settings.</div>
+      </div>
+      <div id="modelPicker">
+        <label for="modelSelect">Model</label>
+        <select id="modelSelect"></select>
+      </div>
+    </div>
+
+    <!-- Step 3: Create -->
+    <div class="step pending" id="stepCreate">
+      <span class="dot" id="dotCreate">3</span>
+      <span class="st">Create the ticket</span>
+    </div>
+    <div class="stepbody last">
+      <div class="footer" style="justify-content:flex-start;margin-top:2px">
+        <button id="submitBtn">Create ticket</button>
+        <button class="secondary" id="cancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const vscode = acquireVsCodeApi();
+  const post = (m) => vscode.postMessage(m);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  // The working draft: create mode has no ticket, so the webview owns state that
+  // only lands in the DB on submit. Repos/approach/agent selections are
+  // mirrored here.
+  let draft = { mode: 'create', repos: {}, approach: null, selectedAgent: null, selectedModel: null };
+  // Analyzer recommendation: { id, reason } once an `analysis` resolves. The
+  // analyzer MOVES the pick (it sets draft.approach as part of the coupled
+  // decision); this drives the reason badge shown next to that row. A later
+  // explicit user click on another card still wins.
+  let aiSuggestion = null;
+
+  function render(state) {
+    draft.mode = state.mode;
+    // Edit heading = the ticket's human label (key, else #id) + title. No id →
+    // create mode. Mirrors ticketLabel() so the page and the tab title agree.
+    const editKey = state.key || `#${state.ticketId ?? ''}`;
+    el('heading').textContent = state.mode === 'edit' ? editKey : 'New ticket';
+    el('subhead').textContent = state.mode === 'edit'
+      ? (state.title || '(untitled)')
+      : 'Name the ticket, write a prompt, pick an approach.';
+    el('submitBtn').textContent = state.mode === 'edit' ? 'Save' : 'Create ticket';
+    renderProvider(state.provider);
+
+    // Only overwrite text inputs from state when they are empty (don't clobber
+    // what the user is typing on a re-push). The single #ref field IS the key —
+    // seed it from the identity (key), falling back to the board ref only if the
+    // ticket has no key yet.
+    if (!el('ref').value) el('ref').value = state.key || state.sourceRef || '';
+    if (!el('title').value) el('title').value = state.title || '';
+    if (!el('desc').value) el('desc').value = state.description || '';
+
+    renderGate(state.unclassified, state.repos);
+    // Drawer header title: the persisted brief's first heading, else the ticket
+    // title. `state.brief` is the rendered text ("# Title\n\n…"). The banner
+    // itself no longer shows a title — the Title input is the single source.
+    const drawerTitle = briefHeading(state.brief) || state.title || '';
+    renderFetched(state.brief, drawerTitle);
+    renderRepos(state.repos);
+    renderApproaches(state.approaches, state.selectedApproach);
+    lastSelectedAgent = state.selectedAgent ?? null;
+    renderAgentPicker(state.agents, state.selectedAgent);
+    renderModelPicker(state.models, state.selectedModel, state.defaultModel);
+    // Reveal Phase 2 iff the ticket is identified (edit mode: already true).
+    syncPhase2();
+    // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
+    // edit-mode reopen — analysis rewrites the prompt, so it only auto-runs
+    // right after a fetch (the `brief` handler triggers it).
+    syncAnalyzeBtn();
+  }
+
+  // First "# heading" line of a rendered brief, or '' if none.
+  function briefHeading(brief) {
+    if (!brief) return '';
+    const first = String(brief).split('\n', 1)[0] || '';
+    return first.startsWith('# ') ? first.slice(2).trim() : '';
+  }
+
+  function renderGate(unclassified, repos) {
+    const card = el('gateCard');
+    if (!unclassified || unclassified.length === 0) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    const sigOf = (svc) => {
+      const row = (repos || []).find((r) => r.service === svc);
+      return row && row.signals ? row.signals.join(', ') : '';
+    };
+    el('gateList').innerHTML = unclassified.map((svc) => (
+      `<div class="svc">`
+      + `<strong>${esc(svc)}</strong>`
+      + `<input type="text" class="signals" id="sig-${esc(svc)}"`
+      + ` placeholder="comma-separated words, e.g. vue, checkout"`
+      + ` value="${esc(sigOf(svc))}"/>`
+      + `<button class="secondary" data-suggest="${esc(svc)}">Suggest</button>`
+      + `<button data-savesig="${esc(svc)}">Save</button>`
+      + `</div>`
+    )).join('');
+  }
+
+  // Full brief text for the drawer, and whether we've fetched at all.
+  let briefText = '';
+
+  // Provider label + inline ClickUp mark (CSP forbids external assets, so the
+  // icon is inline SVG). `manual` has no board to fetch from — hide the Fetch
+  // button and show a muted note; the field is then pure key entry.
+  const PROVIDER_LABELS = { clickup: 'ClickUp', manual: 'Manual' };
+  // ClickUp's brand mark: the upward peak/arrow in its pink→purple→blue gradient.
+  // Inline (CSP forbids external assets); the gradient id is scoped so it renders
+  // wherever this is injected.
+  const CLICKUP_SVG =
+    '<svg viewBox="0 0 36 36" width="14" height="14" aria-hidden="true">'
+    + '<defs><linearGradient id="cuMark" x1="0" y1="1" x2="1" y2="0">'
+    + '<stop offset="0" stop-color="#fd71af"/>'
+    + '<stop offset=".55" stop-color="#7b68ee"/>'
+    + '<stop offset="1" stop-color="#49ccf9"/>'
+    + '</linearGradient></defs>'
+    + '<path d="M4 24.5 L18 12 L32 24.5" fill="none" stroke="url(#cuMark)"'
+    + ' stroke-width="6.4" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '</svg>';
+
+  function renderProvider(provider) {
+    const p = provider || 'manual';
+    const line = el('provline');
+    if (p === 'manual') {
+      // No board to fetch from: hide Fetch, mark the line as informational.
+      line.classList.remove('hidden');
+      line.classList.add('manual');
+      el('provicon').innerHTML = '';
+      el('provtext').textContent = 'Manual ticket — no board to fetch from';
+      el('fetchBtn').classList.add('hidden');
+      return;
+    }
+    line.classList.remove('hidden');
+    line.classList.remove('manual');
+    // Icon sits INSIDE the name so it reads as the label's mark ("Fetches from
+    // [◭ ClickUp]"), not a bullet at the start of the line.
+    el('provicon').innerHTML = '';
+    const mark = p === 'clickup' ? CLICKUP_SVG : '';
+    el('provtext').innerHTML =
+      'Fetches from <span class="provname">' + mark + esc(PROVIDER_LABELS[p] || p) + '</span>';
+    el('fetchBtn').classList.remove('hidden');
+  }
+
+  // The Fetch button doubles as its own status: idle | busy | done. Fixed width
+  // (CSS) means the row never shifts between states.
+  function setFetchState(s) {
+    const btn = el('fetchBtn');
+    if (s === 'busy') { btn.textContent = 'Fetching…'; btn.disabled = true; btn.classList.remove('done'); }
+    else if (s === 'done') { btn.innerHTML = '<span aria-hidden="true">✓</span>Fetched'; btn.disabled = true; btn.classList.add('done'); }
+    else { btn.textContent = 'Fetch'; btn.disabled = false; btn.classList.remove('done'); }
+  }
+
+  // Stash the full brief for the drawer and flip the button to its done state.
+  // The "Show details" link appears once a brief exists. The `title` arg feeds
+  // the drawer header only. No brief → idle button, link hidden.
+  function renderFetched(brief, title) {
+    if (!brief) {
+      briefText = '';
+      el('detailsBtn').classList.add('hidden');
+      // Don't force the button back to idle if a fetch is mid-flight.
+      if (!el('fetchBtn').disabled) setFetchState('idle');
+      syncAnalyzeBtn();
+      return;
+    }
+    briefText = String(brief);
+    setFetchState('done');
+    el('detailsBtn').classList.remove('hidden');
+    el('drawerTitle').textContent = title || 'Context brief';
+    el('drawerBody').textContent = briefText;
+    syncAnalyzeBtn();
+  }
+
+  // Phase 1 is complete once the ticket has an identity (key + title). Phase 2
+  // (repos, approach, submit) stays hidden until then — the strongest "identify
+  // first" signal. Edit mode seeds both, so Phase 2 shows on first render.
+  function phase1Valid() {
+    return el('ref').value.trim() !== '' && el('title').value.trim() !== '';
+  }
+  function syncPhase2() {
+    el('phase2').classList.toggle('hidden', !phase1Valid());
+  }
+
+  // Whether a repo is effectively selected (user toggle wins; else scored default).
+  function repoSelected(r) { return Boolean(draft.repos[r.service] ?? r.selected); }
+
+  function renderRepos(repos) {
+    lastRepos = repos || [];
+    if (!repos || !repos.length) { el('repoList').innerHTML = '<div class="empty">No services.</div>'; syncStepper(); return; }
+    // Toggle chips: the whole chip is a button; `data-repo` drives the click
+    // handler (delegated) which flips `draft.repos` and posts `set-repos`.
+    el('repoList').innerHTML = repos.map((r) => {
+      const on = repoSelected(r);
+      return `<span class="chip${on ? ' on' : ''}" role="button" tabindex="0" data-repo="${esc(r.service)}">`
+        + `<span class="tick" aria-hidden="true">✓</span>`
+        + `<span>${esc(r.service)}</span>`
+        + (r.score ? `<span class="score">${r.score}</span>` : '')
+        + `</span>`;
+    }).join('');
+    syncStepper();
+  }
+
+  function renderApproaches(approaches, selected) {
+    syncAnalyzeBtn();
+    if (!approaches || !approaches.length) {
+      el('approachList').innerHTML = '<div class="empty">No approaches installed — add them in Settings.</div>'; syncStepper(); return;
+    }
+    const sel = draft.approach ?? selected;
+    lastSelectedApproach = selected ?? null;
+    lastApproaches = approaches;
+    // Selectable cards: the whole card is clickable (delegated handler reads
+    // `data-approach`), with a faux radio for affordance. Keeps Recommended +
+    // AI badges. A suggestion only badges its row — it never moves the pick.
+    el('approachList').innerHTML = approaches.map((a) => (
+      `<div class="acard${a.id===sel ? ' on' : ''}" role="button" tabindex="0" data-approach="${esc(a.id)}">`
+      + `<span class="radio" aria-hidden="true"></span>`
+      + `<span class="amain">`
+      + `<span class="aname">${esc(a.label)}${a.recommended ? ' <span class="badge">Recommended</span>' : ''}</span>`
+      + (a.description ? `<span class="adesc">${esc(a.description)}</span>` : '')
+      + (aiSuggestion && aiSuggestion.id === a.id
+          ? `<span class="adesc"><span class="badge ai">Recommend</span>: ${esc(aiSuggestion.reason || 'best fit for this ticket')}</span>`
+          : '')
+      + `</span>`
+      + `</div>`
+    )).join('');
+    syncStepper();
+  }
+
+  // Last agent pool rendered, so a re-render (e.g. after switching the picked
+  // approach) can redraw the select without waiting for a fresh state push.
+  let lastAgents = [];
+  // Last state.selectedAgent, mirroring lastSelectedApproach — a user who
+  // accepts the default never fires the select's `change` handler, so
+  // draft.selectedAgent stays null; submit ORs this in.
+  let lastSelectedAgent = null;
+
+  // The single-subagent picker only makes sense for that one approach. Uses
+  // the same "effective approach" precedence submit uses: an explicit user
+  // pick (draft.approach) wins, else the state-pushed default.
+  function currentApproach() {
+    return draft.approach ?? lastSelectedApproach;
+  }
+
+  function renderAgentPicker(agents, selectedAgent) {
+    lastAgents = agents || [];
+    const picker = el('agentPicker');
+    const isSolo = currentApproach() === 'single-subagent';
+    picker.classList.toggle('hidden', !isSolo);
+    if (!isSolo) return;
+
+    const hasAgents = lastAgents.length > 0;
+    el('agentSelect').classList.toggle('hidden', !hasAgents);
+    el('agentEmpty').classList.toggle('hidden', hasAgents);
+    if (!hasAgents) { el('agentSelect').innerHTML = ''; return; }
+
+    const sel = draft.selectedAgent ?? selectedAgent ?? null;
+    el('agentSelect').innerHTML = lastAgents.map((a) => (
+      `<option value="${esc(a.name)}"${a.name === sel ? ' selected' : ''}>`
+      + esc(a.name)
+      + (a.source === 'approach' ? ` (${esc(a.approachId || 'approach')})` : '')
+      + `</option>`
+    )).join('');
+  }
+
+  // Model picker: an "Inherit (settings)" option (empty value) plus the curated
+  // models pushed in `state.models`. The persisted per-ticket model (edit mode)
+  // or an explicit draft pick pre-selects; empty = inherit the manifest default.
+  function renderModelPicker(models, selectedModel, defaultModel) {
+    const list = models || [];
+    const sel = draft.selectedModel ?? selectedModel ?? '';
+    const defLabel = defaultModel
+      ? `Inherit (settings: ${esc(defaultModel)})`
+      : 'Inherit (settings default)';
+    const opts = [`<option value=""${sel ? '' : ' selected'}>${defLabel}</option>`];
+    for (const m of list) {
+      opts.push(
+        `<option value="${esc(m.id)}"${m.id === sel ? ' selected' : ''}>${esc(m.label)}</option>`,
+      );
+    }
+    el('modelSelect').innerHTML = opts.join('');
+  }
+
+  // Step rail state: repos done once ≥1 selected; approach active while
+  // choosing; create becomes active once an approach is picked.
+  function syncStepper() {
+    const repoN = lastRepos.filter(repoSelected).length;
+    el('repoCount').textContent = repoN ? ` — ${repoN} selected` : '';
+    const reposDone = repoN > 0;
+    setStep('stepRepos', 'dotRepos', reposDone ? 'done' : 'active', reposDone ? '✓' : '1');
+
+    const approachPicked = Boolean(draft.approach ?? lastSelectedApproach);
+    setStep('stepApproach', 'dotApproach', approachPicked ? 'done' : 'active', approachPicked ? '✓' : '2');
+    setStep('stepCreate', 'dotCreate', approachPicked ? 'active' : 'pending', '3');
+  }
+  function setStep(stepId, dotId, cls, dotText) {
+    const s = el(stepId);
+    s.classList.remove('done', 'active', 'pending');
+    s.classList.add(cls);
+    el(dotId).textContent = dotText;
+  }
+
+  // Last approaches array rendered, so a busy-state change (which doesn't carry
+  // a fresh `approaches` array) can re-render without waiting for the next
+  // full `state` push.
+  let lastApproaches = [];
+
+  // Last repos array rendered, so submit can compute the effective selected set
+  // (defaults from scoring OR'd with the user's toggles) even for repos the user
+  // never touched — otherwise create-mode selections are lost on finish.
+  let lastRepos = [];
+
+  // The approach id rendered as the pre-checked default (from state.selectedApproach).
+  // A user who accepts the default never fires the radio `change` handler, so
+  // draft.approach stays null; submit ORs this in so the default is still
+  // persisted onto the ticket and the session launches seeded with it.
+  let lastSelectedApproach = null;
+
+  // Track the analyze-busy state so the disabled rule (below) can OR it in.
+  let approachBusy = false;
+
+  // The inputs the analyzer reasons over: the fetched brief, the prompt text, and
+  // the selected repos. A prefill snapshots these; the manual Regenerate is live
+  // only while the current parts DIVERGE from that snapshot — an identical input
+  // never burns an AI call. `null` = nothing prefilled yet.
+  let lastAnalyzed = null;
+  function currentParts() {
+    return {
+      brief: briefText,
+      prompt: el('desc').value.trim(),
+      repos: lastRepos.filter(repoSelected).map((r) => r.service).sort(),
+    };
+  }
+  function partsEqual(a, b) {
+    return !!a && !!b && a.brief === b.brief && a.prompt === b.prompt
+      && JSON.stringify(a.repos) === JSON.stringify(b.repos);
+  }
+  // Name WHICH input moved, in priority order, so the Δ badge explains why the
+  // button re-enabled (git-dirty-style legibility).
+  function deltaReason(prev, cur) {
+    if (!prev) return '';
+    if (prev.brief !== cur.brief) return 'brief refetched';
+    if (prev.prompt !== cur.prompt) return 'prompt edited';
+    if (JSON.stringify(prev.repos) !== JSON.stringify(cur.repos)) return 'services changed';
+    return '';
+  }
+  // Something to reason over = a fetched brief OR a non-empty prompt.
+  function hasSuggestSignal() {
+    return Boolean(briefText) || el('desc').value.trim() !== '';
+  }
+
+  // Gate the inline control: Regenerate is active only with a signal, no run in
+  // flight, and parts diverged from the last prefill. Status flips ✓ in sync ↔
+  // Δ <why>; the button label reads Prefill before the first fill, Regenerate
+  // after. All status hidden while a run is in flight (the busy note shows).
+  function syncAnalyzeBtn() {
+    const cur = currentParts();
+    const analyzed = lastAnalyzed !== null;
+    const unchanged = analyzed && partsEqual(lastAnalyzed, cur);
+    el('analyzeBtn').disabled = !hasSuggestSignal() || approachBusy || unchanged;
+    el('analyzeLbl').textContent = analyzed ? 'Regenerate' : 'Prefill';
+    el('syncTag').classList.toggle('hidden', !(unchanged && !approachBusy));
+    const reason = analyzed && !unchanged ? deltaReason(lastAnalyzed, cur) : '';
+    const showDelta = Boolean(reason) && !approachBusy;
+    el('deltaBadge').classList.toggle('hidden', !showDelta);
+    if (showDelta) el('deltaBadge').textContent = 'Δ ' + reason;
+  }
+
+  // Trigger the analyzer for the current context (fetched brief + live prompt).
+  // The host reasons over both and returns the coupled prompt/approach/repos.
+  function triggerAnalyze() {
+    if (!hasSuggestSignal() || approachBusy) return;
+    post({ type: 'analyze', prompt: el('desc').value });
+  }
+
+  // Auto-prefill (default on): run the analyzer exactly once after a fetch, only
+  // when nothing has been prefilled yet. Off → manual Regenerate is the only
+  // trigger. Never re-fires on reopens/edits (those re-enable the button).
+  let autoPrefillOn = true;
+  function setAutoPrefill(on) {
+    autoPrefillOn = on;
+    el('autoPrefill').classList.toggle('on', on);
+    el('autoPrefill').setAttribute('aria-checked', String(on));
+  }
+  function maybeAutoAnalyze() {
+    if (!autoPrefillOn) return;
+    if (!hasSuggestSignal() || approachBusy) return;
+    if (lastAnalyzed !== null) return; // a prefill exists; re-run is manual
+    triggerAnalyze();
+  }
+
+  // ---- interactions ----
+  el('fetchBtn').addEventListener('click', () => {
+    const ref = el('ref').value.trim();
+    if (ref) { setFetchState('busy'); post({ type: 'fetch-source', ref }); }
+  });
+
+  el('submitBtn').addEventListener('click', () => {
+    const key = el('ref').value.trim();
+    const title = el('title').value.trim();
+    if (!key || !title) { showErr('Key and title are required.'); return; }
+    // Effective repo set: a repo counts as selected if the user toggled it on,
+    // or (untouched) it was scored-selected by default. Carry repos + approach
+    // in the payload so create-mode picks persist onto the new ticket at submit.
+    const repos = lastRepos.filter(repoSelected).map((r) => r.service);
+    const approach = draft.approach ?? lastSelectedApproach;
+    // Read the live <select> value when the picker is showing agents: in create
+    // mode `draft.selectedAgent` stays null until an explicit change event, yet
+    // the browser visually pre-selects the first <option>. Reading the DOM value
+    // captures that default so the shown agent is actually persisted (not null).
+    const agent =
+      approach === 'single-subagent' && lastAgents.length
+        ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
+        : null;
+    // Read the live <select> so the shown model is persisted even in create mode
+    // (draft.selectedModel stays null until an explicit change). Empty = inherit.
+    const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model });
+  });
+
+  // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live.
+  el('ref').addEventListener('input', syncPhase2);
+  el('title').addEventListener('input', syncPhase2);
+  // Editing the Prompt is a context change: re-gate the control. It does NOT
+  // auto-prefill (that would rewrite the prompt mid-type); prefill auto-runs only
+  // after a fetch (and only when Auto-prefill is on), or on an explicit click.
+  el('desc').addEventListener('input', syncAnalyzeBtn);
+
+  // Auto-prefill switch (default on). Click or Space/Enter toggles it.
+  el('autoPrefill').addEventListener('click', () => setAutoPrefill(!autoPrefillOn));
+  el('autoPrefill').addEventListener('keydown', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setAutoPrefill(!autoPrefillOn); }
+  });
+
+  el('cancelBtn').addEventListener('click', () => post({ type: 'request-state' }));
+
+  el('analyzeBtn').addEventListener('click', () => {
+    // Explicit run: analyze the current prompt/brief. The result overwrites the
+    // prompt + repo + approach (the coupled decision the user asked for).
+    triggerAnalyze();
+  });
+
+  // ---- brief drawer ----
+  let drawerTrigger = null; // element focus returns to on close
+  function openDrawer() {
+    drawerTrigger = document.activeElement;
+    el('scrim').classList.add('open');
+    el('drawer').classList.add('open');
+    el('drawer').setAttribute('aria-hidden', 'false');
+    el('drawerClose').focus();
+  }
+  function closeDrawer() {
+    el('scrim').classList.remove('open');
+    el('drawer').classList.remove('open');
+    el('drawer').setAttribute('aria-hidden', 'true');
+    if (drawerTrigger && drawerTrigger.focus) drawerTrigger.focus();
+  }
+  el('detailsBtn').addEventListener('click', openDrawer);
+  el('drawerClose').addEventListener('click', closeDrawer);
+  el('scrim').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el('drawer').classList.contains('open')) closeDrawer();
+  });
+
+  // Toggle a repo chip: flip its effective state, post the full selected set,
+  // and re-render so the chip + stepper reflect it. Suggest re-gates (repos are
+  // part of the context fingerprint).
+  function toggleRepo(service) {
+    const row = lastRepos.find((r) => r.service === service);
+    const now = row ? !repoSelected(row) : true;
+    draft.repos[service] = now;
+    const repos = lastRepos.filter(repoSelected).map((r) => r.service);
+    post({ type: 'set-repos', repos });
+    renderRepos(lastRepos);
+    syncAnalyzeBtn();
+  }
+  // Pick an approach card: record it, post, re-render (moves the `.on` ring).
+  // Also re-render the agent picker — its visibility depends on which
+  // approach is now current (only shown for single-subagent).
+  function pickApproach(id) {
+    draft.approach = id;
+    post({ type: 'set-approach', id });
+    renderApproaches(lastApproaches, lastSelectedApproach);
+    renderAgentPicker(lastAgents, lastSelectedAgent);
+  }
+
+  // Pick a subagent from the dropdown: record it, post the same way approach
+  // picks do.
+  el('agentSelect').addEventListener('change', (e) => {
+    const id = e.target.value;
+    draft.selectedAgent = id;
+    post({ type: 'set-agent', id });
+  });
+
+  // Pick a model (or "Inherit", value ''): record + post. In create mode the
+  // host no-ops the persist; submit carries the final value.
+  el('modelSelect').addEventListener('change', (e) => {
+    const id = e.target.value;
+    draft.selectedModel = id || null;
+    post({ type: 'set-model', id });
+  });
+
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    const chip = t.closest && t.closest('[data-repo]');
+    if (chip) { toggleRepo(chip.dataset.repo); return; }
+    const card = t.closest && t.closest('[data-approach]');
+    if (card) { pickApproach(card.dataset.approach); return; }
+    if (t.dataset && t.dataset.suggest) post({ type: 'suggest-signals', service: t.dataset.suggest });
+    if (t.dataset && t.dataset.savesig) {
+      const input = el('sig-' + t.dataset.savesig);
+      const words = (input.value || '').split(',').map((s) => s.trim()).filter(Boolean);
+      if (words.length) post({ type: 'save-signals', service: t.dataset.savesig, signals: words });
+    }
+  });
+
+  // Keyboard: Enter/Space activates a focused chip or approach card.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const t = e.target;
+    const chip = t.closest && t.closest('[data-repo]');
+    if (chip) { e.preventDefault(); toggleRepo(chip.dataset.repo); return; }
+    const card = t.closest && t.closest('[data-approach]');
+    if (card) { e.preventDefault(); pickApproach(card.dataset.approach); }
+  });
+
+  function showErr(msg) { const e = el('err'); e.textContent = msg; e.classList.remove('hidden'); }
+  function clearErr() { el('err').classList.add('hidden'); }
+  function setBusy(what, on) {
+    // The fetch button carries its own busy state; a failed fetch (on→false with
+    // no brief) resets it to idle so the user can retry.
+    if (what === 'fetch' && !on && !briefText) setFetchState('idle');
+    if (what === 'analyze') {
+      el('analyzeBusy').classList.toggle('hidden', !on);
+      approachBusy = on;
+      syncAnalyzeBtn();
+    }
+  }
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg) return;
+    switch (msg.type) {
+      case 'state': render(msg.state); vscode.setState(msg.state); break;
+      case 'brief': {
+        const b = msg.brief || {};
+        // Prefill the Prompt from the fetched brief's short summary, only when
+        // empty so live typing is never clobbered. The #ref field the user
+        // fetched from IS the key — no separate copy needed.
+        if (!el('title').value && b.title) el('title').value = b.title;
+        if (!el('desc').value && b.description) el('desc').value = b.description;
+        // Flip the fetch button to done + stash the brief for the drawer. The
+        // title arg feeds the drawer header only.
+        renderFetched(briefToText(b), b.title || '');
+        // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
+        syncPhase2();
+        // A fresh brief is new context nothing has been prefilled against yet.
+        // Reset so the one-time auto-prefill fires for it.
+        aiSuggestion = null;
+        lastAnalyzed = null;
+        maybeAutoAnalyze();
+        syncAnalyzeBtn();
+        break;
+      }
+      case 'analysis': {
+        // The coupled analyzer result: apply all three decisions together. The
+        // synthesized prompt is authoritative (it replaces the placeholder raw
+        // description / the prompt the user asked to analyze). Repos + approach
+        // are preselected; the approach carries a reason badge. A later explicit
+        // user edit/click still wins.
+        if (typeof msg.prompt === 'string' && msg.prompt.trim()) {
+          el('desc').value = msg.prompt;
+        }
+        if (Array.isArray(msg.repos)) {
+          const picked = new Set(msg.repos);
+          for (const r of lastRepos) draft.repos[r.service] = picked.has(r.service);
+        }
+        if (msg.approachId) {
+          draft.approach = msg.approachId;
+          aiSuggestion = { id: msg.approachId, reason: msg.reason || '' };
+        }
+        // Snapshot the inputs this analysis covered (read AFTER applying the
+        // prompt) so the button disables until brief/prompt/repos move again.
+        lastAnalyzed = currentParts();
+        const state = vscode.getState();
+        renderRepos(lastRepos);
+        renderApproaches(
+          state ? state.approaches : lastApproaches,
+          state ? state.selectedApproach : lastSelectedApproach,
+        );
+        renderAgentPicker(lastAgents, lastSelectedAgent);
+        syncPhase2();
+        syncAnalyzeBtn();
+        break;
+      }
+      case 'signals-suggested': {
+        const input = el('sig-' + msg.service);
+        // Merge suggestions with whatever the user already typed, don't clobber.
+        if (input) {
+          const existing = (input.value || '').split(',').map((s) => s.trim()).filter(Boolean);
+          const merged = existing.slice();
+          for (const w of (msg.signals || [])) if (!merged.includes(w)) merged.push(w);
+          input.value = merged.join(', ');
+        }
+        break;
+      }
+      case 'error': showErr(msg.message); break;
+      case 'busy': setBusy(msg.what, msg.on); break;
+    }
+  });
+
+  // Turn a fetched ContextBrief into the same text shape the host persists.
+  function briefToText(b) {
+    if (!b) return '';
+    const lines = ['# ' + b.title, '', b.description || ''];
+    if (b.tags && b.tags.length) lines.push('', 'Tags: ' + b.tags.join(', '));
+    if (b.comments && b.comments.length) {
+      lines.push('', '## Comments');
+      for (const c of b.comments) lines.push('- ' + c.author + ': ' + c.text);
+    }
+    return lines.join('\n');
+  }
+
+  const prev = vscode.getState();
+  if (prev) render(prev);
+  post({ type: 'request-state' });
+</script>

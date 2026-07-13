@@ -1,0 +1,1634 @@
+<!--
+  Karst settings webview (Option A — accordion cards). Self-contained (webview
+  CSP forbids external assets). Renders from the `state` postMessage the host
+  pushes (state.ts → SettingsState) and posts action messages back
+  (messages.ts → SettingsWebviewMessage). The webview owns a working draft of
+  the manifest; every edit re-validates (debounced) and Save/Discard operate
+  against the last-saved baseline pushed via `state`.
+-->
+<style>
+  :root{
+    --gap:16px;
+    --mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;padding:0;display:flex;
+    background:var(--vscode-editor-background);
+    color:var(--vscode-foreground);
+    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
+    font-size:var(--vscode-font-size,13px);
+  }
+  h1{font-size:16px;margin:0}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:0 0 8px}
+  .hidden{display:none !important}
+
+  /* ---- layout: left nav + content ---- */
+  .nav{
+    width:150px;flex:0 0 auto;padding:18px 8px;
+    border-right:1px solid var(--vscode-panel-border);
+  }
+  .nav button{
+    display:block;width:100%;text-align:left;margin-bottom:2px;
+    background:transparent;color:var(--vscode-foreground);border:none;
+    border-radius:5px;padding:7px 10px;font-size:12.5px;cursor:pointer;
+  }
+  .nav button:hover{background:var(--vscode-list-hoverBackground)}
+  .nav button.active{
+    background:var(--vscode-list-activeSelectionBackground,var(--vscode-list-hoverBackground));
+    color:var(--vscode-list-activeSelectionForeground,var(--vscode-foreground));
+  }
+  .main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;height:100vh}
+
+  /* ---- top bar ---- */
+  .topbar{
+    display:flex;align-items:center;gap:10px;
+    padding:14px 22px;border-bottom:1px solid var(--vscode-panel-border);
+    flex:0 0 auto;
+  }
+  .dirty-dot{
+    width:8px;height:8px;border-radius:50%;
+    background:var(--vscode-charts-yellow,#cca700);
+  }
+  .topbar .spacer{flex:1}
+  .saved-msg{font-size:12px;opacity:.7}
+  /* Live preview + variable hint for the ticket-label template field. */
+  .label-preview{margin-top:6px;font-size:12px;
+    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.85}
+  .label-preview .lp-val{font-family:var(--vscode-editor-font-family,monospace);
+    color:var(--vscode-foreground);opacity:1}
+  .label-vars{margin-top:4px;font-size:11px;
+    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.7}
+  .label-vars code{font-family:var(--vscode-editor-font-family,monospace)}
+
+  .content{flex:1 1 auto;overflow:auto;padding:20px 26px}
+  .section{max-width:760px}
+
+  /* ---- form basics ---- */
+  label{display:block;font-size:12px;opacity:.8;margin:10px 0 4px}
+  input[type=text],input[type=number],select{
+    padding:6px 8px;border-radius:5px;
+    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
+    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    font-family:inherit;font-size:13px;
+  }
+  input[type=text],select{width:100%}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .row > *{flex:1 1 0}
+  .row .fixed{flex:0 0 auto}
+
+  button{
+    font-family:inherit;font-size:12px;cursor:pointer;
+    background:var(--vscode-button-background);color:var(--vscode-button-foreground);
+    border:none;border-radius:5px;padding:5px 12px;
+  }
+  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.secondary{
+    background:var(--vscode-button-secondaryBackground,transparent);
+    color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));
+    border:1px solid var(--vscode-panel-border);
+  }
+  button.icon{padding:3px 8px;font-size:11px}
+
+  /* ---- accordion cards ---- */
+  .card{
+    border:1px solid var(--vscode-panel-border);border-radius:8px;
+    margin-bottom:var(--gap);
+    background:var(--vscode-editorWidget-background,transparent);
+    overflow:hidden;
+  }
+  .card .card-head{
+    display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;
+    user-select:none;
+  }
+  .card .card-head:hover{background:var(--vscode-list-hoverBackground)}
+  .card .card-head .chevron{font-size:10px;opacity:.6;transition:transform .1s}
+  .card.open .card-head .chevron{transform:rotate(90deg)}
+  .card .card-title{font-weight:600;font-size:13px;flex:1}
+  .card .card-body{padding:0 14px 14px;display:none}
+  .card.open .card-body{display:block}
+
+  table.sub{width:100%;border-collapse:collapse;margin:8px 0}
+  table.sub th{
+    text-align:left;font-size:11px;opacity:.6;font-weight:500;
+    padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border);
+  }
+  table.sub td{padding:4px 6px;vertical-align:middle}
+  table.sub input[type=text],table.sub input[type=number],table.sub select{width:100%}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;
+    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+    border-radius:9px;padding:2px 8px;font-size:11.5px;
+  }
+  .chip button{
+    background:transparent;color:inherit;border:none;padding:0;
+    font-size:12px;line-height:1;cursor:pointer;opacity:.7;
+  }
+  .chip button:hover{opacity:1;background:transparent}
+
+  .toggle{display:flex;align-items:center;gap:8px}
+  .toggle input{width:auto}
+
+  .bind-row{
+    display:flex;gap:6px;align-items:center;padding:4px 0;margin-left:16px;
+  }
+
+  .footer-row{display:flex;justify-content:flex-end;margin-top:6px}
+  .empty{opacity:.5;font-size:12px;padding:6px 4px}
+  .err-banner{
+    color:var(--vscode-errorForeground);font-size:12px;
+    padding:8px 12px;margin-bottom:14px;border-radius:6px;
+    background:var(--vscode-inputValidation-errorBackground,rgba(244,71,71,.08));
+    border:1px solid var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground));
+  }
+  .agent-row{display:flex;align-items:center;gap:8px;padding:6px 4px}
+  .approach-install{margin-left:0;flex-shrink:0}
+  .installed-tag,.builtin-tag{font-size:11px;opacity:.6}
+  .approach-source{font-family:var(--mono);font-size:11px;opacity:.7}
+  .confirm-run{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+  .confirm-cmd{font-family:var(--mono);font-size:11px;opacity:.8}
+  .confirm-actions{display:flex;gap:6px}
+
+  .is-disabled{opacity:.55}
+  .chip.generated{border:1px solid var(--vscode-focusBorder);background:transparent}
+
+  /* ---- approaches roster (grouped Installed / Available / Built-in cards) ---- */
+  .approach-group-header{
+    font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--vscode-descriptionForeground);
+    margin:16px 0 8px;padding-bottom:4px;
+    border-bottom:1px solid var(--vscode-panel-border);
+  }
+  .approach-group-header:first-child{margin-top:0}
+  .roster-card{
+    display:flex;border:1px solid var(--vscode-panel-border);border-radius:8px;
+    margin-bottom:10px;overflow:hidden;
+    background:var(--vscode-editorWidget-background,transparent);
+  }
+  .roster-card .approach-rail{width:4px;flex:0 0 auto;background:var(--vscode-panel-border)}
+  .roster-card.installed .approach-rail{background:var(--vscode-charts-green)}
+  .roster-card .approach-body{padding:12px 14px;flex:1 1 auto;min-width:0}
+  .roster-card .approach-head{display:flex;align-items:baseline;gap:10px}
+  .roster-card .approach-id{font-family:var(--mono);font-weight:600;font-size:13px}
+  .roster-card .approach-label{
+    color:var(--vscode-foreground);font-size:12.5px;flex:1 1 auto;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .roster-card .approach-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex:0 0 auto}
+  .roster-card .approach-lines{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .roster-card .approach-line{display:flex;gap:10px;align-items:center}
+  .roster-card .approach-line .micro{
+    font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--vscode-descriptionForeground);min-width:36px;flex:0 0 auto;
+  }
+  .roster-card .approach-line .chips{margin:0}
+  .roster-card .approach-foot{margin-top:10px}
+
+  /* enable toggle: native checkbox visually hidden, a dot pill reflects state */
+  .approach-toggle{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+  .approach-toggle input{position:absolute;opacity:0;width:1px;height:1px}
+  .approach-toggle .dot{
+    width:26px;height:15px;border-radius:9px;
+    background:var(--vscode-input-background);border:1px solid var(--vscode-panel-border);
+    position:relative;transition:background .15s;
+  }
+  .approach-toggle .dot::after{
+    content:"";position:absolute;width:11px;height:11px;border-radius:50%;
+    background:var(--vscode-descriptionForeground);top:1px;left:1px;transition:left .15s;
+  }
+  .approach-toggle input:checked + .dot{background:var(--vscode-charts-green)}
+  .approach-toggle input:checked + .dot::after{left:12px;background:var(--vscode-button-foreground,var(--vscode-editor-background))}
+  .approach-toggle input:focus-visible + .dot{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}
+  .approach-toggle.disabled{opacity:.45;cursor:not-allowed}
+
+  /* ---- agents roster (provenance groups: Yours / From approaches) ---- */
+  .agent-hero{
+    display:flex;align-items:baseline;gap:14px;padding:12px 14px;margin-bottom:16px;
+    border:1px solid var(--vscode-panel-border);border-radius:8px;
+    background:var(--vscode-editorWidget-background,transparent);
+  }
+  .agent-hero .stat{font-size:20px;font-weight:650;font-family:var(--mono);line-height:1;flex:0 0 auto}
+  .agent-hero .stat b{color:var(--vscode-charts-green);font-weight:650}
+  .agent-hero .cap{font-size:12px;opacity:.75;flex:1 1 auto}
+
+  .agent-group{margin-bottom:18px}
+  .agent-group:last-child{margin-bottom:0}
+
+  .agent-spine{border-left:2px solid var(--vscode-panel-border);margin-left:6px}
+  .agent-appr-head{
+    display:flex;align-items:center;gap:8px;padding:6px 0 6px 14px;position:relative;
+  }
+  .agent-appr-head:not(:first-child){margin-top:4px}
+  .agent-appr-head::before{
+    content:"";position:absolute;left:-2px;top:50%;width:12px;height:2px;
+    background:var(--vscode-panel-border);
+  }
+  .agent-appr-head .appr-id{
+    font-family:var(--mono);font-size:12px;font-weight:600;color:var(--vscode-textLink-foreground);
+  }
+  .agent-appr-head .spacer{flex:1}
+
+  .agent-roster-row{
+    display:flex;align-items:center;gap:10px;padding:8px 10px;
+    border-left:2px solid transparent;border-radius:0 6px 6px 0;
+  }
+  .agent-spine .agent-roster-row{margin-left:0;padding-left:14px}
+  .agent-roster-row:hover{background:var(--vscode-list-hoverBackground)}
+  .agent-roster-row.on{border-left-color:var(--vscode-charts-green)}
+  .agent-roster-row .glyph{
+    width:20px;height:20px;border-radius:5px;flex:0 0 auto;display:grid;place-items:center;
+    font-family:var(--mono);font-size:11px;background:var(--vscode-badge-background);
+    color:var(--vscode-badge-foreground);
+  }
+  .agent-roster-row .nm{font-family:var(--mono);font-size:13px}
+  .agent-roster-row .owner{font-family:var(--mono);font-size:11px;opacity:.5}
+  .agent-roster-row .spacer{flex:1}
+
+  .agent-editor{margin:2px 0 10px 14px}
+  .agent-editor .footer-row{margin-top:6px}
+
+  .agent-link{
+    color:var(--vscode-textLink-foreground);font-size:11.5px;text-decoration:none;
+    cursor:pointer;
+  }
+  .agent-link:hover{text-decoration:underline}
+  .agent-link:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}
+
+  /* command chips become clickable when they carry data-cmd (opens the drawer) */
+  .chip[data-cmd]{cursor:pointer;border:1px solid transparent}
+  .chip[data-cmd]:hover{border-color:var(--vscode-focusBorder)}
+  .chip[data-cmd]:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}
+
+  /* ---- command-body drawer ---- */
+  .drawer{
+    position:fixed;top:0;right:0;height:100%;width:min(440px,92vw);
+    background:var(--vscode-editorWidget-background,var(--vscode-editor-background));
+    border-left:1px solid var(--vscode-panel-border);
+    box-shadow:-8px 0 16px var(--vscode-widget-shadow,transparent);
+    transform:translateX(100%);transition:transform .18s ease;
+    z-index:50;display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:translateX(0)}
+  .drawer .drawer-head{
+    display:flex;align-items:center;gap:10px;padding:12px 14px;
+    border-bottom:1px solid var(--vscode-panel-border);flex:0 0 auto;
+  }
+  .drawer .drawer-head .spacer{flex:1}
+  .drawer .drawer-body{
+    flex:1 1 auto;margin:0;padding:14px;overflow:auto;
+    font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:var(--vscode-foreground);
+  }
+  /* The approach-editor drawer body is a real form, not a pre-formatted
+     command-body view — reset the mono/pre-wrap styling from the base
+     .drawer-body and let normal label/input rules apply. */
+  .drawer .drawer-body.form{
+    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
+    font-size:13px;white-space:normal;
+  }
+  .drawer .drawer-body.form label:first-child{margin-top:0}
+  .drawer-error{
+    color:var(--vscode-errorForeground);font-size:12px;
+    padding:6px 10px;margin-bottom:10px;border-radius:6px;
+    background:var(--vscode-inputValidation-errorBackground,rgba(244,71,71,.08));
+    border:1px solid var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground));
+  }
+  .drawer-note{font-size:11px;color:var(--vscode-descriptionForeground)}
+  @media (prefers-reduced-motion:reduce){
+    .drawer,.approach-toggle .dot,.approach-toggle .dot::after{transition:none}
+  }
+
+  textarea{
+    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:5px;
+    padding:8px;font-family:var(--mono);font-size:12px;width:100%;resize:vertical;min-height:160px;
+  }
+</style>
+
+<nav class="nav">
+  <button class="nav-btn active" data-section="general">General</button>
+  <button class="nav-btn" data-section="services">Services</button>
+  <button class="nav-btn" data-section="approaches">Approaches</button>
+  <button class="nav-btn" data-section="agents">Agents</button>
+  <button class="nav-btn" data-section="ticketing">Ticketing</button>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <span class="dirty-dot hidden" id="dirtyDot" title="Unsaved changes"></span>
+    <h1>Settings</h1>
+    <span class="saved-msg hidden" id="savedMsg">Saved</span>
+    <span class="spacer"></span>
+    <button class="secondary" id="discardBtn">Discard</button>
+    <button id="saveBtn" disabled>Save</button>
+  </div>
+
+  <div class="content">
+    <div class="err-banner hidden" id="errBanner"></div>
+
+    <!-- General -->
+    <div class="section" id="section-general">
+      <div class="card open">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <label for="f-host">Host</label>
+          <input type="text" id="f-host" placeholder="localhost" />
+
+          <label>Port range</label>
+          <div class="row">
+            <input type="number" id="f-portMin" placeholder="min" />
+            <input type="number" id="f-portMax" placeholder="max" />
+          </div>
+
+          <label for="f-baseline">Baseline branch</label>
+          <input type="text" id="f-baseline" placeholder="main" />
+
+          <label for="f-wtDisplay">Worktree path display</label>
+          <select id="f-wtDisplay">
+            <option value="relative">relative</option>
+            <option value="absolute">absolute</option>
+          </select>
+
+          <label for="f-labelTemplate">Ticket label template</label>
+          <input type="text" id="f-labelTemplate" placeholder="{key} — {title}" />
+          <div class="label-preview" id="labelPreview"></div>
+          <div class="label-vars" id="labelVars"></div>
+
+          <label for="f-agentProvider">Agent provider</label>
+          <select id="f-agentProvider"></select>
+
+          <label for="f-defaultModel">Default model</label>
+          <select id="f-defaultModel"></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Services -->
+    <div class="section hidden" id="section-services">
+      <div id="serviceCards"></div>
+      <div class="footer-row">
+        <button class="secondary" id="addServiceBtn">+ Add service</button>
+      </div>
+    </div>
+
+    <!-- Approaches -->
+    <div class="section hidden" id="section-approaches">
+      <div class="card open">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <div id="approachList"></div>
+          <div class="footer-row">
+            <button class="secondary" id="addApproachBtn">+ Add approach</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agents -->
+    <div class="section hidden" id="section-agents">
+      <div class="card open">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <div id="agentHero"></div>
+          <div id="agentList"></div>
+          <div class="footer-row">
+            <input type="text" id="newAgentName" placeholder="agent name" style="width:180px;margin-right:8px" />
+            <button class="secondary" id="addAgentBtn">+ Add agent</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ticketing -->
+    <div class="section hidden" id="section-ticketing">
+      <div class="card open">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <label for="f-ticketProvider">Provider</label>
+          <select id="f-ticketProvider">
+            <option value="manual">manual (local-only)</option>
+            <option value="clickup">clickup</option>
+          </select>
+
+          <!-- ClickUp-specific fields; hidden unless provider === clickup -->
+          <div id="clickupFields">
+            <label for="f-ticketTeamId">Team ID <span class="installed-tag">(ClickUp workspace, for custom task ids)</span></label>
+            <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" />
+
+            <label for="f-ticketListId">List ID <span class="installed-tag">(reserved for future list-scoped operations)</span></label>
+            <input type="text" id="f-ticketListId" placeholder="e.g. 42" />
+
+            <label>API token <span class="installed-tag">(stored in your OS keychain — never in karst.yml)</span></label>
+            <div class="row" style="align-items:center">
+              <span id="tokenStatus" class="builtin-tag">Token: not configured</span>
+              <span class="spacer"></span>
+              <button class="secondary" id="setTokenBtn">Set token</button>
+              <button class="secondary" id="clearTokenBtn">Clear token</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Command-body drawer (Approaches tab): opened by clicking a command chip.
+     Hidden by default (no .open class); host round-trips the markdown body
+     via `approach-command-body`, rendered here as text (never HTML). -->
+<div class="drawer" id="cmdDrawer" role="dialog" aria-modal="true" aria-labelledby="cmdDrawerTitle">
+  <div class="drawer-head">
+    <span class="chip generated" id="cmdDrawerTitle"></span>
+    <span class="spacer"></span>
+    <button class="secondary icon" id="cmdDrawerClose" aria-label="Close">&times;</button>
+  </div>
+  <pre class="drawer-body" id="cmdDrawerBody"></pre>
+</div>
+
+<!-- Approach editor drawer (Approaches tab): add/edit/delete a single approach.
+     A SEPARATE element from #cmdDrawer above (its own .drawer instance) so the
+     two never collide. Used for both ADD (opened from "+ Add approach", empty
+     fields) and EDIT (opened from a roster card's Edit button, prefilled) —
+     see openApproachDrawer(). Nothing is written to draft.approaches until
+     Save passes in-drawer validation (submitApproachDrawer()). -->
+<div class="drawer" id="approachFormDrawer" role="dialog" aria-modal="true" aria-labelledby="approachDrawerTitle">
+  <div class="drawer-head">
+    <span class="card-title" id="approachDrawerTitle">Add approach</span>
+    <span class="spacer"></span>
+    <button class="secondary icon" id="approachDrawerClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="drawer-body form" id="approachDrawerBody">
+    <div class="drawer-error hidden" id="approachDrawerError"></div>
+
+    <label for="af-id">Id</label>
+    <input type="text" id="af-id" placeholder="my-approach" />
+
+    <label for="af-label">Label</label>
+    <input type="text" id="af-label" placeholder="My Approach" />
+
+    <label for="af-description">Description</label>
+    <input type="text" id="af-description" placeholder="short “when to use” blurb" />
+
+    <label for="af-sourceType">Source</label>
+    <select id="af-sourceType">
+      <option value="local">Local (no fetch)</option>
+      <option value="git">Git</option>
+      <option value="npm">npm</option>
+    </select>
+
+    <div id="af-gitGroup" class="hidden">
+      <label for="af-gitRepo">Repo</label>
+      <input type="text" id="af-gitRepo" placeholder="owner/name or https URL" />
+      <label for="af-gitRef">Ref</label>
+      <input type="text" id="af-gitRef" placeholder="main" />
+      <label for="af-gitInclude">Include <span class="drawer-note">(one glob per line)</span></label>
+      <textarea id="af-gitInclude" style="min-height:80px" placeholder="prompts/&#10;approach.yml"></textarea>
+    </div>
+
+    <div id="af-npmGroup" class="hidden">
+      <label for="af-npmPackage">Package</label>
+      <input type="text" id="af-npmPackage" placeholder="@scope/pkg" />
+      <label for="af-npmCommand">Command</label>
+      <input type="text" id="af-npmCommand" placeholder="npm install @scope/pkg" />
+      <label for="af-npmCollect">Collect <span class="drawer-note">(one path per line, optional)</span></label>
+      <textarea id="af-npmCollect" style="min-height:80px" placeholder="dist/prompts/"></textarea>
+    </div>
+
+    <label for="af-entrypoint">Entrypoint</label>
+    <input type="text" id="af-entrypoint" placeholder="research (bare name, no .md)" />
+
+    <div class="toggle" style="margin-top:10px">
+      <input type="checkbox" id="af-recommended" />
+      <label style="margin:0" for="af-recommended">Recommended default</label>
+    </div>
+
+    <div class="footer-row" id="approachDrawerDeleteRow" style="justify-content:space-between;align-items:center">
+      <span id="approachDrawerDeleteNote" class="drawer-note hidden">Uninstall before deleting.</span>
+      <span class="spacer"></span>
+      <button class="secondary" id="approachDrawerDelete">Delete</button>
+    </div>
+
+    <div class="footer-row">
+      <button class="secondary" id="approachDrawerCancel">Cancel</button>
+      <button id="approachDrawerSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const vscode = acquireVsCodeApi();
+  const post = (m) => vscode.postMessage(m);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  const emptyManifest = () => ({
+    host: '',
+    portRange: [0, 0],
+    baselineBranch: '',
+    services: {},
+    approaches: [],
+    agents: {},
+    worktreePathDisplay: 'relative',
+    ticketing: { provider: 'manual' },
+    agentProvider: 'claude',
+  });
+
+  // Ticket-label template — mirror of src/store/ticketLabelTemplate.ts (the webview
+  // can't import TS). Keep the two in sync: default + variables + fallbacks.
+  const DEFAULT_LABEL_TEMPLATE = '{key} — {title}';
+  const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos'];
+  const SAMPLE_TICKET = {
+    id: 142, key: 'PROJ-142', title: 'add login', stageCurrent: 'implement',
+    agentState: 'working', selectedRepos: ['fe', 'be'],
+  };
+  function renderLabel(ticket, template) {
+    const tpl = template && template.trim() !== '' ? template : DEFAULT_LABEL_TEMPLATE;
+    const vars = {
+      key: ticket.key ?? ('#' + ticket.id),
+      title: ticket.title ?? '(untitled)',
+      id: String(ticket.id),
+      status: ticket.agentState ?? '',
+      stage: ticket.stageCurrent ?? '',
+      repos: (ticket.selectedRepos || []).join(', '),
+    };
+    const out = tpl.replace(/\{(\w+)\}/g, (_m, name) =>
+      Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : '');
+    if (out.trim() !== '') return out;
+    if (tpl === DEFAULT_LABEL_TEMPLATE) return out;
+    return renderLabel(ticket, DEFAULT_LABEL_TEMPLATE);
+  }
+
+  // draft: the live editable manifest. lastSaved: baseline for dirty-check and
+  // Discard. Both start equal (from the initial `state` push).
+  let draft = emptyManifest();
+  let lastSaved = emptyManifest();
+  let dirty = false;
+  let valid = false;
+  let validateTimer = null;
+  let openCards = new Set(); // service names currently expanded
+
+  // installedIds: disk state pushed alongside `state` — independent of the
+  // dirty `draft` manifest. confirmInstallId: id currently showing the
+  // npm-source inline "Runs: <command>" confirm row.
+  let installedIds = [];
+  let confirmInstallId = null;
+  // agentRows: state.agents (file-backed agent pool), pushed alongside `state`.
+  // approachCommands: per installed approach id -> its command file basenames.
+  let agentRows = [];
+  let approachCommands = {};
+  // tokenConfigured: disk/keychain state pushed alongside `state`, independent
+  // of the dirty draft. The raw token never reaches the webview — only this flag.
+  let tokenConfigured = false;
+  // implementedProviders: disk state pushed alongside `state` (agent/registry.ts's
+  // IMPLEMENTED_PROVIDERS) — gates which agentProvider options render enabled.
+  let implementedProviders = ['claude'];
+
+  // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
+  // union). Options not in `implementedProviders` render disabled + "(coming soon)".
+  const KNOWN_AGENT_PROVIDERS = ['claude', 'codex'];
+
+  // Curated launch models (mirrors src/agent/models.ts KNOWN_MODELS — a webview
+  // can't import TS). The empty option means "no default" (the agent CLI picks).
+  const KNOWN_MODELS = [
+    { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+    { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+    { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+    { id: 'claude-fable-5', label: 'Fable 5' },
+  ];
+
+  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+  function manifestsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+
+  function markDirty() {
+    dirty = !manifestsEqual(draft, lastSaved);
+    el('dirtyDot').classList.toggle('hidden', !dirty);
+    el('savedMsg').classList.add('hidden');
+    scheduleValidate();
+  }
+
+  function scheduleValidate() {
+    if (validateTimer) clearTimeout(validateTimer);
+    validateTimer = setTimeout(() => {
+      post({ type: 'validate', manifest: draft });
+    }, 150);
+  }
+
+  function updateSaveEnabled() {
+    el('saveBtn').disabled = !valid;
+  }
+
+  // ---- nav ----
+  document.querySelectorAll('.nav-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.dataset.section;
+      ['general', 'services', 'approaches', 'agents', 'ticketing'].forEach((s) => {
+        el('section-' + s).classList.toggle('hidden', s !== target);
+      });
+    });
+  });
+
+  // ---- General ----
+  function renderGeneral() {
+    el('f-host').value = draft.host || '';
+    el('f-portMin').value = draft.portRange && draft.portRange[0] != null ? draft.portRange[0] : '';
+    el('f-portMax').value = draft.portRange && draft.portRange[1] != null ? draft.portRange[1] : '';
+    el('f-baseline').value = draft.baselineBranch || '';
+    el('f-wtDisplay').value = draft.worktreePathDisplay || 'relative';
+    el('f-agentProvider').innerHTML = KNOWN_AGENT_PROVIDERS.map((p) => {
+      const disabled = implementedProviders.indexOf(p) === -1;
+      const label = esc(p) + (disabled ? ' (coming soon)' : '');
+      return `<option value="${esc(p)}"${disabled ? ' disabled' : ''}>${label}</option>`;
+    }).join('');
+    el('f-agentProvider').value = draft.agentProvider || 'claude';
+    const modelOpts = ['<option value="">No default (agent picks)</option>'];
+    for (const m of KNOWN_MODELS) {
+      modelOpts.push(`<option value="${esc(m.id)}">${esc(m.label)}</option>`);
+    }
+    el('f-defaultModel').innerHTML = modelOpts.join('');
+    el('f-defaultModel').value = draft.defaultModel || '';
+    el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
+    renderLabelPreview();
+  }
+
+  // Live preview of the label template against a representative sample ticket,
+  // plus the supported-variable hint. Blank field → shows the default render.
+  function renderLabelPreview() {
+    const tpl = el('f-labelTemplate').value;
+    el('labelPreview').innerHTML =
+      'Preview: <span class="lp-val">' + esc(renderLabel(SAMPLE_TICKET, tpl)) + '</span>';
+    el('labelVars').innerHTML =
+      'Variables: ' + LABEL_VARS.map((v) => '<code>{' + v + '}</code>').join(' ');
+  }
+
+  el('f-host').addEventListener('input', () => { draft.host = el('f-host').value; markDirty(); });
+  el('f-portMin').addEventListener('input', () => {
+    draft.portRange = [Number(el('f-portMin').value) || 0, draft.portRange[1]];
+    markDirty();
+  });
+  el('f-portMax').addEventListener('input', () => {
+    draft.portRange = [draft.portRange[0], Number(el('f-portMax').value) || 0];
+    markDirty();
+  });
+  el('f-baseline').addEventListener('input', () => { draft.baselineBranch = el('f-baseline').value; markDirty(); });
+  el('f-wtDisplay').addEventListener('change', () => {
+    draft.worktreePathDisplay = el('f-wtDisplay').value;
+    markDirty();
+  });
+  el('f-agentProvider').addEventListener('change', () => {
+    draft.agentProvider = el('f-agentProvider').value;
+    markDirty();
+  });
+  el('f-defaultModel').addEventListener('change', () => {
+    // '' clears the default (dropped by writeManifest → no default persisted).
+    draft.defaultModel = el('f-defaultModel').value || undefined;
+    markDirty();
+  });
+  el('f-labelTemplate').addEventListener('input', () => {
+    // Blank normalizes to undefined so a cleared field falls back to the default
+    // (mirrors validateTicketLabelTemplate in schema.ts).
+    const v = el('f-labelTemplate').value;
+    if (v.trim() === '') delete draft.ticketLabelTemplate;
+    else draft.ticketLabelTemplate = v;
+    renderLabelPreview();
+    markDirty();
+  });
+
+  // ---- Services ----
+  function serviceNames() { return Object.keys(draft.services || {}); }
+
+  function renderServices() {
+    const names = serviceNames();
+    if (!names.length) {
+      el('serviceCards').innerHTML = '<div class="empty">No services configured.</div>';
+      return;
+    }
+    el('serviceCards').innerHTML = names.map((name) => renderServiceCard(name)).join('');
+  }
+
+  function renderServiceCard(name) {
+    const svc = draft.services[name];
+    const isOpen = openCards.has(name);
+    const otherNames = serviceNames().filter((n) => n !== name);
+    return `<div class="card ${isOpen ? 'open' : ''}" data-card="${esc(name)}">`
+      + `<div class="card-head" data-toggle="${esc(name)}">`
+      + `<span class="chevron">&#9656;</span>`
+      + `<span class="card-title">${esc(name)}</span>`
+      + `<button class="secondary icon" data-remove-service="${esc(name)}">Remove</button>`
+      + `</div>`
+      + `<div class="card-body">`
+      + `<label>Name</label>`
+      + `<input type="text" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
+      + `<label>Repo path</label>`
+      + `<input type="text" data-svc-field="repoPath" data-svc="${esc(name)}" value="${esc(svc.repoPath)}"/>`
+      + `<label>Start command</label>`
+      + `<input type="text" data-svc-field="start" data-svc="${esc(name)}" value="${esc(svc.start)}"/>`
+      + `<label>Health check</label>`
+      + `<input type="text" data-svc-field="health" data-svc="${esc(name)}" value="${esc(svc.health || '')}"/>`
+      + `<div class="toggle" style="margin-top:10px">`
+      + `<input type="checkbox" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${svc.hasMigrations ? 'checked' : ''}/>`
+      + `<label style="margin:0">Has migrations</label>`
+      + `</div>`
+
+      + `<h2 style="margin-top:16px">Ports</h2>`
+      + renderPortsTable(name, svc.ports || [])
+
+      + `<h2 style="margin-top:16px">Depends on</h2>`
+      + renderDependsOn(name, svc.dependsOn || [], otherNames)
+
+      + `<h2 style="margin-top:16px">Signals</h2>`
+      + renderSignalChips(name, svc.signals || [])
+
+      + `</div></div>`;
+  }
+
+  function renderPortsTable(svcName, ports) {
+    const rows = ports.map((p, i) => (
+      `<tr>`
+      + `<td><input type="text" data-port-field="name" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.name)}"/></td>`
+      + `<td><input type="text" data-port-field="env" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.env)}"/></td>`
+      + `<td><input type="number" data-port-field="default" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.default)}"/></td>`
+      + `<td><button class="secondary icon" data-remove-port="${esc(svcName)}" data-idx="${i}">&times;</button></td>`
+      + `</tr>`
+    )).join('');
+    return `<table class="sub"><thead><tr><th>Name</th><th>Env</th><th>Default</th><th></th></tr></thead>`
+      + `<tbody>${rows || ''}</tbody></table>`
+      + `<button class="secondary icon" data-add-port="${esc(svcName)}">+ Add port</button>`;
+  }
+
+  function renderDependsOn(svcName, deps, otherNames) {
+    if (!deps.length && !otherNames.length) {
+      return '<div class="empty">No other services to depend on.</div>'
+        + `<button class="secondary icon" data-add-dep="${esc(svcName)}" disabled>+ Add dependency</button>`;
+    }
+    const blocks = deps.map((d, i) => {
+      const targetOpts = otherNames.map((n) =>
+        `<option value="${esc(n)}" ${n === d.target ? 'selected' : ''}>${esc(n)}</option>`).join('');
+      const targetPorts = (draft.services[d.target] && draft.services[d.target].ports) || [];
+      const portOpts = targetPorts.map((p) =>
+        `<option value="${esc(p.name)}" ${p.name === d.port ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+      const binds = (d.bind || []).map((b, bi) => (
+        `<div class="bind-row">`
+        + `<input type="text" placeholder="env" data-bind-field="env" data-svc="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}" value="${esc(b.env)}"/>`
+        + `<input type="text" placeholder="template, e.g. http://{host}:{port}" data-bind-field="template" data-svc="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}" value="${esc(b.template)}"/>`
+        + `<button class="secondary icon" data-remove-bind="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}">&times;</button>`
+        + `</div>`
+      )).join('');
+      return `<div class="card" data-dep-card="${i}" style="margin-bottom:8px">`
+        + `<div class="card-body" style="display:block;padding:10px">`
+        + `<div class="row">`
+        + `<select data-dep-field="target" data-svc="${esc(svcName)}" data-idx="${i}">${targetOpts}</select>`
+        + `<select data-dep-field="port" data-svc="${esc(svcName)}" data-idx="${i}">${portOpts}</select>`
+        + `<button class="secondary icon fixed" data-remove-dep="${esc(svcName)}" data-idx="${i}">Remove</button>`
+        + `</div>`
+        + binds
+        + `<button class="secondary icon" data-add-bind="${esc(svcName)}" data-idx="${i}" style="margin-top:6px">+ Add bind</button>`
+        + `</div></div>`;
+    }).join('');
+    return blocks
+      + `<button class="secondary icon" data-add-dep="${esc(svcName)}">+ Add dependency</button>`;
+  }
+
+  function renderSignalChips(svcName, signals) {
+    const chips = signals.map((s, i) => (
+      `<span class="chip">${esc(s)}<button data-remove-signal="${esc(svcName)}" data-idx="${i}">&times;</button></span>`
+    )).join('');
+    return `<div class="chips" data-signals="${esc(svcName)}">${chips}</div>`
+      + `<div class="row">`
+      + `<input type="text" placeholder="add signal word, Enter to add" data-signal-input="${esc(svcName)}"/>`
+      + `</div>`;
+  }
+
+  el('addServiceBtn').addEventListener('click', () => {
+    let n = 1;
+    let name = 'service-' + n;
+    while (draft.services[name]) { n += 1; name = 'service-' + n; }
+    draft.services = { ...draft.services, [name]: {
+      repoPath: '', start: '', health: '', ports: [], dependsOn: [], hasMigrations: false, signals: [],
+    } };
+    openCards.add(name);
+    markDirty();
+    renderServices();
+  });
+
+  // Rename a service. The service name is the record key, so rename = re-key:
+  // rebuild draft.services preserving insertion order, carry the openCards entry,
+  // and repoint every dependsOn.target that referenced the old name. Blank or
+  // duplicate names are rejected (re-render restores the old value).
+  function renameService(oldName, raw) {
+    const next = (raw || '').trim();
+    if (next === oldName) return;
+    if (!next || draft.services[next]) { renderServices(); return; }
+    const rebuilt = {};
+    for (const [k, v] of Object.entries(draft.services)) {
+      const svc = {
+        ...v,
+        dependsOn: (v.dependsOn || []).map((d) =>
+          d.target === oldName ? { ...d, target: next } : d),
+      };
+      rebuilt[k === oldName ? next : k] = svc;
+    }
+    draft.services = rebuilt;
+    if (openCards.has(oldName)) { openCards.delete(oldName); openCards.add(next); }
+    markDirty();
+    renderServices();
+  }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!t.dataset) return;
+
+    if (t.dataset.cmd !== undefined) {
+      post({ type: 'get-approach-command-body', approachId: t.dataset.approach, command: t.dataset.cmd });
+      return;
+    }
+    if (t.dataset.removeService) {
+      const { [t.dataset.removeService]: _drop, ...rest } = draft.services;
+      draft.services = rest;
+      openCards.delete(t.dataset.removeService);
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.addPort) {
+      const svc = t.dataset.addPort;
+      draft.services[svc].ports = [...draft.services[svc].ports, { name: '', env: '', default: 0 }];
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.removePort) {
+      const svc = t.dataset.removePort, idx = Number(t.dataset.idx);
+      draft.services[svc].ports = draft.services[svc].ports.filter((_, i) => i !== idx);
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.addDep) {
+      const svc = t.dataset.addDep;
+      const others = serviceNames().filter((n) => n !== svc);
+      if (!others.length) return;
+      const target = others[0];
+      const targetPorts = (draft.services[target] && draft.services[target].ports) || [];
+      draft.services[svc].dependsOn = [...draft.services[svc].dependsOn, {
+        target, port: targetPorts[0] ? targetPorts[0].name : '', bind: [],
+      }];
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.removeDep) {
+      const svc = t.dataset.removeDep, idx = Number(t.dataset.idx);
+      draft.services[svc].dependsOn = draft.services[svc].dependsOn.filter((_, i) => i !== idx);
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.addBind) {
+      const svc = t.dataset.addBind, idx = Number(t.dataset.idx);
+      const dep = draft.services[svc].dependsOn[idx];
+      dep.bind = [...dep.bind, { env: '', template: '' }];
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.removeBind) {
+      const svc = t.dataset.removeBind, idx = Number(t.dataset.idx), bidx = Number(t.dataset.bidx);
+      const dep = draft.services[svc].dependsOn[idx];
+      dep.bind = dep.bind.filter((_, i) => i !== bidx);
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.removeSignal) {
+      const svc = t.dataset.removeSignal, idx = Number(t.dataset.idx);
+      draft.services[svc].signals = (draft.services[svc].signals || []).filter((_, i) => i !== idx);
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.editApproach !== undefined) {
+      const approach = (draft.approaches || []).find((a) => a.id === t.dataset.editApproach);
+      if (approach) openApproachDrawer('edit', approach);
+      return;
+    }
+    if (t.dataset.install) {
+      post({ type: 'install-approach', id: t.dataset.install });
+      return;
+    }
+    if (t.dataset.uninstall) {
+      post({ type: 'uninstall-approach', id: t.dataset.uninstall });
+      return;
+    }
+    if (t.dataset.confirmInstall) {
+      confirmInstallId = t.dataset.confirmInstall;
+      renderApproaches();
+      return;
+    }
+    if (t.dataset.cancelInstall) {
+      confirmInstallId = null;
+      renderApproaches();
+      return;
+    }
+    if (t.dataset.runInstall) {
+      const id = t.dataset.runInstall;
+      confirmInstallId = null;
+      post({ type: 'install-approach', id });
+      return;
+    }
+    if (t.dataset.saveAgent !== undefined) {
+      const name = t.dataset.saveAgent;
+      const ta = document.querySelector('textarea[data-agent-body="' + CSS.escape(name) + '"]');
+      post({ type: 'save-agent-file', name, body: ta ? ta.value : '' });
+      return;
+    }
+    if (t.dataset.deleteAgent !== undefined) {
+      post({ type: 'delete-agent', name: t.dataset.deleteAgent });
+      return;
+    }
+    if (t.dataset.manageApproach !== undefined) {
+      e.preventDefault();
+      goToApproachesTab();
+      return;
+    }
+
+    // Accordion toggle: LAST, so explicit action buttons above win first. Walk
+    // up from the clicked element to the `.card-head[data-toggle]` — clicking
+    // the label text or chevron (children without the attr) must still expand.
+    // The name input (below) carries data-svc-name so we skip it here.
+    if (t.dataset.svcName === undefined) {
+      const head = t.closest && t.closest('[data-toggle]');
+      if (head) {
+        const name = head.dataset.toggle;
+        if (openCards.has(name)) openCards.delete(name); else openCards.add(name);
+        renderServices();
+        return;
+      }
+    }
+  });
+
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!t.dataset) return;
+    if (t.dataset.svcField) {
+      const svc = t.dataset.svc, field = t.dataset.svcField;
+      if (field === 'hasMigrations') return; // handled by change
+      draft.services[svc][field] = t.value;
+      markDirty();
+      return;
+    }
+    if (t.dataset.portField) {
+      const svc = t.dataset.svc, idx = Number(t.dataset.idx), field = t.dataset.portField;
+      draft.services[svc].ports[idx][field] = field === 'default' ? Number(t.value) || 0 : t.value;
+      markDirty();
+      return;
+    }
+    if (t.dataset.bindField) {
+      const svc = t.dataset.svc, idx = Number(t.dataset.idx), bidx = Number(t.dataset.bidx), field = t.dataset.bindField;
+      draft.services[svc].dependsOn[idx].bind[bidx][field] = t.value;
+      markDirty();
+      return;
+    }
+  });
+
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t.dataset) return;
+    if (t.dataset.svcName !== undefined) {
+      renameService(t.dataset.svcName, t.value);
+      return;
+    }
+    if (t.dataset.svcField === 'hasMigrations') {
+      draft.services[t.dataset.svc].hasMigrations = t.checked;
+      markDirty();
+      return;
+    }
+    if (t.dataset.depField) {
+      const svc = t.dataset.svc, idx = Number(t.dataset.idx), field = t.dataset.depField;
+      draft.services[svc].dependsOn[idx][field] = t.value;
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.approachEnabled !== undefined) {
+      post({ type: 'set-approach-enabled', id: t.dataset.approachEnabled, enabled: t.checked });
+      return;
+    }
+    if (t.dataset.agentEnabled !== undefined) {
+      post({ type: 'set-agent-enabled', name: t.dataset.agentEnabled, enabled: t.checked });
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el('cmdDrawer').classList.contains('open')) {
+      closeDrawer();
+      return;
+    }
+    if (e.key === 'Escape' && el('approachFormDrawer').classList.contains('open')) {
+      closeApproachDrawer();
+      return;
+    }
+    const t = e.target;
+    if (t.dataset && t.dataset.cmd !== undefined && (e.key === 'Enter' || e.key === ' ')) {
+      post({ type: 'get-approach-command-body', approachId: t.dataset.approach, command: t.dataset.cmd });
+      e.preventDefault();
+      return;
+    }
+    if (t.dataset && t.dataset.manageApproach !== undefined && e.key === ' ') {
+      // Enter is handled natively by the <a href> (fires a click); Space needs
+      // an explicit handler since anchors don't activate on Space by default.
+      e.preventDefault();
+      goToApproachesTab();
+      return;
+    }
+    if (t.dataset && t.dataset.signalInput !== undefined && e.key === 'Enter') {
+      const svc = t.dataset.signalInput;
+      const val = t.value.trim();
+      if (val) {
+        draft.services[svc].signals = [...(draft.services[svc].signals || []), val];
+        markDirty(); renderServices();
+      }
+      e.preventDefault();
+    }
+  });
+
+  // ---- Command-body drawer ----
+  function openDrawer(command, body) {
+    el('cmdDrawerTitle').textContent = command;
+    el('cmdDrawerBody').textContent = body;
+    el('cmdDrawer').classList.add('open');
+  }
+  function closeDrawer() {
+    el('cmdDrawer').classList.remove('open');
+  }
+  el('cmdDrawerClose').addEventListener('click', closeDrawer);
+
+  // ---- Approaches ----
+  // Renders a grouped roster (Installed / Available / Built-in — Option A).
+  // Every approach in draft.approaches has an id (the approach-editor drawer
+  // is the only way to add one, and it never submits a blank id — see
+  // submitApproachDrawer()). Re-derived on every render from `installedIds`
+  // (disk state) so a card's group/rail/enable-guard always reflects reality.
+  function renderApproaches() {
+    const list = draft.approaches || [];
+    if (!list.length) {
+      el('approachList').innerHTML = '<div class="empty">No approaches configured.</div>';
+      return;
+    }
+
+    const groups = [
+      ['Installed', list.filter((a) => installedIds.includes(a.id))],
+      ['Available', list.filter((a) => !installedIds.includes(a.id) && a.source)],
+      ['Built-in', list.filter((a) => !installedIds.includes(a.id) && !a.source)],
+    ];
+    const rosterHtml = groups
+      .filter(([, items]) => items.length)
+      .map(([title, items]) => (
+        `<div class="approach-group-header">${esc(title)}</div>` + items.map(renderApproachCard).join('')
+      ))
+      .join('');
+
+    el('approachList').innerHTML = rosterHtml;
+  }
+
+  // One roster card: 4px status rail, mono id + label, right-aligned action
+  // cluster (enable toggle honoring the enable-guard, Edit — opens the
+  // approach-editor drawer prefilled — + install/uninstall affordance).
+  // Installed cards additionally show the entry/runs command lines.
+  function renderApproachCard(a) {
+    const isInstalled = installedIds.includes(a.id);
+    const stateClass = isInstalled ? 'installed' : (a.source ? 'available' : 'builtin');
+    // The enable toggle is live when the approach is usable in the create flow:
+    // installed (sourced) OR built-in (sourceless — nothing to install). Only a
+    // sourced-but-not-installed approach has a dead toggle (install it first).
+    const usable = isInstalled || !a.source;
+    const toggle = (
+      `<label class="approach-toggle${usable ? '' : ' disabled'}" title="${usable ? 'Enable in create flow' : 'Install to enable'}">`
+      + `<input type="checkbox" data-approach-enabled="${esc(a.id)}" ${a.enabled !== false ? 'checked' : ''} ${usable ? '' : 'disabled'}/>`
+      + `<span class="dot"></span>`
+      + `</label>`
+    );
+    const editBtn = `<button class="secondary icon" data-edit-approach="${esc(a.id)}">Edit</button>`;
+    const source = approachSourceLink(a);
+    return (
+      `<div class="roster-card ${stateClass}">`
+      + `<div class="approach-rail"></div>`
+      + `<div class="approach-body">`
+      + `<div class="approach-head">`
+      + `<span class="approach-id">${esc(a.id)}</span>`
+      + `<span class="approach-label">${esc(a.label)}</span>`
+      + `<span class="approach-actions">${toggle}${editBtn}${approachInstallAffordance(a)}</span>`
+      + `</div>`
+      + (isInstalled ? renderApproachCommands(a.id) : '')
+      + (source ? `<div class="approach-foot">${source}</div>` : '')
+      + `</div></div>`
+    );
+  }
+
+  // The longest shared leading directory of the include paths — the source
+  // folder the approach is fetched from (e.g. two rpi includes under
+  // development-workflows/rpi/ collapse to "development-workflows/rpi").
+  function commonDirPrefix(paths) {
+    if (!paths || !paths.length) return '';
+    const split = paths.map((p) => p.split('/'));
+    const first = split[0];
+    let i = 0;
+    for (; i < first.length; i++) {
+      if (!split.every((s) => s[i] === first[i])) break;
+    }
+    return first.slice(0, i).join('/');
+  }
+
+  // Clickable GitHub link to a git-sourced approach's source folder. npm and
+  // built-in (sourceless) approaches render nothing here.
+  function approachSourceLink(a) {
+    if (!a.source || a.source.type !== 'git' || !a.source.repo) return '';
+    const ref = a.source.ref || 'main';
+    // Trim a trailing `.claude` so the link targets the approach's own folder
+    // (e.g. development-workflows/rpi) rather than its .claude subdir.
+    const folder = commonDirPrefix(a.source.include).replace(/\/?\.claude$/, '');
+    const base = /^https?:/.test(a.source.repo)
+      ? a.source.repo.replace(/\.git$/, '').replace(/\/$/, '')
+      : `https://github.com/${a.source.repo}`;
+    const url = folder ? `${base}/tree/${ref}/${folder}` : `${base}/tree/${ref}`;
+    return `<a class="approach-source" href="${esc(url)}" title="View source on GitHub">`
+      + `${esc(folder || a.source.repo)}</a>`;
+  }
+
+  // Command lines for one installed approach: `entry` — the karst-generated
+  // orchestrator (accented `.chip.generated`, `/karst:<id>`) — and `runs` —
+  // the approach's native commands (plain chips). Every chip carries
+  // data-approach/data-cmd so a click opens the command-body drawer.
+  function renderApproachCommands(id) {
+    const cmds = (approachCommands && approachCommands[id]) || [];
+    if (!cmds.length) return '';
+    const chip = (c) => {
+      const isGenerated = c.startsWith('/karst:');
+      return `<span class="chip${isGenerated ? ' generated' : ''}" tabindex="0" role="button"`
+        + ` data-approach="${esc(id)}" data-cmd="${esc(c)}">${esc(c)}</span>`;
+    };
+    const entryCmds = cmds.filter((c) => c.startsWith('/karst:'));
+    const runCmds = cmds.filter((c) => !c.startsWith('/karst:'));
+    const entryLine = entryCmds.length
+      ? `<div class="approach-line"><span class="micro">entry</span><span class="chips">${entryCmds.map(chip).join('')}</span></div>`
+      : '';
+    const runsLine = runCmds.length
+      ? `<div class="approach-line"><span class="micro">runs</span><span class="chips">${runCmds.map(chip).join('')}</span></div>`
+      : '';
+    return `<div class="approach-lines">${entryLine}${runsLine}</div>`;
+  }
+
+  // Install/uninstall affordance for one approach row, keyed on `a.id` against
+  // the disk-state `installedIds` set (independent of the dirty draft):
+  // - blank id (freshly-added, unsaved row) -> nothing
+  // - installed -> Uninstall button (the button + the "Installed" group header
+  //   already signal installed state; a separate "Installed" tag is redundant)
+  // - not installed, no `source` -> "Built-in" tag (nothing to fetch)
+  // - not installed, has `source`:
+  //   - git -> Install button (posts immediately)
+  //   - npm -> inline confirm ("Runs: <command>" + Cancel/Run)
+  function approachInstallAffordance(a) {
+    if (!a.id) return '';
+    if (installedIds.includes(a.id)) {
+      return `<button class="secondary icon approach-install" data-uninstall="${esc(a.id)}">Uninstall</button>`;
+    }
+    if (!a.source) {
+      return `<span class="approach-install builtin-tag">Built-in</span>`;
+    }
+    if (confirmInstallId === a.id) {
+      const isNpm = a.source.type === 'npm';
+      return (
+        `<span class="approach-install confirm-run">`
+        + (isNpm ? `<span class="confirm-cmd">Runs: ${esc(a.source.command)}</span>` : '')
+        + `<span class="confirm-actions">`
+        + `<button class="secondary icon" data-cancel-install="${esc(a.id)}">Cancel</button>`
+        + `<button class="icon" data-run-install="${esc(a.id)}">Run</button>`
+        + `</span>`
+        + `</span>`
+      );
+    }
+    if (a.source.type === 'npm') {
+      return `<button class="secondary icon approach-install" data-confirm-install="${esc(a.id)}">Install</button>`;
+    }
+    return `<button class="secondary icon approach-install" data-install="${esc(a.id)}">Install</button>`;
+  }
+
+  el('addApproachBtn').addEventListener('click', () => {
+    openApproachDrawer('add', null);
+  });
+
+  // ---- Approach editor drawer (add/edit/delete) ----
+  // A SEPARATE drawer element/state from the command-body drawer above.
+  // approachDrawerMode: 'add' | 'edit' | null (closed). approachDrawerEditId:
+  // the id being edited (EDIT only — id is read-only there, since renaming
+  // would break an installed package's directory mapping; rename = delete + add).
+  let approachDrawerMode = null;
+  let approachDrawerEditId = null;
+
+  // id-safety mirrors the host's assertSafeId (approaches/pkg.ts): reject a
+  // path separator, a ".." segment, or an absolute path (posix or win-drive).
+  function isSafeApproachId(id) {
+    if (!id) return false;
+    if (id.includes('/') || id.includes('\\')) return false;
+    if (id.split('/').includes('..')) return false;
+    if (id.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(id)) return false;
+    return true;
+  }
+
+  function approachSourceGroupsUpdate() {
+    const type = el('af-sourceType').value;
+    el('af-gitGroup').classList.toggle('hidden', type !== 'git');
+    el('af-npmGroup').classList.toggle('hidden', type !== 'npm');
+  }
+  el('af-sourceType').addEventListener('change', approachSourceGroupsUpdate);
+
+  function showApproachDrawerError(msg) {
+    const box = el('approachDrawerError');
+    if (!msg) { box.classList.add('hidden'); box.textContent = ''; return; }
+    box.textContent = msg;
+    box.classList.remove('hidden');
+  }
+
+  // Opens the drawer for ADD (approach === null, all fields blank) or EDIT
+  // (approach prefilled, id read-only). Field values are set via .value/
+  // .checked — never innerHTML — so user content can't inject markup.
+  function openApproachDrawer(mode, approach) {
+    approachDrawerMode = mode;
+    approachDrawerEditId = mode === 'edit' ? approach.id : null;
+    showApproachDrawerError(null);
+    el('approachDrawerTitle').textContent = mode === 'edit' ? 'Edit approach' : 'Add approach';
+
+    el('af-id').value = mode === 'edit' ? approach.id : '';
+    el('af-id').readOnly = mode === 'edit';
+    el('af-label').value = mode === 'edit' ? (approach.label || '') : '';
+    el('af-description').value = mode === 'edit' ? (approach.description || '') : '';
+
+    const src = mode === 'edit' ? approach.source : null;
+    const srcType = src ? src.type : 'local';
+    el('af-sourceType').value = srcType;
+    el('af-gitRepo').value = srcType === 'git' ? (src.repo || '') : '';
+    el('af-gitRef').value = srcType === 'git' ? (src.ref || 'main') : 'main';
+    el('af-gitInclude').value = srcType === 'git' ? (src.include || []).join('\n') : '';
+    el('af-npmPackage').value = srcType === 'npm' ? (src.package || '') : '';
+    el('af-npmCommand').value = srcType === 'npm' ? (src.command || '') : '';
+    el('af-npmCollect').value = srcType === 'npm' ? (src.collect || []).join('\n') : '';
+    approachSourceGroupsUpdate();
+
+    el('af-entrypoint').value = mode === 'edit' ? (approach.entrypoint || '') : '';
+    el('af-recommended').checked = mode === 'edit' ? !!approach.recommended : false;
+
+    const isInstalled = mode === 'edit' && installedIds.includes(approach.id);
+    el('approachDrawerDeleteRow').classList.toggle('hidden', mode !== 'edit');
+    el('approachDrawerDeleteNote').classList.toggle('hidden', !isInstalled);
+    el('approachDrawerDelete').disabled = isInstalled;
+
+    el('approachFormDrawer').classList.add('open');
+  }
+
+  function closeApproachDrawer() {
+    el('approachFormDrawer').classList.remove('open');
+    approachDrawerMode = null;
+    approachDrawerEditId = null;
+  }
+
+  // Validates in the drawer and, on success, builds the approach object
+  // immutably and writes it into draft.approaches — this is the ONLY path
+  // that adds/edits an approach; the global validate/save never sees a
+  // partial or blank-id entry. On any failure: show an inline error and
+  // keep the drawer open (never post a partial manifest).
+  function submitApproachDrawer() {
+    const id = el('af-id').value.trim();
+    const label = el('af-label').value.trim();
+    const description = el('af-description').value.trim();
+    const entrypoint = el('af-entrypoint').value.trim();
+    const sourceType = el('af-sourceType').value;
+    const recommended = el('af-recommended').checked;
+
+    if (approachDrawerMode === 'add') {
+      if (!id) return showApproachDrawerError('Id is required.');
+      if (!isSafeApproachId(id)) {
+        return showApproachDrawerError('Id must not contain "/", "\\\\", "..", or be an absolute path.');
+      }
+      if ((draft.approaches || []).some((a) => a.id === id)) {
+        return showApproachDrawerError('An approach with this id already exists.');
+      }
+    }
+    if (!label) return showApproachDrawerError('Label is required.');
+
+    let source;
+    if (sourceType === 'git') {
+      const repo = el('af-gitRepo').value.trim();
+      const ref = el('af-gitRef').value.trim();
+      const include = el('af-gitInclude').value.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (!repo) return showApproachDrawerError('Git repo is required.');
+      if (!include.length) return showApproachDrawerError('Git include needs at least one glob.');
+      source = { type: 'git', repo, ref: ref || 'main', include };
+    } else if (sourceType === 'npm') {
+      const pkg = el('af-npmPackage').value.trim();
+      const command = el('af-npmCommand').value.trim();
+      const collect = el('af-npmCollect').value.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (!pkg) return showApproachDrawerError('npm package is required.');
+      if (!command) return showApproachDrawerError('npm command is required.');
+      source = { type: 'npm', package: pkg, command, collect };
+    }
+
+    const finalId = approachDrawerMode === 'edit' ? approachDrawerEditId : id;
+    const existing = approachDrawerMode === 'edit'
+      ? (draft.approaches || []).find((a) => a.id === approachDrawerEditId)
+      : null;
+
+    const approach = {
+      id: finalId,
+      label,
+      ...(description ? { description } : {}),
+      ...(entrypoint ? { entrypoint } : {}),
+      ...(source ? { source } : {}),
+      enabled: existing ? existing.enabled !== false : true,
+      ...(recommended ? { recommended: true } : {}),
+    };
+
+    const clearOthers = (a) => (recommended ? { ...a, recommended: false } : a);
+    let nextApproaches;
+    if (approachDrawerMode === 'edit') {
+      nextApproaches = (draft.approaches || []).map((a) => (
+        a.id === approachDrawerEditId ? approach : clearOthers(a)
+      ));
+    } else {
+      nextApproaches = [...(draft.approaches || []).map(clearOthers), approach];
+    }
+
+    draft.approaches = nextApproaches;
+    markDirty();
+    renderApproaches();
+    closeApproachDrawer();
+  }
+
+  // Blocked when the id is installed (an installed package would be orphaned)
+  // — the Delete button is already disabled in that case, this is belt-and-braces.
+  function deleteApproachDrawer() {
+    if (!approachDrawerEditId || installedIds.includes(approachDrawerEditId)) return;
+    draft.approaches = (draft.approaches || []).filter((a) => a.id !== approachDrawerEditId);
+    markDirty();
+    renderApproaches();
+    closeApproachDrawer();
+  }
+
+  el('approachDrawerClose').addEventListener('click', closeApproachDrawer);
+  el('approachDrawerCancel').addEventListener('click', closeApproachDrawer);
+  el('approachDrawerSave').addEventListener('click', submitApproachDrawer);
+  el('approachDrawerDelete').addEventListener('click', deleteApproachDrawer);
+
+  // ---- Agents ----
+  // Provenance roster (Option 1): rendered from `agentRows` (state.agents,
+  // file-backed pool + approach-contributed agents) — NOT draft.agents, which
+  // is the obsolete manifest role/command shape. `agentRows` arrives from the
+  // host ALREADY provenance-sorted (file agents first, then approach agents
+  // grouped by approachId in first-appearance order — see buildSettingsState/
+  // sortAgentRowsByProvenance) — this render walks that order and only needs
+  // to notice when the provenance/approachId changes to emit a new header.
+  // The header stat (N / M enabled) and both group headers are derived
+  // straight from `agentRows`, so they can never drift from what's rendered.
+  function renderAgents() {
+    const rows = agentRows || [];
+    const total = rows.length;
+    const enabledCount = rows.filter((a) => a.enabled).length;
+    el('agentHero').innerHTML = total ? renderAgentHero(enabledCount, total) : '';
+
+    if (!total) {
+      el('agentList').innerHTML = '<div class="empty">No agents yet. Add one to delegate tickets to a single subagent.</div>';
+      return;
+    }
+
+    const fileRows = rows.filter((a) => a.source === 'file');
+    const approachRows = rows.filter((a) => a.source === 'approach');
+
+    let html = '';
+    if (fileRows.length) {
+      html += `<div class="agent-group yours">`
+        + `<div class="approach-group-header">Yours</div>`
+        + fileRows.map(renderFileAgentRow).join('')
+        + `</div>`;
+    }
+    if (approachRows.length) {
+      html += `<div class="agent-group">`
+        + `<div class="approach-group-header">From approaches</div>`
+        + renderApproachAgentGroups(approachRows)
+        + `</div>`;
+    }
+    el('agentList').innerHTML = html;
+
+    // Agent body is set via .value (never embedded in the innerHTML string
+    // above) so a body containing markup-like text can never be interpreted
+    // as HTML, even though esc() would already neutralize it.
+    fileRows.forEach((a) => {
+      const ta = document.querySelector('textarea[data-agent-body="' + CSS.escape(a.name) + '"]');
+      if (ta) ta.value = a.body || '';
+    });
+  }
+
+  function renderAgentHero(enabledCount, total) {
+    return `<div class="agent-hero">`
+      + `<span class="stat"><b>${enabledCount}</b> / ${total}</span>`
+      + `<span class="cap">agents enabled in the <span style="font-family:var(--mono)">Direct implementation with a subagent</span> `
+      + `create flow. Toggle any agent to change what's offered there.</span>`
+      + `</div>`;
+  }
+
+  function agentToggle(a) {
+    const on = !!a.enabled;
+    return `<label class="approach-toggle" title="${on ? 'Disable in create flow' : 'Enable in create flow'}">`
+      + `<input type="checkbox" data-agent-enabled="${esc(a.name)}" ${on ? 'checked' : ''}/>`
+      + `<span class="dot"></span>`
+      + `</label>`;
+  }
+
+  // File agent: editable — name + switch + Delete on the roster row, an
+  // always-open body editor (textarea value set post-render, see above) with
+  // Save below it.
+  function renderFileAgentRow(a) {
+    const on = !!a.enabled;
+    return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
+      + `<span class="glyph">&#9638;</span>`
+      + `<span class="nm">${esc(a.name)}</span>`
+      + `<span class="spacer"></span>`
+      + agentToggle(a)
+      + `<button class="secondary icon" data-delete-agent="${esc(a.name)}">Delete</button>`
+      + `</div>`
+      + `<div class="agent-editor">`
+      + `<textarea data-agent-body="${esc(a.name)}"></textarea>`
+      + `<div class="footer-row"><button class="icon" data-save-agent="${esc(a.name)}">Save</button></div>`
+      + `</div>`;
+  }
+
+  // Approach agents: a left-spine bracket per approachId (emitted whenever
+  // approachId changes, relying on the pre-sorted order), each id-headed
+  // group carrying the single "manage in approach" link, then its read-only
+  // rows underneath (switch only — no body editor, no Delete).
+  function renderApproachAgentGroups(rows) {
+    let currentId;
+    let html = '';
+    for (const a of rows) {
+      if (a.approachId !== currentId) {
+        currentId = a.approachId;
+        html += `<div class="agent-appr-head">`
+          + `<span class="appr-id">${esc(currentId)}</span>`
+          + `<span class="spacer"></span>`
+          + `<a class="agent-link" href="#" tabindex="0" data-manage-approach="${esc(currentId)}">manage in approach &#8599;</a>`
+          + `</div>`;
+      }
+      html += renderApproachAgentRow(a);
+    }
+    return `<div class="agent-spine">${html}</div>`;
+  }
+
+  function renderApproachAgentRow(a) {
+    const on = !!a.enabled;
+    return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
+      + `<span class="glyph">&#9670;</span>`
+      + `<span class="nm">${esc(a.name)}</span>`
+      + `<span class="owner">${esc(a.approachId)}</span>`
+      + `<span class="spacer"></span>`
+      + agentToggle(a)
+      + `</div>`;
+  }
+
+  // "manage in approach ↗": switches the settings webview to the Approaches
+  // tab. Reuses the existing nav-switch by clicking the real `approaches`
+  // nav button, rather than duplicating its section-toggle logic here.
+  function goToApproachesTab() {
+    const btn = document.querySelector('.nav-btn[data-section="approaches"]');
+    if (btn) btn.click();
+  }
+
+  el('addAgentBtn').addEventListener('click', () => {
+    const input = el('newAgentName');
+    const name = (input.value || '').trim();
+    if (!name) return;
+    post({ type: 'create-agent', name });
+    input.value = '';
+  });
+
+  // ---- Ticketing ----
+  // Provider/teamId/listId ride the manifest draft (saved via Save). The token
+  // is host-owned: buttons post intent messages, the indicator reflects the
+  // pushed `tokenConfigured` flag; the token value never lives here.
+  function ticketingCfg() {
+    if (!draft.ticketing) draft.ticketing = { provider: 'manual' };
+    return draft.ticketing;
+  }
+
+  function renderTicketing() {
+    const cfg = ticketingCfg();
+    el('f-ticketProvider').value = cfg.provider || 'manual';
+    el('f-ticketTeamId').value = cfg.teamId || '';
+    el('f-ticketListId').value = cfg.listId || '';
+    const isClickup = cfg.provider === 'clickup';
+    el('clickupFields').classList.toggle('hidden', !isClickup);
+    el('tokenStatus').textContent = 'Token: ' + (tokenConfigured ? 'configured' : 'not configured');
+    el('tokenStatus').className = tokenConfigured ? 'installed-tag' : 'builtin-tag';
+  }
+
+  el('f-ticketProvider').addEventListener('change', () => {
+    ticketingCfg().provider = el('f-ticketProvider').value;
+    markDirty(); renderTicketing();
+  });
+  el('f-ticketTeamId').addEventListener('input', () => {
+    const v = el('f-ticketTeamId').value.trim();
+    const cfg = ticketingCfg();
+    if (v) cfg.teamId = v; else delete cfg.teamId;
+    markDirty();
+  });
+  el('f-ticketListId').addEventListener('input', () => {
+    const v = el('f-ticketListId').value.trim();
+    const cfg = ticketingCfg();
+    if (v) cfg.listId = v; else delete cfg.listId;
+    markDirty();
+  });
+  el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
+  el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
+
+  // ---- top bar ----
+  el('discardBtn').addEventListener('click', () => {
+    draft = clone(lastSaved);
+    dirty = false;
+    el('dirtyDot').classList.add('hidden');
+    openCards = new Set();
+    renderAll();
+    post({ type: 'validate', manifest: draft });
+  });
+
+  el('saveBtn').addEventListener('click', () => {
+    if (!valid) return;
+    post({ type: 'save', manifest: draft });
+  });
+
+  function renderAll() {
+    renderGeneral();
+    renderServices();
+    renderApproaches();
+    renderAgents();
+    renderTicketing();
+  }
+
+  function showError(msg) {
+    const banner = el('errBanner');
+    if (!msg) { banner.classList.add('hidden'); return; }
+    banner.textContent = msg;
+    banner.classList.remove('hidden');
+  }
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg) return;
+    switch (msg.type) {
+      case 'state': {
+        draft = clone(msg.state.manifest);
+        lastSaved = clone(msg.state.manifest);
+        dirty = false;
+        installedIds = msg.state.installedIds || [];
+        tokenConfigured = !!msg.state.tokenConfigured;
+        implementedProviders = msg.state.implementedProviders || ['claude'];
+        agentRows = msg.state.agents || [];
+        approachCommands = msg.state.approachCommands || {};
+        confirmInstallId = null;
+        el('dirtyDot').classList.add('hidden');
+        valid = !msg.state.error;
+        updateSaveEnabled();
+        showError(msg.state.error);
+        renderAll();
+        vscode.setState(msg.state);
+        break;
+      }
+      case 'validation': {
+        valid = msg.ok;
+        updateSaveEnabled();
+        showError(msg.ok ? null : msg.error);
+        break;
+      }
+      case 'error': {
+        showError(msg.message);
+        break;
+      }
+      case 'saved': {
+        lastSaved = clone(draft);
+        dirty = false;
+        el('dirtyDot').classList.add('hidden');
+        el('savedMsg').classList.remove('hidden');
+        setTimeout(() => el('savedMsg').classList.add('hidden'), 2000);
+        break;
+      }
+      case 'approach-command-body': {
+        openDrawer(msg.command, msg.body);
+        break;
+      }
+    }
+  });
+
+  const prev = vscode.getState();
+  if (prev) {
+    draft = clone(prev.manifest);
+    lastSaved = clone(prev.manifest);
+    installedIds = prev.installedIds || [];
+    tokenConfigured = !!prev.tokenConfigured;
+    implementedProviders = prev.implementedProviders || ['claude'];
+    agentRows = prev.agents || [];
+    approachCommands = prev.approachCommands || {};
+    valid = !prev.error;
+    updateSaveEnabled();
+    showError(prev.error);
+    renderAll();
+  }
+  post({ type: 'request-state' });
+</script>

@@ -1,0 +1,69 @@
+import { describe, it, expect } from 'vitest';
+import {
+  renderWorkflowCommand,
+  buildWorkflowInvocation,
+  orchestratorCommandBasename,
+  KARST_PLUGIN_NAME,
+} from './workflowCommand.js';
+import type { WorkflowPhase } from '../manifest/types.js';
+
+const rpiPhases: WorkflowPhase[] = [
+  { name: 'describe' },
+  { name: 'research', command: '/rpi:research' },
+  { name: 'plan', command: '/rpi:plan' },
+  { name: 'implement', command: '/rpi:implement' },
+];
+
+describe('renderWorkflowCommand', () => {
+  it('titles the command /karst:<id>', () => {
+    const body = renderWorkflowCommand({ id: 'rpi', label: 'Research, Plan, Implement', phases: rpiPhases });
+    expect(body).toContain('/karst:rpi');
+    expect(body).not.toContain('/rpi:karst');
+    expect(body).toContain('Research, Plan, Implement');
+  });
+  it('still lists each native phase command in backticks', () => {
+    const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
+    expect(body).toContain('`/rpi:research`');
+    expect(body).toContain('`/rpi:plan`');
+    expect(body).toContain('`/rpi:implement`');
+  });
+  it('references $ARGUMENTS', () => {
+    expect(renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases })).toContain('$ARGUMENTS');
+  });
+  it('embeds a concrete loader step when a contextCommand is given', () => {
+    const body = renderWorkflowCommand({
+      id: 'rpi',
+      label: 'RPI',
+      phases: rpiPhases,
+      contextCommand: 'node "/ext/dist/cli/main.js" context --db "/x.db" --manifest "/k.yml"',
+    });
+    expect(body).toContain('node "/ext/dist/cli/main.js" context --db "/x.db" --manifest "/k.yml" $ARGUMENTS');
+    expect(body).toContain('refresh');
+  });
+  it('falls back to the generic read instruction without a contextCommand', () => {
+    const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
+    expect(body).toContain('read and describe the ticket');
+    expect(body).not.toContain('--db');
+  });
+});
+
+describe('buildWorkflowInvocation', () => {
+  it('builds /karst:<id> <key>', () => {
+    expect(buildWorkflowInvocation('rpi', 'PROJ-9')).toBe('/karst:rpi PROJ-9');
+    expect(buildWorkflowInvocation('rpi', 'PROJ-9')).toContain(`/${KARST_PLUGIN_NAME}:rpi`);
+  });
+  it('trims to just the command when the ticket key is empty', () => {
+    expect(buildWorkflowInvocation('rpi', '')).toBe('/karst:rpi');
+  });
+});
+
+describe('orchestratorCommandBasename', () => {
+  it('is the approach id (registers as /karst:<id> under the karst plugin)', () => {
+    expect(orchestratorCommandBasename('rpi')).toBe('rpi');
+  });
+  it('no drift: invocation command equals /<KARST_PLUGIN_NAME>:<basename>', () => {
+    const id = 'rpi';
+    const inv = buildWorkflowInvocation(id, 'K').split(' ')[0];
+    expect(inv).toBe(`/${KARST_PLUGIN_NAME}:${orchestratorCommandBasename(id)}`);
+  });
+});

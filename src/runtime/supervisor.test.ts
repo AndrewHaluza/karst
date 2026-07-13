@@ -1,0 +1,270 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openStore, type Store } from '../store/db.js';
+import { startHot, stopServer, stopTicketServers, tailLog } from './supervisor.js';
+
+/**
+ * A fixture dev server: comes up on PORT, serves /health 200 only after a delay
+ * so the test proves start() waits for health, not just for spawn.
+ */
+const SERVER_SRC = `
+import { createServer } from 'node:http';
+const port = Number(process.env.PORT);
+const readyAfter = Number(process.env.READY_AFTER_MS || '0');
+const start = Date.now();
+console.log('booting on ' + port);
+createServer((req, res) => {
+  if (req.url === '/health') {
+    if (Date.now() - start < readyAfter) { res.writeHead(503); res.end('warming'); return; }
+    res.writeHead(200); res.end('ok');
+    return;
+  }
+  res.writeHead(404); res.end();
+}).listen(port);
+`;
+
+/** A server that binds but never returns healthy — to exercise the timeout path. */
+const NEVER_HEALTHY_SRC = `
+import { createServer } from 'node:http';
+const port = Number(process.env.PORT);
+createServer((_req, res) => { res.writeHead(503); res.end('never'); }).listen(port);
+`;
+
+/**
+ * A launcher that forks a long-lived grandchild (like `npm run dev` → Vite),
+ * writes the grandchild pid to GRANDCHILD_PID_FILE, and itself never gets
+ * healthy — to prove killTree reaps the grandchild, not just the launcher.
+ */
+const LAUNCHER_SRC = `
+import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+const grand = spawn(process.execPath, ['-e', 'setInterval(()=>{}, 1e9)'], { stdio: 'ignore' });
+writeFileSync(process.env.GRANDCHILD_PID_FILE, String(grand.pid));
+// never bind a health port — startHot will time out and kill us
+setInterval(() => {}, 1e9);
+`;
+
+/** True if pid is alive (signal 0 probes without killing). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let portCounter = 48200;
+function nextPort(): number {
+  return portCounter++;
+}
+
+describe('server supervisor', () => {
+  let store: Store;
+  let dir: string;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    dir = mkdtempSync(join(tmpdir(), 'karst-sup-'));
+    writeFileSync(join(dir, 'server.mjs'), SERVER_SRC);
+    writeFileSync(join(dir, 'never.mjs'), NEVER_HEALTHY_SRC);
+    writeFileSync(join(dir, 'launcher.mjs'), LAUNCHER_SRC);
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('startHot resolves only after health passes and records the server row', async () => {
+    const port = nextPort();
+    const logPath = join(dir, 'svc.log');
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      env: { PORT: String(port), READY_AFTER_MS: '400' },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath,
+    });
+
+    expect(rec.pid).toBeGreaterThan(0);
+    expect(rec.port).toBe(port);
+    expect(rec.status).toBe('running');
+    expect(rec.logPath).toBe(logPath);
+
+    // health must actually be OK by the time startHot resolves
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(health.status).toBe(200);
+
+    const row = store.db
+      .prepare('SELECT pid, port, status, log_path FROM servers WHERE id = ?')
+      .get(rec.id) as { pid: number; port: number; status: string; log_path: string };
+    expect(row.status).toBe('running');
+    expect(row.pid).toBe(rec.pid);
+
+    stopServer(store, rec.id);
+  });
+
+  it('stopServer kills the process and sets status=stopped', async () => {
+    const port = nextPort();
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+    });
+
+    stopServer(store, rec.id);
+
+    const row = store.db.prepare('SELECT status FROM servers WHERE id = ?').get(rec.id) as
+      | { status: string }
+      | undefined;
+    expect(row).toBeUndefined(); // row deleted, not left as a stale 'stopped'
+
+    // port should be free again shortly after kill
+    await new Promise((r) => setTimeout(r, 200));
+    await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toBeTruthy();
+  });
+
+  it('rejects after a timeout when the service never gets healthy', async () => {
+    const port = nextPort();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'never.mjs')],
+        cwd: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        healthTimeoutMs: 1200,
+      }),
+    ).rejects.toThrow(/health|timeout/i);
+  });
+
+  it('kills the grandchild when a launcher fails health (no orphan)', async () => {
+    const port = nextPort();
+    const pidFile = join(dir, 'grandchild.pid');
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'frontend',
+        command: process.execPath,
+        args: [join(dir, 'launcher.mjs')],
+        cwd: dir,
+        env: { PORT: String(port), GRANDCHILD_PID_FILE: pidFile },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        healthTimeoutMs: 800,
+      }),
+    ).rejects.toThrow(/health|timeout/i);
+
+    const grandPid = Number(readFileSync(pidFile, 'utf8').trim());
+    expect(grandPid).toBeGreaterThan(0);
+    // Give the group-kill a moment to propagate.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(alive(grandPid)).toBe(false); // grandchild reaped, not orphaned
+  });
+
+  it('aborts a health-gated start promptly when the signal fires', async () => {
+    const port = nextPort();
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 150);
+    const start = Date.now();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'never.mjs')],
+        cwd: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        healthTimeoutMs: 30_000,
+        signal: ctrl.signal,
+      }),
+    ).rejects.toThrow(/abort/i);
+    expect(Date.now() - start).toBeLessThan(3_000); // aborted, not timed out
+  });
+
+  it('stopTicketServers kills every running server of a ticket, leaves others', async () => {
+    const mk = async (ticketId: number) => {
+      const port = nextPort();
+      return startHot(store, {
+        ticketId,
+        service: `svc-${port}`,
+        command: process.execPath,
+        args: [join(dir, 'server.mjs')],
+        cwd: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, `svc-${port}.log`),
+      });
+    };
+    const a = await mk(7);
+    const b = await mk(7);
+    const other = await mk(9);
+
+    stopTicketServers(store, 7);
+
+    const row = (id: number) =>
+      store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as
+        | { status: string }
+        | undefined;
+    expect(row(a.id)).toBeUndefined(); // deleted
+    expect(row(b.id)).toBeUndefined(); // deleted
+    expect(row(other.id)?.status).toBe('running'); // untouched — different ticket
+
+    await new Promise((r) => setTimeout(r, 200));
+    expect(alive(a.pid)).toBe(false);
+    expect(alive(b.pid)).toBe(false);
+    expect(alive(other.pid)).toBe(true);
+
+    stopServer(store, other.id);
+  });
+
+  it('writes stdout/stderr to the log file (tailLog reads it)', async () => {
+    const port = nextPort();
+    const logPath = join(dir, 'svc.log');
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath,
+    });
+
+    expect(existsSync(logPath)).toBe(true);
+    expect(readFileSync(logPath, 'utf8')).toMatch(/booting on/);
+    expect(tailLog(rec)).toMatch(/booting on/);
+
+    stopServer(store, rec.id);
+  });
+});

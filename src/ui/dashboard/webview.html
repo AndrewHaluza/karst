@@ -1,0 +1,199 @@
+<!--
+  Karst ticket dashboard webview (T3.2). Self-contained: no external assets
+  (webview CSP forbids them). Renders from the `state` postMessage the host
+  pushes (state.ts → DashboardState) and posts action messages back
+  (messages.ts → WebviewMessage). Styles ported from design/orchestrator-mockup.html.
+-->
+<style>
+  :root{
+    /* Theme-aware: inherit VS Code's palette so light + dark both read well.
+       Stage colors map to the editor's chart colors (kept as --st-* so the
+       inline style="" in the render fns keeps working). */
+    --border:var(--vscode-panel-border);
+    --hover:var(--vscode-list-hoverBackground);
+    --text:var(--vscode-foreground);
+    --text-dim:var(--vscode-descriptionForeground,var(--vscode-foreground));
+    --text-faint:var(--vscode-disabledForeground,var(--vscode-descriptionForeground));
+    --link:var(--vscode-textLink-foreground);
+    --panel-bg:var(--vscode-editorWidget-background,transparent);
+    --st-done:var(--vscode-charts-green,#4bb64b);
+    --st-running:var(--vscode-charts-blue,#3794ff);
+    --st-pending:var(--vscode-charts-lines,#6e7681);
+    --st-input:var(--vscode-charts-yellow,#cca700);
+    --st-failed:var(--vscode-charts-red,#f14c4c);
+    --mono:var(--vscode-editor-font-family,"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace);
+    --ui:var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--vscode-editor-background);color:var(--text);font-family:var(--ui);font-size:var(--vscode-font-size,13px);padding:22px 26px}
+  button{font-family:inherit;cursor:pointer;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:none;border-radius:5px;padding:3px 9px;font-size:11px}
+  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+  a{color:var(--link);text-decoration:none}
+
+  .dhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .dhead h1{font-size:17px;margin:0}
+  .dhead .key{font-family:var(--mono);font-size:12px;color:var(--text-dim)}
+  .dhead .agent{margin-left:auto;font-size:11px;color:var(--text-dim);font-family:var(--mono)}
+
+  /* stepper */
+  .stepper{margin:20px 0 26px;padding:20px 8px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-bg)}
+  .steps{display:flex;align-items:flex-start}
+  .step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
+  .step .line{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--st-pending);z-index:0}
+  .step:first-child .line{display:none}
+  .step .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--panel-bg);border:2px solid var(--st-pending);color:var(--vscode-editor-background);position:relative;z-index:1;font-size:13px;font-weight:700}
+  .step .lbl{margin-top:9px;font-size:11.5px;color:var(--text-dim);text-align:center}
+  .step.done .node{background:var(--st-done);border-color:var(--st-done)}
+  .step.done .line{background:var(--st-done)}
+  .step.running .node{background:var(--st-running);border-color:var(--st-running)}
+  .step.running .lbl{color:var(--text)}
+  .step.failed .node{background:var(--st-failed);border-color:var(--st-failed)}
+  .step.failed .lbl{color:var(--st-failed)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
+  .panel.span{grid-column:1 / -1}
+  .phead{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600}
+  .phead .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-faint);font-weight:400}
+  .pbody{padding:6px 8px 10px}
+  .empty{padding:16px 14px;color:var(--text-faint);font-size:12px}
+
+  .srv,.wt,.pr{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:6px}
+  .srv:hover,.wt:hover,.pr:hover{background:var(--hover)}
+  .srv .sdot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .srv .snm,.wt .wrepo{font-size:12.5px;min-width:74px}
+  .srv .addr{font-family:var(--mono);font-size:11.5px;color:var(--text-dim)}
+  .srv .sacts,.wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:4px}
+  .wt .wbr{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .pr .pst{font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
+  .pr .pnum{font-family:var(--mono);color:var(--link)}
+  .pr .ptitle{flex:1;font-size:12.5px}
+
+  /* agent pill (colored by state) */
+  .agent-pill{display:inline-flex;align-items:center;gap:6px}
+  .agent-pill .dot{width:7px;height:7px;border-radius:50%}
+</style>
+
+<div class="dhead">
+  <span class="key" id="key"></span>
+  <h1 id="title"></h1>
+  <span class="agent" id="agent"></span>
+  <button id="editBtn" title="Edit ticket">Edit</button>
+</div>
+
+<div class="stepper"><div class="steps" id="steps"></div></div>
+
+<div class="grid">
+  <div class="panel"><div class="phead">Servers<span class="count" id="srvCount"></span></div><div class="pbody" id="servers"></div></div>
+  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span></div><div class="pbody" id="worktrees"></div></div>
+  <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span></div><div class="pbody" id="prs"></div></div>
+</div>
+
+<script>
+  const vscode = acquireVsCodeApi();
+  const post = (msg) => vscode.postMessage(msg);
+
+  // Stage status -> stepper CSS class. Amber/needs-you is an agent-level signal
+  // (glyphFor precedence); the stepper shows stage status only.
+  const STEP_CLASS = { passed: 'done', running: 'running', failed: 'failed', pending: '', skipped: 'done' };
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  function renderStepper(stepper, current) {
+    el('steps').innerHTML = stepper.map((s) => {
+      const cls = STEP_CLASS[s.status] || '';
+      const mark = s.status === 'passed' ? '✓' : s.status === 'failed' ? '✕' : '';
+      return `<div class="step ${cls}"><div class="line"></div>`
+        + `<div class="node">${mark}</div>`
+        + `<div class="lbl">${esc(s.stageKey)}</div></div>`;
+    }).join('');
+  }
+
+  function renderServers(servers) {
+    el('srvCount').textContent = servers.length ? `${servers.length}` : '';
+    el('servers').innerHTML = servers.length ? servers.map((s) => {
+      const color = s.status === 'running' ? 'var(--st-running)' : 'var(--st-pending)';
+      return `<div class="srv"><span class="sdot" style="background:${color}"></span>`
+        + `<span class="snm">${esc(s.service)}</span>`
+        + `<span class="addr">${esc(s.host || 'localhost')}:${esc(s.port)}</span>`
+        + `<span class="sacts">`
+        + `<button data-act="open-server" data-id="${s.id}">Open</button>`
+        + `<button data-act="restart-server" data-id="${s.id}">Restart</button>`
+        + `<button data-act="stop-server" data-id="${s.id}">Stop</button>`
+        + `</span></div>`;
+    }).join('') : '<div class="empty">No servers.</div>';
+  }
+
+  function renderWorktrees(wts) {
+    el('wtCount').textContent = wts.length ? `${wts.length}` : '';
+    el('worktrees').innerHTML = wts.length ? wts.map((w) => (
+      `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
+      + `<span class="wbr">${esc(w.branch || '')}</span>`
+      + `<span class="wacts">`
+      + `<button data-act="diff-worktree" data-path="${esc(w.path)}">Diff</button>`
+      + `<button data-act="open-worktree-folder" data-path="${esc(w.path)}">Open folder</button>`
+      + `</span></div>`
+    )).join('') : '<div class="empty">No worktrees.</div>';
+  }
+
+  function renderPrs(prs) {
+    el('prCount').textContent = prs.length ? `${prs.length}` : '';
+    el('prs').innerHTML = prs.length ? prs.map((p) => (
+      `<div class="pr"><span class="pst">${esc(p.status || '')}</span>`
+      + `<span class="prepo">${esc(p.repo)}</span>`
+      + `<span class="ptitle">${esc(p.url || '')}</span>`
+      + `<span class="pnum">#${esc(p.number)}</span>`
+      + `<span class="pacts"><button data-act="open-pr" data-url="${esc(p.url)}">Open</button></span></div>`
+    )).join('') : '<div class="empty">No pull requests.</div>';
+  }
+
+  // agent state -> pill color (uses the same chart vars as the stepper).
+  const AGENT_COLOR = {
+    running: 'var(--st-running)',
+    waiting: 'var(--st-input)',
+    idle: 'var(--st-pending)',
+    none: 'var(--st-pending)',
+  };
+
+  function renderAgent(agentState) {
+    const st = agentState || 'none';
+    const color = AGENT_COLOR[st] || 'var(--st-pending)';
+    el('agent').innerHTML =
+      `<span class="agent-pill"><span class="dot" style="background:${color}"></span>`
+      + `agent: ${esc(st)}</span>`;
+  }
+
+  function render(state) {
+    el('key').textContent = state.key || `#${state.ticketId}`;
+    el('title').textContent = state.title || '(untitled)';
+    renderAgent(state.agentState);
+    renderStepper(state.stepper, state.stageCurrent);
+    renderServers(state.servers);
+    renderWorktrees(state.worktrees);
+    renderPrs(state.prs);
+  }
+
+  el('editBtn').addEventListener('click', () => post({ type: 'edit-ticket' }));
+
+  // Delegate button clicks → action messages (messages.ts routeAction).
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
+    else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
+    else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
+  });
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (msg && msg.type === 'state') {
+      render(msg.state);
+      vscode.setState(msg.state); // survive reload (retainContextWhenHidden)
+    }
+  });
+
+  // Restore last state on reload before the host re-pushes.
+  const prev = vscode.getState();
+  if (prev) render(prev);
+</script>

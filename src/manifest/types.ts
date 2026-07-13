@@ -1,0 +1,155 @@
+/**
+ * Typed model of `karst.yml` (§7.1). Produced by the manifest loader after
+ * validation; every downstream consumer (resolver, spin) reads this shape.
+ */
+
+export interface PortSlot {
+  name: string; // slot identity, e.g. "port", referenced by dependsOn.port
+  env: string; // the env var that sets this port
+  default: number; // baseline / default-mode value
+}
+
+export interface BindVar {
+  env: string; // the env var a dependent uses to reference the target
+  template: string; // e.g. "http://{host}:{port}"
+}
+
+export interface DependsOn {
+  target: string; // another service name
+  port: string; // a port slot name on the target
+  bind: BindVar[]; // env var(s) rendered from the target's (host, port)
+}
+
+export interface ServiceDef {
+  repoPath: string;
+  start: string;
+  health?: string;
+  ports: PortSlot[];
+  dependsOn: DependsOn[];
+  /**
+   * [M2] Author-declared: does this service run DB migrations? Drives T4.2's
+   * "not first-class under shared-DB" warning. Deterministic (not a filesystem
+   * heuristic) so the resolver/scope path stays pure. Defaults false.
+   */
+  hasMigrations: boolean;
+  /**
+   * Repo-classifier signal words (title/description/tag tokens that point a
+   * ticket at this service). Authored ahead of ticket time; empty/absent = the
+   * service is "unclassified" and the onboarding classify-gate prompts for
+   * signals. `validateManifest` always populates this (defaulting `[]`); it is
+   * optional on the type only so hand-built fixtures need not supply it. Read it
+   * via `isServiceClassified` / `?? []`, never assume presence.
+   */
+  signals?: string[];
+}
+
+/**
+ * Source recipe for fetching an installable approach: one of git (clone a
+ * repository) or npm (run a package command). Discriminated union keyed by `type`.
+ */
+export type ApproachSource =
+  | {
+      type: 'git';
+      repo: string; // repository URL
+      ref: string; // branch, tag, or commit ref to fetch
+      include: string[]; // glob patterns of paths to collect (e.g. ["prompts/", "approach.yml"])
+    }
+  | {
+      type: 'npm';
+      package: string; // npm package name
+      command: string; // command to run (e.g. "npm install", "yarn add")
+      collect: string[]; // glob patterns of paths to collect from the result
+    };
+
+/**
+ * A single phase in an approach's workflow (§ onboarding). `command` is a
+ * native slash command to invoke for the phase (e.g. "/rpi:research");
+ * absent when the phase has no dispatchable command.
+ */
+export interface WorkflowPhase {
+  name: string; // e.g. "research"
+  command?: string; // native slash command to invoke, e.g. "/rpi:research"
+  description?: string; // human guidance for the phase
+}
+
+/**
+ * A development approach offered on the onboarding page (§ onboarding). `id` is
+ * the stable key persisted on a ticket; `recommended` marks the default pick
+ * (at most one). `source` is absent for hand-authored/custom approaches (no fetch).
+ * Extensible: custom approaches are just more entries.
+ */
+export interface ApproachDef {
+  id: string;
+  label: string;
+  description?: string; // short "when to use" blurb
+  entrypoint?: string; // which prompt starts the flow, e.g. "research"
+  source?: ApproachSource; // absent = hand-authored/custom (no fetch)
+  recommended?: boolean;
+  workflow?: WorkflowPhase[];
+  enabled?: boolean; // default true
+}
+
+/**
+ * A configured agent for a workflow role (research/plan/implement/…). `command`
+ * is optional so a role can be declared before its runner is wired.
+ */
+export interface AgentDef {
+  role: string;
+  command?: string;
+  promptPath?: string; // relative path to the agent's markdown file under agentsDir
+  enabled?: boolean; // default true
+}
+
+/** How worktree paths render on the dashboard: absolute or project-relative. */
+export type WorktreePathDisplay = 'absolute' | 'relative';
+
+/** Which ticketing backend a ticket's source/status is bound to. */
+export type TicketProvider = 'clickup' | 'manual';
+
+/** Which coding-agent CLI karst launches sessions with. */
+export type AgentProvider = 'claude' | 'codex';
+
+/**
+ * Ticketing integration config (§15). `provider` selects the backend;
+ * `manual` (default) is local-only. `teamId` is ClickUp's workspace id
+ * (needed for custom task ids); `listId` is reserved for future list-scoped
+ * operations. Both optional and provider-specific.
+ */
+export interface TicketingConfig {
+  provider: TicketProvider;
+  teamId?: string;
+  listId?: string;
+}
+
+export interface Manifest {
+  host: string;
+  portRange: [number, number];
+  baselineBranch: string;
+  services: Record<string, ServiceDef>;
+  /**
+   * Onboarding development approaches; `validateManifest` always sets this
+   * (`[]` when none configured). Optional on the type only so hand-built
+   * fixtures need not supply it.
+   */
+  approaches?: ApproachDef[];
+  /** Role-keyed configured agents; always set by `validateManifest` (`{}` default). */
+  agents?: Record<string, AgentDef>;
+  /** Dashboard worktree-path rendering mode; always set (`'absolute'` default). */
+  worktreePathDisplay?: WorktreePathDisplay;
+  /**
+   * Ticket-label template with `{var}` tokens (key/title/id/status/stage/repos).
+   * Undefined → the default `'{key} — {title}'`. Blank is normalized to undefined
+   * at validation so an empty field can't erase every label.
+   */
+  ticketLabelTemplate?: string;
+  /** Ticketing integration config; always set by `validateManifest` (`{ provider: 'manual' }` default). */
+  ticketing?: TicketingConfig;
+  /** Selected agent provider; always set by validate (default 'claude'). */
+  agentProvider?: AgentProvider;
+  /**
+   * Default launch model id inherited by tickets that don't pick their own
+   * (§ model selection). Undefined → no default (the agent CLI picks). Blank is
+   * normalized to undefined at validation.
+   */
+  defaultModel?: string;
+}
