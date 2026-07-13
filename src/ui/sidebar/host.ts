@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { SidebarView, SidebarViewHost } from './panel.js';
+import { injectPalette } from '../../model/palette.js';
 
 /**
  * Activation-layer adapter: the real `vscode.WebviewViewProvider` for the sidebar
@@ -29,7 +30,7 @@ export const SIDEBAR_VIEW_ID = 'karst.tickets';
 export function makeSidebarViewHost(
   context: vscode.ExtensionContext,
 ): { host: SidebarViewHost; provider: vscode.WebviewViewProvider } {
-  const html = readFileSync(join(HERE, 'webview.html'), 'utf8');
+  const html = injectPalette(readFileSync(join(HERE, 'webview.html'), 'utf8'));
   let onResolve: ((view: SidebarView) => void) | undefined;
 
   const provider: vscode.WebviewViewProvider = {

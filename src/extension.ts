@@ -81,6 +81,7 @@ import type { SettingsState } from './ui/settings/state.js';
 import { makeSettingsPanelHost } from './ui/settings/host.js';
 import { writeManifest } from './manifest/write.js';
 import { makeLogger, type LogError } from './logging/logger.js';
+import { injectPalette } from './model/palette.js';
 import { checkDependencies, binaryExists, GIT_DEPENDENCY, type RequiredDependency } from './runtime/deps.js';
 
 /**
@@ -844,7 +845,7 @@ function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string)
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(context: vscode.ExtensionContext): PanelHost {
-  const html = readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8');
+  const html = injectPalette(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8'));
   return {
     createPanel(title): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(

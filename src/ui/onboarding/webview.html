@@ -80,8 +80,8 @@
   #fetchBtn{min-width:104px;display:inline-flex;align-items:center;
     justify-content:center;gap:6px;white-space:nowrap}
   #fetchBtn.done{background:transparent;cursor:default;
-    color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950));
-    border:1px solid var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950))}
+    color:var(--k-passed);
+    border:1px solid var(--k-passed)}
   #fetchBtn.done:hover{background:transparent}
   /* "Show details" link, shown next to the field once a brief exists. */
   .detailslink{background:none;border:none;padding:2px 4px;
@@ -98,8 +98,8 @@
   .step.active .dot{background:var(--vscode-button-background);
     color:var(--vscode-button-foreground);border-color:var(--vscode-button-background);opacity:1}
   .step.done .dot{background:transparent;opacity:1;
-    color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950));
-    border-color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950))}
+    color:var(--k-passed);
+    border-color:var(--k-passed)}
   .step .st{font-size:12.5px;font-weight:600}
   .step.pending .st{opacity:.55;font-weight:500}
   .step .stcount{margin-left:6px;font-weight:500;opacity:.6;font-size:11.5px}
@@ -154,7 +154,7 @@
   .autopf.on .sw{background:var(--vscode-button-background);opacity:1}
   .autopf.on .sw::after{transform:translateX(11px);background:var(--vscode-button-foreground);opacity:1}
   .synctag{font-family:var(--mono);font-size:11px;
-    color:var(--vscode-testing-iconPassed,var(--vscode-charts-green,#3fb950))}
+    color:var(--k-passed)}
   .synctag::before{content:"✓ "}
   .delta{font-family:var(--mono);font-size:11px;white-space:nowrap;
     color:var(--vscode-charts-yellow,#d7a740);
@@ -915,3 +915,5 @@
   if (prev) render(prev);
   post({ type: 'request-state' });
 </script>
+
+<style>/*KARST_PALETTE*/</style>
