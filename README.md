@@ -107,20 +107,20 @@ bar icon opens the Tickets sidebar; `Karst: …` commands are in the palette.
 
 **Native module / ABI note.** `better-sqlite3` is a native addon and must match
 the ABI of whatever runs it — VS Code's **Electron** for F5, plain **Node** for
-`npm test`. better-sqlite3 ships an Electron prebuild (`bin/darwin-arm64-140/`);
-`rebuild:electron` just copies it into `build/Release` (the path `bindings`
-loads), and `rebuild:node` recompiles for Node. Wired to be automatic:
+`npm test`. The project now uses a small helper script to select the matching
+prebuild for the requested ABI, or fall back to a source rebuild when no prebuild
+is available. Wired to be automatic:
 
-- **F5** → `preLaunchTask` runs `npm run dev:extension` (build + copy Electron
-  prebuild).
-- **`npm test`** → `pretest` runs `npm run rebuild:node` (recompile for Node).
+- **F5** → `preLaunchTask` runs `npm run dev:extension` (build + install the
+  Electron ABI binary).
+- **`npm test`** → `pretest` runs `npm run rebuild:node` (rebuild for the Node
+  ABI).
 
 So each entry point restores the ABI it needs. If you hit a `NODE_MODULE_VERSION`
 mismatch, run `npm run rebuild:electron` (for F5) or `npm run rebuild:node` (for
 tests) manually. Note VS Code 1.126 runs **Electron 39 (ABI 140)** — not the
-version in its own `package.json`; if a VS Code upgrade changes the ABI, the
-prebuild folder name (`darwin-arm64-140`) and the `rebuild:electron` copy path
-must be updated to match.
+version in its own `package.json`; if a VS Code upgrade changes the ABI, update
+the matching `BETTER_SQLITE3_ABI` value and the corresponding prebuild folder.
 
 Built with strict TDD (RED → GREEN). ESM (`.js` import suffixes,
 `moduleResolution: bundler`), strict TS with `noUncheckedIndexedAccess`. See

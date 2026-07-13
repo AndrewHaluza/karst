@@ -1,0 +1,29 @@
+# Source + build config (dist/ is the shipped output)
+src/**
+tsconfig.json
+tsconfig.build.json
+vitest.config.ts
+
+# Tests + coverage
+**/*.test.ts
+coverage/**
+
+# Dev docs / scratch (not runtime)
+docs/**
+shared-docs/**
+spikes/**
+CLAUDE.md
+scripts/**
+
+# VCS / lockfile
+.git/**
+.gitignore
+package-lock.json
+
+# Agent/editor tooling (not runtime)
+.superpowers/**
+.claude/**
+.vscode/**
+
+# Keep: dist/**, node_modules/** (better-sqlite3 loaded at runtime),
+#       package.json, README.md, karst.example.yml, media/**

@@ -4,10 +4,14 @@
   "version": "1.0.0",
   "description": "Orchestrate AI-agent ticket workflows across a multi-repo stack.",
   "publisher": "karst",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AndrewHaluza/karst.git"
+  },
   "type": "module",
   "main": "./dist/extension.js",
   "engines": {
-    "vscode": "^1.94.0"
+    "vscode": "^1.125.0"
   },
   "categories": [
     "Other"
@@ -20,8 +24,9 @@
     "copy-assets": "node scripts/copy-assets.mjs",
     "build": "npm run compile && npm run copy-assets",
     "vscode:prepublish": "npm run build",
-    "rebuild:electron": "cp node_modules/better-sqlite3/bin/darwin-arm64-140/better-sqlite3.node node_modules/better-sqlite3/build/Release/better_sqlite3.node",
-    "rebuild:node": "npm rebuild better-sqlite3",
+    "rebuild:better-sqlite3": "node scripts/rebuild-better-sqlite3.mjs auto",
+    "rebuild:electron": "node scripts/rebuild-better-sqlite3.mjs electron",
+    "rebuild:node": "node scripts/rebuild-better-sqlite3.mjs node",
     "pretest": "npm run rebuild:node",
     "dev:extension": "npm run build && npm run rebuild:electron"
   },
