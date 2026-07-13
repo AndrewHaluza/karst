@@ -6,6 +6,7 @@ import {
 } from './messages.js';
 import { buildSettingsState, type SettingsState } from './state.js';
 import type { SettingsActionsFactory } from './actions.js';
+import type { LogError } from '../../logging/logger.js';
 
 /** The subset of a `vscode.WebviewPanel` the manager touches (host-agnostic). */
 export interface SettingsPanel {
@@ -47,6 +48,8 @@ export class SettingsManager {
     private readonly hasToken: () => Promise<boolean> = async () => false,
     private readonly listAgentRows: () => SettingsState['agents'] = () => [],
     private readonly listApproachCommands: () => Record<string, string[]> = () => ({}),
+    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    private readonly logError: LogError = (m, e) => console.error(m, e),
   ) {}
 
   async open(): Promise<void> {
@@ -67,7 +70,7 @@ export class SettingsManager {
         routeSettingsAction(raw, actions);
       } catch (err) {
         // The message pump must never die on one bad message.
-        console.error('karst: settings action failed', err);
+        this.logError('karst: settings action failed', err);
       }
     });
     panel.onDidDispose(() => (this.panel = undefined));

@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
+import type { LogError } from '../../logging/logger.js';
 import { buildDashboardState, type PathContext } from './state.js';
 import { routeAction, type DashboardActions } from './messages.js';
 
@@ -60,6 +61,8 @@ export class DashboardManager {
      * dashboard can render a link to the source board (§ C3). Absent → no link.
      */
     private readonly ticketing?: () => { provider?: TicketProvider } | undefined,
+    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    private readonly logError: LogError = (m, e) => console.error(m, e),
   ) {}
 
   /** Open (or reveal) the dashboard for a ticket and push its initial state. */
@@ -83,7 +86,7 @@ export class DashboardManager {
       try {
         routeAction(raw, actions);
       } catch (err) {
-        console.error('karst: dashboard action failed', err);
+        this.logError('karst: dashboard action failed', err);
       }
     });
     panel.onDidDispose(() => this.panels.delete(ticketId));

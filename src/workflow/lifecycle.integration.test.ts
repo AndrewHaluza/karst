@@ -42,6 +42,7 @@ const GATES_FAIL: GateRunner = async () => [
 const adapter: AgentAdapter = {
   runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'PR body.' }),
   buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
+  requiredBinary: 'claude',
   capabilities: { httpHooks: true, resume: true },
 };
 const gh: GhRunner = async () => ({ stdout: 'https://github.com/o/r/pull/1', exitCode: 0 });

@@ -80,6 +80,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "karst.showLogs",
+        "title": "Karst: Show Logs",
+        "icon": "$(output)"
+      },
+      {
         "command": "karst.search",
         "title": "Karst: Filter Tickets",
         "icon": "$(search)"

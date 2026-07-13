@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
+import type { LogError } from '../../logging/logger.js';
 import { buildOnboardingState, type OnboardingState } from './state.js';
 import {
   routeOnboardingAction,
@@ -95,6 +96,8 @@ export class OnboardingManager {
      * Defaults to "never open" for callers that don't care.
      */
     private readonly isSessionOpen: (ticketId: number) => boolean = () => false,
+    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    private readonly logError: LogError = (m, e) => console.error(m, e),
   ) {}
 
   /** Open (or reveal) the create-mode onboarding page. */
@@ -158,7 +161,7 @@ export class OnboardingManager {
         routeOnboardingAction(raw, actions);
       } catch (err) {
         // The message pump must never die on one bad message.
-        console.error('karst: onboarding action failed', err);
+        this.logError('karst: onboarding action failed', err);
       }
     });
     panel.onDidDispose(() => this.panels.delete(key));

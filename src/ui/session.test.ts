@@ -12,6 +12,7 @@ function fakeAdapter(): { adapter: AgentAdapter; calls: unknown[] } {
       return { command: 'claude', args, env: {} };
     },
     runHeadless: () => Promise.reject(new Error('not used')),
+    requiredBinary: 'claude',
     capabilities: { httpHooks: true, resume: true },
   };
   return { adapter, calls };

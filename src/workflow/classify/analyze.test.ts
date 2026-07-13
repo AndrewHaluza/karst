@@ -7,6 +7,7 @@ import type { AnalyzeServiceInput } from './analyze.js';
 /** A fake adapter whose runHeadless returns a canned raw string. */
 function fakeAdapter(raw: string): AgentAdapter {
   return {
+    requiredBinary: 'claude',
     capabilities: { httpHooks: false, resume: false },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
     async runHeadless(): Promise<HeadlessResult> {
@@ -20,6 +21,7 @@ function capturingAdapter(raw: string): { adapter: AgentAdapter; prompts: string
   return {
     prompts,
     adapter: {
+      requiredBinary: 'claude',
       capabilities: { httpHooks: false, resume: false },
       buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
       async runHeadless(opts): Promise<HeadlessResult> {
@@ -32,6 +34,7 @@ function capturingAdapter(raw: string): { adapter: AgentAdapter; prompts: string
 
 function rejectingAdapter(): AgentAdapter {
   return {
+    requiredBinary: 'claude',
     capabilities: { httpHooks: false, resume: false },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
     runHeadless: () => Promise.reject(new Error('agent unavailable')),

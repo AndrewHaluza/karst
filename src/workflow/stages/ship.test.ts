@@ -47,6 +47,7 @@ function fakeAdapter(): AgentAdapter {
   return {
     runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'Generated PR body.' }),
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
+    requiredBinary: 'claude',
     capabilities: { httpHooks: true, resume: true },
   };
 }

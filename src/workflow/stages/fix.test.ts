@@ -20,6 +20,7 @@ function fakeAdapter(): { adapter: AgentAdapter; calls: unknown[] } {
       return Promise.resolve({ sessionId: 'sess-123', verdict: { kind: 'passed' }, raw: '{}' });
     },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
+    requiredBinary: 'claude',
     capabilities: { httpHooks: true, resume: true },
   };
   return { adapter, calls };

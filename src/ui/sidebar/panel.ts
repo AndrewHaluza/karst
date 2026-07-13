@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { LogError } from '../../logging/logger.js';
 import { buildSidebarState } from './state.js';
 import {
   routeSidebarAction,
@@ -46,6 +47,8 @@ export class SidebarViewManager {
     private readonly pathContext?: () => PathContext | undefined,
     /** Live ticket-label template getter (honors manifest `ticketLabelTemplate`). */
     private readonly labelTemplate?: () => string | undefined,
+    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    private readonly logError: LogError = (m, e) => console.error(m, e),
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -58,7 +61,7 @@ export class SidebarViewManager {
           routeSidebarAction(raw, actions);
         } catch (err) {
           // The message pump must never die on one bad message.
-          console.error('karst: sidebar action failed', err);
+          this.logError('karst: sidebar action failed', err);
         }
       });
       this.push();

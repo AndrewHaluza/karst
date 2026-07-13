@@ -93,6 +93,13 @@ export interface AgentCapabilities {
 }
 
 export interface AgentAdapter {
+  /**
+   * The CLI binary this adapter invokes (e.g. `'claude'`). Advertised so the
+   * startup dependency check can verify it's installed without knowing the
+   * agent's flag details (§ todo-5 dependencies check).
+   */
+  readonly requiredBinary: string;
+
   /** Headless, structured run — scope/uat/review/ship stages (M4). */
   runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult>;
 

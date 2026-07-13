@@ -90,6 +90,7 @@ const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
  */
 export class ClaudeAdapter implements AgentAdapter {
   readonly capabilities: AgentCapabilities = { httpHooks: true, resume: true };
+  readonly requiredBinary = CLAUDE_BIN;
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 

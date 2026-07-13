@@ -80,6 +80,8 @@ import { buildSettingsActions } from './ui/settings/actions.js';
 import type { SettingsState } from './ui/settings/state.js';
 import { makeSettingsPanelHost } from './ui/settings/host.js';
 import { writeManifest } from './manifest/write.js';
+import { makeLogger, type LogError } from './logging/logger.js';
+import { checkDependencies, binaryExists, GIT_DEPENDENCY, type RequiredDependency } from './runtime/deps.js';
 
 /**
  * Extension activation adapter — the host seam (§2.6). Everything below the UI
@@ -108,6 +110,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   store = openStore(dbPath);
   const localStore = store;
 
+  // One "Karst" output channel is the sink for every caught error (§ todo-5).
+  // Managers/endpoint get `logError`; the extension itself uses `logger`.
+  const channel = vscode.window.createOutputChannel('Karst');
+  context.subscriptions.push(channel);
+  const logger = makeLogger(channel);
+  const logError: LogError = (m, e) => logger.error(m, e);
+  logger.info('Karst activated');
+
   // Sidebar ticket list — an HTML webview view (replaces the native tree). The
   // manager holds facet/filter + re-pushes state; its action factory maps webview
   // messages to the existing karst.* commands (executeCommand passthrough) so the
@@ -126,7 +136,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
-  }), () => worktreePathContext(currentManifest), () => currentManifest?.ticketLabelTemplate);
+  }), () => worktreePathContext(currentManifest), () => currentManifest?.ticketLabelTemplate, logError);
   const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
   provider.bind(sidebarHost);
   context.subscriptions.push(
@@ -289,6 +299,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     listAgents,
     // Locks the model/effort picker while a session terminal is live (§ B1).
     (ticketId) => sessions.isOpen(ticketId),
+    logError,
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -410,6 +421,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => hasToken(context),
     listAgentRows,
     listApproachCommands,
+    logError,
   );
 
   const dashboard = new DashboardManager(
@@ -424,6 +436,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => currentManifest?.ticketLabelTemplate,
     // Live ticketing config so the dashboard links to the source board (§ C3).
     () => currentManifest?.ticketing,
+    logError,
   );
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
@@ -431,7 +444,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   endpoint = await startHookEndpoint(localStore, 0, (ticketId) => {
     provider.refresh();
     dashboard.pushState(ticketId);
-  });
+  }, logError);
+
+  // Startup dependency preflight (§ todo-5): karst shells out to git + the agent
+  // CLI it doesn't bundle. Warn up front (non-blocking) with install guidance
+  // rather than letting a missing binary surface as a cryptic ENOENT mid-spin.
+  const requiredDeps: RequiredDependency[] = [
+    GIT_DEPENDENCY,
+    {
+      binary: agentAdapter.requiredBinary,
+      label: 'the Claude Code CLI',
+      install: `Install Claude Code (https://docs.claude.com/claude-code) so the '${agentAdapter.requiredBinary}' command is on your PATH, then reload the window.`,
+    },
+  ];
+  const missingDeps = checkDependencies(requiredDeps, binaryExists);
+  if (missingDeps.length > 0) {
+    for (const d of missingDeps) logger.warn(`missing dependency '${d.binary}' — ${d.install}`);
+    const names = missingDeps.map((d) => d.label).join(' and ');
+    void vscode.window
+      .showWarningMessage(
+        `Karst needs ${names} installed to run sessions. ${missingDeps.map((d) => d.install).join(' ')}`,
+        'Show Logs',
+      )
+      .then((choice) => {
+        if (choice === 'Show Logs') channel.show();
+      });
+  }
 
   // Shared entry: resolve the manifest, remember it for onboarding actions, and
   // open the create-mode page. Used by both createTicket and openOnboarding.
@@ -693,6 +731,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
       const query = await vscode.window.showInputBox({ prompt: 'Filter tickets' });
       provider.setFilter(query ?? '');

@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { Store } from '../store/db.js';
 import { dispatchHook, parseHookPayload, type NotifyTicket } from './dispatch.js';
 import { hookUrl } from '../agent/settings.js';
+import type { LogError } from '../logging/logger.js';
 
 /** Cap the accepted hook body — a local sender can't grow host memory unbounded. */
 const MAX_BODY_BYTES = 64 * 1024;
@@ -25,6 +26,7 @@ export function startHookEndpoint(
   store: Store,
   port: number,
   notify?: NotifyTicket,
+  logError: LogError = (m, e) => console.error(m, e),
 ): Promise<HookEndpoint> {
   return new Promise((resolve) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -64,7 +66,7 @@ export function startHookEndpoint(
           try {
             dispatchHook(store, payload, notify);
           } catch (err) {
-            console.error('karst: hook dispatch failed', err);
+            logError('karst: hook dispatch failed', err);
           }
         }
 
