@@ -57,6 +57,12 @@ export interface OnboardingState {
   selectedModel: string | null;
   /** Manifest default model, for the "Inherit (settings: …)" label; null = none. */
   defaultModel: string | null;
+  /**
+   * True when an interactive session terminal is already open for this ticket.
+   * The model (and effort) picker locks while a session runs — the launch flag
+   * is baked at spawn and can't switch mid-session. Always false in create mode.
+   */
+  sessionOpen: boolean;
 }
 
 /**
@@ -107,6 +113,7 @@ export function buildOnboardingState(
   listInstalledIds: () => string[],
   listAgents: () => PoolAgent[],
   ticketId?: number,
+  isSessionOpen: (ticketId: number) => boolean = () => false,
 ): OnboardingState {
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
@@ -153,6 +160,7 @@ export function buildOnboardingState(
       models: [...KNOWN_MODELS],
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
+      sessionOpen: false, // create mode has no ticket → nothing to lock
     };
   }
 
@@ -185,5 +193,6 @@ export function buildOnboardingState(
     models: [...KNOWN_MODELS],
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
+    sessionOpen: isSessionOpen(ticketId),
   };
 }

@@ -249,4 +249,28 @@ describe('buildOnboardingState — edit mode', () => {
   it('throws for an unknown ticket id', () => {
     expect(() => buildOnboardingState(store, MANIFEST, () => [], () => [], 9999)).toThrow(/not found|unknown/i);
   });
+
+  it('reports sessionOpen from the injected predicate in edit mode', () => {
+    const t = createTicket(store, { key: 'P-6', title: 'fix' });
+    const open = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id, (id) => id === t.id);
+    expect(open.sessionOpen).toBe(true);
+    const closed = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id, () => false);
+    expect(closed.sessionOpen).toBe(false);
+  });
+
+  it('defaults sessionOpen to false when no predicate is injected', () => {
+    const t = createTicket(store, { key: 'P-7', title: 'fix' });
+    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    expect(s.sessionOpen).toBe(false);
+  });
+});
+
+describe('buildOnboardingState — sessionOpen in create mode', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  it('is always false in create mode (no ticket, nothing to lock)', () => {
+    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], undefined, () => true);
+    expect(s.sessionOpen).toBe(false);
+  });
 });

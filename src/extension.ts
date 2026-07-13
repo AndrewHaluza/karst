@@ -287,6 +287,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     listInstalledApproachIds,
     listAgents,
+    // Locks the model/effort picker while a session terminal is live (§ B1).
+    (ticketId) => sessions.isOpen(ticketId),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`

@@ -282,6 +282,7 @@
       <div id="modelPicker">
         <label for="modelSelect">Model</label>
         <select id="modelSelect"></select>
+        <div class="sub hidden" id="modelLockHint">Locked while the session runs — close the terminal to change it.</div>
       </div>
     </div>
 
@@ -346,7 +347,7 @@
     renderApproaches(state.approaches, state.selectedApproach);
     lastSelectedAgent = state.selectedAgent ?? null;
     renderAgentPicker(state.agents, state.selectedAgent);
-    renderModelPicker(state.models, state.selectedModel, state.defaultModel);
+    renderModelPicker(state.models, state.selectedModel, state.defaultModel, state.sessionOpen);
     // Reveal Phase 2 iff the ticket is identified (edit mode: already true).
     syncPhase2();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
@@ -551,7 +552,7 @@
   // Model picker: an "Inherit (settings)" option (empty value) plus the curated
   // models pushed in `state.models`. The persisted per-ticket model (edit mode)
   // or an explicit draft pick pre-selects; empty = inherit the manifest default.
-  function renderModelPicker(models, selectedModel, defaultModel) {
+  function renderModelPicker(models, selectedModel, defaultModel, sessionOpen) {
     const list = models || [];
     const sel = draft.selectedModel ?? selectedModel ?? '';
     const defLabel = defaultModel
@@ -564,6 +565,10 @@
       );
     }
     el('modelSelect').innerHTML = opts.join('');
+    // The launch model is baked into the terminal command at spawn — it can't
+    // switch mid-session, so lock the picker while a session is live.
+    el('modelSelect').disabled = !!sessionOpen;
+    el('modelLockHint').classList.toggle('hidden', !sessionOpen);
   }
 
   // Step rail state: repos done once ≥1 selected; approach active while

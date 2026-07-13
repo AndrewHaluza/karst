@@ -88,6 +88,13 @@ export class OnboardingManager {
      * don't care.
      */
     private readonly listAgents: () => PoolAgent[] = () => [],
+    /**
+     * Whether an interactive session terminal is open for a ticket. Injected so
+     * this manager stays host-agnostic — the real host binds it to
+     * `SessionManager.isOpen`. Drives the model/effort picker lock (§ B1).
+     * Defaults to "never open" for callers that don't care.
+     */
+    private readonly isSessionOpen: (ticketId: number) => boolean = () => false,
   ) {}
 
   /** Open (or reveal) the create-mode onboarding page. */
@@ -127,6 +134,7 @@ export class OnboardingManager {
         this.listInstalledIds,
         this.listAgents,
         boundId,
+        this.isSessionOpen,
       );
       panel.postMessage({ type: 'state', state });
     };
