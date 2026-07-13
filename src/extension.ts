@@ -438,6 +438,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Live ticketing config so the dashboard links to the source board (§ C3).
     () => currentManifest?.ticketing,
     logError,
+    // Resolve an approach id → its workflow phase names for the read-only
+    // impl-stage breakdown (§ impl sub-stages). Missing package/dir → no
+    // breakdown, never a throw.
+    (approachId) => {
+      if (!approachId) return [];
+      try {
+        const pkg = readApproachPackage(approachesDirOrThrow(), approachId);
+        return pkg?.workflow?.map((p) => p.name) ?? [];
+      } catch {
+        return [];
+      }
+    },
   );
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open

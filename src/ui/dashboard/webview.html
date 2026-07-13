@@ -51,6 +51,17 @@
   .step.running .lbl{color:var(--text)}
   .step.failed .node{background:var(--st-failed);border-color:var(--st-failed)}
   .step.failed .lbl{color:var(--st-failed)}
+  /* Read-only impl-phase breakdown under the stepper. Informational: emphasis
+     tracks the impl cell (.done / .active), no per-phase live state. */
+  .substeps{display:flex;align-items:center;flex-wrap:wrap;gap:6px;
+    margin:12px 6px 2px;padding-top:11px;border-top:1px solid var(--border);font-size:11px}
+  .substeps .sslabel{text-transform:uppercase;letter-spacing:.05em;opacity:.5;
+    font-weight:700;margin-right:4px}
+  .substeps .ssphase{padding:2px 8px;border-radius:10px;border:1px solid var(--border);
+    color:var(--text-dim);white-space:nowrap}
+  .substeps .ssarrow{opacity:.35}
+  .substeps.active .ssphase{border-color:var(--st-running);color:var(--text)}
+  .substeps.done .ssphase{border-color:var(--st-done);color:var(--st-done)}
 
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
@@ -87,7 +98,9 @@
   <button id="editBtn" title="Edit ticket">Edit</button>
 </div>
 
-<div class="stepper"><div class="steps" id="steps"></div></div>
+<div class="stepper"><div class="steps" id="steps"></div>
+  <!-- Read-only impl-phase breakdown (approach workflow); hidden when none. -->
+  <div class="substeps hidden" id="substeps"></div></div>
 
 <div class="grid">
   <div class="panel"><div class="phead">Servers<span class="count" id="srvCount"></span></div><div class="pbody" id="servers"></div></div>
@@ -113,6 +126,23 @@
         + `<div class="node">${mark}</div>`
         + `<div class="lbl">${esc(s.stageKey)}</div></div>`;
     }).join('');
+  }
+
+  // Read-only impl-phase breakdown: what the single impl stage covers for this
+  // approach (research → plan → implement …). No per-phase live state exists
+  // (impl has no deterministic sub-signal), so emphasis tracks the impl cell:
+  // done once impl passed, active while impl runs, muted otherwise.
+  function renderSubsteps(phases, stepper) {
+    const box = el('substeps');
+    const show = Array.isArray(phases) && phases.length > 0;
+    box.classList.toggle('hidden', !show);
+    if (!show) return;
+    const impl = (stepper || []).find((s) => s.stageKey === 'impl');
+    const cls = impl && (impl.status === 'passed' || impl.status === 'skipped')
+      ? 'done' : impl && impl.status === 'running' ? 'active' : '';
+    box.className = `substeps ${cls}`;
+    box.innerHTML = `<span class="sslabel">impl</span>`
+      + phases.map((p) => `<span class="ssphase">${esc(p)}</span>`).join('<span class="ssarrow">→</span>');
   }
 
   function renderServers(servers) {
@@ -196,6 +226,7 @@
     renderTicketLink(state);
     renderAgent(state.agentState);
     renderStepper(state.stepper, state.stageCurrent);
+    renderSubsteps(state.implPhases, state.stepper);
     renderServers(state.servers);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs);

@@ -64,6 +64,20 @@ describe('buildDashboardState', () => {
     expect(state.ticketUrl).toBeNull();
   });
 
+  it('resolves the impl-phase breakdown for the ticket approach', () => {
+    const t = createTicket(store, { key: 'W-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { approach: 'rpi' });
+    const phases = (approachId: string | null) =>
+      approachId === 'rpi' ? ['research', 'plan', 'implement'] : [];
+    const state = buildDashboardState(store, t.id, undefined, undefined, phases);
+    expect(state.implPhases).toEqual(['research', 'plan', 'implement']);
+  });
+
+  it('defaults implPhases to empty when no resolver or no workflow', () => {
+    const t = createTicket(store, { key: 'W-2', title: 't' });
+    expect(buildDashboardState(store, t.id).implPhases).toEqual([]);
+  });
+
   function seedWorktree(ticketId: number, repo: string): void {
     store.db
       .prepare(

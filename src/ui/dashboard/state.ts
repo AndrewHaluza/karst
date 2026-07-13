@@ -34,6 +34,15 @@ export interface DashboardState {
   ticketUrl: string | null;
   /** Synthesized context brief, shown as a hover on the provider link; or null. */
   brief: string | null;
+  /**
+   * The approach's internal workflow phases (§ impl sub-stages) — a read-only
+   * breakdown of what the single `impl` machine node covers for this approach
+   * (e.g. research → plan → implement). Empty when the approach has no workflow.
+   * These are NOT machine nodes and carry no per-phase live state: impl exposes
+   * no deterministic sub-signal (the no-inference guarantee), so the breakdown is
+   * informational and its emphasis tracks the single impl stage status.
+   */
+  implPhases: string[];
 }
 
 /**
@@ -46,6 +55,11 @@ export function buildDashboardState(
   ticketId: number,
   pathContext?: PathContext,
   ticketing?: { provider?: TicketProvider },
+  /**
+   * Resolve an approach id to its ordered workflow phase names (host binds this
+   * to the installed package's `workflow`). Injected so this stays pure/testable.
+   */
+  approachPhases: (approachId: string | null) => string[] = () => [],
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const stepper = buildStepper(ticket.stages);
@@ -69,5 +83,6 @@ export function buildDashboardState(
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
     brief: ticket.brief,
+    implPhases: approachPhases(ticket.approach),
   };
 }

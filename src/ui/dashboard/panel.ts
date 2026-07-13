@@ -63,6 +63,11 @@ export class DashboardManager {
     private readonly ticketing?: () => { provider?: TicketProvider } | undefined,
     /** Report a caught pump error to the Karst output channel (§ todo-5). */
     private readonly logError: LogError = (m, e) => console.error(m, e),
+    /**
+     * Resolve an approach id → its workflow phase names, for the read-only
+     * impl-stage breakdown (§ impl sub-stages). Absent → no breakdown shown.
+     */
+    private readonly approachPhases?: (approachId: string | null) => string[],
   ) {}
 
   /** Open (or reveal) the dashboard for a ticket and push its initial state. */
@@ -103,6 +108,7 @@ export class DashboardManager {
       ticketId,
       this.pathContext?.(),
       this.ticketing?.(),
+      this.approachPhases,
     );
     panel.postMessage({ type: 'state', state });
   }
