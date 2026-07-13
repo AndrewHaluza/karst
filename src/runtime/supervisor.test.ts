@@ -128,14 +128,59 @@ describe('server supervisor', () => {
 
     stopServer(store, rec.id);
 
-    const row = store.db.prepare('SELECT status FROM servers WHERE id = ?').get(rec.id) as
-      | { status: string }
+    // Row RETAINED as offline (stopped, pid nulled) so the dashboard can show it
+    // and offer a restart — not deleted.
+    const row = store.db.prepare('SELECT status, pid FROM servers WHERE id = ?').get(rec.id) as
+      | { status: string; pid: number | null }
       | undefined;
-    expect(row).toBeUndefined(); // row deleted, not left as a stale 'stopped'
+    expect(row?.status).toBe('stopped');
+    expect(row?.pid).toBeNull();
 
     // port should be free again shortly after kill
     await new Promise((r) => setTimeout(r, 200));
     await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toBeTruthy();
+  });
+
+  it('startHot replaces a prior stopped row for the same ticket+service (no dup)', async () => {
+    const port1 = nextPort();
+    const rec = await startHot(store, {
+      ticketId: 5,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      env: { PORT: String(port1) },
+      host: '127.0.0.1',
+      port: port1,
+      healthUrl: `http://127.0.0.1:${port1}/health`,
+      logPath: join(dir, 'svc.log'),
+    });
+    stopServer(store, rec.id); // retained as offline
+
+    const port2 = nextPort();
+    const rec2 = await startHot(store, {
+      ticketId: 5,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      env: { PORT: String(port2) },
+      host: '127.0.0.1',
+      port: port2,
+      healthUrl: `http://127.0.0.1:${port2}/health`,
+      logPath: join(dir, 'svc2.log'),
+    });
+
+    // Only the fresh running row remains for (ticket 5, backend) — the stopped
+    // one was replaced, not accumulated.
+    const rows = store.db
+      .prepare("SELECT id, status FROM servers WHERE ticket_id = 5 AND service = 'backend'")
+      .all() as { id: number; status: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(rec2.id);
+    expect(rows[0]!.status).toBe('running');
+
+    stopServer(store, rec2.id);
   });
 
   it('rejects after a timeout when the service never gets healthy', async () => {
@@ -207,7 +252,7 @@ describe('server supervisor', () => {
     expect(Date.now() - start).toBeLessThan(3_000); // aborted, not timed out
   });
 
-  it('stopTicketServers kills every running server of a ticket, leaves others', async () => {
+  it('stopTicketServers kills every running server of a ticket (retained offline), leaves others', async () => {
     const mk = async (ticketId: number) => {
       const port = nextPort();
       return startHot(store, {
@@ -233,8 +278,8 @@ describe('server supervisor', () => {
       store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as
         | { status: string }
         | undefined;
-    expect(row(a.id)).toBeUndefined(); // deleted
-    expect(row(b.id)).toBeUndefined(); // deleted
+    expect(row(a.id)?.status).toBe('stopped'); // retained as offline
+    expect(row(b.id)?.status).toBe('stopped'); // retained as offline
     expect(row(other.id)?.status).toBe('running'); // untouched — different ticket
 
     await new Promise((r) => setTimeout(r, 200));

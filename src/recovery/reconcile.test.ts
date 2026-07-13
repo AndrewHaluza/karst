@@ -76,7 +76,7 @@ describe('reconcileOnStart', () => {
     expect(getTicket(store, id).stageCurrent).toBe('uat');
   });
 
-  it('deletes running-but-dead servers and offers them for restart', () => {
+  it('marks running-but-dead servers offline (retained) and offers them for restart', () => {
     const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
     const deadId = seedServer(store, id, 4242, 'running');
     const liveId = seedServer(store, id, 4243, 'running');
@@ -84,11 +84,15 @@ describe('reconcileOnStart', () => {
     const isAlive = (pid: number) => pid === 4243; // 4242 is dead
     const result = reconcileOnStart(store, isAlive);
 
-    const rows = store.db.prepare('SELECT id, status FROM servers ORDER BY id').all() as {
+    const rows = store.db.prepare('SELECT id, status, pid FROM servers ORDER BY id').all() as {
       id: number;
       status: string;
+      pid: number | null;
     }[];
-    expect(rows.find((r) => r.id === deadId)).toBeUndefined(); // pruned, not stale
+    // Dead server retained as offline (not pruned) so it surfaces for restart.
+    const dead = rows.find((r) => r.id === deadId)!;
+    expect(dead.status).toBe('stopped');
+    expect(dead.pid).toBeNull();
     expect(rows.find((r) => r.id === liveId)!.status).toBe('running');
     expect(result.deadServers.map((s) => s.id)).toEqual([deadId]);
   });

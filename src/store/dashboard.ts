@@ -40,8 +40,8 @@ interface ServerRow {
 
 /**
  * The host+port of one running server, for "Open in browser". Returns null when
- * the server row is gone or not running (stopped rows are deleted, so this is
- * normally just the deleted case).
+ * the server row is gone or not running — a retained `stopped` (offline) row has
+ * no address to open, so the dashboard offers Restart instead.
  */
 export function serverAddress(
   store: Store,
@@ -57,11 +57,11 @@ export function serverAddress(
 export function listServersByTicket(store: Store, ticketId: number): ServerView[] {
   const rows = store.db
     .prepare(
-      // Only live servers reach the dashboard. stopServer deletes rows, so this
-      // is normally moot — but a crash could leave a stale 'running' row until
-      // reconcile prunes it; filtering keeps the read path self-defending and
-      // never shows a dead server.
-      "SELECT id, ticket_id, service, host, port, status FROM servers WHERE ticket_id = ? AND status = 'running' ORDER BY service",
+      // Running AND stopped: stopped servers are retained (stopServer marks, not
+      // deletes) so they surface as offline and can be restarted. Running float
+      // to the top; then alphabetical by service for a stable order.
+      `SELECT id, ticket_id, service, host, port, status FROM servers WHERE ticket_id = ?
+       ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, service`,
     )
     .all(ticketId) as ServerRow[];
   return rows.map((r) => ({

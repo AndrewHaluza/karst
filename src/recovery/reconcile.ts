@@ -86,13 +86,15 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
       .prepare("SELECT id, ticket_id, service, pid, status FROM servers WHERE status = 'running'")
       .all() as ServerRow[];
 
-    // Delete (not mark-stopped) so the dashboard never lists a dead server; the
-    // deadServers list still surfaces them for a restart offer before we prune.
-    const removeDead = store.db.prepare('DELETE FROM servers WHERE id = ?');
+    // Mark dead 'running' rows as stopped (pid nulled) rather than deleting, so
+    // a server that died while VS Code was closed surfaces on the dashboard as
+    // offline and can be restarted. The deadServers list still reports them for
+    // the restart offer.
+    const markDead = store.db.prepare("UPDATE servers SET status = 'stopped', pid = NULL WHERE id = ?");
     for (const row of running) {
       const alive = row.pid != null && isAlive(row.pid);
       if (!alive) {
-        removeDead.run(row.id);
+        markDead.run(row.id);
         deadServers.push({
           id: row.id,
           ticketId: row.ticket_id,

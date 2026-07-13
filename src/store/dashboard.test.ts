@@ -53,17 +53,18 @@ describe('dashboard store queries', () => {
     expect(serverAddress(store, 9999)).toBeNull(); // unknown id
   });
 
-  it('listServersByTicket omits stopped rows, returns only running', () => {
+  it('listServersByTicket includes stopped (offline) servers, running first', () => {
     const a = createTicket(store, { key: 'A', title: 'a' });
     seedServer(store, a.id, 'web', 5173, 'running');
-    seedServer(store, a.id, 'web', 5100, 'stopped'); // a prior dead FE
-    seedServer(store, a.id, 'api', 8000, 'stopped');
+    seedServer(store, a.id, 'api', 8000, 'stopped'); // offline — retained for restart
 
     const servers = listServersByTicket(store, a.id);
-    expect(servers).toHaveLength(1);
+    expect(servers).toHaveLength(2);
+    // running floats to the top, then alphabetical by service
     expect(servers[0]!.service).toBe('web');
-    expect(servers[0]!.port).toBe(5173);
     expect(servers[0]!.status).toBe('running');
+    expect(servers[1]!.service).toBe('api');
+    expect(servers[1]!.status).toBe('stopped');
   });
 
   it('listWorktreesByTicket returns worktree rows for the ticket', () => {

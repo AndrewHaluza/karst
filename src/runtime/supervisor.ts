@@ -91,6 +91,14 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     throw err;
   }
 
+  // Single row per (ticket, service): drop any prior row for this service first
+  // — including a retained 'stopped' one from a previous run — so restarting a
+  // stopped server replaces its offline row instead of accumulating duplicates.
+  // `IS` is null-safe, so baseline servers (ticket_id NULL) match correctly.
+  store.db
+    .prepare('DELETE FROM servers WHERE service = ? AND ticket_id IS ?')
+    .run(opts.service, opts.ticketId);
+
   const info = store.db
     .prepare(
       `INSERT INTO servers (ticket_id, service, host, port, pid, status, log_path)
@@ -111,15 +119,17 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
 }
 
 interface ServerRow {
-  pid: number;
+  pid: number | null;
   status: string;
 }
 
 /**
- * Kill a server's process and remove its row. Idempotent (no row → no-op).
- * Deleting rather than marking `status='stopped'` keeps the dashboard's server
- * list to only live servers — stale 'stopped' rows accumulated across re-spins
- * otherwise, showing dead servers alongside the running one.
+ * Kill a server's process and RETAIN its row as `status='stopped'` (pid nulled).
+ * Idempotent (no row → no-op; already-stopped → no re-kill). Retaining rather
+ * than deleting lets a stopped server surface on the dashboard as offline so the
+ * user can restart it, instead of silently vanishing. Duplicate accumulation is
+ * prevented at the other end: `startHot` drops any prior row for the same
+ * (ticket, service) before inserting the fresh running one.
  */
 export function stopServer(store: Store, id: number): void {
   const row = store.db
@@ -127,11 +137,11 @@ export function stopServer(store: Store, id: number): void {
     .get(id) as ServerRow | undefined;
   if (!row) return;
 
-  if (row.status === 'running') {
+  if (row.status === 'running' && row.pid != null) {
     // Group kill so a launcher's grandchildren (Vite etc.) die with it.
     killTree(row.pid);
   }
-  store.db.prepare('DELETE FROM servers WHERE id = ?').run(id);
+  store.db.prepare("UPDATE servers SET status = 'stopped', pid = NULL WHERE id = ?").run(id);
 }
 
 /**

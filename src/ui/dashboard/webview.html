@@ -67,6 +67,7 @@
   .srv .sdot.off{background:transparent;border:2px solid var(--st-pending);width:9px;height:9px}
   .srv .snm,.wt .wrepo{font-size:12.5px;min-width:74px}
   .srv .addr{font-family:var(--mono);font-size:11.5px;color:var(--text-dim)}
+  .srv .addr.off{font-style:italic;opacity:.7}
   .srv .sacts,.wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:4px}
   .wt .wbr{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .pr .pst{font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
@@ -119,15 +120,21 @@
     el('servers').innerHTML = servers.length ? servers.map((s) => {
       // Online = filled green (status light); offline = hollow ring (see .sdot.off).
       const online = s.status === 'running';
+      // Offline servers keep their row (retained, not deleted) so they can be
+      // restarted; only a Restart affordance makes sense — Open/Copy/Stop don't.
+      const addr = online
+        ? `<span class="addr">${esc(s.host || 'localhost')}:${esc(s.port)}</span>`
+        : `<span class="addr off">offline</span>`;
+      const acts = online
+        ? `<button data-act="open-server" data-id="${s.id}">Open</button>`
+          + `<button data-act="copy-server-url" data-id="${s.id}" data-copy>Copy</button>`
+          + `<button data-act="restart-server" data-id="${s.id}">Restart</button>`
+          + `<button data-act="stop-server" data-id="${s.id}">Stop</button>`
+        : `<button data-act="spin-servers">Restart</button>`;
       return `<div class="srv"><span class="sdot${online ? '' : ' off'}"></span>`
         + `<span class="snm">${esc(s.service)}</span>`
-        + `<span class="addr">${esc(s.host || 'localhost')}:${esc(s.port)}</span>`
-        + `<span class="sacts">`
-        + `<button data-act="open-server" data-id="${s.id}">Open</button>`
-        + `<button data-act="copy-server-url" data-id="${s.id}" data-copy>Copy</button>`
-        + `<button data-act="restart-server" data-id="${s.id}">Restart</button>`
-        + `<button data-act="stop-server" data-id="${s.id}">Stop</button>`
-        + `</span></div>`;
+        + addr
+        + `<span class="sacts">${acts}</span></div>`;
     }).join('')
       // No servers → a live affordance to spin them (todo-5: was a dead end).
       : `<div class="empty">No servers running.`
