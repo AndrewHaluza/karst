@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
+import { setStage } from '../../store/stages.js';
 import { buildOnboardingState } from './state.js';
 import type { Manifest, ServiceDef } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
@@ -52,6 +53,7 @@ describe('buildOnboardingState — create mode', () => {
     expect(s.key).toBe('');
     expect(s.title).toBe('');
     expect(s.brief).toBeNull();
+    expect(s.stepper).toEqual([]); // no ticket yet → no workflow to show
   });
 
   it("defaults provider to 'manual' when the manifest has no ticketing config", () => {
@@ -248,6 +250,19 @@ describe('buildOnboardingState — edit mode', () => {
 
   it('throws for an unknown ticket id', () => {
     expect(() => buildOnboardingState(store, MANIFEST, () => [], () => [], 9999)).toThrow(/not found|unknown/i);
+  });
+
+  it('projects the ticket stages onto an ordered read-only stepper', () => {
+    const t = createTicket(store, { key: 'P-STEP', title: 'fix' });
+    setStage(store, t.id, 'scope', { status: 'passed' });
+    setStage(store, t.id, 'impl', { status: 'running' });
+    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    expect(s.stepper.map((c) => c.stageKey)).toEqual([
+      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'done',
+    ]);
+    expect(s.stepper[0]!.status).toBe('passed');
+    expect(s.stepper[1]!.status).toBe('running');
+    expect(s.stepper[2]!.status).toBe('pending');
   });
 
   it('reports sessionOpen from the injected predicate in edit mode', () => {

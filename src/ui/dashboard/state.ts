@@ -8,18 +8,12 @@ import {
   type WorktreeView,
   type PrView,
 } from '../../store/dashboard.js';
-import { STAGE_KEYS, type StageKey, type StageStatus } from '../../model/types.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
+import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 
-export type { PathContext };
-
-/** One stepper cell — a stage node in the dashboard's stage stepper (§14). */
-export interface StepperCell {
-  stageKey: StageKey;
-  status: StageStatus;
-}
+export type { PathContext, StepperCell };
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
@@ -54,11 +48,7 @@ export function buildDashboardState(
   ticketing?: { provider?: TicketProvider },
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
-  const byKey = new Map(ticket.stages.map((s) => [s.stageKey, s]));
-  const stepper: StepperCell[] = STAGE_KEYS.map((stageKey) => ({
-    stageKey,
-    status: byKey.get(stageKey)?.status ?? 'pending',
-  }));
+  const stepper = buildStepper(ticket.stages);
 
   const worktrees = listWorktreesByTicket(store, ticketId).map((w) => ({
     ...w,

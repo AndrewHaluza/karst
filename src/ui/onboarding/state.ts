@@ -4,6 +4,7 @@ import type { Manifest, ApproachDef, TicketProvider } from '../../manifest/types
 import { unclassifiedServices, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { KNOWN_MODELS, type ModelOption } from '../../agent/models.js';
+import { buildStepper, type StepperCell } from '../../model/stepper.js';
 
 /**
  * Serializable state for the onboarding page (§ onboarding). One surface serves
@@ -63,6 +64,11 @@ export interface OnboardingState {
    * is baked at spawn and can't switch mid-session. Always false in create mode.
    */
   sessionOpen: boolean;
+  /**
+   * Read-only workflow progress for the edit page (ordered by STAGE_KEYS). Empty
+   * in create mode — there is no ticket yet, so no workflow to show.
+   */
+  stepper: StepperCell[];
 }
 
 /**
@@ -161,6 +167,7 @@ export function buildOnboardingState(
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
       sessionOpen: false, // create mode has no ticket → nothing to lock
+      stepper: [], // no ticket yet → no workflow to show
     };
   }
 
@@ -194,5 +201,6 @@ export function buildOnboardingState(
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
     sessionOpen: isSessionOpen(ticketId),
+    stepper: buildStepper(ticket.stages),
   };
 }

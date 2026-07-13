@@ -187,10 +187,31 @@
   .drawer .head .close:hover{background:none;opacity:1}
   .drawer .body{padding:14px 18px;overflow:auto;white-space:pre-wrap;
     font-family:var(--mono);font-size:12px;line-height:1.55}
+  /* Read-only workflow stepper (edit mode) — mirrors the dashboard stepper but
+     is a passive progress glance here: no controls, muted until a stage runs. */
+  .stepper{margin:0 0 20px;padding:16px 8px 8px;border:1px solid var(--vscode-panel-border);
+    border-radius:8px;background:var(--vscode-editorWidget-background,transparent)}
+  .steps{display:flex;align-items:flex-start}
+  .step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
+  .step .line{position:absolute;top:13px;left:-50%;width:100%;height:2px;background:var(--st-pending);z-index:0}
+  .step:first-child .line{display:none}
+  .step .node{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+    background:var(--vscode-editor-background);border:2px solid var(--st-pending);
+    color:var(--vscode-editor-background);position:relative;z-index:1;font-size:12px;font-weight:700}
+  .step .lbl{margin-top:8px;font-size:11px;opacity:.6;text-align:center}
+  .step.done .node{background:var(--st-done);border-color:var(--st-done)}
+  .step.done .line{background:var(--st-done)}
+  .step.running .node{background:var(--st-running);border-color:var(--st-running)}
+  .step.running .lbl{opacity:1}
+  .step.failed .node{background:var(--st-failed);border-color:var(--st-failed)}
+  .step.failed .lbl{color:var(--st-failed);opacity:1}
 </style>
 
 <h1 id="heading">New ticket</h1>
 <div class="sub" id="subhead"></div>
+
+<!-- Read-only workflow progress (edit mode only; hidden in create mode). -->
+<div class="stepper hidden" id="stepper"><div class="steps" id="steps"></div></div>
 
 <!-- 1. Classify gate (only when services lack signals) -->
 <div class="card hidden" id="gateCard">
@@ -317,6 +338,23 @@
   // explicit user click on another card still wins.
   let aiSuggestion = null;
 
+  // Stage status -> stepper CSS class (mirrors the dashboard). The stepper here
+  // is READ-ONLY: it shows stage status only, never agent state, and posts
+  // nothing back. Hidden entirely in create mode (no ticket, no workflow).
+  const STEP_CLASS = { passed: 'done', running: 'running', failed: 'failed', pending: '', skipped: 'done' };
+  function renderStepper(stepper, mode) {
+    const show = mode === 'edit' && Array.isArray(stepper) && stepper.length > 0;
+    el('stepper').classList.toggle('hidden', !show);
+    if (!show) return;
+    el('steps').innerHTML = stepper.map((s) => {
+      const cls = STEP_CLASS[s.status] || '';
+      const mark = s.status === 'passed' ? '✓' : s.status === 'failed' ? '✕' : '';
+      return `<div class="step ${cls}"><div class="line"></div>`
+        + `<div class="node">${mark}</div>`
+        + `<div class="lbl">${esc(s.stageKey)}</div></div>`;
+    }).join('');
+  }
+
   function render(state) {
     draft.mode = state.mode;
     // Edit heading = the ticket's human label (key, else #id) + title. No id →
@@ -327,6 +365,7 @@
       ? (state.title || '(untitled)')
       : 'Name the ticket, write a prompt, pick an approach.';
     el('submitBtn').textContent = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
+    renderStepper(state.stepper, state.mode);
     renderProvider(state.provider);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
