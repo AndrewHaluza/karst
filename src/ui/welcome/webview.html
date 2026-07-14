@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: var(--vscode-font-family);
+        color: var(--vscode-foreground);
+        padding: 1.25rem 1.5rem;
+        max-width: 760px;
+        line-height: 1.5;
+      }
+      h1 { font-size: 1.35rem; margin: 0 0 0.25rem; }
+      p.lede { margin: 0 0 1.25rem; opacity: 0.85; }
+      section { margin-bottom: 1.75rem; }
+      h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.7; }
+      ul { list-style: none; padding: 0; margin: 0; }
+      li { padding: 0.6rem 0; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.2)); }
+      .item-head { display: flex; align-items: center; gap: 0.5rem; }
+      .mark { font-weight: 700; width: 1.2rem; display: inline-block; text-align: center; }
+      .mark.done { color: var(--vscode-testing-iconPassed, #3fb950); }
+      .mark.todo { color: var(--vscode-testing-iconFailed, #f85149); }
+      .detail { margin: 0.3rem 0 0 1.7rem; font-size: 0.9rem; opacity: 0.8; white-space: pre-wrap; }
+      .steps { counter-reset: step; }
+      .steps li { display: flex; gap: 0.75rem; align-items: baseline; }
+      .steps li::before {
+        counter-increment: step;
+        content: counter(step);
+        font-weight: 700;
+        min-width: 1.4rem;
+        color: var(--vscode-textLink-foreground);
+      }
+      .step-body { flex: 1; }
+      .step-desc { font-size: 0.9rem; opacity: 0.8; }
+      button {
+        margin-top: 0.4rem;
+        font: inherit;
+        color: var(--vscode-button-foreground);
+        background: var(--vscode-button-background);
+        border: none;
+        padding: 0.3rem 0.75rem;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      button.secondary {
+        color: var(--vscode-button-secondaryForeground);
+        background: var(--vscode-button-secondaryBackground);
+      }
+      button:hover { opacity: 0.9; }
+      .toolbar { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+      .error { color: var(--vscode-errorForeground); margin-top: 0.5rem; }
+      footer { margin-top: 1.5rem; opacity: 0.7; }
+    </style>
+  </head>
+  <body>
+    <h1>Welcome to Karst</h1>
+    <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+
+    <section>
+      <h2>Setup checklist</h2>
+      <ul id="checklist"></ul>
+      <div class="toolbar">
+        <button class="secondary" id="recheck">Re-check</button>
+      </div>
+      <div class="error" id="error" hidden></div>
+    </section>
+
+    <section>
+      <h2>How Karst works</h2>
+      <ul class="steps" id="tutorial"></ul>
+    </section>
+
+    <footer>
+      <button class="secondary" id="dismiss">Don't show this again</button>
+    </footer>
+
+    <script>
+      const vscode = acquireVsCodeApi();
+      const post = (type) => vscode.postMessage({ type });
+
+      function renderChecklist(items) {
+        const ul = document.getElementById('checklist');
+        ul.innerHTML = '';
+        for (const it of items) {
+          const li = document.createElement('li');
+          const head = document.createElement('div');
+          head.className = 'item-head';
+          const mark = document.createElement('span');
+          mark.className = 'mark ' + (it.done ? 'done' : 'todo');
+          mark.textContent = it.done ? '✓' : '✗';
+          const label = document.createElement('span');
+          label.textContent = it.label;
+          head.append(mark, label);
+          li.append(head);
+          if (it.detail) {
+            const d = document.createElement('div');
+            d.className = 'detail';
+            d.textContent = it.detail;
+            li.append(d);
+          }
+          if (it.id === 'manifest' && !it.done) {
+            const b = document.createElement('button');
+            b.textContent = 'Create karst.yml';
+            b.onclick = () => post('create-manifest');
+            li.append(b);
+          }
+          ul.append(li);
+        }
+      }
+
+      function renderTutorial(steps) {
+        const ul = document.getElementById('tutorial');
+        ul.innerHTML = '';
+        for (const s of steps) {
+          const li = document.createElement('li');
+          const body = document.createElement('div');
+          body.className = 'step-body';
+          const label = document.createElement('div');
+          label.textContent = s.label;
+          const desc = document.createElement('div');
+          desc.className = 'step-desc';
+          desc.textContent = s.description;
+          body.append(label, desc);
+          if (s.action === 'settings' || s.action === 'create-ticket') {
+            const b = document.createElement('button');
+            b.textContent = s.action === 'settings' ? 'Open Settings' : 'Create Ticket';
+            b.onclick = () => post(s.action === 'settings' ? 'open-settings' : 'create-ticket');
+            body.append(b);
+          }
+          li.append(body);
+          ul.append(li);
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg.type === 'state') {
+          document.getElementById('error').hidden = true;
+          renderChecklist(msg.state.checklist);
+          renderTutorial(msg.state.tutorial);
+        } else if (msg.type === 'error') {
+          const e = document.getElementById('error');
+          e.textContent = msg.message;
+          e.hidden = false;
+        }
+      });
+
+      document.getElementById('recheck').onclick = () => post('recheck-deps');
+      document.getElementById('dismiss').onclick = () => post('dismiss');
+      post('request-state');
+    </script>
+  </body>
+</html>
