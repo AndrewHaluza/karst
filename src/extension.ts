@@ -39,6 +39,7 @@ import {
   approachesDirOrThrow,
   agentsDirOrThrow,
   emptyManifest,
+  scaffoldManifest,
 } from './extension/manifestResolve.js';
 import { installApproach, type RunCommand } from './approaches/fetch.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
@@ -82,7 +83,18 @@ import { makeSettingsPanelHost } from './ui/settings/host.js';
 import { writeManifest } from './manifest/write.js';
 import { makeLogger, type LogError } from './logging/logger.js';
 import { injectPalette } from './model/palette.js';
-import { checkDependencies, binaryExists, GIT_DEPENDENCY, type RequiredDependency } from './runtime/deps.js';
+import {
+  checkDependencies,
+  binaryExists,
+  GIT_DEPENDENCY,
+  agentDependency,
+  type RequiredDependency,
+} from './runtime/deps.js';
+import { WelcomeManager } from './ui/welcome/panel.js';
+import { buildWelcomeActions } from './ui/welcome/actions.js';
+import { makeWelcomePanelHost } from './ui/welcome/host.js';
+import { buildSetupStatus } from './init/status.js';
+import { buildWelcomeState } from './ui/welcome/state.js';
 
 /**
  * Extension activation adapter — the host seam (§2.6). Everything below the UI
@@ -93,6 +105,9 @@ import { checkDependencies, binaryExists, GIT_DEPENDENCY, type RequiredDependenc
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+/** Per-workspace flag: the user dismissed the fresh-install welcome panel. */
+const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
@@ -167,6 +182,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const reloadManifest = (): void => {
     if (currentManifestPath) currentManifest = loadManifest(currentManifestPath);
   };
+
+  // Live setup status for the welcome page. Reads disk/PATH fresh on every call
+  // (no caching) so re-check and post-scaffold pushes reflect reality. Guarded:
+  // no workspace folder → manifest counts as missing, provider defaults to claude.
+  const loadWelcomeState = () => {
+    let manifestExists = false;
+    try {
+      manifestExists = existsSync(manifestPathOrThrow());
+    } catch {
+      manifestExists = false;
+    }
+    const provider = (currentManifest?.agentProvider ?? 'claude');
+    const missingDeps = checkDependencies(
+      [GIT_DEPENDENCY, agentDependency(provider)],
+      binaryExists,
+    );
+    return buildWelcomeState(buildSetupStatus({ manifestExists, missingDeps, provider }));
+  };
+
+  const welcome = new WelcomeManager(
+    loadWelcomeState,
+    makeWelcomePanelHost(context),
+    buildWelcomeActions({
+      scaffoldManifest,
+      setDismissed: () => void context.workspaceState.update(WELCOME_DISMISSED_KEY, true),
+      runCommand: (command) => void vscode.commands.executeCommand(command),
+    }),
+    logError,
+  );
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates
   // on invalid), this ALWAYS returns something to edit: a valid parse, or a raw
@@ -460,18 +504,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, logError);
 
   // Startup dependency preflight (§ todo-5): karst shells out to git + the agent
-  // CLI it doesn't bundle. Warn up front (non-blocking) with install guidance
-  // rather than letting a missing binary surface as a cryptic ENOENT mid-spin.
-  const requiredDeps: RequiredDependency[] = [
-    GIT_DEPENDENCY,
-    {
-      binary: agentAdapter.requiredBinary,
-      label: 'the Claude Code CLI',
-      install: `Install Claude Code (https://docs.claude.com/claude-code) so the '${agentAdapter.requiredBinary}' command is on your PATH, then reload the window.`,
-    },
-  ];
+  // CLI it doesn't bundle. Warn up front (non-blocking) with install guidance.
+  const preflightProvider = currentManifest?.agentProvider ?? 'claude';
+  const requiredDeps: RequiredDependency[] = [GIT_DEPENDENCY, agentDependency(preflightProvider)];
   const missingDeps = checkDependencies(requiredDeps, binaryExists);
-  if (missingDeps.length > 0) {
+
+  // Fresh-install welcome: auto-open the getting-started panel when this
+  // workspace has no manifest yet and the user hasn't dismissed it. Per-workspace
+  // (workspaceState) so a new project re-triggers even if dismissed elsewhere.
+  let autoOpenedWelcome = false;
+  if (vscode.workspace.workspaceFolders?.[0]) {
+    let manifestExists = false;
+    try {
+      manifestExists = existsSync(manifestPathOrThrow());
+    } catch {
+      manifestExists = false;
+    }
+    const dismissed = context.workspaceState.get<boolean>(WELCOME_DISMISSED_KEY) === true;
+    if (!manifestExists && !dismissed) {
+      welcome.open();
+      autoOpenedWelcome = true;
+    }
+  }
+
+  // Suppress the toast when the panel already shows the same dependency status.
+  if (missingDeps.length > 0 && !autoOpenedWelcome) {
     for (const d of missingDeps) logger.warn(`missing dependency '${d.binary}' — ${d.install}`);
     const names = missingDeps.map((d) => d.label).join(' and ');
     void vscode.window
@@ -791,6 +848,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // fallback + the error, shown inline. No toast either way.
       settings.open();
     }),
+    vscode.commands.registerCommand('karst.openGettingStarted', () => welcome.open()),
   );
 }
 

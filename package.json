@@ -118,6 +118,10 @@
         "command": "karst.openSettings",
         "title": "Karst: Settings",
         "icon": "$(gear)"
+      },
+      {
+        "command": "karst.openGettingStarted",
+        "title": "Karst: Getting Started"
       }
     ],
     "configuration": {
