@@ -15,6 +15,7 @@ import {
   deleteTicket,
   listTickets,
   listArchivedTickets,
+  setSessionId,
   type Ticket,
 } from './tickets.js';
 import { setStage } from './stages.js';
@@ -252,5 +253,11 @@ describe('ticket + stage persistence', () => {
     expect(listTickets(store, { includeArchived: true })).toHaveLength(0);
     const stageRows = store.db.prepare('SELECT * FROM stages WHERE ticket_id = ?').all(t.id);
     expect(stageRows).toHaveLength(0);
+  });
+
+  it('persists session_id and leaves it readable via getTicket', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    setSessionId(store, t.id, 'sess-abc');
+    expect(getTicket(store, t.id).sessionId).toBe('sess-abc');
   });
 });
