@@ -12,6 +12,7 @@ const assets = [
   'ui/onboarding/webview.html',
   'ui/settings/webview.html',
   'ui/sidebar/webview.html',
+  'ui/welcome/webview.html',
   'store/schema.sql',
 ]; // sourced from src/
 const rootAssets = ['karst.example.yml']; // sourced from the repo root
