@@ -166,6 +166,17 @@ export function setAgentState(
 }
 
 /**
+ * Set a ticket's `session_id` — the agent session to `--resume` (§5.3). Captured
+ * from the SessionStart hook. Single-writer discipline: all session_id mutation
+ * goes through here.
+ */
+export function setSessionId(store: Store, ticketId: number, sessionId: string): void {
+  store.db
+    .prepare('UPDATE tickets SET session_id = ? WHERE id = ?')
+    .run(sessionId, ticketId);
+}
+
+/**
  * Update a ticket's core identity fields (key/title) — the Edit-mode MVP writer.
  * `updated_at` bumps so downstream reconcilers see the change. Single-writer
  * discipline: core mutation goes through here.
