@@ -64,7 +64,8 @@ export class SessionManager {
    * command. `extraArgs` carries agent-specific launch additions from the
    * adapter's `materializeApproach` (e.g. `--plugin-dir`), fresh-launch only.
    * `model` is the resolved launch model id (per-ticket or manifest default),
-   * threaded as `--model`; omitted → the agent CLI's own default.
+   * threaded as `--model`; omitted → the agent CLI's own default. `resume` is
+   * an agent session id to continue via `--resume`, fresh-launch only.
    */
   openSession(
     ticketId: number,
@@ -73,6 +74,7 @@ export class SessionManager {
     initialPrompt?: string,
     extraArgs?: string[],
     model?: string,
+    resume?: string,
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
@@ -87,6 +89,7 @@ export class SessionManager {
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
       ...(model ? { model } : {}),
+      ...(resume ? { resume } : {}),
     });
 
     const terminal = this.host.createTerminal({
