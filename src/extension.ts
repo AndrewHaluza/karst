@@ -16,6 +16,7 @@ import {
   type SessionTerminal,
 } from './ui/session.js';
 import { resolveAdapter } from './agent/registry.js';
+import type { AgentAdapter } from './agent/adapter.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import type { StageKey } from './model/types.js';
@@ -60,6 +61,11 @@ import { buildAgentPool, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
+import { runStageDriver } from './workflow/driver.js';
+import { DriverController, shouldStartDriver } from './workflow/driverController.js';
+import { runUat } from './workflow/stages/uat.js';
+import { runReview } from './workflow/stages/review.js';
+import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
 import {
   getTicket,
   ticketLabel,
@@ -114,6 +120,9 @@ const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+
+/** Per-ticket single-flight + Stop bookkeeping for the auto-driver (§11/§12). */
+const driver = new DriverController();
 
 /** Minimal starter body for a brand-new agent file created from Settings. */
 function agentStarterTemplate(name: string): string {
@@ -476,10 +485,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     localStore,
     makePanelHost(context),
     (ticketId) =>
-      makeDashboardActions(localStore, ticketId, () => onboarding.openEdit(ticketId), () => {
-        provider.refresh();
-        dashboard.pushState(ticketId);
-      }),
+      makeDashboardActions(
+        localStore,
+        ticketId,
+        agentAdapter,
+        () => onboarding.openEdit(ticketId),
+        () => {
+          provider.refresh();
+          dashboard.pushState(ticketId);
+        },
+        logError,
+      ),
     () => worktreePathContext(currentManifest),
     () => currentManifest?.ticketLabelTemplate,
     // Live ticketing config so the dashboard links to the source board (§ C3).
@@ -499,11 +515,61 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
 
+  // Where the auto-driver persists its gate-run evidence (§11/§12), mirroring
+  // the per-ticket layout the runners themselves expect.
+  const artifactDirFor = (ticketId: number): string =>
+    join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId));
+
+  // Auto-run the deterministic uat/review gates for a ticket after the
+  // impl/fix marker (or a prior gate) leaves it at a gate boundary. Single-flight
+  // via `driver.begin`/`end`; never authors a transition itself — `runUat`/
+  // `runReview` own that (single-writer preserved). `runStageDriver` expects
+  // each runner to resolve the ticket's *new* `stageCurrent`, so wrap the real
+  // outcome-returning runners with a re-read.
+  async function driveTicket(ticketId: number): Promise<void> {
+    if (!driver.begin(ticketId)) return; // a run is already in flight
+    try {
+      await runStageDriver(
+        {
+          store: localStore,
+          worktreeFor: (id) => listWorktreesByTicket(localStore, id)[0]?.path ?? null,
+          onProgress: (id) => {
+            provider.refresh();
+            dashboard.pushState(id);
+          },
+          shouldContinue: () => driver.shouldContinue(ticketId),
+          runUat: (id, cwd) =>
+            runUat(localStore, { ticketId: id, cwd, artifactDir: artifactDirFor(id) }).then(
+              () => getTicket(localStore, id).stageCurrent as StageKey,
+            ),
+          runReview: (id, cwd) =>
+            runReview(localStore, { ticketId: id, cwd, artifactDir: artifactDirFor(id) }).then(
+              () => getTicket(localStore, id).stageCurrent as StageKey,
+            ),
+        },
+        ticketId,
+      );
+    } catch (e) {
+      logError('stage driver failed', e);
+    } finally {
+      driver.end(ticketId);
+      provider.refresh();
+      dashboard.pushState(ticketId);
+    }
+  }
+
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
   endpoint = await startHookEndpoint(localStore, 0, (ticketId) => {
     provider.refresh();
     dashboard.pushState(ticketId);
+    // Auto-advance (§5.4-safe nudge): the explicit marker already transitioned
+    // the stage before this hook fired; if it now sits at a deterministic gate
+    // with no live interactive session, kick the driver to run it.
+    const t = getTicket(localStore, ticketId);
+    if (shouldStartDriver(t.stageCurrent as StageKey, sessions.isOpen(ticketId))) {
+      void driveTicket(ticketId);
+    }
   }, logError);
 
   // Startup dependency preflight (§ todo-5): karst shells out to git + the agent
@@ -1002,8 +1068,10 @@ function makeTerminalHost(): TerminalHost {
 function makeDashboardActions(
   store: Store,
   ticketId: number,
+  agentAdapter: AgentAdapter,
   editTicket: () => void,
   afterServerChange: () => void,
+  logError: LogError,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {
@@ -1056,5 +1124,19 @@ function makeDashboardActions(
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
+    // Stop the auto-driver's next gate run for this ticket (it halts at the
+    // next boundary check, never mid-gate — see `shouldContinue`).
+    stopDriver: () => driver.requestStop(ticketId),
+    // Human confirms ship: open the PR(s) for every hot repo, then let the
+    // caller (dashboard) refresh so `done` (or a fresh PR list) shows up.
+    shipTicket: () => {
+      void runShipTicket(store, { ticketId }, undefined, agentAdapter)
+        .then(() => afterServerChange())
+        .catch((e) => logError('ship failed', e));
+    },
+    // Resume: same interactive-open path the sidebar/dashboard "open session"
+    // action already uses; `SessionManager.openSession` resolves --resume vs.
+    // a fresh launch on its own.
+    resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
   };
 }
