@@ -16,9 +16,9 @@ This is a completion of the §11/§13 design, not a new model. §5.4 already fix
 ## 2. Goals
 
 1. After the explicit impl/fix **marker**, karst **auto-runs the deterministic gates** (`uat → review`), advancing on exit-code verdicts.
-2. The loop is **visible and interruptible**: the dashboard shows live stage + status; the user can **Pause**, **Stop**, and **Resume**.
+2. The loop is **visible and interruptible**: the dashboard shows live stage + status; the user can **Stop** (halts at the next gate boundary) and **Resume**.
 3. **Stop before ship**: the loop pauses at `ship`; PRs open only on an explicit **Ship** confirm (outward, hard to undo).
-4. **Session continuity**: persist `session_id`; reopening an in-progress ticket **resumes** the agent session (`--resume`) instead of re-seeding from scratch; `runFix` resumes headless.
+4. **Session continuity**: persist `session_id`; reopening an in-progress ticket **resumes** the agent session (`--resume`) instead of re-seeding from scratch.
 5. **Interruptions are a non-event** (§13): on reopen, reconcile restores the stage and re-offers **Resume** (idempotent re-run) rather than silently re-firing.
 6. **Consistency**: one orchestrator drives every stage through a single code path, host-agnostic (injected interfaces), TDD.
 
@@ -29,7 +29,9 @@ This is a completion of the §11/§13 design, not a new model. §5.4 already fix
 - Second agent / Codex.
 - `fetch` and `done` ticketing-API stages (out of current scope).
 - Server re-adoption beyond the existing cold-restart.
-- A global auto-advance on/off setting — auto-advance is the default behavior; interruptibility (Pause/Stop) is the control surface, so a separate toggle is unnecessary.
+- A global auto-advance on/off setting — auto-advance is the default behavior; interruptibility (Stop) is the control surface, so a separate toggle is unnecessary.
+- **Auto-headless-fix** — the driver does NOT auto-run `runFix`. On a gate failure the ticket routes to `fix`, which is a **human boundary** (Resume session, fix interactively, re-fire the marker). Unattended agent fixing is a later enhancement; `runFix` and the `session_id` resume plumbing still land (used by the interactive resume), so the seam stays.
+- **Mid-run kill** — gate runners keep `spawnSync`; **Stop** acts at the gate boundary (a running gate finishes, then the loop halts). Killing an in-flight `npm test` is a later enhancement (async-spawn refactor).
 
 ## 4. Architecture
 
@@ -44,10 +46,9 @@ export interface StageDriverDeps {
   store: Store;
   runUat: (ticketId: number, cwd: string) => Promise<StageKey>;      // wraps runUat
   runReview: (ticketId: number, cwd: string) => Promise<StageKey>;   // wraps runReview
-  runFix: (ticketId: number, cwd: string) => Promise<StageKey>;      // wraps runFix (needs session_id)
   worktreeFor: (ticketId: number) => string | null;
-  onProgress: (ticketId: number, stage: StageKey, status: 'running' | 'paused' | 'stopped' | 'blocked') => void;
-  shouldContinue: () => boolean; // cancellation check between gates (Pause/Stop)
+  onProgress: (ticketId: number, stage: StageKey, status: 'running' | 'stopped' | 'blocked') => void;
+  shouldContinue: () => boolean; // cancellation check between gates (Stop)
 }
 
 export async function runStageDriver(deps: StageDriverDeps, ticketId: number): Promise<StageOutcome>;
@@ -58,15 +59,15 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
 | current | driver action | continues? |
 |---|---|---|
 | `impl` | none — waits for the marker (interactive boundary) | no (returns `blocked`) |
-| `uat` | `runUat` → transition (pass→review / fail→fix) | yes |
-| `review` | `runReview` → transition (pass→ship / fail→fix) | yes |
-| `fix` | `runFix` (resume headless) → transition (→review) | yes, if `session_id` present; else `blocked` (needs interactive) |
+| `uat` | `runUat` → transition (pass→review / fail→fix) | yes on pass; stops on fail (→`fix`) |
+| `review` | `runReview` → transition (pass→ship / fail→fix) | yes on pass; stops on fail (→`fix`) |
+| `fix` | **stop** — human boundary (Resume session interactively) | no |
 | `ship` | **stop** — return `blocked:ship-confirm` (never auto-opens PRs) | no |
 | `done` | terminal | no |
 
-The runners already call `transition()` and fold their artifact write into the transaction (unchanged). The driver only sequences them, checks `shouldContinue()` between gates, and stops at boundaries. It is a fold over `stage_current`, never a second source of transition logic (single-writer discipline preserved).
+The runners already call `transition()` and fold their artifact write into the transaction (unchanged). The driver only sequences the deterministic **pass-forward** gates (`uat`→`review`), checks `shouldContinue()` between them, and stops at boundaries. It is a fold over `stage_current`, never a second source of transition logic (single-writer discipline preserved).
 
-**Boundaries that stop the loop:** `ship` (confirm), `fix` with no `session_id` (needs an interactive session), `done`, a cancel, or any runner error.
+**Boundaries that stop the loop:** `fix` (a gate failed — fix interactively), `ship` (confirm), `done`, a cancel, or any runner error.
 
 ### 4.2 Trigger — what starts the driver
 
@@ -81,11 +82,11 @@ Both funnel into the same `runStageDriver(ticketId)` entry.
 
 1. **Persist `session_id`.** Add single-writer `setSessionId(store, ticketId, sessionId)`. Extend `dispatchHook`: on `SessionStart` (payload carries `session_id` + `cwd`), resolve the ticket and persist it. First-write-wins per session; keep it idempotent.
 2. **Interactive `--resume`.** `buildInteractiveCommand` gains an optional `resume?: string`; when set, prepend `--resume <id>`. `openSession` decides: ticket has a `session_id` **and** stage is `impl`/`fix` → resume (seed a short "continue" nudge, not the full re-derived prompt); otherwise fresh seed as today.
-3. **Headless fix resume.** `runFix` already `--resume`s `ticket.sessionId`; once persistence lands it works unchanged.
+3. **`runFix` plumbing stays ready.** `runFix` already `--resume`s `ticket.sessionId`; once persistence lands it is functional, but the driver does not call it in this slice (auto-headless-fix deferred, §3). Fixing happens via the interactive Resume path.
 
-### 4.4 Cancellation / Stop
+### 4.4 Stop (boundary-level)
 
-Pause/Stop must interrupt a running gate. Today `runUat`/`runReview` use `spawnSync` (unkillable mid-run). Refactor their runners to **async `spawn`** returning a killable handle so `Stop` can terminate an in-flight `npm test`; `shouldContinue()` gates the between-stage steps. Pause = stop after the current gate; Stop = kill the current run + halt. (The verdict logic — exit code → transition — is unchanged; only the spawn mechanism changes.)
+`Stop` halts the loop at the **gate boundary**: `shouldContinue()` is checked before each gate, so a running gate finishes (verdict recorded as normal) and the driver then stops rather than proceeding to the next. Gate runners keep `spawnSync` — no mid-run kill (deferred, §3). This keeps the tested runner internals untouched; only the driver's between-gate check is new.
 
 ### 4.5 Dashboard UX (`src/ui/dashboard/*`)
 
@@ -95,8 +96,9 @@ The ticket dashboard renders one **primary action** derived from `(stage_current
 |---|---|
 | `impl`, idle, has `session_id` | **Resume session** (`--resume`) |
 | `impl`, no `session_id` | **Open session** (fresh) |
-| gate running | **Running…** + **Pause** / **Stop** |
+| gate running | **Running…** + **Stop** (halts at gate boundary) |
 | gate stopped/interrupted | **Resume** (idempotent re-run) |
+| `fix` (a gate failed) | **Resume session** (fix interactively, re-fire marker) |
 | `ship` | **Ship (open PRs)** confirm |
 | `agent_state=waiting` (needs-you) | **Answer** (focus terminal, §5.6 — exists) |
 | `done` | — |
@@ -108,12 +110,12 @@ A live status line shows the current gate + last verdict; artifacts (uat/review 
 ```
 impl session → agent runs `karst stage impl pass` (marker) → transition impl→uat
 agent session ends → Stop hook → extension: stage_current=uat, no live session → runStageDriver
-  runUat (async spawn npm test) → exit 0 → transition uat→review → continue
+  runUat (spawnSync npm test) → exit 0 → transition uat→review → continue
   runReview (lint+tc+test) → all 0 → transition review→ship → BOUNDARY: stop, show "Ship"
 user clicks Ship → shipTicket (open PRs, write prs rows) → transition ship→done
 ```
 
-Failure branch: any gate exits nonzero → transition →`fix`. If `session_id` present → driver `runFix` (headless resume) → back to `review`. If not → dashboard shows **Resume session** to fix interactively; the human re-fires the marker path.
+Failure branch: any gate exits nonzero → transition →`fix` → driver stops. Dashboard shows **Resume session** (`--resume` the captured session); the human fixes interactively and re-fires the marker path, which re-enters the gate. (Auto-headless-fix is deferred, §3.)
 
 ## 6. Error handling
 
@@ -124,19 +126,19 @@ Failure branch: any gate exits nonzero → transition →`fix`. If `session_id` 
 
 ## 7. Testing (TDD)
 
-- `StageDriver`: table-driven over start-stage → expected stop boundary, with fake runners; pass-chain (uat→review→ship-stop), fail-branch (uat fail→fix), fix-resume→review, cancel between gates, `ship` never auto-runs.
+- `StageDriver`: table-driven over start-stage → expected stop boundary, with fake runners; pass-chain (uat→review→ship-stop), fail-branch stops at `fix`, Stop between gates halts, `ship` never auto-runs.
 - `setSessionId` + `dispatchHook` SessionStart persists `session_id`; other events still touch only `agent_state`.
 - `buildInteractiveCommand` threads `--resume` when given; omits otherwise.
 - `openSession` resume-vs-fresh decision (unit, via the existing host fakes).
-- Async-spawn runners: exit code → verdict unchanged; kill terminates the run.
 - Integration: seed a ticket at `uat`, run the driver against a fake worktree, assert it stops at `ship` with PRs unopened.
 
 ## 8. Build phases (for the plan)
 
-1. **Session persistence** — `setSessionId`, `dispatchHook` SessionStart capture. (Unblocks fix + resume; smallest, independent.)
+1. **Session persistence** — `setSessionId`, `dispatchHook` SessionStart capture. (Unblocks resume; smallest, independent.)
 2. **Interactive resume** — `buildInteractiveCommand` `--resume`, `openSession` resume decision + dashboard Resume/Open action.
-3. **Async-spawn runners** — refactor `runUat`/`runReview` spawn to killable; verdict unchanged.
-4. **StageDriver** — the loop + boundaries, fully unit-tested with fakes.
-5. **Trigger wiring** — Stop-hook nudge + boot Resume affordance → `runStageDriver`; dashboard Pause/Stop/Ship controls.
+3. **StageDriver** — the pass-forward loop + boundaries + boundary-level Stop, fully unit-tested with fakes.
+4. **Trigger wiring + Ship confirm** — Stop-hook nudge + boot Resume affordance → `runStageDriver`; dashboard Stop + Ship-confirm controls.
 
-Phases 1–4 are host-agnostic and testable under vitest; phase 5 is the thin `extension.ts` seam.
+Phases 1–3 are host-agnostic and testable under vitest; phase 4 is the thin `extension.ts` seam.
+
+Deferred (seams stay): auto-headless-fix (`runFix` in the driver), mid-run kill (async-spawn runners), agent review-findings.
