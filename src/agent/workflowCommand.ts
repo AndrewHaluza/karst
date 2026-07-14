@@ -41,8 +41,15 @@ export function renderWorkflowCommand(input: {
   label: string;
   phases: WorkflowPhase[];
   contextCommand?: string;
+  /**
+   * When given, a CLOSING marker step is appended: run `<stageCommand>
+   * $ARGUMENTS` once implementation is complete to advance impl→uat (the
+   * explicit §5.4 marker — a session ending is NOT a verdict, so the agent must
+   * fire this itself). Absent → no marker step (the impl boundary stays manual).
+   */
+  stageCommand?: string;
 }): string {
-  const { id, label, phases, contextCommand } = input;
+  const { id, label, phases, contextCommand, stageCommand } = input;
   const loadInstruction = contextCommand
     ? 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
       `First, load the ticket's full context by running \`${contextCommand} $ARGUMENTS\` ` +
@@ -67,5 +74,14 @@ export function renderWorkflowCommand(input: {
     else parts.push('Handle this step manually (no native slash command for this phase).');
     lines.push(`${step}. ${parts.join(' — ')}`);
   });
+  if (stageCommand) {
+    lines.push(
+      '',
+      'When implementation is complete and the code is ready for review, run ' +
+        `\`${stageCommand} $ARGUMENTS\` to record the implement-done marker and advance ` +
+        'the ticket to the UAT gate. A session ending does not advance the ticket on its ' +
+        'own — you must fire this marker explicitly.',
+    );
+  }
   return lines.join('\n');
 }

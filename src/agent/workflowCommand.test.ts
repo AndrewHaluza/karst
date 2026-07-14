@@ -45,6 +45,20 @@ describe('renderWorkflowCommand', () => {
     expect(body).toContain('read and describe the ticket');
     expect(body).not.toContain('--db');
   });
+  it('appends the impl-done marker step when a stageCommand is given', () => {
+    const body = renderWorkflowCommand({
+      id: 'rpi',
+      label: 'RPI',
+      phases: rpiPhases,
+      stageCommand: 'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket',
+    });
+    expect(body).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket $ARGUMENTS');
+    expect(body.toLowerCase()).toContain('uat');
+  });
+  it('omits the marker step without a stageCommand', () => {
+    const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
+    expect(body).not.toContain('stage impl pass');
+  });
 });
 
 describe('buildWorkflowInvocation', () => {

@@ -20,6 +20,7 @@ import { buildSessionSeed } from './agent/seed.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModel } from './agent/models.js';
 import { composeContextCommand } from './cli/context.js';
+import { composeStageCommand } from './cli/stage.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
@@ -656,6 +657,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             sessionDir: wt.path,
             soloAgent,
             cliContextPrefix: buildCliContextPrefix(context, dbPath),
+            cliStagePrefix: buildCliStagePrefix(context, dbPath),
           });
           extraArgs = materialized.extraArgs.length > 0 ? materialized.extraArgs : undefined;
         }
@@ -911,6 +913,17 @@ function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string)
     manifestPath = undefined;
   }
   return composeContextCommand(cliEntry, dbPath, manifestPath);
+}
+
+/**
+ * Compose the `node <cli> stage impl pass --db <db> --ticket` prefix the
+ * generated `/karst:<id>` command runs (ticket key appended) to fire the
+ * impl→uat marker when implementation is done. Same CLI entry as context; no
+ * manifest needed (a stage write reads nothing from it).
+ */
+function buildCliStagePrefix(context: vscode.ExtensionContext, dbPath: string): string {
+  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
+  return composeStageCommand(cliEntry, dbPath);
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
