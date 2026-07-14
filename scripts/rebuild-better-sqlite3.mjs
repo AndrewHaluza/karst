@@ -23,22 +23,33 @@ function run(command, args, extraEnv = {}) {
   }
 }
 
-function detectElectronVersion() {
+function detectElectronRuntime() {
+  // The devDependency electron version in an app's package.json is a build-time
+  // artifact and can be absent entirely (Cursor's app package.json has no
+  // `electron` field). Ask the app's own embedded Electron binary instead —
+  // running it with ELECTRON_RUN_AS_NODE prints its actual process.versions,
+  // which is the ground truth for the ABI this extension host will load against.
   const candidates = [
-    '/Applications/Visual Studio Code.app/Contents/Resources/app/package.json',
-    '/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/package.json',
-    process.env.VSCODE_APP_PATH ? join(process.env.VSCODE_APP_PATH, 'package.json') : null,
+    // Explicit target wins (install-local.sh sets this per-IDE so it doesn't
+    // depend on candidate-list order or on apps not covered below).
+    process.env.KARST_TARGET_APP_BINARY,
+    '/Applications/Cursor.app/Contents/MacOS/Cursor',
+    '/Applications/Visual Studio Code.app/Contents/MacOS/Electron',
+    '/Applications/Visual Studio Code - Insiders.app/Contents/MacOS/Electron',
+    '/Applications/Antigravity IDE.app/Contents/MacOS/Electron',
+    process.env.VSCODE_APP_PATH ? join(process.env.VSCODE_APP_PATH, 'Contents/MacOS/Electron') : null,
   ].filter(Boolean);
 
   for (const candidate of candidates) {
-    try {
-      const pkg = JSON.parse(readFileSync(candidate, 'utf8'));
-      const version = pkg.devDependencies?.electron ?? pkg.dependencies?.electron;
-      if (version) {
-        return version;
-      }
-    } catch {
-      // Try the next candidate.
+    if (!existsSync(candidate)) continue;
+    const result = spawnSync(candidate, ['-e', 'console.log(process.versions.modules + " " + process.versions.electron)'], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      encoding: 'utf8',
+    });
+    const line = result.stdout?.trim().split('\n').at(-1);
+    const match = line?.match(/^(\d+) (\S+)$/);
+    if (match) {
+      return { abi: match[1], electronVersion: match[2], binary: candidate };
     }
   }
 
@@ -63,13 +74,27 @@ function tryPrebuild(abi) {
 }
 
 if (mode === 'electron') {
-  const electronVersion = process.env.ELECTRON_VERSION ?? detectElectronVersion();
+  // VS Code / Cursor extension hosts run Electron, not plain Node, and their
+  // Electron version varies by app/release (VS Code 1.126 = Electron 39 = ABI
+  // 140; Cursor 3.11 = Electron 40 = ABI 143). Detect the actual host's ABI by
+  // running its embedded Electron binary rather than assuming a fixed default —
+  // otherwise a stale prebuild silently ships the wrong ABI and only fails at
+  // extension activation in the other app. better-sqlite3 ships matching
+  // prebuilds (e.g. darwin-arm64-140); copy one into build/Release (what
+  // bindings loads) instead of compiling, when available.
+  const runtime = detectElectronRuntime();
+  const abi = process.env.BETTER_SQLITE3_ABI ?? runtime?.abi ?? '140';
+  if (tryPrebuild(abi)) {
+    process.exit(0);
+  }
+
+  const electronVersion = process.env.ELECTRON_VERSION ?? runtime?.electronVersion;
   if (!electronVersion) {
-    console.error('Unable to detect an Electron version for better-sqlite3 rebuild.');
+    console.error(`No prebuild found for ABI ${abi} and unable to detect an Electron version for source rebuild.`);
     process.exit(1);
   }
 
-  console.log(`Rebuilding better-sqlite3 for Electron ${electronVersion} (${arch})...`);
+  console.log(`No prebuild for ABI ${abi}; rebuilding better-sqlite3 for Electron ${electronVersion} (${arch})...`);
   run(npmCommand, ['exec', '--', 'electron-rebuild', '-f', '-w', 'better-sqlite3', '--version', electronVersion, '--arch', arch, '--module-dir', rootDir], {
     npm_config_build_from_source: 'true',
   });
