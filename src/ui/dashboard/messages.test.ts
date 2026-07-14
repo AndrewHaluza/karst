@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { routeAction, type DashboardActions } from './messages.js';
+import { routeAction, parseWebviewMessage, type DashboardActions } from './messages.js';
 
 function actions(): DashboardActions {
   return {
@@ -13,6 +13,9 @@ function actions(): DashboardActions {
     openPr: vi.fn(),
     openTicketLink: vi.fn(),
     editTicket: vi.fn(),
+    stopDriver: vi.fn(),
+    shipTicket: vi.fn(),
+    resumeTicket: vi.fn(),
   };
 }
 
@@ -113,5 +116,21 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'edit-ticket' }, a);
     expect(a.editTicket).toHaveBeenCalled();
+  });
+
+  it('parses the driver/ship/resume actions', () => {
+    expect(parseWebviewMessage({ type: 'stop-driver' })).toEqual({ type: 'stop-driver' });
+    expect(parseWebviewMessage({ type: 'ship-ticket' })).toEqual({ type: 'ship-ticket' });
+    expect(parseWebviewMessage({ type: 'resume-ticket' })).toEqual({ type: 'resume-ticket' });
+  });
+
+  it('dispatches stop-driver/ship-ticket/resume-ticket (no payload)', () => {
+    const a = actions();
+    routeAction({ type: 'stop-driver' }, a);
+    routeAction({ type: 'ship-ticket' }, a);
+    routeAction({ type: 'resume-ticket' }, a);
+    expect(a.stopDriver).toHaveBeenCalledTimes(1);
+    expect(a.shipTicket).toHaveBeenCalledTimes(1);
+    expect(a.resumeTicket).toHaveBeenCalledTimes(1);
   });
 });
