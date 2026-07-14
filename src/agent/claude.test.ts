@@ -172,6 +172,17 @@ describe('buildInteractiveCommand initialPrompt', () => {
     expect(cmd.args).not.toContain('--model');
   });
 
+  it('threads --resume when a session id is given', () => {
+    const cmd = new ClaudeAdapter().buildInteractiveCommand({ cwd: '/wt', resume: 'sess-9' });
+    expect(cmd.args).toContain('--resume');
+    expect(cmd.args[cmd.args.indexOf('--resume') + 1]).toBe('sess-9');
+  });
+
+  it('omits --resume when no session id is given', () => {
+    const cmd = new ClaudeAdapter().buildInteractiveCommand({ cwd: '/wt' });
+    expect(cmd.args).not.toContain('--resume');
+  });
+
   it('appends extraArgs with no initialPrompt', () => {
     const cmd = adapter.buildInteractiveCommand({
       cwd: '/wt',

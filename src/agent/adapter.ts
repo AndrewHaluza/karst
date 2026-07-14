@@ -25,6 +25,7 @@ export interface HeadlessResult {
 export interface InteractiveCommandOpts {
   cwd: string;
   settingsPath?: string; // registers the HTTP hook, scoped to our sessions
+  resume?: string; // session_id to --resume an interrupted interactive session (§5.3)
   initialPrompt?: string; // seed prompt for the session (e.g. an approach entrypoint)
   model?: string; // resolved launch model id (§ model selection); omitted → agent CLI default
   /**
