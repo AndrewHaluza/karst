@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { checkDependencies, GIT_DEPENDENCY, agentDependency, AGENT_CLI_DEPENDENCIES, type RequiredDependency } from './deps.js';
+import { resolveAdapter } from '../agent/registry.js';
 
 const AGENT: RequiredDependency = {
   binary: 'claude',
@@ -38,5 +39,11 @@ describe('agentDependency', () => {
     expect(dep.binary).toBe('codex');
     expect(dep.label).toBe('the codex CLI');
     expect(dep.install).toContain("'codex' is on your PATH");
+  });
+
+  // Guard against binary-name drift: the dependency check must probe the SAME
+  // binary the launcher spawns, else the checklist reports a false present/missing.
+  it('probes the same binary the claude adapter launches', () => {
+    expect(agentDependency('claude').binary).toBe(resolveAdapter('claude').requiredBinary);
   });
 });
