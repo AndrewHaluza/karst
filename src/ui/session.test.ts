@@ -191,4 +191,26 @@ describe('SessionManager', () => {
 
     expect(calls).toHaveLength(1);
   });
+
+  it('isOpen reports true only for a ticket with a live terminal', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(adapter, host, settingsFor);
+
+    mgr.openSession(1, '/wt/a');
+
+    expect(mgr.isOpen(1)).toBe(true);
+    expect(mgr.isOpen(2)).toBe(false);
+  });
+
+  it('isOpen goes false again once the terminal closes', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(adapter, host, settingsFor);
+
+    mgr.openSession(1, '/wt/a');
+    terminals[0]!.dispose();
+
+    expect(mgr.isOpen(1)).toBe(false);
+  });
 });
