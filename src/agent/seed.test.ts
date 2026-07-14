@@ -60,4 +60,21 @@ describe('buildSessionSeed', () => {
     expect(seed).toBeDefined();
     expect(seed).not.toContain('/karst:rpi');
   });
+
+  it('appends the marker instruction as the final section when given', () => {
+    const seed = buildSessionSeed(CONTEXT, null, undefined, 'RUN THE MARKER');
+    expect(seed).toBeDefined();
+    expect(seed!.endsWith('RUN THE MARKER')).toBe(true);
+    // marker comes after the ticket context
+    expect(seed!.indexOf('RUN THE MARKER')).toBeGreaterThan(seed!.indexOf('PROJ-9'));
+  });
+
+  it('seeds the marker even when there is no context and no method (direct/bare ticket)', () => {
+    expect(buildSessionSeed(undefined, null, undefined, 'RUN THE MARKER')).toBe('RUN THE MARKER');
+  });
+
+  it('is unchanged when no marker is given (4th arg absent)', () => {
+    expect(buildSessionSeed(CONTEXT, null)).toBe(CONTEXT);
+    expect(buildSessionSeed(CONTEXT, null, undefined, undefined)).toBe(CONTEXT);
+  });
 });

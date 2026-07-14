@@ -25,6 +25,24 @@ export function buildWorkflowInvocation(approachId: string, ticketKey: string): 
 }
 
 /**
+ * The explicit impl→uat marker instruction (§5.4). A session ending is NOT a
+ * verdict, so the agent must fire `<stageCommand> <ticketArg>` itself once
+ * implementation is complete. Shared by the generated workflow command (arg =
+ * `$ARGUMENTS`, substituted by the agent CLI) AND the launch seed (arg = the
+ * concrete ticket key) — so a `direct`/no-approach ticket, which never
+ * materializes a workflow command, still gets the same instruction and can
+ * leave `impl`.
+ */
+export function renderImplMarkerInstruction(stageCommand: string, ticketArg: string): string {
+  return (
+    'When implementation is complete and the code is ready for review, run ' +
+    `\`${stageCommand} ${ticketArg}\` to record the implement-done marker and advance ` +
+    'the ticket to the UAT gate. A session ending does not advance the ticket on its ' +
+    'own — you must fire this marker explicitly.'
+  );
+}
+
+/**
  * Render the markdown body for the generated `/karst:<id>` slash command. Pure:
  * no fs, no side effects. Written to `karst/commands/<id>.md` inside the
  * karst-authored plugin at materialize time.
@@ -75,13 +93,7 @@ export function renderWorkflowCommand(input: {
     lines.push(`${step}. ${parts.join(' — ')}`);
   });
   if (stageCommand) {
-    lines.push(
-      '',
-      'When implementation is complete and the code is ready for review, run ' +
-        `\`${stageCommand} $ARGUMENTS\` to record the implement-done marker and advance ` +
-        'the ticket to the UAT gate. A session ending does not advance the ticket on its ' +
-        'own — you must fire this marker explicitly.',
-    );
+    lines.push('', renderImplMarkerInstruction(stageCommand, '$ARGUMENTS'));
   }
   return lines.join('\n');
 }

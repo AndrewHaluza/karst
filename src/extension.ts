@@ -27,6 +27,7 @@ import { composeStageCommand } from './cli/stage.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
+  renderImplMarkerInstruction,
   KARST_PLUGIN_NAME,
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
@@ -705,18 +706,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ticketContextMd = renderTicketContext(
         buildTicketContext(localStore, currentManifest, ticketId),
       );
-      const initialPrompt = buildSessionSeed(ticketContextMd, approachPrompt ?? delegation, invocation);
+      // The impl→uat marker instruction (§5.4) rides EVERY seed, not just the
+      // approach path: `materializeApproach` only runs for an installed package
+      // or a solo agent, so a `direct` ticket would otherwise never be told to
+      // fire the marker and would strand at `impl`. The concrete ticket key is
+      // the arg (the seed is plain text — no `$ARGUMENTS` substitution).
+      const markerInstruction = renderImplMarkerInstruction(
+        buildCliStagePrefix(context, dbPath),
+        t.key ?? String(ticketId),
+      );
+      const initialPrompt = buildSessionSeed(
+        ticketContextMd,
+        approachPrompt ?? delegation,
+        invocation,
+        markerInstruction,
+      );
 
       // Resume the captured session when continuing interactive work, so the
       // agent keeps its context instead of re-deriving from a cold seed (§5.3).
       // `stageCurrent` is stored loosely as `string | null` at the store layer
       // (like `stages.ts`'s `stage_key as StageKey`); it is always one of
-      // STAGE_KEYS in practice.
+      // STAGE_KEYS in practice. The marker rides the resume nudge too — a
+      // resumed impl/fix session still has to fire it when work is done.
       const resumeId = shouldResumeSession({ sessionId: t.sessionId, stageCurrent: t.stageCurrent as StageKey })
         ? (t.sessionId ?? undefined)
         : undefined;
       const seedPrompt = resumeId
-        ? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`
+        ? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.\n\n${markerInstruction}`
         : initialPrompt;
 
       // Materialize the ticket's approach package (and/or its chosen solo agent)
