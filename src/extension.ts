@@ -17,6 +17,8 @@ import {
 } from './ui/session.js';
 import { resolveAdapter } from './agent/registry.js';
 import { buildSessionSeed } from './agent/seed.js';
+import { shouldResumeSession } from './agent/resumeDecision.js';
+import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModel } from './agent/models.js';
 import { composeContextCommand } from './cli/context.js';
@@ -639,6 +641,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const initialPrompt = buildSessionSeed(ticketContextMd, approachPrompt ?? delegation, invocation);
 
+      // Resume the captured session when continuing interactive work, so the
+      // agent keeps its context instead of re-deriving from a cold seed (§5.3).
+      // `stageCurrent` is stored loosely as `string | null` at the store layer
+      // (like `stages.ts`'s `stage_key as StageKey`); it is always one of
+      // STAGE_KEYS in practice.
+      const resumeId = shouldResumeSession({ sessionId: t.sessionId, stageCurrent: t.stageCurrent as StageKey })
+        ? (t.sessionId ?? undefined)
+        : undefined;
+      const seedPrompt = resumeId
+        ? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`
+        : initialPrompt;
+
       // Materialize the ticket's approach package (and/or its chosen solo agent)
       // into agent-specific launch args (e.g. Claude's `--plugin-dir`) so its
       // agents/skills/commands are actually available in the session — not just
@@ -688,9 +702,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ticketId,
         wt.path,
         { key: t.key, title: t.title },
-        initialPrompt,
+        seedPrompt,
         extraArgs,
         model,
+        resumeId,
       );
     }),
     vscode.commands.registerCommand('karst.spinTicket', async (arg: unknown) => {
