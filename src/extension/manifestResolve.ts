@@ -46,6 +46,24 @@ export function agentsDirOrThrow(): string {
 }
 
 /**
+ * Create `karst.yml` from the bundled template: mkdir the parent, write the
+ * file, open it in an editor, and confirm with an info toast. Throws on failure
+ * so callers can surface it. Shared by `resolveManifest`'s prompt flow and the
+ * welcome page's "Create karst.yml" button (which is itself the confirmation, so
+ * it calls this directly without a second prompt).
+ */
+export async function scaffoldManifest(): Promise<void> {
+  const manifestPath = manifestPathOrThrow();
+  const template = readFileSync(EXAMPLE_YML, 'utf8');
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, template);
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifestPath));
+  void vscode.window.showInformationMessage(
+    "Created karst.yml — set each service's repoPath, then try again.",
+  );
+}
+
+/**
  * Resolve the workspace's manifest, offering to scaffold one from the bundled
  * template when absent. Returns the loaded `Manifest`, or `undefined` when the
  * caller should stop (no folder, no/invalid manifest, or a scaffold was just
@@ -67,15 +85,7 @@ export async function resolveManifest(): Promise<Manifest | undefined> {
     );
     if (pick === 'Create karst.yml') {
       try {
-        const template = readFileSync(EXAMPLE_YML, 'utf8');
-        mkdirSync(dirname(manifestPath), { recursive: true });
-        writeFileSync(manifestPath, template);
-        await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(manifestPath),
-        );
-        void vscode.window.showInformationMessage(
-          "Created karst.yml — set each service's repoPath, then try again.",
-        );
+        await scaffoldManifest();
       } catch (err) {
         void vscode.window.showErrorMessage(
           `Could not create karst.yml: ${err instanceof Error ? err.message : String(err)}`,
