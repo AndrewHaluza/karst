@@ -14,7 +14,10 @@ export type WebviewMessage =
   | { type: 'open-worktree-folder'; path: string }
   | { type: 'open-pr'; url: string }
   | { type: 'open-ticket-link'; url: string }
-  | { type: 'edit-ticket' };
+  | { type: 'edit-ticket' }
+  | { type: 'stop-driver' }
+  | { type: 'ship-ticket' }
+  | { type: 'resume-ticket' };
 
 /** Host → webview messages: state pushes drive the stepper + panels. */
 export type HostMessage = { type: 'state'; state: DashboardState };
@@ -31,6 +34,9 @@ export interface DashboardActions {
   openPr: (url: string) => void;
   openTicketLink: (url: string) => void;
   editTicket: () => void;
+  stopDriver: () => void;
+  shipTicket: () => void;
+  resumeTicket: () => void;
 }
 
 /**
@@ -71,6 +77,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
         : null;
     case 'edit-ticket':
       return { type: 'edit-ticket' };
+    case 'stop-driver':
+      return { type: 'stop-driver' };
+    case 'ship-ticket':
+      return { type: 'ship-ticket' };
+    case 'resume-ticket':
+      return { type: 'resume-ticket' };
     default:
       return null;
   }
@@ -114,6 +126,15 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'edit-ticket':
       actions.editTicket();
+      return;
+    case 'stop-driver':
+      actions.stopDriver();
+      return;
+    case 'ship-ticket':
+      actions.shipTicket();
+      return;
+    case 'resume-ticket':
+      actions.resumeTicket();
       return;
   }
 }
