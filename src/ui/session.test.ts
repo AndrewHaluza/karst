@@ -170,6 +170,17 @@ describe('SessionManager', () => {
     );
   });
 
+  it('forwards resume to buildInteractiveCommand', () => {
+    const { adapter, calls } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(adapter, host, settingsFor);
+
+    mgr.openSession(1, '/wt', { key: 'K-1' }, 'seed', undefined, undefined, 'sess-7');
+
+    expect(calls).toHaveLength(1);
+    expect((calls[0] as { resume?: string }).resume).toBe('sess-7');
+  });
+
   it('does not re-seed on re-open (focus path skips buildInteractiveCommand)', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
