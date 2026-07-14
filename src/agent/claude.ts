@@ -105,6 +105,10 @@ export class ClaudeAdapter implements AgentAdapter {
     if (opts.settingsPath) {
       args.push('--settings', opts.settingsPath);
     }
+    if (opts.resume && opts.resume.length > 0) {
+      // Continue a previously-captured session instead of a cold start (§5.3).
+      args.push('--resume', opts.resume);
+    }
     if (opts.model && opts.model.length > 0) {
       // Per-ticket (or manifest-default) launch model. Absent → the CLI picks
       // its own default. An option, so it goes before the `--`/positional seed.
