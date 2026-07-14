@@ -1,6 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseStageArgs, runStageCommand } from './stage.js';
+import { parseStageArgs, runStageCommand, composeStageCommand } from './stage.js';
 import type { Store } from '../store/db.js';
+
+describe('composeStageCommand', () => {
+  it('bakes in the impl-done marker and quotes paths, leaving the ticket key for $ARGUMENTS', () => {
+    expect(composeStageCommand('/ext/dist/cli/main.js', '/store/karst.db')).toBe(
+      'node "/ext/dist/cli/main.js" stage impl pass --db "/store/karst.db" --ticket',
+    );
+  });
+
+  it('quotes paths containing spaces', () => {
+    expect(composeStageCommand('/a b/cli.js', '/c d/x.db')).toBe(
+      'node "/a b/cli.js" stage impl pass --db "/c d/x.db" --ticket',
+    );
+  });
+});
 
 describe('parseStageArgs', () => {
   it('parses "stage impl pass" into a passed verdict', () => {

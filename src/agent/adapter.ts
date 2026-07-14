@@ -58,6 +58,13 @@ export interface MaterializeOpts {
    * Absent → the command falls back to a generic "read the ticket" instruction.
    */
   cliContextPrefix?: string;
+  /**
+   * Shell command prefix the generated `/karst:<id>` command runs (with the
+   * ticket key appended) to fire the impl→uat marker when implementation is
+   * done (§5.4), e.g. `node "<ext>/dist/cli/main.js" stage impl pass --db
+   * "<db>" --ticket`. Absent → no marker step (the impl boundary stays manual).
+   */
+  cliStagePrefix?: string;
 }
 
 /**

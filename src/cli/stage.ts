@@ -10,6 +10,19 @@ import { transition as defaultTransition } from '../workflow/machine.js';
  * It is NOT a separate stage — it just parses argv and calls the machine.
  */
 
+/**
+ * Compose the `node <cli> stage impl pass --db <db> --ticket` prefix embedded in
+ * the generated `/karst:<id>` command — the agent appends the ticket key
+ * (`$ARGUMENTS`) and runs it to record the impl→uat marker when implementation
+ * is done. The `impl pass` verdict is baked in (this is the only marker the
+ * generated command fires). Paths are double-quoted so spaces survive. Pure (no
+ * fs) so it is testable.
+ */
+export function composeStageCommand(cliEntry: string, dbPath: string): string {
+  const q = (s: string): string => `"${s}"`;
+  return ['node', q(cliEntry), 'stage', 'impl', 'pass', '--db', q(dbPath), '--ticket'].join(' ');
+}
+
 export interface ParsedStage {
   stage: StageKey;
   verdict: Exclude<Verdict, null>;
