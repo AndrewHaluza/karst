@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkDependencies, GIT_DEPENDENCY, type RequiredDependency } from './deps.js';
+import { checkDependencies, GIT_DEPENDENCY, agentDependency, AGENT_CLI_DEPENDENCIES, type RequiredDependency } from './deps.js';
 
 const AGENT: RequiredDependency = {
   binary: 'claude',
@@ -21,5 +21,22 @@ describe('checkDependencies', () => {
   it('returns all when nothing is present, preserving order', () => {
     const missing = checkDependencies([GIT_DEPENDENCY, AGENT], () => false);
     expect(missing.map((d) => d.binary)).toEqual(['git', 'claude']);
+  });
+});
+
+describe('agentDependency', () => {
+  it('returns the confirmed claude entry', () => {
+    const dep = agentDependency('claude');
+    expect(dep.binary).toBe('claude');
+    expect(dep.label).toBe('the Claude Code CLI');
+    expect(dep.install).toMatch(/claude\.com\/claude-code/);
+    expect(AGENT_CLI_DEPENDENCIES.claude).toEqual(dep);
+  });
+
+  it('falls back to a generic entry for a provider without confirmed docs', () => {
+    const dep = agentDependency('codex');
+    expect(dep.binary).toBe('codex');
+    expect(dep.label).toBe('the codex CLI');
+    expect(dep.install).toContain("'codex' is on your PATH");
   });
 });
