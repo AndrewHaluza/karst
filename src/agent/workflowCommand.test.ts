@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   renderWorkflowCommand,
+  renderImplMarkerInstruction,
   buildWorkflowInvocation,
   orchestratorCommandBasename,
   KARST_PLUGIN_NAME,
@@ -58,6 +59,24 @@ describe('renderWorkflowCommand', () => {
   it('omits the marker step without a stageCommand', () => {
     const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
     expect(body).not.toContain('stage impl pass');
+  });
+});
+
+describe('renderImplMarkerInstruction', () => {
+  it('renders the marker command with the given ticket arg and names the UAT advance', () => {
+    const s = renderImplMarkerInstruction(
+      'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket',
+      'PROJ-9',
+    );
+    expect(s).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket PROJ-9');
+    expect(s).toContain('implement-done marker');
+    expect(s.toLowerCase()).toContain('uat');
+  });
+
+  it('is the same text the workflow command embeds (arg = $ARGUMENTS)', () => {
+    const cmd = 'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket';
+    const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, stageCommand: cmd });
+    expect(body).toContain(renderImplMarkerInstruction(cmd, '$ARGUMENTS'));
   });
 });
 

@@ -20,15 +20,21 @@ export function buildSessionSeed(
   contextMarkdown: string | null | undefined,
   approachPrompt: string | null | undefined,
   invocation?: string | null,
+  markerInstruction?: string | null,
 ): string | undefined {
   const method = approachPrompt?.trim();
   const context = contextMarkdown?.trim();
   const inv = invocation?.trim();
+  // The impl→uat marker (§5.4) is a WORKFLOW invariant, not an approach detail:
+  // every launch (direct/approach/solo) must tell the agent to fire it, so a
+  // `direct` ticket that never materializes a workflow command still leaves impl.
+  const marker = markerInstruction?.trim();
 
   const sections: string[] = [];
   if (inv) sections.push(inv);
   if (context) sections.push(context);
   if (method) sections.push(`# Approach\n\n${method}`);
+  if (marker) sections.push(marker);
   if (sections.length === 0) return undefined;
   return sections.join('\n\n');
 }
