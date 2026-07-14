@@ -100,6 +100,21 @@ describe('dispatchHook', () => {
     dispatchHook(store, { hook_event_name: 'SessionStart', cwd: '/nope' }, notify);
     expect(notify).not.toHaveBeenCalled();
   });
+
+  it('persists session_id on SessionStart and sets agent_state running', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-xyz' });
+    const t = getTicket(store, id);
+    expect(t.sessionId).toBe('sess-xyz');
+    expect(t.agentState).toBe('running');
+  });
+
+  it('does not touch session_id on a Stop event', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1' });
+    dispatchHook(store, { hook_event_name: 'Stop', cwd: WT, session_id: 'sess-DIFFERENT' });
+    expect(getTicket(store, id).sessionId).toBe('sess-1');
+  });
 });
 
 describe('parseHookPayload', () => {

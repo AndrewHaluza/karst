@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import { setAgentState } from '../store/tickets.js';
+import { setAgentState, setSessionId } from '../store/tickets.js';
 import { ticketIdForWorktreePath } from '../runtime/worktree.js';
 import type { AgentState } from '../model/types.js';
 
@@ -85,6 +85,13 @@ export function dispatchHook(
   if (!payload.cwd) return;
   const ticketId = ticketIdForWorktreePath(store, payload.cwd);
   if (ticketId === null) return;
+
+  // Persist the session on its first event so resume (§5.3) has a target. Only
+  // SessionStart carries the authoritative id for a fresh session; later events
+  // of the same session repeat it, so first-capture-wins is enough.
+  if (payload.hook_event_name === 'SessionStart' && payload.session_id) {
+    setSessionId(store, ticketId, payload.session_id);
+  }
 
   const state = nextAgentState(payload);
   if (state === null) return;
