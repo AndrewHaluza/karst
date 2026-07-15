@@ -54,6 +54,13 @@ export class SessionManager {
     private readonly adapter: AgentAdapter,
     private readonly host: TerminalHost,
     private readonly settingsPathFor: SettingsPathFor,
+    /**
+     * Fired AFTER a session's terminal closes and its map entry is dropped, so a
+     * consumer can resume gate work under `isOpen === false`. The host wires this
+     * to the stage-driver sweep — a gate-parked ticket whose session just ended
+     * gets driven without waiting for a SessionEnd hook to reach the endpoint.
+     */
+    private readonly onDidCloseSession?: (ticketId: number) => void,
   ) {}
 
   /**
@@ -99,7 +106,10 @@ export class SessionManager {
       shellPath: cmd.command,
       shellArgs: cmd.args,
     });
-    terminal.onDidClose(() => this.terminals.delete(ticketId));
+    terminal.onDidClose(() => {
+      this.terminals.delete(ticketId);
+      this.onDidCloseSession?.(ticketId);
+    });
     this.terminals.set(ticketId, terminal);
     terminal.show();
   }

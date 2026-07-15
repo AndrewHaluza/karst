@@ -69,8 +69,11 @@ describe('renderImplMarkerInstruction', () => {
       'PROJ-9',
     );
     expect(s).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket PROJ-9');
-    expect(s).toContain('implement-done marker');
+    expect(s).toContain('done marker');
     expect(s.toLowerCase()).toContain('uat');
+    // trigger must cover no-code tickets (research/confirmation), not only "implementation complete"
+    expect(s.toLowerCase()).toContain('research');
+    expect(s.toLowerCase()).toContain('confirmation');
   });
 
   it('is the same text the workflow command embeds (arg = $ARGUMENTS)', () => {

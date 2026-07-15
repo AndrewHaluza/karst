@@ -63,7 +63,7 @@ import { spinTicket, SpinCancelledError } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { runStageDriver } from './workflow/driver.js';
-import { DriverController, shouldStartDriver } from './workflow/driverController.js';
+import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
 import { runUat } from './workflow/stages/uat.js';
 import { runReview } from './workflow/stages/review.js';
 import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
@@ -183,6 +183,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     agentAdapter,
     makeTerminalHost(),
     () => writeHookSettings(endpoint?.port ?? 0, settingsDir),
+    // Session-close sweep: when the agent's terminal ends, drive the ticket if it
+    // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
+    (ticketId) => maybeDrive(ticketId, 'session-closed'),
   );
 
   // The manifest an open onboarding/edit uses; set when a command resolves it.
@@ -529,12 +532,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // outcome-returning runners with a re-read.
   async function driveTicket(ticketId: number): Promise<void> {
     if (!driver.begin(ticketId)) return; // a run is already in flight
+    logger.info(`stage driver: begin ticket ${ticketId}`);
     try {
-      await runStageDriver(
+      const outcome = await runStageDriver(
         {
           store: localStore,
           worktreeFor: (id) => listWorktreesByTicket(localStore, id)[0]?.path ?? null,
-          onProgress: (id) => {
+          onProgress: (id, stage, status) => {
+            logger.info(`stage driver: ticket ${id} ${stage} → ${status}`);
             provider.refresh();
             dashboard.pushState(id);
           },
@@ -550,6 +555,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         ticketId,
       );
+      logger.info(
+        `stage driver: ticket ${ticketId} halted at ${outcome.stage} (${outcome.status}` +
+          `${outcome.reason ? `: ${outcome.reason}` : ''})`,
+      );
     } catch (e) {
       logError('stage driver failed', e);
     } finally {
@@ -559,19 +568,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
+  // The §5.4-safe driver nudge, from any trigger: the explicit marker (or a prior
+  // gate) already transitioned the stage; if the ticket now sits at a deterministic
+  // gate with NO live interactive session, kick the driver to run it. Reused by the
+  // hook channel, the session-close sweep, and the activation sweep so a gate never
+  // strands just because one trigger (e.g. an unreachable SessionEnd hook) was missed.
+  const maybeDrive = (ticketId: number, trigger: string): void => {
+    const t = getTicket(localStore, ticketId);
+    if (shouldStartDriver(t.stageCurrent as StageKey, sessions.isOpen(ticketId))) {
+      logger.info(`stage driver: ${trigger} → drive ticket ${ticketId} at ${t.stageCurrent}`);
+      void driveTicket(ticketId);
+    }
+  };
+
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
   endpoint = await startHookEndpoint(localStore, 0, (ticketId) => {
     provider.refresh();
     dashboard.pushState(ticketId);
-    // Auto-advance (§5.4-safe nudge): the explicit marker already transitioned
-    // the stage before this hook fired; if it now sits at a deterministic gate
-    // with no live interactive session, kick the driver to run it.
-    const t = getTicket(localStore, ticketId);
-    if (shouldStartDriver(t.stageCurrent as StageKey, sessions.isOpen(ticketId))) {
-      void driveTicket(ticketId);
-    }
+    maybeDrive(ticketId, 'hook');
   }, logError);
+
+  // Activation sweep: resume any ticket already parked at a gate with no live
+  // session. Recovers a ticket stranded when the trigger that would normally kick
+  // the driver never arrived (dead/stale hook port, IDE closed mid-gate) — every
+  // window reload becomes a self-heal, without inferring any verdict (§5.4-safe).
+  for (const id of ticketsToSweep(listTickets(localStore), (i) => sessions.isOpen(i))) {
+    maybeDrive(id, 'activation-sweep');
+  }
 
   // Startup dependency preflight (§ todo-5): karst shells out to git + the agent
   // CLI it doesn't bundle. Warn up front (non-blocking) with install guidance.

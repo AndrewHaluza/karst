@@ -213,4 +213,21 @@ describe('SessionManager', () => {
 
     expect(mgr.isOpen(1)).toBe(false);
   });
+
+  it('invokes onDidCloseSession with the ticket id after the terminal closes (isOpen already false)', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const closed: number[] = [];
+    const mgr = new SessionManager(adapter, host, settingsFor, (id) => {
+      // the map entry must be gone before the callback runs, so a sweep sees no live session
+      expect(mgr.isOpen(id)).toBe(false);
+      closed.push(id);
+    });
+
+    mgr.openSession(7, '/wt/a');
+    expect(closed).toEqual([]); // not called on open
+    terminals[0]!.dispose();
+
+    expect(closed).toEqual([7]);
+  });
 });

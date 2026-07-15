@@ -26,8 +26,11 @@ export function buildWorkflowInvocation(approachId: string, ticketKey: string): 
 
 /**
  * The explicit impl→uat marker instruction (§5.4). A session ending is NOT a
- * verdict, so the agent must fire `<stageCommand> <ticketArg>` itself once
- * implementation is complete. Shared by the generated workflow command (arg =
+ * verdict, so the agent must fire `<stageCommand> <ticketArg>` itself once the
+ * ticket's work is done — code, research, OR a bare confirmation (a zero-code
+ * ticket has no "implementation complete" moment, so the trigger must not hinge
+ * on one, or research/confirm tickets strand at impl). Shared by the generated
+ * workflow command (arg =
  * `$ARGUMENTS`, substituted by the agent CLI) AND the launch seed (arg = the
  * concrete ticket key) — so a `direct`/no-approach ticket, which never
  * materializes a workflow command, still gets the same instruction and can
@@ -35,10 +38,10 @@ export function buildWorkflowInvocation(approachId: string, ticketKey: string): 
  */
 export function renderImplMarkerInstruction(stageCommand: string, ticketArg: string): string {
   return (
-    'When implementation is complete and the code is ready for review, run ' +
-    `\`${stageCommand} ${ticketArg}\` to record the implement-done marker and advance ` +
-    'the ticket to the UAT gate. A session ending does not advance the ticket on its ' +
-    'own — you must fire this marker explicitly.'
+    "When you have finished the ticket's work — whether that is code, research, or a " +
+    `confirmation — run \`${stageCommand} ${ticketArg}\` to record the done marker and ` +
+    'advance the ticket to the UAT gate. A session ending does not advance the ticket ' +
+    'on its own — you must fire this marker explicitly.'
   );
 }
 
@@ -61,9 +64,9 @@ export function renderWorkflowCommand(input: {
   contextCommand?: string;
   /**
    * When given, a CLOSING marker step is appended: run `<stageCommand>
-   * $ARGUMENTS` once implementation is complete to advance impl→uat (the
-   * explicit §5.4 marker — a session ending is NOT a verdict, so the agent must
-   * fire this itself). Absent → no marker step (the impl boundary stays manual).
+   * $ARGUMENTS` once the ticket's work is done to advance impl→uat (the explicit
+   * §5.4 marker — a session ending is NOT a verdict, so the agent must fire this
+   * itself). Absent → no marker step (the impl boundary stays manual).
    */
   stageCommand?: string;
 }): string {
