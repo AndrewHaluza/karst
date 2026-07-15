@@ -7,6 +7,7 @@ import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.
 import { buildSpawnEnv } from './env.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
 import { startHot, stopServer, stopTicketServers, type ServerRecord } from './supervisor.js';
+import { renderHealthUrl } from './healthUrl.js';
 import { preflightSpin } from './preflight.js';
 import { getTicket } from '../store/tickets.js';
 import { worktreeSlug } from './slug.js';
@@ -46,10 +47,6 @@ export function expandEnvTokens(start: string, env: Record<string, string>): str
 function splitCommand(start: string): { command: string; args: string[] } {
   const parts = start.trim().split(/\s+/);
   return { command: parts[0]!, args: parts.slice(1) };
-}
-
-function renderHealth(template: string, host: string, httpPort: number): string {
-  return template.replaceAll('{host}', host).replaceAll('{http}', String(httpPort));
 }
 
 /**
@@ -185,7 +182,7 @@ export async function spinTicket(
       const httpSlot = svc.ports.find((p) => p.name === 'http') ?? svc.ports[0]!;
       const ownPort = resolvedSvc.ports[httpSlot.name]!;
       const healthUrl = svc.health
-        ? renderHealth(svc.health, manifest.host, ownPort)
+        ? renderHealthUrl(svc.health, manifest.host, ownPort)
         : `http://${manifest.host}:${ownPort}/health`;
 
       const rec = await startHot(store, {
