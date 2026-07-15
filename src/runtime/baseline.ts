@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { startHot, type ServerRecord } from './supervisor.js';
+import { renderHealthUrl } from './healthUrl.js';
 
 interface RunningRow {
   id: number;
@@ -60,10 +61,6 @@ function splitCommand(start: string): { command: string; args: string[] } {
   return { command: parts[0]!, args: parts.slice(1) };
 }
 
-function renderHealth(template: string, host: string, httpPort: number): string {
-  return template.replaceAll('{host}', host).replaceAll('{http}', String(httpPort));
-}
-
 /**
  * Acquire-if-not-running / reuse-if-running (§9). A baseline service is a lazy
  * singleton on its default port, served from `baselineBranch`, health-gated.
@@ -87,7 +84,7 @@ export async function ensureBaseline(
   const { command, args } = splitCommand(svc.start);
 
   const healthUrl = svc.health
-    ? renderHealth(svc.health, manifest.host, port)
+    ? renderHealthUrl(svc.health, manifest.host, port)
     : `http://${manifest.host}:${port}/health`;
 
   return startHot(store, {
