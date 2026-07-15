@@ -12,6 +12,22 @@ export function shouldStartDriver(stage: StageKey, hasLiveSession: boolean): boo
 }
 
 /**
+ * Select the ticket ids the driver should resume — those parked at a deterministic
+ * gate with no live session. Used by the activation + terminal-close sweeps so a
+ * gate-stranded ticket recovers even when the hook that would normally kick the
+ * driver never arrived (dead/stale hook port, session closed without a reachable
+ * SessionEnd). Pure of vscode + the store, so it is unit-testable.
+ */
+export function ticketsToSweep(
+  tickets: readonly { id: number; stageCurrent: string | null }[],
+  hasLiveSession: (ticketId: number) => boolean,
+): number[] {
+  return tickets
+    .filter((t) => shouldStartDriver(t.stageCurrent as StageKey, hasLiveSession(t.id)))
+    .map((t) => t.id);
+}
+
+/**
  * Per-ticket run bookkeeping for the host seam: single-flight guard (no two
  * drivers on one ticket) and a Stop flag the driver reads via `shouldContinue`.
  * Pure of vscode so it is unit-testable.
