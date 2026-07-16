@@ -200,17 +200,23 @@
   .drawer .body{padding:14px 18px;overflow:auto;white-space:pre-wrap;
     font-family:var(--mono);font-size:12px;line-height:1.55}
   /* Read-only workflow stepper (edit mode) — mirrors the dashboard stepper but
-     is a passive progress glance here: no controls, muted until a stage runs. */
+     is a passive progress glance here: no controls, muted until a stage runs.
+     Vertical, left-aligned rail (unlike the dashboard's horizontal row) — this
+     panel is too narrow for a horizontal layout without squishing every
+     node+label into its own centered column. */
   .stepper{margin:0 0 20px;padding:16px 8px 8px;border:1px solid var(--vscode-panel-border);
     border-radius:8px;background:var(--vscode-editorWidget-background,transparent)}
-  .steps{display:flex;align-items:flex-start}
-  .step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
-  .step .line{position:absolute;top:13px;left:-50%;width:100%;height:2px;background:var(--st-pending);z-index:0}
-  .step:first-child .line{display:none}
-  .step .node{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  .steps{display:flex;flex-direction:column}
+  .step{display:flex;align-items:stretch;gap:10px}
+  .step .rail{display:flex;flex-direction:column;align-items:center;flex:none}
+  .step .node{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;
     background:var(--vscode-editor-background);border:2px solid var(--st-pending);
-    color:var(--vscode-editor-background);position:relative;z-index:1;font-size:12px;font-weight:700}
-  .step .lbl{margin-top:8px;font-size:11px;opacity:.6;text-align:center}
+    color:var(--vscode-editor-background);font-size:12px;font-weight:700}
+  .step .line{width:2px;flex:1;min-height:12px;margin:2px 0;background:var(--st-pending)}
+  .step:last-child .line{visibility:hidden}
+  .step .content{padding-bottom:14px}
+  .step:last-child .content{padding-bottom:0}
+  .step .lbl{margin-top:5px;font-size:11px;opacity:.6}
   .step.done .node{background:var(--st-done);border-color:var(--st-done)}
   .step.done .line{background:var(--st-done)}
   .step.running .node{background:var(--st-running);border-color:var(--st-running)}
@@ -368,9 +374,10 @@
     el('steps').innerHTML = stepper.map((s) => {
       const cls = STEP_CLASS[s.status] || '';
       const mark = s.status === 'passed' ? '✓' : s.status === 'failed' ? '✕' : '';
-      return `<div class="step ${cls}"><div class="line"></div>`
-        + `<div class="node">${mark}</div>`
-        + `<div class="lbl">${esc(s.stageKey)}</div></div>`;
+      return `<div class="step ${cls}">`
+        + `<div class="rail"><div class="node">${mark}</div><div class="line"></div></div>`
+        + `<div class="content"><div class="lbl">${esc(s.stageKey)}</div></div>`
+        + `</div>`;
     }).join('');
   }
 
