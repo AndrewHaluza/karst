@@ -18,7 +18,6 @@ export type OnboardingMessage =
   // id may be '' — the "Inherit (settings)" choice, which clears the model.
   | { type: 'set-model'; id: string }
   | { type: 'analyze'; prompt: string }
-  | { type: 'open-ticket-link'; url: string }
   | {
       type: 'submit';
       key: string;
@@ -56,7 +55,6 @@ export interface OnboardingActions {
   setAgent: (id: string) => void;
   setModel: (id: string) => void;
   analyze: (prompt: string) => void;
-  openTicketLink: (url: string) => void;
   submit: (input: {
     key: string;
     title: string;
@@ -105,8 +103,6 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.
       return typeof m.prompt === 'string' ? { type: 'analyze', prompt: m.prompt } : null;
-    case 'open-ticket-link':
-      return str('url') ? { type: 'open-ticket-link', url: m.url as string } : null;
     case 'submit': {
       // description may be empty; key + title must be present. repos defaults to
       // [] and approach/agent to null when absent/malformed, so an older webview
@@ -166,9 +162,6 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
       return;
     case 'analyze':
       actions.analyze(msg.prompt);
-      return;
-    case 'open-ticket-link':
-      actions.openTicketLink(msg.url);
       return;
     case 'submit':
       actions.submit({

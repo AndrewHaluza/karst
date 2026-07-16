@@ -18,7 +18,6 @@
   ],
   "activationEvents": [],
   "scripts": {
-    "lint": "tsc --noEmit",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "compile": "tsc -p tsconfig.build.json",
