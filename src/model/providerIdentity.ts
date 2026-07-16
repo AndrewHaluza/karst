@@ -40,7 +40,8 @@ export const PROVIDER_JS_MARKER = '/*KARST_PROVIDER_JS*/';
 export function providerIdentityCss(): string {
   return (
     '.provbadge{display:inline-flex;align-items:center;gap:5px}' +
-    '.provbadge .provicon{flex:none;width:14px;height:14px;display:inline-flex}' +
+    // Unscoped: the mark also stands alone (dashboard key pill), not only inside a badge.
+    '.provicon{flex:none;width:14px;height:14px;display:inline-flex}' +
     '.provbadge .provname{font-weight:600}' +
     '.provbadge.manual{opacity:.6;font-weight:400}' +
     '.provbadge.manual .provname{font-weight:400}'
@@ -67,6 +68,13 @@ export function providerIdentityJs(): string {
     '  const iconHtml = icon ? \'<span class="provicon" aria-hidden="true">\' + icon + \'</span>\' : "";\n' +
     '  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",\'"\':"&quot;" }[c]));\n' +
     '  return \'<span class="\' + cls + \'">\' + iconHtml + \'<span class="provname">\' + esc(label) + \'</span></span>\';\n' +
+    '}\n' +
+    // The mark alone, for a chip that already names the board in its own text
+    // (the dashboard key pill). Empty for a provider with no mark — the chip
+    // then reads as its text alone rather than a hole where an icon should be.
+    'function providerIconHtml(provider) {\n' +
+    '  const icon = provider === "clickup" ? CLICKUP_SVG : "";\n' +
+    '  return icon ? \'<span class="provicon" aria-hidden="true">\' + icon + \'</span>\' : "";\n' +
     '}'
   );
 }

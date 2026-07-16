@@ -1,19 +1,52 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const rootDir = resolve(scriptDir, '..');
 const mode = process.argv[2] ?? 'auto';
 const platform = process.platform;
 const arch = process.arch;
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
+/**
+ * Where better-sqlite3 ACTUALLY lives, and the package root that owns it.
+ *
+ * A git worktree under `.karst/worktrees/<name>/` has no node_modules of its
+ * own — Node resolves better-sqlite3 by walking up to the main checkout's tree.
+ * Assuming `<this repo>/node_modules` therefore probed a path that cannot exist,
+ * `mkdirSync` CREATED an empty stub package there, and `npm rebuild` run from the
+ * worktree then saw a root with nothing installed, rebuilt nothing, and still
+ * exited 0 ("rebuilt dependencies successfully"). The Electron-ABI prebuild left
+ * by `rebuild:electron` survived untouched and every test died on the ABI check.
+ *
+ * Resolve the real package instead, and rebuild from the root that owns it.
+ */
+function locateBetterSqlite3() {
+  const require = createRequire(import.meta.url);
+  let manifestPath;
+  try {
+    manifestPath = require.resolve('better-sqlite3/package.json');
+  } catch {
+    console.error(
+      'Cannot resolve better-sqlite3 from ' + scriptDir + '. Run `npm install` in the main checkout first.',
+    );
+    process.exit(1);
+  }
+  const moduleDir = dirname(manifestPath);
+  // <installRoot>/node_modules/better-sqlite3 -> <installRoot>: the dir npm must
+  // run in for `npm rebuild` to see this package as installed.
+  const installRoot = resolve(moduleDir, '..', '..');
+  return { moduleDir, installRoot };
+}
+
+const { moduleDir, installRoot } = locateBetterSqlite3();
+
 function run(command, args, extraEnv = {}) {
   const result = spawnSync(command, args, {
-    cwd: rootDir,
+    cwd: installRoot,
     stdio: 'inherit',
     env: { ...process.env, ...extraEnv },
   });
@@ -57,7 +90,6 @@ function detectElectronRuntime() {
 }
 
 function tryPrebuild(abi) {
-  const moduleDir = join(rootDir, 'node_modules', 'better-sqlite3');
   const releaseDir = join(moduleDir, 'build', 'Release');
   const releaseFile = join(releaseDir, 'better_sqlite3.node');
   const prebuildFile = join(moduleDir, 'bin', `${platform}-${arch}-${abi}`, 'better-sqlite3.node');
@@ -95,10 +127,34 @@ if (mode === 'electron') {
   }
 
   console.log(`No prebuild for ABI ${abi}; rebuilding better-sqlite3 for Electron ${electronVersion} (${arch})...`);
-  run(npmCommand, ['exec', '--', 'electron-rebuild', '-f', '-w', 'better-sqlite3', '--version', electronVersion, '--arch', arch, '--module-dir', rootDir], {
+  run(npmCommand, ['exec', '--', 'electron-rebuild', '-f', '-w', 'better-sqlite3', '--version', electronVersion, '--arch', arch, '--module-dir', installRoot], {
     npm_config_build_from_source: 'true',
   });
   process.exit(0);
+}
+
+/**
+ * Prove the addon this Node will actually load matches this Node's ABI.
+ *
+ * `npm rebuild` reports success even when it rebuilt nothing, so "it exited 0"
+ * says nothing about what sits in build/Release. The addon only loads on the
+ * first `new Database()`, not on require, so construct one. Runs in a child so a
+ * hard ABI abort cannot take this script's own process down.
+ */
+function assertLoadableUnderNode() {
+  const probe =
+    "const D = require('better-sqlite3'); new D(':memory:').close();";
+  const result = spawnSync(process.execPath, ['-e', probe], {
+    cwd: installRoot,
+    encoding: 'utf8',
+  });
+  if (result.status === 0) return;
+
+  console.error(
+    `better-sqlite3 still does not load under this Node (ABI ${process.versions.modules}) after rebuilding.\n` +
+      (result.stderr?.trim() ?? ''),
+  );
+  process.exit(1);
 }
 
 if (mode === 'node') {
@@ -109,6 +165,7 @@ if (mode === 'node') {
   }
 
   if (tryPrebuild(abi)) {
+    assertLoadableUnderNode();
     process.exit(0);
   }
 
@@ -116,6 +173,7 @@ if (mode === 'node') {
   run(npmCommand, ['rebuild', 'better-sqlite3', '--build-from-source'], {
     npm_config_build_from_source: 'true',
   });
+  assertLoadableUnderNode();
   process.exit(0);
 }
 
