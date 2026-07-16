@@ -55,6 +55,31 @@ export interface StartHotOpts {
  * step 4). Resolves only after the health check passes; if health never passes,
  * the child is killed and the call rejects. stdout/stderr stream to logPath.
  */
+/**
+ * Why a service wouldn't start, in words the user can act on.
+ *
+ * Service commands are arbitrary strings from the manifest, so karst cannot
+ * preflight them the way it preflights its own tools (see runtime/deps.ts) —
+ * this is the only place a typo'd or uninstalled service command can be
+ * explained. Name the service, the binary, and where it was configured; "spawn
+ * docker ENOENT" is true and useless.
+ */
+function startError(opts: StartHotOpts, err: Error & { code?: string }): Error {
+  if (err.code === 'ENOENT') {
+    return new Error(
+      `could not start '${opts.service}': '${opts.command}' is not installed, or not on the ` +
+        `PATH this editor was launched with. It comes from the start command for '${opts.service}' ` +
+        `in karst.yml.`,
+    );
+  }
+  return new Error(`could not start '${opts.service}': ${err.message}`);
+}
+
+/** Rejects with `err` after `ms`, without holding the process open. */
+function rejectAfter(ms: number, err: Error): Promise<never> {
+  return new Promise((_, reject) => setTimeout(() => reject(err), ms).unref());
+}
+
 export async function startHot(store: Store, opts: StartHotOpts): Promise<ServerRecord> {
   const logFd = openSync(opts.logPath, 'a');
 
@@ -74,16 +99,40 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     closeSync(logFd);
   }
 
+  // A failed spawn (ENOENT) reports itself through an ASYNC 'error' event, and an
+  // 'error' event with no listener THROWS — unhandled, in the extension host, from
+  // a stack naming neither the service nor the command. Listen before anything can
+  // fire, and keep the rejection handled until something races it.
+  const spawnFailed = new Promise<never>((_, reject) => {
+    child.once('error', (err: Error & { code?: string }) => reject(startError(opts, err)));
+  });
+  spawnFailed.catch(() => {});
+
   const pid = child.pid;
   if (pid === undefined) {
-    throw new Error(`failed to spawn ${opts.service}: no pid`);
+    // No pid means the spawn failed; the reason is a tick behind us on the
+    // 'error' event. Wait for it rather than throw a bare "no pid" — but never
+    // wait forever for an event that may not be coming. Both arms reject, so the
+    // throw below is unreachable; it is what tells the compiler (and the next
+    // reader) that this branch cannot fall through to a start with no process.
+    await Promise.race([
+      spawnFailed,
+      rejectAfter(2000, new Error(`could not start '${opts.service}': no pid`)),
+    ]);
+    throw new Error(`could not start '${opts.service}': no pid`);
   }
 
   try {
-    await waitForHealth(opts.healthUrl, {
-      timeoutMs: opts.healthTimeoutMs,
-      signal: opts.signal,
-    });
+    // Race the spawn failure: an error that arrives after a pid did (EACCES on
+    // the binary, say) would otherwise sit unheard until the health check times
+    // out, turning an instant, explainable failure into a slow, silent one.
+    await Promise.race([
+      waitForHealth(opts.healthUrl, {
+        timeoutMs: opts.healthTimeoutMs,
+        signal: opts.signal,
+      }),
+      spawnFailed,
+    ]);
   } catch (err) {
     // Health failed or the start was cancelled — reap the whole tree, not just
     // the launcher, so no dev server is left running.

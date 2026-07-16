@@ -14,6 +14,12 @@ describe('composeStageCommand', () => {
       'node "/a b/cli.js" stage impl pass --db "/c d/x.db" --ticket',
     );
   });
+
+  it('bakes in whichever stage the ticket sits at, so a fix resume fires "fix pass"', () => {
+    expect(composeStageCommand('/ext/cli.js', '/store/karst.db', 'fix')).toBe(
+      'node "/ext/cli.js" stage fix pass --db "/store/karst.db" --ticket',
+    );
+  });
 });
 
 describe('parseStageArgs', () => {

@@ -7,6 +7,8 @@ import type { AgentAdapter } from '../agent/adapter.js';
  */
 export interface SessionTerminal {
   show(): void;
+  /** Type a line into the running shell (real: `Terminal.sendText(text, true)`). */
+  sendText(text: string): void;
   dispose(): void;
   onDidClose(handler: () => void): void;
 }
@@ -33,12 +35,23 @@ export interface FakeTerminal extends SessionTerminal {
   shellPath: string;
   shellArgs: string[];
   shown: number;
+  sent: string[];
   disposed: boolean;
   disposeHandler?: () => void;
 }
 
 /** Resolve the hook-settings path for a session (T3.4 `writeHookSettings`). */
 export type SettingsPathFor = (ticketId: number, worktreePath: string) => string;
+
+/**
+ * Collapse a prompt to a single line. A terminal line ends at the newline: the
+ * agent's REPL reads each one as a separate submit, so a multi-line prompt would
+ * arrive as a handful of half-finished messages. Whitespace is the only thing
+ * lost — every word still reaches the agent.
+ */
+function toSingleLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
 
 /**
  * One interactive terminal per ticket (§5.2, §5.6). `openSession` launches
@@ -112,6 +125,25 @@ export class SessionManager {
     });
     this.terminals.set(ticketId, terminal);
     terminal.show();
+  }
+
+  /**
+   * Send a prompt to a session that is ALREADY open, and reveal it. Returns
+   * false when the ticket has no live terminal, so the caller can fall back to
+   * `openSession` instead of silently dropping the prompt.
+   *
+   * Why this exists: gates run while the session is still open (the marker, not
+   * the terminal, says the work is done). A failed gate therefore has to reach an
+   * agent already sitting at its prompt — `openSession` would only focus that
+   * terminal and never deliver the brief, leaving the ticket parked at fix with
+   * nothing happening.
+   */
+  nudge(ticketId: number, prompt: string): boolean {
+    const terminal = this.terminals.get(ticketId);
+    if (!terminal) return false;
+    terminal.sendText(toSingleLine(prompt));
+    terminal.show();
+    return true;
   }
 
   /** Reveal an already-open session; no-op if the ticket has none. */

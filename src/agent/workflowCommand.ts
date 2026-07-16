@@ -25,22 +25,23 @@ export function buildWorkflowInvocation(approachId: string, ticketKey: string): 
 }
 
 /**
- * The explicit impl→uat marker instruction (§5.4). A session ending is NOT a
- * verdict, so the agent must fire `<stageCommand> <ticketArg>` itself once the
- * ticket's work is done — code, research, OR a bare confirmation (a zero-code
- * ticket has no "implementation complete" moment, so the trigger must not hinge
- * on one, or research/confirm tickets strand at impl). Shared by the generated
- * workflow command (arg =
- * `$ARGUMENTS`, substituted by the agent CLI) AND the launch seed (arg = the
- * concrete ticket key) — so a `direct`/no-approach ticket, which never
- * materializes a workflow command, still gets the same instruction and can
- * leave `impl`.
+ * The explicit done-marker instruction (§5.4). A session ending is NOT a verdict,
+ * so the agent must fire `<stageCommand> <ticketArg>` itself once the stage's
+ * work is done — code, research, OR a bare confirmation (a zero-code ticket has
+ * no "implementation complete" moment, so the trigger must not hinge on one, or
+ * research/confirm tickets strand).
+ *
+ * The wording names no stage: `stageCommand` already carries the one the agent is
+ * working on (`stage impl pass`, `stage fix pass`, …), and the same text seeds
+ * the generated workflow command (arg = `$ARGUMENTS`, substituted by the agent
+ * CLI), a `direct`/no-approach launch, AND a fix resume (arg = the concrete
+ * ticket key) — so it must not promise any one destination.
  */
-export function renderImplMarkerInstruction(stageCommand: string, ticketArg: string): string {
+export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: string): string {
   return (
-    "When you have finished the ticket's work — whether that is code, research, or a " +
+    "When you have finished this stage's work — whether that is code, research, or a " +
     `confirmation — run \`${stageCommand} ${ticketArg}\` to record the done marker and ` +
-    'advance the ticket to the UAT gate. A session ending does not advance the ticket ' +
+    'advance the ticket to its next stage. A session ending does not advance the ticket ' +
     'on its own — you must fire this marker explicitly.'
   );
 }
@@ -66,7 +67,9 @@ export function renderWorkflowCommand(input: {
    * When given, a CLOSING marker step is appended: run `<stageCommand>
    * $ARGUMENTS` once the ticket's work is done to advance impl→uat (the explicit
    * §5.4 marker — a session ending is NOT a verdict, so the agent must fire this
-   * itself). Absent → no marker step (the impl boundary stays manual).
+   * itself). The generated command is materialized once and only ever covers the
+   * impl boundary, so its `stageCommand` is always the `impl` one. Absent → no
+   * marker step (the impl boundary stays manual).
    */
   stageCommand?: string;
 }): string {
@@ -96,7 +99,7 @@ export function renderWorkflowCommand(input: {
     lines.push(`${step}. ${parts.join(' — ')}`);
   });
   if (stageCommand) {
-    lines.push('', renderImplMarkerInstruction(stageCommand, '$ARGUMENTS'));
+    lines.push('', renderDoneMarkerInstruction(stageCommand, '$ARGUMENTS'));
   }
   return lines.join('\n');
 }

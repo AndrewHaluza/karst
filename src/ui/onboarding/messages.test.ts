@@ -99,6 +99,7 @@ describe('routeOnboardingAction', () => {
       setAgent: vi.fn(),
       setModel: vi.fn(),
       analyze: vi.fn(),
+      openTicketLink: vi.fn(),
       submit: vi.fn(),
       requestState: vi.fn(),
     };
@@ -115,6 +116,7 @@ describe('routeOnboardingAction', () => {
     routeOnboardingAction({ type: 'analyze', prompt: 'go' }, actions);
     routeOnboardingAction({ type: 'set-agent', id: 'reviewer' }, actions);
     routeOnboardingAction({ type: 'set-model', id: 'claude-sonnet-5' }, actions);
+    routeOnboardingAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
@@ -123,6 +125,7 @@ describe('routeOnboardingAction', () => {
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
+    expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
   });
 
   it('ignores install-approach (removed — install now lives in settings)', () => {

@@ -11,16 +11,24 @@ import { transition as defaultTransition } from '../workflow/machine.js';
  */
 
 /**
- * Compose the `node <cli> stage impl pass --db <db> --ticket` prefix embedded in
- * the generated `/karst:<id>` command — the agent appends the ticket key
- * (`$ARGUMENTS`) and runs it to record the impl→uat marker when implementation
- * is done. The `impl pass` verdict is baked in (this is the only marker the
- * generated command fires). Paths are double-quoted so spaces survive. Pure (no
- * fs) so it is testable.
+ * Compose the `node <cli> stage <stage> pass --db <db> --ticket` prefix the agent
+ * appends a ticket key to (`$ARGUMENTS`, or a concrete key in the launch seed) to
+ * record the done marker for the stage it is working on.
+ *
+ * `stage` defaults to `impl` — the generated `/karst:<id>` command is
+ * materialized once and only ever covers the impl boundary. A session resumed at
+ * `fix` must be seeded `fix` instead, or the agent fires the wrong marker and the
+ * ticket never leaves fix.
+ *
+ * Paths are double-quoted so spaces survive. Pure (no fs) so it is testable.
  */
-export function composeStageCommand(cliEntry: string, dbPath: string): string {
+export function composeStageCommand(
+  cliEntry: string,
+  dbPath: string,
+  stage: StageKey = 'impl',
+): string {
   const q = (s: string): string => `"${s}"`;
-  return ['node', q(cliEntry), 'stage', 'impl', 'pass', '--db', q(dbPath), '--ticket'].join(' ');
+  return ['node', q(cliEntry), 'stage', stage, 'pass', '--db', q(dbPath), '--ticket'].join(' ');
 }
 
 export interface ParsedStage {

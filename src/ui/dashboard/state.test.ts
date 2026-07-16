@@ -39,6 +39,38 @@ describe('buildDashboardState', () => {
     expect(() => buildDashboardState(store, 999)).toThrow();
   });
 
+  it('summarises the current stage with its reason, log and next-step line', () => {
+    const t = createTicket(store, { key: 'PROJ-2', title: 'failing' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'gates failed: lint, test',
+      artifactPath: '/logs/review-ticket-1.log',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.currentStage).toMatchObject({
+      stageKey: 'review',
+      status: 'failed',
+      reason: 'gates failed: lint, test',
+      artifactPath: '/logs/review-ticket-1.log',
+    });
+    expect(state.now.text).toContain('review gate failed');
+    expect(state.now.action).toEqual({
+      kind: 'open-log',
+      label: 'Open log',
+      path: '/logs/review-ticket-1.log',
+    });
+  });
+
+  it('falls back to the not-started line when the ticket sits at no stage', () => {
+    const t = createTicket(store, { key: 'PROJ-3', title: 'fresh' });
+    store.db.prepare('UPDATE tickets SET stage_current = NULL WHERE id = ?').run(t.id);
+    const state = buildDashboardState(store, t.id);
+    expect(state.currentStage).toBeNull();
+    expect(state.now.text).toBe('Now: not started. Launch a session to begin.');
+  });
+
   it('builds a provider ticket URL from the source ref for a clickup ticket', () => {
     const t = createTicket(store, { key: 'CU-1', title: 't' });
     updateTicketOnboarding(store, t.id, { sourceRef: 'abc123' });

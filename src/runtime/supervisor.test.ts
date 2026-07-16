@@ -77,6 +77,60 @@ describe('server supervisor', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // A manifest naming a tool the machine doesn't have (`docker compose up` with
+  // no docker) is the one dependency class karst cannot preflight — the commands
+  // are arbitrary user strings. So the failure has to explain itself here.
+  //
+  // Node emits ENOENT as an ASYNC 'error' event, and an 'error' event with no
+  // listener throws. Unhandled, this landed as an uncaught exception in the
+  // extension host, from a stack that named neither the service nor the command.
+  it('a command that is not installed rejects with the command name, and never throws unhandled', async () => {
+    const uncaught: Error[] = [];
+    const onUncaught = (e: Error): void => void uncaught.push(e);
+    process.on('uncaughtException', onUncaught);
+    try {
+      const port = nextPort();
+      await expect(
+        startHot(store, {
+          ticketId: 1,
+          service: 'backend',
+          command: 'karst-no-such-binary',
+          args: ['up'],
+          cwd: dir,
+          env: {},
+          host: '127.0.0.1',
+          port,
+          healthUrl: `http://127.0.0.1:${port}/health`,
+          logPath: join(dir, 'svc.log'),
+        }),
+      ).rejects.toThrow(/karst-no-such-binary/);
+
+      // The 'error' event fires a tick after spawn returns; give it room to land.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(uncaught).toEqual([]);
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
+  });
+
+  it('names the service, so the user knows which manifest entry is wrong', async () => {
+    const port = nextPort();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: 'karst-no-such-binary',
+        args: [],
+        cwd: dir,
+        env: {},
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+      }),
+    ).rejects.toThrow(/backend/);
+  });
+
   it('startHot resolves only after health passes and records the server row', async () => {
     const port = nextPort();
     const logPath = join(dir, 'svc.log');

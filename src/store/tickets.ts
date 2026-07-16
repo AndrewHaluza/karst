@@ -256,10 +256,10 @@ export function archiveTicket(store: Store, ticketId: number): void {
     .run(ticketId);
 }
 
-/** Unarchive a ticket: clear `archived_at` so it returns to the active list. */
+/** Unarchive a ticket: clear `archived_at` and reset `created_at` so it sorts to top. */
 export function unarchiveTicket(store: Store, ticketId: number): void {
   store.db
-    .prepare("UPDATE tickets SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?")
+    .prepare("UPDATE tickets SET archived_at = NULL, created_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
 }
 
@@ -289,9 +289,9 @@ export function deleteTicket(store: Store, ticketId: number): void {
 }
 
 /**
- * List tickets with their stage rows, ordered by id (creation order). Archived
- * tickets are excluded by default; pass `{ includeArchived: true }` to include
- * them (the Archived facet / "show archived" path).
+ * List tickets with their stage rows, ordered by created_at descending (most recent first),
+ * with id descending as tiebreaker. Archived tickets are excluded by default;
+ * pass `{ includeArchived: true }` to include them (the Archived facet / "show archived" path).
  */
 export function listTickets(
   store: Store,
@@ -299,7 +299,7 @@ export function listTickets(
 ): TicketWithStages[] {
   const where = opts.includeArchived ? '' : 'WHERE archived_at IS NULL';
   const rows = store.db
-    .prepare(`SELECT * FROM tickets ${where} ORDER BY id`)
+    .prepare(`SELECT * FROM tickets ${where} ORDER BY created_at DESC, id DESC`)
     .all() as TicketRow[];
   return rows.map((r) => {
     const ticket = rowToTicket(r);
@@ -307,10 +307,10 @@ export function listTickets(
   });
 }
 
-/** List only archived tickets (the Archived facet view). */
+/** List only archived tickets (the Archived facet view), ordered by created_at descending with id desc tiebreaker. */
 export function listArchivedTickets(store: Store): TicketWithStages[] {
   const rows = store.db
-    .prepare('SELECT * FROM tickets WHERE archived_at IS NOT NULL ORDER BY id')
+    .prepare('SELECT * FROM tickets WHERE archived_at IS NOT NULL ORDER BY created_at DESC, id DESC')
     .all() as TicketRow[];
   return rows.map((r) => ({ ...rowToTicket(r), stages: loadStages(store, r.id) }));
 }

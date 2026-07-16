@@ -11,6 +11,7 @@ import { shipTicket } from './ship.js';
 import { updateTicketStatus } from './done.js';
 import { manualProvider } from '../../integrations/ticketing.js';
 import type { GhRunner } from '../../integrations/github.js';
+import type { GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string, path: string): void {
@@ -43,6 +44,16 @@ function fakeGh(): { gh: GhRunner; calls: number } {
   } as { gh: GhRunner; calls: number };
 }
 
+/** Records every git invocation; succeeds by default. */
+function fakeGit(): { git: GitRunner; calls: { args: string[]; cwd: string }[] } {
+  const calls: { args: string[]; cwd: string }[] = [];
+  const git: GitRunner = async (args, cwd) => {
+    calls.push({ args, cwd });
+    return { stdout: '', stderr: '', exitCode: 0 };
+  };
+  return { git, calls };
+}
+
 function fakeAdapter(): AgentAdapter {
   return {
     runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'Generated PR body.' }),
@@ -68,11 +79,82 @@ describe('shipTicket', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // `gh pr create` refuses a branch that exists only locally: "you must first push
+  // the current branch to a remote". Every karst ticket works on a fresh worktree
+  // branch, so the branch is ALWAYS local-only — ship could never have opened a
+  // single PR without this.
+  it('pushes the worktree branch before opening its PR', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const order: string[] = [];
+    const git: GitRunner = async (args, cwd) => {
+      order.push(`git ${args[0]}`);
+      expect(cwd).toBe(join(dir, 'fe'));
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const gh: GhRunner = async () => {
+      order.push('gh pr create');
+      return { stdout: 'https://github.com/o/r/pull/1', exitCode: 0 };
+    };
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    expect(order).toEqual(['git push', 'gh pr create']);
+  });
+
+  it('pushes each repo’s own worktree, and sets upstream so the PR has a head', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+    const { gh } = fakeGh();
+    const { git, calls } = fakeGit();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    expect(calls.map((c) => c.cwd).sort()).toEqual([join(dir, 'be'), join(dir, 'fe')]);
+    for (const c of calls) expect(c.args).toEqual(['push', '-u', 'origin', 'HEAD']);
+  });
+
+  // A push that fails means the PR cannot open. Opening it anyway is impossible;
+  // asking a model for a description first would just burn a call.
+  it('a failed push aborts the ship, records why, and never calls gh', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const git: GitRunner = async () => ({
+      stdout: '',
+      stderr: "fatal: 'origin' does not appear to be a git repository",
+      exitCode: 128,
+    });
+    const { gh, ...ghCalls } = fakeGh();
+
+    await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
+      /does not appear to be a git repository/,
+    );
+
+    expect(ghCalls.calls).toBe(0);
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('failed');
+    expect(ship?.verdict).toContain('origin');
+    // Ship has no `failed` edge: a ticket that did not ship must not move.
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  // Idempotency (§5.3): a re-run must not re-push a repo whose PR already opened.
+  it('does not push a repo that already has an open PR', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    store.db
+      .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 1, 'u', 'open')")
+      .run(id, '/repo/frontend');
+    const { gh } = fakeGh();
+    const { git, calls } = fakeGit();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    expect(calls).toEqual([]);
+  });
+
   it('opens one PR per hot repo and writes rows to prs', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
     const { gh } = fakeGh();
-    const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter());
+    const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
     expect(res.prs).toHaveLength(2);
     expect(listPrsByTicket(store, id)).toHaveLength(2);
   });
@@ -85,14 +167,43 @@ describe('shipTicket', () => {
       expect(args[bodyIdx + 1]).toContain('Generated PR body');
       return { stdout: 'https://github.com/o/r/pull/9', exitCode: 0 };
     };
-    const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter());
+    const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
     expect(res.prs[0]!.url).toBe('https://github.com/o/r/pull/9');
+  });
+
+  it('records why a failed ship failed, on the stage the dashboard reads', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const gh: GhRunner = async () => ({ stdout: '', stderr: 'gh: not authenticated', exitCode: 1 });
+
+    await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git)).rejects.toThrow();
+
+    // Ship has no `failed` edge (graph.ts) — the ticket must NOT move. It parks
+    // at ship, red, carrying the reason, instead of silently sitting at "running"
+    // with the truth only in the dev output channel.
+    const t = getTicket(store, id);
+    expect(t.stageCurrent).toBe('ship');
+    const ship = t.stages.find((s) => s.stageKey === 'ship')!;
+    expect(ship.status).toBe('failed');
+    expect(ship.verdict).toContain('not authenticated');
+  });
+
+  it('clears a prior failure when a retried ship succeeds', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const bad: GhRunner = async () => ({ stdout: '', stderr: 'boom', exitCode: 1 });
+    await expect(shipTicket(store, { ticketId: id }, bad, fakeAdapter(), fakeGit().git)).rejects.toThrow();
+
+    const { gh } = fakeGh();
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+    const t = getTicket(store, id);
+    expect(t.stageCurrent).toBe('done');
+    expect(t.stages.find((s) => s.stageKey === 'ship')!.verdict).toBeNull();
   });
 
   it('advances the stage to done on success', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const { gh } = fakeGh();
-    await shipTicket(store, { ticketId: id }, gh, fakeAdapter());
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
     expect(getTicket(store, id).stageCurrent).toBe('done');
   });
 
@@ -105,12 +216,12 @@ describe('shipTicket', () => {
       return { stdout: `https://github.com/o/r/pull/${calls}`, exitCode: 0 };
     };
     // First ship opens both PRs (2 gh calls).
-    await shipTicket(store, { ticketId: id }, gh, fakeAdapter());
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
     expect(calls).toBe(2);
     expect(listPrsByTicket(store, id)).toHaveLength(2);
 
     // Re-run (crash-recovery re-drive): no new gh calls, no duplicate rows.
-    const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter());
+    const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
     expect(calls).toBe(2);
     expect(listPrsByTicket(store, id)).toHaveLength(2);
     expect(res.prs).toHaveLength(2);

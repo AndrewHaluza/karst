@@ -55,6 +55,38 @@ describe('runReview', () => {
     expect(getTicket(store, id).stageCurrent).toBe('fix');
   });
 
+  it('a gate the repo cannot answer is skipped, never counted as a failure', async () => {
+    // Regression: karst ran `npm run lint` in a repo with no lint script, read the
+    // "Missing script" exit 1 as "the code is bad", and parked the ticket at fix —
+    // a loop no agent can win, because there is nothing in the code to fix.
+    const gates: GateRunner = async () => [
+      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
+      { name: 'typecheck', exitCode: 0, output: 'ok' },
+      { name: 'test', exitCode: 0, output: 'ok' },
+    ];
+    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
+    expect(res.verdict).toEqual({ kind: 'passed' });
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('a skipped gate never hides a real failure', async () => {
+    const gates: GateRunner = async () => [
+      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
+      { name: 'typecheck', exitCode: 0, output: 'ok' },
+      { name: 'test', exitCode: 1, output: '2 failed' },
+    ];
+    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
+    expect(res.verdict).toEqual({ kind: 'failed', reason: 'gates failed: test' });
+  });
+
+  it('the artifact says a gate was skipped rather than claiming it passed', async () => {
+    const gates: GateRunner = async () => [
+      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
+    ];
+    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
+    expect(readFileSync(res.artifactPath, 'utf8')).toContain('# lint (skipped)');
+  });
+
   it('opens the diff for the human regardless of verdict', async () => {
     await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
     expect(openDiff).toHaveBeenCalledWith(id, '/wt');

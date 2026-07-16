@@ -5,10 +5,11 @@ import type { Store } from '../../store/db.js';
 import type { Verdict } from '../../model/types.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../machine.js';
+import { REVIEW_GATES, readPackageScripts } from '../gates/scripts.js';
 
 /**
- * Review stage (§T4.4, §11). MVP gates on the **deterministic signal** — lint
- * AND typecheck AND tests must all exit 0 — plus a human diff review. There is
+ * Review stage (§T4.4, §11). MVP gates on the **deterministic signal** — every
+ * gate the repo can answer must exit 0 — plus a human diff review. There is
  * no agent-findings concept in MVP (that's the first post-MVP enhancement); the
  * verdict is purely `passed iff every gate exits 0`. The diff is opened for the
  * human regardless of verdict, so they always see what changed.
@@ -16,7 +17,12 @@ import { transition } from '../machine.js';
 
 export interface GateResult {
   name: string;
-  exitCode: number;
+  /**
+   * The gate's exit code, or null when it did not run because the repo does not
+   * define its script. Null is not a number the code earned — it means karst had
+   * no question to ask, so the gate says nothing about the ticket either way.
+   */
+  exitCode: number | null;
   output: string;
 }
 
@@ -38,18 +44,28 @@ export interface ReviewOutcome {
   gates: GateResult[];
 }
 
-/** Default gate runner: lint, typecheck, tests — each via npm scripts. */
+/**
+ * Default gate runner: lint, typecheck, tests — each via npm scripts, and each
+ * run ONLY if the repo defines that script. A gate whose script is absent is
+ * skipped, not failed: `npm run lint` in a repo with no lint script exits 1 with
+ * "Missing script", which would park every such ticket at fix forever — an
+ * unwinnable loop, since the agent cannot fix code that is not broken.
+ */
 export function makeGateRunner(): GateRunner {
-  const gates: { name: string; command: string; args: string[] }[] = [
-    { name: 'lint', command: 'npm', args: ['run', 'lint'] },
-    { name: 'typecheck', command: 'npm', args: ['run', 'typecheck'] },
-    { name: 'test', command: 'npm', args: ['test'] },
-  ];
-  return async (cwd) =>
-    gates.map(({ name, command, args }) => {
-      const r = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  return async (cwd) => {
+    const scripts = readPackageScripts(cwd);
+    return REVIEW_GATES.map(({ name, script, args }) => {
+      if (scripts[script] === undefined) {
+        return {
+          name,
+          exitCode: null,
+          output: `no "${script}" script in package.json — nothing to run`,
+        };
+      }
+      const r = spawnSync('npm', [...args], { cwd, encoding: 'utf8' });
       return { name, exitCode: r.status ?? 1, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
     });
+  };
 }
 
 export async function runReview(
@@ -66,12 +82,13 @@ export async function runReview(
   mkdirSync(opts.artifactDir, { recursive: true });
   const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
   const report = gates
-    .map((g) => `# ${g.name} (exit ${g.exitCode})\n${g.output}`)
+    .map((g) => `# ${g.name} (${g.exitCode === null ? 'skipped' : `exit ${g.exitCode}`})\n${g.output}`)
     .join('\n\n');
   writeFileSync(artifactPath, report);
 
-  // Deterministic verdict: passed iff every gate exits 0.
-  const failing = gates.filter((g) => g.exitCode !== 0);
+  // Deterministic verdict: passed iff every gate that RAN exits 0. A skipped gate
+  // (null) is not a pass and not a failure — the repo never answered it.
+  const failing = gates.filter((g) => g.exitCode !== null && g.exitCode !== 0);
   const verdict: Exclude<Verdict, null> =
     failing.length === 0
       ? { kind: 'passed' }

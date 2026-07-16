@@ -30,7 +30,9 @@ function fakeHost(): { host: TerminalHost; terminals: FakeTerminal[] } {
         shellArgs: opts.shellArgs,
         shown: 0,
         disposed: false,
+        sent: [],
         show: () => term.shown++,
+        sendText: (text) => term.sent.push(text),
         dispose: () => {
           term.disposed = true;
           term.disposeHandler?.();
@@ -125,6 +127,40 @@ describe('SessionManager', () => {
     const before = terminals[0]!.shown;
     mgr.focusSession(1);
     expect(terminals[0]!.shown).toBe(before + 1);
+  });
+
+  it('nudge types a prompt into the live terminal and reveals it', () => {
+    // The gate now runs while the session is still open, so a failed gate has to
+    // reach the agent that is already sitting at its prompt — openSession would
+    // only focus the terminal and drop the brief on the floor.
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(adapter, host, settingsFor);
+    mgr.openSession(1, '/wt/a');
+    const before = terminals[0]!.shown;
+
+    expect(mgr.nudge(1, 'review failed: lint')).toBe(true);
+    expect(terminals[0]!.sent).toEqual(['review failed: lint']);
+    expect(terminals[0]!.shown).toBe(before + 1);
+  });
+
+  it('nudge sends one line — a newline would submit the prompt half-typed', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(adapter, host, settingsFor);
+    mgr.openSession(1, '/wt/a');
+
+    mgr.nudge(1, 'The review gate failed.\n\nIt reported: gates failed: test\n\nThen: fire the marker');
+    expect(terminals[0]!.sent).toEqual([
+      'The review gate failed. It reported: gates failed: test Then: fire the marker',
+    ]);
+  });
+
+  it('nudge reports no live session rather than silently dropping the prompt', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(adapter, host, settingsFor);
+    expect(mgr.nudge(99, 'anything')).toBe(false);
   });
 
   it('focusSession on an unopened ticket is a no-op', () => {
