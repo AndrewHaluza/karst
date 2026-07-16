@@ -6,7 +6,12 @@ import { transition } from '../machine.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
 import { openPr, defaultGhRunner, type GhRunner } from '../../integrations/github.js';
-import { pushBranch, defaultGitRunner, type GitRunner } from '../../integrations/git.js';
+import {
+  commitAllIfDirty,
+  pushBranch,
+  defaultGitRunner,
+  type GitRunner,
+} from '../../integrations/git.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -85,6 +90,10 @@ export async function shipTicket(
       // local-only until now. Before the model call, too: a push that cannot
       // succeed makes the PR impossible, and paying for a description first buys
       // prose for a PR that will never exist.
+      // Commit before push: a stage marker means the agent thinks it is done, not
+      // that it committed. Work left in the worktree would push an empty branch and
+      // `gh pr create` would fail with "No commits between main and karst/…".
+      await commitAllIfDirty(git, wt.path, title);
       await pushBranch(git, wt.path);
       const body = adapter ? await describePr(adapter, wt.path, title) : title;
       const opened = await openPr(gh, { cwd: wt.path, title, body });

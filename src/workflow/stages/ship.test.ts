@@ -98,7 +98,56 @@ describe('shipTicket', () => {
 
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
 
-    expect(order).toEqual(['git push', 'gh pr create']);
+    expect(order).toEqual(['git status', 'git push', 'gh pr create']);
+  });
+
+  // The reported bug: impl/uat/review all passed but the work was never committed,
+  // so the branch had no commits and gh died with "No commits between main and
+  // karst/…". Ship commits what the agent left behind rather than pushing nothing.
+  it('commits uncommitted worktree changes before pushing', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const git: GitRunner = async (args) => ({
+      stdout: args[0] === 'status' ? ' M src/a.ts\n' : '',
+      stderr: '',
+      exitCode: 0,
+    });
+    const calls: string[][] = [];
+    const recording: GitRunner = async (args, cwd) => {
+      calls.push(args);
+      return git(args, cwd);
+    };
+    const { gh } = fakeGh();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), recording);
+
+    expect(calls).toEqual([
+      ['status', '--porcelain'],
+      ['add', '-A'],
+      ['commit', '-m', 'add search'],
+      ['push', '-u', 'origin', 'HEAD'],
+    ]);
+  });
+
+  // A dirty tree that cannot be committed (hook rejects, gpg signing fails) means
+  // the PR would be empty. Fail loudly at ship rather than open a no-op PR.
+  it('a failed commit aborts the ship and never calls gh', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'status') return { stdout: ' M src/a.ts\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'commit')
+        return { stdout: '', stderr: 'error: pre-commit hook rejected', exitCode: 1 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const { gh, ...ghCalls } = fakeGh();
+
+    await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
+      /pre-commit hook rejected/,
+    );
+
+    expect(ghCalls.calls).toBe(0);
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('failed');
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
   it('pushes each repo’s own worktree, and sets upstream so the PR has a head', async () => {
@@ -109,8 +158,13 @@ describe('shipTicket', () => {
 
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
 
-    expect(calls.map((c) => c.cwd).sort()).toEqual([join(dir, 'be'), join(dir, 'fe')]);
-    for (const c of calls) expect(c.args).toEqual(['push', '-u', 'origin', 'HEAD']);
+    expect([...new Set(calls.map((c) => c.cwd))].sort()).toEqual([join(dir, 'be'), join(dir, 'fe')]);
+    // Clean worktrees (the fake reports no changes) → status only, then push.
+    for (const c of calls) expect(c.args[0]).toMatch(/^(status|push)$/);
+    expect(calls.filter((c) => c.args[0] === 'push').map((c) => c.args)).toEqual([
+      ['push', '-u', 'origin', 'HEAD'],
+      ['push', '-u', 'origin', 'HEAD'],
+    ]);
   });
 
   // A push that fails means the PR cannot open. Opening it anyway is impossible;
