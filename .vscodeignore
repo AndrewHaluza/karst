@@ -15,6 +15,14 @@ spikes/**
 CLAUDE.md
 scripts/**
 
+# karst's own working state: ticket worktrees (a full checkout EACH, plus their
+# vitest caches), the registry DB, and stage artifacts. Never runtime, and it
+# grows with every ticket — this was 12812 of the vsix's 13369 files (494MB
+# unpacked), which is what broke `--install-extension`. A .vscodeignore also
+# switches vsce OFF .gitignore entirely, so .karst being git-ignored is not
+# enough to keep it out of the package.
+.karst/**
+
 # VCS / lockfile
 .git/**
 .gitignore
