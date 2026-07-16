@@ -76,6 +76,31 @@ describe('providerIdentityJs', () => {
   });
 });
 
+describe('providerIconHtml', () => {
+  const js = providerIdentityJs();
+  const load = () => {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    return new Function(`${js}\nreturn providerIconHtml;`)() as (p: string | null) => string;
+  };
+
+  it('is defined in the emitted blob', () => {
+    expect(js).toContain('function providerIconHtml(provider)');
+  });
+
+  it('renders the clickup mark alone — no brand name', () => {
+    const out = load()('clickup');
+    expect(out).toContain('<svg');
+    expect(out).toContain('provicon');
+    expect(out).not.toContain('ClickUp');
+  });
+
+  it('renders nothing for manual or an unknown provider', () => {
+    expect(load()('manual')).toBe('');
+    expect(load()('linear')).toBe('');
+    expect(load()(null)).toBe('');
+  });
+});
+
 describe('injectProviderIdentity', () => {
   it('replaces both markers with their emitted blocks', () => {
     const html = `<style>${PROVIDER_CSS_MARKER}</style><script>${PROVIDER_JS_MARKER}\nconst x=1;</script>`;

@@ -36,11 +36,23 @@
 
   .dhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
   .dhead h1{font-size:17px;margin:0}
-  .dhead .key{font-family:var(--mono);font-size:12px;color:var(--text-dim)}
+  .dhead h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .dhead .agent{margin-left:auto;font-size:11px;color:var(--text-dim);font-family:var(--mono)}
-  .dhead .ticketlink a{font-size:11px;display:inline-flex;align-items:center;gap:4px}
-  .dhead .ticketlink a:hover{text-decoration:underline}
-  .dhead .ticketlink .ref{font-family:var(--mono);color:var(--text-dim)}
+  /* The key pill IS the board link: provider mark + key + arrow, one target.
+     A separate link chip echoed the key (both print the board's id), so the
+     two collapse into one. The board ref/brief demote to the tooltip.
+     Manual (no board) is the same pill, dashed and inert. */
+  .dhead .keypill{display:inline-flex;align-items:center;gap:6px;flex:none;
+    font-family:var(--mono);font-size:11.5px;color:var(--text);
+    border:1px solid var(--border);border-radius:14px;padding:3px 10px;
+    background:var(--panel-bg);line-height:1.3}
+  .dhead a.keypill:hover{border-color:var(--link);background:var(--hover)}
+  .dhead a.keypill .arw{color:var(--link);transition:transform .12s ease}
+  .dhead a.keypill:hover .arw{transform:translate(1px,-1px)}
+  .dhead a.keypill:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
+  .dhead .keypill.local{border-style:dashed;color:var(--text-dim);
+    background:transparent;cursor:default}
+  @media (prefers-reduced-motion:reduce){.dhead a.keypill:hover .arw{transform:none}}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -128,9 +140,8 @@
 </style>
 
 <div class="dhead">
-  <span class="key" id="key"></span>
+  <span id="keyPill"></span>
   <h1 id="title"></h1>
-  <span class="ticketlink" id="ticketLink"></span>
   <span class="agent" id="agent"></span>
   <button id="editBtn" title="Edit ticket">Edit</button>
 </div>
@@ -313,23 +324,32 @@
       + `agent: ${esc(st)}</span>`;
   }
 
-  // A link to the source board (ClickUp, …) when the ticket was fetched from one.
-  // The brief (if any) rides along as a hover title. Manual/unfetched → nothing.
-  // Branded via the shared provider badge (icon + name) so this reads as a
-  // distinct external-link chip, not a bare repeat of the key shown alongside it.
-  function renderTicketLink(state) {
-    if (!state.ticketUrl) { el('ticketLink').innerHTML = ''; return; }
-    const badge = providerBadgeHtml(state.provider);
-    const ref = state.sourceRef ? ` <span class="ref">· ${esc(state.sourceRef)}</span>` : '';
-    const tip = state.brief ? ` title="${esc(state.brief)}"` : '';
-    el('ticketLink').innerHTML =
-      `<a href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>↗ ${badge}${ref}</a>`;
+  // The key pill, which doubles as the link to the source board (ClickUp, …)
+  // when the ticket was fetched from one: provider mark + key + arrow, one
+  // target. The board ref and the synthesized brief ride along as the hover —
+  // printing the ref beside the key only echoed it (they name the same id).
+  // Manual/unfetched → the same pill, dashed and inert.
+  function renderKeyPill(state) {
+    const label = state.key || `#${state.ticketId}`;
+    if (!state.ticketUrl) {
+      el('keyPill').innerHTML =
+        `<span class="keypill local" title="Manual ticket — not linked to a board.">${esc(label)}</span>`;
+      return;
+    }
+    const icon = providerIconHtml(state.provider);
+    // Drop the ref when it IS the key (a fetched ticket usually keys on it) —
+    // the tooltip would just repeat the pill.
+    const ref = state.sourceRef === label ? null : state.sourceRef;
+    const hover = [ref, state.brief].filter(Boolean).join(' — ');
+    const tip = hover ? ` title="${esc(hover)}"` : '';
+    el('keyPill').innerHTML =
+      `<a class="keypill" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>`
+      + `${icon}${esc(label)} <span class="arw" aria-hidden="true">↗</span></a>`;
   }
 
   function render(state) {
-    el('key').textContent = state.key || `#${state.ticketId}`;
     el('title').textContent = state.title || '(untitled)';
-    renderTicketLink(state);
+    renderKeyPill(state);
     renderAgent(state.agentState);
     renderStepper(state.stepper);
     renderFault(state.stepper);
