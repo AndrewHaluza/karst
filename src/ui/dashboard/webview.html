@@ -34,8 +34,13 @@
   .dhead h1{font-size:17px;margin:0}
   .dhead .key{font-family:var(--mono);font-size:12px;color:var(--text-dim)}
   .dhead .agent{margin-left:auto;font-size:11px;color:var(--text-dim);font-family:var(--mono)}
-  .dhead .ticketlink a{font-size:11px;font-family:var(--mono);display:inline-flex;align-items:center;gap:4px}
+  .dhead .ticketlink a{font-size:11px;display:inline-flex;align-items:center;gap:4px}
   .dhead .ticketlink a:hover{text-decoration:underline}
+  .dhead .ticketlink .ref{font-family:var(--mono);color:var(--text-dim)}
+  /* Shared ticketing-provider badge (icon + brand name) — single source in
+     src/model/providerIdentity.ts, injected here at load (CSP forbids a
+     shared stylesheet). */
+  /*KARST_PROVIDER_CSS*/
 
   /* stepper */
   .stepper{margin:20px 0 26px;padding:20px 8px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-bg)}
@@ -109,6 +114,11 @@
 </div>
 
 <script>
+  // Shared ticketing-provider identity (icon + brand) — single source in
+  // src/model/providerIdentity.ts, injected here at load (CSP forbids a
+  // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
+  /*KARST_PROVIDER_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
@@ -212,12 +222,15 @@
 
   // A link to the source board (ClickUp, …) when the ticket was fetched from one.
   // The brief (if any) rides along as a hover title. Manual/unfetched → nothing.
+  // Branded via the shared provider badge (icon + name) so this reads as a
+  // distinct external-link chip, not a bare repeat of the key shown alongside it.
   function renderTicketLink(state) {
     if (!state.ticketUrl) { el('ticketLink').innerHTML = ''; return; }
-    const label = state.provider ? `${esc(state.provider)}: ${esc(state.sourceRef || 'ticket')}` : esc(state.sourceRef || 'ticket');
+    const badge = providerBadgeHtml(state.provider);
+    const ref = state.sourceRef ? ` <span class="ref">· ${esc(state.sourceRef)}</span>` : '';
     const tip = state.brief ? ` title="${esc(state.brief)}"` : '';
     el('ticketLink').innerHTML =
-      `<a href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>↗ ${label}</a>`;
+      `<a href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>↗ ${badge}${ref}</a>`;
   }
 
   function render(state) {

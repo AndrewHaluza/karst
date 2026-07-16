@@ -73,6 +73,7 @@ function recordingFactory(seen: OnboardingActionsCtx[] = []) {
       setAgent: () => {},
       setModel: () => {},
       analyze: () => {},
+      openTicketLink: () => {},
       submit: () => {},
       requestState: () => ctx.pushState(),
     };
