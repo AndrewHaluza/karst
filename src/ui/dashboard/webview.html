@@ -28,29 +28,66 @@
   body{margin:0;background:var(--vscode-editor-background);color:var(--text);font-family:var(--ui);font-size:var(--vscode-font-size,13px);padding:22px 26px}
   button{font-family:inherit;cursor:pointer;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:none;border-radius:5px;padding:3px 9px;font-size:11px}
   button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+  button:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
   a{color:var(--link);text-decoration:none}
+  /* Toggled by the render fns (fault card, impl phases) — without this rule the
+     `hidden` class was a no-op and an empty box still drew its border. */
+  .hidden{display:none}
 
   .dhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
   .dhead h1{font-size:17px;margin:0}
   .dhead .key{font-family:var(--mono);font-size:12px;color:var(--text-dim)}
   .dhead .agent{margin-left:auto;font-size:11px;color:var(--text-dim);font-family:var(--mono)}
-  .dhead .ticketlink a{font-size:11px;font-family:var(--mono);display:inline-flex;align-items:center;gap:4px}
+  .dhead .ticketlink a{font-size:11px;display:inline-flex;align-items:center;gap:4px}
   .dhead .ticketlink a:hover{text-decoration:underline}
+  .dhead .ticketlink .ref{font-family:var(--mono);color:var(--text-dim)}
+  /* Shared ticketing-provider badge (icon + brand name) — single source in
+     src/model/providerIdentity.ts, injected here at load (CSP forbids a
+     shared stylesheet). */
+  /*KARST_PROVIDER_CSS*/
 
-  /* stepper */
+  /* Stepper — the pipeline as an energized rail. The CONNECTORS carry state, not
+     just the nodes: a segment the ticket actually passed through is lit, the
+     segment into the active node is accented, unreached segments stay dim, and a
+     failed node breaks its incoming segment in red. Status is never color alone —
+     each node also carries a glyph and a distinct shape (filled / hollow /
+     broken), so the rail survives colorblindness and high-contrast themes. */
   .stepper{margin:20px 0 26px;padding:20px 8px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-bg)}
-  .steps{display:flex;align-items:flex-start}
+  /* The rail scrolls inside itself on a narrow panel; the page never scrolls sideways. */
+  .railwrap{overflow-x:auto}
+  .steps{display:flex;align-items:flex-start;min-width:460px}
   .step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
-  .step .line{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--st-pending);z-index:0}
+  .step .line{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
   .step:first-child .line{display:none}
-  .step .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--panel-bg);border:2px solid var(--st-pending);color:var(--vscode-editor-background);position:relative;z-index:1;font-size:13px;font-weight:700}
-  .step .lbl{margin-top:9px;font-size:11.5px;color:var(--text-dim);text-align:center}
-  .step.done .node{background:var(--st-done);border-color:var(--st-done)}
-  .step.done .line{background:var(--st-done)}
-  .step.running .node{background:var(--st-running);border-color:var(--st-running)}
+  .step .line.lit{background:var(--st-done);opacity:.5}
+  .step .line.active{background:var(--st-running);opacity:.8}
+  .step .line.broken{background:var(--st-failed)}
+  .step .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--panel-bg);border:2px solid var(--st-pending);color:var(--text-faint);position:relative;z-index:1;font-size:13px;font-weight:700;line-height:1}
+  .step .lbl{margin-top:9px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-dim);text-align:center}
+  .step.done .node{background:var(--st-done);border-color:var(--st-done);color:var(--vscode-editor-background)}
+  .step.skipped .node{background:var(--st-pending);border-color:var(--st-pending);color:var(--vscode-editor-background);opacity:.6}
+  .step.running .node{background:var(--st-running);border-color:var(--st-running);color:var(--vscode-editor-background);animation:node-pulse 1.7s ease-in-out infinite}
   .step.running .lbl{color:var(--text)}
-  .step.failed .node{background:var(--st-failed);border-color:var(--st-failed)}
+  /* Failed reads as a break in the circuit: hollow + dashed, never filled. */
+  .step.failed .node{background:transparent;border-color:var(--st-failed);border-style:dashed;color:var(--st-failed)}
   .step.failed .lbl{color:var(--st-failed)}
+  @keyframes node-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.09);opacity:.72}}
+  @media (prefers-reduced-motion:reduce){.step.running .node{animation:none}}
+
+  /* The fault card — the one loud element on the page, because a failure is the
+     one moment the user MUST read. Machine truth (reason, timings) is monospace. */
+  .fault{margin:16px 6px 2px;padding:10px 12px;border-left:3px solid var(--st-failed);
+    border-radius:0 6px 6px 0;background:var(--vscode-inputValidation-errorBackground,transparent)}
+  .fault .ftitle{font-size:12px;font-weight:600;margin-bottom:6px}
+  .fault .freason{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;word-break:break-word}
+  .fault .fmeta{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:7px}
+  .fault .facts{margin-top:9px}
+
+  /* The "Now" line — one plain sentence naming what is happening and the next
+     action the user controls. Built host-side (state.now) so the copy is tested. */
+  .now{display:flex;align-items:center;gap:10px;margin:14px 6px 2px;padding-top:11px;
+    border-top:1px solid var(--border);font-size:12px;color:var(--text)}
+  .now .ntext{flex:1}
   /* Read-only impl-phase breakdown under the stepper. Informational: emphasis
      tracks the impl cell (.done / .active), no per-phase live state. */
   .substeps{display:flex;align-items:center;flex-wrap:wrap;gap:6px;
@@ -98,7 +135,12 @@
   <button id="editBtn" title="Edit ticket">Edit</button>
 </div>
 
-<div class="stepper"><div class="steps" id="steps"></div>
+<div class="stepper">
+  <div class="railwrap"><div class="steps" id="steps"></div></div>
+  <!-- Inline fault card for a failed stage: reason + timings + [Open log]. -->
+  <div class="fault hidden" id="fault"></div>
+  <!-- What is happening and what the user can do next (state.now). -->
+  <div class="now" id="now"></div>
   <!-- Read-only impl-phase breakdown (approach workflow); hidden when none. -->
   <div class="substeps hidden" id="substeps"></div></div>
 
@@ -109,23 +151,84 @@
 </div>
 
 <script>
+  // Shared ticketing-provider identity (icon + brand) — single source in
+  // src/model/providerIdentity.ts, injected here at load (CSP forbids a
+  // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
+  /*KARST_PROVIDER_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
   // Stage status -> stepper CSS class. Amber/needs-you is an agent-level signal
   // (glyphFor precedence); the stepper shows stage status only.
-  const STEP_CLASS = { passed: 'done', running: 'running', failed: 'failed', pending: '', skipped: 'done' };
+  const STEP_CLASS = { passed: 'done', running: 'running', failed: 'failed', pending: '', skipped: 'skipped' };
+  // Glyph per status, so status never rides on color alone.
+  const STEP_GLYPH = { passed: '✓', running: '⟳', failed: '✕', pending: '·', skipped: '–' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
 
-  function renderStepper(stepper, current) {
-    el('steps').innerHTML = stepper.map((s) => {
+  // The connector INTO this node: lit once the previous stage passed, accented
+  // into a running node, broken (red) into a failed one, dim when unreached.
+  function lineClass(cell, prev) {
+    if (cell.status === 'failed') return 'broken';
+    const reached = prev && (prev.status === 'passed' || prev.status === 'skipped');
+    if (!reached) return '';
+    return cell.status === 'running' ? 'active' : 'lit';
+  }
+
+  function renderStepper(stepper) {
+    el('steps').innerHTML = stepper.map((s, i) => {
       const cls = STEP_CLASS[s.status] || '';
-      const mark = s.status === 'passed' ? '✓' : s.status === 'failed' ? '✕' : '';
-      return `<div class="step ${cls}"><div class="line"></div>`
-        + `<div class="node">${mark}</div>`
+      const glyph = STEP_GLYPH[s.status] || '';
+      return `<div class="step ${cls}"><div class="line ${lineClass(s, stepper[i - 1])}"></div>`
+        + `<div class="node" title="${esc(s.stageKey)}: ${esc(s.status)}">${glyph}</div>`
         + `<div class="lbl">${esc(s.stageKey)}</div></div>`;
     }).join('');
+  }
+
+  // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
+  // omitted while a stage is still running (no endedAt yet).
+  function timingText(cell) {
+    if (!cell.startedAt) return '';
+    const started = new Date(cell.startedAt);
+    if (Number.isNaN(started.getTime())) return '';
+    const stamp = started.toLocaleTimeString();
+    if (!cell.endedAt) return stamp;
+    const ms = new Date(cell.endedAt).getTime() - started.getTime();
+    if (!Number.isFinite(ms) || ms < 0) return stamp;
+    return `${stamp} · ${(ms / 1000).toFixed(1)}s`;
+  }
+
+  // The fault card: the reason a red node is red, the log behind it, and when it
+  // ran. Shown only for a failed stage — everything else stays quiet.
+  function renderFault(stepper) {
+    const box = el('fault');
+    const failed = (stepper || []).find((s) => s.status === 'failed');
+    box.classList.toggle('hidden', !failed);
+    if (!failed) { box.innerHTML = ''; return; }
+    const title = `${STAGE_TITLE[failed.stageKey] || failed.stageKey} failed`;
+    const timing = timingText(failed);
+    const attempt = failed.attempt ? ` · attempt ${esc(failed.attempt)}` : '';
+    box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
+      + `<div class="freason">${esc(failed.reason || 'No reason recorded.')}</div>`
+      + (timing ? `<div class="fmeta">${esc(timing)}${attempt}</div>` : '')
+      + (failed.artifactPath
+        ? `<div class="facts"><button data-act="open-stage-log" data-path="${esc(failed.artifactPath)}">Open log</button></div>`
+        : '');
+  }
+
+  // One sentence + at most one button. The copy is built host-side (model/nowLine)
+  // and shipped in the state, so it is unit-tested and lives in exactly one place.
+  const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket' };
+
+  function renderNow(now) {
+    const line = now || { text: '' };
+    const a = line.action;
+    const type = a && NOW_MESSAGE[a.kind];
+    const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
+    el('now').innerHTML = `<span class="ntext">${esc(line.text)}</span>`
+      + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '');
   }
 
   // Read-only impl-phase breakdown: what the single impl stage covers for this
@@ -212,12 +315,15 @@
 
   // A link to the source board (ClickUp, …) when the ticket was fetched from one.
   // The brief (if any) rides along as a hover title. Manual/unfetched → nothing.
+  // Branded via the shared provider badge (icon + name) so this reads as a
+  // distinct external-link chip, not a bare repeat of the key shown alongside it.
   function renderTicketLink(state) {
     if (!state.ticketUrl) { el('ticketLink').innerHTML = ''; return; }
-    const label = state.provider ? `${esc(state.provider)}: ${esc(state.sourceRef || 'ticket')}` : esc(state.sourceRef || 'ticket');
+    const badge = providerBadgeHtml(state.provider);
+    const ref = state.sourceRef ? ` <span class="ref">· ${esc(state.sourceRef)}</span>` : '';
     const tip = state.brief ? ` title="${esc(state.brief)}"` : '';
     el('ticketLink').innerHTML =
-      `<a href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>↗ ${label}</a>`;
+      `<a href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>↗ ${badge}${ref}</a>`;
   }
 
   function render(state) {
@@ -225,7 +331,9 @@
     el('title').textContent = state.title || '(untitled)';
     renderTicketLink(state);
     renderAgent(state.agentState);
-    renderStepper(state.stepper, state.stageCurrent);
+    renderStepper(state.stepper);
+    renderFault(state.stepper);
+    renderNow(state.now);
     renderSubsteps(state.implPhases, state.stepper);
     renderServers(state.servers);
     renderWorktrees(state.worktrees);

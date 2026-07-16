@@ -92,6 +92,29 @@
   }
   button.icon{padding:3px 8px;font-size:11px}
 
+  /* Custom provider dropdown (§ Ticketing): styled to match the native
+     input/select chrome above, but a button+listbox so the branded badge
+     (icon + name) can render inside the trigger and each option. */
+  .provselect{position:relative;width:100%}
+  .provselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
+    text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:5px;
+    padding:6px 8px;font-family:inherit;font-size:13px}
+  .provselect-trigger:hover{background:var(--vscode-input-background)}
+  .provselect-trigger .chev{opacity:.6;font-size:10px;margin-left:8px}
+  .provselect-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;
+    background:var(--vscode-dropdown-background,var(--vscode-editor-background));
+    border:1px solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:6px;padding:4px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .provselect-opt{display:flex;align-items:center;gap:6px;padding:6px 8px;
+    border-radius:4px;cursor:pointer;font-size:13px}
+  .provselect-opt:hover{background:var(--vscode-list-hoverBackground)}
+  .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--vscode-list-hoverBackground))}
+  /* Shared ticketing-provider badge (icon + brand name) — single source in
+     src/model/providerIdentity.ts, injected here at load (CSP forbids a
+     shared stylesheet). */
+  /*KARST_PROVIDER_CSS*/
+
   /* ---- accordion cards ---- */
   .card{
     border:1px solid var(--vscode-panel-border);border-radius:8px;
@@ -403,11 +426,15 @@
     <div class="section hidden" id="section-ticketing">
       <div class="card open">
         <div class="card-body" style="display:block;padding-top:14px">
-          <label for="f-ticketProvider">Provider</label>
-          <select id="f-ticketProvider">
-            <option value="manual">manual (local-only)</option>
-            <option value="clickup">clickup</option>
-          </select>
+          <label id="ticketProviderLabel">Provider</label>
+          <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
+               badge can't render inside a native <option>, so the trigger and
+               each option render the shared provider-identity badge instead. -->
+          <div class="provselect" id="provSelectWrap">
+            <button type="button" class="provselect-trigger" id="providerTrigger"
+                    aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
+            <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
+          </div>
 
           <!-- ClickUp-specific fields; hidden unless provider === clickup -->
           <div id="clickupFields">
@@ -514,6 +541,11 @@
 </div>
 
 <script>
+  // Shared ticketing-provider identity (icon + brand) — single source in
+  // src/model/providerIdentity.ts, injected here at load (CSP forbids a
+  // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
+  /*KARST_PROVIDER_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
@@ -1509,21 +1541,66 @@
     return draft.ticketing;
   }
 
+  // Custom dropdown (§ Ticketing): the branded [ICON] Brand badge can't render
+  // inside a native <option>, so trigger + options are built from the shared
+  // providerBadgeHtml() instead of a <select>. Only two providers exist today
+  // (TicketProvider = 'clickup' | 'manual'); a third would just extend this list.
+  const TICKET_PROVIDER_IDS = ['manual', 'clickup'];
+
+  function renderProviderDropdown(current) {
+    el('providerTrigger').innerHTML = providerBadgeHtml(current) + '<span class="chev" aria-hidden="true">▾</span>';
+    el('providerMenu').innerHTML = TICKET_PROVIDER_IDS.map((id) => (
+      `<div class="provselect-opt${id === current ? ' selected' : ''}" role="option"`
+      + ` tabindex="0" data-value="${esc(id)}" aria-selected="${id === current}">`
+      + providerBadgeHtml(id) + `</div>`
+    )).join('');
+  }
+
+  function closeProviderMenu() {
+    el('providerMenu').classList.add('hidden');
+    el('providerTrigger').setAttribute('aria-expanded', 'false');
+  }
+  function openProviderMenu() {
+    el('providerMenu').classList.remove('hidden');
+    el('providerTrigger').setAttribute('aria-expanded', 'true');
+  }
+  function pickProvider(id) {
+    ticketingCfg().provider = id;
+    markDirty(); renderTicketing(); closeProviderMenu();
+    el('providerTrigger').focus();
+  }
+
+  el('providerTrigger').addEventListener('click', () => {
+    const isOpen = !el('providerMenu').classList.contains('hidden');
+    if (isOpen) closeProviderMenu(); else openProviderMenu();
+  });
+  el('providerMenu').addEventListener('click', (e) => {
+    const opt = e.target.closest('[data-value]');
+    if (opt) pickProvider(opt.dataset.value);
+  });
+  el('providerMenu').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const opt = e.target.closest('[data-value]');
+    if (opt) { e.preventDefault(); pickProvider(opt.dataset.value); }
+  });
+  document.addEventListener('click', (e) => {
+    if (!el('provSelectWrap').contains(e.target)) closeProviderMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeProviderMenu();
+  });
+
   function renderTicketing() {
     const cfg = ticketingCfg();
-    el('f-ticketProvider').value = cfg.provider || 'manual';
+    const current = cfg.provider || 'manual';
+    renderProviderDropdown(current);
     el('f-ticketTeamId').value = cfg.teamId || '';
     el('f-ticketListId').value = cfg.listId || '';
-    const isClickup = cfg.provider === 'clickup';
+    const isClickup = current === 'clickup';
     el('clickupFields').classList.toggle('hidden', !isClickup);
     el('tokenStatus').textContent = 'Token: ' + (tokenConfigured ? 'configured' : 'not configured');
     el('tokenStatus').className = tokenConfigured ? 'installed-tag' : 'builtin-tag';
   }
-
-  el('f-ticketProvider').addEventListener('change', () => {
-    ticketingCfg().provider = el('f-ticketProvider').value;
-    markDirty(); renderTicketing();
-  });
   el('f-ticketTeamId').addEventListener('input', () => {
     const v = el('f-ticketTeamId').value.trim();
     const cfg = ticketingCfg();

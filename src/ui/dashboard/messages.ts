@@ -17,7 +17,8 @@ export type WebviewMessage =
   | { type: 'edit-ticket' }
   | { type: 'stop-driver' }
   | { type: 'ship-ticket' }
-  | { type: 'resume-ticket' };
+  | { type: 'resume-ticket' }
+  | { type: 'open-stage-log'; path: string };
 
 /** Host → webview messages: state pushes drive the stepper + panels. */
 export type HostMessage = { type: 'state'; state: DashboardState };
@@ -37,6 +38,8 @@ export interface DashboardActions {
   stopDriver: () => void;
   shipTicket: () => void;
   resumeTicket: () => void;
+  /** Open a stage's log (uat/review artifact) in an editor. */
+  openStageLog: (path: string) => void;
 }
 
 /**
@@ -83,6 +86,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'ship-ticket' };
     case 'resume-ticket':
       return { type: 'resume-ticket' };
+    case 'open-stage-log':
+      return path ? { type: 'open-stage-log', path: m.path as string } : null;
     default:
       return null;
   }
@@ -135,6 +140,9 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'resume-ticket':
       actions.resumeTicket();
+      return;
+    case 'open-stage-log':
+      actions.openStageLog(msg.path);
       return;
   }
 }

@@ -67,13 +67,17 @@
   .cardhead .provline{margin:0}
 
   /* Provider chip (top-right of the Ticket card): tells the user WHERE a fetch
-     pulls from. The gradient icon is the ClickUp mark; `manual` is a muted note. */
+     pulls from. The badge portion (icon + brand) is the shared provider-identity
+     component (§ KARST_PROVIDER_CSS below); this just lays out the "Fetches
+     from …" row around it. */
   .provline{display:flex;align-items:center;gap:7px;font-size:11.5px;
     opacity:.85;margin:0 0 8px;white-space:nowrap}
-  .provline .provicon{flex:none;width:14px;height:14px;display:inline-flex}
-  .provline .provname{font-weight:600;display:inline-flex;align-items:center;gap:5px}
-  .provline .provname svg{flex:none}
   .provline.manual{opacity:.6}
+  /* Shared ticketing-provider badge (icon + brand name) — single source in
+     src/model/providerIdentity.ts, injected here at load (CSP forbids a
+     shared stylesheet). Used by the "Fetches from" chip above and the
+     ticket-link anchor below. */
+  /*KARST_PROVIDER_CSS*/
 
   /* Fetch button doubles as the status. Fixed min-width so Fetch → Fetching… →
      ✓ Fetched never shifts the row. The done state is a quiet green outline. */
@@ -86,8 +90,16 @@
   /* "Show details" link, shown next to the field once a brief exists. */
   .detailslink{background:none;border:none;padding:2px 4px;
     color:var(--vscode-textLink-foreground);text-decoration:underline;
-    font-size:11.5px;margin-top:8px}
+    font-size:11.5px}
   .detailslink:hover{background:none}
+  /* External ticket link (opens the board): a distinct action from "Show
+     details" (which reads the local brief), so it's pushed to the row's far
+     end rather than sitting flush beside it. Underline on hover only, matching
+     the dashboard's ticket-link convention. */
+  .row2{display:flex;align-items:center;gap:12px;margin-top:8px}
+  #ticketLink{margin-left:auto;font-size:11.5px;text-decoration:none;
+    color:var(--vscode-textLink-foreground);display:inline-flex;align-items:center;gap:4px}
+  #ticketLink:hover{text-decoration:underline}
 
   /* ── Phase 2: vertical stepper (repos → approach → create) ─────────────── */
   .step{display:flex;align-items:center;gap:10px;margin:0 0 10px}
@@ -230,7 +242,6 @@
   <div class="cardhead">
     <h2>Ticket</h2>
     <div class="provline hidden" id="provline">
-      <span class="provicon" id="provicon" aria-hidden="true"></span>
       <span id="provtext"></span>
     </div>
   </div>
@@ -239,7 +250,10 @@
     <input type="text" id="ref" placeholder="PROJ-142  ·  or a board id like CU-1234" />
     <button id="fetchBtn" class="secondary">Fetch</button>
   </div>
-  <button class="detailslink hidden" id="detailsBtn">Show details</button>
+  <div class="row2">
+    <button class="detailslink hidden" id="detailsBtn">Show details</button>
+    <a href="#" class="hidden" id="ticketLink"></a>
+  </div>
 
   <label for="title">Title</label>
   <input type="text" id="title" placeholder="Short summary" />
@@ -322,6 +336,11 @@
 </div>
 
 <script>
+  // Shared ticketing-provider identity (icon + brand) — single source in
+  // src/model/providerIdentity.ts, injected here at load (CSP forbids a
+  // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
+  /*KARST_PROVIDER_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
@@ -355,6 +374,22 @@
     }).join('');
   }
 
+  function renderOnboardingTicketLink(state) {
+    const link = el('ticketLink');
+    if (!state.ticketUrl) {
+      link.classList.add('hidden');
+      link.innerHTML = '';
+      return;
+    }
+    link.classList.remove('hidden');
+    link.href = '#';
+    link.dataset.act = 'open-ticket-link';
+    link.dataset.url = state.ticketUrl;
+    const badge = providerBadgeHtml(state.provider);
+    const ref = state.sourceRef ? ' · ' + esc(state.sourceRef) : '';
+    link.innerHTML = '↗ ' + badge + ref;
+  }
+
   function render(state) {
     draft.mode = state.mode;
     // Edit heading = the ticket's human label (key, else #id) + title. No id →
@@ -367,6 +402,7 @@
     el('submitBtn').textContent = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
     renderStepper(state.stepper, state.mode);
     renderProvider(state.provider);
+    renderOnboardingTicketLink(state);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
     // what the user is typing on a re-push). The single #ref field IS the key —
@@ -425,44 +461,22 @@
   // Full brief text for the drawer, and whether we've fetched at all.
   let briefText = '';
 
-  // Provider label + inline ClickUp mark (CSP forbids external assets, so the
-  // icon is inline SVG). `manual` has no board to fetch from — hide the Fetch
-  // button and show a muted note; the field is then pure key entry.
-  const PROVIDER_LABELS = { clickup: 'ClickUp', manual: 'Manual' };
-  // ClickUp's brand mark: the upward peak/arrow in its pink→purple→blue gradient.
-  // Inline (CSP forbids external assets); the gradient id is scoped so it renders
-  // wherever this is injected.
-  const CLICKUP_SVG =
-    '<svg viewBox="0 0 36 36" width="14" height="14" aria-hidden="true">'
-    + '<defs><linearGradient id="cuMark" x1="0" y1="1" x2="1" y2="0">'
-    + '<stop offset="0" stop-color="#fd71af"/>'
-    + '<stop offset=".55" stop-color="#7b68ee"/>'
-    + '<stop offset="1" stop-color="#49ccf9"/>'
-    + '</linearGradient></defs>'
-    + '<path d="M4 24.5 L18 12 L32 24.5" fill="none" stroke="url(#cuMark)"'
-    + ' stroke-width="6.4" stroke-linecap="round" stroke-linejoin="round"/>'
-    + '</svg>';
-
+  // `manual` has no board to fetch from — hide the Fetch button and show a
+  // muted note; the field is then pure key entry. The icon+brand badge itself
+  // is the shared provider-identity component (providerBadgeHtml, injected).
   function renderProvider(provider) {
     const p = provider || 'manual';
     const line = el('provline');
     if (p === 'manual') {
-      // No board to fetch from: hide Fetch, mark the line as informational.
       line.classList.remove('hidden');
       line.classList.add('manual');
-      el('provicon').innerHTML = '';
       el('provtext').textContent = 'Manual ticket — no board to fetch from';
       el('fetchBtn').classList.add('hidden');
       return;
     }
     line.classList.remove('hidden');
     line.classList.remove('manual');
-    // Icon sits INSIDE the name so it reads as the label's mark ("Fetches from
-    // [◭ ClickUp]"), not a bullet at the start of the line.
-    el('provicon').innerHTML = '';
-    const mark = p === 'clickup' ? CLICKUP_SVG : '';
-    el('provtext').innerHTML =
-      'Fetches from <span class="provname">' + mark + esc(PROVIDER_LABELS[p] || p) + '</span>';
+    el('provtext').innerHTML = 'Fetches from ' + providerBadgeHtml(p);
     el('fetchBtn').classList.remove('hidden');
   }
 
@@ -841,6 +855,10 @@
       const words = (input.value || '').split(',').map((s) => s.trim()).filter(Boolean);
       if (words.length) post({ type: 'save-signals', service: t.dataset.savesig, signals: words });
     }
+    if (t.dataset && t.dataset.act === 'open-ticket-link' && t.dataset.url) {
+      e.preventDefault();
+      post({ type: 'open-ticket-link', url: t.dataset.url });
+    }
   });
 
   // Keyboard: Enter/Space activates a focused chip or approach card.
@@ -881,6 +899,9 @@
         // Flip the fetch button to done + stash the brief for the drawer. The
         // title arg feeds the drawer header only.
         renderFetched(briefToText(b), b.title || '');
+        // Update ticket link now that we have a fresh fetch.
+        const state = vscode.getState();
+        if (state) renderOnboardingTicketLink(state);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
         syncPhase2();
         // A fresh brief is new context nothing has been prefilled against yet.

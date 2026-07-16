@@ -11,9 +11,11 @@ import {
 import type { TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
+import { buildNowLine, type NowLine } from '../../model/nowLine.js';
+import { countFixAttempts } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 
-export type { PathContext, StepperCell };
+export type { PathContext, StepperCell, NowLine };
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
@@ -23,6 +25,17 @@ export interface DashboardState {
   stageCurrent: string | null;
   agentState: string | null;
   stepper: StepperCell[];
+  /**
+   * The stepper cell the ticket currently sits on — the one the "Now" line and
+   * the fault card describe. Null when the ticket sits at no stage at all.
+   */
+  currentStage: StepperCell | null;
+  /**
+   * One plain sentence naming what is happening and the next action the user
+   * controls. Built host-side because the webview is standalone HTML and cannot
+   * import the copy module — shipping it keeps a single, tested source.
+   */
+  now: NowLine;
   servers: ServerView[];
   worktrees: WorktreeView[];
   prs: PrView[];
@@ -63,6 +76,7 @@ export function buildDashboardState(
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const stepper = buildStepper(ticket.stages);
+  const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
   const worktrees = listWorktreesByTicket(store, ticketId).map((w) => ({
     ...w,
@@ -76,6 +90,8 @@ export function buildDashboardState(
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
     stepper,
+    currentStage,
+    now: buildNowLine(currentStage, { fixAttempts: countFixAttempts(ticket.stages) }),
     servers: listServersByTicket(store, ticketId),
     worktrees,
     prs: listPrsByTicket(store, ticketId),

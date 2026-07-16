@@ -3,7 +3,10 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
+import { setStage } from '../../store/stages.js';
+import { nowIso } from '../../model/time.js';
 import { openPr, defaultGhRunner, type GhRunner } from '../../integrations/github.js';
+import { pushBranch, defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -47,6 +50,7 @@ export async function shipTicket(
   opts: ShipOpts,
   gh: GhRunner = defaultGhRunner,
   adapter?: AgentAdapter,
+  git: GitRunner = defaultGitRunner,
 ): Promise<ShipResult> {
   const ticket = getTicket(store, opts.ticketId);
   const worktrees = listWorktreesByTicket(store, opts.ticketId);
@@ -61,19 +65,46 @@ export async function shipTicket(
     "SELECT repo, number, url FROM prs WHERE ticket_id = ? AND repo = ? AND status = 'open'",
   );
 
+  // A retry re-runs this stage: clear any reason the last attempt recorded, so a
+  // stale failure can't outlive the run that fixed it.
+  setStage(store, opts.ticketId, 'ship', { status: 'running', verdict: null, endedAt: null });
+
   const prs: ShippedPr[] = [];
-  for (const wt of worktrees) {
-    const prior = existingOpen.get(opts.ticketId, wt.repo) as
-      | { repo: string; number: number | null; url: string }
-      | undefined;
-    if (prior) {
-      prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
-      continue;
+  try {
+    for (const wt of worktrees) {
+      const prior = existingOpen.get(opts.ticketId, wt.repo) as
+        | { repo: string; number: number | null; url: string }
+        | undefined;
+      if (prior) {
+        prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
+        continue;
+      }
+      // Push FIRST. `gh pr create` refuses a branch that exists only on this
+      // machine ("you must first push the current branch to a remote"), and every
+      // ticket works on a fresh worktree branch — so the branch is always
+      // local-only until now. Before the model call, too: a push that cannot
+      // succeed makes the PR impossible, and paying for a description first buys
+      // prose for a PR that will never exist.
+      await pushBranch(git, wt.path);
+      const body = adapter ? await describePr(adapter, wt.path, title) : title;
+      const opened = await openPr(gh, { cwd: wt.path, title, body });
+      insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
+      prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
     }
-    const body = adapter ? await describePr(adapter, wt.path, title) : title;
-    const opened = await openPr(gh, { cwd: wt.path, title, body });
-    insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
-    prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
+  } catch (err) {
+    // Ship has no `failed` edge (graph.ts): a ticket whose PRs did not open has
+    // NOT shipped, so it must stay at ship rather than advance. Record the reason
+    // on the stage row — that is what the dashboard renders (a red node + the
+    // fault card), so a failed ship is visible instead of a ticket that just sits
+    // at "running" with the truth buried in the output channel. Re-thrown so the
+    // caller still reports it; the PRs already opened stay recorded (idempotent
+    // re-run skips them).
+    setStage(store, opts.ticketId, 'ship', {
+      status: 'failed',
+      verdict: err instanceof Error ? err.message : String(err),
+      endedAt: nowIso(),
+    });
+    throw err;
   }
 
   // PRs opened → ship passes → done.

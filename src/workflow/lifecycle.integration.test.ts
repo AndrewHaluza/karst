@@ -17,6 +17,7 @@ import { reconcileOnStart, deriveStageCurrent } from '../recovery/reconcile.js';
 import { manualProvider } from '../integrations/ticketing.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { GhRunner } from '../integrations/github.js';
+import type { GitRunner } from '../integrations/git.js';
 
 /**
  * MVP definition-of-done (plan line 474), driven over the REAL stage modules and
@@ -106,7 +107,10 @@ describe('MVP lifecycle (workflow spine)', () => {
         "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/repo/fe', ?, 'b', 'develop', 'inherited')",
       )
       .run(id, join(dir, 'fe'));
-    const shipRes = await shipTicket(store, { ticketId: id }, gh, adapter);
+    // Ship pushes the branch before opening the PR; this spine exercises the
+    // workflow, not the network, so git is faked alongside gh.
+    const git: GitRunner = async () => ({ stdout: '', stderr: '', exitCode: 0 });
+    const shipRes = await shipTicket(store, { ticketId: id }, gh, adapter, git);
     expect(shipRes.prs).toHaveLength(1);
     expect(getTicket(store, id).stageCurrent).toBe('done');
 

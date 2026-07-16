@@ -16,6 +16,7 @@ function actions(): DashboardActions {
     stopDriver: vi.fn(),
     shipTicket: vi.fn(),
     resumeTicket: vi.fn(),
+    openStageLog: vi.fn(),
   };
 }
 
@@ -132,5 +133,19 @@ describe('routeAction', () => {
     expect(a.stopDriver).toHaveBeenCalledTimes(1);
     expect(a.shipTicket).toHaveBeenCalledTimes(1);
     expect(a.resumeTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches open-stage-log with the log path', () => {
+    const a = actions();
+    routeAction({ type: 'open-stage-log', path: '/logs/review-ticket-1.log' }, a);
+    expect(a.openStageLog).toHaveBeenCalledWith('/logs/review-ticket-1.log');
+  });
+
+  it('ignores an open-stage-log with a missing or non-string path', () => {
+    const a = actions();
+    routeAction({ type: 'open-stage-log' }, a);
+    routeAction({ type: 'open-stage-log', path: 42 }, a);
+    routeAction({ type: 'open-stage-log', path: '' }, a);
+    expect(a.openStageLog).not.toHaveBeenCalled();
   });
 });

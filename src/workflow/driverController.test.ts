@@ -4,36 +4,30 @@ import { shouldStartDriver, ticketsToSweep, DriverController } from './driverCon
 describe('ticketsToSweep', () => {
   const at = (id: number, stageCurrent: string | null) => ({ id, stageCurrent });
 
-  it('selects gate-stage tickets with no live session', () => {
+  it('selects gate-stage tickets regardless of any open session', () => {
     const tickets = [at(1, 'uat'), at(2, 'review'), at(3, 'impl'), at(4, 'done')];
-    expect(ticketsToSweep(tickets, () => false)).toEqual([1, 2]);
-  });
-
-  it('excludes gate tickets that have a live session', () => {
-    const tickets = [at(1, 'uat'), at(2, 'review')];
-    // session open only for ticket 1
-    expect(ticketsToSweep(tickets, (id) => id === 1)).toEqual([2]);
+    expect(ticketsToSweep(tickets)).toEqual([1, 2]);
   });
 
   it('excludes non-gate stages (impl/scope/ship/fix/done/null)', () => {
     const tickets = [at(1, 'impl'), at(2, 'scope'), at(3, 'ship'), at(4, 'fix'), at(5, 'done'), at(6, null)];
-    expect(ticketsToSweep(tickets, () => false)).toEqual([]);
+    expect(ticketsToSweep(tickets)).toEqual([]);
   });
 
   it('returns empty for an empty ticket list', () => {
-    expect(ticketsToSweep([], () => false)).toEqual([]);
+    expect(ticketsToSweep([])).toEqual([]);
   });
 });
 
 describe('shouldStartDriver', () => {
-  it('starts on gate stages with no live session', () => {
-    expect(shouldStartDriver('uat', false)).toBe(true);
-    expect(shouldStartDriver('review', false)).toBe(true);
+  it('starts on gate stages — the marker is the done signal, an open session does not block', () => {
+    expect(shouldStartDriver('uat')).toBe(true);
+    expect(shouldStartDriver('review')).toBe(true);
   });
-  it('does not start with a live session or on non-gate stages', () => {
-    expect(shouldStartDriver('uat', true)).toBe(false);
-    expect(shouldStartDriver('impl', false)).toBe(false);
-    expect(shouldStartDriver('ship', false)).toBe(false);
+  it('does not start on non-gate stages', () => {
+    expect(shouldStartDriver('impl')).toBe(false);
+    expect(shouldStartDriver('ship')).toBe(false);
+    expect(shouldStartDriver('scope')).toBe(false);
   });
 });
 

@@ -6,4 +6,4 @@ coverage/
 # in each *service* repo via .git/info/exclude — that asymmetry is intentional:
 # service repos never track karst artifacts, but the karst project commits its yml.)
 .karst/worktrees/
-.claude/settings.local.json
+.claude/settings.local.json*.vsix

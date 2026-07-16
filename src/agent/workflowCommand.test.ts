@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   renderWorkflowCommand,
-  renderImplMarkerInstruction,
+  renderDoneMarkerInstruction,
   buildWorkflowInvocation,
   orchestratorCommandBasename,
   KARST_PLUGIN_NAME,
@@ -46,7 +46,7 @@ describe('renderWorkflowCommand', () => {
     expect(body).toContain('read and describe the ticket');
     expect(body).not.toContain('--db');
   });
-  it('appends the impl-done marker step when a stageCommand is given', () => {
+  it('appends the done-marker step when a stageCommand is given', () => {
     const body = renderWorkflowCommand({
       id: 'rpi',
       label: 'RPI',
@@ -54,7 +54,7 @@ describe('renderWorkflowCommand', () => {
       stageCommand: 'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket',
     });
     expect(body).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket $ARGUMENTS');
-    expect(body.toLowerCase()).toContain('uat');
+    expect(body).toContain('done marker');
   });
   it('omits the marker step without a stageCommand', () => {
     const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
@@ -62,24 +62,36 @@ describe('renderWorkflowCommand', () => {
   });
 });
 
-describe('renderImplMarkerInstruction', () => {
-  it('renders the marker command with the given ticket arg and names the UAT advance', () => {
-    const s = renderImplMarkerInstruction(
+describe('renderDoneMarkerInstruction', () => {
+  it('renders the marker command with the given ticket arg', () => {
+    const s = renderDoneMarkerInstruction(
       'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket',
       'PROJ-9',
     );
     expect(s).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket PROJ-9');
     expect(s).toContain('done marker');
-    expect(s.toLowerCase()).toContain('uat');
     // trigger must cover no-code tickets (research/confirmation), not only "implementation complete"
     expect(s.toLowerCase()).toContain('research');
     expect(s.toLowerCase()).toContain('confirmation');
+    // a session ending is not a verdict (§5.4) — the agent must fire the marker itself
+    expect(s.toLowerCase()).toContain('session ending does not advance');
+  });
+
+  it('names no stage of its own — the stage is already baked into the command', () => {
+    // The same text seeds a fix resume (`stage fix pass`), so naming "UAT" here
+    // would tell a fixing agent the wrong thing about where it is going.
+    const s = renderDoneMarkerInstruction(
+      'node "/ext/cli.js" stage fix pass --db "/x.db" --ticket',
+      'PROJ-9',
+    );
+    expect(s.toLowerCase()).not.toContain('uat');
+    expect(s.toLowerCase()).not.toContain('implementation');
   });
 
   it('is the same text the workflow command embeds (arg = $ARGUMENTS)', () => {
     const cmd = 'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket';
     const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, stageCommand: cmd });
-    expect(body).toContain(renderImplMarkerInstruction(cmd, '$ARGUMENTS'));
+    expect(body).toContain(renderDoneMarkerInstruction(cmd, '$ARGUMENTS'));
   });
 });
 

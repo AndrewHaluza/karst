@@ -19,6 +19,9 @@ import { resolveAdapter } from './agent/registry.js';
 import type { AgentAdapter } from './agent/adapter.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
+import { markerStageFor } from './agent/markerStage.js';
+import { renderFixBrief } from './agent/fixBrief.js';
+import { countFixAttempts, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow/fixAttempts.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModel } from './agent/models.js';
@@ -27,7 +30,7 @@ import { composeStageCommand } from './cli/stage.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
-  renderImplMarkerInstruction,
+  renderDoneMarkerInstruction,
   KARST_PLUGIN_NAME,
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
@@ -93,13 +96,18 @@ import { makeSettingsPanelHost } from './ui/settings/host.js';
 import { writeManifest } from './manifest/write.js';
 import { makeLogger, type LogError } from './logging/logger.js';
 import { injectPalette } from './model/palette.js';
+import { injectProviderIdentity } from './model/providerIdentity.js';
 import {
-  checkDependencies,
   binaryExists,
-  GIT_DEPENDENCY,
-  agentDependency,
-  type RequiredDependency,
+  checkDependencyFaults,
+  commandSucceeds,
+  dependencyRegistry,
+  ensureCapability,
+  renderDependencyFault,
+  type Capability,
+  type DependencyFault,
 } from './runtime/deps.js';
+import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { WelcomeManager } from './ui/welcome/panel.js';
 import { buildWelcomeActions } from './ui/welcome/actions.js';
 import { makeWelcomePanelHost } from './ui/welcome/host.js';
@@ -210,11 +218,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       manifestExists = false;
     }
     const provider = (currentManifest?.agentProvider ?? 'claude');
-    const missingDeps = checkDependencies(
-      [GIT_DEPENDENCY, agentDependency(provider)],
-      binaryExists,
+    // The panel's re-check button routes here; repaint the bar from the same
+    // moment's truth, or installing a tool clears the checklist and leaves the
+    // status bar still claiming it's missing.
+    refreshDepsStatus();
+    return buildWelcomeState(
+      buildSetupStatus({ manifestExists, provider, probe: binaryExists, ready: commandSucceeds }),
     );
-    return buildWelcomeState(buildSetupStatus({ manifestExists, missingDeps, provider }));
   };
 
   const welcome = new WelcomeManager(
@@ -227,6 +237,64 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     logError,
   );
+
+  // The startup toast is dismissible and gone in seconds; a tool that is missing
+  // (or signed out) stays that way until the user fixes it. The status bar is the
+  // surface that outlives the toast — it clicks through to the checklist, and
+  // clears itself on any recheck.
+  const depsStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+  depsStatus.command = 'karst.recheckDeps';
+  context.subscriptions.push(depsStatus);
+
+  /** Reprobe, repaint the status bar, and report what is still unusable. */
+  const refreshDepsStatus = (): DependencyFault[] => {
+    const provider = currentManifest?.agentProvider ?? 'claude';
+    const faults = checkDependencyFaults(dependencyRegistry(provider), binaryExists, commandSucceeds);
+    const indicator = buildDepsIndicator(faults);
+    if (!indicator) {
+      depsStatus.hide();
+      return faults;
+    }
+    depsStatus.text = indicator.text;
+    depsStatus.tooltip = indicator.tooltip;
+    depsStatus.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    depsStatus.show();
+    return faults;
+  };
+
+  /**
+   * Refuse an action whose tools are missing, and say what to install.
+   *
+   * The startup preflight only warns, and it did so minutes ago; this is the
+   * moment the user actually needs the tool. Returns true when the capability is
+   * usable. The guard lives here, in the host layer, because the workflow modules
+   * it protects are host-agnostic by invariant — a PATH probe wired inside them
+   * would fail their own unit tests on a machine without gh.
+   */
+  const guardCapability = (capability: Capability, silent = false): boolean => {
+    const provider = currentManifest?.agentProvider ?? 'claude';
+    const faults = ensureCapability(
+      capability,
+      dependencyRegistry(provider),
+      binaryExists,
+      commandSucceeds,
+    );
+    if (faults.length === 0) return true;
+    // The bar may predate this: a tool can go missing (or be installed) after
+    // activation, and a refusal is proof of what PATH says right now.
+    refreshDepsStatus();
+    for (const f of faults) logger.warn(`blocked: '${f.dep.binary}' is ${f.state}`);
+    if (!silent) {
+      const text = faults
+        .map((f) => renderDependencyFault(f.dep, f.state))
+        .filter((m): m is string => m !== null)
+        .join(' ');
+      void vscode.window.showErrorMessage(text, 'Open setup checklist').then((choice) => {
+        if (choice === 'Open setup checklist') welcome.open();
+      });
+    }
+    return false;
+  };
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates
   // on invalid), this ALWAYS returns something to edit: a valid parse, or a raw
@@ -355,6 +423,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // clears and the repo row shows them on the next pushState.
       reloadManifest,
       listInstalledIds: listInstalledApproachIds,
+      openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     }),
     listInstalledApproachIds,
     listAgents,
@@ -499,6 +568,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           dashboard.pushState(ticketId);
         },
         logError,
+        guardCapability,
       ),
     () => worktreePathContext(currentManifest),
     () => currentManifest?.ticketLabelTemplate,
@@ -559,6 +629,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `stage driver: ticket ${ticketId} halted at ${outcome.stage} (${outcome.status}` +
           `${outcome.reason ? `: ${outcome.reason}` : ''})`,
       );
+      if (outcome.stage === 'fix') autoResumeFix(ticketId);
     } catch (e) {
       logError('stage driver failed', e);
     } finally {
@@ -568,17 +639,69 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
+  // A failed gate parks the ticket at `fix` with nothing running: karst never
+  // calls `runFix`, and the driver stops at fix because a fix needs an agent, not
+  // a gate. So resume the agent here — with the failing gate's reason + log and
+  // the `stage fix pass` marker.
+  //
+  // Two ways in, because gates now run WHILE the session is open (the marker, not
+  // the terminal, says the work is done). If that session is still live, the agent
+  // is sitting at its prompt: `openSession` would only focus the terminal and drop
+  // the brief on the floor, so nudge it instead. Only a closed session gets a fresh
+  // (--resume) launch. The marker rides along either way — the live session was
+  // seeded the IMPL marker, and firing that at fix would move the wrong stage.
+  //
+  // Capped: an unfixable ticket would otherwise loop fix→review→fix forever,
+  // burning tokens with no human ever looking. At the cap the ticket stays parked
+  // and the dashboard says so ("fix attempts ran out…", with a Resume button), so
+  // the loop always ends in a human decision rather than silence.
+  function autoResumeFix(ticketId: number): void {
+    const t = getTicket(localStore, ticketId);
+    const attempts = countFixAttempts(t.stages);
+    if (!fixAttemptsRemain(attempts)) {
+      logger.info(
+        `stage driver: ticket ${ticketId} parked at fix — ${attempts} gate failures, ` +
+          `at the cap of ${FIX_ATTEMPT_CAP}; leaving it for a human`,
+      );
+      return;
+    }
+    const label = t.key ?? `#${ticketId}`;
+    const brief =
+      renderFixBrief(label, t.stages) ??
+      `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
+    const marker = renderDoneMarkerInstruction(
+      buildCliStagePrefix(context, dbPath, 'fix'),
+      t.key ?? String(ticketId),
+    );
+    if (sessions.nudge(ticketId, `${brief}\n\n${marker}`)) {
+      logger.info(`stage driver: ticket ${ticketId} → nudged live session to fix (attempt ${attempts})`);
+      return;
+    }
+    logger.info(`stage driver: ticket ${ticketId} → resuming agent to fix (attempt ${attempts})`);
+    void vscode.commands.executeCommand('karst.openSession', ticketId);
+  }
+
   // The §5.4-safe driver nudge, from any trigger: the explicit marker (or a prior
   // gate) already transitioned the stage; if the ticket now sits at a deterministic
-  // gate with NO live interactive session, kick the driver to run it. Reused by the
-  // hook channel, the session-close sweep, and the activation sweep so a gate never
+  // gate, kick the driver to run it — an open terminal does NOT hold it back, since
+  // the marker (not the session) is what says the work is done. Reused by the hook
+  // channel, the session-close sweep, and the activation sweep so a gate never
   // strands just because one trigger (e.g. an unreachable SessionEnd hook) was missed.
+  let gateToolsWarned = false;
   const maybeDrive = (ticketId: number, trigger: string): void => {
     const t = getTicket(localStore, ticketId);
-    if (shouldStartDriver(t.stageCurrent as StageKey, sessions.isOpen(ticketId))) {
-      logger.info(`stage driver: ${trigger} → drive ticket ${ticketId} at ${t.stageCurrent}`);
-      void driveTicket(ticketId);
+    if (!shouldStartDriver(t.stageCurrent as StageKey)) return;
+    // A missing gate tool is NOT a failing gate. Left unguarded, every gate exits
+    // nonzero, the driver reads that as a code verdict, and the ticket parks at
+    // fix in a loop no agent can win. Warn once — the activation sweep drives
+    // every parked ticket, and N toasts say nothing the first one didn't.
+    if (!guardCapability('gates', gateToolsWarned)) {
+      gateToolsWarned = true;
+      logger.warn(`stage driver: ${trigger} → ticket ${ticketId} not driven, gate tools missing`);
+      return;
     }
+    logger.info(`stage driver: ${trigger} → drive ticket ${ticketId} at ${t.stageCurrent}`);
+    void driveTicket(ticketId);
   };
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
@@ -589,19 +712,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     maybeDrive(ticketId, 'hook');
   }, logError);
 
-  // Activation sweep: resume any ticket already parked at a gate with no live
-  // session. Recovers a ticket stranded when the trigger that would normally kick
-  // the driver never arrived (dead/stale hook port, IDE closed mid-gate) — every
-  // window reload becomes a self-heal, without inferring any verdict (§5.4-safe).
-  for (const id of ticketsToSweep(listTickets(localStore), (i) => sessions.isOpen(i))) {
+  // Activation sweep: resume any ticket already parked at a gate. Recovers a ticket
+  // stranded when the trigger that would normally kick the driver never arrived
+  // (dead/stale hook port, IDE closed mid-gate) — every window reload becomes a
+  // self-heal, without inferring any verdict (§5.4-safe).
+  for (const id of ticketsToSweep(listTickets(localStore))) {
     maybeDrive(id, 'activation-sweep');
   }
 
-  // Startup dependency preflight (§ todo-5): karst shells out to git + the agent
-  // CLI it doesn't bundle. Warn up front (non-blocking) with install guidance.
-  const preflightProvider = currentManifest?.agentProvider ?? 'claude';
-  const requiredDeps: RequiredDependency[] = [GIT_DEPENDENCY, agentDependency(preflightProvider)];
-  const missingDeps = checkDependencies(requiredDeps, binaryExists);
+  // Startup dependency preflight (§ todo-5): karst shells out to tools it doesn't
+  // bundle. The registry is the whole list — never hand-maintain one here, or the
+  // preflight and the welcome checklist drift apart.
+  const depFaults = refreshDepsStatus();
 
   // Fresh-install welcome: auto-open the getting-started panel when this
   // workspace has no manifest yet and the user hasn't dismissed it. Per-workspace
@@ -622,16 +744,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // Suppress the toast when the panel already shows the same dependency status.
-  if (missingDeps.length > 0 && !autoOpenedWelcome) {
-    for (const d of missingDeps) logger.warn(`missing dependency '${d.binary}' — ${d.install}`);
-    const names = missingDeps.map((d) => d.label).join(' and ');
+  if (depFaults.length > 0 && !autoOpenedWelcome) {
+    for (const f of depFaults) logger.warn(`dependency '${f.dep.binary}' is ${f.state}`);
     void vscode.window
       .showWarningMessage(
-        `Karst needs ${names} installed to run sessions. ${missingDeps.map((d) => d.install).join(' ')}`,
-        'Show Logs',
+        depFaults
+          .map((f) => renderDependencyFault(f.dep, f.state))
+          .filter((m): m is string => m !== null)
+          .join(' '),
+        'Open setup checklist',
       )
       .then((choice) => {
-        if (choice === 'Show Logs') channel.show();
+        if (choice === 'Open setup checklist') welcome.open();
       });
   }
 
@@ -654,6 +778,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.openSession', (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
+      // Without the CLI the terminal opens, prints a shell "command not found",
+      // and sits there looking like karst did something.
+      if (!guardCapability('sessions')) return;
       const wt = listWorktreesByTicket(localStore, ticketId)[0];
       if (!wt) {
         void vscode.window.showWarningMessage(`Ticket #${ticketId} has no worktree yet — scope it first.`);
@@ -730,13 +857,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ticketContextMd = renderTicketContext(
         buildTicketContext(localStore, currentManifest, ticketId),
       );
-      // The impl→uat marker instruction (§5.4) rides EVERY seed, not just the
-      // approach path: `materializeApproach` only runs for an installed package
-      // or a solo agent, so a `direct` ticket would otherwise never be told to
-      // fire the marker and would strand at `impl`. The concrete ticket key is
-      // the arg (the seed is plain text — no `$ARGUMENTS` substitution).
-      const markerInstruction = renderImplMarkerInstruction(
-        buildCliStagePrefix(context, dbPath),
+      // The done marker (§5.4) rides EVERY seed, not just the approach path:
+      // `materializeApproach` only runs for an installed package or a solo agent,
+      // so a `direct` ticket would otherwise never be told to fire the marker and
+      // would strand at `impl`. The marker names the stage the session is actually
+      // working on — a resume at `fix` gets `stage fix pass`, not the impl marker.
+      // The concrete ticket key is the arg (the seed is plain text — no
+      // `$ARGUMENTS` substitution).
+      const markerStage = markerStageFor(t.stageCurrent as StageKey | null);
+      const markerInstruction = renderDoneMarkerInstruction(
+        buildCliStagePrefix(context, dbPath, markerStage),
         t.key ?? String(ticketId),
       );
       const initialPrompt = buildSessionSeed(
@@ -755,8 +885,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const resumeId = shouldResumeSession({ sessionId: t.sessionId, stageCurrent: t.stageCurrent as StageKey })
         ? (t.sessionId ?? undefined)
         : undefined;
+      // At `fix` the resume has a specific job — the gate that just failed wrote
+      // its reason and log, so point the agent at them instead of a vague
+      // "continue". `currentStage` carries both (state.ts → buildStepper).
+      const fixBrief =
+        t.stageCurrent === 'fix' ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages) : null;
       const seedPrompt = resumeId
-        ? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.\n\n${markerInstruction}`
+        ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}\n\n${markerInstruction}`
         : initialPrompt;
 
       // Materialize the ticket's approach package (and/or its chosen solo agent)
@@ -817,6 +952,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.spinTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
+      // A spin creates worktrees and installs deps into them; both tools fail
+      // deep inside that, long after the user stopped watching.
+      if (!guardCapability('worktrees') || !guardCapability('gates')) return;
 
       const manifest = await resolveManifest();
       if (!manifest) return; // no folder / scaffolded / invalid — message already shown
@@ -972,6 +1110,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       settings.open();
     }),
     vscode.commands.registerCommand('karst.openGettingStarted', () => welcome.open()),
+    // Reprobe on demand: the user installs a tool in a terminal, clicks the status
+    // bar, and karst answers without a window reload. No polling — nothing else
+    // knows when an install finishes, and a timer would probe PATH forever.
+    vscode.commands.registerCommand('karst.recheckDeps', () => {
+      const missing = refreshDepsStatus();
+      if (missing.length === 0) {
+        void vscode.window.showInformationMessage('Karst has every tool it needs.');
+        return;
+      }
+      welcome.open();
+    }),
   );
 }
 
@@ -1037,19 +1186,31 @@ function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string)
 }
 
 /**
- * Compose the `node <cli> stage impl pass --db <db> --ticket` prefix the
- * generated `/karst:<id>` command runs (ticket key appended) to fire the
- * impl→uat marker when implementation is done. Same CLI entry as context; no
- * manifest needed (a stage write reads nothing from it).
+ * Compose the `node <cli> stage <stage> pass --db <db> --ticket` prefix a session
+ * runs (ticket key appended) to fire the done marker for the stage it is working
+ * on. Same CLI entry as context; no manifest needed (a stage write reads nothing
+ * from it).
+ *
+ * `stage` defaults to `impl` — the generated `/karst:<id>` command is
+ * materialized once at install time, before any ticket exists, so it can only
+ * ever carry the impl boundary. A live session seed passes the ticket's actual
+ * stage, so a resume at `fix` fires `fix pass` instead of the impl marker (which
+ * would throw: there is no impl→? edge from fix).
  */
-function buildCliStagePrefix(context: vscode.ExtensionContext, dbPath: string): string {
+function buildCliStagePrefix(
+  context: vscode.ExtensionContext,
+  dbPath: string,
+  stage: StageKey = 'impl',
+): string {
   const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  return composeStageCommand(cliEntry, dbPath);
+  return composeStageCommand(cliEntry, dbPath, stage);
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(context: vscode.ExtensionContext): PanelHost {
-  const html = injectPalette(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8'));
+  const html = injectProviderIdentity(
+    injectPalette(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+  );
   return {
     createPanel(title): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
@@ -1085,6 +1246,7 @@ function makeTerminalHost(): TerminalHost {
       });
       return {
         show: () => terminal.show(),
+        sendText: (text) => terminal.sendText(text, true),
         dispose: () => terminal.dispose(),
         onDidClose: (handler) => {
           const sub = vscode.window.onDidCloseTerminal((closed) => {
@@ -1105,6 +1267,9 @@ function makeTerminalHost(): TerminalHost {
  * the original spawn opts (not persisted), so it stops the server and tells the
  * user to re-spin — honest rather than a fake no-op.
  */
+/** True when the capability's tools are present; otherwise tells the user why not. */
+type CapabilityGuard = (capability: Capability, silent?: boolean) => boolean;
+
 function makeDashboardActions(
   store: Store,
   ticketId: number,
@@ -1112,6 +1277,7 @@ function makeDashboardActions(
   editTicket: () => void,
   afterServerChange: () => void,
   logError: LogError,
+  guardCapability: CapabilityGuard,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {
@@ -1170,13 +1336,41 @@ function makeDashboardActions(
     // Human confirms ship: open the PR(s) for every hot repo, then let the
     // caller (dashboard) refresh so `done` (or a fresh PR list) shows up.
     shipTicket: () => {
+      // Before the model call, not after: `runShipTicket` asks a model to write
+      // the PR description first, so an unguarded click burns a call per repo and
+      // then dies at `gh pr create`.
+      if (!guardCapability('ship')) return;
       void runShipTicket(store, { ticketId }, undefined, agentAdapter)
         .then(() => afterServerChange())
-        .catch((e) => logError('ship failed', e));
+        .catch((e) => {
+          logError('ship failed', e);
+          // `shipTicket` already recorded the reason on the ship stage, so the
+          // dashboard now explains itself — but the user just clicked a button
+          // and deserves an answer to THAT click, not a ticket that quietly goes
+          // red. Refresh first so the fault card is there when the toast lands.
+          afterServerChange();
+          void vscode.window.showErrorMessage(
+            `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        });
     },
     // Resume: same interactive-open path the sidebar/dashboard "open session"
     // action already uses; `SessionManager.openSession` resolves --resume vs.
     // a fresh launch on its own.
     resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
+    // A failed gate's log, opened read-only in an editor — the "why" behind a red
+    // node, without sending the user to the dev-only output channel.
+    openStageLog: (path) => {
+      void (async () => {
+        try {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+          await vscode.window.showTextDocument(doc, { preview: true });
+        } catch (e) {
+          // The gate wrote the path, but the file can be gone (worktree removed).
+          void vscode.window.showWarningMessage(`Cannot open the log at ${path}.`);
+          logError('open stage log failed', e);
+        }
+      })();
+    },
   };
 }

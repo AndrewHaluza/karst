@@ -35,6 +35,17 @@ export const STAGE_GRAPH: Readonly<Record<StageKey, StageEdges>> = {
   done: {},
 };
 
+/**
+ * True when a stage has no outgoing edge at all — the graph's exit. Nothing runs
+ * there and no verdict can ever follow, so arriving at one IS completing it
+ * (machine.ts). Derived from the table rather than naming `done`, so a second
+ * terminal never has to be remembered here.
+ */
+export function isTerminal(stage: StageKey): boolean {
+  const edges = STAGE_GRAPH[stage];
+  return edges.passed === undefined && edges.failed === undefined;
+}
+
 /** Stages whose `failed` verdict routes to the fix loop. */
 export const GATE_STAGES: readonly StageKey[] = ['uat', 'review'] as const;
 

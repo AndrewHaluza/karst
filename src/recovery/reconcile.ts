@@ -2,7 +2,9 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { listTickets } from '../store/tickets.js';
-import type { Stage } from '../store/stages.js';
+import { setStage, type Stage } from '../store/stages.js';
+import { isTerminal } from '../workflow/graph.js';
+import { nowIso } from '../model/time.js';
 
 /**
  * Crash recovery (§13, MVP §2.3). On reopen, SQLite is the source of truth: the
@@ -56,6 +58,23 @@ export function deriveStageCurrent(stages: Stage[]): StageKey {
   return furthest;
 }
 
+/**
+ * Close any terminal stage left 'running'. Nothing runs at a terminal stage and
+ * no verdict can follow, so such a row can only come from a build that entered
+ * it as running (fixed in machine.ts) — and those rows outlive the fix, leaving
+ * a shipped ticket blue and filed under "In progress" forever. It ended when it
+ * was entered, so the existing timestamp is kept rather than backdated to boot.
+ * Returns the healed stages; the rows are patched through the single writer.
+ */
+function healTerminalStages(store: Store, ticketId: number, stages: Stage[]): Stage[] {
+  return stages.map((s) => {
+    if (!isTerminal(s.stageKey) || s.status !== 'running') return s;
+    const endedAt = s.endedAt ?? s.startedAt ?? nowIso();
+    setStage(store, ticketId, s.stageKey, { status: 'passed', endedAt });
+    return { ...s, status: 'passed', endedAt };
+  });
+}
+
 interface ServerRow {
   id: number;
   ticket_id: number | null;
@@ -74,7 +93,8 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
 
   const restore = store.db.transaction(() => {
     for (const ticket of listTickets(store)) {
-      const stage = deriveStageCurrent(ticket.stages);
+      const stages = healTerminalStages(store, ticket.id, ticket.stages);
+      const stage = deriveStageCurrent(stages);
       if (stage !== ticket.stageCurrent) {
         store.db
           .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')

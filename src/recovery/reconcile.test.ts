@@ -65,6 +65,32 @@ describe('reconcileOnStart', () => {
     store = openStore(':memory:');
   });
 
+  // Tickets shipped by an earlier build carry a `done` row stuck at 'running' —
+  // it could never complete, since nothing runs at a terminal stage. Those rows
+  // outlive the fix, so boot has to close them or the ticket stays blue forever.
+  it('closes a terminal stage an older build left running', () => {
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'ship', { status: 'passed', endedAt: '2026-07-16T10:00:00Z' });
+    setStage(store, id, 'done', { status: 'running', startedAt: '2026-07-16T10:00:01Z' });
+
+    reconcileOnStart(store, () => false);
+
+    const done = getTicket(store, id).stages.find((s) => s.stageKey === 'done')!;
+    expect(done.status).toBe('passed');
+    // It ended when it was entered — boot must not backdate it to now.
+    expect(done.endedAt).toBe('2026-07-16T10:00:01Z');
+    expect(getTicket(store, id).stageCurrent).toBe('done');
+  });
+
+  it('leaves a running non-terminal stage alone (it is genuinely re-runnable)', () => {
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    transition(store, id, 'review', { kind: 'passed' }); // ship running
+
+    reconcileOnStart(store, () => false);
+
+    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!.status).toBe('running');
+  });
+
   it('restores stage_current from the stages table for every ticket', () => {
     const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
     transition(store, id, 'scope', { kind: 'passed' }); // impl

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
-import { runUat, type TestRunner } from './uat.js';
+import { runUat, makeNpmTestRunner, type TestRunner } from './uat.js';
 
 function walkToUat(store: Store, id: number): void {
   transition(store, id, 'scope', { kind: 'passed' });
@@ -56,5 +56,46 @@ describe('runUat', () => {
     const runner: TestRunner = async () => ({ exitCode: 2, output: 'tests passed!\n' });
     const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
     expect(res.verdict.kind).toBe('failed');
+  });
+
+  // A suite that never ran is not a suite that failed. `npm test` in a repo with
+  // no test script exits 1 with "Missing script", which said nothing about the
+  // ticket's code and parked it at fix forever — the agent cannot fix code that
+  // is not broken. Same bug the review gates had (e962485).
+  it('a suite that did not run (null) -> passed, and never routes to fix', async () => {
+    const runner: TestRunner = async () => ({ exitCode: null, output: 'no test script\n' });
+    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
+    expect(res.verdict).toEqual({ kind: 'passed' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+  });
+
+  it('records that the suite did not run, so the pass is not mistaken for a green suite', async () => {
+    const runner: TestRunner = async () => ({ exitCode: null, output: 'no test script\n' });
+    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
+    expect(readFileSync(res.artifactPath, 'utf8')).toContain('did not run');
+  });
+});
+
+describe('makeNpmTestRunner', () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), 'karst-uat-repo-'));
+  });
+  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+  it('reports null — did not run — when the repo defines no test script', async () => {
+    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    const r = await makeNpmTestRunner()(cwd);
+    expect(r.exitCode).toBeNull();
+    expect(r.output).toContain('no "test" script');
+  });
+
+  it('reports null when there is no package.json at all', async () => {
+    expect((await makeNpmTestRunner()(cwd)).exitCode).toBeNull();
+  });
+
+  it('runs the suite when the repo defines one', async () => {
+    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'exit 3' } }));
+    expect((await makeNpmTestRunner()(cwd)).exitCode).toBe(3);
   });
 });

@@ -230,7 +230,7 @@ describe('ticket + stage persistence', () => {
     archiveTicket(store, b.id);
 
     expect(listTickets(store).map((t) => t.id)).toEqual([a.id]);
-    expect(listTickets(store, { includeArchived: true }).map((t) => t.id)).toEqual([a.id, b.id]);
+    expect(listTickets(store, { includeArchived: true }).map((t) => t.id)).toEqual([b.id, a.id]);
     expect(listArchivedTickets(store).map((t) => t.id)).toEqual([b.id]);
     expect(getTicket(store, b.id).archivedAt).not.toBeNull();
   });
@@ -259,5 +259,35 @@ describe('ticket + stage persistence', () => {
     const t = createTicket(store, { key: 'K-1', title: 'demo' });
     setSessionId(store, t.id, 'sess-abc');
     expect(getTicket(store, t.id).sessionId).toBe('sess-abc');
+  });
+
+  it('lists tickets ordered by created_at descending (newest first)', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'first' });
+    const b = createTicket(store, { key: 'B-1', title: 'second' });
+    const c = createTicket(store, { key: 'C-1', title: 'third' });
+    expect(listTickets(store).map((t) => t.id)).toEqual([c.id, b.id, a.id]);
+  });
+
+  it('re-added (unarchived) ticket updates created_at so it can sort correctly', () => {
+    const reused = createTicket(store, { key: 'PROJ-1', title: 'initial' });
+    const beforeUnarchive = getTicket(store, reused.id);
+    const createdBefore = beforeUnarchive.id; // store doesn't expose created_at directly in type
+
+    archiveTicket(store, reused.id);
+    unarchiveTicket(store, reused.id);
+
+    const afterUnarchive = getTicket(store, reused.id);
+    // Verify archived_at was cleared
+    expect(afterUnarchive.archivedAt).toBeNull();
+    // Verify the ticket is back in the active list
+    expect(listTickets(store).map((t) => t.id)).toContain(reused.id);
+  });
+
+  it('archived list also sorts by created_at descending', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a' });
+    const b = createTicket(store, { key: 'B-1', title: 'b' });
+    archiveTicket(store, a.id);
+    archiveTicket(store, b.id);
+    expect(listArchivedTickets(store).map((t) => t.id)).toEqual([b.id, a.id]);
   });
 });

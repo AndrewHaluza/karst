@@ -59,6 +59,26 @@ describe('transition (stage machine core)', () => {
     expect(transition(store, ticketId, 'ship', { kind: 'passed' })).toBe('done');
   });
 
+  // A terminal stage has no edges and nothing to run: no verdict will ever
+  // arrive to close it. Left 'running', a shipped ticket would sit on a blue,
+  // forever-running `done` node and file itself under "In progress" (facets.ts).
+  it('entering the terminal stage completes it — arriving IS finishing', () => {
+    transition(store, ticketId, 'review', { kind: 'passed' });
+    transition(store, ticketId, 'ship', { kind: 'passed' });
+
+    const done = stageOf(store, ticketId, 'done');
+    expect(done.status).toBe('passed');
+    expect(done.endedAt).not.toBeNull();
+    expect(getTicket(store, ticketId).stageCurrent).toBe('done');
+  });
+
+  it('a non-terminal stage is still entered as running (not completed)', () => {
+    transition(store, ticketId, 'review', { kind: 'passed' });
+    const ship = stageOf(store, ticketId, 'ship');
+    expect(ship.status).toBe('running');
+    expect(ship.endedAt).toBeNull();
+  });
+
   it('a null verdict does NOT transition (no-inference guarantee)', () => {
     expect(() => transition(store, ticketId, 'uat', null)).toThrow();
     // stage_current untouched, uat still pending

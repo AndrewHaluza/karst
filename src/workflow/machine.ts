@@ -2,7 +2,8 @@ import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
 import { setStage } from '../store/stages.js';
 import { getTicket } from '../store/tickets.js';
-import { STAGE_GRAPH } from './graph.js';
+import { STAGE_GRAPH, isTerminal } from './graph.js';
+import { nowIso } from '../model/time.js';
 
 /**
  * Advance a ticket from `from` given a `verdict`, returning the next stage
@@ -61,8 +62,20 @@ export function transition(
       });
     }
 
-    // The stage we move into starts running.
-    setStage(store, ticketId, next, { status: 'running', startedAt: nowIso() });
+    // The stage we move into starts running — unless it is terminal. A terminal
+    // stage has no edges and nothing to run, so no verdict will ever arrive to
+    // close it: arriving IS finishing. Left 'running' it would park every
+    // shipped ticket on a blue, forever-running `done` node, filed under "In
+    // progress" (facets.ts) instead of "Shipped".
+    const at = nowIso();
+    setStage(
+      store,
+      ticketId,
+      next,
+      isTerminal(next)
+        ? { status: 'passed', startedAt: at, endedAt: at }
+        : { status: 'running', startedAt: at },
+    );
     store.db
       .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
       .run(next, ticketId);
@@ -70,8 +83,4 @@ export function transition(
   apply();
 
   return next;
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
 }

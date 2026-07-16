@@ -5,6 +5,7 @@ import type { Store } from '../../store/db.js';
 import type { Verdict } from '../../model/types.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../machine.js';
+import { UAT_GATE, readPackageScripts } from '../gates/scripts.js';
 
 /**
  * UAT stage (§T4.3, §5.4, §11). Runs the project's test command in the ticket's
@@ -14,7 +15,12 @@ import { transition } from '../machine.js';
  */
 
 export interface TestResult {
-  exitCode: number;
+  /**
+   * The suite's exit code, or null when it did not run because the repo defines
+   * no test script. Null is not a number the code earned — karst had no question
+   * to ask, so the suite says nothing about the ticket either way.
+   */
+  exitCode: number | null;
   output: string;
 }
 
@@ -25,7 +31,6 @@ export interface RunUatOpts {
   ticketId: number;
   cwd: string; // the ticket's worktree
   artifactDir: string; // where to persist captured suite output
-  command?: string; // defaults to `npm test`
 }
 
 export interface UatOutcome {
@@ -33,30 +38,56 @@ export interface UatOutcome {
   artifactPath: string;
 }
 
-/** Default runner: spawn the configured test command, capture combined output. */
+/** Spawns an explicit command as the suite, capturing combined output. */
 export function makeTestRunner(command: string, args: string[]): TestRunner {
   return async (cwd) => {
     const r = spawnSync(command, args, { cwd, encoding: 'utf8' });
     const output = `${r.stdout ?? ''}${r.stderr ?? ''}`;
-    // A spawn failure (r.status === null) is a nonzero-equivalent failure.
+    // A spawn failure (r.status === null) is a nonzero-equivalent failure: the
+    // caller named this command, so its absence IS a failure of the repo's setup.
     return { exitCode: r.status ?? 1, output };
+  };
+}
+
+/**
+ * Default runner: `npm test`, but only when the repo defines a test script.
+ *
+ * Without the check, `npm test` in a repo with no test script exits 1 with
+ * "Missing script: test" — a fact about the repo's configuration, not the
+ * ticket's code — and the driver reads it as a failing suite and parks the ticket
+ * at fix forever. The agent cannot fix code that is not broken.
+ */
+export function makeNpmTestRunner(): TestRunner {
+  return async (cwd) => {
+    const scripts = readPackageScripts(cwd);
+    if (scripts[UAT_GATE.script] === undefined) {
+      return { exitCode: null, output: `no "${UAT_GATE.script}" script in package.json` };
+    }
+    return makeTestRunner('npm', [...UAT_GATE.args])(cwd);
   };
 }
 
 export async function runUat(
   store: Store,
   opts: RunUatOpts,
-  runner: TestRunner = makeTestRunner('npm', ['test']),
+  runner: TestRunner = makeNpmTestRunner(),
 ): Promise<UatOutcome> {
   const { exitCode, output } = await runner(opts.cwd);
 
   mkdirSync(opts.artifactDir, { recursive: true });
   const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}.log`);
-  writeFileSync(artifactPath, output);
+  // Say plainly that nothing ran. A passed uat with an empty log otherwise reads
+  // as "the suite was green", which it was not — there was no suite.
+  writeFileSync(artifactPath, exitCode === null ? `# uat (did not run)\n${output}` : output);
 
-  // Verdict is the exit code alone — output text is evidence, not the signal.
+  // Verdict is the exit code alone — output text is evidence, not the signal. A
+  // suite that never ran (null) passes for the same reason a skipped review gate
+  // does: it is not a pass the code earned, but failing on it is a claim karst
+  // cannot support, and it strands the ticket in an unwinnable loop.
   const verdict: Exclude<Verdict, null> =
-    exitCode === 0 ? { kind: 'passed' } : { kind: 'failed', reason: `exit ${exitCode}` };
+    exitCode === null || exitCode === 0
+      ? { kind: 'passed' }
+      : { kind: 'failed', reason: `exit ${exitCode}` };
 
   // Record the artifact on the uat stage *inside* the transition transaction,
   // so the evidence and the verdict commit atomically (never one without the other).
