@@ -62,17 +62,17 @@ export interface OnboardingActionsCtx {
 /** Builds the host-side actions for one panel, bound to its ctx. */
 export type OnboardingActionsFactory = (ctx: OnboardingActionsCtx) => OnboardingActions;
 
-/** Sentinel key for the single create-mode panel (no ticket id yet). */
-const CREATE_KEY = -1;
-
 /**
- * One onboarding panel per key (§ onboarding). Create mode uses a single
- * sentinel panel; edit mode keys by ticket id so re-opening reveals rather than
- * duplicates. State is pushed to the webview via postMessage; incoming messages
- * route to injected host actions.
+ * One onboarding panel per key (§ onboarding). Edit mode keys by ticket id so
+ * re-opening reveals rather than duplicates; create mode takes a fresh negative
+ * sentinel key per open, since every create request means a new blank page.
+ * State is pushed to the webview via postMessage; incoming messages route to
+ * injected host actions.
  */
 export class OnboardingManager {
   private readonly panels = new Map<number, OnboardingPanel>();
+  /** Next unbound-create sentinel; decrements so create panels never collide. */
+  private nextCreateKey = -1;
 
   /**
    * `manifest` is a getter, not a fixed value, so each open (and each state push
@@ -109,9 +109,13 @@ export class OnboardingManager {
     private readonly logError: LogError = (m, e) => console.error(m, e),
   ) {}
 
-  /** Open (or reveal) the create-mode onboarding page. */
+  /**
+   * Open a create-mode onboarding page. Always a new page: an already-open
+   * create panel carries a half-filled (or draft-bound) flow, so revealing it
+   * would silently swallow the request for a blank one.
+   */
   openCreate(): void {
-    this.open(CREATE_KEY, 'create', undefined);
+    this.open(this.nextCreateKey--, 'create', undefined);
   }
 
   /** Open (or reveal) the edit-mode page for an existing ticket. */
@@ -141,6 +145,9 @@ export class OnboardingManager {
     // Flipped by dispose (user-closed OR ctx.close). Gates every post so an
     // in-flight action resolving after the tab is gone is silently dropped.
     let disposed = false;
+    // Mutable alongside `boundId`: a bound create panel is re-keyed to its
+    // ticket id, and the dispose handler must drop the key it ended up under.
+    let panelKey = key;
 
     const pushState = (): void => {
       if (disposed) return;
@@ -167,6 +174,14 @@ export class OnboardingManager {
       },
       bindTicket: (id: number) => {
         boundId = id;
+        // Once bound, this panel IS the ticket's edit panel — re-key it so
+        // `openEdit(id)` reveals it rather than opening a second one. If an
+        // edit panel for that ticket already exists, leave the keys alone.
+        if (panelKey !== id && !this.panels.has(id)) {
+          this.panels.delete(panelKey);
+          this.panels.set(id, panel);
+          panelKey = id;
+        }
       },
       close: () => {
         if (disposed) return;
@@ -185,14 +200,17 @@ export class OnboardingManager {
     });
     panel.onDidDispose(() => {
       disposed = true;
-      this.panels.delete(key);
+      this.panels.delete(panelKey);
     });
 
     pushState();
   }
 
-  /** Whether a create-mode panel is currently open (for the caller/tests). */
+  /**
+   * Whether any unbound create-mode panel is currently open (for the
+   * caller/tests). Create panels live under the negative sentinel keys.
+   */
   isCreateOpen(): boolean {
-    return this.panels.has(CREATE_KEY);
+    return [...this.panels.keys()].some((k) => k < 0);
   }
 }

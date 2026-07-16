@@ -195,6 +195,48 @@ describe('OnboardingManager', () => {
     expect(panels[0]!.posted).toEqual([]);
   });
 
+  it('opens a fresh create panel every time instead of revealing the open one', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    mgr.openCreate();
+    expect(panels).toHaveLength(2);
+    expect(panels[0]!.revealed).toBe(0);
+    const second = panels[1]!.posted[0] as { state: { mode: string } };
+    expect(second.state.mode).toBe('create');
+  });
+
+  it('opens a fresh create panel even after the open one bound a draft ticket', () => {
+    const t = createTicket(store, { key: 'P-5', title: 'draft' });
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    seen[0]!.bindTicket(t.id);
+    mgr.openCreate();
+
+    expect(panels).toHaveLength(2);
+    const second = panels[1]!.posted[0] as { state: { mode: string } };
+    expect(second.state.mode).toBe('create');
+  });
+
+  it('rekeys a bound create panel so openEdit reveals it instead of duplicating', () => {
+    const t = createTicket(store, { key: 'P-7', title: 'bound' });
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    seen[0]!.bindTicket(t.id);
+    mgr.openEdit(t.id);
+
+    expect(panels).toHaveLength(1);
+    expect(panels[0]!.revealed).toBe(1);
+  });
+
   it('drops a panel on dispose so a later open recreates it', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
