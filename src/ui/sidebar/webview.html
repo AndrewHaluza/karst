@@ -193,8 +193,8 @@
         : `<button class="btn pri" data-act="open-dashboard" data-id="${row.ticketId}">${ic.dash} Open dashboard</button>`
           + `<button class="btn" data-act="open-session" data-id="${row.ticketId}">${ic.sess} Session</button>`;
       return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
-        + `<div class="row" data-toggle="${row.ticketId}">`
-        + `<span class="chev">${chev}</span>`
+        + `<div class="row"${row.archived ? '' : ` data-open="${row.ticketId}"`}>`
+        + `<span class="chev" data-toggle="${row.ticketId}">${chev}</span>`
         + `<span class="glyph g-${esc(row.glyph)}"></span>`
         + `<span class="name">${esc(row.label)}</span>`
         + `<span class="stage">${esc(row.description)}</span>`
@@ -220,7 +220,7 @@
   });
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-act],[data-facet],[data-toggle]');
+    const t = e.target.closest('[data-act],[data-facet],[data-toggle],[data-open]');
     if (!t) return;
     if (t.dataset.act) {
       e.stopPropagation();
@@ -233,9 +233,15 @@
       return;
     }
     if (t.dataset.toggle) {
+      e.stopPropagation();
       const id = Number(t.dataset.toggle);
       if (open.has(id)) open.delete(id); else open.add(id);
       renderList();
+      return;
+    }
+    if (t.dataset.open) {
+      const id = Number(t.dataset.open);
+      post({ type:'open-dashboard', ticketId: id });
     }
   });
 
