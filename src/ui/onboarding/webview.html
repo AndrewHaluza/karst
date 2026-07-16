@@ -855,9 +855,12 @@
       const words = (input.value || '').split(',').map((s) => s.trim()).filter(Boolean);
       if (words.length) post({ type: 'save-signals', service: t.dataset.savesig, signals: words });
     }
-    if (t.dataset && t.dataset.act === 'open-ticket-link' && t.dataset.url) {
+    // The link's label is a nested provider badge, so the click target is
+    // usually a child span/svg — resolve the acting element, never e.target.
+    const act = t.closest && t.closest('[data-act="open-ticket-link"]');
+    if (act && act.dataset.url) {
       e.preventDefault();
-      post({ type: 'open-ticket-link', url: t.dataset.url });
+      post({ type: 'open-ticket-link', url: act.dataset.url });
     }
   });
 
