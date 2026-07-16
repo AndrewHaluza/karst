@@ -355,6 +355,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // clears and the repo row shows them on the next pushState.
       reloadManifest,
       listInstalledIds: listInstalledApproachIds,
+      openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     }),
     listInstalledApproachIds,
     listAgents,

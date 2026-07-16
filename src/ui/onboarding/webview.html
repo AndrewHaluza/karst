@@ -239,7 +239,10 @@
     <input type="text" id="ref" placeholder="PROJ-142  ·  or a board id like CU-1234" />
     <button id="fetchBtn" class="secondary">Fetch</button>
   </div>
-  <button class="detailslink hidden" id="detailsBtn">Show details</button>
+  <div style="display:flex;gap:12px;align-items:center;margin-top:8px">
+    <button class="detailslink hidden" id="detailsBtn">Show details</button>
+    <a href="#" class="detailslink hidden" id="ticketLink" style="background:none;border:none;padding:2px 4px;color:var(--vscode-textLink-foreground);text-decoration:underline;font-size:11.5px"></a>
+  </div>
 
   <label for="title">Title</label>
   <input type="text" id="title" placeholder="Short summary" />
@@ -355,6 +358,20 @@
     }).join('');
   }
 
+  function renderOnboardingTicketLink(state) {
+    const link = el('ticketLink');
+    if (!state.ticketUrl) {
+      link.classList.add('hidden');
+      link.textContent = '';
+      return;
+    }
+    link.classList.remove('hidden');
+    link.href = '#';
+    link.dataset.act = 'open-ticket-link';
+    link.dataset.url = state.ticketUrl;
+    link.textContent = '↗ ' + (state.provider ? `${state.provider}: ` : '') + (state.sourceRef || 'Open ticket');
+  }
+
   function render(state) {
     draft.mode = state.mode;
     // Edit heading = the ticket's human label (key, else #id) + title. No id →
@@ -367,6 +384,7 @@
     el('submitBtn').textContent = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
     renderStepper(state.stepper, state.mode);
     renderProvider(state.provider);
+    renderOnboardingTicketLink(state);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
     // what the user is typing on a re-push). The single #ref field IS the key —
@@ -841,6 +859,10 @@
       const words = (input.value || '').split(',').map((s) => s.trim()).filter(Boolean);
       if (words.length) post({ type: 'save-signals', service: t.dataset.savesig, signals: words });
     }
+    if (t.dataset && t.dataset.act === 'open-ticket-link' && t.dataset.url) {
+      e.preventDefault();
+      post({ type: 'open-ticket-link', url: t.dataset.url });
+    }
   });
 
   // Keyboard: Enter/Space activates a focused chip or approach card.
@@ -881,6 +903,9 @@
         // Flip the fetch button to done + stash the brief for the drawer. The
         // title arg feeds the drawer header only.
         renderFetched(briefToText(b), b.title || '');
+        // Update ticket link now that we have a fresh fetch.
+        const state = vscode.getState();
+        if (state) renderOnboardingTicketLink(state);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
         syncPhase2();
         // A fresh brief is new context nothing has been prefilled against yet.
