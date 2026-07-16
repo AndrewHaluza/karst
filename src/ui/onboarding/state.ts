@@ -5,7 +5,6 @@ import { unclassifiedServices, scoreRepos } from '../../workflow/classify/gate.j
 import type { PoolAgent } from '../../agents/pool.js';
 import { KNOWN_MODELS, type ModelOption } from '../../agent/models.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
-import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 
 /**
  * Serializable state for the onboarding page (§ onboarding). One surface serves
@@ -44,8 +43,6 @@ export interface OnboardingState {
    * whether a fetch is even possible (`manual` has no board to fetch from).
    */
   provider: TicketProvider;
-  /** External board URL for the ticket, or null (manual/unfetched → no link). */
-  ticketUrl: string | null;
   /** Services still lacking signal words — the classify gate targets these. */
   unclassified: string[];
   repos: RepoRow[];
@@ -160,7 +157,6 @@ export function buildOnboardingState(
       sourceRef: '',
       brief: null,
       provider,
-      ticketUrl: null,
       unclassified,
       repos: makeRepos(new Set(), new Map()),
       approaches,
@@ -195,7 +191,6 @@ export function buildOnboardingState(
     sourceRef: ticket.sourceRef ?? '',
     brief: ticket.brief,
     provider,
-    ticketUrl: providerTicketUrl(provider, ticket.sourceRef),
     unclassified,
     repos: makeRepos(selectedSet, scores),
     approaches,

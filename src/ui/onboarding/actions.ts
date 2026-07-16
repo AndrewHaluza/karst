@@ -59,8 +59,6 @@ export interface OnboardingActionsDeps {
    * (sourceless) approaches are always available. Install lives in settings.
    */
   listInstalledIds: () => string[];
-  /** Open a URL in the external browser (vscode.env.openExternal). */
-  openUrl?: (url: string) => void | Promise<void>;
 }
 
 /** Render a fetched brief into the plain-text `brief` column. */
@@ -259,12 +257,6 @@ export function buildOnboardingActions(
         ctx.post({ type: 'error', message: errorMessage(e) });
       } finally {
         ctx.post({ type: 'busy', what: 'analyze', on: false });
-      }
-    },
-
-    openTicketLink(url: string): void {
-      if (deps.openUrl) {
-        deps.openUrl(url);
       }
     },
 
