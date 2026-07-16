@@ -29,6 +29,39 @@ export const defaultGitRunner: GitRunner = async (args, cwd) => {
   };
 };
 
+/** `git <args>` in `cwd`, throwing git's own reason (never a bare colon) on failure. */
+async function run(git: GitRunner, args: string[], cwd: string, what: string): Promise<string> {
+  const r = await git(args, cwd);
+  if (r.exitCode !== 0) {
+    const reason = r.stderr.trim() || r.stdout.trim() || `git exit ${r.exitCode}`;
+    throw new Error(`git ${what} failed in ${cwd}: ${reason}`);
+  }
+  return r.stdout;
+}
+
+/**
+ * Commit whatever the agent left in the worktree, so the branch actually carries
+ * the work. Returns whether anything was committed.
+ *
+ * Ship, not impl, owns this: a stage marker says the agent believes it is done,
+ * not that it ran `git commit`. When it didn't, the branch has no commits and
+ * `gh pr create` fails with "No commits between main and karst/…" — the work is
+ * finished, reviewed, and unshippable. A clean tree is the normal case (the agent
+ * committed its own work) and must not produce an empty commit.
+ */
+export async function commitAllIfDirty(
+  git: GitRunner,
+  cwd: string,
+  message: string,
+): Promise<boolean> {
+  const status = await run(git, ['status', '--porcelain'], cwd, 'status');
+  if (!status.trim()) return false;
+
+  await run(git, ['add', '-A'], cwd, 'add');
+  await run(git, ['commit', '-m', message], cwd, 'commit');
+  return true;
+}
+
 /**
  * Publish the worktree's branch so a PR can be opened from it.
  *
@@ -40,9 +73,5 @@ export const defaultGitRunner: GitRunner = async (args, cwd) => {
  * up-to-date").
  */
 export async function pushBranch(git: GitRunner, cwd: string): Promise<void> {
-  const r = await git(['push', '-u', 'origin', 'HEAD'], cwd);
-  if (r.exitCode !== 0) {
-    const reason = r.stderr.trim() || r.stdout.trim() || `git exit ${r.exitCode}`;
-    throw new Error(`git push failed in ${cwd}: ${reason}`);
-  }
+  await run(git, ['push', '-u', 'origin', 'HEAD'], cwd, 'push');
 }
