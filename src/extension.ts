@@ -41,6 +41,7 @@ import { stopServer } from './runtime/supervisor.js';
 import { loadManifest, type Manifest } from './manifest/load.js';
 import type { PathContext } from './ui/dashboard/state.js';
 import { writeServiceSignals } from './manifest/write.js';
+import { makeManifestCache } from './extension/manifestCache.js';
 import {
   resolveManifest,
   manifestPathOrThrow,
@@ -173,7 +174,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
-  }), () => worktreePathContext(currentManifest), () => currentManifest?.ticketLabelTemplate, logError);
+  }), () => worktreePathContext(currentManifest()), () => currentManifest()?.ticketLabelTemplate, logError);
   const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
   provider.bind(sidebarHost);
   context.subscriptions.push(
@@ -196,16 +197,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (ticketId) => maybeDrive(ticketId, 'session-closed'),
   );
 
-  // The manifest an open onboarding/edit uses; set when a command resolves it.
-  let currentManifest: Manifest | undefined;
-  let currentManifestPath: string | undefined;
+  // The live manifest. Loaded on first read rather than assigned by whichever
+  // command ran first: surfaces reachable without create/edit (the dashboard,
+  // opened straight from the sidebar) used to see `undefined` here and silently
+  // drop the board link, label template, and worktree paths.
+  const manifests = makeManifestCache({
+    pathOf: manifestPathOrThrow,
+    exists: existsSync,
+    load: loadManifest,
+  });
+  const currentManifest = (): Manifest | undefined => manifests.get();
 
-  // Re-read the manifest from disk into the live copy. Shared by onboarding
-  // (after a signal writeback) and settings (after a save) so both surfaces
-  // observe the same reload behavior from one implementation.
-  const reloadManifest = (): void => {
-    if (currentManifestPath) currentManifest = loadManifest(currentManifestPath);
-  };
+  // Drop the cached copy so the next read re-reads from disk. Shared by
+  // onboarding (after a signal writeback) and settings (after a save) so both
+  // surfaces observe the same reload behavior from one implementation.
+  const reloadManifest = (): void => manifests.reload();
 
   // Live setup status for the welcome page. Reads disk/PATH fresh on every call
   // (no caching) so re-check and post-scaffold pushes reflect reality. Guarded:
@@ -217,7 +223,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch {
       manifestExists = false;
     }
-    const provider = (currentManifest?.agentProvider ?? 'claude');
+    const provider = (currentManifest()?.agentProvider ?? 'claude');
     // The panel's re-check button routes here; repaint the bar from the same
     // moment's truth, or installing a tool clears the checklist and leaves the
     // status bar still claiming it's missing.
@@ -248,7 +254,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** Reprobe, repaint the status bar, and report what is still unusable. */
   const refreshDepsStatus = (): DependencyFault[] => {
-    const provider = currentManifest?.agentProvider ?? 'claude';
+    const provider = currentManifest()?.agentProvider ?? 'claude';
     const faults = checkDependencyFaults(dependencyRegistry(provider), binaryExists, commandSucceeds);
     const indicator = buildDepsIndicator(faults);
     if (!indicator) {
@@ -272,7 +278,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * would fail their own unit tests on a machine without gh.
    */
   const guardCapability = (capability: Capability, silent = false): boolean => {
-    const provider = currentManifest?.agentProvider ?? 'claude';
+    const provider = currentManifest()?.agentProvider ?? 'claude';
     const faults = ensureCapability(
       capability,
       dependencyRegistry(provider),
@@ -305,7 +311,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { manifest: loadManifest(path), error: null };
     } catch (e) {
       return {
-        manifest: currentManifest ?? emptyManifest(),
+        manifest: currentManifest() ?? emptyManifest(),
         error: e instanceof Error ? e.message : String(e),
       };
     }
@@ -349,8 +355,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return buildAgentPool({
         agentsDir: agentsDirOrThrow(),
         approachesDir: approachesDirOrThrow(),
-        approaches: currentManifest?.approaches ?? [],
-        agentsMeta: currentManifest?.agents ?? {},
+        approaches: currentManifest()?.approaches ?? [],
+        agentsMeta: currentManifest()?.agents ?? {},
       });
     } catch {
       return [];
@@ -363,23 +369,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // token seam; the manifest/path are read at call time (resolved on open).
   const onboarding = new OnboardingManager(
     localStore,
-    () => currentManifest ?? emptyManifest(),
+    () => currentManifest() ?? emptyManifest(),
     makeOnboardingPanelHost(context),
     buildOnboardingActions({
       store: localStore,
-      // These read `currentManifest`/`currentManifestPath` at call time so a
-      // manifest resolved on open is available to fetch/suggest/save.
+      // These read the manifest at call time so a manifest resolved on open (or
+      // loaded on demand) is available to fetch/suggest/save.
       get manifest() {
-        return currentManifest ?? emptyManifest();
+        return currentManifest() ?? emptyManifest();
       },
       get manifestPath() {
-        return currentManifestPath ?? '';
+        return manifests.path() ?? '';
       },
       // Read `ticketing` fresh so a provider/teamId change saved from settings
       // applies without a reload (same getter pattern as `manifest` above).
       get provider() {
         return makeTicketingProvider(
-          (currentManifest ?? emptyManifest()).ticketing,
+          (currentManifest() ?? emptyManifest()).ticketing,
           fetch,
           makeTokenProvider(context),
         );
@@ -389,7 +395,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // object is built once at activation, so a static property would be
       // permanently stuck on the fallback ('claude') read at that moment.
       get adapter() {
-        return resolveAdapter((currentManifest ?? emptyManifest()).agentProvider ?? 'claude');
+        return resolveAdapter((currentManifest() ?? emptyManifest()).agentProvider ?? 'claude');
       },
       onChange: () => provider.refresh(),
       // Finish handoff: scope the ticket's selected repos (worktrees, no
@@ -399,7 +405,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const t = getTicket(localStore, ticketId);
         const hot = t.selectedRepos;
         if (hot.length === 0) return; // nothing scoped → leave the ticket pending
-        const manifest = currentManifest ?? emptyManifest();
+        const manifest = currentManifest() ?? emptyManifest();
         try {
           confirmScope(localStore, manifest, ticketId, hot);
           // Scope is complete the moment its worktrees exist (scope has only a
@@ -444,9 +450,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const pool = buildAgentPool({
         agentsDir: agentsDirOrThrow(),
         approachesDir: approachesDirOrThrow(),
-        approaches: currentManifest?.approaches ?? [],
+        approaches: currentManifest()?.approaches ?? [],
       });
-      const agentsMeta = currentManifest?.agents ?? {};
+      const agentsMeta = currentManifest()?.agents ?? {};
       return pool.map((a) => ({
         name: a.name,
         source: a.source,
@@ -570,10 +576,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logError,
         guardCapability,
       ),
-    () => worktreePathContext(currentManifest),
-    () => currentManifest?.ticketLabelTemplate,
+    () => worktreePathContext(currentManifest()),
+    () => currentManifest()?.ticketLabelTemplate,
     // Live ticketing config so the dashboard links to the source board (§ C3).
-    () => currentManifest?.ticketing,
+    () => currentManifest()?.ticketing,
     logError,
     // Resolve an approach id → its workflow phase names for the read-only
     // impl-stage breakdown (§ impl sub-stages). Missing package/dir → no
@@ -764,8 +770,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const openOnboardingCreate = async (): Promise<void> => {
     const manifest = await resolveManifest();
     if (!manifest) return; // no folder / scaffolded / invalid — message shown
-    currentManifest = manifest;
-    currentManifestPath = manifestPathOrThrow();
+    manifests.set(manifest, manifestPathOrThrow());
     onboarding.openCreate();
   };
 
@@ -793,7 +798,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // alone. Built-in approaches (direct, single-subagent) have no entrypoint.
       let approachPrompt: string | null = null;
       try {
-        const approaches = currentManifest?.approaches ?? [];
+        const approaches = currentManifest()?.approaches ?? [];
         approachPrompt = resolveApproachPrompt(approachesDirOrThrow(), approaches, t.approach);
       } catch {
         approachPrompt = null;
@@ -855,7 +860,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // plus live worktrees/branches/services/PRs) into markdown and seed it —
       // in-process, no CLI round-trip (the extension already holds the data).
       const ticketContextMd = renderTicketContext(
-        buildTicketContext(localStore, currentManifest, ticketId),
+        buildTicketContext(localStore, currentManifest(), ticketId),
       );
       // The done marker (§5.4) rides EVERY seed, not just the approach path:
       // `materializeApproach` only runs for an installed package or a solo agent,
@@ -926,7 +931,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // session still opens with ticket context; only the approach method is
       // missing. A BUILT-IN approach (no source) legitimately has no method —
       // never warn there.
-      const approachDef = (currentManifest?.approaches ?? []).find((a) => a.id === t.approach);
+      const approachDef = (currentManifest()?.approaches ?? []).find((a) => a.id === t.approach);
       const approachIsSourced = approachDef?.source !== undefined;
       if (t.approach && approachIsSourced && approachPrompt === null && extraArgs === undefined) {
         void vscode.window.showWarningMessage(
@@ -937,7 +942,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resolve the launch model: the ticket's own model wins, else the manifest
       // default, else undefined (let the agent CLI pick). Threaded as `--model`.
-      const model = resolveModel(t.model, currentManifest?.defaultModel);
+      const model = resolveModel(t.model, currentManifest()?.defaultModel);
 
       sessions.openSession(
         ticketId,
@@ -1030,8 +1035,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       const manifest = await resolveManifest();
       if (!manifest) return;
-      currentManifest = manifest;
-      currentManifestPath = manifestPathOrThrow();
+      manifests.set(manifest, manifestPathOrThrow());
       onboarding.openEdit(ticketId);
     }),
     vscode.commands.registerCommand('karst.archiveTicket', (arg: unknown) => {
@@ -1049,7 +1053,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.deleteTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      const label = ticketLabel(getTicket(localStore, ticketId), currentManifest?.ticketLabelTemplate);
+      const label = ticketLabel(getTicket(localStore, ticketId), currentManifest()?.ticketLabelTemplate);
       // Hard delete is irreversible — confirm with a modal before removing the
       // ticket and all its child rows.
       const choice = await vscode.window.showWarningMessage(
@@ -1104,7 +1108,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         return;
       }
-      currentManifestPath = path;
       // loadSettingsState reads the file: valid → typed values, invalid → raw
       // fallback + the error, shown inline. No toast either way.
       settings.open();
