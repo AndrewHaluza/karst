@@ -81,7 +81,7 @@ import {
   deleteTicket,
 } from './store/tickets.js';
 import { OnboardingManager } from './ui/onboarding/panel.js';
-import { buildOnboardingActions } from './ui/onboarding/actions.js';
+import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -401,10 +401,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Finish handoff: scope the ticket's selected repos (worktrees, no
       // servers) and open the agent session seeded with its chosen approach.
       // Servers stay deferred — they come up only when a stage needs to verify.
-      startTicket: async (ticketId: number) => {
+      startTicket: async (ticketId: number): Promise<StartTicketResult> => {
         const t = getTicket(localStore, ticketId);
         const hot = t.selectedRepos;
-        if (hot.length === 0) return; // nothing scoped → leave the ticket pending
+        // Nothing to scope → the ticket stays pending. Report it so onboarding
+        // keeps the page open with the reason, instead of looking hung.
+        if (hot.length === 0) {
+          return { ok: false, message: 'Select at least one repository to start this ticket.' };
+        }
         const manifest = currentManifest() ?? emptyManifest();
         try {
           confirmScope(localStore, manifest, ticketId, hot);
@@ -414,15 +418,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           transition(localStore, ticketId, 'scope', { kind: 'passed' });
           provider.refresh();
           // Await so a launch failure (missing worktree, terminal spawn throw)
-          // surfaces through the catch below instead of a silent stall with the
-          // ticket already advanced to impl.
+          // surfaces as a failed start instead of a silent stall with the ticket
+          // already advanced to impl.
           await vscode.commands.executeCommand('karst.openSession', ticketId);
+          return { ok: true };
         } catch (err) {
-          void vscode.window.showErrorMessage(
-            `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`,
-          );
+          const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;
+          void vscode.window.showErrorMessage(message);
+          return { ok: false, message };
         }
       },
+      // A started ticket belongs to its dashboard — onboarding hands off there.
+      openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId),
       writeSignals: writeServiceSignals,
       // Re-read the manifest from disk after a signal writeback so the panel's
       // manifest getter (currentManifest) reflects the saved signals — the gate

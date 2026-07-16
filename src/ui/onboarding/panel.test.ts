@@ -167,6 +167,34 @@ describe('OnboardingManager', () => {
     expect(pushed.state.key).toBe('P-9');
   });
 
+  it('ctx.close disposes the panel and frees its key for a later open', () => {
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    expect(mgr.isCreateOpen()).toBe(true);
+    seen[0]!.close();
+    // Disposing is what closes the tab; the dispose handler unregisters the key.
+    expect(mgr.isCreateOpen()).toBe(false);
+    mgr.openCreate();
+    expect(panels).toHaveLength(2);
+  });
+
+  it('ctx.close is idempotent and never posts to a disposed panel', () => {
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    const ctx = seen[0]!;
+    ctx.close();
+    panels[0]!.posted.length = 0;
+    expect(() => ctx.close()).not.toThrow();
+    ctx.pushState(); // a late action must not talk to a dead panel
+    expect(panels[0]!.posted).toEqual([]);
+  });
+
   it('drops a panel on dispose so a later open recreates it', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
