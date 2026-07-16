@@ -29,6 +29,13 @@ import type { OnboardingActionsCtx, OnboardingActionsFactory } from './panel.js'
  * so it works in both modes.
  */
 
+/**
+ * Outcome of the finish handoff. A failure is a REASON, not a throw, so the
+ * onboarding page can show it inline and stay open for a retry (e.g. no repos
+ * selected) instead of the user staring at a page that did nothing.
+ */
+export type StartTicketResult = { ok: true } | { ok: false; message: string };
+
 export interface OnboardingActionsDeps {
   store: Store;
   manifest: Manifest;
@@ -40,10 +47,16 @@ export interface OnboardingActionsDeps {
   /**
    * Kick off a just-finished ticket: create worktrees for its selected repos,
    * arm the scope stage, and open the agent session seeded with its chosen
-   * approach. Injected because it needs git + a terminal (vscode). No-op-safe —
-   * a ticket with no repos selected is left untouched.
+   * approach. Injected because it needs git + a terminal (vscode). Resolves only
+   * once the ticket is actually running, so `submit` knows when to hand the user
+   * off to the dashboard.
    */
-  startTicket: (ticketId: number) => void | Promise<void>;
+  startTicket: (ticketId: number) => StartTicketResult | Promise<StartTicketResult>;
+  /**
+   * Reveal the ticket's dashboard — the surface that owns a ticket once it is
+   * running. Injected (real: the `karst.openDashboard` command).
+   */
+  openDashboard: (ticketId: number) => void;
   /** Injected manifest signal writer (real: writeServiceSignals). */
   writeSignals: (path: string, service: string, signals: string[]) => void;
   /**
@@ -268,7 +281,7 @@ export function buildOnboardingActions(
       }
     },
 
-    submit(input): void {
+    async submit(input): Promise<void> {
       let ticketId: number;
       if (ctx.ticketId !== undefined) {
         updateTicketCore(deps.store, ctx.ticketId, { key: input.key, title: input.title });
@@ -297,9 +310,30 @@ export function buildOnboardingActions(
         model: input.model ?? '',
       });
       deps.onChange();
+
       // Finishing onboarding hands the ticket off to the workflow: scope its
       // selected repos (worktrees, no servers) and launch the agent session.
-      deps.startTicket(ticketId);
+      // Awaited so the page stays put (busy) while the launch runs, and the
+      // handoff only happens once the ticket is really running.
+      ctx.post({ type: 'busy', what: 'submit', on: true });
+      try {
+        const result = await deps.startTicket(ticketId);
+        if (!result.ok) {
+          ctx.post({ type: 'error', message: result.message });
+          ctx.pushState(); // the ticket exists now — re-seed the page for a retry
+          return;
+        }
+        // Running tickets belong to the dashboard: open it, then close this
+        // page so the create/edit tab is replaced rather than left stale.
+        deps.openDashboard(ticketId);
+        ctx.close();
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      } finally {
+        // Un-busies the button on every failure path. On success the panel is
+        // already disposed, which drops the post.
+        ctx.post({ type: 'busy', what: 'submit', on: false });
+      }
     },
 
     requestState(): void {

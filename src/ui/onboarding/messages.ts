@@ -65,7 +65,7 @@ export interface OnboardingActions {
     approach: string | null;
     agent: string | null;
     model: string | null;
-  }) => void;
+  }) => void | Promise<void>;
   requestState: () => void;
 }
 
@@ -171,7 +171,9 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
       actions.openTicketLink(msg.url);
       return;
     case 'submit':
-      actions.submit({
+      // Fire-and-forget: `submit` reports its own outcome to the page (busy /
+      // error / close), so the pump does not wait on the launch.
+      void actions.submit({
         key: msg.key,
         title: msg.title,
         description: msg.description,

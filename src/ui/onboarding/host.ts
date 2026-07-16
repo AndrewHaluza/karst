@@ -34,6 +34,7 @@ export function makeOnboardingPanelHost(context: vscode.ExtensionContext): Onboa
         onDidReceiveMessage: (handler) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
+        dispose: () => panel.dispose(),
       };
     },
   };

@@ -399,7 +399,11 @@
     el('subhead').textContent = state.mode === 'edit'
       ? (state.title || '(untitled)')
       : 'Name the ticket, write a prompt, pick an approach.';
-    el('submitBtn').textContent = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
+    // A state push mid-launch (submit binds the new ticket, which re-pushes)
+    // must not overwrite the busy label — stash it and let setSubmitBusy own the
+    // button text while a launch is in flight.
+    submitLabel = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
+    if (!submitBusy) el('submitBtn').textContent = submitLabel;
     renderStepper(state.stepper, state.mode);
     renderProvider(state.provider);
     renderOnboardingTicketLink(state);
@@ -732,6 +736,17 @@
     triggerAnalyze();
   }
 
+  // Submit button busy lock. `submitLabel` is the idle text render() computed
+  // for the current mode, restored when the launch finishes (or fails).
+  let submitBusy = false;
+  let submitLabel = 'Create & Run session';
+  function setSubmitBusy(on) {
+    submitBusy = on;
+    const btn = el('submitBtn');
+    btn.disabled = on;
+    btn.textContent = on ? 'Starting session…' : submitLabel;
+  }
+
   // ---- interactions ----
   el('fetchBtn').addEventListener('click', () => {
     const ref = el('ref').value.trim();
@@ -739,9 +754,11 @@
   });
 
   el('submitBtn').addEventListener('click', () => {
+    if (submitBusy) return; // a launch is already in flight
     const key = el('ref').value.trim();
     const title = el('title').value.trim();
     if (!key || !title) { showErr('Key and title are required.'); return; }
+    clearErr(); // a retry starts clean — the previous failure no longer applies
     // Effective repo set: a repo counts as selected if the user toggled it on,
     // or (untouched) it was scored-selected by default. Carry repos + approach
     // in the payload so create-mode picks persist onto the new ticket at submit.
@@ -880,6 +897,10 @@
     // The fetch button carries its own busy state; a failed fetch (on→false with
     // no brief) resets it to idle so the user can retry.
     if (what === 'fetch' && !on && !briefText) setFetchState('idle');
+    // Submit runs worktree creation + the session launch, which take a beat.
+    // Lock the button for the duration so it can't be fired twice, and say what
+    // is happening — on success the panel closes and the dashboard takes over.
+    if (what === 'submit') setSubmitBusy(on);
     if (what === 'analyze') {
       el('analyzeBusy').classList.toggle('hidden', !on);
       approachBusy = on;

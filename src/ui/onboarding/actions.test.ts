@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, getTicket, listTickets, updateTicketOnboarding } from '../../store/tickets.js';
-import { buildOnboardingActions, type OnboardingActionsDeps } from './actions.js';
+import {
+  buildOnboardingActions,
+  type OnboardingActionsDeps,
+  type StartTicketResult,
+} from './actions.js';
 import type { OnboardingActionsCtx } from './panel.js';
 import type { OnboardingHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
@@ -69,14 +73,19 @@ function fakeAdapter(): AgentAdapter {
 function mkCtx(ticketId?: number): OnboardingActionsCtx & {
   posted: OnboardingHostMessage[];
   pushes: number;
+  closes: number;
 } {
   let boundId = ticketId;
   let pushes = 0;
+  let closes = 0;
   const posted: OnboardingHostMessage[] = [];
   const ctx = {
     posted,
     get pushes() {
       return pushes;
+    },
+    get closes() {
+      return closes;
     },
     post: (m: OnboardingHostMessage) => posted.push(m),
     pushState: () => {
@@ -91,8 +100,15 @@ function mkCtx(ticketId?: number): OnboardingActionsCtx & {
     bindTicket: (id: number) => {
       boundId = id;
     },
+    close: () => {
+      closes += 1;
+    },
   };
-  return ctx as OnboardingActionsCtx & { posted: OnboardingHostMessage[]; pushes: number };
+  return ctx as OnboardingActionsCtx & {
+    posted: OnboardingHostMessage[];
+    pushes: number;
+    closes: number;
+  };
 }
 
 describe('buildOnboardingActions', () => {
@@ -102,7 +118,8 @@ describe('buildOnboardingActions', () => {
   let writeSignals: ReturnType<typeof vi.fn<(p: string, s: string, sig: string[]) => void>>;
   let reloadManifest: ReturnType<typeof vi.fn<() => void>>;
   let listInstalledIds: ReturnType<typeof vi.fn<() => string[]>>;
-  let startTicket: ReturnType<typeof vi.fn<(id: number) => void>>;
+  let startTicket: ReturnType<typeof vi.fn<(id: number) => Promise<StartTicketResult>>>;
+  let openDashboard: ReturnType<typeof vi.fn<(id: number) => void>>;
 
   beforeEach(() => {
     store = openStore(':memory:');
@@ -110,7 +127,8 @@ describe('buildOnboardingActions', () => {
     writeSignals = vi.fn<(p: string, s: string, sig: string[]) => void>();
     reloadManifest = vi.fn<() => void>();
     listInstalledIds = vi.fn<() => string[]>(() => ['rpi']);
-    startTicket = vi.fn<(id: number) => void>();
+    startTicket = vi.fn<(id: number) => Promise<StartTicketResult>>(async () => ({ ok: true }));
+    openDashboard = vi.fn<(id: number) => void>();
     deps = {
       store,
       manifest: MANIFEST,
@@ -122,6 +140,7 @@ describe('buildOnboardingActions', () => {
       reloadManifest,
       listInstalledIds,
       startTicket,
+      openDashboard,
     };
   });
 
@@ -133,7 +152,7 @@ describe('buildOnboardingActions', () => {
       pushState: () => {},
       mode: 'edit',
       ticketId: t.id,
-      bindTicket: () => {},
+      bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -190,7 +209,7 @@ describe('buildOnboardingActions', () => {
   it('fetchSource posts an error when the provider rejects', async () => {
     deps.provider = fakeProvider({ fetchTicket: vi.fn(async () => { throw new Error('boom'); }) });
     const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.fetchSource('CU-9');
@@ -200,7 +219,7 @@ describe('buildOnboardingActions', () => {
 
   it('suggestSignals posts the suggested words for a service', async () => {
     const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.suggestSignals('fe');
@@ -213,7 +232,7 @@ describe('buildOnboardingActions', () => {
 
   it('saveSignals writes to the manifest and re-pushes state', async () => {
     let pushes = 0;
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     actions.saveSignals('be', ['api', 'endpoint']);
@@ -228,7 +247,7 @@ describe('buildOnboardingActions', () => {
       post: () => {},
       pushState: () => order.push('push'),
       mode: 'create',
-      bindTicket: () => {},
+      bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -240,7 +259,7 @@ describe('buildOnboardingActions', () => {
   it('saveSignals does not reload or push when the write throws', async () => {
     writeSignals.mockImplementation(() => { throw new Error('bad yml'); });
     const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     actions.saveSignals('be', ['api']);
@@ -249,10 +268,10 @@ describe('buildOnboardingActions', () => {
   });
 
   it('submit in create mode creates a ticket with the entered fields', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null });
+    await actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null });
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(tickets[0]!.key).toBe('NEW-1');
@@ -263,36 +282,36 @@ describe('buildOnboardingActions', () => {
   });
 
   it('submit persists the create-mode repo + approach selection before starting', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null });
+    await actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null });
     const t = getTicket(store, listTickets(store)[0]!.id);
     expect(t.selectedRepos).toEqual(['fe', 'be']);
     expect(t.approach).toBe('rpi');
   });
 
   it('submit persists the per-ticket model when chosen, and leaves it null on inherit', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8' });
+    await actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8' });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBe('claude-opus-4-8');
   });
 
   it('submit with a null model leaves the ticket inheriting the default', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBeNull();
   });
 
   it('submit persists the agent selection when present', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    actions.submit({
+    await actions.submit({
       key: 'NEW-A', title: 't', description: '', repos: [], approach: null, agent: 'reviewer', model: null,
     });
     const t = getTicket(store, listTickets(store)[0]!.id);
@@ -304,10 +323,11 @@ describe('buildOnboardingActions', () => {
     const ctx: OnboardingActionsCtx = {
       post: () => {}, pushState: () => {}, mode: 'create',
       bindTicket: (id) => { bound = id; },
+      close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
     const id = listTickets(store)[0]!.id;
     expect(bound).toBe(id);
     expect(startTicket).toHaveBeenCalledWith(id);
@@ -315,15 +335,103 @@ describe('buildOnboardingActions', () => {
 
   it('submit in edit mode updates key/title of the existing ticket', async () => {
     const t = createTicket(store, { key: 'OLD', title: 'old' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null });
     const reloaded = getTicket(store, t.id);
     expect(reloaded.key).toBe('NEW');
     expect(reloaded.title).toBe('new');
     expect(listTickets(store)).toHaveLength(1); // no duplicate created
     expect(startTicket).toHaveBeenCalledWith(t.id);
+  });
+
+  it('submit hands off to the dashboard and closes the panel once the ticket starts', async () => {
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({
+      key: 'NEW-D', title: 't', description: '', repos: ['fe'], approach: 'rpi', agent: null, model: null,
+    });
+
+    const id = listTickets(store)[0]!.id;
+    expect(openDashboard).toHaveBeenCalledWith(id);
+    expect(ctx.closes).toBe(1);
+    // Busy brackets the start so the button can't be double-fired mid-launch,
+    // and clears before the panel goes away.
+    expect(ctx.posted[0]).toEqual({ type: 'busy', what: 'submit', on: true });
+    expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'submit', on: false });
+  });
+
+  it('submit opens the dashboard only after startTicket resolves', async () => {
+    const order: string[] = [];
+    let release: (() => void) | undefined;
+    startTicket.mockImplementation(async () => {
+      order.push('start');
+      await new Promise<void>((r) => (release = r));
+      return { ok: true };
+    });
+    openDashboard.mockImplementation(() => order.push('dashboard'));
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    const done = actions.submit({
+      key: 'NEW-O', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null,
+    });
+    expect(order).toEqual(['start']); // still launching — panel stays put
+    expect(ctx.closes).toBe(0);
+    release!();
+    await done;
+    expect(order).toEqual(['start', 'dashboard']);
+  });
+
+  it('submit keeps the panel open and posts the reason when the ticket cannot start', async () => {
+    startTicket.mockResolvedValue({ ok: false, message: 'Select at least one repository.' });
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({
+      key: 'NEW-F', title: 't', description: '', repos: [], approach: null, agent: null, model: null,
+    });
+
+    expect(ctx.posted.find((m) => m.type === 'error')).toEqual({
+      type: 'error',
+      message: 'Select at least one repository.',
+    });
+    expect(openDashboard).not.toHaveBeenCalled();
+    expect(ctx.closes).toBe(0);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'submit', on: false });
+    // The ticket itself was still created — the user can retry from the panel.
+    expect(listTickets(store)).toHaveLength(1);
+  });
+
+  it('submit posts the error and keeps the panel open when startTicket throws', async () => {
+    startTicket.mockRejectedValue(new Error('worktree exists'));
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({
+      key: 'NEW-T', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null,
+    });
+
+    expect((ctx.posted.find((m) => m.type === 'error') as { message: string }).message).toMatch(
+      /worktree exists/,
+    );
+    expect(ctx.closes).toBe(0);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'submit', on: false });
+  });
+
+  it('submit in edit mode also hands off to the dashboard and closes the panel', async () => {
+    const t = createTicket(store, { key: 'OLD-D', title: 'old' });
+    const ctx = mkCtx(t.id);
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({
+      key: 'OLD-D', title: 'new', description: '', repos: ['fe'], approach: null, agent: null, model: null,
+    });
+
+    expect(openDashboard).toHaveBeenCalledWith(t.id);
+    expect(ctx.closes).toBe(1);
   });
 
   /** An adapter whose analyzer returns a canned coupled-JSON object. */
@@ -344,7 +452,7 @@ describe('buildOnboardingActions', () => {
       pushState: () => { pushes += 1; },
       mode: 'edit',
       ticketId: t.id,
-      bindTicket: () => {},
+      bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -373,7 +481,7 @@ describe('buildOnboardingActions', () => {
     deps.adapter = { ...fakeAdapter(), runHeadless: vi.fn(async () => { throw new Error('agent down'); }) };
     const posted: OnboardingHostMessage[] = [];
     const ctx: OnboardingActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -391,7 +499,7 @@ describe('buildOnboardingActions', () => {
     const posted: OnboardingHostMessage[] = [];
     let pushes = 0;
     const ctx: OnboardingActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => { pushes += 1; }, mode: 'create', bindTicket: () => {},
+      post: (m) => posted.push(m), pushState: () => { pushes += 1; }, mode: 'create', bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -404,7 +512,7 @@ describe('buildOnboardingActions', () => {
 
   it('analyze is a no-op with no bound ticket AND no live prompt (nothing to reason over)', async () => {
     const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.analyze('');
@@ -415,7 +523,7 @@ describe('buildOnboardingActions', () => {
     const t = createTicket(store, { key: 'P-1', title: 't' }); // no description/brief
     const posted: OnboardingHostMessage[] = [];
     const ctx: OnboardingActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -432,7 +540,7 @@ describe('buildOnboardingActions', () => {
     deps.adapter = { ...fakeAdapter(), runHeadless };
     const posted: OnboardingHostMessage[] = [];
     const ctx: OnboardingActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -449,7 +557,7 @@ describe('buildOnboardingActions', () => {
     updateTicketOnboarding(store, t.id, { brief: 'the brief text' });
     const posted: OnboardingHostMessage[] = [];
     const ctx: OnboardingActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -468,7 +576,7 @@ describe('buildOnboardingActions', () => {
     updateTicketOnboarding(store, t.id, { brief: 'the brief text' });
     const posted: OnboardingHostMessage[] = [];
     const ctx: OnboardingActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
@@ -482,7 +590,7 @@ describe('buildOnboardingActions', () => {
 
   it('setApproach and setRepos persist onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P', title: 't' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     actions.setApproach('rpi');
@@ -494,7 +602,7 @@ describe('buildOnboardingActions', () => {
 
   it('setAgent persists onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P-A', title: 't' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     actions.setAgent('reviewer');
@@ -502,7 +610,7 @@ describe('buildOnboardingActions', () => {
   });
 
   it('setAgent is a no-op in create mode with no bound ticket', () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     expect(() => actions.setAgent('reviewer')).not.toThrow();
@@ -511,7 +619,7 @@ describe('buildOnboardingActions', () => {
 
   it('setModel persists onto an existing ticket, and empty clears it to inherit', () => {
     const t = createTicket(store, { key: 'P-M', title: 't' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {} };
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
     actions.setModel('claude-sonnet-5');

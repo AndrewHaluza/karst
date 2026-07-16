@@ -20,6 +20,8 @@ export interface OnboardingPanel {
   postMessage(message: OnboardingHostMessage): void;
   onDidReceiveMessage(handler: (message: unknown) => void): void;
   onDidDispose(handler: () => void): void;
+  /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
+  dispose(): void;
 }
 
 /** Factory the manager uses to mint panels (real: `createWebviewPanel`). */
@@ -48,6 +50,13 @@ export interface OnboardingActionsCtx {
    * `pushState` seeds from the draft. No-op semantics if already bound.
    */
   bindTicket(id: number): void;
+  /**
+   * Close this panel — the onboarding surface is done with the ticket (submit
+   * started it, and the dashboard takes over). Idempotent, and everything after
+   * it (`post`/`pushState`) becomes a no-op so a late async action can't talk to
+   * a disposed webview.
+   */
+  close(): void;
 }
 
 /** Builds the host-side actions for one panel, bound to its ctx. */
@@ -129,8 +138,12 @@ export class OnboardingManager {
     // Mutable so persist-on-fetch can bind a create panel to its new draft
     // ticket without re-opening. `pushState`/`ctx` read this live.
     let boundId = ticketId;
+    // Flipped by dispose (user-closed OR ctx.close). Gates every post so an
+    // in-flight action resolving after the tab is gone is silently dropped.
+    let disposed = false;
 
     const pushState = (): void => {
+      if (disposed) return;
       const state: OnboardingState = buildOnboardingState(
         this.store,
         this.manifest(),
@@ -142,7 +155,9 @@ export class OnboardingManager {
       panel.postMessage({ type: 'state', state });
     };
     const ctx: OnboardingActionsCtx = {
-      post: (message) => panel.postMessage(message),
+      post: (message) => {
+        if (!disposed) panel.postMessage(message);
+      },
       pushState,
       get ticketId() {
         return boundId;
@@ -152,6 +167,10 @@ export class OnboardingManager {
       },
       bindTicket: (id: number) => {
         boundId = id;
+      },
+      close: () => {
+        if (disposed) return;
+        panel.dispose();
       },
     };
     const actions = this.actionsFactory(ctx);
@@ -164,7 +183,10 @@ export class OnboardingManager {
         this.logError('karst: onboarding action failed', err);
       }
     });
-    panel.onDidDispose(() => this.panels.delete(key));
+    panel.onDidDispose(() => {
+      disposed = true;
+      this.panels.delete(key);
+    });
 
     pushState();
   }
