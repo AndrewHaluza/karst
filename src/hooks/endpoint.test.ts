@@ -43,6 +43,35 @@ describe('startHookEndpoint', () => {
     expect(ep.url).toContain(String(ep.port));
   });
 
+  // The reported bug: a session bakes the port into its --settings at launch and
+  // never re-reads it. An ephemeral port meant every host restart moved the
+  // endpoint, and every hook from an already-running session hit a dead port
+  // ("connect ECONNREFUSED 127.0.0.1:53992"). Rebinding the remembered port is
+  // what makes those sessions work again after a reload.
+  it('rebinds the requested port so a restarted host keeps a live session’s hooks working', async () => {
+    const wanted = ep.port;
+    ep.close();
+
+    ep = await startHookEndpoint(store, wanted);
+
+    expect(ep.port).toBe(wanted);
+  });
+
+  // Another window already holds the remembered port. Failing to listen would
+  // take the whole hook channel down for this host; an ephemeral port at least
+  // serves sessions launched from here.
+  it('falls back to an ephemeral port when the requested one is taken', async () => {
+    const other = await startHookEndpoint(store, 0);
+    try {
+      const fallback = await startHookEndpoint(store, other.port);
+      expect(fallback.port).toBeGreaterThan(0);
+      expect(fallback.port).not.toBe(other.port);
+      fallback.close();
+    } finally {
+      other.close();
+    }
+  });
+
   it('a SessionStart POST flips the ticket agent_state and returns 2xx', async () => {
     const id = ticketAt();
     const status = await post(ep.url, { hook_event_name: 'SessionStart', cwd: WT });

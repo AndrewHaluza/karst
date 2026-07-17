@@ -21,6 +21,10 @@ export interface HookEndpoint {
  *
  * Pass port 0 to bind an ephemeral port (tests); the bound port is on the
  * returned handle. `notify` fans a mutation out to the sidebar + dashboard.
+ *
+ * A non-zero `port` is a REQUEST, not a requirement: if it is already taken
+ * (another window's host holds it) the listener falls back to an ephemeral port
+ * rather than leaving this host with no hook channel at all.
  */
 export function startHookEndpoint(
   store: Store,
@@ -28,7 +32,7 @@ export function startHookEndpoint(
   notify?: NotifyTicket,
   logError: LogError = (m, e) => console.error(m, e),
 ): Promise<HookEndpoint> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // Only the POST /hooks contract is served; anything else gets a fast 404.
       if (req.method !== 'POST') {
@@ -75,7 +79,20 @@ export function startHookEndpoint(
       });
     });
 
-    server.listen(port, '127.0.0.1', () => {
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      // The remembered port belongs to someone else. Serving this host's sessions
+      // on a fresh port beats serving none; sessions launched from here get the
+      // fallback baked into their settings at launch.
+      if (err.code === 'EADDRINUSE' && port !== 0) {
+        logError(`karst: hook port ${port} in use, falling back to an ephemeral port`, err);
+        server.listen(0, '127.0.0.1');
+        return;
+      }
+      reject(err);
+    });
+
+    server.listen(port, '127.0.0.1');
+    server.on('listening', () => {
       const addr = server.address();
       const bound = typeof addr === 'object' && addr ? addr.port : port;
       resolve({

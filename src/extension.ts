@@ -128,6 +128,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** Per-workspace flag: the user dismissed the fresh-install welcome panel. */
 const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
+/**
+ * The hook port this host bound last time (globalState: the port is a property of
+ * the machine's endpoint, not of any one workspace). Rebinding it is what keeps a
+ * session that outlived a host restart — it baked the old port into its
+ * `--settings` at launch and never re-reads the file — from ECONNREFUSING on
+ * every hook it fires.
+ */
+const HOOK_PORT_KEY = 'karst.hookPort';
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
@@ -738,11 +746,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
-  endpoint = await startHookEndpoint(localStore, 0, (ticketId) => {
+  const rememberedPort = context.globalState.get<number>(HOOK_PORT_KEY) ?? 0;
+  endpoint = await startHookEndpoint(localStore, rememberedPort, (ticketId) => {
     provider.refresh();
     dashboard.pushState(ticketId);
     maybeDrive(ticketId, 'hook');
   }, logError);
+  if (endpoint.port !== rememberedPort) {
+    await context.globalState.update(HOOK_PORT_KEY, endpoint.port);
+  }
 
   // Activation sweep: resume any ticket already parked at a gate. Recovers a ticket
   // stranded when the trigger that would normally kick the driver never arrived
