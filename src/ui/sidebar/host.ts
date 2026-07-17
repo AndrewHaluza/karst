@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { SidebarView, SidebarViewHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
+import { injectCsp, newNonce } from '../../model/csp.js';
 
 /**
  * Activation-layer adapter: the real `vscode.WebviewViewProvider` for the sidebar
@@ -36,7 +37,9 @@ export function makeSidebarViewHost(
   const provider: vscode.WebviewViewProvider = {
     resolveWebviewView(webviewView) {
       webviewView.webview.options = { enableScripts: true };
-      webviewView.webview.html = html;
+      // Fresh nonce per resolve — the sidebar view is re-resolved when it is
+      // hidden and shown again, and each resolve is a new page load.
+      webviewView.webview.html = injectCsp(html, newNonce());
       const view: SidebarView = {
         postMessage: (message) => void webviewView.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>

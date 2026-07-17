@@ -19,7 +19,7 @@ import { resolveAdapter } from './agent/registry.js';
 import type { AgentAdapter } from './agent/adapter.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
-import { markerStageFor } from './agent/markerStage.js';
+import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { renderFixBrief } from './agent/fixBrief.js';
 import { countFixAttempts, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow/fixAttempts.js';
 import type { StageKey } from './model/types.js';
@@ -97,6 +97,7 @@ import { makeSettingsPanelHost } from './ui/settings/host.js';
 import { writeManifest } from './manifest/write.js';
 import { makeLogger, type LogError } from './logging/logger.js';
 import { injectPalette } from './model/palette.js';
+import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import {
   binaryExists,
@@ -514,6 +515,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       loadState: loadSettingsState,
       installApproach: installApproachHere,
+      // The shell-out gate for npm-source installs. Modal (like the hard-delete
+      // confirm) so it can't be missed, and shows the command VERBATIM — the
+      // point is that the user sees the exact string karst.yml is asking to run.
+      confirmInstallCommand: async (command: string): Promise<boolean> => {
+        // `message` is the dialog's bold title and `detail` its body — so the
+        // question goes in the title and the command in the detail. Putting a
+        // long `npx …` string in the title clips it, which would hide the very
+        // thing the user is being asked to approve.
+        const choice = await vscode.window.showWarningMessage(
+          'Run this command to install the approach?',
+          {
+            modal: true,
+            detail: `It comes from this workspace’s karst.yml and runs in a shell:\n\n${command}`,
+          },
+          'Run',
+        );
+        return choice === 'Run';
+      },
       uninstallApproach: (id: string): boolean => {
         try {
           return uninstallApproach(approachesDirOrThrow(), id);
@@ -1210,7 +1229,7 @@ function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string)
 function buildCliStagePrefix(
   context: vscode.ExtensionContext,
   dbPath: string,
-  stage: StageKey = 'impl',
+  stage: MarkerStage = 'impl',
 ): string {
   const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
   return composeStageCommand(cliEntry, dbPath, stage);
@@ -1229,7 +1248,8 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
         vscode.ViewColumn.Active,
         { enableScripts: true, retainContextWhenHidden: true },
       );
-      panel.webview.html = html;
+      // Nonce per panel, not per host (the html above is built once and reused).
+      panel.webview.html = injectCsp(html, newNonce());
       return {
         reveal: () => panel.reveal(),
         postMessage: (message) => void panel.webview.postMessage(message),

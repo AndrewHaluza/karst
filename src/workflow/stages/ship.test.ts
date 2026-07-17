@@ -30,9 +30,15 @@ function walkToShip(store: Store, id: number): void {
   transition(store, id, 'review', { kind: 'passed' });
 }
 
+/**
+ * Counts `pr create` only, and answers `pr view` with "no PR for this branch"
+ * (gh's nonzero exit). Ship probes before it creates, so a fake that counted
+ * every gh call would conflate the probe with the thing under test.
+ */
 function fakeGh(): { gh: GhRunner; calls: number } {
   let calls = 0;
-  const gh: GhRunner = async () => {
+  const gh: GhRunner = async (args) => {
+    if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
     calls++;
     return { stdout: `https://github.com/o/r/pull/${calls}`, exitCode: 0 };
   };
@@ -42,6 +48,19 @@ function fakeGh(): { gh: GhRunner; calls: number } {
       return calls;
     },
   } as { gh: GhRunner; calls: number };
+}
+
+/** gh with an already-open PR on the branch — the state that used to fail ship. */
+function ghWithExistingPr(url: string): { gh: GhRunner; args: string[][] } {
+  const args: string[][] = [];
+  const gh: GhRunner = async (a) => {
+    args.push(a);
+    if (a[1] === 'view') {
+      return { stdout: JSON.stringify({ number: 18, url, state: 'OPEN' }), exitCode: 0 };
+    }
+    return { stdout: '', stderr: `a pull request for branch "karst/x" already exists:\n${url}`, exitCode: 1 };
+  };
+  return { gh, args };
 }
 
 /** Records every git invocation; succeeds by default. */
@@ -91,14 +110,17 @@ describe('shipTicket', () => {
       expect(cwd).toBe(join(dir, 'fe'));
       return { stdout: '', stderr: '', exitCode: 0 };
     };
-    const gh: GhRunner = async () => {
-      order.push('gh pr create');
+    const gh: GhRunner = async (args) => {
+      order.push(`gh pr ${args[1]}`);
+      if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
       return { stdout: 'https://github.com/o/r/pull/1', exitCode: 0 };
     };
 
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
 
-    expect(order).toEqual(['git status', 'git push', 'gh pr create']);
+    // The probe sits after the push, not before it: an existing PR must still
+    // receive the branch's new commits. Adopting is not skipping.
+    expect(order).toEqual(['git status', 'git push', 'gh pr view', 'gh pr create']);
   });
 
   // The reported bug: impl/uat/review all passed but the work was never committed,
@@ -216,6 +238,7 @@ describe('shipTicket', () => {
   it('each PR carries an agent-generated description', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const gh: GhRunner = async (args) => {
+      if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
       // body flag value is the generated prose
       const bodyIdx = args.indexOf('--body');
       expect(args[bodyIdx + 1]).toContain('Generated PR body');
@@ -254,6 +277,61 @@ describe('shipTicket', () => {
     expect(t.stages.find((s) => s.stageKey === 'ship')!.verdict).toBeNull();
   });
 
+  // The reported bug: a PR opened by hand (or by a run whose db row was lost) made
+  // ship fail forever — gh said "a pull request for branch … already exists" and
+  // `openPr` threw before the `prs` insert, so the local guard could never absorb
+  // it and every retry died identically, with ship having no `failed` edge to
+  // advance out of. An open PR is what ship is FOR; it is not a failure.
+  describe('when the branch already has an open PR on GitHub', () => {
+    const URL = 'https://github.com/AndrewHaluza/karst/pull/18';
+
+    it('adopts it instead of failing, and finishes the ship', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh, args } = ghWithExistingPr(URL);
+
+      const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+      expect(args.some((a) => a[1] === 'create')).toBe(false);
+      expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 18, url: URL }]);
+      expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    // The insert is what closes the permanence bug: it is why a later re-run is
+    // absorbed by the local guard rather than probing GitHub again.
+    it('records the adopted PR, so a re-run needs no gh at all', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = ghWithExistingPr(URL);
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+      expect(listPrsByTicket(store, id)).toHaveLength(1);
+
+      const { git, calls } = fakeGit();
+      const second = ghWithExistingPr(URL);
+      await shipTicket(store, { ticketId: id }, second.gh, fakeAdapter(), git);
+
+      expect(second.args).toEqual([]);
+      expect(calls).toEqual([]);
+      expect(listPrsByTicket(store, id)).toHaveLength(1);
+    });
+
+    // Probing before the create is what buys this: `describePr` runs BEFORE
+    // `openPr`, so rescuing after the failure would still have paid a model call
+    // per repo to write prose for a PR that already exists.
+    it('asks no model for a description it cannot use', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = ghWithExistingPr(URL);
+      let headless = 0;
+      const adapter: AgentAdapter = { ...fakeAdapter(), runHeadless: async () => {
+        headless++;
+        return { sessionId: 's', verdict: null, raw: 'x' };
+      } };
+
+      await shipTicket(store, { ticketId: id }, gh, adapter, fakeGit().git);
+
+      expect(headless).toBe(0);
+    });
+  });
+
   it('advances the stage to done on success', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const { gh } = fakeGh();
@@ -265,7 +343,8 @@ describe('shipTicket', () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
     let calls = 0;
-    const gh: GhRunner = async () => {
+    const gh: GhRunner = async (args) => {
+      if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
       calls++;
       return { stdout: `https://github.com/o/r/pull/${calls}`, exitCode: 0 };
     };

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { WelcomePanel, WelcomePanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
+import { injectCsp, newNonce } from '../../model/csp.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -24,7 +25,10 @@ export function makeWelcomePanelHost(context: vscode.ExtensionContext): WelcomeP
         vscode.ViewColumn.Active,
         { enableScripts: true, retainContextWhenHidden: true },
       );
-      panel.webview.html = html;
+      // CSP nonce per panel, not per host: the html above is built once and
+      // reused, so injecting it there would share one nonce across every panel
+      // for the life of the extension.
+      panel.webview.html = injectCsp(html, newNonce());
       return {
         reveal: () => panel.reveal(),
         postMessage: (message) => void panel.webview.postMessage(message),

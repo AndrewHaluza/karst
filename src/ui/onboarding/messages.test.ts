@@ -39,6 +39,9 @@ describe('parseOnboardingMessage', () => {
     });
     // a non-string prompt is rejected at the trust boundary
     expect(parseOnboardingMessage({ type: 'analyze' })).toBeNull();
+    expect(
+      parseOnboardingMessage({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }),
+    ).toEqual({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' });
     expect(parseOnboardingMessage({ type: 'request-state' })).toEqual({ type: 'request-state' });
     expect(
       parseOnboardingMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
@@ -71,6 +74,17 @@ describe('parseOnboardingMessage', () => {
       type: 'set-model',
       id: '',
     });
+  });
+
+  // open-ticket-link drives vscode.env.openExternal, so the scheme allowlist is
+  // the trust boundary — not the non-empty-string check this used to carry. The
+  // dashboard guarded this and onboarding didn't; both now share isHttpUrl.
+  it('rejects a non-http(s) open-ticket-link url', () => {
+    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'command:foo', '']) {
+      expect(parseOnboardingMessage({ type: 'open-ticket-link', url })).toBeNull();
+    }
+    expect(parseOnboardingMessage({ type: 'open-ticket-link' })).toBeNull();
+    expect(parseOnboardingMessage({ type: 'open-ticket-link', url: 42 })).toBeNull();
   });
 
   it('rejects malformed shapes (trust boundary)', () => {

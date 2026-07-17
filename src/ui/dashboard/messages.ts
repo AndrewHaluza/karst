@@ -1,4 +1,5 @@
 import type { DashboardState } from './state.js';
+import { isHttpUrl } from '../shared/url.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -71,13 +72,9 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'open-worktree-folder':
       return path ? { type: 'open-worktree-folder', path: m.path as string } : null;
     case 'open-pr':
-      return typeof m.url === 'string' && /^https?:\/\//.test(m.url)
-        ? { type: 'open-pr', url: m.url }
-        : null;
+      return isHttpUrl(m.url) ? { type: 'open-pr', url: m.url } : null;
     case 'open-ticket-link':
-      return typeof m.url === 'string' && /^https?:\/\//.test(m.url)
-        ? { type: 'open-ticket-link', url: m.url }
-        : null;
+      return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'edit-ticket':
       return { type: 'edit-ticket' };
     case 'stop-driver':

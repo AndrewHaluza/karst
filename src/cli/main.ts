@@ -13,10 +13,12 @@ import { getTicketByKey } from '../store/tickets.js';
  *
  *   context:  `… context <key> --db <db> --manifest <yml> [--json|--md]`
  *             re-pull fresh ticket context on demand (read-only, node:sqlite).
- *   stage:    `… stage <key> <pass|fail> [reason] --db <db> --ticket <ticketKey>`
- *             the explicit marker an agent fires to advance a stage it cannot
- *             self-report a deterministic verdict for (the impl→uat boundary,
- *             §5.4). Writable via node:sqlite so it needs no better-sqlite3 addon.
+ *   stage:    `… stage <impl|fix> pass --db <db> --ticket <ticketKey>`
+ *             the explicit marker an agent fires to advance a boundary that has
+ *             no deterministic verdict of its own (§5.4). Gate keys are refused:
+ *             `uat`/`review`/`ship` are decided by exit codes, never by the agent
+ *             (see parseStageArgs). Writable via node:sqlite so it needs no
+ *             better-sqlite3 addon.
  *
  * Self-contained: every path it needs is passed as a flag, so it does no
  * workspace discovery.
