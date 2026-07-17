@@ -163,6 +163,19 @@ describe('analyzeTicket', () => {
     expect(prompts[0]).toContain('user intent here');
   });
 
+  it('constrains the synthesized prompt to be approach- and service-agnostic', async () => {
+    const { adapter, prompts } = capturingAdapter(
+      '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r"}',
+    );
+    await analyzeTicket(adapter, { brief: 'b', services, approaches });
+    const built = prompts[0]!;
+    // The prompt field is stored on the ticket and outlives the approach choice:
+    // if it carries the approach's method, switching approach silently keeps it.
+    expect(built).toMatch(/approach-agnostic/i);
+    expect(built).toMatch(/must not.*(workflow|methodolog|phase)/is);
+    expect(built).toMatch(/must not.*(repo|service)/is);
+  });
+
   it('propagates an adapter rejection', async () => {
     await expect(
       analyzeTicket(rejectingAdapter(), { brief: 'b', services, approaches }),

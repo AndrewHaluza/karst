@@ -9,6 +9,13 @@ import type { ApproachDef } from '../../manifest/types.js';
  * approach depends on the scope of work and the scope depends on which services
  * the ticket touches — splitting them across separate calls loses that coupling.
  *
+ * The decisions are coupled but their DELIVERY is not: the prompt is stored on
+ * the ticket, while the approach's method and the services are re-read from the
+ * ticket's state at launch (§ context loader / session seed). The user may
+ * re-pick either afterwards WITHOUT the prompt being regenerated, so the prompt
+ * must carry only WHAT/WHY — an approach's method leaking into it silently
+ * overrides whichever approach is finally selected.
+ *
  * karst recommends; the user decides. The onboarding UI applies the result but
  * every field stays editable. Parsing is defensive (the model may wrap the
  * object in prose, and the prompt field itself may carry braces/newlines), and
@@ -62,6 +69,20 @@ function buildPrompt(input: AnalyzeInput): string {
     `it from the ticket; do NOT merely copy the brief;`,
     `(2) the best-fit development approach for the scope of work;`,
     `(3) the services (repos) the work will touch.`,
+    ``,
+    `The three are decided together, but they are DELIVERED to the coding agent`,
+    `separately: the approach's own method and the selected services are already`,
+    `given to it from the ticket's stored state. The prompt outlives this`,
+    `analysis — the user may pick a different approach or different services`,
+    `afterwards, and the prompt is NOT regenerated. So the prompt must be`,
+    `approach-agnostic and service-agnostic: state WHAT to achieve and WHY`,
+    `(the problem, the goal, the constraints, the acceptance criteria).`,
+    `It must not prescribe HOW to work — no workflow, methodology, phases,`,
+    `stages, step ordering, research/plan/approve gates, or "do not implement`,
+    `until X" instructions; those come from the approach, whichever one is`,
+    `finally selected. It must not name repos, services, or paths; those come`,
+    `from the selected services. Put the approach rationale in "reason", never`,
+    `in "prompt".`,
     ``,
     `Available approaches:`,
     approachList,
