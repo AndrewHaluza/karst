@@ -1,5 +1,6 @@
 import type { OnboardingState } from './state.js';
 import type { ContextBrief } from '../../integrations/ticketing.js';
+import { isHttpUrl } from '../shared/url.js';
 
 /**
  * Onboarding webview ↔ host message protocol (§ onboarding). The webview is a
@@ -106,7 +107,10 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       // host has the persisted brief to reason over in that case.
       return typeof m.prompt === 'string' ? { type: 'analyze', prompt: m.prompt } : null;
     case 'open-ticket-link':
-      return str('url') ? { type: 'open-ticket-link', url: m.url as string } : null;
+      // http(s) only — this drives vscode.env.openExternal, so a non-empty-string
+      // check is not enough (a crafted file://, vscode:// or command: URI would
+      // pass it). Same guard as the dashboard's; shared so they can't diverge.
+      return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'submit': {
       // description may be empty; key + title must be present. repos defaults to
       // [] and approach/agent to null when absent/malformed, so an older webview

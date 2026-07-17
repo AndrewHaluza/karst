@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { openPr, toGhResult, type GhRunner } from './github.js';
+import { openPr, findOpenPr, toGhResult, type GhRunner } from './github.js';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 
 describe('toGhResult', () => {
@@ -81,5 +81,59 @@ describe('openPr', () => {
   it('still says something useful when gh fails silently', async () => {
     const gh: GhRunner = async () => ({ stdout: '', exitCode: 3, stderr: '' });
     await expect(openPr(gh, { cwd: '/wt', title: 'T', body: 'b' })).rejects.toThrow(/exit 3/);
+  });
+});
+
+const viewJson = (o: unknown): string => JSON.stringify(o);
+
+describe('findOpenPr', () => {
+  it('asks gh for the branch’s PR as JSON, in the repo cwd', async () => {
+    const calls: { args: string[]; cwd: string }[] = [];
+    const gh: GhRunner = async (args, cwd) => {
+      calls.push({ args, cwd });
+      return { stdout: viewJson({ number: 18, url: 'https://github.com/o/r/pull/18', state: 'OPEN' }), exitCode: 0 };
+    };
+    const pr = await findOpenPr(gh, '/wt/a');
+    expect(calls[0]!.args).toEqual(['pr', 'view', '--json', 'number,url,state']);
+    expect(calls[0]!.cwd).toBe('/wt/a');
+    expect(pr).toEqual({ number: 18, url: 'https://github.com/o/r/pull/18' });
+  });
+
+  // The only signal gh gives for "this branch has no PR" is a nonzero exit. It is
+  // also what an auth or remote failure looks like — which is why this returns
+  // null rather than throwing: `openPr` runs next and reports that failure with
+  // gh's own words. Nothing is swallowed.
+  it('is null when gh exits nonzero — no PR for this branch', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', exitCode: 1, stderr: 'no pull requests found for branch' });
+    expect(await findOpenPr(gh, '/wt')).toBeNull();
+  });
+
+  it('is null on output that is not JSON, rather than throwing', async () => {
+    const gh: GhRunner = async () => ({ stdout: 'https://github.com/o/r/pull/1', exitCode: 0 });
+    expect(await findOpenPr(gh, '/wt')).toBeNull();
+  });
+
+  // A closed or merged PR does NOT block a new one on the same branch. Adopting
+  // it would strand the ticket on a PR nobody will merge, and skip the create
+  // that should have happened.
+  it.each(['CLOSED', 'MERGED'])('is null for a %s PR — a new one must still open', async (state) => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ number: 4, url: 'https://github.com/o/r/pull/4', state }),
+      exitCode: 0,
+    });
+    expect(await findOpenPr(gh, '/wt')).toBeNull();
+  });
+
+  it('falls back to the URL when gh reports no number', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ url: 'https://github.com/o/r/pull/12', state: 'OPEN' }),
+      exitCode: 0,
+    });
+    expect(await findOpenPr(gh, '/wt')).toEqual({ number: 12, url: 'https://github.com/o/r/pull/12' });
+  });
+
+  it('is null when the JSON carries no url — an adopted PR with no link is useless', async () => {
+    const gh: GhRunner = async () => ({ stdout: viewJson({ number: 3, state: 'OPEN' }), exitCode: 0 });
+    expect(await findOpenPr(gh, '/wt')).toBeNull();
   });
 });

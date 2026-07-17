@@ -11,6 +11,18 @@ const APPROACH_SOURCED: ApproachDef = {
   source: { type: 'git', repo: 'owner/rpi', ref: 'main', include: ['prompts/'] },
 };
 
+/** An npm-source approach: installing it shells out `source.command`. */
+const APPROACH_NPM: ApproachDef = {
+  id: 'gsd',
+  label: 'Get Shit Done',
+  source: {
+    type: 'npm',
+    package: 'get-shit-done',
+    command: 'npx get-shit-done init',
+    collect: ['.claude/commands'],
+  },
+};
+
 const VALID: Manifest = {
   host: 'localhost',
   portRange: [4000, 4999],
@@ -25,6 +37,8 @@ const VALID: Manifest = {
   approaches: [APPROACH_A], agents: {}, worktreePathDisplay: 'relative',
 };
 
+const NPM_MANIFEST: Manifest = { ...VALID, approaches: [APPROACH_NPM] };
+
 function harness(overrides: Partial<SettingsActionsDeps> = {}) {
   const posted: SettingsHostMessage[] = [];
   const order: string[] = [];
@@ -35,6 +49,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     onChange: () => order.push('change'),
     loadState: () => ({ manifest: current, error: null }),
     installApproach: async () => { order.push('install'); return undefined; },
+    confirmInstallCommand: async () => true,
     uninstallApproach: () => { order.push('uninstall'); return true; },
     listInstalledIds: () => ['a'],
     setToken: async () => { order.push('setToken'); return true; },
@@ -152,6 +167,65 @@ describe('settings actions — installApproach', () => {
     await actions.installApproach('a');
     const e = posted.find((m) => m.type === 'error');
     expect((e as any).message).toBe('boom');
+  });
+});
+
+// An npm-source install shells out `source.command` from the workspace's
+// karst.yml (extension.ts's realRunCommand, shell:true). A cloned or shared repo
+// therefore runs arbitrary shell on install — the confirm is the only thing
+// between the manifest and the shell.
+describe('settings actions — installApproach npm-source confirm', () => {
+  const npmHarness = (overrides: Partial<SettingsActionsDeps> = {}) =>
+    harness({ loadState: () => ({ manifest: NPM_MANIFEST, error: null }), ...overrides });
+
+  it('prompts with the exact command string before installing', async () => {
+    const seen: string[] = [];
+    const { actions } = npmHarness({
+      confirmInstallCommand: async (cmd) => { seen.push(cmd); return true; },
+    });
+    await actions.installApproach('gsd');
+    expect(seen).toEqual(['npx get-shit-done init']);
+  });
+
+  it('declined: never reaches the installer', async () => {
+    const { actions, order } = npmHarness({ confirmInstallCommand: async () => false });
+    await actions.installApproach('gsd');
+    expect(order).not.toContain('install');
+  });
+
+  it('declined: posts no error — a decline is a choice, not a failure', async () => {
+    const { actions, posted } = npmHarness({ confirmInstallCommand: async () => false });
+    await actions.installApproach('gsd');
+    expect(posted.find((m) => m.type === 'error')).toBeUndefined();
+  });
+
+  it('confirmed: installs', async () => {
+    const { actions, order } = npmHarness({ confirmInstallCommand: async () => true });
+    await actions.installApproach('gsd');
+    expect(order).toContain('install');
+  });
+
+  it('asks BEFORE running anything', async () => {
+    const { actions, order } = npmHarness({
+      confirmInstallCommand: async () => { order.push('confirm'); return true; },
+    });
+    await actions.installApproach('gsd');
+    // Not just relative order: assert both ran. `indexOf` on an absent entry is
+    // -1, which would satisfy a bare `toBeLessThan` while never prompting at all.
+    expect(order).toContain('confirm');
+    expect(order).toContain('install');
+    expect(order.indexOf('confirm')).toBeLessThan(order.indexOf('install'));
+  });
+
+  it('non-npm source: installs with no prompt (nothing shells out)', async () => {
+    let asked = false;
+    const { actions, order } = harness({
+      loadState: () => ({ manifest: { ...VALID, approaches: [APPROACH_SOURCED] }, error: null }),
+      confirmInstallCommand: async () => { asked = true; return true; },
+    });
+    await actions.installApproach('rpi');
+    expect(asked).toBe(false);
+    expect(order).toContain('install');
   });
 });
 

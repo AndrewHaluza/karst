@@ -1,13 +1,24 @@
 import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
-import { STAGE_KEYS } from '../model/types.js';
+import { MARKER_STAGES, isMarkerStage, type MarkerStage } from '../agent/markerStage.js';
 import { transition as defaultTransition } from '../workflow/machine.js';
 
 /**
- * The `karst stage <key> <pass|fail> [reason]` CLI — a thin wrapper over
- * `transition()` (T4.1), the marker path an agent uses to advance a stage it
- * cannot self-report a deterministic verdict for (e.g. the impl boundary, §5.4).
- * It is NOT a separate stage — it just parses argv and calls the machine.
+ * The `karst stage <impl|fix> pass` CLI — a thin wrapper over `transition()`
+ * (T4.1), the marker path an agent uses to advance a boundary that has no
+ * deterministic verdict of its own (§5.4). It is NOT a separate stage — it just
+ * parses argv and calls the machine.
+ *
+ * The surface is deliberately two stages and one verdict wide:
+ *
+ *  - **Stages** narrow to `MARKER_STAGES`. Accepting the full `STAGE_KEYS` set
+ *    let `stage ship pass` force a passed verdict on a gate that never ran,
+ *    bypassing tests, gates and the PR-open flow — an agent self-reporting a
+ *    deterministic verdict, which §5.4 forbids. The invoking agent reads ticket
+ *    content it did not author, so prompt injection makes that reachable.
+ *  - **Verdicts** narrow to `pass`. Neither marker stage has a `failed` edge, so
+ *    a parsed `fail` could only ever throw in the machine; rejecting it here
+ *    names the mistake instead of explaining the graph.
  */
 
 /**
@@ -25,41 +36,36 @@ import { transition as defaultTransition } from '../workflow/machine.js';
 export function composeStageCommand(
   cliEntry: string,
   dbPath: string,
-  stage: StageKey = 'impl',
+  stage: MarkerStage = 'impl',
 ): string {
   const q = (s: string): string => `"${s}"`;
   return ['node', q(cliEntry), 'stage', stage, 'pass', '--db', q(dbPath), '--ticket'].join(' ');
 }
 
 export interface ParsedStage {
-  stage: StageKey;
-  verdict: Exclude<Verdict, null>;
-}
-
-function isStageKey(v: string): v is StageKey {
-  return (STAGE_KEYS as readonly string[]).includes(v);
+  stage: MarkerStage;
+  verdict: { kind: 'passed' };
 }
 
 /**
- * Parse `['stage', <key>, <pass|fail>, ...reason]` at the system boundary.
- * Fails fast with a clear message on anything malformed — never trust argv.
+ * Parse `['stage', <impl|fix>, 'pass']` at the system boundary. Fails fast with a
+ * clear message on anything malformed — never trust argv.
  */
 export function parseStageArgs(argv: string[]): ParsedStage {
-  const [cmd, stage, word, ...rest] = argv;
+  const [cmd, stage, word] = argv;
   if (cmd !== 'stage') {
     throw new Error(`expected 'stage' command, got '${cmd ?? ''}'`);
   }
-  if (!stage || !isStageKey(stage)) {
-    throw new Error(`unknown stage key '${stage ?? ''}' (want one of ${STAGE_KEYS.join(', ')})`);
+  if (!stage || !isMarkerStage(stage)) {
+    throw new Error(
+      `cannot mark stage '${stage ?? ''}' (want one of ${MARKER_STAGES.join(', ')}) — ` +
+        'a gate verdict comes from its exit code, not from the agent',
+    );
   }
-  if (word === 'pass') {
-    return { stage, verdict: { kind: 'passed' } };
+  if (word !== 'pass') {
+    throw new Error(`unknown verdict '${word ?? ''}' (the marker records 'pass' only)`);
   }
-  if (word === 'fail') {
-    const reason = rest.join(' ').trim();
-    return { stage, verdict: reason ? { kind: 'failed', reason } : { kind: 'failed' } };
-  }
-  throw new Error(`unknown verdict '${word ?? ''}' (want 'pass' or 'fail')`);
+  return { stage, verdict: { kind: 'passed' } };
 }
 
 /** The machine call the CLI performs — injected so the command is unit-testable. */

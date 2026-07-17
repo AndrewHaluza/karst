@@ -30,30 +30,44 @@ describe('parseStageArgs', () => {
     });
   });
 
-  it('parses "stage uat fail" into a failed verdict', () => {
-    expect(parseStageArgs(['stage', 'uat', 'fail'])).toEqual({
-      stage: 'uat',
-      verdict: { kind: 'failed' },
+  it('parses "stage fix pass" — the resume boundary', () => {
+    expect(parseStageArgs(['stage', 'fix', 'pass'])).toEqual({
+      stage: 'fix',
+      verdict: { kind: 'passed' },
     });
   });
 
-  it('carries an optional fail reason', () => {
-    expect(parseStageArgs(['stage', 'review', 'fail', 'lint broke'])).toEqual({
-      stage: 'review',
-      verdict: { kind: 'failed', reason: 'lint broke' },
-    });
+  // The marker CLI exists for the two boundaries an agent works at (§5.4). A gate
+  // verdict must come from an exit code, never from the agent saying so — the CLI
+  // refusing gate keys is what makes that structural rather than conventional.
+  it.each(['uat', 'review', 'ship', 'scope', 'done'])('rejects the gated stage "%s"', (stage) => {
+    expect(() => parseStageArgs(['stage', stage, 'pass'])).toThrow(/impl, fix/);
+  });
+
+  it('names the rejected key so a misfired marker is diagnosable', () => {
+    expect(() => parseStageArgs(['stage', 'ship', 'pass'])).toThrow(/ship/);
   });
 
   it('rejects an unknown stage key', () => {
     expect(() => parseStageArgs(['stage', 'nope', 'pass'])).toThrow();
   });
 
+  // Neither marker stage has a `failed` edge, so every `fail` that parsed would
+  // throw in the machine anyway. Rejecting here names the mistake, not the graph.
+  it('rejects "fail" — the marker CLI records passes only', () => {
+    expect(() => parseStageArgs(['stage', 'impl', 'fail'])).toThrow(/pass/);
+  });
+
+  it('rejects "fail" with a reason', () => {
+    expect(() => parseStageArgs(['stage', 'fix', 'fail', 'lint broke'])).toThrow(/pass/);
+  });
+
   it('rejects an unknown verdict word', () => {
-    expect(() => parseStageArgs(['stage', 'uat', 'maybe'])).toThrow();
+    expect(() => parseStageArgs(['stage', 'impl', 'maybe'])).toThrow();
   });
 
   it('rejects a missing verdict', () => {
-    expect(() => parseStageArgs(['stage', 'uat'])).toThrow();
+    expect(() => parseStageArgs(['stage', 'impl'])).toThrow();
   });
 });
 

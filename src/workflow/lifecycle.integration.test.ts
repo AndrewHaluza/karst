@@ -46,7 +46,13 @@ const adapter: AgentAdapter = {
   requiredBinary: 'claude',
   capabilities: { httpHooks: true, resume: true },
 };
-const gh: GhRunner = async () => ({ stdout: 'https://github.com/o/r/pull/1', exitCode: 0 });
+// `pr view` is ship's "already shipped?" probe; a fresh branch has no PR, which
+// gh reports as a nonzero exit. Answered explicitly rather than letting the
+// create response stand in for it.
+const gh: GhRunner = async (args) =>
+  args[1] === 'view'
+    ? { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+    : { stdout: 'https://github.com/o/r/pull/1', exitCode: 0 };
 
 describe('MVP lifecycle (workflow spine)', () => {
   let store: Store;

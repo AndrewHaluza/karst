@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { SettingsPanel, SettingsPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
+import { injectCsp, newNonce } from '../../model/csp.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -27,7 +28,8 @@ export function makeSettingsPanelHost(context: vscode.ExtensionContext): Setting
         vscode.ViewColumn.Active,
         { enableScripts: true, retainContextWhenHidden: true },
       );
-      panel.webview.html = html;
+      // Nonce per panel, not per host (the html above is built once and reused).
+      panel.webview.html = injectCsp(html, newNonce());
       return {
         reveal: () => panel.reveal(),
         postMessage: (message) => void panel.webview.postMessage(message),

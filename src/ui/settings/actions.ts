@@ -1,5 +1,6 @@
 import type { ApproachDef, Manifest } from '../../manifest/types.js';
 import { validateManifest, ManifestError } from '../../manifest/schema.js';
+import { installCommandFor } from '../../approaches/fetch.js';
 import type { SettingsActions, SettingsHostMessage } from './messages.js';
 import { buildSettingsState, type SettingsState } from './state.js';
 import type { LoadedManifest } from './panel.js';
@@ -26,6 +27,16 @@ export interface SettingsActionsDeps {
   loadState(): LoadedManifest;
   /** Install a resolved approach package (real installer bound in extension.ts). */
   installApproach(def: ApproachDef): Promise<unknown>;
+  /**
+   * Confirm (host-side, modal) that `command` may run before an npm-source
+   * install shells it out. Resolves true to proceed, false if the user declined.
+   *
+   * The command string comes from the workspace's `karst.yml` and runs through a
+   * shell, so a cloned or shared repo would otherwise execute arbitrary shell on
+   * install with nothing prompting the user. This is the gate; the caller shows
+   * the command verbatim so the user can see what they are agreeing to.
+   */
+  confirmInstallCommand(command: string): Promise<boolean>;
   /** Remove an installed approach package by id. */
   uninstallApproach(id: string): boolean;
   /** Ids of approach packages currently present on disk. */
@@ -121,6 +132,13 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           ctx.post({ type: 'error', message: `Unknown approach "${id}".` });
           return;
         }
+        // An npm source shells out `source.command`; everything else only reads
+        // files. Gate the shell-out on an explicit confirm — a decline is a
+        // choice, not a failure, so it returns quietly rather than posting an
+        // error.
+        const command = installCommandFor(def);
+        if (command !== null && !(await deps.confirmInstallCommand(command))) return;
+
         try {
           await deps.installApproach(def);
           await pushStateWithInstalled();

@@ -72,6 +72,43 @@ function prNumberFromUrl(url: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** The `gh pr view --json` fields this reads. Everything is optional: it is gh's output, not ours. */
+interface PrView {
+  number?: unknown;
+  url?: unknown;
+  state?: unknown;
+}
+
+/**
+ * The open PR for whatever branch is checked out in `cwd`, or null. Every ticket
+ * works on its own worktree branch, so gh's branch-inferred lookup is exactly the
+ * question ship asks: has this branch already been shipped?
+ *
+ * Null, never a throw — for "no PR" AND for every failure (bad auth, no remote,
+ * unparseable output). This is a probe, not the operation: `openPr` runs next and
+ * reports a real failure in gh's own words, so nothing is swallowed by answering
+ * "no PR I can adopt" here.
+ *
+ * Only an OPEN PR counts. A closed or merged one does not block a new PR on the
+ * same branch, and adopting it would strand the ticket on a PR nobody will merge
+ * while skipping the create that should have happened.
+ */
+export async function findOpenPr(gh: GhRunner, cwd: string): Promise<OpenedPr | null> {
+  const r = await gh(['pr', 'view', '--json', 'number,url,state'], cwd);
+  if (r.exitCode !== 0) return null;
+
+  let view: PrView;
+  try {
+    view = JSON.parse(r.stdout) as PrView;
+  } catch {
+    return null;
+  }
+  if (view.state !== 'OPEN' || typeof view.url !== 'string' || view.url === '') return null;
+
+  const number = typeof view.number === 'number' ? view.number : prNumberFromUrl(view.url);
+  return { url: view.url, number };
+}
+
 /**
  * Open a PR for one repo via `gh pr create`. MVP opens PRs independently with
  * no ordering (cross-repo merge ordering is out of scope). Throws on a nonzero

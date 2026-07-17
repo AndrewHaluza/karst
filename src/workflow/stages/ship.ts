@@ -5,7 +5,7 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
-import { openPr, defaultGhRunner, type GhRunner } from '../../integrations/github.js';
+import { openPr, findOpenPr, defaultGhRunner, type GhRunner } from '../../integrations/github.js';
 import {
   commitAllIfDirty,
   pushBranch,
@@ -95,8 +95,24 @@ export async function shipTicket(
       // `gh pr create` would fail with "No commits between main and karst/…".
       await commitAllIfDirty(git, wt.path, title);
       await pushBranch(git, wt.path);
-      const body = adapter ? await describePr(adapter, wt.path, title) : title;
-      const opened = await openPr(gh, { cwd: wt.path, title, body });
+      // The `prs` table only knows about PRs karst itself opened, so a PR opened
+      // by hand — or by a run whose row was lost — used to make ship fail with
+      // gh's "a pull request for branch … already exists", permanently: openPr
+      // threw before the insert below, so the local check above could never
+      // absorb the retry, and ship has no `failed` edge to advance out of. An
+      // open PR is what ship is FOR. Adopt it; the push above already gave it
+      // the new commits.
+      //
+      // Probing BEFORE the create rather than rescuing after it also keeps
+      // `describePr` from paying for prose describing a PR that already exists.
+      const existing = await findOpenPr(gh, wt.path);
+      const opened =
+        existing ??
+        (await openPr(gh, {
+          cwd: wt.path,
+          title,
+          body: adapter ? await describePr(adapter, wt.path, title) : title,
+        }));
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
       prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
     }
