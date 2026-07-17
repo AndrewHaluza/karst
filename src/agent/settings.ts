@@ -28,6 +28,13 @@ const HTTP_EVENTS = [
  * returns a fast 2xx (T0.2 finding 2).
  */
 export function buildHookSettings(port: number): string {
+  // A session reads --settings once, at launch, and never again: whatever port is
+  // baked in here is the only one it will ever POST to. Port 0 ("endpoint not
+  // bound yet") would write http://127.0.0.1:0/hooks and every hook of that
+  // session's life would ECONNREFUSE. Refuse to launch instead.
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error(`karst: refusing to write hook settings for unbound port ${port}`);
+  }
   const url = hookUrl(port);
   const httpHook = { type: 'http', url, timeout: 10 };
   const bridgeHook = {

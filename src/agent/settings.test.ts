@@ -30,6 +30,19 @@ describe('buildHookSettings', () => {
     }
   });
 
+  // Port 0 means "the endpoint has not bound yet" — the caller's `?? 0` fallback.
+  // Written out it becomes http://127.0.0.1:0/hooks: a session that launches with
+  // it ECONNREFUSEDs on every hook for its whole life, silently. Refuse instead.
+  it('refuses a port the endpoint has not bound', () => {
+    expect(() => buildHookSettings(0)).toThrow(/port/i);
+    const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
+    try {
+      expect(() => writeHookSettings(0, dir)).toThrow(/port/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('writeHookSettings writes the JSON to disk and returns the path', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
     try {
