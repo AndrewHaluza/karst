@@ -71,6 +71,7 @@ describe('writeManifest', () => {
         provider: 'clickup',
         teamId: '9001',
         listId: '42',
+        advanceOnShip: false,
       });
     } finally {
       cleanup();
@@ -119,7 +120,13 @@ describe('writeManifest', () => {
         },
         worktreePathDisplay: 'absolute',
         ticketLabelTemplate: '{key} · {stage} · {status}',
-        ticketing: { provider: 'clickup', teamId: '9001', listId: '42' },
+        ticketing: {
+          provider: 'clickup',
+          teamId: '9001',
+          listId: '42',
+          advanceOnShip: true,
+          shipStatus: 'in review',
+        },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
       };

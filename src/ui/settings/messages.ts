@@ -15,7 +15,8 @@ export type SettingsWebviewMessage =
   | { type: 'create-agent'; name: string }
   | { type: 'delete-agent'; name: string }
   | { type: 'request-state' }
-  | { type: 'get-approach-command-body'; approachId: string; command: string };
+  | { type: 'get-approach-command-body'; approachId: string; command: string }
+  | { type: 'fetch-ticket-statuses'; listId: string; teamId?: string };
 
 /** Host → webview messages. */
 export type SettingsHostMessage =
@@ -23,7 +24,9 @@ export type SettingsHostMessage =
   | { type: 'validation'; ok: boolean; error: string | null }
   | { type: 'error'; message: string }
   | { type: 'saved' }
-  | { type: 'approach-command-body'; approachId: string; command: string; body: string };
+  | { type: 'approach-command-body'; approachId: string; command: string; body: string }
+  | { type: 'ticket-statuses'; statuses: string[] }
+  | { type: 'ticket-statuses-error'; message: string };
 
 /** The host-side effects a settings panel can trigger. */
 export interface SettingsActions {
@@ -48,6 +51,11 @@ export interface SettingsActions {
   requestState(): void;
   /** Read a command's markdown body (native command file or generated orchestrator). */
   getApproachCommandBody(approachId: string, command: string): void;
+  /**
+   * Load the provider's status names for the settings draft's list. Takes the
+   * ids from the DRAFT (not the saved manifest) so Refresh works before Save.
+   */
+  fetchTicketStatuses(listId: string, teamId?: string): void;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -99,6 +107,15 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
       return str('approachId') && str('command')
         ? { type: 'get-approach-command-body', approachId: raw.approachId as string, command: raw.command as string }
         : null;
+    case 'fetch-ticket-statuses': {
+      if (!str('listId')) return null;
+      if (raw.teamId !== undefined && typeof raw.teamId !== 'string') return null;
+      return {
+        type: 'fetch-ticket-statuses',
+        listId: raw.listId as string,
+        ...(raw.teamId ? { teamId: raw.teamId as string } : {}),
+      };
+    }
     default:
       return null;
   }
@@ -147,6 +164,9 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return;
     case 'get-approach-command-body':
       actions.getApproachCommandBody(msg.approachId, msg.command);
+      return;
+    case 'fetch-ticket-statuses':
+      actions.fetchTicketStatuses(msg.listId, msg.teamId);
       return;
   }
 }

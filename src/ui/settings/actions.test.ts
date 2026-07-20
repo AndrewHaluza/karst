@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { buildSettingsActions, type SettingsActionsDeps } from './actions.js';
 import type { SettingsHostMessage } from './messages.js';
 import type { Manifest, ApproachDef } from '../../manifest/types.js';
+import type { TicketingProvider } from '../../integrations/ticketing.js';
+import type { TicketingConfig } from '../../manifest/types.js';
 
 const APPROACH_A: ApproachDef = { id: 'a', label: 'Approach A' };
 /** A sourced (git) approach: enabling it requires an installed package. */
@@ -61,6 +63,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     listAgentRows: () => [],
     listApproachCommands: () => ({}),
     readApproachCommandBody: () => '',
+    makeProvider: () => ({ async updateStatus() {}, async listStatuses() { return []; } }),
     ...overrides,
   };
   const factory = buildSettingsActions(deps);
@@ -469,5 +472,71 @@ describe('settings actions — getApproachCommandBody', () => {
     });
     await actions.getApproachCommandBody('rpi', '/rpi:nope');
     expect(posted.some((m) => m.type === 'error')).toBe(true);
+  });
+});
+
+describe('fetchTicketStatuses', () => {
+  it('posts the provider status names', async () => {
+    const { actions, posted } = harness({
+      makeProvider: () => ({
+        async updateStatus() {},
+        async listStatuses() {
+          return ['to do', 'in review'];
+        },
+      }),
+    });
+
+    await actions.fetchTicketStatuses('42');
+
+    expect(posted).toContainEqual({
+      type: 'ticket-statuses',
+      statuses: ['to do', 'in review'],
+    });
+  });
+
+  it('builds the provider from the draft ids, so Refresh works before Save', async () => {
+    const seen: TicketingConfig[] = [];
+    const { actions } = harness({
+      makeProvider: (config: TicketingConfig): TicketingProvider => {
+        seen.push(config);
+        return { async updateStatus() {}, async listStatuses() { return []; } };
+      },
+    });
+
+    await actions.fetchTicketStatuses('99', '9001');
+
+    expect(seen).toEqual([{ provider: 'clickup', listId: '99', teamId: '9001' }]);
+  });
+
+  it('posts a status-scoped error, not a panel-level one, when the fetch fails', async () => {
+    const { actions, posted } = harness({
+      makeProvider: () => ({
+        async updateStatus() {},
+        async listStatuses(): Promise<string[]> {
+          throw new Error('ClickUp: GET /list/42 returned 401');
+        },
+      }),
+    });
+
+    await actions.fetchTicketStatuses('42');
+
+    expect(posted).toContainEqual({
+      type: 'ticket-statuses-error',
+      message: 'ClickUp: GET /list/42 returned 401',
+    });
+    expect(posted.some((m) => m.type === 'error')).toBe(false);
+  });
+
+  it('reports a provider that cannot list statuses', async () => {
+    const { actions, posted } = harness({
+      makeProvider: () => ({ async updateStatus() {} }),
+    });
+
+    await actions.fetchTicketStatuses('42');
+
+    expect(posted).toContainEqual({
+      type: 'ticket-statuses-error',
+      message: 'This provider cannot list statuses.',
+    });
   });
 });

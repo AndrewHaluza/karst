@@ -33,37 +33,42 @@ export interface ContextBrief {
 }
 
 export interface TicketingProvider {
-  updateStatus(key: string, status: string): Promise<void>;
+  /** Set the ticket's status. `ref` is the provider's own task ref (never karst's user-editable `key`). */
+  updateStatus(ref: string, status: string): Promise<void>;
   /**
    * Fetch a ticket by its provider ref (task id/key) and synthesize a brief.
    * Optional: `manualProvider` has no remote to fetch from. The extension host
    * calls this; the HTTP client and token are injected (never read here).
    */
   fetchTicket?(ref: string): Promise<ContextBrief>;
+  /**
+   * List available statuses for the configured list. Optional: only ClickUp
+   * implements this. Returns status names in provider order.
+   */
+  listStatuses?(): Promise<string[]>;
 }
 
 export interface ManualProvider extends TicketingProvider {
   /** The recorded updates, for the caller/UI and for tests. */
-  readonly updates: { key: string; status: string }[];
+  readonly updates: { ref: string; status: string }[];
 }
 
 export function manualProvider(): ManualProvider {
-  const updates: { key: string; status: string }[] = [];
+  const updates: { ref: string; status: string }[] = [];
   return {
     updates,
-    async updateStatus(key, status) {
-      updates.push({ key, status });
+    async updateStatus(ref, status) {
+      updates.push({ ref, status });
     },
   };
 }
 
 /**
  * Select a ticketing provider from manifest config. `manual` (or absent config)
- * yields `manualProvider` (local-only, no fetch); `clickup` yields a
- * `clickupProvider` bound to the injected `fetch` + token, with `teamId` wired
- * through. `listId` is intentionally not threaded — no ClickUp code path
- * consumes it yet (§15). The `clickup` import is type-erased at the seam, so no
- * runtime cycle forms.
+ * yields `manualProvider` (local-only, no fetch/list); `clickup` yields a
+ * `clickupProvider` bound to the injected `fetch` + token, with `teamId` and
+ * `listId` wired through — `listId` is what `listStatuses` reads (§15). The
+ * `clickup` import is type-erased at the seam, so no runtime cycle forms.
  */
 export function makeTicketingProvider(
   config: TicketingConfig | undefined,
@@ -71,5 +76,10 @@ export function makeTicketingProvider(
   token: TokenProvider,
 ): TicketingProvider {
   if (config?.provider !== 'clickup') return manualProvider();
-  return clickupProvider({ fetchFn, token, teamId: config.teamId });
+  return clickupProvider({
+    fetchFn,
+    token,
+    teamId: config.teamId,
+    listId: config.listId,
+  });
 }

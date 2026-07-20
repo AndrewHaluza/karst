@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, updateTicketOnboarding } from '../store/tickets.js';
 import { createTicketFlow } from './stages/create.js';
 import { scopeTicket } from './stages/scope.js';
 import { markImplementDone } from './stages/implement.js';
@@ -11,10 +11,10 @@ import { runUat, type TestRunner } from './stages/uat.js';
 import { runReview, type GateRunner } from './stages/review.js';
 import { runFix } from './stages/fix.js';
 import { shipTicket } from './stages/ship.js';
-import { updateTicketStatus } from './stages/done.js';
+import { advanceTicketOnShip } from './stages/done.js';
 import { transition } from './machine.js';
 import { reconcileOnStart, deriveStageCurrent } from '../recovery/reconcile.js';
-import { manualProvider } from '../integrations/ticketing.js';
+import type { TicketingProvider } from '../integrations/ticketing.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { GhRunner } from '../integrations/github.js';
 import type { GitRunner } from '../integrations/git.js';
@@ -120,10 +120,23 @@ describe('MVP lifecycle (workflow spine)', () => {
     expect(shipRes.prs).toHaveLength(1);
     expect(getTicket(store, id).stageCurrent).toBe('done');
 
-    // update the external ticket status via the provider seam
-    const provider = manualProvider();
-    await updateTicketStatus(store, id, 'done', provider);
-    expect(provider.updates).toEqual([{ key: 'PROJ-142', status: 'done' }]);
+    // update the external ticket status via the provider seam — addressed by the
+    // provider's own ref, which a fetched ticket carries.
+    updateTicketOnboarding(store, id, { sourceRef: 'CU-abc123' });
+    const updates: { ref: string; status: string }[] = [];
+    const provider: TicketingProvider = {
+      async updateStatus(ref, status) {
+        updates.push({ ref, status });
+      },
+    };
+    const advanced = await advanceTicketOnShip(
+      store,
+      id,
+      { provider: 'clickup', advanceOnShip: true, shipStatus: 'done' },
+      provider,
+    );
+    expect(advanced).toEqual({ advanced: true, status: 'done' });
+    expect(updates).toEqual([{ ref: 'CU-abc123', status: 'done' }]);
 
     // reopen: reconcile must keep the ticket at done (no stage lost)
     store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('scope', id); // simulate drift

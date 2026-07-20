@@ -1,23 +1,56 @@
 import type { Store } from '../../store/db.js';
-import { getTicket } from '../../store/tickets.js';
-import { manualProvider, type TicketingProvider } from '../../integrations/ticketing.js';
+import { getTicket, type Ticket } from '../../store/tickets.js';
+import type { TicketingConfig } from '../../manifest/types.js';
+import type { TicketingProvider } from '../../integrations/ticketing.js';
 
 /**
- * Done stage (§T4.5, §11, §15). Updates the ticket's status through the
- * ticketing provider (swappable seam) — MVP defaults to the manual provider,
- * which records the update locally. Uses the ticket's `key` as the external
- * identifier the provider understands.
+ * Done stage (§T4.5, §11, §15). Pushes the ticket's post-ship status through the
+ * ticketing provider (swappable seam).
  *
- * [L4] Independent of ship: PRs and ticket-status have separate failure modes,
- * so this never depends on ship having succeeded — only on the ticket id.
+ * [L4] Independent of ship: PRs and ticket-status have separate failure modes, so
+ * this never depends on ship having succeeded — only on the ticket id. Ship has
+ * already transitioned to done by the time this runs (`ship.ts:120`), so a failure
+ * here cannot drag a shipped ticket back to red.
  */
-export async function updateTicketStatus(
+
+/**
+ * The provider-side handle for a ticket: the ref the provider itself returned at
+ * fetch, never the user-editable `key`. `null` → nothing addressable.
+ *
+ * `key` is NOT usable here. It is seeded from the fetched ref at create
+ * (`ui/onboarding/actions.ts:129`) but `updateTicketCore` lets the user edit it to
+ * arbitrary text, and a manual ticket has a hand-typed `key` and no ref at all.
+ * Sending it would address a task nobody ever fetched.
+ */
+export function providerRef(ticket: Ticket): string | null {
+  const ref = (ticket.sourceRef ?? '').trim();
+  return ref === '' ? null : ref;
+}
+
+/** Why the push did nothing, so the caller can log rather than guess. */
+export type AdvanceResult =
+  | { advanced: true; status: string }
+  | { advanced: false; reason: 'disabled' | 'no-ref' };
+
+/**
+ * Push the configured post-ship status, when configured and addressable. Owns the
+ * whole decision so the (untestable) `vscode` binding holds one call and every
+ * branch that could reach a live provider is covered by tests.
+ *
+ * Throws whatever the provider throws — the caller warns; it never fails the ship.
+ */
+export async function advanceTicketOnShip(
   store: Store,
   ticketId: number,
-  status: string,
-  provider: TicketingProvider = manualProvider(),
-): Promise<void> {
-  const ticket = getTicket(store, ticketId);
-  const key = ticket.key ?? String(ticketId);
-  await provider.updateStatus(key, status);
+  ticketing: TicketingConfig | undefined,
+  provider: TicketingProvider,
+): Promise<AdvanceResult> {
+  const status = ticketing?.advanceOnShip ? (ticketing.shipStatus ?? '').trim() : '';
+  if (!status) return { advanced: false, reason: 'disabled' };
+
+  const ref = providerRef(getTicket(store, ticketId));
+  if (!ref) return { advanced: false, reason: 'no-ref' };
+
+  await provider.updateStatus(ref, status);
+  return { advanced: true, status };
 }

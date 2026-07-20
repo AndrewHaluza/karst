@@ -8,7 +8,7 @@ describe('manualProvider', () => {
   it('records the status update without calling any external service', async () => {
     const provider = manualProvider();
     await provider.updateStatus('PROJ-1', 'done');
-    expect(provider.updates).toEqual([{ key: 'PROJ-1', status: 'done' }]);
+    expect(provider.updates).toEqual([{ ref: 'PROJ-1', status: 'done' }]);
   });
 });
 
@@ -30,5 +30,29 @@ describe('makeTicketingProvider', () => {
       token,
     );
     expect(typeof provider.fetchTicket).toBe('function');
+  });
+});
+
+describe('makeTicketingProvider — listStatuses', () => {
+  it('threads listId through to the clickup provider', async () => {
+    const urls: string[] = [];
+    const spyFetch = (async (url: string | URL) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ statuses: [{ status: 'in review' }] }));
+    }) as unknown as typeof fetch;
+
+    const provider = makeTicketingProvider(
+      { provider: 'clickup', listId: '42' },
+      spyFetch,
+      token,
+    );
+
+    expect(await provider.listStatuses!()).toEqual(['in review']);
+    expect(urls[0]).toContain('/list/42');
+  });
+
+  it('gives the manual provider no listStatuses', () => {
+    const provider = makeTicketingProvider({ provider: 'manual' }, noopFetch, token);
+    expect(provider.listStatuses).toBeUndefined();
   });
 });

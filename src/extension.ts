@@ -52,7 +52,7 @@ import {
 } from './extension/manifestResolve.js';
 import { installApproach, type RunCommand } from './approaches/fetch.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
-import type { ApproachDef } from './manifest/types.js';
+import type { ApproachDef, TicketingConfig } from './manifest/types.js';
 import {
   listInstalled,
   readApproachPackage,
@@ -71,6 +71,7 @@ import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/
 import { runUat } from './workflow/stages/uat.js';
 import { runReview } from './workflow/stages/review.js';
 import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
+import { advanceTicketOnShip } from './workflow/stages/done.js';
 import {
   getTicket,
   ticketLabel,
@@ -89,7 +90,7 @@ import {
   clearToken,
   hasToken,
 } from './extension/secrets.js';
-import { makeTicketingProvider } from './integrations/ticketing.js';
+import { makeTicketingProvider, type TicketingProvider } from './integrations/ticketing.js';
 import { SettingsManager, type LoadedManifest } from './ui/settings/panel.js';
 import { buildSettingsActions } from './ui/settings/actions.js';
 import type { SettingsState } from './ui/settings/state.js';
@@ -586,6 +587,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!art) throw new Error(`No command "${command}" in approach "${approachId}".`);
         return readFileSync(join(dir, approachId, art.relPath), 'utf8');
       },
+      makeProvider: (config) => makeTicketingProvider(config, fetch, makeTokenProvider(context)),
     }),
     listInstalledApproachIds,
     () => hasToken(context),
@@ -609,6 +611,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         logError,
         guardCapability,
+        () => currentManifest()?.ticketing,
+        () =>
+          makeTicketingProvider(
+            currentManifest()?.ticketing,
+            fetch,
+            makeTokenProvider(context),
+          ),
       ),
     () => worktreePathContext(currentManifest()),
     () => currentManifest()?.ticketLabelTemplate,
@@ -1320,6 +1329,10 @@ function makeDashboardActions(
   afterServerChange: () => void,
   logError: LogError,
   guardCapability: CapabilityGuard,
+  // Read fresh at call time so a status saved in settings applies without a
+  // window reload — same getter pattern as the onboarding provider.
+  ticketing: () => TicketingConfig | undefined,
+  ticketingProvider: () => TicketingProvider,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {
@@ -1383,7 +1396,33 @@ function makeDashboardActions(
       // then dies at `gh pr create`.
       if (!guardCapability('ship')) return;
       void runShipTicket(store, { ticketId }, undefined, agentAdapter)
-        .then(() => afterServerChange())
+        .then(async () => {
+          // The PRs are open and the branch is pushed — the irreversible part
+          // succeeded, and ship.ts already transitioned to done. So a failed
+          // status push warns; it never drags a shipped ticket back to red.
+          try {
+            const res = await advanceTicketOnShip(
+              store,
+              ticketId,
+              ticketing(),
+              ticketingProvider(),
+            );
+            if (!res.advanced && res.reason === 'no-ref') {
+              logError(
+                `ticket #${ticketId} shipped without a status update: no provider ref`,
+                undefined,
+              );
+            }
+          } catch (e) {
+            logError('ticket status update failed', e);
+            void vscode.window.showWarningMessage(
+              `Ticket shipped, but the status update failed: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            );
+          }
+          afterServerChange();
+        })
         .catch((e) => {
           logError('ship failed', e);
           // `shipTicket` already recorded the reason on the ship stage, so the
