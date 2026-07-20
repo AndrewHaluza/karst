@@ -55,11 +55,22 @@ export interface SidebarState {
  */
 export function buildSidebarState(
   store: Store,
-  opts: { facet: FacetKey; filter: string; labelTemplate?: string },
+  opts: {
+    facet: FacetKey;
+    filter: string;
+    labelTemplate?: string;
+    /**
+     * The window's project (§ projects / multi-window). Both lists are scoped to
+     * it — including the counts, or the chip badges would advertise tickets the
+     * user can't see. Undefined only before a project is bound.
+     */
+    projectId?: number;
+  },
   pathContext?: PathContext,
 ): SidebarState {
-  const active = listTickets(store);
-  const archived = listArchivedTickets(store);
+  const scope = { projectId: opts.projectId };
+  const active = listTickets(store, scope);
+  const archived = listArchivedTickets(store, scope);
 
   const source = opts.facet === 'archived' ? archived : filterByFacet(active, opts.facet);
   const visible = filterTickets(source, opts.filter);

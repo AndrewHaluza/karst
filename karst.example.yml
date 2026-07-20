@@ -4,6 +4,12 @@
 # that contains `baselineBranch`; `start` must be a runnable command and its
 # `health` URL must become reachable, or spin fails.
 
+# `id` scopes this project's tickets, so several IDE windows can each work on a
+# different project without seeing each other's board. Karst stamps a generated
+# one when it scaffolds the file; keep it stable — changing it starts a fresh,
+# empty board. Omit it and Karst derives an id from the workspace path instead
+# (which changes if you move the repo).
+
 host: 127.0.0.1
 
 # Inclusive [min, max] port window Karst allocates ticket-hot ports from.

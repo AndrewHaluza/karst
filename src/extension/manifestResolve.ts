@@ -3,6 +3,7 @@ import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { loadManifest, type Manifest } from '../manifest/load.js';
+import { generateProjectSlug } from '../project/slug.js';
 
 /**
  * Manifest resolution for the activation layer (§7.1 wiring). Kept out of
@@ -54,9 +55,17 @@ export function agentsDirOrThrow(): string {
  */
 export async function scaffoldManifest(): Promise<void> {
   const manifestPath = manifestPathOrThrow();
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) throw new Error('no workspace folder');
+
+  // Stamp a generated project id (§ projects / multi-window). It cannot live in
+  // the bundled template: every scaffolded project would then share one slug and
+  // collapse into a single board. Generating per scaffold makes it unique, and
+  // writing it explicitly means a later repo move keeps the same project.
   const template = readFileSync(EXAMPLE_YML, 'utf8');
+  const withId = `id: ${generateProjectSlug(folder.uri.fsPath)}\n\n${template}`;
   mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, template);
+  writeFileSync(manifestPath, withId);
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifestPath));
   void vscode.window.showInformationMessage(
     "Created karst.yml — set each service's repoPath, then try again.",

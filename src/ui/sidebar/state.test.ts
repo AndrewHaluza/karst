@@ -19,6 +19,35 @@ describe('buildSidebarState', () => {
     expect(state.facet).toBe('all');
   });
 
+  it('shows only the bound project when one is given', () => {
+    createTicket(store, { key: 'A-1', title: 'mine', projectId: 1 });
+    createTicket(store, { key: 'B-1', title: 'theirs', projectId: 2 });
+
+    const state = buildSidebarState(store, { facet: 'all', filter: '', projectId: 1 });
+    expect(state.rows.map((r) => r.label)).toEqual(['A-1 — mine']);
+  });
+
+  it('scopes the archived facet to the bound project too', () => {
+    const mine = createTicket(store, { key: 'A-1', title: 'mine', projectId: 1 });
+    const theirs = createTicket(store, { key: 'B-1', title: 'theirs', projectId: 2 });
+    archiveTicket(store, mine.id);
+    archiveTicket(store, theirs.id);
+
+    const state = buildSidebarState(store, { facet: 'archived', filter: '', projectId: 1 });
+    expect(state.rows.map((r) => r.ticketId)).toEqual([mine.id]);
+  });
+
+  it('counts reflect only the bound project, so the chips do not leak', () => {
+    createTicket(store, { key: 'A-1', title: 'mine', projectId: 1 });
+    createTicket(store, { key: 'B-1', title: 'theirs', projectId: 2 });
+    const other = createTicket(store, { key: 'B-2', title: 'theirs archived', projectId: 2 });
+    archiveTicket(store, other.id);
+
+    const state = buildSidebarState(store, { facet: 'all', filter: '', projectId: 1 });
+    expect(state.counts.all).toBe(1);
+    expect(state.counts.archived).toBe(0);
+  });
+
   it('archived facet lists only archived tickets', () => {
     createTicket(store, { key: 'A-1', title: 'active' });
     const gone = createTicket(store, { key: 'B-1', title: 'archived' });

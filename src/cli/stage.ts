@@ -31,15 +31,31 @@ import { transition as defaultTransition } from '../workflow/machine.js';
  * `fix` must be seeded `fix` instead, or the agent fires the wrong marker and the
  * ticket never leaves fix.
  *
+ * `manifestPath` is optional but load-bearing once several projects share one
+ * DB: it names the project the key belongs to. Without it a key two projects
+ * both use resolves to whichever row is older, and the marker advances the
+ * wrong board.
+ *
  * Paths are double-quoted so spaces survive. Pure (no fs) so it is testable.
  */
 export function composeStageCommand(
   cliEntry: string,
   dbPath: string,
   stage: MarkerStage = 'impl',
+  manifestPath?: string,
 ): string {
   const q = (s: string): string => `"${s}"`;
-  return ['node', q(cliEntry), 'stage', stage, 'pass', '--db', q(dbPath), '--ticket'].join(' ');
+  return [
+    'node',
+    q(cliEntry),
+    'stage',
+    stage,
+    'pass',
+    '--db',
+    q(dbPath),
+    ...(manifestPath ? ['--manifest', q(manifestPath)] : []),
+    '--ticket',
+  ].join(' ');
 }
 
 export interface ParsedStage {

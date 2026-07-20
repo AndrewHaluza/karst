@@ -20,6 +20,18 @@ describe('composeStageCommand', () => {
       'node "/ext/cli.js" stage fix pass --db "/store/karst.db" --ticket',
     );
   });
+
+  it('carries the manifest so the marker lands on the right project board', () => {
+    expect(
+      composeStageCommand('/ext/cli.js', '/store/karst.db', 'impl', '/repo/.karst/karst.yml'),
+    ).toBe(
+      'node "/ext/cli.js" stage impl pass --db "/store/karst.db" --manifest "/repo/.karst/karst.yml" --ticket',
+    );
+  });
+
+  it('omits the manifest flag when no path is given', () => {
+    expect(composeStageCommand('/ext/cli.js', '/db.db', 'impl')).not.toContain('--manifest');
+  });
 });
 
 describe('parseStageArgs', () => {

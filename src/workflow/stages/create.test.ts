@@ -69,4 +69,22 @@ describe('createTicketFlow', () => {
     expect(again.archivedAt).toBeNull();
     expect(getTicket(store, first.id).title).toBe('first'); // unchanged
   });
+
+  it('stamps the owning project on a new ticket', () => {
+    expect(createTicketFlow(store, { key: 'P-1', title: 'x', projectId: 7 }).projectId).toBe(7);
+  });
+
+  it('is idempotent per project, not globally — two projects may share a key', () => {
+    const a = createTicketFlow(store, { key: 'SHARED-1', title: 'in A', projectId: 1 });
+    const b = createTicketFlow(store, { key: 'SHARED-1', title: 'in B', projectId: 2 });
+    expect(b.id).not.toBe(a.id); // a separate ticket, not project A's row handed back
+    expect(b.projectId).toBe(2);
+    expect(listTickets(store)).toHaveLength(2);
+  });
+
+  it('still reuses the row for a repeat create within one project', () => {
+    const first = createTicketFlow(store, { key: 'SAME-1', title: 'first', projectId: 1 });
+    const again = createTicketFlow(store, { key: 'SAME-1', title: 'second', projectId: 1 });
+    expect(again.id).toBe(first.id);
+  });
 });

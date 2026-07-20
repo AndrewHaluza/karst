@@ -40,6 +40,12 @@ export interface OnboardingActionsDeps {
   store: Store;
   manifest: Manifest;
   manifestPath: string;
+  /**
+   * The window's project (§ projects / multi-window). Stamped on every ticket
+   * created here, so it lands on the board of the window that created it and
+   * nowhere else. Undefined only when no project could be bound (no folder).
+   */
+  projectId?: number;
   provider: TicketingProvider;
   adapter: AgentAdapter;
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
@@ -129,6 +135,7 @@ export function buildOnboardingActions(
             key: ref,
             title: brief.title || ref,
             description: brief.description || undefined,
+            projectId: deps.projectId,
           });
           ctx.bindTicket(draft.id);
           deps.onChange(); // sidebar shows the new draft
@@ -294,6 +301,7 @@ export function buildOnboardingActions(
           key: input.key,
           title: input.title,
           description: input.description || undefined,
+          projectId: deps.projectId,
         });
         ctx.bindTicket(t.id);
         ticketId = t.id;

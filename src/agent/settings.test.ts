@@ -53,4 +53,33 @@ describe('buildHookSettings', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * Every IDE window binds its own ephemeral hook port but shares one global
+   * storage dir. A single fixed filename made the last window to launch a
+   * session overwrite the file the others' launches were about to read.
+   */
+  it('gives each port its own file, so two windows cannot overwrite each other', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
+    try {
+      const a = writeHookSettings(4000, dir);
+      const b = writeHookSettings(5000, dir);
+      expect(a).not.toBe(b);
+
+      // Both survive, each still pointing at its own window's endpoint.
+      expect(JSON.parse(readFileSync(a, 'utf8')).hooks.Stop[0].hooks[0].url).toBe(hookUrl(4000));
+      expect(JSON.parse(readFileSync(b, 'utf8')).hooks.Stop[0].hooks[0].url).toBe(hookUrl(5000));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is stable for one port, so re-launching a session reuses the file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
+    try {
+      expect(writeHookSettings(4000, dir)).toBe(writeHookSettings(4000, dir));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

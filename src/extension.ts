@@ -44,6 +44,7 @@ import {
 } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { writeHookSettings } from './agent/settings.js';
+import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { stopServer } from './runtime/supervisor.js';
 import { loadManifest, type Manifest } from './manifest/load.js';
@@ -89,6 +90,9 @@ import {
   unarchiveTicket,
   deleteTicket,
 } from './store/tickets.js';
+import type { Project } from './store/projects.js';
+import { bindProject } from './project/bind.js';
+import { resolveProjectSlug } from './project/slug.js';
 import { OnboardingManager } from './ui/onboarding/panel.js';
 import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
@@ -146,6 +150,13 @@ const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
  */
 const HOOK_PORT_KEY = 'karst.hookPort';
 
+/**
+ * Global (cross-window) flag: the one-shot adoption of pre-v6 tickets has run.
+ * Lives in `globalState` deliberately — the DB it guards is global too, so a
+ * per-workspace flag would let the second window adopt all over again.
+ */
+const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
+
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
 
@@ -192,7 +203,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
-  }), () => worktreePathContext(currentManifest()), () => currentManifest()?.ticketLabelTemplate, logError);
+  }), () => worktreePathContext(currentManifest()), () => currentManifest()?.ticketLabelTemplate, logError,
+    () => currentProject()?.id);
   const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
   provider.bind(sidebarHost);
   context.subscriptions.push(
@@ -200,6 +212,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const settingsDir = context.globalStorageUri.fsPath;
+  // Each launch writes a hook-settings file named after this window's ephemeral
+  // port, so stale ones pile up. Best-effort, never fatal.
+  try {
+    const swept = sweepHookSettings(settingsDir);
+    if (swept > 0) logger.info(`karst: swept ${swept} stale hook-settings file(s)`);
+  } catch (err) {
+    logError('karst: hook-settings sweep failed', err);
+  }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package
   // into agent-specific launch args).
@@ -230,6 +250,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // onboarding (after a signal writeback) and settings (after a save) so both
   // surfaces observe the same reload behavior from one implementation.
   const reloadManifest = (): void => manifests.reload();
+
+  // This window's project (§ projects / multi-window). Every window shares one
+  // global DB, so without a project id each one would list — and act on — the
+  // others' tickets. Resolved lazily and memoized: the workspace root is fixed
+  // for the window's lifetime, and so is the slug derived from it.
+  //
+  // Identity comes from the manifest's `id:` when present, else a slug derived
+  // from the workspace root. The fallback matters: it means a project binds even
+  // with no manifest yet (the welcome/scaffold path), so tickets created during
+  // onboarding are never orphaned.
+  let boundProject: Project | undefined;
+  const currentProject = (): Project | undefined => {
+    if (boundProject) return boundProject;
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) return undefined; // no folder → no project; commands already refuse
+
+    const root = folder.uri.fsPath;
+    const slug = resolveProjectSlug(currentManifest()?.id, root);
+    try {
+      const { project, adopted } = bindProject(
+        localStore,
+        { slug, name: folder.name, rootPath: root },
+        {
+          done: () => context.globalState.get<boolean>(PROJECT_ADOPTION_KEY, false),
+          markDone: () => void context.globalState.update(PROJECT_ADOPTION_KEY, true),
+        },
+      );
+      boundProject = project;
+      if (adopted > 0) {
+        logger.info(`karst: adopted ${adopted} pre-existing ticket(s) into project "${slug}"`);
+      }
+      return project;
+    } catch (err) {
+      // A window with no project shows an empty board rather than every other
+      // project's tickets — failing closed is the safe direction here.
+      logError('karst: could not bind project', err);
+      return undefined;
+    }
+  };
 
   // Live setup status for the welcome page. Reads disk/PATH fresh on every call
   // (no caching) so re-check and post-scaffold pushes reflect reality. Guarded:
@@ -414,6 +473,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       get manifestPath() {
         return manifests.path() ?? '';
+      },
+      // Same getter pattern: the project binds lazily, so read it at call time
+      // rather than capturing whatever was (not yet) resolved at wiring time.
+      get projectId() {
+        return currentProject()?.id;
       },
       // Read `ticketing` fresh so a provider/teamId change saved from settings
       // applies without a reload (same getter pattern as `manifest` above).
@@ -831,7 +895,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // stranded when the trigger that would normally kick the driver never arrived
   // (dead/stale hook port, IDE closed mid-gate) — every window reload becomes a
   // self-heal, without inferring any verdict (§5.4-safe).
-  for (const id of ticketsToSweep(listTickets(localStore))) {
+  //
+  // Scoped to this window's project: driving a ticket opens terminals and runs
+  // gates against *this* window's manifest, so sweeping another project's
+  // tickets would resolve their services against the wrong repo paths.
+  for (const id of ticketsToSweep(listTickets(localStore, { projectId: currentProject()?.id }))) {
     maybeDrive(id, 'activation-sweep');
   }
 
@@ -882,6 +950,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     manifests.set(manifest, manifestPathOrThrow());
     onboarding.openCreate();
   };
+
+  // Cross-window freshness (§ projects / multi-window). Sidebar refreshes are
+  // driven by in-window commands and this window's own hook endpoint, so work
+  // done in another window — even on a ticket this project owns, via a session
+  // whose hooks land there — leaves this board stale until something local
+  // happens. Regaining focus is the cheap, well-timed moment to re-read: it is
+  // exactly when the user looks at the board, and it costs nothing while the
+  // window sits in the background.
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) provider.refresh();
+    }),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('karst.openDashboard', (arg: unknown) => {
@@ -1202,9 +1283,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.filterState', async () => {
       // Facet counts reflect the live store; the active facet is marked so the
       // picker reads as a stateful toggle.
+      const scope = { projectId: currentProject()?.id };
       const counts = facetCounts(
-        listTickets(localStore),
-        listArchivedTickets(localStore).length,
+        listTickets(localStore, scope),
+        listArchivedTickets(localStore, scope).length,
       );
       const active = provider.getFacet();
       const pick = await vscode.window.showQuickPick(
@@ -1319,8 +1401,9 @@ function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string)
 /**
  * Compose the `node <cli> stage <stage> pass --db <db> --ticket` prefix a session
  * runs (ticket key appended) to fire the done marker for the stage it is working
- * on. Same CLI entry as context; no manifest needed (a stage write reads nothing
- * from it).
+ * on. Same CLI entry as context. The manifest rides along so the CLI can tell
+ * which project the ticket key belongs to — two projects sharing the DB may
+ * legitimately use the same key.
  *
  * `stage` defaults to `impl` — the generated `/karst:<id>` command is
  * materialized once at install time, before any ticket exists, so it can only
@@ -1334,7 +1417,15 @@ function buildCliStagePrefix(
   stage: MarkerStage = 'impl',
 ): string {
   const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  return composeStageCommand(cliEntry, dbPath, stage);
+  // Best-effort, same as the context prefix: an unresolved manifest just means
+  // the CLI falls back to an unscoped key lookup.
+  let manifestPath: string | undefined;
+  try {
+    manifestPath = manifestPathOrThrow();
+  } catch {
+    manifestPath = undefined;
+  }
+  return composeStageCommand(cliEntry, dbPath, stage, manifestPath);
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */

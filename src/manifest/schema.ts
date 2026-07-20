@@ -306,6 +306,21 @@ function validateDefaultModel(raw: unknown): string | undefined {
   return raw.trim() === '' ? undefined : raw;
 }
 
+/**
+ * Parse the project `id`. Must be a string when present; blank/whitespace
+ * normalizes to undefined so a cleared field falls back to the path-derived
+ * slug rather than pinning every ticket to an empty project. Trimmed, because
+ * the slug is an equality key — stray whitespace would fork one project in two.
+ */
+function validateProjectId(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string') {
+    throw new ManifestError('id must be a string');
+  }
+  const trimmed = raw.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
 /** Parse `worktreePathDisplay` (default 'relative'); only two legal values. */
 function validateWorktreePathDisplay(raw: unknown): WorktreePathDisplay {
   if (raw === undefined) return 'relative';
@@ -395,6 +410,7 @@ export function validateManifest(raw: unknown): Manifest {
   validateGraph(services);
 
   return {
+    id: validateProjectId(raw.id),
     host,
     portRange: [range[0], range[1]],
     baselineBranch,

@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { openStore, type Store } from './db.js';
 
 const EXPECTED_TABLES = [
+  'projects',
   'tickets',
   'stages',
   'worktrees',
@@ -30,7 +31,7 @@ describe('openStore', () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  it('creates all 7 registry tables', () => {
+  it('creates all 8 registry tables', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
     const names = tableNames(store);
@@ -96,10 +97,10 @@ describe('openStore', () => {
     expect(cols).toContain('archived_at');
   });
 
-  it('reports schema user_version 5', () => {
+  it('reports schema user_version 6', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
-    expect(store.db.pragma('user_version', { simple: true })).toBe(5);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(6);
   });
 
   it('tickets carries the v4 agent column', () => {
@@ -145,7 +146,46 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-4') as { title: string } | undefined;
     expect(row?.title).toBe('v4 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(5);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(6);
+  });
+
+  it('migrates a v5 DB to v6, adding projects + project_id and leaving rows unassigned', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      "CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, source TEXT, stage_current TEXT, agent_state TEXT, session_id TEXT, description TEXT, brief TEXT, source_ref TEXT, source_fetched_at TEXT, approach TEXT, agent TEXT, selected_repos TEXT, archived_at TEXT, model TEXT, created_at TEXT, updated_at TEXT)",
+    );
+    legacy.prepare('INSERT INTO tickets (key, title) VALUES (?, ?)').run('OLD-5', 'v5 row');
+    legacy.pragma('user_version = 5');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(tableNames(migrated)).toContain('projects');
+    const cols = migrated.db
+      .prepare("PRAGMA table_info('tickets')")
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(cols).toContain('project_id');
+
+    // The migration must NOT guess an owner — it has no way to know one. The
+    // row survives unassigned, for the host to adopt on first project bind.
+    const row = migrated.db
+      .prepare('SELECT title, project_id FROM tickets WHERE key = ?')
+      .get('OLD-5') as { title: string; project_id: number | null } | undefined;
+    expect(row?.title).toBe('v5 row');
+    expect(row?.project_id).toBeNull();
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(6);
+  });
+
+  it('enforces UNIQUE(slug) on projects', () => {
+    const store = openStore(':memory:');
+    cleanups.push(() => store.close());
+    const insert = store.db.prepare('INSERT INTO projects (slug, name) VALUES (?, ?)');
+    insert.run('karst', 'Karst');
+    expect(() => insert.run('karst', 'Karst again')).toThrow(/UNIQUE/i);
   });
 
   it('migrates a v2 DB to v3, adding archived_at and preserving rows', () => {
@@ -173,7 +213,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-2') as { title: string } | undefined;
     expect(row?.title).toBe('v2 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(5);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(6);
   });
 
   it('migrates a v1 DB to v2, adding columns and preserving rows', () => {

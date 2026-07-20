@@ -96,6 +96,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
 
   const next = {
     ...root, // preserve unknown top-level keys
+    // Optional: written when set, dropped (→ omitted by the dumper) when cleared,
+    // so the host falls back to the path-derived slug.
+    id: manifest.id,
     host: manifest.host,
     portRange: manifest.portRange,
     baselineBranch: manifest.baselineBranch,

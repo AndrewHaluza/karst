@@ -25,6 +25,11 @@ export interface Ticket {
   archivedAt: string | null;
   /** Per-ticket launch model id (§ model selection); `null` = inherit the manifest default. */
   model: string | null;
+  /**
+   * Owning project (§ projects / multi-window); `null` for a ticket created
+   * before v6, until the first window to bind adopts it.
+   */
+  projectId: number | null;
 }
 
 export interface TicketWithStages extends Ticket {
@@ -48,6 +53,7 @@ interface TicketRow {
   selected_repos: string | null;
   archived_at: string | null;
   model: string | null;
+  project_id: number | null;
 }
 
 /**
@@ -89,6 +95,7 @@ function rowToTicket(r: TicketRow): Ticket {
     selectedRepos: parseSelectedRepos(r.selected_repos),
     archivedAt: r.archived_at,
     model: r.model,
+    projectId: r.project_id,
   };
 }
 
@@ -99,15 +106,28 @@ function rowToTicket(r: TicketRow): Ticket {
  */
 export function createTicket(
   store: Store,
-  input: { key: string; title: string; source?: string; description?: string },
+  input: {
+    key: string;
+    title: string;
+    source?: string;
+    description?: string;
+    /** Owning project; omitted only by legacy/test callers that predate scoping. */
+    projectId?: number;
+  },
 ): Ticket {
   const create = store.db.transaction((): Ticket => {
     const info = store.db
       .prepare(
-        `INSERT INTO tickets (key, title, source, description, stage_current, agent_state)
-         VALUES (?, ?, ?, ?, 'scope', 'none')`,
+        `INSERT INTO tickets (key, title, source, description, project_id, stage_current, agent_state)
+         VALUES (?, ?, ?, ?, ?, 'scope', 'none')`,
       )
-      .run(input.key, input.title, input.source ?? 'manual', input.description ?? null);
+      .run(
+        input.key,
+        input.title,
+        input.source ?? 'manual',
+        input.description ?? null,
+        input.projectId ?? null,
+      );
     const id = Number(info.lastInsertRowid);
 
     const seed = store.db.prepare(
@@ -128,11 +148,48 @@ function getBareTicket(store: Store, id: number): Ticket {
   return rowToTicket(row);
 }
 
-/** Find a ticket by its key, or `undefined` when none matches. */
-export function getTicketByKey(store: Store, key: string): Ticket | undefined {
-  const row = store.db.prepare('SELECT * FROM tickets WHERE key = ? LIMIT 1').get(key) as
-    | TicketRow
-    | undefined;
+/**
+ * Restricts a query to one project (§ projects / multi-window). Omit
+ * `projectId` for the unscoped, every-project view (an "All projects" facet, or
+ * a caller that legitimately owns the whole DB, like crash recovery).
+ */
+export interface ProjectScope {
+  projectId?: number;
+}
+
+/**
+ * SQL fragment + bind params for a project scope. A ticket with no project
+ * (pre-v6, not yet adopted) is deliberately excluded from every scoped query:
+ * showing it in one window would be showing it in all of them, which is the
+ * cross-project leak scoping exists to prevent.
+ */
+function scopeClause(scope: ProjectScope): { sql: string; params: number[] } {
+  return scope.projectId === undefined
+    ? { sql: '', params: [] }
+    : { sql: 'project_id = ?', params: [scope.projectId] };
+}
+
+/** Join non-empty WHERE conditions into a clause (or '' when there are none). */
+function whereClause(...conditions: string[]): string {
+  const kept = conditions.filter((c) => c.length > 0);
+  return kept.length ? `WHERE ${kept.join(' AND ')}` : '';
+}
+
+/**
+ * Find a ticket by its key, or `undefined` when none matches. Scope by project
+ * whenever the caller has one: two projects may legitimately carry the same key
+ * (both tracking `PROJ-1`), and an unscoped lookup would return whichever was
+ * created first.
+ */
+export function getTicketByKey(
+  store: Store,
+  key: string,
+  scope: ProjectScope = {},
+): Ticket | undefined {
+  const { sql, params } = scopeClause(scope);
+  const row = store.db
+    .prepare(`SELECT * FROM tickets ${whereClause('key = ?', sql)} LIMIT 1`)
+    .get(key, ...params) as TicketRow | undefined;
   return row ? rowToTicket(row) : undefined;
 }
 
@@ -295,12 +352,13 @@ export function deleteTicket(store: Store, ticketId: number): void {
  */
 export function listTickets(
   store: Store,
-  opts: { includeArchived?: boolean } = {},
+  opts: { includeArchived?: boolean } & ProjectScope = {},
 ): TicketWithStages[] {
-  const where = opts.includeArchived ? '' : 'WHERE archived_at IS NULL';
+  const { sql, params } = scopeClause(opts);
+  const where = whereClause(opts.includeArchived ? '' : 'archived_at IS NULL', sql);
   const rows = store.db
     .prepare(`SELECT * FROM tickets ${where} ORDER BY created_at DESC, id DESC`)
-    .all() as TicketRow[];
+    .all(...params) as TicketRow[];
   return rows.map((r) => {
     const ticket = rowToTicket(r);
     return { ...ticket, stages: loadStages(store, ticket.id) };
@@ -308,9 +366,14 @@ export function listTickets(
 }
 
 /** List only archived tickets (the Archived facet view), ordered by created_at descending with id desc tiebreaker. */
-export function listArchivedTickets(store: Store): TicketWithStages[] {
+export function listArchivedTickets(
+  store: Store,
+  scope: ProjectScope = {},
+): TicketWithStages[] {
+  const { sql, params } = scopeClause(scope);
+  const where = whereClause('archived_at IS NOT NULL', sql);
   const rows = store.db
-    .prepare('SELECT * FROM tickets WHERE archived_at IS NOT NULL ORDER BY created_at DESC, id DESC')
-    .all() as TicketRow[];
+    .prepare(`SELECT * FROM tickets ${where} ORDER BY created_at DESC, id DESC`)
+    .all(...params) as TicketRow[];
   return rows.map((r) => ({ ...rowToTicket(r), stages: loadStages(store, r.id) }));
 }

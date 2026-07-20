@@ -819,6 +819,53 @@ describe('ticketLabelTemplate', () => {
   });
 });
 
+describe('id (project identity)', () => {
+  it('is undefined when omitted, so a legacy manifest still loads', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).id).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses an explicit project id', () => {
+    const { path, cleanup } = fixture(`${VALID}\nid: karst-extension\n`);
+    try {
+      expect(loadManifest(path).id).toBe('karst-extension');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('normalizes a blank id to undefined (falls back to a derived slug)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nid: "   "\n`);
+    try {
+      expect(loadManifest(path).id).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('trims surrounding whitespace so the slug matches across windows', () => {
+    const { path, cleanup } = fixture(`${VALID}\nid: "  karst-extension  "\n`);
+    try {
+      expect(loadManifest(path).id).toBe('karst-extension');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws when the id is not a string', () => {
+    const { path, cleanup } = fixture(`${VALID}\nid: 42\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/id/i);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('terminalNameTemplate', () => {
   it('is undefined when omitted', () => {
     const { path, cleanup } = fixture(VALID);
