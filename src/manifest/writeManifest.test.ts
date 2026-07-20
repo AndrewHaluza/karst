@@ -130,6 +130,7 @@ describe('writeManifest', () => {
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
+        id: 'karst-extension',
       };
       writeManifest(path, full);
       const reloaded = loadManifest(path);

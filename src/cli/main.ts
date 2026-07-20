@@ -6,7 +6,21 @@ import { openReadonlyStore } from './readonlyStore.js';
 import { openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
 import { runStageCommand } from './stage.js';
-import { getTicketByKey } from '../store/tickets.js';
+import { resolveTicketByKey } from './resolveTicket.js';
+
+/**
+ * The project slug named by a manifest, or undefined when there is no path, the
+ * file won't load, or it predates the `id` field. Never throws: a stage marker
+ * must still fire when the manifest is missing — it just resolves unscoped.
+ */
+function loadProjectSlug(manifestPath: string | undefined): string | undefined {
+  if (!manifestPath) return undefined;
+  try {
+    return loadManifest(manifestPath).id;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * The `karst` CLI entry, invoked by an agent session under plain `node`.
@@ -89,7 +103,10 @@ export function runCli(argv: string[]): string {
     if (!ticket) throw new Error('missing --ticket <key>');
     const store = openWritableStore(db);
     try {
-      const found = getTicketByKey(store, ticket);
+      // `--manifest` is optional here but load-bearing once several projects
+      // share the DB: without it, a key two projects both use resolves to
+      // whichever row is older, and the marker advances the wrong board.
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key '${ticket}'`);
       return runStageCommand(store, found.id, rest);
     } finally {

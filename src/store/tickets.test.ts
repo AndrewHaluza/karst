@@ -39,6 +39,7 @@ describe('ticketLabel', () => {
     selectedRepos: [],
     archivedAt: null,
     model: null,
+    projectId: null,
   };
 
   it('renders "key — title" when both present', () => {
@@ -289,5 +290,71 @@ describe('ticket + stage persistence', () => {
     archiveTicket(store, a.id);
     archiveTicket(store, b.id);
     expect(listArchivedTickets(store).map((t) => t.id)).toEqual([b.id, a.id]);
+  });
+});
+
+/**
+ * Project scoping (§ projects / multi-window). Two IDE windows share one global
+ * DB, so every list query must filter by the window's project or window A shows
+ * — and acts on — project B's tickets against the wrong manifest.
+ */
+describe('project scoping', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const PROJ_A = 1;
+  const PROJ_B = 2;
+
+  it('records the project a ticket was created under', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    expect(t.projectId).toBe(PROJ_A);
+  });
+
+  it('leaves projectId null when none is supplied (legacy create path)', () => {
+    expect(createTicket(store, { key: 'L-1', title: 'legacy' }).projectId).toBeNull();
+  });
+
+  it('listTickets returns only the requested project', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    createTicket(store, { key: 'B-1', title: 'b', projectId: PROJ_B });
+    expect(listTickets(store, { projectId: PROJ_A }).map((t) => t.id)).toEqual([a.id]);
+  });
+
+  it('listTickets returns every project when unscoped (the all-projects view)', () => {
+    createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    createTicket(store, { key: 'B-1', title: 'b', projectId: PROJ_B });
+    expect(listTickets(store)).toHaveLength(2);
+  });
+
+  it('scoped listTickets still excludes archived tickets by default', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    const b = createTicket(store, { key: 'A-2', title: 'a2', projectId: PROJ_A });
+    archiveTicket(store, b.id);
+    expect(listTickets(store, { projectId: PROJ_A }).map((t) => t.id)).toEqual([a.id]);
+    expect(
+      listTickets(store, { projectId: PROJ_A, includeArchived: true }).map((t) => t.id).sort(),
+    ).toEqual([a.id, b.id].sort());
+  });
+
+  it('listArchivedTickets is scoped too', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    const b = createTicket(store, { key: 'B-1', title: 'b', projectId: PROJ_B });
+    archiveTicket(store, a.id);
+    archiveTicket(store, b.id);
+    expect(listArchivedTickets(store, { projectId: PROJ_A }).map((t) => t.id)).toEqual([a.id]);
+  });
+
+  it('a legacy ticket with no project is hidden from a scoped list', () => {
+    createTicket(store, { key: 'L-1', title: 'legacy' });
+    expect(listTickets(store, { projectId: PROJ_A })).toEqual([]);
+  });
+
+  it('getTicketByKey resolves per project, so two projects may reuse one key', () => {
+    const a = createTicket(store, { key: 'PROJ-1', title: 'in A', projectId: PROJ_A });
+    const b = createTicket(store, { key: 'PROJ-1', title: 'in B', projectId: PROJ_B });
+    expect(a.id).not.toBe(b.id);
+    expect(getTicketByKey(store, 'PROJ-1', { projectId: PROJ_A })?.id).toBe(a.id);
+    expect(getTicketByKey(store, 'PROJ-1', { projectId: PROJ_B })?.id).toBe(b.id);
   });
 });

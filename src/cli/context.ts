@@ -1,6 +1,6 @@
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
-import { getTicketByKey } from '../store/tickets.js';
+import { resolveTicketByKey } from './resolveTicket.js';
 import { buildTicketContext, renderTicketContext } from '../context/ticketContext.js';
 
 /**
@@ -65,7 +65,7 @@ export function runContextCommand(
   manifest: Manifest | undefined,
   parsed: ParsedContext,
 ): string {
-  const ticket = getTicketByKey(store, parsed.key);
+  const ticket = resolveTicketByKey(store, parsed.key, manifest?.id);
   if (!ticket) {
     throw new Error(`no ticket found for key '${parsed.key}'`);
   }

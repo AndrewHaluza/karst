@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
+import { upsertProject } from '../store/projects.js';
 import { parseContextArgs, runContextCommand, composeContextCommand } from './context.js';
 import type { Manifest } from '../manifest/types.js';
 
@@ -85,5 +86,43 @@ describe('runContextCommand', () => {
     expect(() => runContextCommand(store, MANIFEST, { key: 'NOPE-1', format: 'json' })).toThrow(
       /NOPE-1/,
     );
+  });
+
+  /**
+   * The CLI is handed the same key from any project's session. Once two projects
+   * can share a key, the manifest's `id` is what disambiguates them.
+   */
+  describe('project scoping', () => {
+    it('resolves the ticket belonging to the manifest\'s project', () => {
+      const mine = upsertProject(store, { slug: 'mine', name: 'mine', rootPath: '/w/mine' });
+      const theirs = upsertProject(store, { slug: 'theirs', name: 'theirs', rootPath: '/w/t' });
+      createTicket(store, { key: 'SHARED-1', title: 'theirs', projectId: theirs.id });
+      createTicket(store, { key: 'SHARED-1', title: 'mine', projectId: mine.id });
+
+      const out = runContextCommand(store, { ...MANIFEST, id: 'mine' }, {
+        key: 'SHARED-1',
+        format: 'json',
+      });
+      expect(JSON.parse(out).title).toBe('mine');
+    });
+
+    it('still finds an unadopted legacy ticket when the project has none', () => {
+      // A session launched mid-upgrade: the manifest names a project, but the
+      // ticket predates scoping. Falling back beats failing.
+      upsertProject(store, { slug: 'mine', name: 'mine', rootPath: '/w/mine' });
+      createTicket(store, { key: 'OLD-1', title: 'legacy' });
+
+      const out = runContextCommand(store, { ...MANIFEST, id: 'mine' }, {
+        key: 'OLD-1',
+        format: 'json',
+      });
+      expect(JSON.parse(out).title).toBe('legacy');
+    });
+
+    it('falls back to an unscoped lookup when the manifest has no id', () => {
+      seed();
+      const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' });
+      expect(JSON.parse(out).key).toBe('PROJ-9');
+    });
   });
 });

@@ -36,4 +36,27 @@ describe('resync', () => {
       | undefined;
     expect(row).toBeUndefined(); // dead row pruned, not left as stale 'stopped'
   });
+
+  it('returns only the requested project when scoped', () => {
+    const mine = createTicketFlow(store, { key: 'A', title: 'a', projectId: 1 }).id;
+    createTicketFlow(store, { key: 'B', title: 'b', projectId: 2 });
+
+    const snap = resync(store, () => true, { projectId: 1 });
+    expect(snap.tickets.map((t) => t.id)).toEqual([mine]);
+  });
+
+  it('still reconciles across every project even when scoped', () => {
+    // Reconcile is global on purpose: a dead server belonging to another project
+    // must still be pruned, or it lingers until that window happens to open.
+    const theirs = createTicketFlow(store, { key: 'B', title: 'b', projectId: 2 }).id;
+    store.db
+      .prepare(
+        "INSERT INTO servers (ticket_id, service, status, pid, log_path) VALUES (?, 'be', 'running', 7, '/l')",
+      )
+      .run(theirs);
+
+    const snap = resync(store, () => false, { projectId: 1 });
+    expect(snap.tickets).toEqual([]); // not our project's ticket
+    expect(snap.deadServers).toHaveLength(1); // but its dead server is still swept
+  });
 });

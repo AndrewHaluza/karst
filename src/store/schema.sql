@@ -2,6 +2,17 @@
 -- The daemon is the sole writer; the board queries this constantly.
 -- MVP drops the deferred `events` feed (T1.1 decision); it re-adds additively.
 
+-- One row per workspace Karst is driving. The slug (manifest `id:`, else a
+-- path-derived fallback) is the identity; root_path is advisory display only,
+-- because a project keeps its identity across a move.
+CREATE TABLE IF NOT EXISTS projects (
+  id            INTEGER PRIMARY KEY,
+  slug          TEXT NOT NULL UNIQUE,
+  name          TEXT,
+  root_path     TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS tickets (
   id                INTEGER PRIMARY KEY,
   key               TEXT,                 -- "PROJ-142"
@@ -22,6 +33,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   archived_at       TEXT,                 -- soft-delete timestamp; NULL = active
   -- v5 model column (kept in sync with migrations.ts v5 ALTER):
   model             TEXT,                 -- per-ticket launch model id; NULL = inherit default
+  -- v6 project column (kept in sync with migrations.ts v6 ALTER):
+  project_id        INTEGER,              -- -> projects.id; NULL = unassigned (pre-v6 ticket)
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );

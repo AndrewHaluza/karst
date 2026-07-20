@@ -49,6 +49,12 @@ export class SidebarViewManager {
     private readonly labelTemplate?: () => string | undefined,
     /** Report a caught pump error to the Karst output channel (§ todo-5). */
     private readonly logError: LogError = (m, e) => console.error(m, e),
+    /**
+     * The window's bound project (§ projects / multi-window). A getter, not a
+     * value, because binding happens during activation and can re-resolve when
+     * the manifest reloads — the sidebar must never cache a stale project id.
+     */
+    private readonly projectId?: () => number | undefined,
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -73,7 +79,12 @@ export class SidebarViewManager {
     if (!this.view) return;
     const state = buildSidebarState(
       this.store,
-      { facet: this.facet, filter: this.filter, labelTemplate: this.labelTemplate?.() },
+      {
+        facet: this.facet,
+        filter: this.filter,
+        labelTemplate: this.labelTemplate?.(),
+        projectId: this.projectId?.(),
+      },
       this.pathContext?.(),
     );
     this.view.postMessage({ type: 'state', state });

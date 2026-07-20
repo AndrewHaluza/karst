@@ -133,6 +133,17 @@ export interface TicketingConfig {
 }
 
 export interface Manifest {
+  /**
+   * Stable project identity (§ projects / multi-window). Scopes tickets to a
+   * project so two IDE windows on different stacks don't see each other's board.
+   * Lives in the manifest rather than being derived from the workspace path so it
+   * survives a repo move and reads the same from a worktree opened directly.
+   *
+   * Undefined for a legacy manifest written before the field existed; the host
+   * then falls back to a path-derived slug (`resolveProjectSlug`), so loading
+   * never fails on its absence. Blank normalizes to undefined at validation.
+   */
+  id?: string;
   host: string;
   portRange: [number, number];
   baselineBranch: string;

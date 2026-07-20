@@ -55,9 +55,16 @@ export function buildHookSettings(port: number): string {
 /**
  * Write the hook settings JSON into `dir` and return its path. Consumed by the
  * session launcher (T3.3) as the `--settings` argument (the C2 wiring).
+ *
+ * The filename carries the port because `dir` is global storage — shared by
+ * every IDE window — while the port is per-window. With one fixed name, two
+ * windows launching sessions raced: the second rewrote the file the first was
+ * about to hand its agent, pointing that agent's hooks at the wrong extension
+ * host, which then drove the ticket and opened terminals in the wrong window.
+ * Keying by port makes each window's file its own, and stable across relaunches.
  */
 export function writeHookSettings(port: number, dir: string): string {
-  const path = join(dir, 'karst-hooks.settings.json');
+  const path = join(dir, `karst-hooks.${port}.settings.json`);
   writeFileSync(path, buildHookSettings(port));
   return path;
 }
