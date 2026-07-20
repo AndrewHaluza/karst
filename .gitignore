@@ -7,4 +7,7 @@ coverage/
 # service repos never track karst artifacts, but the karst project commits its yml.)
 .karst/worktrees/
 .claude/settings.local.json
+# Materialized at launch by ClaudeAdapter.materializeApproach — a build product
+# of the approach package, never a source.
+.karst-plugin/
 *.vsix

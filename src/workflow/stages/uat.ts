@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
@@ -6,6 +5,7 @@ import type { Verdict } from '../../model/types.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../machine.js';
 import { UAT_GATE, readPackageScripts } from '../gates/scripts.js';
+import { runCommand } from '../gates/run.js';
 
 /**
  * UAT stage (§T4.3, §5.4, §11). Runs the project's test command in the ticket's
@@ -38,15 +38,14 @@ export interface UatOutcome {
   artifactPath: string;
 }
 
-/** Spawns an explicit command as the suite, capturing combined output. */
+/**
+ * Spawns an explicit command as the suite, capturing combined output. Async so
+ * the extension host's event loop keeps serving hooks and webviews while the
+ * suite runs (see `gates/run.ts`); a spawn failure reduces to `exit 1`, because
+ * the caller named this command and its absence IS a failure of the repo's setup.
+ */
 export function makeTestRunner(command: string, args: string[]): TestRunner {
-  return async (cwd) => {
-    const r = spawnSync(command, args, { cwd, encoding: 'utf8' });
-    const output = `${r.stdout ?? ''}${r.stderr ?? ''}`;
-    // A spawn failure (r.status === null) is a nonzero-equivalent failure: the
-    // caller named this command, so its absence IS a failure of the repo's setup.
-    return { exitCode: r.status ?? 1, output };
-  };
+  return (cwd) => runCommand(command, args, cwd);
 }
 
 /**
