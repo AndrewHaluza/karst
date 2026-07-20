@@ -14,8 +14,10 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
         revealed: 0,
         disposed: false,
         posted: [],
+        icons: [],
         messageHandlers,
         reveal: () => panel.revealed++,
+        setIcon: (p) => panel.icons.push(p),
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => messageHandlers.push(h),
         onDidDispose: (h) => (panel.disposeHandler = h),
@@ -56,6 +58,29 @@ describe('DashboardManager', () => {
 
     mgr.openDashboard(t.id);
     expect(panels[0]!.title).toBe('PROJ-9 — ship it');
+  });
+
+  it('sets the tab icon on open and on each state push, from iconFor', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'ship it' });
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(
+      store,
+      host,
+      () => ({}) as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => '/store/icons/karst-blue.svg',
+    );
+
+    mgr.openDashboard(t.id);
+    mgr.pushState(t.id);
+
+    expect(panels[0]!.icons).toContain('/store/icons/karst-blue.svg');
+    // Open pushes state once, then the explicit push — the icon re-points each time.
+    expect(panels[0]!.icons.length).toBeGreaterThanOrEqual(2);
   });
 
   it('separate tickets get separate panels', () => {

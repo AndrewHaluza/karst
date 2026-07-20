@@ -50,7 +50,9 @@
   .facet:hover{background:var(--vscode-toolbar-hoverBackground,rgba(127,127,127,.12));color:var(--vscode-foreground)}
   .facet.on{background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
     border-color:var(--vscode-badge-background)}
-  .facet .dot{width:7px;height:7px;border-radius:50%}
+  /* Filled from the g-* class's `color` (the glyph classes set color, not
+     background, so the same token drives both this dot and the row logo). */
+  .facet .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
   .facet .n{font-family:var(--mono);font-size:10px;opacity:.8}
 
   /* rows */
@@ -64,16 +66,20 @@
   .row:hover{background:var(--vscode-list-hoverBackground)}
   .chev{width:16px;flex:0 0 auto;color:var(--g-gray);display:grid;place-items:center;transition:transform .12s}
   .ticket.open .chev{transform:rotate(90deg)}
-  .glyph{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
-  .g-running{background:var(--g-running)}
-  .g-blue{background:var(--g-running)}
-  .g-input{background:var(--g-input)}
-  .g-amber{background:var(--g-input)}
-  .g-failed{background:var(--g-failed)}
-  .g-red{background:var(--g-failed)}
-  .g-done{background:var(--g-done)}
-  .g-green{background:var(--g-done)}
-  .g-gray{background:var(--g-gray)}
+  /* The row marker is the karst logo tinted by the status glyph: the mark is
+     drawn with stroke="currentColor", so the g-* classes below set `color` and
+     the palette stays the single source (no per-view hex). */
+  .glyph{width:13px;height:13px;flex:0 0 auto;display:grid;place-items:center}
+  .glyph svg{display:block}
+  .g-running{color:var(--g-running)}
+  .g-blue{color:var(--g-running)}
+  .g-input{color:var(--g-input)}
+  .g-amber{color:var(--g-input)}
+  .g-failed{color:var(--g-failed)}
+  .g-red{color:var(--g-failed)}
+  .g-done{color:var(--g-done)}
+  .g-green{color:var(--g-done)}
+  .g-gray{color:var(--g-gray)}
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
   .stage{font-size:10px;padding:1px 6px;border-radius:9px;flex:0 0 auto;
     background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);opacity:.85}
@@ -147,6 +153,8 @@
     edit:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z"/></svg>',
     arch:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="4" width="11" height="3"/><path d="M3.5 7v5.5h9V7M6.5 9.5h3"/></svg>',
     unarch:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 12.5V6M5.5 8L8 5.5 10.5 8"/><rect x="2.5" y="11.5" width="11" height="2"/></svg>',
+    // The karst mark (media/karst.svg at 24×24) — the status-tinted row marker.
+    mark:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/></svg>',
     del:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/></svg>',
   };
 
@@ -196,7 +204,7 @@
       return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
         + `<div class="row"${row.archived ? '' : ` data-open="${row.ticketId}"`}>`
         + `<span class="chev" data-toggle="${row.ticketId}">${chev}</span>`
-        + `<span class="glyph g-${esc(row.glyph)}"></span>`
+        + `<span class="glyph g-${esc(row.glyph)}" title="${esc(row.description)}">${ic.mark}</span>`
         + `<span class="name">${esc(row.label)}</span>`
         + `<span class="stage">${esc(row.description)}</span>`
         + `<span class="rowacts">${acts}</span>`

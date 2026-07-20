@@ -31,6 +31,7 @@ interface FakePanel extends OnboardingPanel {
   title: string;
   revealed: number;
   posted: unknown[];
+  icons: string[];
   handlers: Array<(m: unknown) => void>;
   disposeHandler?: () => void;
   emit(m: unknown): void;
@@ -45,8 +46,10 @@ function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
         title,
         revealed: 0,
         posted: [],
+        icons: [],
         handlers: [],
         reveal: () => (panel.revealed += 1),
+        setIcon: (p) => panel.icons.push(p),
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => panel.handlers.push(h),
         onDidDispose: (h) => (panel.disposeHandler = h),
@@ -107,6 +110,26 @@ describe('OnboardingManager', () => {
     const first = panels[0]!.posted[0] as { state: { mode: string; key: string } };
     expect(first.state.mode).toBe('edit');
     expect(first.state.key).toBe('P-1');
+  });
+
+  it('tints the edit-panel tab icon from iconFor on open and on each push', () => {
+    const t = createTicket(store, { key: 'P-1', title: 'thing' });
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new OnboardingManager(
+      store,
+      () => MANIFEST,
+      host,
+      factory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => '/store/icons/karst-gray.svg',
+    );
+
+    mgr.openEdit(t.id);
+    expect(panels[0]!.icons).toContain('/store/icons/karst-gray.svg');
   });
 
   it('titles the edit panel with the ticket key and title, not the SQL id', () => {

@@ -28,6 +28,8 @@ function fakeHost(): { host: TerminalHost; terminals: FakeTerminal[] } {
         cwd: opts.cwd,
         shellPath: opts.shellPath,
         shellArgs: opts.shellArgs,
+        iconPath: opts.iconPath,
+        color: opts.color,
         shown: 0,
         disposed: false,
         sent: [],
@@ -68,6 +70,32 @@ describe('SessionManager', () => {
     mgr.openSession(1, '/wt/a', { key: 'PROJ-42', title: 'Fix login' });
     expect(terminals[0]!.name).toBe('Karst: PROJ-42');
     expect(terminals[0]!.description).toBe('Fix login');
+  });
+
+  it('uses the naming bag for terminal name, icon and color when provided', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(adapter, host, settingsFor);
+
+    mgr.openSession(
+      1,
+      '/wt/a',
+      { key: 'PROJ-42', title: 'Fix login' },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        name: 'Karst: PROJ-42 · impl',
+        iconPath: '/store/icons/karst-blue.svg',
+        color: 'terminal.ansiBlue',
+      },
+    );
+    expect(terminals[0]!.name).toBe('Karst: PROJ-42 · impl');
+    expect(terminals[0]!.iconPath).toBe('/store/icons/karst-blue.svg');
+    expect(terminals[0]!.color).toBe('terminal.ansiBlue');
+    // The bag carries the whole rendered name — no separate description fold.
+    expect(terminals[0]!.description).toBeUndefined();
   });
 
   it('falls back to #id in the name when no key is given', () => {

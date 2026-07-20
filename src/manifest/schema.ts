@@ -328,6 +328,15 @@ function validateTicketLabelTemplate(raw: unknown): string | undefined {
   return raw.trim() === '' ? undefined : raw;
 }
 
+/** Parse `terminalNameTemplate` — string or throw; blank → undefined (default). */
+function validateTerminalNameTemplate(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string') {
+    throw new ManifestError('terminalNameTemplate must be a string');
+  }
+  return raw.trim() === '' ? undefined : raw;
+}
+
 /**
  * Cross-service checks that need the whole graph: every dependsOn target must
  * exist, and the referenced port slot must exist on that target. Catches the
@@ -394,6 +403,7 @@ export function validateManifest(raw: unknown): Manifest {
     agents: validateAgents(raw.agents),
     worktreePathDisplay: validateWorktreePathDisplay(raw.worktreePathDisplay),
     ticketLabelTemplate: validateTicketLabelTemplate(raw.ticketLabelTemplate),
+    terminalNameTemplate: validateTerminalNameTemplate(raw.terminalNameTemplate),
     ticketing: validateTicketing(raw.ticketing),
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),

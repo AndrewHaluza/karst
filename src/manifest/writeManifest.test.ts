@@ -120,6 +120,7 @@ describe('writeManifest', () => {
         },
         worktreePathDisplay: 'absolute',
         ticketLabelTemplate: '{key} · {stage} · {status}',
+        terminalNameTemplate: 'Karst: {key} · {stage}',
         ticketing: {
           provider: 'clickup',
           teamId: '9001',
