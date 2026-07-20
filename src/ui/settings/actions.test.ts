@@ -540,3 +540,32 @@ describe('fetchTicketStatuses', () => {
     });
   });
 });
+
+describe('fetchTicketLists', () => {
+  it('posts the fetched lists', async () => {
+    const { actions, posted } = harness({
+      makeProvider: () => ({
+        async updateStatus() {},
+        async listLists() { return [{ id: '101', name: 'Backlog', space: 'Eng' }]; },
+      }),
+    });
+    await actions.fetchTicketLists('9001');
+    expect(posted).toContainEqual({ type: 'ticket-lists', lists: [{ id: '101', name: 'Backlog', space: 'Eng' }] });
+  });
+  it('posts a list-scoped error on failure, not a panel error', async () => {
+    const { actions, posted } = harness({
+      makeProvider: () => ({
+        async updateStatus() {},
+        async listLists(): Promise<never> { throw new Error('ClickUp: GET /team/9001/space returned 401'); },
+      }),
+    });
+    await actions.fetchTicketLists('9001');
+    expect(posted).toContainEqual({ type: 'ticket-lists-error', message: 'ClickUp: GET /team/9001/space returned 401' });
+    expect(posted.some((m) => m.type === 'error')).toBe(false);
+  });
+  it('reports a provider that cannot list lists', async () => {
+    const { actions, posted } = harness({ makeProvider: () => ({ async updateStatus() {} }) });
+    await actions.fetchTicketLists('9001');
+    expect(posted).toContainEqual({ type: 'ticket-lists-error', message: 'This provider cannot list lists.' });
+  });
+});

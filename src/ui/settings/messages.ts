@@ -1,5 +1,6 @@
 import type { Manifest } from '../../manifest/types.js';
 import type { SettingsState } from './state.js';
+import type { TicketList } from '../../integrations/ticketing.js';
 
 /** Webview → host messages. The webview is untrusted; parse before use. */
 export type SettingsWebviewMessage =
@@ -16,7 +17,8 @@ export type SettingsWebviewMessage =
   | { type: 'delete-agent'; name: string }
   | { type: 'request-state' }
   | { type: 'get-approach-command-body'; approachId: string; command: string }
-  | { type: 'fetch-ticket-statuses'; listId: string; teamId?: string };
+  | { type: 'fetch-ticket-statuses'; listId: string; teamId?: string }
+  | { type: 'fetch-ticket-lists'; teamId: string };
 
 /** Host → webview messages. */
 export type SettingsHostMessage =
@@ -26,7 +28,9 @@ export type SettingsHostMessage =
   | { type: 'saved' }
   | { type: 'approach-command-body'; approachId: string; command: string; body: string }
   | { type: 'ticket-statuses'; statuses: string[] }
-  | { type: 'ticket-statuses-error'; message: string };
+  | { type: 'ticket-statuses-error'; message: string }
+  | { type: 'ticket-lists'; lists: TicketList[] }
+  | { type: 'ticket-lists-error'; message: string };
 
 /** The host-side effects a settings panel can trigger. */
 export interface SettingsActions {
@@ -56,6 +60,9 @@ export interface SettingsActions {
    * ids from the DRAFT (not the saved manifest) so Refresh works before Save.
    */
   fetchTicketStatuses(listId: string, teamId?: string): void;
+  /** Load the workspace's lists for the settings List picker, from the draft's
+   *  teamId (so Refresh works before Save). */
+  fetchTicketLists(teamId: string): void;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -116,6 +123,8 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
         ...(raw.teamId ? { teamId: raw.teamId as string } : {}),
       };
     }
+    case 'fetch-ticket-lists':
+      return str('teamId') ? { type: 'fetch-ticket-lists', teamId: raw.teamId as string } : null;
     default:
       return null;
   }
@@ -167,6 +176,9 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return;
     case 'fetch-ticket-statuses':
       actions.fetchTicketStatuses(msg.listId, msg.teamId);
+      return;
+    case 'fetch-ticket-lists':
+      actions.fetchTicketLists(msg.teamId);
       return;
   }
 }

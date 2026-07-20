@@ -112,8 +112,9 @@ export type AgentProvider = 'claude' | 'codex';
 /**
  * Ticketing integration config (§15). `provider` selects the backend;
  * `manual` (default) is local-only. `teamId` is ClickUp's workspace id
- * (needed for custom task ids); `listId` is reserved for future list-scoped
- * operations. Both optional and provider-specific.
+ * (needed for custom task ids); `listId` is the ClickUp list whose statuses
+ * the settings picker loads and whose tickets `advanceOnShip` moves. Both
+ * optional and provider-specific.
  */
 export interface TicketingConfig {
   provider: TicketProvider;

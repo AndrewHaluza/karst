@@ -3,6 +3,7 @@ import type {
   ContextBrief,
   BriefComment,
   BriefAttachment,
+  TicketList,
 } from './ticketing.js';
 
 /**
@@ -59,6 +60,22 @@ interface RawComments {
  */
 interface RawList {
   statuses?: { status?: string }[];
+}
+
+/** GET /team/{id}/space, /space/{id}/list, /space/{id}/folder shapes. Only the
+ *  fields we read; everything else ignored. Folders embed their lists. */
+interface RawListItem {
+  id?: string;
+  name?: string;
+}
+interface RawSpaces {
+  spaces?: { id?: string; name?: string }[];
+}
+interface RawFolderLists {
+  lists?: RawListItem[];
+}
+interface RawFolders {
+  folders?: { lists?: RawListItem[] }[];
 }
 
 function parseTags(task: RawTask): string[] {
@@ -157,6 +174,35 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
       return (list.statuses ?? [])
         .map((s) => s.status)
         .filter((s): s is string => typeof s === 'string');
+    },
+
+    async listLists(): Promise<TicketList[]> {
+      if (!deps.teamId) {
+        throw new ClickupError('a Team ID is required to load lists');
+      }
+      const spacesRes = (await getJson(
+        `${API_BASE}/team/${encodeURIComponent(deps.teamId)}/space`,
+      )) as RawSpaces;
+      const out: TicketList[] = [];
+      for (const space of spacesRes.spaces ?? []) {
+        if (typeof space.id !== 'string') continue;
+        const spaceName = typeof space.name === 'string' ? space.name : '';
+        const sid = encodeURIComponent(space.id);
+        // Folderless lists + lists embedded in each folder — folders carry their
+        // own `lists`, so no extra /folder/{id}/list round-trip is needed.
+        const folderless = (await getJson(`${API_BASE}/space/${sid}/list`)) as RawFolderLists;
+        const folders = (await getJson(`${API_BASE}/space/${sid}/folder`)) as RawFolders;
+        const items: RawListItem[] = [
+          ...(folderless.lists ?? []),
+          ...(folders.folders ?? []).flatMap((f) => f.lists ?? []),
+        ];
+        for (const l of items) {
+          if (typeof l.id === 'string' && typeof l.name === 'string') {
+            out.push({ id: l.id, name: l.name, space: spaceName });
+          }
+        }
+      }
+      return out;
     },
 
     async fetchTicket(ref: string): Promise<ContextBrief> {

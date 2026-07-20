@@ -294,6 +294,19 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           ctx.post({ type: 'ticket-statuses-error', message: errorMessage(e) });
         }
       },
+
+      async fetchTicketLists(teamId: string): Promise<void> {
+        const provider = deps.makeProvider({ provider: 'clickup', teamId });
+        if (!provider.listLists) {
+          ctx.post({ type: 'ticket-lists-error', message: 'This provider cannot list lists.' });
+          return;
+        }
+        try {
+          ctx.post({ type: 'ticket-lists', lists: await provider.listLists() });
+        } catch (e) {
+          ctx.post({ type: 'ticket-lists-error', message: errorMessage(e) });
+        }
+      },
     };
   };
 }

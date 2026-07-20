@@ -56,3 +56,21 @@ describe('makeTicketingProvider — listStatuses', () => {
     expect(provider.listStatuses).toBeUndefined();
   });
 });
+
+describe('makeTicketingProvider — listLists', () => {
+  it('exposes listLists on the clickup provider (threads teamId)', async () => {
+    const urls: string[] = [];
+    const spyFetch = (async (url: string | URL) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ spaces: [] }));
+    }) as unknown as typeof fetch;
+    const provider = makeTicketingProvider({ provider: 'clickup', teamId: '9001' }, spyFetch, token);
+    expect(await provider.listLists!()).toEqual([]);
+    expect(urls[0]).toContain('/team/9001/space');
+  });
+
+  it('gives the manual provider no listLists', () => {
+    const provider = makeTicketingProvider({ provider: 'manual' }, noopFetch, token);
+    expect(provider.listLists).toBeUndefined();
+  });
+});

@@ -20,7 +20,10 @@ export const PROVIDER_LABELS: Record<string, string> = { clickup: 'ClickUp', man
  * wherever this is injected without colliding across multiple badges on one page.
  */
 export const CLICKUP_SVG =
-  '<svg viewBox="0 0 36 36" width="14" height="14" aria-hidden="true">' +
+  // viewBox frames the drawn peak (path + stroke ≈ y 8.8–27.7) rather than a full
+  // 36×36 canvas, so the mark fills the badge and sits vertically centered on the
+  // brand text instead of floating in the upper third.
+  '<svg viewBox="0 8 36 20" width="14" height="14" aria-hidden="true">' +
   '<defs><linearGradient id="cuMark" x1="0" y1="1" x2="1" y2="0">' +
   '<stop offset="0" stop-color="#fd71af"/>' +
   '<stop offset=".55" stop-color="#7b68ee"/>' +

@@ -32,6 +32,13 @@ export interface ContextBrief {
   attachments: BriefAttachment[];
 }
 
+/** One ClickUp list, for the settings List picker. */
+export interface TicketList {
+  id: string; // numeric list id — what ticketing.listId stores
+  name: string; // list name
+  space: string; // owning space name, disambiguates same-named lists
+}
+
 export interface TicketingProvider {
   /** Set the ticket's status. `ref` is the provider's own task ref (never karst's user-editable `key`). */
   updateStatus(ref: string, status: string): Promise<void>;
@@ -46,6 +53,11 @@ export interface TicketingProvider {
    * implements this. Returns status names in provider order.
    */
   listStatuses?(): Promise<string[]>;
+  /**
+   * All lists in the workspace, for the settings List picker. Optional:
+   * `manualProvider` has no remote to enumerate. Needs a configured teamId.
+   */
+  listLists?(): Promise<TicketList[]>;
 }
 
 export interface ManualProvider extends TicketingProvider {
