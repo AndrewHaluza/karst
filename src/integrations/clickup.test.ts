@@ -191,6 +191,53 @@ describe('clickupProvider.listStatuses', () => {
   });
 });
 
+describe('clickupProvider.listLists', () => {
+  it('merges folderless + folder lists across spaces, tagged by space name', async () => {
+    const { fn } = fakeFetch({
+      '/team/9001/space': { json: { spaces: [{ id: 's1', name: 'Eng' }, { id: 's2', name: 'Design' }] } },
+      '/space/s1/list': { json: { lists: [{ id: '101', name: 'Backlog' }] } },
+      '/space/s1/folder': { json: { folders: [{ lists: [{ id: '102', name: 'Sprint' }] }] } },
+      '/space/s2/list': { json: { lists: [{ id: '201', name: 'Icons' }] } },
+      '/space/s2/folder': { json: { folders: [] } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+
+    expect(await provider.listLists!()).toEqual([
+      { id: '101', name: 'Backlog', space: 'Eng' },
+      { id: '102', name: 'Sprint', space: 'Eng' },
+      { id: '201', name: 'Icons', space: 'Design' },
+    ]);
+  });
+
+  it('returns [] for a workspace with no spaces', async () => {
+    const { fn } = fakeFetch({ '/team/9001/space': { json: {} } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+    expect(await provider.listLists!()).toEqual([]);
+  });
+
+  it('drops malformed list entries (missing id or name)', async () => {
+    const { fn } = fakeFetch({
+      '/team/9001/space': { json: { spaces: [{ id: 's1', name: 'Eng' }] } },
+      '/space/s1/list': { json: { lists: [{ id: '101', name: 'Ok' }, { id: '102' }, { name: 'NoId' }] } },
+      '/space/s1/folder': { json: { folders: [] } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+    expect(await provider.listLists!()).toEqual([{ id: '101', name: 'Ok', space: 'Eng' }]);
+  });
+
+  it('throws a ClickupError when no teamId is configured', async () => {
+    const { fn } = fakeFetch({});
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+    await expect(provider.listLists!()).rejects.toThrow(ClickupError);
+  });
+
+  it('throws a ClickupError on a non-ok response', async () => {
+    const { fn } = fakeFetch({ '/team/9001/space': { status: 500, json: {} } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+    await expect(provider.listLists!()).rejects.toThrow(/500/);
+  });
+});
+
 describe('clickupProvider.updateStatus', () => {
   it('PUTs the status name to the task', async () => {
     const { fn, calls } = fakeFetch({ '/task/abc123': { json: {} } });

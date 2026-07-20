@@ -122,6 +122,7 @@ describe('routeSettingsAction', () => {
       deleteAgent: [],
       getApproachCommandBody: [],
       fetchTicketStatuses: [],
+      fetchTicketLists: [],
     };
     return {
       calls,
@@ -139,6 +140,7 @@ describe('routeSettingsAction', () => {
       deleteAgent: (name) => calls['deleteAgent']!.push(name),
       getApproachCommandBody: (approachId, command) => calls['getApproachCommandBody']!.push({ approachId, command }),
       fetchTicketStatuses: (listId, teamId) => calls['fetchTicketStatuses']!.push({ listId, teamId }),
+      fetchTicketLists: (teamId) => calls['fetchTicketLists']!.push(teamId),
     };
   }
 
@@ -217,5 +219,23 @@ describe('fetch-ticket-statuses', () => {
     );
 
     expect(calls).toEqual([{ listId: '42', teamId: '9001' }]);
+  });
+});
+
+describe('fetch-ticket-lists', () => {
+  it('parses a message with a teamId', () => {
+    expect(parseSettingsMessage({ type: 'fetch-ticket-lists', teamId: '9001' })).toEqual({
+      type: 'fetch-ticket-lists', teamId: '9001',
+    });
+  });
+  it('drops a missing/blank teamId', () => {
+    expect(parseSettingsMessage({ type: 'fetch-ticket-lists' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'fetch-ticket-lists', teamId: '' })).toBeNull();
+  });
+  it('routes to fetchTicketLists', () => {
+    const calls: string[] = [];
+    const actions = { fetchTicketLists: (t: string) => calls.push(t) } as unknown as SettingsActions;
+    routeSettingsAction({ type: 'fetch-ticket-lists', teamId: '9001' }, actions);
+    expect(calls).toEqual(['9001']);
   });
 });

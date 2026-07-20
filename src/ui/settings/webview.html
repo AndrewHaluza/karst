@@ -11,6 +11,10 @@
   :root{
     --gap:16px;
     --mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
+    /* One chevron for every dropdown (native <select> + the custom provider
+       trigger) so placement and size read the same. Mid-gray shows on light and
+       dark input chrome alike. */
+    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -75,6 +79,13 @@
     font-family:inherit;font-size:13px;
   }
   input[type=text],select{width:100%}
+  /* Drop the OS arrow and paint our own, vertically centered with room reserved
+     via padding — the native arrow's placement drifts between platforms/renderers. */
+  select{
+    appearance:none;-webkit-appearance:none;padding-right:30px;
+    background-image:var(--chevron);background-repeat:no-repeat;
+    background-position:right 10px center;
+  }
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .row > *{flex:1 1 0}
   .row .fixed{flex:0 0 auto}
@@ -102,7 +113,8 @@
     border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:5px;
     padding:6px 8px;font-family:inherit;font-size:13px}
   .provselect-trigger:hover{background:var(--vscode-input-background)}
-  .provselect-trigger .chev{opacity:.6;font-size:10px;margin-left:8px}
+  .provselect-trigger .chev{flex:none;width:12px;height:12px;margin-left:8px;
+    background:var(--chevron) no-repeat center/12px}
   .provselect-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;
     background:var(--vscode-dropdown-background,var(--vscode-editor-background));
     border:1px solid var(--vscode-dropdown-border,var(--vscode-panel-border));
@@ -172,6 +184,26 @@
   .agent-row{display:flex;align-items:center;gap:8px;padding:6px 4px}
   .approach-install{margin-left:0;flex-shrink:0}
   .installed-tag,.builtin-tag{font-size:11px;opacity:.6}
+  /* Ticketing token row: the status text grows so its buttons keep their natural
+     width and sit right-aligned — same shape as the List/Status rows (field grows,
+     action stays fixed). Without this, .row > *{flex:1 1 0} stretches every button
+     to an equal, oversized block. */
+  #tokenStatus{flex:1 1 auto;min-width:0}
+  /* Zero the global label margins inside a checkbox toggle so the box and its
+     text share one baseline instead of the label riding low. */
+  .toggle label{margin:0}
+  /* Fetched-field hint (list/status): a reserved line under the control so text
+     appearing or clearing never nudges the card height. */
+  .field-hint{font-size:11px;opacity:.6;margin-top:6px;min-height:15px}
+  /* Token connection state as a dot + label rather than a bare "Token: …" line. */
+  .status-pill{display:inline-flex;align-items:center;gap:7px;font-size:12px}
+  .status-pill .dot{width:8px;height:8px;border-radius:50%;flex:none;
+    background:var(--vscode-descriptionForeground,#8a8a8a)}
+  .status-pill.ok .dot{background:var(--vscode-charts-green,#89d185)}
+  .status-pill.off{opacity:.7}
+  /* Icon + short label buttons (the Reload actions). */
+  .icon-btn{display:inline-flex;align-items:center;gap:5px}
+  .icon-btn .btn-ico{flex:none;width:13px;height:13px}
   .approach-source{font-family:var(--mono);font-size:11px;opacity:.7}
   .confirm-run{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
   .confirm-cmd{font-family:var(--mono);font-size:11px;opacity:.8}
@@ -346,7 +378,7 @@
     <h1>Settings</h1>
     <span class="saved-msg hidden" id="savedMsg">Saved</span>
     <span class="spacer"></span>
-    <button class="secondary" id="discardBtn">Discard</button>
+    <button class="secondary" id="discardBtn" disabled>Discard</button>
     <button id="saveBtn" disabled>Save</button>
   </div>
 
@@ -446,15 +478,18 @@
             <label for="f-ticketTeamId">Team ID <span class="installed-tag">(ClickUp workspace, for custom task ids)</span></label>
             <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" />
 
-            <label for="f-ticketListId">List ID <span class="installed-tag">(reserved for future list-scoped operations)</span></label>
-            <input type="text" id="f-ticketListId" placeholder="e.g. 42" />
+            <label for="f-ticketList">List <span class="installed-tag">(the ClickUp list to advance tickets in)</span></label>
+            <div class="row" style="align-items:center">
+              <select id="f-ticketList"></select>
+              <button class="secondary fixed icon-btn" id="refreshListsBtn" title="Reload lists from ClickUp"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload lists</button>
+            </div>
+            <div id="listHint" class="field-hint"></div>
 
             <label>API token <span class="installed-tag">(stored in your OS keychain — never in karst.yml)</span></label>
             <div class="row" style="align-items:center">
-              <span id="tokenStatus" class="builtin-tag">Token: not configured</span>
-              <span class="spacer"></span>
-              <button class="secondary" id="setTokenBtn">Set token</button>
-              <button class="secondary" id="clearTokenBtn">Clear token</button>
+              <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
+              <button class="secondary fixed" id="setTokenBtn">Set token</button>
+              <button class="secondary fixed" id="clearTokenBtn">Clear token</button>
             </div>
           </div>
         </div>
@@ -473,9 +508,9 @@
             <label for="f-shipStatus">Status after ship</label>
             <div class="row" style="align-items:center">
               <select id="f-shipStatus"></select>
-              <button class="secondary fixed" id="refreshStatusesBtn">Refresh</button>
+              <button class="secondary fixed icon-btn" id="refreshStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
             </div>
-            <div id="statusHint" class="installed-tag"></div>
+            <div id="statusHint" class="field-hint"></div>
           </div>
         </div>
       </div>
@@ -660,6 +695,7 @@
     dirty = !manifestsEqual(draft, lastSaved);
     el('dirtyDot').classList.toggle('hidden', !dirty);
     el('savedMsg').classList.add('hidden');
+    updateSaveEnabled();
     scheduleValidate();
   }
 
@@ -671,7 +707,9 @@
   }
 
   function updateSaveEnabled() {
-    el('saveBtn').disabled = !valid;
+    // Save needs real, valid changes; Discard needs something to throw away.
+    el('saveBtn').disabled = !valid || !dirty;
+    el('discardBtn').disabled = !dirty;
   }
 
   // ---- nav ----
@@ -1586,6 +1624,63 @@
     return draft.ticketing;
   }
 
+  // ---- List picker (choose the ClickUp list; stores its numeric id) ----
+  // Fetched lists for the draft's workspace. null = not loaded yet.
+  let ticketLists = null;
+  let listHintText = '';
+  // Auto-fetch lists once per session when the ClickUp section is shown with
+  // prereqs met; guarded so a render loop or an error can't re-fire it.
+  let listsRequested = false;
+
+  function listPrereqsMet() {
+    return Boolean(ticketingCfg().teamId) && tokenConfigured;
+  }
+
+  function requestTicketLists() {
+    const cfg = ticketingCfg();
+    if (!listPrereqsMet()) {
+      ticketLists = null;
+      listHintText = 'Add a Team ID and API token to load lists.';
+      renderLists();
+      return;
+    }
+    ticketLists = null;
+    listHintText = 'Loading lists…';
+    renderLists();
+    post({ type: 'fetch-ticket-lists', teamId: cfg.teamId });
+  }
+
+  function renderLists() {
+    const cfg = ticketingCfg();
+    const sel = el('f-ticketList');
+    if (!sel) return;
+    const savedId = cfg.listId || '';
+    const loaded = ticketLists !== null;
+    const lists = ticketLists || [];
+    const empty = loaded && lists.length === 0;
+    const known = savedId && lists.some((l) => l.id === savedId);
+    // Keep the saved list visible/selected even before the list loads or if it
+    // no longer exists — never silently drop it. A placeholder forces a
+    // deliberate pick when nothing is saved (so the draft's empty listId and the
+    // <select> agree instead of the browser auto-selecting the first row).
+    let opts = '';
+    if (!savedId) opts += '<option value="" selected>— select a list —</option>';
+    else if (!known) opts += `<option value="${esc(savedId)}" selected>${esc(savedId)}</option>`;
+    opts += lists
+      .map((l) => `<option value="${esc(l.id)}"${l.id === savedId ? ' selected' : ''}>${esc(l.space + ' / ' + l.name)}</option>`)
+      .join('');
+    sel.innerHTML = opts;
+    sel.disabled = !loaded || empty;
+    let hint = listHintText;
+    if (empty) hint = 'This workspace has no lists.';
+    else if (loaded && savedId && !known) hint = `"${savedId}" is no longer in this workspace.`;
+    // Section opened without the prereqs to fetch: the auto-fetch is gated on
+    // listPrereqsMet(), so requestTicketLists() never runs to set the hint — set
+    // it here so an unconfigured picker guides the user instead of sitting blank.
+    else if (!loaded && !listPrereqsMet()) hint = 'Add a Team ID and API token to load lists.';
+    el('listHint').textContent = hint;
+  }
+
   // ---- After-ship advance (status pushed to the ticket provider on ship) ----
   // Fetched status names for the draft's list. null = not loaded yet.
   let ticketStatuses = null;
@@ -1680,6 +1775,25 @@
     requestTicketStatuses();
   });
 
+  el('f-ticketList').addEventListener('change', () => {
+    const cfg = ticketingCfg();
+    const v = el('f-ticketList').value;
+    if (v) cfg.listId = v; else delete cfg.listId;
+    // Statuses are list-scoped: a new list invalidates the loaded status set, so
+    // drop it — renderAdvance() then keeps any saved shipStatus as a stale option
+    // (ticketStatuses null → it does not erase the draft) until the user reloads.
+    ticketStatuses = null;
+    statusHintText = '';
+    renderLists();
+    renderAdvance();
+    markDirty();
+  });
+
+  el('refreshListsBtn').addEventListener('click', () => {
+    listsRequested = true;
+    requestTicketLists();
+  });
+
   // Custom dropdown (§ Ticketing): the branded [ICON] Brand badge can't render
   // inside a native <option>, so trigger + options are built from the shared
   // providerBadgeHtml() instead of a <select>. Only two providers exist today
@@ -1687,7 +1801,7 @@
   const TICKET_PROVIDER_IDS = ['manual', 'clickup'];
 
   function renderProviderDropdown(current) {
-    el('providerTrigger').innerHTML = providerBadgeHtml(current) + '<span class="chev" aria-hidden="true">▾</span>';
+    el('providerTrigger').innerHTML = providerBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
     el('providerMenu').innerHTML = TICKET_PROVIDER_IDS.map((id) => (
       `<div class="provselect-opt${id === current ? ' selected' : ''}" role="option"`
       + ` tabindex="0" data-value="${esc(id)}" aria-selected="${id === current}">`
@@ -1742,24 +1856,30 @@
     const current = cfg.provider || 'manual';
     renderProviderDropdown(current);
     el('f-ticketTeamId').value = cfg.teamId || '';
-    el('f-ticketListId').value = cfg.listId || '';
+    renderLists();
     const isClickup = current === 'clickup';
     el('clickupFields').classList.toggle('hidden', !isClickup);
-    el('tokenStatus').textContent = 'Token: ' + (tokenConfigured ? 'configured' : 'not configured');
-    el('tokenStatus').className = tokenConfigured ? 'installed-tag' : 'builtin-tag';
+    const pill = el('tokenStatus');
+    pill.className = 'status-pill ' + (tokenConfigured ? 'ok' : 'off');
+    pill.querySelector('.txt').textContent = tokenConfigured ? 'Token set' : 'No token';
+    // Offer only the action that applies: Set when absent, Clear when present.
+    el('setTokenBtn').classList.toggle('hidden', tokenConfigured);
+    el('clearTokenBtn').classList.toggle('hidden', !tokenConfigured);
     el('f-advanceOnShip').checked = Boolean(cfg.advanceOnShip);
     renderAdvance();
+    // Auto-load lists the first time the ClickUp section is shown with prereqs
+    // met. Guarded by listsRequested so repeated renders (and a failed fetch that
+    // leaves ticketLists null) can't re-fire it; Refresh is the retry path.
+    if (isClickup && !listsRequested && listPrereqsMet()) {
+      listsRequested = true;
+      requestTicketLists();
+    }
   }
   el('f-ticketTeamId').addEventListener('input', () => {
     const v = el('f-ticketTeamId').value.trim();
     const cfg = ticketingCfg();
     if (v) cfg.teamId = v; else delete cfg.teamId;
-    markDirty();
-  });
-  el('f-ticketListId').addEventListener('input', () => {
-    const v = el('f-ticketListId').value.trim();
-    const cfg = ticketingCfg();
-    if (v) cfg.listId = v; else delete cfg.listId;
+    listsRequested = false;
     markDirty();
   });
   el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
@@ -1770,6 +1890,7 @@
     draft = clone(lastSaved);
     dirty = false;
     el('dirtyDot').classList.add('hidden');
+    updateSaveEnabled();
     openCards = new Set();
     renderAll();
     post({ type: 'validate', manifest: draft });
@@ -1839,6 +1960,18 @@
         ticketStatuses = null;
         statusHintText = msg.message;
         renderAdvance();
+        break;
+      }
+      case 'ticket-lists': {
+        ticketLists = msg.lists;
+        listHintText = '';
+        renderLists();
+        break;
+      }
+      case 'ticket-lists-error': {
+        ticketLists = null;
+        listHintText = msg.message;
+        renderLists();
         break;
       }
       case 'error': {
