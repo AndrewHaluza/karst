@@ -142,11 +142,16 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** Per-workspace flag: the user dismissed the fresh-install welcome panel. */
 const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
 /**
- * The hook port this host bound last time (globalState: the port is a property of
- * the machine's endpoint, not of any one workspace). Rebinding it is what keeps a
- * session that outlived a host restart — it baked the old port into its
- * `--settings` at launch and never re-reads the file — from ECONNREFUSING on
- * every hook it fires.
+ * The hook port this window bound last time. Rebinding it is what keeps a session
+ * that outlived a host restart — it baked the old port into its `--settings` at
+ * launch and never re-reads the file — from ECONNREFUSING on every hook it fires.
+ *
+ * `workspaceState`, NOT `globalState`: every window shares global storage, but each
+ * window runs its OWN endpoint on its OWN port. With one global key the second
+ * window to start hit EADDRINUSE on the first's port, fell back to an ephemeral
+ * one, and wrote THAT over the shared key — so when the first window's host
+ * restarted it could no longer reclaim the port its live sessions were still
+ * posting to, and every one of them ECONNREFUSED for the rest of its life.
  */
 const HOOK_PORT_KEY = 'karst.hookPort';
 
@@ -881,14 +886,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
-  const rememberedPort = context.globalState.get<number>(HOOK_PORT_KEY) ?? 0;
+  const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   endpoint = await startHookEndpoint(localStore, rememberedPort, (ticketId) => {
     provider.refresh();
     dashboard.pushState(ticketId);
     maybeDrive(ticketId, 'hook');
   }, logError);
   if (endpoint.port !== rememberedPort) {
-    await context.globalState.update(HOOK_PORT_KEY, endpoint.port);
+    await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
   }
 
   // Activation sweep: resume any ticket already parked at a gate. Recovers a ticket

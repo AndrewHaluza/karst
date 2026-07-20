@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
@@ -6,6 +5,7 @@ import type { Verdict } from '../../model/types.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../machine.js';
 import { REVIEW_GATES, readPackageScripts } from '../gates/scripts.js';
+import { runCommand } from '../gates/run.js';
 
 /**
  * Review stage (§T4.4, §11). MVP gates on the **deterministic signal** — every
@@ -54,17 +54,24 @@ export interface ReviewOutcome {
 export function makeGateRunner(): GateRunner {
   return async (cwd) => {
     const scripts = readPackageScripts(cwd);
-    return REVIEW_GATES.map(({ name, script, args }) => {
+    // Sequential, not `Promise.all`: three npm scripts racing in one worktree
+    // fight over the same node_modules/build output, and their interleaved
+    // output would land in one artifact log unreadable. Each still runs async,
+    // so the extension host stays responsive throughout (see `gates/run.ts`).
+    const results: GateResult[] = [];
+    for (const { name, script, args } of REVIEW_GATES) {
       if (scripts[script] === undefined) {
-        return {
+        results.push({
           name,
           exitCode: null,
           output: `no "${script}" script in package.json — nothing to run`,
-        };
+        });
+        continue;
       }
-      const r = spawnSync('npm', [...args], { cwd, encoding: 'utf8' });
-      return { name, exitCode: r.status ?? 1, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
-    });
+      const r = await runCommand('npm', args, cwd);
+      results.push({ name, exitCode: r.exitCode, output: r.output });
+    }
+    return results;
   };
 }
 
