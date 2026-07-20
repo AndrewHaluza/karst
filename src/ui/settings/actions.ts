@@ -4,6 +4,8 @@ import { installCommandFor } from '../../approaches/fetch.js';
 import type { SettingsActions, SettingsHostMessage } from './messages.js';
 import { buildSettingsState, type SettingsState } from './state.js';
 import type { LoadedManifest } from './panel.js';
+import type { TicketingProvider } from '../../integrations/ticketing.js';
+import type { TicketingConfig } from '../../manifest/types.js';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
 export interface SettingsActionsCtx {
@@ -63,6 +65,12 @@ export interface SettingsActionsDeps {
   /** Read a command's markdown body: a native `commands/<name>.md` file, or the
    *  generated `/karst:<id>` orchestrator rendered from the package's workflow. */
   readApproachCommandBody(approachId: string, command: string): string;
+  /**
+   * Build a ticketing provider for an ad-hoc config (the settings DRAFT), so the
+   * status list can be fetched before the config is saved. Injected to keep this
+   * module free of `fetch` and of `vscode`.
+   */
+  makeProvider(config: TicketingConfig): TicketingProvider;
 }
 
 export type SettingsActionsFactory = (ctx: SettingsActionsCtx) => SettingsActions;
@@ -262,6 +270,28 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           ctx.post({ type: 'approach-command-body', approachId, command, body });
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      async fetchTicketStatuses(listId: string, teamId?: string): Promise<void> {
+        const provider = deps.makeProvider({
+          provider: 'clickup',
+          listId,
+          ...(teamId ? { teamId } : {}),
+        });
+        if (!provider.listStatuses) {
+          ctx.post({
+            type: 'ticket-statuses-error',
+            message: 'This provider cannot list statuses.',
+          });
+          return;
+        }
+        try {
+          ctx.post({ type: 'ticket-statuses', statuses: await provider.listStatuses() });
+        } catch (e) {
+          // Status-scoped, not panel-level: this lands on the hint line beside the
+          // control that caused it.
+          ctx.post({ type: 'ticket-statuses-error', message: errorMessage(e) });
         }
       },
     };

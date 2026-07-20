@@ -121,6 +121,7 @@ describe('routeSettingsAction', () => {
       createAgent: [],
       deleteAgent: [],
       getApproachCommandBody: [],
+      fetchTicketStatuses: [],
     };
     return {
       calls,
@@ -137,6 +138,7 @@ describe('routeSettingsAction', () => {
       createAgent: (name) => calls['createAgent']!.push(name),
       deleteAgent: (name) => calls['deleteAgent']!.push(name),
       getApproachCommandBody: (approachId, command) => calls['getApproachCommandBody']!.push({ approachId, command }),
+      fetchTicketStatuses: (listId, teamId) => calls['fetchTicketStatuses']!.push({ listId, teamId }),
     };
   }
 
@@ -175,5 +177,45 @@ describe('routeSettingsAction', () => {
     expect(() => routeSettingsAction({ type: 'bogus' }, a)).not.toThrow();
     expect(a.calls.save).toEqual([]);
     expect(a.calls.installApproach).toEqual([]);
+  });
+});
+
+describe('fetch-ticket-statuses', () => {
+  it('parses a message with a listId', () => {
+    expect(parseSettingsMessage({ type: 'fetch-ticket-statuses', listId: '42' })).toEqual({
+      type: 'fetch-ticket-statuses',
+      listId: '42',
+    });
+  });
+
+  it('carries an optional teamId', () => {
+    expect(
+      parseSettingsMessage({ type: 'fetch-ticket-statuses', listId: '42', teamId: '9001' }),
+    ).toEqual({ type: 'fetch-ticket-statuses', listId: '42', teamId: '9001' });
+  });
+
+  it('drops a message with a missing or blank listId', () => {
+    expect(parseSettingsMessage({ type: 'fetch-ticket-statuses' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'fetch-ticket-statuses', listId: '' })).toBeNull();
+  });
+
+  it('drops a message with a non-string teamId', () => {
+    expect(
+      parseSettingsMessage({ type: 'fetch-ticket-statuses', listId: '42', teamId: 9001 }),
+    ).toBeNull();
+  });
+
+  it('routes to fetchTicketStatuses', () => {
+    const calls: { listId: string; teamId?: string }[] = [];
+    const actions = {
+      fetchTicketStatuses: (listId: string, teamId?: string) => calls.push({ listId, teamId }),
+    } as unknown as SettingsActions;
+
+    routeSettingsAction(
+      { type: 'fetch-ticket-statuses', listId: '42', teamId: '9001' },
+      actions,
+    );
+
+    expect(calls).toEqual([{ listId: '42', teamId: '9001' }]);
   });
 });

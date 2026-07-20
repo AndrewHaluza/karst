@@ -42,6 +42,7 @@ function make(loaded: LoadedManifest, hasToken: () => Promise<boolean> = async (
       deleteAgent: () => {},
       requestState: () => ctx.post({ type: 'saved' }),
       getApproachCommandBody: () => {},
+      fetchTicketStatuses: () => {},
     }),
     () => [],
     hasToken,

@@ -576,7 +576,7 @@ describe('ticketing', () => {
   it("defaults to { provider: 'manual' } when omitted", () => {
     const { path, cleanup } = fixture(VALID);
     try {
-      expect(loadManifest(path).ticketing).toEqual({ provider: 'manual' });
+      expect(loadManifest(path).ticketing).toEqual({ provider: 'manual', advanceOnShip: false });
     } finally {
       cleanup();
     }
@@ -590,6 +590,7 @@ describe('ticketing', () => {
         provider: 'clickup',
         teamId: '9001',
         listId: '42',
+        advanceOnShip: false,
       });
     } finally {
       cleanup();
@@ -602,8 +603,90 @@ describe('ticketing', () => {
     try {
       const t = loadManifest(path).ticketing!;
       expect(t.provider).toBe('clickup');
+      expect(t.advanceOnShip).toBe(false);
       expect(t).not.toHaveProperty('teamId');
       expect(t).not.toHaveProperty('listId');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('defaults advanceOnShip to false', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).ticketing?.advanceOnShip).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses advanceOnShip and shipStatus', () => {
+    const yaml =
+      `${VALID}\nticketing:\n  provider: clickup\n  listId: "42"\n` +
+      `  advanceOnShip: true\n  shipStatus: "in review"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).ticketing).toEqual({
+        provider: 'clickup',
+        listId: '42',
+        advanceOnShip: true,
+        shipStatus: 'in review',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects advanceOnShip without a shipStatus', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  advanceOnShip: true\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/shipStatus is required/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('normalizes an empty shipStatus to undefined', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  shipStatus: ""\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const t = loadManifest(path).ticketing!;
+      expect(t.provider).toBe('clickup');
+      expect(t).not.toHaveProperty('shipStatus');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a blank shipStatus with advanceOnShip', () => {
+    const yaml =
+      `${VALID}\nticketing:\n  provider: clickup\n  advanceOnShip: true\n  shipStatus: "   "\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/shipStatus is required/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects advanceOnShip on the 'manual' provider", () => {
+    const yaml =
+      `${VALID}\nticketing:\n  provider: manual\n  advanceOnShip: true\n  shipStatus: "done"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/requires a provider that can set status/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-boolean advanceOnShip', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  advanceOnShip: "yes"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/advanceOnShip must be a boolean/);
     } finally {
       cleanup();
     }

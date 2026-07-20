@@ -455,6 +455,26 @@
           </div>
         </div>
       </div>
+
+      <!-- After-ship advance. Hidden unless provider === clickup: manual has no
+           statuses to list, and advancing a local no-op record means nothing. -->
+      <div class="card open hidden" id="advanceCard">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <div class="toggle">
+            <input type="checkbox" id="f-advanceOnShip" />
+            <label for="f-advanceOnShip">Set the ticket status when karst ships</label>
+          </div>
+
+          <div id="advanceStatusRow" class="hidden" style="margin-top:10px">
+            <label for="f-shipStatus">Status after ship</label>
+            <div class="row" style="align-items:center">
+              <select id="f-shipStatus"></select>
+              <button class="secondary fixed" id="refreshStatusesBtn">Refresh</button>
+            </div>
+            <div id="statusHint" class="installed-tag"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1542,6 +1562,100 @@
     return draft.ticketing;
   }
 
+  // ---- After-ship advance (status pushed to the ticket provider on ship) ----
+  // Fetched status names for the draft's list. null = not loaded yet.
+  let ticketStatuses = null;
+  let statusHintText = '';
+
+  function ticketingPrereqsMet() {
+    const cfg = ticketingCfg();
+    return Boolean(cfg.listId) && tokenConfigured;
+  }
+
+  function requestTicketStatuses() {
+    const cfg = ticketingCfg();
+    if (!ticketingPrereqsMet()) {
+      ticketStatuses = null;
+      statusHintText = 'Add a List ID and API token to load statuses.';
+      renderAdvance();
+      return;
+    }
+    ticketStatuses = null;
+    statusHintText = 'Loading statuses…';
+    renderAdvance();
+    post({ type: 'fetch-ticket-statuses', listId: cfg.listId, teamId: cfg.teamId });
+  }
+
+  function renderAdvance() {
+    const cfg = ticketingCfg();
+    const isClickup = cfg.provider === 'clickup';
+    el('advanceCard').classList.toggle('hidden', !isClickup);
+    if (!isClickup) return;
+
+    const on = el('f-advanceOnShip').checked;
+    el('advanceStatusRow').classList.toggle('hidden', !on);
+
+    const sel = el('f-shipStatus');
+    const saved = cfg.shipStatus || '';
+    const loaded = ticketStatuses !== null;
+    const names = ticketStatuses || [];
+    const empty = loaded && names.length === 0;
+    // A saved status the provider no longer lists — OR a list not yet fetched this
+    // session — must keep the saved value visible and selected, never silently
+    // dropped (which would then save an empty status away).
+    const stale = saved && !names.includes(saved);
+    const options = stale ? [saved].concat(names) : names;
+
+    sel.innerHTML = options
+      .map((n) => `<option value="${esc(n)}"${n === saved ? ' selected' : ''}>${esc(n)}</option>`)
+      .join('');
+
+    sel.disabled = !loaded || empty;
+
+    let hint = statusHintText;
+    if (empty) hint = 'This list has no statuses.';
+    else if (loaded && stale) hint = `"${saved}" is no longer in this list.`;
+    el('statusHint').textContent = hint;
+
+    // Sync the draft from the selected value, but ONLY once statuses have loaded.
+    // Before that (a fresh panel open, ticketStatuses still null) the populated
+    // options do not yet exist, and running the write-back would erase a saved
+    // config. Leaving early preserves whatever was saved. The schema still forbids
+    // advanceOnShip:true with a blank shipStatus, so the loaded-path guard below
+    // is what keeps the draft coherent once the user can actually pick.
+    if (!loaded) return;
+    const value = sel.value || '';
+    if (on && value) {
+      cfg.advanceOnShip = true;
+      cfg.shipStatus = value;
+    } else {
+      cfg.advanceOnShip = false;
+      delete cfg.shipStatus;
+    }
+  }
+
+  el('f-advanceOnShip').addEventListener('change', () => {
+    // Fetch on toggle-on, never on listId keystrokes — that would hammer the API
+    // on the way to a valid id. Refresh covers a later edit.
+    if (el('f-advanceOnShip').checked && ticketStatuses === null) requestTicketStatuses();
+    else renderAdvance();
+    markDirty();
+  });
+
+  el('f-shipStatus').addEventListener('change', () => {
+    // Write the live pick into the draft BEFORE renderAdvance() runs: it rebuilds
+    // the <select> from cfg.shipStatus and marks that value selected, so without
+    // this line the rebuild would snap the selection back to the old value and
+    // discard the user's pick.
+    ticketingCfg().shipStatus = el('f-shipStatus').value;
+    renderAdvance();
+    markDirty();
+  });
+
+  el('refreshStatusesBtn').addEventListener('click', () => {
+    requestTicketStatuses();
+  });
+
   // Custom dropdown (§ Ticketing): the branded [ICON] Brand badge can't render
   // inside a native <option>, so trigger + options are built from the shared
   // providerBadgeHtml() instead of a <select>. Only two providers exist today
@@ -1566,7 +1680,15 @@
     el('providerTrigger').setAttribute('aria-expanded', 'true');
   }
   function pickProvider(id) {
-    ticketingCfg().provider = id;
+    const cfg = ticketingCfg();
+    cfg.provider = id;
+    // Advance-on-ship is ClickUp-only, and its card is hidden for other
+    // providers — so clear the pair here rather than stranding the draft in a
+    // state the schema rejects but the (now-hidden) toggle can no longer undo.
+    if (id !== 'clickup') {
+      cfg.advanceOnShip = false;
+      delete cfg.shipStatus;
+    }
     markDirty(); renderTicketing(); closeProviderMenu();
     el('providerTrigger').focus();
   }
@@ -1601,6 +1723,8 @@
     el('clickupFields').classList.toggle('hidden', !isClickup);
     el('tokenStatus').textContent = 'Token: ' + (tokenConfigured ? 'configured' : 'not configured');
     el('tokenStatus').className = tokenConfigured ? 'installed-tag' : 'builtin-tag';
+    el('f-advanceOnShip').checked = Boolean(cfg.advanceOnShip);
+    renderAdvance();
   }
   el('f-ticketTeamId').addEventListener('input', () => {
     const v = el('f-ticketTeamId').value.trim();
@@ -1673,6 +1797,24 @@
         valid = msg.ok;
         updateSaveEnabled();
         showError(msg.ok ? null : msg.error);
+        break;
+      }
+      case 'ticket-statuses': {
+        ticketStatuses = msg.statuses;
+        statusHintText = '';
+        // Default to the first status so the common path is coherent immediately:
+        // toggled on with nothing chosen would be an invalid draft.
+        if (!ticketingCfg().shipStatus && msg.statuses.length > 0) {
+          ticketingCfg().shipStatus = msg.statuses[0];
+        }
+        renderAdvance();
+        markDirty();
+        break;
+      }
+      case 'ticket-statuses-error': {
+        ticketStatuses = null;
+        statusHintText = msg.message;
+        renderAdvance();
         break;
       }
       case 'error': {

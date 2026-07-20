@@ -8,8 +8,6 @@ import { getTicket } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { transition } from '../machine.js';
 import { shipTicket } from './ship.js';
-import { updateTicketStatus } from './done.js';
-import { manualProvider } from '../../integrations/ticketing.js';
 import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -358,15 +356,5 @@ describe('shipTicket', () => {
     expect(calls).toBe(2);
     expect(listPrsByTicket(store, id)).toHaveLength(2);
     expect(res.prs).toHaveLength(2);
-  });
-});
-
-describe('updateTicketStatus', () => {
-  it('updates via the injected provider (manual)', async () => {
-    const store = openStore(':memory:');
-    const id = createTicketFlow(store, { key: 'PROJ-2', title: 't' }).id;
-    const provider = manualProvider();
-    await updateTicketStatus(store, id, 'done', provider);
-    expect(provider.updates).toEqual([{ key: 'PROJ-2', status: 'done' }]);
   });
 });

@@ -119,6 +119,16 @@ export interface TicketingConfig {
   provider: TicketProvider;
   teamId?: string;
   listId?: string;
+  /**
+   * Push `shipStatus` to the provider after a successful ship. Always set by
+   * `validateManifest` (default `false`).
+   */
+  advanceOnShip?: boolean;
+  /**
+   * Provider status NAME to set after ship (ClickUp's PUT takes a name, not an
+   * id). Required when `advanceOnShip` is true; blank normalizes to undefined.
+   */
+  shipStatus?: string;
 }
 
 export interface Manifest {

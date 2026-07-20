@@ -27,6 +27,8 @@ export interface ClickupDeps {
   token: TokenProvider;
   /** Optional team/workspace id, appended when custom task ids are in play. */
   teamId?: string;
+  /** List whose statuses `listStatuses` reads. Absent → `listStatuses` throws. */
+  listId?: string;
 }
 
 /** A typed error so callers/UI never see a raw network/JSON throw. */
@@ -47,6 +49,16 @@ interface RawTask {
 }
 interface RawComments {
   comments?: { comment_text?: string; user?: { username?: string }; date?: string }[];
+}
+
+/**
+ * `GET /list/{id}`. `statuses` is optional: a List can inherit its statuses from
+ * its Space (`override_statuses: false`), so an absent array is a real response,
+ * not a malformed one. Only the status NAME is read — ClickUp's PUT sets status
+ * by name, and the status `id` is optional in the payload.
+ */
+interface RawList {
+  statuses?: { status?: string }[];
 }
 
 function parseTags(task: RawTask): string[] {
@@ -105,13 +117,46 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
     }
   }
 
+  async function putJson(url: string, body: unknown): Promise<void> {
+    const token = await deps.token();
+    let res: Response;
+    try {
+      res = await deps.fetchFn(url, {
+        method: 'PUT',
+        headers: { Authorization: token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw new ClickupError(`request failed: ${(e as Error).message}`);
+    }
+    if (!res.ok) {
+      throw new ClickupError(`PUT ${url} returned ${res.status}`);
+    }
+  }
+
   const teamSuffix = deps.teamId ? `?custom_task_ids=true&team_id=${deps.teamId}` : '';
   const commentSuffix = deps.teamId ? `?custom_task_ids=true&team_id=${deps.teamId}` : '';
 
   return {
-    // ClickUp status updates are post-MVP; the seam is present, no-op for now.
-    async updateStatus() {
-      /* not wired for ClickUp yet */
+    /**
+     * Set a task's status. ClickUp takes the status NAME (`{status: "in review"}`),
+     * not an id. `ref` is the provider's own task ref (`sourceRef`), never karst's
+     * ticket key — see `advanceTicketOnShip`.
+     */
+    async updateStatus(ref: string, status: string): Promise<void> {
+      await putJson(`${API_BASE}/task/${encodeURIComponent(ref)}${teamSuffix}`, { status });
+    },
+
+    async listStatuses(): Promise<string[]> {
+      if (!deps.listId) {
+        throw new ClickupError('a List ID is required to load statuses');
+      }
+      const list = (await getJson(
+        `${API_BASE}/list/${encodeURIComponent(deps.listId)}`,
+      )) as RawList;
+      return (list.statuses ?? [])
+        .map((s) => s.status)
+        .filter((s): s is string => typeof s === 'string');
     },
 
     async fetchTicket(ref: string): Promise<ContextBrief> {

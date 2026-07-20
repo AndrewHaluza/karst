@@ -237,22 +237,50 @@ function validateAgents(raw: unknown): Record<string, AgentDef> {
 
 /**
  * Parse the top-level `ticketing` block (default `{ provider: 'manual' }`):
- * `provider` must be 'clickup' or 'manual'; `teamId`/`listId` are parsed only
- * when present (non-empty strings). Mirrors `validateWorktreePathDisplay` +
- * the optional-field handling in `validateService`.
+ * `provider` must be 'clickup' or 'manual'; `teamId`/`listId`/`shipStatus` are
+ * parsed only when present. `advanceOnShip` always lands (default `false`).
+ *
+ * Two coherence guards, so a config that cannot do anything never reaches disk:
+ * an advance with no status to set is a typo, and an advance on `manual` is
+ * silently inert (the manual provider only records locally).
  */
 function validateTicketing(raw: unknown): TicketingConfig {
-  if (raw === undefined) return { provider: 'manual' };
+  if (raw === undefined) return { provider: 'manual', advanceOnShip: false };
   if (!isObject(raw)) throw new ManifestError('ticketing must be a mapping');
   if (raw.provider !== 'clickup' && raw.provider !== 'manual') {
     throw new ManifestError("ticketing.provider must be 'clickup' or 'manual'");
   }
-  const config: TicketingConfig = { provider: raw.provider };
+  const config: TicketingConfig = { provider: raw.provider, advanceOnShip: false };
   if (raw.teamId !== undefined) {
     config.teamId = requireString(raw.teamId, 'ticketing.teamId');
   }
   if (raw.listId !== undefined) {
     config.listId = requireString(raw.listId, 'ticketing.listId');
+  }
+  if (raw.shipStatus !== undefined) {
+    if (typeof raw.shipStatus !== 'string') {
+      throw new ManifestError('ticketing.shipStatus must be a string');
+    }
+    const status = raw.shipStatus.trim();
+    if (status) config.shipStatus = status;
+  }
+  if (raw.advanceOnShip !== undefined) {
+    if (typeof raw.advanceOnShip !== 'boolean') {
+      throw new ManifestError('ticketing.advanceOnShip must be a boolean');
+    }
+    config.advanceOnShip = raw.advanceOnShip;
+  }
+  if (config.advanceOnShip) {
+    if (!config.shipStatus) {
+      throw new ManifestError(
+        'ticketing.shipStatus is required when ticketing.advanceOnShip is true',
+      );
+    }
+    if (config.provider === 'manual') {
+      throw new ManifestError(
+        "ticketing.advanceOnShip requires a provider that can set status (not 'manual')",
+      );
+    }
   }
   return config;
 }
