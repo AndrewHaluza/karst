@@ -103,6 +103,8 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Optional: written when set, dropped (undefined → omitted by the dumper, and
     // overrides any stale root value) when cleared, so it falls back to default.
     ticketLabelTemplate: manifest.ticketLabelTemplate,
+    // Optional: written when set, dropped when cleared, falls back to default.
+    terminalNameTemplate: manifest.terminalNameTemplate,
     // Optional: written when set, dropped (→ omitted by the dumper) when cleared,
     // so it falls back to "no default".
     defaultModel: manifest.defaultModel,

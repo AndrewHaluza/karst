@@ -818,3 +818,41 @@ describe('ticketLabelTemplate', () => {
     }
   });
 });
+
+describe('terminalNameTemplate', () => {
+  it('is undefined when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).terminalNameTemplate).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses an explicit template string', () => {
+    const { path, cleanup } = fixture(`${VALID}\nterminalNameTemplate: "Karst: {key}"\n`);
+    try {
+      expect(loadManifest(path).terminalNameTemplate).toBe('Karst: {key}');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('normalizes a blank template to undefined (falls back to default)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nterminalNameTemplate: "   "\n`);
+    try {
+      expect(loadManifest(path).terminalNameTemplate).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws when the template is not a string', () => {
+    const { path, cleanup } = fixture(`${VALID}\nterminalNameTemplate: 5\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/terminalNameTemplate/i);
+    } finally {
+      cleanup();
+    }
+  });
+});

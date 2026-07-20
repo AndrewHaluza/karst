@@ -25,6 +25,14 @@ import { countFixAttempts, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModel } from './agent/models.js';
+import {
+  renderTicketLabel,
+  DEFAULT_TERMINAL_NAME_TEMPLATE,
+} from './store/ticketLabelTemplate.js';
+import { ticketGlyph } from './model/ticketGlyph.js';
+import { glyphIconPath } from './ui/glyphIcon.js';
+import { glyphThemeColorKey } from './model/glyphColor.js';
+import { StatusBarManager } from './ui/statusBar.js';
 import { composeContextCommand } from './cli/context.js';
 import { composeStageCommand } from './cli/stage.js';
 import {
@@ -377,6 +385,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // manifest is read fresh per-open (getter) so a signal write is reflected
   // immediately. The ClickUp provider + agent adapter are wired with the secure
   // token seam; the manifest/path are read at call time (resolved on open).
+  // One status-tinted logo per glyph, materialized on demand under global
+  // storage. Every karst tab derives its icon from the SAME `ticketGlyph` the
+  // sidebar rows use, so a ticket reads the same color on every surface. A
+  // missing ticket / unreadable asset degrades to "no icon", never a throw.
+  const tabIconFor = (ticketId: number): string | undefined => {
+    try {
+      const t = getTicket(localStore, ticketId);
+      return glyphIconPath(ticketGlyph(t), {
+        storageDir: context.globalStorageUri.fsPath,
+        assetSvgPath: join(HERE, '..', 'media', 'karst.svg'),
+      });
+    } catch {
+      return undefined;
+    }
+  };
+
   const onboarding = new OnboardingManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
@@ -453,6 +477,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Locks the model/effort picker while a session terminal is live (§ B1).
     (ticketId) => sessions.isOpen(ticketId),
     logError,
+    tabIconFor,
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -608,6 +633,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => {
           provider.refresh();
           dashboard.pushState(ticketId);
+          // Same sweep the tab icon rides on — the status text must not lag it.
+          showStatusFor(ticketId);
         },
         logError,
         guardCapability,
@@ -636,7 +663,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return [];
       }
     },
+    tabIconFor,
   );
+
+  // The live verbose channel (§ naming/status): whatever a tab or terminal
+  // abbreviates to a color, this states in words for the ticket the user last
+  // touched. Blocked (`red`) also takes the warning background — a blocker is
+  // never signalled by color alone.
+  const sbItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  context.subscriptions.push(sbItem);
+  const statusBar = new StatusBarManager({
+    set: (text, warning, command) => {
+      sbItem.text = text;
+      sbItem.backgroundColor = warning
+        ? new vscode.ThemeColor('statusBarItem.warningBackground')
+        : undefined;
+      sbItem.command = { command: command.id, title: 'Open dashboard', arguments: [command.arg] };
+      sbItem.show();
+    },
+    hide: () => sbItem.hide(),
+  });
+
+  /** Re-render the status bar for a ticket; a missing ticket hides the item. */
+  const showStatusFor = (ticketId: number): void => {
+    try {
+      const t = getTicket(localStore, ticketId);
+      statusBar.render({
+        ticketId,
+        key: t.key ?? `#${ticketId}`,
+        stage: t.stageCurrent ?? 'none',
+        state: t.agentState ?? 'none',
+        glyph: ticketGlyph(t),
+      });
+    } catch {
+      statusBar.render(null);
+    }
+  };
 
   // Where the auto-driver persists its gate-run evidence (§11/§12), mirroring
   // the per-ticket layout the runners themselves expect.
@@ -826,6 +888,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
       dashboard.openDashboard(ticketId);
+      showStatusFor(ticketId);
     }),
     vscode.commands.registerCommand('karst.openSession', (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
@@ -991,6 +1054,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // default, else undefined (let the agent CLI pick). Threaded as `--model`.
       const model = resolveModel(t.model, currentManifest()?.defaultModel);
 
+      // Terminal name/icon/color are frozen at creation, so resolve the ticket's
+      // glyph ONCE here: the color is the stage-at-launch, and the template keeps
+      // the stage legible as text for the rest of the terminal's life.
+      const glyph = ticketGlyph(t);
+      const naming = {
+        name: renderTicketLabel(
+          t,
+          currentManifest()?.terminalNameTemplate ?? DEFAULT_TERMINAL_NAME_TEMPLATE,
+        ),
+        iconPath: glyphIconPath(glyph, {
+          storageDir: context.globalStorageUri.fsPath,
+          assetSvgPath: join(HERE, '..', 'media', 'karst.svg'),
+        }),
+        color: glyphThemeColorKey(glyph),
+      };
+
       sessions.openSession(
         ticketId,
         wt.path,
@@ -999,7 +1078,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         extraArgs,
         model,
         resumeId,
+        naming,
       );
+      showStatusFor(ticketId);
     }),
     vscode.commands.registerCommand('karst.spinTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
@@ -1277,6 +1358,9 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
         onDidReceiveMessage: (handler) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
+        setIcon: (p: string) => {
+          panel.iconPath = vscode.Uri.file(p);
+        },
       };
     },
   };
@@ -1294,6 +1378,10 @@ function makeTerminalHost(): TerminalHost {
         cwd: opts.cwd,
         shellPath: opts.shellPath,
         shellArgs: opts.shellArgs,
+        // Name/icon/color are frozen at creation — `Terminal.creationOptions` is
+        // readonly, so the launch glyph is what the tab keeps for its lifetime.
+        ...(opts.iconPath ? { iconPath: vscode.Uri.file(opts.iconPath) } : {}),
+        ...(opts.color ? { color: new vscode.ThemeColor(opts.color) } : {}),
       });
       return {
         show: () => terminal.show(),

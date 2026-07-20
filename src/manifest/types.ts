@@ -152,6 +152,12 @@ export interface Manifest {
    * at validation so an empty field can't erase every label.
    */
   ticketLabelTemplate?: string;
+  /**
+   * Terminal-name template with the same `{var}` tokens as ticketLabelTemplate.
+   * Undefined → the default `'Karst: {key} — {title}'`. Blank normalizes to
+   * undefined at validation. Rendered once at launch (terminals are static).
+   */
+  terminalNameTemplate?: string;
   /** Ticketing integration config; always set by `validateManifest` (`{ provider: 'manual' }` default). */
   ticketing?: TicketingConfig;
   /** Selected agent provider; always set by validate (default 'claude'). */

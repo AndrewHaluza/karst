@@ -15,6 +15,8 @@ export interface DashboardPanel {
   postMessage(message: unknown): void;
   onDidReceiveMessage(handler: (message: unknown) => void): void;
   onDidDispose(handler: () => void): void;
+  /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
+  setIcon(path: string): void;
 }
 
 /** Factory the manager uses to mint panels (real: `createWebviewPanel`). */
@@ -28,6 +30,8 @@ export interface FakePanel extends DashboardPanel {
   revealed: number;
   disposed: boolean;
   posted: unknown[];
+  /** Every `setIcon` path, in order — the live-tint assertion surface. */
+  icons: string[];
   messageHandlers: Array<(m: unknown) => void>;
   disposeHandler?: () => void;
   dispose(): void;
@@ -68,6 +72,12 @@ export class DashboardManager {
      * impl-stage breakdown (§ impl sub-stages). Absent → no breakdown shown.
      */
     private readonly approachPhases?: (approachId: string | null) => string[],
+    /**
+     * Resolve a ticket → the file path of its status-tinted tab icon. Called on
+     * open AND on every state push, so the tab color tracks the live glyph.
+     * Absent → the tab keeps the editor's default icon.
+     */
+    private readonly iconFor?: (ticketId: number) => string | undefined,
   ) {}
 
   /** Open (or reveal) the dashboard for a ticket and push its initial state. */
@@ -96,6 +106,7 @@ export class DashboardManager {
     });
     panel.onDidDispose(() => this.panels.delete(ticketId));
 
+    this.refreshIcon(ticketId, panel);
     this.pushState(ticketId);
   }
 
@@ -111,6 +122,13 @@ export class DashboardManager {
       this.approachPhases,
     );
     panel.postMessage({ type: 'state', state });
+    this.refreshIcon(ticketId, panel);
+  }
+
+  /** Re-point the tab icon at the ticket's current status glyph. */
+  private refreshIcon(ticketId: number, panel: DashboardPanel): void {
+    const icon = this.iconFor?.(ticketId);
+    if (icon) panel.setIcon(icon);
   }
 
   /** Whether a panel is currently open for a ticket (for the caller/tests). */

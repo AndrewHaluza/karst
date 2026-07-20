@@ -22,6 +22,8 @@ export interface OnboardingPanel {
   onDidDispose(handler: () => void): void;
   /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
   dispose(): void;
+  /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
+  setIcon(path: string): void;
 }
 
 /** Factory the manager uses to mint panels (real: `createWebviewPanel`). */
@@ -107,6 +109,12 @@ export class OnboardingManager {
     private readonly isSessionOpen: (ticketId: number) => boolean = () => false,
     /** Report a caught pump error to the Karst output channel (§ todo-5). */
     private readonly logError: LogError = (m, e) => console.error(m, e),
+    /**
+     * Resolve a ticket → the file path of its status-tinted tab icon. Called on
+     * open and on every state push, so an edit tab tracks the live glyph. An
+     * unbound create panel has no ticket yet → no icon.
+     */
+    private readonly iconFor?: (ticketId: number) => string | undefined,
   ) {}
 
   /**
@@ -160,6 +168,10 @@ export class OnboardingManager {
         this.isSessionOpen,
       );
       panel.postMessage({ type: 'state', state });
+      // Re-point the tab icon at the bound ticket's live glyph. A create panel
+      // stays iconless until `bindTicket` gives it an id.
+      const icon = boundId === undefined ? undefined : this.iconFor?.(boundId);
+      if (icon) panel.setIcon(icon);
     };
     const ctx: OnboardingActionsCtx = {
       post: (message) => {

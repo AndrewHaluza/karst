@@ -1,6 +1,6 @@
 import { ticketLabel, type TicketWithStages } from '../../store/tickets.js';
-import type { StageStatus, AgentState } from '../../model/types.js';
-import { glyphFor, type Glyph } from '../../model/glyph.js';
+import { ticketGlyph, currentStageStatus } from '../../model/ticketGlyph.js';
+import type { Glyph } from '../../model/glyph.js';
 
 /**
  * Plain, vscode-free row model for the sidebar ticket list (§14). The webview
@@ -19,12 +19,6 @@ export interface TicketNode {
   collapsible: true;
 }
 
-/** Status of the ticket's current stage, defaulting to pending when unknown. */
-function currentStageStatus(t: TicketWithStages): StageStatus {
-  const cur = t.stages.find((s) => s.stageKey === t.stageCurrent);
-  return cur?.status ?? 'pending';
-}
-
 /** Map each ticket to a collapsible root node carrying its state glyph. */
 export function buildTicketNodes(
   tickets: readonly TicketWithStages[],
@@ -34,7 +28,7 @@ export function buildTicketNodes(
     kind: 'ticket',
     ticketId: t.id,
     label: ticketLabel(t, labelTemplate),
-    glyph: glyphFor(currentStageStatus(t), (t.agentState ?? 'none') as AgentState),
+    glyph: ticketGlyph(t),
     description: `${t.stageCurrent ?? 'none'} (${currentStageStatus(t)})`,
     archived: t.archivedAt !== null,
     collapsible: true,

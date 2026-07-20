@@ -380,6 +380,10 @@
           <div class="label-preview" id="labelPreview"></div>
           <div class="label-vars" id="labelVars"></div>
 
+          <label for="f-terminalTemplate">Terminal name template</label>
+          <input type="text" id="f-terminalTemplate" placeholder="Karst: {key} — {title}" />
+          <div class="label-preview" id="terminalPreview"></div>
+
           <label for="f-agentProvider">Agent provider</label>
           <select id="f-agentProvider"></select>
 
@@ -588,6 +592,7 @@
   // Ticket-label template — mirror of src/store/ticketLabelTemplate.ts (the webview
   // can't import TS). Keep the two in sync: default + variables + fallbacks.
   const DEFAULT_LABEL_TEMPLATE = '{key} — {title}';
+  const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {key} — {title}';
   const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos'];
   const SAMPLE_TICKET = {
     id: 142, key: 'PROJ-142', title: 'add login', stageCurrent: 'implement',
@@ -701,6 +706,7 @@
     el('f-defaultModel').innerHTML = modelOpts.join('');
     el('f-defaultModel').value = draft.defaultModel || '';
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
+    el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     renderLabelPreview();
   }
 
@@ -712,6 +718,15 @@
       'Preview: <span class="lp-val">' + esc(renderLabel(SAMPLE_TICKET, tpl)) + '</span>';
     el('labelVars').innerHTML =
       'Variables: ' + LABEL_VARS.map((v) => '<code>{' + v + '}</code>').join(' ');
+    renderTerminalPreview();
+  }
+
+  // Same engine, different default — a blank field previews the terminal default.
+  function renderTerminalPreview() {
+    const raw = el('f-terminalTemplate').value;
+    const tpl = raw.trim() === '' ? DEFAULT_TERMINAL_TEMPLATE : raw;
+    el('terminalPreview').innerHTML =
+      'Preview: <span class="lp-val">' + esc(renderLabel(SAMPLE_TICKET, tpl)) + '</span>';
   }
 
   el('f-host').addEventListener('input', () => { draft.host = el('f-host').value; markDirty(); });
@@ -744,6 +759,15 @@
     if (v.trim() === '') delete draft.ticketLabelTemplate;
     else draft.ticketLabelTemplate = v;
     renderLabelPreview();
+    markDirty();
+  });
+  el('f-terminalTemplate').addEventListener('input', () => {
+    // Blank → undefined so a cleared field falls back to the terminal default
+    // (mirrors validateTerminalNameTemplate in schema.ts).
+    const v = el('f-terminalTemplate').value;
+    if (v.trim() === '') delete draft.terminalNameTemplate;
+    else draft.terminalNameTemplate = v;
+    renderTerminalPreview();
     markDirty();
   });
 

@@ -10,6 +10,9 @@
 /** The default template — matches the pre-config `ticketLabel` output exactly. */
 export const DEFAULT_TICKET_LABEL_TEMPLATE = '{key} — {title}';
 
+/** Terminal-name default — the historical `"Karst: <key> — <title>"` convention. */
+export const DEFAULT_TERMINAL_NAME_TEMPLATE = 'Karst: {key} — {title}';
+
 /** The variable tokens a template may substitute (surfaced in the settings hint). */
 export const TICKET_LABEL_VARIABLES = [
   'key',

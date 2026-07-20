@@ -20,6 +20,10 @@ export interface CreateTerminalOpts {
   cwd: string;
   shellPath: string;
   shellArgs: string[];
+  /** File path to a tinted icon SVG (real: mapped to `vscode.Uri.file`). */
+  iconPath?: string;
+  /** Terminal-color ThemeColor key (real: `new vscode.ThemeColor(color)`). */
+  color?: string;
 }
 
 /** Factory the manager uses to mint terminals (real: `createTerminal`). */
@@ -34,6 +38,8 @@ export interface FakeTerminal extends SessionTerminal {
   cwd: string;
   shellPath: string;
   shellArgs: string[];
+  iconPath?: string;
+  color?: string;
   shown: number;
   sent: string[];
   disposed: boolean;
@@ -95,6 +101,7 @@ export class SessionManager {
     extraArgs?: string[],
     model?: string,
     resume?: string,
+    naming?: { name: string; iconPath?: string; color?: string },
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
@@ -113,11 +120,13 @@ export class SessionManager {
     });
 
     const terminal = this.host.createTerminal({
-      name: `Karst: ${label?.key ?? `#${ticketId}`}`,
-      description: label?.title ?? undefined,
+      name: naming?.name ?? `Karst: ${label?.key ?? `#${ticketId}`}`,
+      description: naming ? undefined : (label?.title ?? undefined),
       cwd: worktreePath,
       shellPath: cmd.command,
       shellArgs: cmd.args,
+      ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
+      ...(naming?.color ? { color: naming.color } : {}),
     });
     terminal.onDidClose(() => {
       this.terminals.delete(ticketId);
