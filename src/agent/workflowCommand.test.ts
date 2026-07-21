@@ -60,6 +60,86 @@ describe('renderWorkflowCommand', () => {
     const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
     expect(body).not.toContain('stage impl pass');
   });
+
+  describe('phase markers', () => {
+    const phaseCommand = (name: string): string =>
+      `node "/ext/dist/cli/main.js" phase ${name} --db "/x.db" --manifest "/k.yml" --ticket`;
+
+    it('carries one marker call per phase, each naming its own phase', () => {
+      const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, phaseCommand });
+      for (const p of rpiPhases) {
+        expect(body).toContain(
+          `node "/ext/dist/cli/main.js" phase ${p.name} --db "/x.db" --manifest "/k.yml" --ticket $ARGUMENTS`,
+        );
+      }
+    });
+
+    it('emits exactly one marker call per declared phase, in declared order', () => {
+      const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, phaseCommand });
+      const marked = [...body.matchAll(/main\.js" phase (\S+) /g)].map((m) => m[1]);
+      expect(marked).toEqual(['describe', 'research', 'plan', 'implement']);
+    });
+
+    it('attaches the marker to the step for its own phase, not a neighbour', () => {
+      const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, phaseCommand });
+      const steps = body.split('\n').filter((l) => /^\d+\. /.test(l));
+      expect(steps).toHaveLength(4);
+      steps.forEach((line, i) => {
+        expect(line).toContain(`**${rpiPhases[i]!.name}**`);
+        expect(line).toContain(`phase ${rpiPhases[i]!.name} --db`);
+      });
+    });
+
+    it('puts the marker before the phase work, so reading order is execution order', () => {
+      // The marker is the clause an agent most easily skips, and a skipped
+      // marker is the failure mode that makes this feature record nothing. It
+      // must not sit after the instruction it is supposed to precede — saying
+      // "first" in text printed last fights the reading order.
+      const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, phaseCommand });
+      const steps = body.split('\n').filter((l) => /^\d+\. /.test(l));
+      for (const line of steps) {
+        const marker = line.indexOf('main.js" phase ');
+        const work = line.indexOf('slash command');
+        expect(marker).toBeGreaterThan(-1);
+        if (work > -1) expect(marker).toBeLessThan(work);
+      }
+    });
+
+    it('words the marker as reporting entry, never as completing the phase', () => {
+      const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, phaseCommand });
+      expect(body.toLowerCase()).toContain('report');
+      const steps = body.split('\n').filter((l) => /^\d+\. /.test(l));
+      for (const line of steps) {
+        expect(line.toLowerCase()).not.toContain('completed');
+        expect(line.toLowerCase()).not.toContain('finished');
+      }
+    });
+
+    it('renders byte-identically to today when no phaseCommand is given', () => {
+      const body = renderWorkflowCommand({
+        id: 'rpi',
+        label: 'Research, Plan, Implement',
+        phases: rpiPhases,
+      });
+      expect(body).toBe(
+        [
+          '# /karst:rpi — Research, Plan, Implement',
+          '',
+          'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
+            'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
+            'what is being asked before proceeding.',
+          '',
+          'Then work through the following phases in order:',
+          '',
+          '1. **describe** — Handle this step manually (no native slash command for this phase).',
+          '2. **research** — Run the `/rpi:research` slash command.',
+          '3. **plan** — Run the `/rpi:plan` slash command.',
+          '4. **implement** — Run the `/rpi:implement` slash command.',
+        ].join('\n'),
+      );
+      expect(body).not.toContain('--ticket');
+    });
+  });
 });
 
 describe('renderDoneMarkerInstruction', () => {

@@ -510,6 +510,93 @@ describe('workflow persistence', () => {
   });
 });
 
+/**
+ * A phase name is interpolated into a shell command line the agent executes
+ * (the `karst stage impl phase <name>` marker), and approach.yml comes from an
+ * untrusted fetched source. A name is therefore a shell token, not free text.
+ */
+describe('workflow phase name charset', () => {
+  /** Write an approach.yml whose single phase carries `name` verbatim. */
+  function writePhaseName(base: string, id: string, name: string): void {
+    const dir = join(base, id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'approach.yml'),
+      `id: ${id}\nlabel: Bad\nprompts: []\nworkflow:\n  - name: ${JSON.stringify(name)}\n`,
+    );
+  }
+
+  it.each([
+    ['research'],
+    ['implement'],
+    ['describe'],
+    ['plan'],
+    ['step-1'],
+    ['step_two'],
+    ['Phase3'],
+  ])('accepts the safe name %j', (name) => {
+    const base = makeBaseDir();
+    writePhaseName(base, 'ok-phase', name);
+    expect(readApproachPackage(base, 'ok-phase')?.workflow).toEqual([{ name }]);
+  });
+
+  it.each([
+    ['semicolon', 'research; rm -rf ~'],
+    ['pipe', 'research | cat'],
+    ['ampersand', 'research & sleep 9'],
+    ['dollar', 'research $HOME'],
+    ['backtick', 'research `whoami`'],
+    ['double quote', 'research"'],
+    ['single quote', "research'"],
+    ['newline', 'research\nrm -rf ~'],
+    ['redirect in', 'research < /etc/passwd'],
+    ['redirect out', 'research > /tmp/x'],
+    ['open paren', 'research(x'],
+    ['close paren', 'research)'],
+    ['space', 'do research'],
+    ['leading dash', '-rf'],
+  ])('rejects a name containing a %s', (_label, name) => {
+    const base = makeBaseDir();
+    writePhaseName(base, 'hostile-phase', name);
+    expect(() => readApproachPackage(base, 'hostile-phase')).toThrow(ManifestError);
+    expect(() => readApproachPackage(base, 'hostile-phase')).toThrow(/workflow\[0\]\.name/);
+  });
+
+  it('names the offending phase by index and says why', () => {
+    const base = makeBaseDir();
+    const dir = join(base, 'hostile-second');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'approach.yml'),
+      'id: hostile-second\nlabel: Bad\nprompts: []\nworkflow:\n' +
+        '  - name: research\n  - name: "plan; rm -rf ~"\n',
+    );
+    expect(() => readApproachPackage(base, 'hostile-second')).toThrow(
+      /workflow\[1\]\.name.*plan; rm -rf ~/s,
+    );
+    // The message must explain the reason, not merely assert invalidity.
+    expect(() => readApproachPackage(base, 'hostile-second')).toThrow(/shell/i);
+  });
+
+  it('still rejects an empty name', () => {
+    const base = makeBaseDir();
+    writePhaseName(base, 'empty-phase', '');
+    expect(() => readApproachPackage(base, 'empty-phase')).toThrow(ManifestError);
+  });
+
+  it('still rejects a whitespace-only name', () => {
+    const base = makeBaseDir();
+    writePhaseName(base, 'blank-phase', '   ');
+    expect(() => readApproachPackage(base, 'blank-phase')).toThrow(ManifestError);
+  });
+
+  it('rejects a name longer than the 64-character bound', () => {
+    const base = makeBaseDir();
+    writePhaseName(base, 'long-phase', 'a'.repeat(65));
+    expect(() => readApproachPackage(base, 'long-phase')).toThrow(ManifestError);
+  });
+});
+
 describe('uninstallApproach', () => {
   it('removes an installed package directory and returns true', () => {
     const base = makeBaseDir();

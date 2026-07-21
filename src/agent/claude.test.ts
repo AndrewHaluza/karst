@@ -404,6 +404,46 @@ describe('ClaudeAdapter.materializeApproach', () => {
     expect(dirs).toContain(join(sessionDir, '.karst-plugin', 'karst'));
     expect(dirs).toContain(join(sessionDir, '.karst-plugin', 'rpi'));
   });
+
+  it('threads cliPhasePrefix into the orchestrator so each phase step carries its own marker', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        workflow: [{ name: 'research', command: '/rpi:research' }, { name: 'plan' }],
+      },
+      cliPhasePrefix: (name) => `node "/ext/cli.js" phase ${name} --db "/x.db" --ticket`,
+    });
+
+    const body = readFileSync(
+      join(sessionDir, '.karst-plugin', 'karst', 'commands', 'rpi.md'),
+      'utf8',
+    );
+    expect(body).toContain('node "/ext/cli.js" phase research --db "/x.db" --ticket $ARGUMENTS');
+    expect(body).toContain('node "/ext/cli.js" phase plan --db "/x.db" --ticket $ARGUMENTS');
+  });
+
+  it('leaves the orchestrator free of phase markers when no cliPhasePrefix is given', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+    });
+
+    const body = readFileSync(
+      join(sessionDir, '.karst-plugin', 'karst', 'commands', 'rpi.md'),
+      'utf8',
+    );
+    expect(body).not.toContain('--ticket');
+  });
 });
 
 describe('ClaudeAdapter.runHeadless', () => {

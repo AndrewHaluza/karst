@@ -16,12 +16,24 @@
     --text-dim:var(--vscode-descriptionForeground,var(--vscode-foreground));
     --text-faint:var(--vscode-disabledForeground,var(--vscode-descriptionForeground));
     --link:var(--vscode-textLink-foreground);
-    --panel-bg:var(--vscode-editorWidget-background,transparent);
+    /* MUST stay opaque. --panel-bg is not just a surface tint: the rail nodes
+       fill with it to MASK the connector running under them, and the selection
+       ring's inner gap (box-shadow 0 0 0 2px) is painted in it to punch the ring
+       away from the node. A theme that omits editorWidget.background used to
+       fall back to `transparent`, and both masks silently stopped masking — the
+       connector drew through the node body and through the ring's gap, so the
+       ring read as a broken circle crossed by the rail. editor.background is
+       always defined and is exactly what sits behind the stepper anyway, so it
+       is the correct opaque floor. */
+    --panel-bg:var(--vscode-editorWidget-background,var(--vscode-editor-background));
     --st-done:var(--vscode-charts-green,#4bb64b);
     --st-running:var(--vscode-charts-blue,#3794ff);
     --st-pending:var(--vscode-charts-lines,#6e7681);
     --st-input:var(--vscode-charts-yellow,#cca700);
     --st-failed:var(--vscode-charts-red,#f14c4c);
+    /* Selection, kept off the status ramp so a selected node's status stays
+       readable underneath the ring. */
+    --st-sel:var(--vscode-charts-purple,#8a63d2);
     --mono:var(--vscode-editor-font-family,"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace);
     --ui:var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);
   }
@@ -59,33 +71,227 @@
      shared stylesheet). */
   /*KARST_PROVIDER_CSS*/
 
-  /* Stepper — the pipeline as an energized rail. The CONNECTORS carry state, not
-     just the nodes: a segment the ticket actually passed through is lit, the
-     segment into the active node is accented, unreached segments stay dim, and a
-     failed node breaks its incoming segment in red. Status is never color alone —
+  /* The stage graph as a circuit, not a line. The main rail runs scope → impl →
+     uat → review → ship → done; `fix` is a RETURN CHANNEL below it, because
+     STAGE_GRAPH only reaches fix on a failed verdict and returns it to review on
+     a pass. Drawing fix inline claimed a forward path that does not exist.
+
+     The CONNECTORS carry state, not just the nodes. Status is never color alone —
      each node also carries a glyph and a distinct shape (filled / hollow /
      broken), so the rail survives colorblindness and high-contrast themes. */
-  .stepper{margin:20px 0 26px;padding:20px 8px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-bg)}
+  .stepper{margin:20px 0 26px;padding:14px 8px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-bg)}
   /* The rail scrolls inside itself on a narrow panel; the page never scrolls sideways. */
-  .railwrap{overflow-x:auto}
-  .steps{display:flex;align-items:flex-start;min-width:460px}
-  .step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
-  .step .line{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
-  .step:first-child .line{display:none}
-  .step .line.lit{background:var(--st-done);opacity:.5}
-  .step .line.active{background:var(--st-running);opacity:.8}
-  .step .line.broken{background:var(--st-failed)}
-  .step .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--panel-bg);border:2px solid var(--st-pending);color:var(--text-faint);position:relative;z-index:1;font-size:13px;font-weight:700;line-height:1}
-  .step .lbl{margin-top:9px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-dim);text-align:center}
-  .step.done .node{background:var(--st-done);border-color:var(--st-done);color:var(--vscode-editor-background)}
-  .step.skipped .node{background:var(--st-pending);border-color:var(--st-pending);color:var(--vscode-editor-background);opacity:.6}
-  .step.running .node{background:var(--st-running);border-color:var(--st-running);color:var(--vscode-editor-background);animation:node-pulse 1.7s ease-in-out infinite}
-  .step.running .lbl{color:var(--text)}
+  /* padding-top is LOAD-BEARING, not spacing. overflow-x:auto forces overflow-y
+     to compute to `auto` as well, so this box clips vertically too — and the
+     nodes sit flush against its content top. The selection ring paints 4px above
+     the node and the focus outline 5px, so both were sliced off flat and the
+     selected circle rendered as an open arc. 6px is the outline's reach; the
+     stepper gives back the same 6px from its own padding so nothing moves. */
+  .railwrap{overflow-x:auto;padding-top:6px}
+  /* Column geometry is DERIVED, never hardcoded: the rail is a flex row of
+     `--cols` equal columns, so column n centers at (n + 0.5) / cols. Every
+     attachment point below is a calc() off these vars (written inline from
+     state.rail.geometry), so adding or removing a stage moves the loop with it
+     instead of silently detaching it. */
+  .track{min-width:560px}
+  .main{display:flex;align-items:flex-start}
+  .st{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
+  .st .seg{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
+  .st:first-child .seg{display:none}
+  .st .seg.lit{background:var(--st-done);opacity:.55}
+  .st .seg.active{background:var(--st-running)}
+  .st .seg.broken{background-color:transparent;
+    background-image:repeating-linear-gradient(90deg,var(--st-failed) 0 4px,transparent 4px 8px)}
+  /* The node IS the control — a button, so Tab and Enter work for free. */
+  .st .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+    background:var(--panel-bg);border:2px solid var(--st-pending);color:var(--text-faint);
+    position:relative;z-index:1;font-size:13px;font-weight:700;line-height:1;
+    padding:0;cursor:pointer;font-family:inherit}
+  .st .node:hover{filter:brightness(1.25)}
+  /* Focus is focusBorder, NOT --st-sel. The selection ring is --st-sel and ends
+     4px out; an --st-sel outline at offset 3px overlaps it in the same colour,
+     so the two fused into one fat purple slab and a keyboard user landing on the
+     already-selected node saw no focus change at all. Two colours at two radii
+     keep selection and focus independently readable — and it is what every other
+     focusable here (buttons, keypill, the approach summary) already uses. */
+  .st .node:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:3px}
+  .st .lbl{margin-top:9px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-dim);text-align:center}
+  .st .meta{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);margin-top:3px;height:12px}
+  .st.done .node{background:var(--st-done);border-color:var(--st-done);color:var(--vscode-editor-background)}
+  .st.skipped .node{background:var(--st-pending);border-color:var(--st-pending);color:var(--vscode-editor-background);opacity:.55}
+  /* No pulse on a running node: it carries a spinner, and two simultaneous
+     animations on one 30px mark read as noise. */
+  .st.running .node{background:var(--st-running);border-color:var(--st-running);color:var(--vscode-editor-background)}
+  .st.running .lbl{color:var(--text)}
   /* Failed reads as a break in the circuit: hollow + dashed, never filled. */
-  .step.failed .node{background:transparent;border-color:var(--st-failed);border-style:dashed;color:var(--st-failed)}
-  .step.failed .lbl{color:var(--st-failed)}
-  @keyframes node-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.09);opacity:.72}}
-  @media (prefers-reduced-motion:reduce){.step.running .node{animation:none}}
+  .st.failed .node{background:transparent;border-color:var(--st-failed);border-style:dashed;color:var(--st-failed)}
+  .st.failed .lbl{color:var(--st-failed)}
+  /* Selection is a RING, never a fill — status already owns fill and border
+     color, and the two must stay independently readable. */
+  .st.sel .node{box-shadow:0 0 0 2px var(--panel-bg),0 0 0 4px var(--st-sel)}
+  .st.sel .lbl{color:var(--text)}
+  /* Scale only — never opacity. The one node this drives (armed fix) sits ON the
+     bracket's bottom edge, and its fill is what MASKS that edge. Fading the node
+     to .72 made the dashed bracket show through the fill and through the
+     selection ring, so the node read as broken exactly when it matters most. */
+  @keyframes node-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
+
+  /* Running = a live spinner, not a glyph. ⟳ misreads as "reload/retry", which
+     is the wrong affordance on a node that is now clickable. An animating ring
+     is the one mark that reads as work in progress. Under reduced motion it
+     stops as a broken ring — still shape-distinct from ✓ ✕ · –, so status never
+     rides on color alone. */
+  .spin{display:block;border-radius:50%;border:2px solid currentColor;
+    border-top-color:transparent;animation:spin .9s linear infinite}
+  .st .spin{width:13px;height:13px}
+  .oglyph .spin{width:9px;height:9px;margin:0 auto;border-width:1.5px;color:var(--st-running)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){
+    .loop.armed .fixnode .node{animation:none}
+    .spin{animation:none}
+  }
+
+  /* ── the branch band ──────────────────────────────────────────────────── */
+  /* ONE band carries both branches off the rail: fix hangs at the gate columns,
+     impl's approach at impl's column. Two grid rows — row 1 is the branch level,
+     row 2 is where impl's disclosure expands, clear of both branches. */
+  .loop{position:relative;display:grid;grid-template-rows:62px auto;margin-top:6px}
+  .loop .drop{position:absolute;top:0;height:30px;
+    left:calc((var(--uat) + 0.5) / var(--cols) * 100%);
+    right:calc(100% - (var(--review) + 0.5) / var(--cols) * 100%);
+    border:2px dashed var(--border);border-top:none;border-radius:0 0 12px 12px}
+  /* Armed changes color, never style: a solid rounded bracket reads as a box
+     drawn around the fix node; dashed keeps reading as a path. */
+  .loop.armed .drop{border-color:var(--st-failed)}
+  /* fix ─pass→ review: parallel to review's descender, offset a fixed 20px so
+     the two edges read as a channel rather than one ambiguous line. */
+  .loop .ret{position:absolute;top:4px;width:2px;height:26px;background:var(--border);
+    left:calc((var(--review) + 0.5) / var(--cols) * 100% + 20px)}
+  .loop .ret::before{content:"▲";position:absolute;top:-10px;left:-4px;font-size:9px;
+    line-height:1;color:var(--border)}
+  .loop.armed .ret{background:var(--st-running)}
+  .loop.armed .ret::before{color:var(--st-running)}
+  .loop .retlbl{position:absolute;top:5px;font-family:var(--mono);font-size:9px;
+    color:var(--text-faint);white-space:nowrap;
+    left:calc((var(--review) + 0.5) / var(--cols) * 100% + 32px)}
+  .loop.armed .retlbl{color:var(--st-running)}
+  .loop .faillbl{position:absolute;top:5px;font-family:var(--mono);font-size:9px;
+    color:var(--text-faint);white-space:nowrap;transform:translateX(-100%);padding-right:7px;
+    left:calc((var(--uat) + 0.5) / var(--cols) * 100%)}
+  .loop.armed .faillbl{color:var(--st-failed)}
+
+  /* Node on the bracket's bottom edge, name and status on ONE line beneath it.
+     Beside the node they run into the bracket's right descender; as two stacked
+     lines they cost 30px to say two words. */
+  .loop .fixnode{position:absolute;top:17px;display:flex;flex-direction:column;
+    align-items:center;gap:4px;
+    left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
+    transform:translateX(-50%)}
+  .loop .fixnode .node{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+    background:var(--panel-bg);border:2px dashed var(--st-pending);color:var(--text-faint);
+    font-size:12px;font-weight:700;flex:none;padding:0;cursor:pointer;font-family:inherit}
+  .loop .fixnode .node:hover{filter:brightness(1.25)}
+  /* focusBorder, not --st-sel — same fusion with the selection ring as the rail
+     nodes above. */
+  .loop .fixnode .node:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:3px}
+  .loop .fixnode .cl{display:flex;align-items:baseline;gap:6px;white-space:nowrap}
+  .loop .fixnode .lbl{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint)}
+  .loop .fixnode .cap{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);white-space:nowrap}
+  .loop.armed .fixnode .node{border-style:solid;border-color:var(--st-running);
+    background:var(--st-running);color:var(--vscode-editor-background);
+    animation:node-pulse 1.7s ease-in-out infinite}
+  .loop.armed .fixnode .lbl{color:var(--text)}
+  .loop.armed .fixnode .cap{color:var(--st-input)}
+  .loop .fixnode.sel .node{box-shadow:0 0 0 2px var(--panel-bg),0 0 0 4px var(--st-sel)}
+  .loop .fixnode.sel .lbl{color:var(--text)}
+
+  /* impl's stem drops from the rail and STOPS at the approach chip — the same
+     move the bracket makes into the fix node. Running it the full band height
+     left a line dangling past the chip, which read as two unrelated marks. */
+  .loop .implstem{position:absolute;top:0;height:21px;width:2px;background:var(--border);
+    left:calc((var(--impl) + 0.5) / var(--cols) * 100%)}
+  .loop .implstem.on{background:var(--st-running)}
+
+  /* ── impl's approach: named on the rail, detail on demand ─────────────── */
+  /* display:contents is what lets the summary chip sit in row 1 while the detail
+     panel expands into row 2, clear of both branches, with no extra wrapper. */
+  .approach{display:contents}
+  /* Centered ON impl's stem, exactly as the fix node centers on its bracket.
+     Width cap: the gap to the bracket, doubled (the chip is centered, so only
+     half reaches right), minus the `fail` edge label that hangs to the bracket's
+     LEFT — the nearest thing this can hit — plus a gutter. */
+  .branch-slot{grid-row:1;justify-self:start;align-self:start;margin-top:21px;
+    margin-left:calc((var(--impl) + 0.5) / var(--cols) * 100%);
+    transform:translateX(-50%);
+    max-width:calc((var(--uat) - var(--impl)) / var(--cols) * 200% - 72px);
+    display:inline-flex;align-items:center;min-width:0}
+  .approach > summary{list-style:none;cursor:pointer}
+  .approach > summary::-webkit-details-marker{display:none}
+  .approach > summary:hover .aid{background:var(--hover);border-color:var(--text-dim)}
+  .approach > summary:focus-visible .aid{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
+  /* The chevron rides INSIDE the chip: beside it, it detached from both the stem
+     and the chip and read as a stray glyph. */
+  .approach .chev{color:var(--text-faint);font-size:7px;transition:transform .12s ease;flex:none}
+  .approach[open] .chev{transform:rotate(180deg)}
+  @media (prefers-reduced-motion:reduce){.approach .chev{transition:none}}
+  /* A long id truncates rather than pushing into the fix branch; the full value
+     stays in the title. */
+  .approach .aid,.noapproach .none{font-family:var(--mono);font-size:10px;padding:2px 8px;
+    border-radius:9px;border:1px solid var(--border);background:var(--panel-bg);
+    color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  /* max-width:100% is what makes the cap bite — the slot's max-width alone lets
+     a nowrap chip overflow it. */
+  .approach .aid{display:inline-flex;align-items:center;gap:6px;max-width:100%}
+  .approach .aid .nm{overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .approach.active .aid{border-color:var(--st-running);color:var(--text)}
+  .approach.done .aid{border-color:var(--st-done);color:var(--st-done)}
+  /* No approach at all (manual ticket): a plain inert chip, never an empty
+     disclosure the user can open onto nothing. */
+  .noapproach .none{border-style:dashed;color:var(--text-faint)}
+
+  .approach .detail{grid-row:2;margin:2px 0 0;
+    margin-left:calc((var(--impl) + 0.5) / var(--cols) * 100% - 8px);
+    border:1px solid var(--border);border-radius:8px;
+    padding:8px 4px 6px;max-width:640px}
+  .phrow{display:flex;align-items:baseline;gap:10px;padding:4px 10px;border-radius:6px}
+  .phrow:hover{background:var(--hover)}
+  .phrow .pi{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);width:12px;flex:none}
+  .phrow .pn{font-size:11.5px}
+  .approach .foot{font-family:var(--mono);font-size:9px;color:var(--text-faint);
+    padding:8px 10px 0;margin-top:5px;border-top:1px solid var(--border);opacity:.85}
+
+  /* ── activity strip: what happens inside the SELECTED stage ───────────── */
+  .act{margin:16px 6px 2px;border:1px solid var(--border);border-radius:9px}
+  .act .ahead{display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid var(--border)}
+  .act .aname{font-size:12px;font-weight:600}
+  .act .adot{width:7px;height:7px;border-radius:50%;background:var(--st-running);flex:none}
+  .act .adot.wait{background:var(--st-input)} .act .adot.idle{background:var(--st-pending)}
+  .act .adot.fail{background:var(--st-failed)} .act .adot.done{background:var(--st-done)}
+  .act .adot.pend{background:transparent;border:2px solid var(--st-pending);width:9px;height:9px}
+  .act .aclock{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--text-faint)}
+  /* Viewing a stage that is not the current one — say so, and offer the way
+     back. Without this the strip silently contradicts the Now line. */
+  .act.viewing{border-color:var(--st-sel)}
+  .act .vbar{display:flex;align-items:center;gap:9px;padding:6px 13px;font-size:11px;
+    color:var(--text-dim);background:var(--hover);border-bottom:1px solid var(--border)}
+  .act .vbar .sp{margin-left:auto}
+  .act .blurb{padding:10px 14px;font-size:11.5px;color:var(--text-dim)}
+  .act .ops{padding:4px 6px 8px}
+  .op{display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:6px}
+  .op:hover{background:var(--hover)}
+  .op .oglyph{width:14px;text-align:center;font-size:11px;color:var(--text-faint)}
+  .op.pass .oglyph{color:var(--st-done)} .op.run .oglyph{color:var(--st-running)}
+  .op.fail .oglyph{color:var(--st-failed)} .op.wait .oglyph{color:var(--st-input)}
+  .op .oname{font-size:12px;min-width:82px}
+  .op .ocmd{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex:1;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis}
+  .op .odur{font-family:var(--mono);font-size:10.5px;color:var(--text-faint)}
+  .op.pending{opacity:.5}
+  /* A gate the repo cannot answer, or a phase karst cannot observe, is not a
+     failure — say so plainly instead of dressing it as a status. */
+  .op.note .ocmd{font-style:italic;opacity:.75}
+  button.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
+  button.ghost:hover{background:var(--hover)}
 
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
@@ -101,18 +307,6 @@
   .now{display:flex;align-items:center;gap:10px;margin:14px 6px 2px;padding-top:11px;
     border-top:1px solid var(--border);font-size:12px;color:var(--text)}
   .now .ntext{flex:1}
-  /* Read-only impl-phase breakdown under the stepper. Informational: emphasis
-     tracks the impl cell (.done / .active), no per-phase live state. */
-  .substeps{display:flex;align-items:center;flex-wrap:wrap;gap:6px;
-    margin:12px 6px 2px;padding-top:11px;border-top:1px solid var(--border);font-size:11px}
-  .substeps .sslabel{text-transform:uppercase;letter-spacing:.05em;opacity:.5;
-    font-weight:700;margin-right:4px}
-  .substeps .ssphase{padding:2px 8px;border-radius:10px;border:1px solid var(--border);
-    color:var(--text-dim);white-space:nowrap}
-  .substeps .ssarrow{opacity:.35}
-  .substeps.active .ssphase{border-color:var(--st-running);color:var(--text)}
-  .substeps.done .ssphase{border-color:var(--st-done);color:var(--st-done)}
-
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
   .panel.span{grid-column:1 / -1}
@@ -148,13 +342,14 @@
 </div>
 
 <div class="stepper">
-  <div class="railwrap"><div class="steps" id="steps"></div></div>
+  <!-- The main rail + the fix return channel + impl's approach chip. -->
+  <div class="railwrap" id="rail"></div>
+  <!-- What happens inside the SELECTED stage (defaults to the current one). -->
+  <div id="inside"></div>
   <!-- Inline fault card for a failed stage: reason + timings + [Open log]. -->
   <div class="fault hidden" id="fault"></div>
   <!-- What is happening and what the user can do next (state.now). -->
-  <div class="now" id="now"></div>
-  <!-- Read-only impl-phase breakdown (approach workflow); hidden when none. -->
-  <div class="substeps hidden" id="substeps"></div></div>
+  <div class="now" id="now"></div></div>
 
 <div class="grid">
   <div class="panel"><div class="phead">Servers<span class="count" id="srvCount"></span></div><div class="pbody" id="servers"></div></div>
@@ -171,32 +366,32 @@
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
-  // Stage status -> stepper CSS class. Amber/needs-you is an agent-level signal
-  // (glyphFor precedence); the stepper shows stage status only.
+  // Stage status -> rail CSS class. Amber/needs-you is an agent-level signal
+  // (glyphFor precedence); the rail shows stage status only.
   const STEP_CLASS = { passed: 'done', running: 'running', failed: 'failed', pending: '', skipped: 'skipped' };
-  // Glyph per status, so status never rides on color alone.
-  const STEP_GLYPH = { passed: '✓', running: '⟳', failed: '✕', pending: '·', skipped: '–' };
+  // Running renders a spinner ELEMENT, not a character — see the .spin rule for
+  // why every glyph candidate misread on a clickable node.
+  const SPINNER = '<span class="spin" aria-hidden="true"></span>';
+  const STEP_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–' };
+  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
   const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
 
+  // The last snapshot the host pushed, and which stage the user is looking at.
+  // Selection is LOCAL: it is not in DashboardState and is never posted back.
+  // pushState fires on every driver progress tick, so anything that routed
+  // selection through the host would snap the panel back mid-run.
+  let lastState = null;
+  let selectedStage = null;
+
   // The connector INTO this node: lit once the previous stage passed, accented
   // into a running node, broken (red) into a failed one, dim when unreached.
-  function lineClass(cell, prev) {
+  function segClass(cell, prev) {
     if (cell.status === 'failed') return 'broken';
     const reached = prev && (prev.status === 'passed' || prev.status === 'skipped');
     if (!reached) return '';
     return cell.status === 'running' ? 'active' : 'lit';
-  }
-
-  function renderStepper(stepper) {
-    el('steps').innerHTML = stepper.map((s, i) => {
-      const cls = STEP_CLASS[s.status] || '';
-      const glyph = STEP_GLYPH[s.status] || '';
-      return `<div class="step ${cls}"><div class="line ${lineClass(s, stepper[i - 1])}"></div>`
-        + `<div class="node" title="${esc(s.stageKey)}: ${esc(s.status)}">${glyph}</div>`
-        + `<div class="lbl">${esc(s.stageKey)}</div></div>`;
-    }).join('');
   }
 
   // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
@@ -210,6 +405,112 @@
     const ms = new Date(cell.endedAt).getTime() - started.getTime();
     if (!Number.isFinite(ms) || ms < 0) return stamp;
     return `${stamp} · ${(ms / 1000).toFixed(1)}s`;
+  }
+
+  // Under a rail node there is room for one number, not a sentence. The full
+  // stamp belongs to the Inside header, which has a line to itself.
+  function durationText(cell) {
+    if (!cell.startedAt || !cell.endedAt) return '';
+    const ms = new Date(cell.endedAt).getTime() - new Date(cell.startedAt).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return '';
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    const mins = Math.round(ms / 60000);
+    return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  }
+
+  // The rail: the forward path, then the band carrying fix and impl's approach.
+  // Geometry comes from the host (state.rail.geometry) as CSS custom properties,
+  // so every attachment point below is a calc() that follows the columns.
+  function renderRail(rail, approach, sel) {
+    const g = rail.geometry;
+    const nodes = rail.main.map((cell, i) => {
+      const cls = STEP_CLASS[cell.status] || '';
+      const on = sel === cell.stageKey;
+      return `<div class="st ${cls} ${on ? 'sel' : ''}">`
+        + `<div class="seg ${segClass(cell, rail.main[i - 1])}"></div>`
+        + `<button class="node" data-stage="${esc(cell.stageKey)}" aria-pressed="${on}"`
+        + ` title="${esc(STAGE_TITLE[cell.stageKey] || cell.stageKey)}: ${esc(cell.status)}">`
+        + `${STEP_GLYPH[cell.status] || ''}</button>`
+        + `<div class="lbl">${esc(cell.stageKey)}</div>`
+        + `<div class="meta">${esc(durationText(cell))}</div></div>`;
+    }).join('');
+
+    const fixSel = sel === 'fix';
+    const implRunning = rail.main.some((c) => c.stageKey === 'impl' && c.status === 'running');
+
+    el('rail').innerHTML =
+      `<div class="track" style="--cols:${g.cols};--impl:${g.impl};--uat:${g.uat};--review:${g.review}">`
+      + `<div class="main">${nodes}</div>`
+      + `<div class="loop ${rail.armed ? 'armed' : ''}">`
+      + `<div class="implstem ${implRunning ? 'on' : ''}"></div>`
+      + `<div class="drop"></div><div class="ret"></div>`
+      + `<div class="retlbl">pass → review</div><div class="faillbl">fail</div>`
+      + `<div class="fixnode ${fixSel ? 'sel' : ''}"`
+      + ` title="Entered only when the uat or review gate fails; on pass it returns to review.">`
+      + `<button class="node" data-stage="fix" aria-pressed="${fixSel}">↺</button>`
+      + `<div class="cl"><span class="lbl">fix</span>`
+      + `<span class="cap">${esc(rail.cap || 'idle')}</span></div></div>`
+      + renderApproach(approach, rail)
+      + `</div></div>`;
+  }
+
+  // The approach driving impl, named on the rail with its declared phases behind
+  // a disclosure. The phases are DECLARED, never observed — the footer says so,
+  // so the list cannot be read as progress karst is tracking.
+  function renderApproach(approach, rail) {
+    if (!approach) {
+      return `<div class="noapproach branch-slot" title="This ticket has no approach selected.">`
+        + `<span class="none">no approach</span></div>`;
+    }
+    const impl = rail.main.find((c) => c.stageKey === 'impl');
+    const cls = impl && (impl.status === 'passed' || impl.status === 'skipped') ? 'done'
+      : impl && impl.status === 'running' ? 'active' : '';
+    const phases = approach.phases || [];
+    const count = phases.length ? `${phases.length} phases` : 'no phases';
+    const rows = phases.length
+      ? phases.map((p, i) => `<div class="phrow"><span class="pi">${i + 1}</span>`
+        + `<span class="pn">${esc(p)}</span></div>`).join('')
+      : '';
+    const foot = phases.length
+      ? 'karst records no per-phase state — the agent runs these inside impl'
+      : 'this approach declares no workflow — impl is one undivided stage';
+    return `<details class="approach ${cls}">`
+      + `<summary class="branch-slot" title="Approach driving impl — ${esc(approach.id)}, ${count}">`
+      + `<span class="aid"><span class="nm">${esc(approach.id)}</span>`
+      + `<span class="chev">▼</span></span></summary>`
+      + `<div class="detail">${rows}<div class="foot">${esc(foot)}</div></div></details>`;
+  }
+
+  // What happens inside the selected stage. Three shapes, because a stage has
+  // three things it can be: it ran, it is running, or it has not run — and the
+  // last shows a blurb, because empty rows would imply karst tried and got
+  // nothing back.
+  function renderInside(state, sel) {
+    const strip = (state.inside || {})[sel];
+    if (!strip) { el('inside').innerHTML = ''; return; }
+
+    // "Not the current stage" is only meaningful when there IS one. On a ticket
+    // that never started, every stage is equally uncurrent and the bar would be
+    // noise offering a way back to nowhere.
+    const viewing = state.stageCurrent && sel !== state.stageCurrent;
+    const back = viewing ? STAGE_TITLE[state.stageCurrent] || state.stageCurrent : '';
+    const vbar = viewing
+      ? `<div class="vbar"><span>Viewing ${esc(strip.title)} — not the current stage.</span>`
+        + `<span class="sp"><button class="ghost" data-back>Back to ${esc(back)}</button></span></div>`
+      : '';
+
+    const body = strip.ops.length
+      ? `<div class="ops">${strip.ops.map((o) => `<div class="op ${esc(o.status)}">`
+        + `<span class="oglyph">${OP_GLYPH[o.status] || '·'}</span>`
+        + `<span class="oname">${esc(o.name)}</span>`
+        + `<span class="ocmd">${esc(o.detail)}</span>`
+        + `<span class="odur">${esc(o.duration)}</span></div>`).join('')}</div>`
+      : `<div class="blurb">${esc(strip.blurb)}</div>`;
+
+    el('inside').innerHTML = `<div class="act ${viewing ? 'viewing' : ''}">${vbar}`
+      + `<div class="ahead"><span class="adot ${esc(strip.dot)}"></span>`
+      + `<span class="aname">Inside ${esc(strip.title.toLowerCase())}</span>`
+      + `<span class="aclock">${esc(strip.clock)}</span></div>${body}</div>`;
   }
 
   // The fault card: the reason a red node is red, the log behind it, and when it
@@ -241,23 +542,6 @@
     const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
     el('now').innerHTML = `<span class="ntext">${esc(line.text)}</span>`
       + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '');
-  }
-
-  // Read-only impl-phase breakdown: what the single impl stage covers for this
-  // approach (research → plan → implement …). No per-phase live state exists
-  // (impl has no deterministic sub-signal), so emphasis tracks the impl cell:
-  // done once impl passed, active while impl runs, muted otherwise.
-  function renderSubsteps(phases, stepper) {
-    const box = el('substeps');
-    const show = Array.isArray(phases) && phases.length > 0;
-    box.classList.toggle('hidden', !show);
-    if (!show) return;
-    const impl = (stepper || []).find((s) => s.stageKey === 'impl');
-    const cls = impl && (impl.status === 'passed' || impl.status === 'skipped')
-      ? 'done' : impl && impl.status === 'running' ? 'active' : '';
-    box.className = `substeps ${cls}`;
-    box.innerHTML = `<span class="sslabel">impl</span>`
-      + phases.map((p) => `<span class="ssphase">${esc(p)}</span>`).join('<span class="ssarrow">→</span>');
   }
 
   function renderServers(servers) {
@@ -349,19 +633,43 @@
   }
 
   function render(state) {
+    lastState = state;
+    // Selection defaults to the current stage; with none (nothing has run) it
+    // falls back to scope — the one the user is about to start.
+    const sel = selectedStage || state.stageCurrent || 'scope';
     el('title').textContent = state.title || '(untitled)';
     renderKeyPill(state);
     renderAgent(state.agentState);
-    renderStepper(state.stepper);
+    renderRail(state.rail, state.approach, sel);
+    renderInside(state, sel);
+    // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
     renderNow(state.now);
-    renderSubsteps(state.implPhases, state.stepper);
     renderServers(state.servers);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs);
   }
 
+  // Selection is view state: persisted BESIDE the host's snapshot, never inside
+  // it. Inside `state` it would be dropped by the next push (the host builds
+  // that from the DB) and would put a webview concern in a host-owned type.
+  const persist = () => vscode.setState({ state: lastState, sel: selectedStage });
+
+  function select(stage) {
+    selectedStage = stage;
+    render(lastState);
+    persist();
+  }
+
   el('editBtn').addEventListener('click', () => post({ type: 'edit-ticket' }));
+
+  // Clicking a stage re-points the strip. Purely local — no host round trip, so
+  // it stays instant and survives every state push.
+  document.addEventListener('click', (e) => {
+    const node = e.target.closest('[data-stage]');
+    if (node) { select(node.dataset.stage); return; }
+    if (e.target.closest('[data-back]')) select(null);
+  });
 
   // Optimistic feedback for the copy button — the host does the actual clipboard
   // write; the webview just confirms it so the click feels responsive.
@@ -390,14 +698,21 @@
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (msg && msg.type === 'state') {
+      // Never touches selectedStage, so a full re-render preserves the user's
+      // selection for free — including during a run, when pushes are frequent.
       render(msg.state);
-      vscode.setState(msg.state); // survive reload (retainContextWhenHidden)
+      persist(); // survive reload (retainContextWhenHidden)
     }
   });
 
-  // Restore last state on reload before the host re-pushes.
+  // Restore last state on reload before the host re-pushes. Tolerates the
+  // pre-envelope shape a panel open across an upgrade may have persisted.
   const prev = vscode.getState();
-  if (prev) render(prev);
+  const restored = prev && prev.state ? prev : prev ? { state: prev, sel: null } : null;
+  if (restored && restored.state) {
+    selectedStage = restored.sel || null;
+    render(restored.state);
+  }
 </script>
 
 <style>/*KARST_PALETTE*/</style>

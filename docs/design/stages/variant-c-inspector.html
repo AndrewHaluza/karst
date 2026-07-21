@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Variant C — Map + inspector</title>
+<style>
+  /* ── Variant C: "Map + inspector" ─────────────────────────────────────────
+     Thesis: two questions, two panes. The MAP answers "where am I in the
+     pipeline" at a glance and never changes size; the INSPECTOR answers "what is
+     happening in there" in as much depth as the stage has to give. Any stage is
+     selectable, so history is inspectable too — the other variants only ever show
+     the active stage.
+     The map draws the graph as a graph: a vertical main line with fix on a side
+     track, joined by real edges labelled with the verdict that traverses them.
+     Signature: verdict-labelled edges. ------------------------------------- */
+  :root{
+    --bg:#1f1f1f; --panel:#252526; --border:#3c3c3c; --border-soft:#2d2d2d;
+    --text:#cccccc; --dim:#9d9d9d; --faint:#6e7681;
+    --done:#4bb64b; --run:#3794ff; --pend:#6e7681; --wait:#cca700; --fail:#f14c4c;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 var(--ui);padding:28px 24px 60px}
+  h1{font-size:15px;margin:0 0 2px;font-weight:600}
+  .sub{color:var(--dim);font-size:12px;margin:0 0 26px;max-width:70ch}
+  .case{margin:0 0 34px;border:1px solid var(--border-soft);border-radius:12px;background:var(--panel);overflow:hidden}
+  .case > h2{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+    margin:0;padding:10px 16px;border-bottom:1px solid var(--border-soft);font-weight:700}
+
+  .split{display:grid;grid-template-columns:216px 1fr;gap:0;min-height:250px}
+  @media (max-width:720px){.split{grid-template-columns:1fr}}
+  .map{border-right:1px solid var(--border-soft);padding:16px 12px 18px}
+  @media (max-width:720px){.map{border-right:none;border-bottom:1px solid var(--border-soft)}}
+
+  /* ── the map ──────────────────────────────────────────────────────────── */
+  .mrow{position:relative;display:flex;align-items:center;gap:9px;padding:5px 8px;border-radius:7px;
+    cursor:pointer;background:none;border:none;width:100%;text-align:left;color:inherit;font:inherit}
+  .mrow:hover{background:#2a2a2a}
+  .mrow:focus-visible{outline:1px solid var(--run);outline-offset:-1px}
+  .mrow.sel{background:#04395e}
+  .mrow .dot{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;flex:none;
+    font-size:10px;font-weight:700;background:var(--bg);border:2px solid var(--pend);color:var(--faint)}
+  .mrow.done .dot{background:var(--done);border-color:var(--done);color:var(--bg)}
+  .mrow.running .dot{background:var(--run);border-color:var(--run);color:var(--bg);
+    animation:pulse 1.7s ease-in-out infinite}
+  .mrow.failed .dot{background:transparent;border-color:var(--fail);border-style:dashed;color:var(--fail)}
+  .mrow .nm{font-size:12px}
+  .mrow.pending .nm{color:var(--faint)}
+  .mrow.failed .nm{color:var(--fail)}
+  .mrow .tick{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.12);opacity:.7}}
+  @media (prefers-reduced-motion:reduce){.mrow.running .dot{animation:none}}
+
+  /* Edges between rows, labelled with the verdict that traverses them — the one
+     thing that makes this a graph and not a list. */
+  .edge{display:flex;align-items:center;gap:7px;padding:1px 8px 1px 17px;height:16px}
+  .edge .ln{width:2px;height:16px;background:var(--border);flex:none}
+  .edge.lit .ln{background:var(--done);opacity:.55}
+  .edge.active .ln{background:var(--run)}
+  .edge .vb{font-family:var(--mono);font-size:9px;letter-spacing:.05em;color:var(--faint);opacity:.75}
+  .edge.lit .vb{color:var(--done);opacity:.8}
+  .edge.active .vb{color:var(--run);opacity:1}
+
+  /* The fix side-track: indented, with its own in/out edges spelled out. */
+  .track{margin:2px 0 2px 14px;padding-left:12px;border-left:2px dashed var(--border)}
+  .track.armed{border-left-color:var(--fail)}
+  .track .tcap{font-family:var(--mono);font-size:9px;color:var(--faint);padding:2px 0 3px}
+  .track.armed .tcap{color:var(--wait)}
+
+  /* ── the inspector ────────────────────────────────────────────────────── */
+  .insp{padding:16px 18px 18px;min-width:0}
+  .ihead{display:flex;align-items:baseline;gap:10px;margin-bottom:3px}
+  .ihead .it{font-size:14px;font-weight:600}
+  .ihead .ist{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    padding:1px 8px;border-radius:9px;border:1px solid var(--border);color:var(--dim)}
+  .ist.done{color:var(--done);border-color:rgba(75,182,75,.4)}
+  .ist.running{color:var(--run);border-color:rgba(55,148,255,.5)}
+  .ist.failed{color:var(--fail);border-color:rgba(241,76,76,.5)}
+  .isub{font-size:12px;color:var(--dim);margin-bottom:14px}
+
+  /* Facts strip — machine truth, mono, four slots max. */
+  .facts{display:flex;flex-wrap:wrap;gap:18px;padding:9px 0 12px;margin-bottom:12px;
+    border-top:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft)}
+  .fact .fk{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:700}
+  .fact .fv{font-family:var(--mono);font-size:11.5px;color:var(--text)}
+  .fact .fv.wait{color:var(--wait)} .fact .fv.run{color:var(--run)} .fact .fv.fail{color:var(--fail)}
+
+  .sect{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+    font-weight:700;margin:0 0 6px}
+  .ops{margin:0 0 14px}
+  .op{display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:6px}
+  .op:hover{background:#2a2a2a}
+  .op .g{width:14px;text-align:center;font-size:11px;color:var(--faint)}
+  .op.pass .g{color:var(--done)} .op.run .g{color:var(--run)} .op.fail .g{color:var(--fail)} .op.wait .g{color:var(--wait)}
+  .op .n{font-size:12px;min-width:76px}
+  .op .c{font-family:var(--mono);font-size:11px;color:var(--dim);flex:1;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis}
+  .op .d{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .op.pending{opacity:.5}
+  .op.note .c{font-style:italic;opacity:.75}
+
+  .fault{padding:9px 12px;margin:0 0 14px;border-left:3px solid var(--fail);border-radius:0 6px 6px 0;
+    background:rgba(241,76,76,.09)}
+  .fault .fr{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap}
+  .fault .fm{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-top:6px}
+
+  .acts{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+  .acts .txt{flex:1}
+  button{font:inherit;font-size:11px;cursor:pointer;color:#fff;background:#0e639c;border:none;
+    border-radius:5px;padding:3px 10px}
+  button:hover{background:#1177bb}
+  button.ghost{background:transparent;color:var(--dim);border:1px solid var(--border)}
+  .quiet{color:var(--faint);font-size:12px;padding:8px 0 14px;max-width:52ch}
+</style>
+</head>
+<body>
+
+<h1>Variant C — Map + inspector</h1>
+<p class="sub">Left: a fixed map of the whole graph, with <b>fix on a side track</b> and every edge labelled by the
+verdict that traverses it (<code>pass</code> / <code>fail</code>). Right: an inspector for the selected stage — the
+active one by default, but any stage is clickable, so a finished or failed stage explains itself too.</p>
+
+<!-- ══ CASE 1: review running ══════════════════════════════════════════════ -->
+<section class="case">
+  <h2>1 · Active gate — review running</h2>
+  <div class="split">
+    <div class="map">
+      <button class="mrow done"><span class="dot">✓</span><span class="nm">Scope</span><span class="tick">1.2s</span></button>
+      <div class="edge lit"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow done"><span class="dot">✓</span><span class="nm">Implementation</span><span class="tick">18m</span></button>
+      <div class="edge lit"><span class="ln"></span><span class="vb">marker</span></div>
+      <button class="mrow done"><span class="dot">✓</span><span class="nm">UAT</span><span class="tick">42.1s</span></button>
+      <div class="edge active"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow running sel"><span class="dot">⟳</span><span class="nm">Review</span><span class="tick">0:31</span></button>
+      <div class="track">
+        <div class="tcap">fail ↓ · pass ↑ back to Review</div>
+        <button class="mrow pending"><span class="dot">↺</span><span class="nm">Fix</span><span class="tick">idle</span></button>
+      </div>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Ship</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Done</span><span class="tick"></span></button>
+    </div>
+
+    <div class="insp">
+      <div class="ihead"><span class="it">Review</span><span class="ist running">running</span></div>
+      <div class="isub">Three deterministic gates against the ticket's worktree. All must pass.</div>
+      <div class="facts">
+        <div class="fact"><div class="fk">started</div><div class="fv">12:04:31</div></div>
+        <div class="fact"><div class="fk">elapsed</div><div class="fv run">0:31</div></div>
+        <div class="fact"><div class="fk">attempt</div><div class="fv">1</div></div>
+        <div class="fact"><div class="fk">agent</div><div class="fv">idle</div></div>
+        <div class="fact"><div class="fk">driver</div><div class="fv run">running</div></div>
+      </div>
+      <div class="sect">Operations</div>
+      <div class="ops">
+        <div class="op pass"><span class="g">✓</span><span class="n">lint</span>
+          <span class="c">npm run lint</span><span class="d">6.4s</span></div>
+        <div class="op run"><span class="g">⟳</span><span class="n">typecheck</span>
+          <span class="c">npm run typecheck</span><span class="d">0:24</span></div>
+        <div class="op pending"><span class="g">·</span><span class="n">test</span>
+          <span class="c">npm test</span><span class="d"></span></div>
+      </div>
+      <div class="acts"><span class="txt">On a fail, this stage hands off to Fix and comes back here.</span>
+        <button class="ghost">Stop</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ CASE 2: review failed, fix selected ═════════════════════════════════ -->
+<section class="case">
+  <h2>2 · Gate failed — fix selected, attempt 2 of 3</h2>
+  <div class="split">
+    <div class="map">
+      <button class="mrow done"><span class="dot">✓</span><span class="nm">Scope</span><span class="tick">1.2s</span></button>
+      <div class="edge lit"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow done"><span class="dot">✓</span><span class="nm">Implementation</span><span class="tick">18m</span></button>
+      <div class="edge lit"><span class="ln"></span><span class="vb">marker</span></div>
+      <button class="mrow done"><span class="dot">✓</span><span class="nm">UAT</span><span class="tick">42.1s</span></button>
+      <div class="edge lit"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow failed"><span class="dot">✕</span><span class="nm">Review</span><span class="tick">51.7s</span></button>
+      <div class="track armed">
+        <div class="tcap">fail ↓ · pass ↑ back to Review</div>
+        <button class="mrow running sel"><span class="dot">↺</span><span class="nm">Fix</span><span class="tick">1:14</span></button>
+      </div>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Ship</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Done</span><span class="tick"></span></button>
+    </div>
+
+    <div class="insp">
+      <div class="ihead"><span class="it">Fix</span><span class="ist running">running</span></div>
+      <div class="isub">Repairing what the review gate rejected. On pass it re-enters Review.</div>
+      <div class="facts">
+        <div class="fact"><div class="fk">started</div><div class="fv">12:24:02</div></div>
+        <div class="fact"><div class="fk">elapsed</div><div class="fv run">1:14</div></div>
+        <div class="fact"><div class="fk">attempt</div><div class="fv wait">2 of 3</div></div>
+        <div class="fact"><div class="fk">agent</div><div class="fv run">running</div></div>
+        <div class="fact"><div class="fk">driver</div><div class="fv wait">blocked · gate-failed</div></div>
+      </div>
+
+      <div class="sect">Why it entered</div>
+      <div class="fault">
+        <div class="fr">Review failed — gates failed: lint, test</div>
+        <div class="fm">12:23:06 · 51.7s · attempt 1</div>
+      </div>
+
+      <div class="sect">Operations</div>
+      <div class="ops">
+        <div class="op run"><span class="g">⟳</span><span class="n">agent</span>
+          <span class="c">resumed on session 0f3a91 — repairing lint + test failures</span><span class="d">1:14</span></div>
+        <div class="op note"><span class="g">↳</span><span class="n">scope</span>
+          <span class="c">2 files touched in karst-extension</span><span class="d"></span></div>
+      </div>
+      <div class="acts"><span class="txt">One attempt left after this one.</span>
+        <button>Open log</button><button class="ghost">Stop</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ CASE 3: stalled ═════════════════════════════════════════════════════ -->
+<section class="case">
+  <h2>3 · Stalled — impl waiting, no activity to report</h2>
+  <div class="split">
+    <div class="map">
+      <button class="mrow done"><span class="dot">✓</span><span class="nm">Scope</span><span class="tick">1.2s</span></button>
+      <div class="edge active"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow running sel"><span class="dot">⟳</span><span class="nm">Implementation</span><span class="tick">2h 14m</span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">marker</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">UAT</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Review</span><span class="tick"></span></button>
+      <div class="track">
+        <div class="tcap">fail ↓ · pass ↑ back to Review</div>
+        <button class="mrow pending"><span class="dot">↺</span><span class="nm">Fix</span><span class="tick">idle</span></button>
+      </div>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Ship</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Done</span><span class="tick"></span></button>
+    </div>
+
+    <div class="insp">
+      <div class="ihead"><span class="it">Implementation</span><span class="ist running">running</span></div>
+      <div class="isub">The agent works in its terminal. This stage advances only on the explicit done marker.</div>
+      <div class="facts">
+        <div class="fact"><div class="fk">started</div><div class="fv">09:51:07</div></div>
+        <div class="fact"><div class="fk">elapsed</div><div class="fv wait">2h 14m</div></div>
+        <div class="fact"><div class="fk">agent</div><div class="fv wait">waiting</div></div>
+        <div class="fact"><div class="fk">driver</div><div class="fv wait">blocked · awaiting-marker</div></div>
+      </div>
+      <div class="sect">Operations</div>
+      <div class="ops">
+        <div class="op wait"><span class="g">⏸</span><span class="n">agent</span>
+          <span class="c">waiting for you — the session asked a question and stopped</span><span class="d">2h 14m</span></div>
+        <div class="op note pending"><span class="g">·</span><span class="n">gates</span>
+          <span class="c">impl runs no gates — it has no deterministic sub-signal</span><span class="d"></span></div>
+      </div>
+      <div class="acts"><span class="txt">Answer in the terminal, then mark impl done.</span>
+        <button>Open terminal</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ CASE 4: no stages ═══════════════════════════════════════════════════ -->
+<section class="case">
+  <h2>4 · Zero stages — ticket never started</h2>
+  <div class="split">
+    <div class="map">
+      <button class="mrow pending sel"><span class="dot">·</span><span class="nm">Scope</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Implementation</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">marker</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">UAT</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Review</span><span class="tick"></span></button>
+      <div class="track">
+        <div class="tcap">fail ↓ · pass ↑ back to Review</div>
+        <button class="mrow pending"><span class="dot">↺</span><span class="nm">Fix</span><span class="tick"></span></button>
+      </div>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Ship</span><span class="tick"></span></button>
+      <div class="edge"><span class="ln"></span><span class="vb">pass</span></div>
+      <button class="mrow pending"><span class="dot">·</span><span class="nm">Done</span><span class="tick"></span></button>
+    </div>
+    <div class="insp">
+      <div class="ihead"><span class="it">Scope</span><span class="ist">pending</span></div>
+      <div class="isub">Nothing has run yet.</div>
+      <p class="quiet">Launching a session creates the worktrees, seeds the agent with the ticket's context, and starts
+        the run here.</p>
+      <div class="acts"><span class="txt"></span><button>Launch a session</button></div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

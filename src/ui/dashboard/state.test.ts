@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
+import { recordGateRun } from '../../store/gateRuns.js';
+import { STAGE_KEYS } from '../../model/types.js';
 import { buildDashboardState } from './state.js';
 
 describe('buildDashboardState', () => {
@@ -96,18 +98,57 @@ describe('buildDashboardState', () => {
     expect(state.ticketUrl).toBeNull();
   });
 
-  it('resolves the impl-phase breakdown for the ticket approach', () => {
+  it('names the approach driving impl and its declared phases', () => {
     const t = createTicket(store, { key: 'W-1', title: 't' });
     updateTicketOnboarding(store, t.id, { approach: 'rpi' });
     const phases = (approachId: string | null) =>
       approachId === 'rpi' ? ['research', 'plan', 'implement'] : [];
     const state = buildDashboardState(store, t.id, undefined, undefined, phases);
-    expect(state.implPhases).toEqual(['research', 'plan', 'implement']);
+    expect(state.approach).toEqual({ id: 'rpi', phases: ['research', 'plan', 'implement'] });
   });
 
-  it('defaults implPhases to empty when no resolver or no workflow', () => {
+  it('has no approach when the ticket was never given one', () => {
     const t = createTicket(store, { key: 'W-2', title: 't' });
-    expect(buildDashboardState(store, t.id).implPhases).toEqual([]);
+    expect(buildDashboardState(store, t.id).approach).toBeNull();
+  });
+
+  it('keeps fix off the rail and carries it as the branch', () => {
+    // The bug: projecting all seven stage keys onto a line drew fix as a step
+    // between review and ship, a forward path the graph does not have.
+    const t = createTicket(store, { key: 'R-1', title: 't' });
+    const state = buildDashboardState(store, t.id);
+    expect(state.rail.main.map((c) => c.stageKey)).not.toContain('fix');
+    expect(state.rail.branch.stageKey).toBe('fix');
+  });
+
+  it('precomputes a strip for every stage, so any stage can be selected', () => {
+    const t = createTicket(store, { key: 'R-2', title: 't' });
+    const state = buildDashboardState(store, t.id);
+    for (const key of STAGE_KEYS) {
+      expect(state.inside[key]?.stageKey, `missing strip: ${key}`).toBe(key);
+    }
+  });
+
+  it('carries recorded gate evidence into the review strip', () => {
+    const t = createTicket(store, { key: 'R-3', title: 't' });
+    setStage(store, t.id, 'review', { status: 'failed', verdict: 'gates failed: lint' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-07-20T12:00:00.000Z',
+      gates: [
+        { gateName: 'lint', exitCode: 1 },
+        { gateName: 'typecheck', exitCode: 0 },
+        { gateName: 'test', exitCode: null },
+      ],
+    });
+
+    const ops = buildDashboardState(store, t.id).inside.review.ops;
+    expect(ops.find((o) => o.name === 'lint')?.status).toBe('fail');
+    expect(ops.find((o) => o.name === 'typecheck')?.status).toBe('pass');
+    // The repo defines no test script — not a pass karst can claim.
+    expect(ops.find((o) => o.name === 'test')?.status).toBe('note');
   });
 
   function seedWorktree(ticketId: number, repo: string): void {

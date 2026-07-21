@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 8;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -105,6 +105,62 @@ export function migrate(db: Database): void {
     // Scoped list queries all filter on project_id; without this every sidebar
     // refresh is a full table scan once several projects share the DB.
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id)');
+  }
+
+  if (current < 7) {
+    // v7 adds per-gate evidence. Fresh DBs already carry it (schema.sql), so the
+    // IF NOT EXISTS makes this a no-op there and purely additive on a legacy DB.
+    // Nothing on `stages` is touched.
+    //
+    // NOT backfilled, and cannot be: `stages` keeps only the LAST run's verdict,
+    // and the artifact filenames are fixed (`review-ticket-<id>.log`), so every
+    // retry overwrote its predecessor's log. There is no source from which past
+    // gate results could be derived — inventing rows here would be exactly the
+    // inference the no-inference guarantee forbids. In-flight tickets show no
+    // recorded gates until their next gate run.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS gate_runs (
+        id            INTEGER PRIMARY KEY,
+        ticket_id     INTEGER NOT NULL,
+        stage_key     TEXT NOT NULL,
+        attempt       INTEGER NOT NULL,
+        run_at        TEXT NOT NULL,
+        gate_name     TEXT NOT NULL,
+        exit_code     INTEGER,
+        started_at    TEXT,
+        ended_at      TEXT
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id)',
+    );
+  }
+
+  if (current < 8) {
+    // v8 records the phases an agent REPORTED entering during a marker stage.
+    // Fresh DBs already carry it (schema.sql), so the IF NOT EXISTS makes this a
+    // no-op there and purely additive on a legacy DB. Nothing on `stages` is
+    // touched — a phase is an append-only event, not stage state.
+    //
+    // NOT backfilled, and cannot be: nothing was ever written down about past
+    // phase activity — no column, no log, no artifact — so there is no source to
+    // derive it from. Synthesising marks would assert that phases ran when karst
+    // has no evidence they did, which is exactly the inference the no-inference
+    // guarantee forbids. In-flight tickets simply show no reported phases until
+    // their agent fires its next marker; absence is not evidence of absence.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS phase_marks (
+        id            INTEGER PRIMARY KEY,
+        ticket_id     INTEGER NOT NULL,
+        stage_key     TEXT NOT NULL,
+        attempt       INTEGER NOT NULL,
+        phase_name    TEXT NOT NULL,
+        marked_at     TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stage_key, id)',
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

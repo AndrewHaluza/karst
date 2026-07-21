@@ -35,6 +35,7 @@ import { glyphThemeColorKey } from './model/glyphColor.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { composeContextCommand } from './cli/context.js';
 import { composeStageCommand } from './cli/stage.js';
+import { composePhaseCommand } from './cli/phaseCommand.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
@@ -1114,6 +1115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             soloAgent,
             cliContextPrefix: buildCliContextPrefix(context, dbPath),
             cliStagePrefix: buildCliStagePrefix(context, dbPath),
+            cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
           });
           extraArgs = materialized.extraArgs.length > 0 ? materialized.extraArgs : undefined;
         }
@@ -1431,6 +1433,30 @@ function buildCliStagePrefix(
     manifestPath = undefined;
   }
   return composeStageCommand(cliEntry, dbPath, stage, manifestPath);
+}
+
+/**
+ * Compose, for one phase name, the `node <cli> phase <name> --db <db> --ticket`
+ * prefix a workflow step runs (ticket key appended) to report entering that
+ * phase. Same CLI entry and same best-effort manifest as the stage prefix — the
+ * manifest is what stops a key two projects share from marking the wrong board.
+ *
+ * Returned as a function because the phase name is baked into each command, so
+ * the renderer needs one per declared phase rather than a single prefix.
+ */
+function buildCliPhasePrefix(
+  context: vscode.ExtensionContext,
+  dbPath: string,
+): (phaseName: string) => string {
+  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
+  let manifestPath: string | undefined;
+  try {
+    manifestPath = manifestPathOrThrow();
+  } catch {
+    manifestPath = undefined;
+  }
+  return (phaseName: string): string =>
+    composePhaseCommand(cliEntry, dbPath, phaseName, manifestPath);
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
