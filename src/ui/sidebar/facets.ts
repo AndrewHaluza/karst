@@ -1,6 +1,5 @@
 import type { TicketWithStages } from '../../store/tickets.js';
-import { glyphFor } from '../../model/glyph.js';
-import type { StageStatus, AgentState } from '../../model/types.js';
+import { ticketGlyph } from '../../model/ticketGlyph.js';
 
 /**
  * Derived state facets for the ticket list (§14 redesign). A ticket has no
@@ -35,19 +34,18 @@ export const FACETS: readonly Facet[] = [
   { key: 'archived', label: 'Archived' },
 ];
 
-/** Status of the ticket's current stage, defaulting to pending when unknown. */
-function currentStageStatus(t: TicketWithStages): StageStatus {
-  const cur = t.stages.find((s) => s.stageKey === t.stageCurrent);
-  return cur?.status ?? 'pending';
-}
-
 /**
  * The single facet a ticket belongs to (besides `all`), derived from its glyph:
  * amber→input (needs you), red→failed (blocked), blue→running (in progress),
  * green→done (shipped), gray→none (only matches `all`).
+ *
+ * Reads the glyph through `ticketGlyph` — the same call every other surface
+ * makes — rather than re-deriving it from (status, agentState). Re-deriving is
+ * how "Needs you" came to be unreachable here: a ticket parked at a confirm
+ * stage is amber everywhere else, and this bucket did not know it.
  */
 export function facetOf(t: TicketWithStages): DerivedFacetKey | null {
-  const glyph = glyphFor(currentStageStatus(t), (t.agentState ?? 'none') as AgentState);
+  const glyph = ticketGlyph(t);
   switch (glyph) {
     case 'amber':
       return 'input';

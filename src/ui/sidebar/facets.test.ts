@@ -53,6 +53,16 @@ describe('facetOf', () => {
   it('pending/idle => null (only in All)', () => {
     expect(facetOf(ticket({ stageCurrent: 'scope', agentState: 'none', stages: [stage('scope', 'pending')] }))).toBeNull();
   });
+
+  // "Needs you" had no members before this: the only ticket that is genuinely
+  // blocked on the user — one parked at ship — filed itself under "In progress".
+  it('parked at ship => input (needs you), with no agent waiting', () => {
+    expect(facetOf(ticket({ stageCurrent: 'ship', agentState: 'idle', stages: [stage('ship', 'pending')] }))).toBe('input');
+  });
+
+  it('a ship in flight stays in progress, not needs-you', () => {
+    expect(facetOf(ticket({ stageCurrent: 'ship', agentState: 'idle', stages: [stage('ship', 'running')] }))).toBe('running');
+  });
 });
 
 describe('matchesFacet', () => {

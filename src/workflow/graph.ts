@@ -69,6 +69,28 @@ export function isBranch(stage: StageKey): boolean {
 /** The forward path: every stage except the return channels, in canonical order. */
 export const MAIN_LINE: readonly StageKey[] = STAGE_KEYS.filter((k) => !isBranch(k));
 
+/**
+ * Stages that do not start themselves — reaching one parks the ticket until the
+ * user acts. `ship` is the one today: it opens PRs, an irreversible, outward
+ * facing step karst deliberately never takes on its own, so it waits for the
+ * dashboard's "Confirm ship" click.
+ *
+ * This is the ONE place that fact is written down. The driver already treats
+ * ship as a human boundary (`ship-confirm`) and the dashboard already offers the
+ * button, but neither told the glyph/badge/facet derivation — which is why a
+ * ticket blocked on the user never reported itself as needs-you.
+ *
+ * A named list rather than a graph-derived predicate, deliberately: "no verdict
+ * arrives without a human" is a policy about the stage's side effects, not a
+ * shape the edges can express — `impl` also waits on a human and is not one.
+ */
+export const CONFIRM_STAGES: readonly StageKey[] = ['ship'] as const;
+
+/** True when a stage is blocked on an explicit user action to proceed. */
+export function needsConfirm(stage: StageKey): boolean {
+  return CONFIRM_STAGES.includes(stage);
+}
+
 /** Stages whose `failed` verdict routes to the fix loop. */
 export const GATE_STAGES: readonly StageKey[] = ['uat', 'review'] as const;
 

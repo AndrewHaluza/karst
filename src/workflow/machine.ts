@@ -1,9 +1,30 @@
 import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
-import { setStage } from '../store/stages.js';
+import { setStage, type StagePatch } from '../store/stages.js';
 import { getTicket } from '../store/tickets.js';
-import { STAGE_GRAPH, isTerminal } from './graph.js';
+import { STAGE_GRAPH, isTerminal, needsConfirm } from './graph.js';
 import { nowIso } from '../model/time.js';
+
+/**
+ * How a stage is entered — what "arriving here" means for that kind of stage.
+ *
+ * - Terminal: arriving IS finishing. Nothing runs and no verdict can follow, so
+ *   left 'running' it would park every shipped ticket on a blue, forever-running
+ *   `done` node, filed under "In progress" (facets.ts).
+ * - Confirm: arriving is *parking*. Nothing runs until the user clicks, so
+ *   'running' claimed work nobody was doing — the same wrong-glyph bug one stage
+ *   earlier, and the reason a ticket blocked on the user never read as needs-you.
+ *   `endedAt` is cleared because a re-entry (fix → review → ship) must not
+ *   inherit a previous attempt's end time: `deriveStageCurrent` ranks stages by
+ *   `endedAt ?? startedAt`, so a stale one makes the parked stage look older than
+ *   the stage it just came from.
+ * - Everything else: entering it starts it.
+ */
+function entryPatch(next: StageKey, at: string): StagePatch {
+  if (isTerminal(next)) return { status: 'passed', startedAt: at, endedAt: at };
+  if (needsConfirm(next)) return { status: 'pending', startedAt: at, endedAt: null };
+  return { status: 'running', startedAt: at };
+}
 
 /**
  * Advance a ticket from `from` given a `verdict`, returning the next stage
@@ -62,20 +83,10 @@ export function transition(
       });
     }
 
-    // The stage we move into starts running — unless it is terminal. A terminal
-    // stage has no edges and nothing to run, so no verdict will ever arrive to
-    // close it: arriving IS finishing. Left 'running' it would park every
-    // shipped ticket on a blue, forever-running `done` node, filed under "In
-    // progress" (facets.ts) instead of "Shipped".
+    // What entering the next stage means depends on the kind of stage it is —
+    // see `entryPatch`. Only a stage that actually runs is entered as running.
     const at = nowIso();
-    setStage(
-      store,
-      ticketId,
-      next,
-      isTerminal(next)
-        ? { status: 'passed', startedAt: at, endedAt: at }
-        : { status: 'running', startedAt: at },
-    );
+    setStage(store, ticketId, next, entryPatch(next, at));
     store.db
       .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
       .run(next, ticketId);

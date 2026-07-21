@@ -3,7 +3,7 @@ import type { StageKey } from '../model/types.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { listTickets } from '../store/tickets.js';
 import { setStage, type Stage } from '../store/stages.js';
-import { isTerminal } from '../workflow/graph.js';
+import { isTerminal, needsConfirm } from '../workflow/graph.js';
 import { nowIso } from '../model/time.js';
 
 /**
@@ -46,7 +46,11 @@ export function deriveStageCurrent(stages: Stage[]): StageKey {
   let latest = '';
   for (const k of STAGE_KEYS) {
     const s = byKey.get(k);
-    if (!s || s.status === 'pending') continue;
+    // `pending` alone does not mean untouched: a confirm stage parks as pending
+    // the moment it is entered, and skipping it walked a ticket waiting on the
+    // user backwards to the stage it came from. `startedAt` is what separates a
+    // stage that was ENTERED from one nothing has ever reached.
+    if (!s || (s.status === 'pending' && s.startedAt === null)) continue;
     const ts = s.endedAt ?? s.startedAt ?? '';
     // `>=` so a later graph stage with an equal/empty timestamp still wins ties
     // in forward order, preserving prior behaviour for un-timestamped rows.
@@ -59,19 +63,40 @@ export function deriveStageCurrent(stages: Stage[]): StageKey {
 }
 
 /**
- * Close any terminal stage left 'running'. Nothing runs at a terminal stage and
- * no verdict can follow, so such a row can only come from a build that entered
- * it as running (fixed in machine.ts) — and those rows outlive the fix, leaving
- * a shipped ticket blue and filed under "In progress" forever. It ended when it
- * was entered, so the existing timestamp is kept rather than backdated to boot.
- * Returns the healed stages; the rows are patched through the single writer.
+ * Repair stage rows that can only be 'running' because an older build entered
+ * them that way (both entry rules now live in machine.ts's `entryPatch`). Such
+ * rows outlive the fix that produced them, so boot has to heal them or the
+ * ticket is stuck with the wrong glyph forever.
+ *
+ * - Terminal: nothing runs there and no verdict can follow, so it is complete.
+ *   It ended when it was entered — keep that timestamp rather than backdating to
+ *   boot. Left alone, a shipped ticket stays blue and filed under "In progress".
+ * - Confirm: it cannot be mid-run across a restart, because the click that starts
+ *   it is a live user action and the process that would have been shipping is
+ *   gone. Park it so it reads as needs-you instead of claiming to be working.
+ *
+ * Only 'running' rows are touched: a `failed` ship keeps its verdict and stays
+ * blocked, which is a different (and already correct) answer.
+ *
+ * Returns the healed stages; rows are patched through the single writer.
  */
-function healTerminalStages(store: Store, ticketId: number, stages: Stage[]): Stage[] {
+function healEntryStages(store: Store, ticketId: number, stages: Stage[]): Stage[] {
   return stages.map((s) => {
-    if (!isTerminal(s.stageKey) || s.status !== 'running') return s;
-    const endedAt = s.endedAt ?? s.startedAt ?? nowIso();
-    setStage(store, ticketId, s.stageKey, { status: 'passed', endedAt });
-    return { ...s, status: 'passed', endedAt };
+    if (s.status !== 'running') return s;
+
+    if (isTerminal(s.stageKey)) {
+      const endedAt = s.endedAt ?? s.startedAt ?? nowIso();
+      setStage(store, ticketId, s.stageKey, { status: 'passed', endedAt });
+      return { ...s, status: 'passed', endedAt };
+    }
+
+    if (needsConfirm(s.stageKey)) {
+      const startedAt = s.startedAt ?? nowIso();
+      setStage(store, ticketId, s.stageKey, { status: 'pending', startedAt, endedAt: null });
+      return { ...s, status: 'pending', startedAt, endedAt: null };
+    }
+
+    return s;
   });
 }
 
@@ -93,7 +118,7 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
 
   const restore = store.db.transaction(() => {
     for (const ticket of listTickets(store)) {
-      const stages = healTerminalStages(store, ticket.id, ticket.stages);
+      const stages = healEntryStages(store, ticket.id, ticket.stages);
       const stage = deriveStageCurrent(stages);
       if (stage !== ticket.stageCurrent) {
         store.db
