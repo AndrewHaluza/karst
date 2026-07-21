@@ -76,6 +76,23 @@ describe('parseOnboardingMessage', () => {
     expect(parseOnboardingMessage({ type: 'save', key: 'P-1', title: 't' })).toBeNull(); // missing description
   });
 
+  // A blank key is valid — manual ticket creation leaves it to be generated
+  // at persist time (actions.ts persistDraft). The field must still be
+  // PRESENT (a string); only a wholly absent key is rejected (see the
+  // "rejects malformed shapes" test below).
+  it('accepts an empty key — manual creation generates one at persist time', () => {
+    expect(
+      parseOnboardingMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
+    ).toEqual({
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null,
+    });
+    expect(
+      parseOnboardingMessage({ type: 'save', key: '', title: 't', description: 'd' }),
+    ).toEqual({
+      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null,
+    });
+  });
+
   it('accepts a well-formed set-agent message', () => {
     expect(parseOnboardingMessage({ type: 'set-agent', id: 'reviewer' })).toEqual({
       type: 'set-agent',

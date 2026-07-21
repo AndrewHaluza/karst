@@ -332,6 +332,11 @@
   // only lands in the DB on submit. Repos/approach/agent selections are
   // mirrored here.
   let draft = { mode: 'create', repos: {}, approach: null, selectedAgent: null, selectedModel: null };
+  // Current ticketing provider, kept in sync by renderProvider() on every state
+  // push. `manual` is the only provider where the key is optional (§ manual
+  // ticket creation) — a non-manual ticket still needs its key/fetch-id to
+  // identify what to fetch, so that requirement is unchanged.
+  let currentProvider = 'manual';
   // Analyzer recommendation: { id, reason } once an `analysis` resolves. The
   // analyzer MOVES the pick (it sets draft.approach as part of the coupled
   // decision); this drives the reason badge shown next to that row. A later
@@ -433,6 +438,7 @@
   // is the shared provider-identity component (providerBadgeHtml, injected).
   function renderProvider(provider) {
     const p = provider || 'manual';
+    currentProvider = p;
     const line = el('provline');
     if (p === 'manual') {
       line.classList.remove('hidden');
@@ -476,11 +482,18 @@
     syncAnalyzeBtn();
   }
 
-  // Phase 1 is complete once the ticket has an identity (key + title). Phase 2
-  // (repos, approach, submit) stays hidden until then — the strongest "identify
-  // first" signal. Edit mode seeds both, so Phase 2 shows on first render.
+  // Phase 1 is complete once the ticket has an identity. For a manual ticket
+  // (no board to fetch from) the key is optional — a blank one is generated at
+  // persist time (see actions.ts persistDraft) — so title alone is the "actual
+  // required field" and must never be gated on the key. Every other provider
+  // still needs the key (it doubles as the fetch id), so that requirement is
+  // unchanged. Phase 2 (repos, approach, submit) stays hidden until Phase 1 is
+  // valid — the strongest "identify first" signal. Edit mode seeds both, so
+  // Phase 2 shows on first render.
   function phase1Valid() {
-    return el('ref').value.trim() !== '' && el('title').value.trim() !== '';
+    const hasTitle = el('title').value.trim() !== '';
+    if (currentProvider === 'manual') return hasTitle;
+    return el('ref').value.trim() !== '' && hasTitle;
   }
   function syncPhase2() {
     el('phase2').classList.toggle('hidden', !phase1Valid());
@@ -721,16 +734,35 @@
   }
 
   // ---- interactions ----
-  el('fetchBtn').addEventListener('click', () => {
+  // Shared by the Fetch button click and Enter-in-the-key-field (below) so both
+  // paths run identical validation/in-flight guarding. No-op when there's
+  // nothing to fetch, the button is hidden (manual has no board), or a fetch is
+  // already in flight (button disables itself via setFetchState('busy')).
+  function doFetch() {
+    if (el('fetchBtn').classList.contains('hidden') || el('fetchBtn').disabled) return;
     const ref = el('ref').value.trim();
     if (ref) { setFetchState('busy'); post({ type: 'fetch-source', ref }); }
+  }
+  el('fetchBtn').addEventListener('click', doFetch);
+  // Enter in the key/fetch-id field fires the same fetch as the button — the
+  // paste-id → fetch flow shouldn't require reaching for the mouse. preventDefault
+  // guards against this input ever sitting inside a real <form> and navigating.
+  el('ref').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    doFetch();
   });
 
   el('submitBtn').addEventListener('click', () => {
     if (submitBusy || saveBusy) return; // a save or launch is already in flight
     const key = el('ref').value.trim();
     const title = el('title').value.trim();
-    if (!key || !title) { showErr('Key and title are required.'); return; }
+    // The key is optional for a manual ticket (generated at persist time);
+    // every other provider still needs it — unchanged from before.
+    if ((currentProvider !== 'manual' && !key) || !title) {
+      showErr(currentProvider === 'manual' ? 'Title is required.' : 'Key and title are required.');
+      return;
+    }
     clearErr(); // a retry starts clean — the previous failure no longer applies
     // Effective repo set: a repo counts as selected if the user toggled it on,
     // or (untouched) it was scored-selected by default. Carry repos + approach
@@ -755,7 +787,10 @@
     if (submitBusy || saveBusy) return; // a save or launch is already in flight
     const key = el('ref').value.trim();
     const title = el('title').value.trim();
-    if (!key || !title) { showErr('Key and title are required.'); return; }
+    if ((currentProvider !== 'manual' && !key) || !title) {
+      showErr(currentProvider === 'manual' ? 'Title is required.' : 'Key and title are required.');
+      return;
+    }
     clearErr();
     // Same field-gathering as submit — save persists the identical draft, it
     // just never calls startTicket.

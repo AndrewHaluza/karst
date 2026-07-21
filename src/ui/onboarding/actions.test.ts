@@ -281,6 +281,30 @@ describe('buildOnboardingActions', () => {
     expect(startTicket).toHaveBeenCalledWith(tickets[0]!.id);
   });
 
+  it('submit generates a unique key when the key field is left blank (manual creation)', async () => {
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({ key: '', title: 'no key please', description: '', repos: [], approach: null, agent: null, model: null });
+    const tickets = listTickets(store);
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]!.key).toBeTruthy(); // never persists an empty string
+  });
+
+  it('two blank-key submissions generate distinct keys — no collision', async () => {
+    const actionsA = buildOnboardingActions(deps)({
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    });
+    const actionsB = buildOnboardingActions(deps)({
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    });
+
+    await actionsA.submit({ key: '', title: 'first', description: '', repos: [], approach: null, agent: null, model: null });
+    await actionsB.submit({ key: '', title: 'second', description: '', repos: [], approach: null, agent: null, model: null });
+    const [a, b] = listTickets(store);
+    expect(a!.key).not.toBe(b!.key);
+  });
+
   it('submit persists the create-mode repo + approach selection before starting', async () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
@@ -458,6 +482,17 @@ describe('buildOnboardingActions', () => {
     expect(onCreated).toHaveBeenCalled();
   });
 
+  it('save generates a unique key when the key field is left blank (manual creation)', async () => {
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({ key: '', title: 'a draft', description: '', repos: [], approach: null, agent: null, model: null });
+
+    const tickets = listTickets(store);
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]!.key).toBeTruthy();
+  });
+
   it('save persists repos/approach/agent/model exactly like submit does', async () => {
     const ctx = mkCtx();
     const actions = buildOnboardingActions(deps)(ctx);
@@ -496,6 +531,18 @@ describe('buildOnboardingActions', () => {
     expect(reloaded.title).toBe('new title');
     expect(listTickets(store)).toHaveLength(1);
     expect(startTicket).not.toHaveBeenCalled();
+  });
+
+  it('save in edit mode with a blank key assigns a fresh generated key, never persists empty', async () => {
+    const t = createTicket(store, { key: 'HAD-1', title: 'old' });
+    const ctx = mkCtx(t.id);
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({ key: '', title: 'old', description: '', repos: [], approach: null, agent: null, model: null });
+
+    const reloaded = getTicket(store, t.id);
+    expect(reloaded.key).toBeTruthy();
+    expect(reloaded.key).not.toBe('');
   });
 
   it('save posts busy on/off around the persist and pushes fresh state on success', async () => {

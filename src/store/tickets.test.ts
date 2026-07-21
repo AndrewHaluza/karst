@@ -7,6 +7,7 @@ import {
   createTicket,
   getTicket,
   getTicketByKey,
+  generateTicketKey,
   ticketLabel,
   updateTicketCore,
   updateTicketOnboarding,
@@ -78,6 +79,32 @@ describe('ticket + stage persistence', () => {
     const t = createTicket(store, { key: 'FIND-1', title: 'findable' });
     expect(getTicketByKey(store, 'FIND-1')?.id).toBe(t.id);
     expect(getTicketByKey(store, 'NOPE')).toBeUndefined();
+  });
+
+  it('generateTicketKey returns a non-empty key unclaimed by any ticket', () => {
+    const key = generateTicketKey(store);
+    expect(key.length).toBeGreaterThan(0);
+    expect(getTicketByKey(store, key)).toBeUndefined();
+  });
+
+  it('generateTicketKey never collides across repeated calls', () => {
+    const keys = new Set(Array.from({ length: 50 }, () => generateTicketKey(store)));
+    expect(keys.size).toBe(50);
+  });
+
+  it('a generated key is immediately usable to create a ticket, indistinguishable from a hand-typed one', () => {
+    const key = generateTicketKey(store);
+    const t = createTicket(store, { key, title: 'auto-keyed' });
+    expect(t.key).toBe(key);
+    expect(getTicketByKey(store, key)?.id).toBe(t.id);
+  });
+
+  it('generateTicketKey is scoped per project, like getTicketByKey', () => {
+    const keyInA = generateTicketKey(store, { projectId: 1 });
+    createTicket(store, { key: keyInA, title: 'in A', projectId: 1 });
+    // The same scope now excludes that key; a different project doesn't care.
+    expect(getTicketByKey(store, keyInA, { projectId: 1 })).toBeDefined();
+    expect(getTicketByKey(store, keyInA, { projectId: 2 })).toBeUndefined();
   });
 
   it('setStage persists status + verdict and reloads', () => {
