@@ -156,6 +156,56 @@ describe('buildOnboardingActions', () => {
     expect(getTicket(store, t.id).brief).toContain('Login modal');
   });
 
+  /** Persist a brief with the given attachments and return the stored text. */
+  async function briefWithAttachments(
+    attachments: ContextBrief['attachments'],
+  ): Promise<string> {
+    const t = createTicket(store, { key: `A-${attachments.length}-${Math.random()}`, title: 't' });
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({ ...BRIEF, attachments })),
+    });
+    const actions = buildOnboardingActions(deps)(mkCtx(t.id));
+    await actions.fetchSource('CU-9');
+    return getTicket(store, t.id).brief ?? '';
+  }
+
+  it('renders an image attachment as a markdown image', async () => {
+    const brief = await briefWithAttachments([
+      { name: 'shot.png', url: 'https://files/shot.png', kind: 'image', mimeType: 'image/png', size: 900 },
+    ]);
+    expect(brief).toContain('## Attachments');
+    expect(brief).toContain('![shot.png](https://files/shot.png)');
+  });
+
+  it('inlines a text attachment', async () => {
+    const brief = await briefWithAttachments([
+      { name: 'notes.md', url: 'https://files/notes.md', kind: 'text', content: 'inline body here' },
+    ]);
+    expect(brief).toContain('inline body here');
+    expect(brief).toContain('```');
+  });
+
+  it('renders a binary attachment as a labeled link and does not throw', async () => {
+    const brief = await briefWithAttachments([
+      { name: 'app.zip', url: 'https://files/app.zip', kind: 'binary', mimeType: 'application/zip', size: 4096 },
+    ]);
+    expect(brief).toContain('[app.zip](https://files/app.zip)');
+    expect(brief).toContain('application/zip');
+  });
+
+  it('still renders the brief when an attachment could not be downloaded', async () => {
+    const brief = await briefWithAttachments([
+      { name: 'x.pdf', url: 'https://files/x.pdf', kind: 'unavailable', error: 'download returned 403' },
+    ]);
+    expect(brief).toContain('Login modal'); // the rest of the brief survives
+    expect(brief.toLowerCase()).toContain('unavailable');
+  });
+
+  it('leaves a brief with zero attachments byte-identical', async () => {
+    const brief = await briefWithAttachments([]);
+    expect(brief).toBe('# Login modal\n\nui bug\n\nTags: frontend');
+  });
+
   it('fetchSource in create mode persists a draft, binds it, and scores repos', async () => {
     const ctx = mkCtx(); // create mode: no ticket yet
     const actions = buildOnboardingActions(deps)(ctx);

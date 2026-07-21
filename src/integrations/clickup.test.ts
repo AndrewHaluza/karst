@@ -59,14 +59,19 @@ describe('clickupProvider.fetchTicket', () => {
     expect(brief.title).toBe('Fix the login modal');
     expect(brief.description).toContain('X button');
     expect(brief.tags).toEqual(['frontend', 'bug']);
-    expect(brief.attachments).toEqual([
-      { name: 'screenshot.png', url: 'https://files/screenshot.png' },
-    ]);
+    expect(brief.attachments).toHaveLength(1);
+    expect(brief.attachments[0]).toMatchObject({
+      name: 'screenshot.png',
+      url: 'https://files/screenshot.png',
+      // The download 404s under this fixture's routes — recorded on the
+      // attachment, never propagated as a failed ticket fetch.
+      kind: 'unavailable',
+    });
     expect(brief.comments).toHaveLength(2);
     expect(brief.comments[0]).toMatchObject({ author: 'qa_jane', text: 'Repro on Safari only' });
   });
 
-  it('sends the token in the Authorization header on every request', async () => {
+  it('sends the token in the Authorization header on every API request', async () => {
     const { fn, calls } = fakeFetch({
       '/task/abc123/comment': { json: COMMENTS },
       '/task/abc123': { json: TASK },
@@ -74,10 +79,46 @@ describe('clickupProvider.fetchTicket', () => {
     const provider = clickupProvider({ fetchFn: fn, token: async () => 'secret-token' });
     await provider.fetchTicket!('abc123');
 
-    expect(calls.length).toBeGreaterThanOrEqual(2);
-    for (const c of calls) {
+    const api = calls.filter((c) => c.url.includes('api.clickup.com'));
+    expect(api.length).toBeGreaterThanOrEqual(2);
+    for (const c of api) {
       expect(c.headers.Authorization).toBe('secret-token');
     }
+  });
+
+  it('never sends the token to an attachment host outside clickup.com', async () => {
+    const { fn, calls } = fakeFetch({
+      '/task/abc123/comment': { json: COMMENTS },
+      '/task/abc123': { json: TASK },
+      'screenshot.png': { json: {} },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'secret-token' });
+    await provider.fetchTicket!('abc123');
+
+    const download = calls.find((c) => c.url === 'https://files/screenshot.png');
+    expect(download).toBeDefined();
+    expect(download!.headers.Authorization).toBeUndefined();
+  });
+
+  it('sends the token when the attachment lives on a clickup.com host', async () => {
+    const { fn, calls } = fakeFetch({
+      '/task/z/comment': { json: {} },
+      '/task/z': {
+        json: {
+          id: 'z',
+          name: 't',
+          attachments: [
+            { title: 'a.png', url: 'https://attachments.clickup.com/a.png', mimetype: 'image/png' },
+          ],
+        },
+      },
+      'attachments.clickup.com': { json: {} },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'secret-token' });
+    await provider.fetchTicket!('z');
+
+    const download = calls.find((c) => c.url.includes('attachments.clickup.com'));
+    expect(download!.headers.Authorization).toBe('secret-token');
   });
 
   it('appends the team_id/custom_task_ids suffix on task and comment URLs when teamId is set', async () => {
@@ -88,8 +129,11 @@ describe('clickupProvider.fetchTicket', () => {
     const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
     await provider.fetchTicket!('abc123');
 
-    expect(calls.length).toBeGreaterThanOrEqual(2);
-    for (const c of calls) {
+    // Only the API calls carry the suffix — an attachment download goes to the
+    // URL the payload gave, verbatim.
+    const api = calls.filter((c) => c.url.includes('api.clickup.com'));
+    expect(api.length).toBeGreaterThanOrEqual(2);
+    for (const c of api) {
       expect(c.url).toContain('custom_task_ids=true');
       expect(c.url).toContain('team_id=9001');
     }
