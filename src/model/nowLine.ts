@@ -64,7 +64,13 @@ export function buildNowLine(
 
   switch (cell.stageKey) {
     case 'scope':
-      return { text: 'Now: scoping the ticket — the agent is gathering context.' };
+      // A ticket saved without a run (§ save-without-run) sits here at
+      // `pending` forever until startTicket runs — reuse the same "not
+      // started" copy the null-cell (§ no stage row at all) case uses, so the
+      // dashboard never claims an agent is active when nothing was launched.
+      return cell.status === 'pending'
+        ? { text: 'Now: not started. Launch a session to begin.' }
+        : { text: 'Now: scoping the ticket — the agent is gathering context.' };
     case 'impl':
       return { text: 'Now: implementing — the agent is working in its terminal.' };
     case 'uat':

@@ -309,6 +309,7 @@
     <div class="stepbody last">
       <div class="footer" style="justify-content:flex-start;margin-top:2px">
         <button id="submitBtn">Create ticket</button>
+        <button class="secondary" id="saveBtn">Save</button>
         <button class="secondary" id="cancelBtn">Cancel</button>
       </div>
     </div>
@@ -709,6 +710,16 @@
     btn.textContent = on ? 'Starting session…' : submitLabel;
   }
 
+  // Save button busy lock — no mode-dependent label (unlike submit), since
+  // save never launches anything.
+  let saveBusy = false;
+  function setSaveBusy(on) {
+    saveBusy = on;
+    const btn = el('saveBtn');
+    btn.disabled = on;
+    btn.textContent = on ? 'Saving…' : 'Save';
+  }
+
   // ---- interactions ----
   el('fetchBtn').addEventListener('click', () => {
     const ref = el('ref').value.trim();
@@ -716,7 +727,7 @@
   });
 
   el('submitBtn').addEventListener('click', () => {
-    if (submitBusy) return; // a launch is already in flight
+    if (submitBusy || saveBusy) return; // a save or launch is already in flight
     const key = el('ref').value.trim();
     const title = el('title').value.trim();
     if (!key || !title) { showErr('Key and title are required.'); return; }
@@ -738,6 +749,24 @@
     // (draft.selectedModel stays null until an explicit change). Empty = inherit.
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
     post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model });
+  });
+
+  el('saveBtn').addEventListener('click', () => {
+    if (submitBusy || saveBusy) return; // a save or launch is already in flight
+    const key = el('ref').value.trim();
+    const title = el('title').value.trim();
+    if (!key || !title) { showErr('Key and title are required.'); return; }
+    clearErr();
+    // Same field-gathering as submit — save persists the identical draft, it
+    // just never calls startTicket.
+    const repos = lastRepos.filter(repoSelected).map((r) => r.service);
+    const approach = draft.approach ?? lastSelectedApproach;
+    const agent =
+      approach === 'single-subagent' && lastAgents.length
+        ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
+        : null;
+    const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live.
@@ -863,6 +892,7 @@
     // Lock the button for the duration so it can't be fired twice, and say what
     // is happening — on success the panel closes and the dashboard takes over.
     if (what === 'submit') setSubmitBusy(on);
+    if (what === 'save') setSaveBusy(on);
     if (what === 'analyze') {
       el('analyzeBusy').classList.toggle('hidden', !on);
       approachBusy = on;

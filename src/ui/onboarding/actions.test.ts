@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket, listTickets, updateTicketOnboarding } from '../../store/tickets.js';
+import { createTicket, getTicket, getTicketByKey, listTickets, updateTicketOnboarding } from '../../store/tickets.js';
 import {
   buildOnboardingActions,
   type OnboardingActionsDeps,
@@ -432,6 +432,92 @@ describe('buildOnboardingActions', () => {
 
     expect(openDashboard).toHaveBeenCalledWith(t.id);
     expect(ctx.closes).toBe(1);
+  });
+
+  it('save in create mode persists a ticket WITHOUT starting it', async () => {
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({
+      key: 'DRAFT-1', title: 'a draft', description: 'no run yet', repos: [], approach: null, agent: null, model: null,
+    });
+
+    const tickets = listTickets(store);
+    expect(tickets).toHaveLength(1);
+    const t = tickets[0]!;
+    expect(t.key).toBe('DRAFT-1');
+    expect(t.title).toBe('a draft');
+    expect(t.description).toBe('no run yet');
+    // run-less: never advanced past the seed stage, no session, no worktrees
+    expect(t.stageCurrent).toBe('scope');
+    expect(t.agentState).toBe('none');
+    expect(t.sessionId).toBeNull();
+    expect(startTicket).not.toHaveBeenCalled();
+    expect(openDashboard).not.toHaveBeenCalled();
+    expect(ctx.closes).toBe(0); // panel stays open
+    expect(onCreated).toHaveBeenCalled();
+  });
+
+  it('save persists repos/approach/agent/model exactly like submit does', async () => {
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({
+      key: 'DRAFT-2', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+    });
+
+    const t = getTicket(store, listTickets(store)[0]!.id);
+    expect(t.selectedRepos).toEqual(['fe', 'be']);
+    expect(t.approach).toBe('rpi');
+    expect(t.agent).toBe('reviewer');
+    expect(t.model).toBe('claude-opus-4-8');
+  });
+
+  it('save binds the create panel to the new draft (retrievable afterward)', async () => {
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({ key: 'DRAFT-3', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+
+    const id = listTickets(store)[0]!.id;
+    expect(ctx.ticketId).toBe(id);
+    expect(getTicketByKey(store, 'DRAFT-3')?.id).toBe(id);
+  });
+
+  it('save in edit mode updates the existing ticket WITHOUT starting it, no duplicate', async () => {
+    const t = createTicket(store, { key: 'OLD-S', title: 'old' });
+    const ctx = mkCtx(t.id);
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({ key: 'NEW-S', title: 'new title', description: '', repos: [], approach: null, agent: null, model: null });
+
+    const reloaded = getTicket(store, t.id);
+    expect(reloaded.key).toBe('NEW-S');
+    expect(reloaded.title).toBe('new title');
+    expect(listTickets(store)).toHaveLength(1);
+    expect(startTicket).not.toHaveBeenCalled();
+  });
+
+  it('save posts busy on/off around the persist and pushes fresh state on success', async () => {
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({ key: 'DRAFT-4', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+
+    expect(ctx.posted[0]).toEqual({ type: 'busy', what: 'save', on: true });
+    expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'save', on: false });
+    expect(ctx.pushes).toBeGreaterThan(0);
+  });
+
+  it('save posts a user-facing error and persists nothing when the store rejects the write', async () => {
+    store.close();
+    const ctx = mkCtx();
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.save({ key: 'DRAFT-5', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+
+    expect(ctx.posted.find((m) => m.type === 'error')).toBeTruthy();
+    expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'save', on: false });
   });
 
   /** An adapter whose analyzer returns a canned coupled-JSON object. */

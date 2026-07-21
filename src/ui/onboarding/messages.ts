@@ -9,6 +9,16 @@ import { isHttpUrl } from '../shared/url.js';
  * filesystem or spawn the agent). Mirrors dashboard/messages.ts.
  */
 
+export interface TicketDraftFields {
+  key: string;
+  title: string;
+  description: string;
+  repos: string[];
+  approach: string | null;
+  agent: string | null;
+  model: string | null;
+}
+
 export type OnboardingMessage =
   | { type: 'fetch-source'; ref: string }
   | { type: 'suggest-signals'; service: string }
@@ -20,16 +30,10 @@ export type OnboardingMessage =
   | { type: 'set-model'; id: string }
   | { type: 'analyze'; prompt: string }
   | { type: 'open-ticket-link'; url: string }
-  | {
-      type: 'submit';
-      key: string;
-      title: string;
-      description: string;
-      repos: string[];
-      approach: string | null;
-      agent: string | null;
-      model: string | null;
-    }
+  | ({ type: 'submit' } & TicketDraftFields)
+  // Persists the ticket like `submit`, but never calls startTicket — no
+  // worktrees, no agent launch. The "save without a run" path.
+  | ({ type: 'save' } & TicketDraftFields)
   | { type: 'request-state' };
 
 /** Host → webview messages: state pushes + async results. */
@@ -58,20 +62,35 @@ export interface OnboardingActions {
   setModel: (id: string) => void;
   analyze: (prompt: string) => void;
   openTicketLink: (url: string) => void;
-  submit: (input: {
-    key: string;
-    title: string;
-    description: string;
-    repos: string[];
-    approach: string | null;
-    agent: string | null;
-    model: string | null;
-  }) => void | Promise<void>;
+  submit: (input: TicketDraftFields) => void | Promise<void>;
+  save: (input: TicketDraftFields) => void | Promise<void>;
   requestState: () => void;
 }
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');
+}
+
+/** Validate the shared draft-persist fields (submit and save both carry these). */
+function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null {
+  const str = (k: string): boolean => typeof m[k] === 'string' && (m[k] as string).length > 0;
+  // description may be empty; key + title must be present. repos defaults to
+  // [] and approach/agent to null when absent/malformed, so an older webview
+  // (or a crafted message) degrades to "no scope" rather than being rejected.
+  if (!(str('key') && str('title') && typeof m.description === 'string')) return null;
+  const repos = isStringArray(m.repos) ? m.repos : [];
+  const approach = typeof m.approach === 'string' && m.approach.length > 0 ? m.approach : null;
+  const agent = typeof m.agent === 'string' && m.agent.length > 0 ? m.agent : null;
+  const model = typeof m.model === 'string' && m.model.length > 0 ? m.model : null;
+  return {
+    key: m.key as string,
+    title: m.title as string,
+    description: m.description as string,
+    repos,
+    approach,
+    agent,
+    model,
+  };
 }
 
 /**
@@ -112,24 +131,12 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       // pass it). Same guard as the dashboard's; shared so they can't diverge.
       return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'submit': {
-      // description may be empty; key + title must be present. repos defaults to
-      // [] and approach/agent to null when absent/malformed, so an older webview
-      // (or a crafted message) degrades to "no scope" rather than being rejected.
-      if (!(str('key') && str('title') && typeof m.description === 'string')) return null;
-      const repos = isStringArray(m.repos) ? m.repos : [];
-      const approach = typeof m.approach === 'string' && m.approach.length > 0 ? m.approach : null;
-      const agent = typeof m.agent === 'string' && m.agent.length > 0 ? m.agent : null;
-      const model = typeof m.model === 'string' && m.model.length > 0 ? m.model : null;
-      return {
-        type: 'submit',
-        key: m.key as string,
-        title: m.title as string,
-        description: m.description as string,
-        repos,
-        approach,
-        agent,
-        model,
-      };
+      const fields = parseDraftFields(m);
+      return fields ? { type: 'submit', ...fields } : null;
+    }
+    case 'save': {
+      const fields = parseDraftFields(m);
+      return fields ? { type: 'save', ...fields } : null;
     }
     case 'request-state':
       return { type: 'request-state' };
@@ -178,6 +185,19 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
       // Fire-and-forget: `submit` reports its own outcome to the page (busy /
       // error / close), so the pump does not wait on the launch.
       void actions.submit({
+        key: msg.key,
+        title: msg.title,
+        description: msg.description,
+        repos: msg.repos,
+        approach: msg.approach,
+        agent: msg.agent,
+        model: msg.model,
+      });
+      return;
+    case 'save':
+      // Fire-and-forget, same as submit: `save` reports its own outcome via
+      // busy/error posts.
+      void actions.save({
         key: msg.key,
         title: msg.title,
         description: msg.description,

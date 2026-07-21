@@ -14,7 +14,7 @@ import {
   analyzeTicket,
   type AnalyzeServiceInput,
 } from '../../workflow/classify/analyze.js';
-import type { OnboardingActions } from './messages.js';
+import type { OnboardingActions, TicketDraftFields } from './messages.js';
 import type { OnboardingActionsCtx, OnboardingActionsFactory } from './panel.js';
 
 /**
@@ -110,6 +110,48 @@ function scoredRepos(manifest: Manifest, brief: ContextBrief): string[] {
   })
     .filter((r) => r.score > 0)
     .map((r) => r.service);
+}
+
+/**
+ * Create-or-update the ticket from onboarding's draft fields, and persist the
+ * repo/approach/agent/model selection — the part `submit` and `save` share.
+ * Binds a create-mode panel to the new ticket. Does NOT touch startTicket;
+ * callers decide whether a run follows.
+ */
+function persistDraft(
+  ctx: OnboardingActionsCtx,
+  deps: OnboardingActionsDeps,
+  input: TicketDraftFields,
+): number {
+  let ticketId: number;
+  if (ctx.ticketId !== undefined) {
+    updateTicketCore(deps.store, ctx.ticketId, { key: input.key, title: input.title });
+    if (input.description) {
+      updateTicketOnboarding(deps.store, ctx.ticketId, { description: input.description });
+    }
+    ticketId = ctx.ticketId;
+  } else {
+    const t = createTicketFlow(deps.store, {
+      key: input.key,
+      title: input.title,
+      description: input.description || undefined,
+      projectId: deps.projectId,
+    });
+    ctx.bindTicket(t.id);
+    ticketId = t.id;
+  }
+  // Finishing onboarding (submit) or saving a draft (save) is the only chance
+  // to record repo/approach/agent/model in pure create mode — the ticket
+  // didn't exist before now, so setRepos/setApproach/setAgent never ran.
+  updateTicketOnboarding(deps.store, ticketId, {
+    selectedRepos: input.repos,
+    ...(input.approach !== null ? { approach: input.approach } : {}),
+    ...(input.agent !== null ? { agent: input.agent } : {}),
+    // null = "Inherit"; persist '' so the store clears any prior pick to NULL.
+    model: input.model ?? '',
+  });
+  deps.onChange();
+  return ticketId;
 }
 
 export function buildOnboardingActions(
@@ -289,35 +331,7 @@ export function buildOnboardingActions(
     },
 
     async submit(input): Promise<void> {
-      let ticketId: number;
-      if (ctx.ticketId !== undefined) {
-        updateTicketCore(deps.store, ctx.ticketId, { key: input.key, title: input.title });
-        if (input.description) {
-          updateTicketOnboarding(deps.store, ctx.ticketId, { description: input.description });
-        }
-        ticketId = ctx.ticketId;
-      } else {
-        const t = createTicketFlow(deps.store, {
-          key: input.key,
-          title: input.title,
-          description: input.description || undefined,
-          projectId: deps.projectId,
-        });
-        ctx.bindTicket(t.id);
-        ticketId = t.id;
-      }
-      // Persist the finish-time repo + approach + agent selection. In pure
-      // create mode (no fetch) `setRepos`/`setApproach`/`setAgent` never ran —
-      // the ticket didn't exist yet — so submit is the only chance to record
-      // them before scope.
-      updateTicketOnboarding(deps.store, ticketId, {
-        selectedRepos: input.repos,
-        ...(input.approach !== null ? { approach: input.approach } : {}),
-        ...(input.agent !== null ? { agent: input.agent } : {}),
-        // null = "Inherit"; persist '' so the store clears any prior pick to NULL.
-        model: input.model ?? '',
-      });
-      deps.onChange();
+      const ticketId = persistDraft(ctx, deps, input);
 
       // Finishing onboarding hands the ticket off to the workflow: scope its
       // selected repos (worktrees, no servers) and launch the agent session.
@@ -341,6 +355,22 @@ export function buildOnboardingActions(
         // Un-busies the button on every failure path. On success the panel is
         // already disposed, which drops the post.
         ctx.post({ type: 'busy', what: 'submit', on: false });
+      }
+    },
+
+    // Save without a run: persist like submit, but never call startTicket —
+    // no worktrees, no agent launch. Leaves the panel open (now in edit mode,
+    // bound to the persisted ticket) so the user can keep editing or start it
+    // later from the same page.
+    async save(input): Promise<void> {
+      ctx.post({ type: 'busy', what: 'save', on: true });
+      try {
+        persistDraft(ctx, deps, input);
+        ctx.pushState();
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      } finally {
+        ctx.post({ type: 'busy', what: 'save', on: false });
       }
     },
 
