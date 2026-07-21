@@ -1,0 +1,42 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
+
+/**
+ * Text-level guards on the sidebar list webview.
+ *
+ * The file is standalone HTML with no harness (see dashboard/webview.test.ts for
+ * why). These catch the regression this view already had once: the row rendering
+ * silently dropping the stage/status the host went to the trouble of computing.
+ */
+describe('sidebar webview.html', () => {
+  it('renders the stage badge on every collapsed row', () => {
+    expect(HTML).toContain('class="stage g-${esc(row.glyph)}"');
+    expect(HTML).toContain('${esc(stageText)}');
+  });
+
+  it('states the stage in the expanded body, above ports and worktrees', () => {
+    const stage = HTML.indexOf('<span class="k">Stage</span>');
+    const ports = HTML.indexOf('<span class="k">Ports</span>');
+    expect(stage).toBeGreaterThan(-1);
+    expect(stage).toBeLessThan(ports);
+  });
+
+  it('falls back rather than painting an empty pill from a stale snapshot', () => {
+    expect(HTML).toContain("row.stageLabel || row.description || '—'");
+  });
+
+  it('marks each row logo with a status dot, tinted by the same glyph class', () => {
+    expect(HTML).toContain('<span class="sdot"></span>');
+    expect(HTML).toContain('.glyph .sdot{');
+  });
+
+  it('keeps the injection markers — each fails silently when lost', () => {
+    for (const marker of ['<!--KARST_CSP-->', '/*KARST_PALETTE*/']) {
+      expect(HTML).toContain(marker);
+    }
+  });
+});
