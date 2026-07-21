@@ -51,6 +51,17 @@ describe('buildTicketNodes', () => {
     expect(n.description).toContain('none');
   });
 
+  it('carries the human stage badge every row renders (mock parity)', () => {
+    const n = buildTicketNodes([ticket({ stageCurrent: 'impl' })])[0]!;
+    expect(n.stageLabel).toBe('Implementing');
+  });
+
+  it('falls back to a defined badge when the ticket has no stage', () => {
+    const n = buildTicketNodes([ticket({ stageCurrent: null, stages: [] })])[0]!;
+    expect(n.stageLabel).toBe('Not started');
+    expect(n.glyph).toBe('gray');
+  });
+
   it('glyph reflects current stage status + agent state (running impl => blue)', () => {
     const n = buildTicketNodes([ticket({ stageCurrent: 'impl', agentState: 'none' })])[0]!;
     expect(n.glyph).toBe('blue');

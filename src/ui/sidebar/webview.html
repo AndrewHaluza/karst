@@ -69,8 +69,16 @@
   /* The row marker is the karst logo tinted by the status glyph: the mark is
      drawn with stroke="currentColor", so the g-* classes below set `color` and
      the palette stays the single source (no per-view hex). */
-  .glyph{width:13px;height:13px;flex:0 0 auto;display:grid;place-items:center}
+  .glyph{width:13px;height:13px;flex:0 0 auto;display:grid;place-items:center;position:relative}
   .glyph svg{display:block}
+  /* Status dot on the mark: the tint alone is easy to miss at 13px against a
+     themed sidebar, so the state also gets a shape. Ringed in the sidebar
+     background so it reads as an overlay, not part of the logo. */
+  .glyph .sdot{position:absolute;right:-3px;bottom:-3px;width:6px;height:6px;border-radius:50%;
+    background:currentColor;box-shadow:0 0 0 1.5px var(--vscode-sideBar-background,var(--vscode-editor-background))}
+  /* Pending reads as absence: a hollow ring, not a filled dot. */
+  .glyph.g-gray .sdot{background:transparent;box-shadow:0 0 0 1.5px var(--vscode-sideBar-background,var(--vscode-editor-background));
+    border:1.5px solid currentColor}
   .g-running{color:var(--g-running)}
   .g-blue{color:var(--g-running)}
   .g-input{color:var(--g-input)}
@@ -81,8 +89,10 @@
   .g-green{color:var(--g-done)}
   .g-gray{color:var(--g-gray)}
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
-  .stage{font-size:10px;padding:1px 6px;border-radius:9px;flex:0 0 auto;
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);opacity:.85}
+  /* The stage pill carries the same g-* class as the mark, so its text IS the
+     palette color and its fill is that color washed out — one token, no hex. */
+  .stage{font-size:10px;padding:1px 7px;border-radius:9px;flex:0 0 auto;font-weight:500;
+    background:color-mix(in srgb, currentColor 16%, transparent)}
   /* Actions overlay the row's right edge on hover so showing them never reflows
      the row. The stage pill hides under them (same slot) to avoid overlap. */
   .rowacts{display:flex;gap:1px;position:absolute;right:6px;top:50%;transform:translateY(-50%);
@@ -100,6 +110,9 @@
   .mline{display:flex;gap:8px;align-items:baseline;color:var(--vscode-descriptionForeground);font-size:11.5px;margin:2px 0}
   .mline .k{color:var(--g-gray);width:64px;flex:0 0 auto}
   .mline .v{color:var(--vscode-foreground);font-family:var(--mono);font-size:11px}
+  /* Stage in the expanded body is stated in the palette color, not monospaced —
+     it is a state, not a value you copy (mock parity: .stg). */
+  .mline .stg{font-size:11.5px;font-weight:500}
   .tags{display:flex;gap:4px;flex-wrap:wrap}
   .tag{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:3px;
     background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
@@ -189,6 +202,9 @@
     }
     L.innerHTML = state.rows.map((row) => {
       const isOpen = open.has(row.ticketId);
+      // A restored snapshot (vscode.getState) can predate stageLabel, so fall
+      // back rather than render an empty pill on the first paint after upgrade.
+      const stageText = row.stageLabel || row.description || '—';
       const acts = row.archived
         ? `<button class="ia" data-act="unarchive" data-id="${row.ticketId}" title="Unarchive">${ic.unarch}</button>`
           + `<button class="ia danger" data-act="delete" data-id="${row.ticketId}" title="Delete permanently">${ic.del}</button>`
@@ -204,12 +220,14 @@
       return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
         + `<div class="row"${row.archived ? '' : ` data-open="${row.ticketId}"`}>`
         + `<span class="chev" data-toggle="${row.ticketId}">${chev}</span>`
-        + `<span class="glyph g-${esc(row.glyph)}" title="${esc(row.description)}">${ic.mark}</span>`
+        + `<span class="glyph g-${esc(row.glyph)}" title="${esc(row.description)}">${ic.mark}<span class="sdot"></span></span>`
         + `<span class="name">${esc(row.label)}</span>`
-        + `<span class="stage">${esc(row.description)}</span>`
+        + `<span class="stage g-${esc(row.glyph)}" title="${esc(row.description)}">${esc(stageText)}</span>`
         + `<span class="rowacts">${acts}</span>`
         + `</div>`
         + `<div class="body">`
+        + `<div class="mline"><span class="k">Stage</span>`
+        + `<span class="stg g-${esc(row.glyph)}" title="${esc(row.description)}">${esc(stageText)}</span></div>`
         + `<div class="mline"><span class="k">Ports</span><span class="v">${esc(portsText(row))}</span></div>`
         + `<div class="mline"><span class="k">Worktrees</span><span class="tags">${worktreeTags(row)}</span></div>`
         + `<div class="actions">${bodyActs}</div>`
