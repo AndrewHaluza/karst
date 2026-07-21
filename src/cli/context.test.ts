@@ -4,21 +4,17 @@ import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
 import { parseContextArgs, runContextCommand, composeContextCommand } from './context.js';
 import type { Manifest } from '../manifest/types.js';
+import { manifest as buildManifest, runnableRepo, slot } from '../manifest/fixtures.js';
 
-const MANIFEST: Manifest = {
-  host: 'localhost',
-  portRange: [3000, 3999],
-  baselineBranch: 'main',
-  services: {
-    frontend: {
-      repoPath: '/repos/frontend',
-      start: 'npm run dev',
-      ports: [{ name: 'port', env: 'PORT', default: 3000 }],
-      dependsOn: [],
-      hasMigrations: false,
-    },
+const MANIFEST: Manifest = buildManifest(
+  {
+    frontend: runnableRepo(
+      { ports: [slot('port', 'PORT', 3000)] },
+      { repoPath: '/repos/frontend' },
+    ),
   },
-};
+  { portRange: [3000, 3999], baselineBranch: 'main' },
+);
 
 describe('parseContextArgs', () => {
   it('parses a bare key, defaulting to json', () => {
@@ -72,7 +68,7 @@ describe('runContextCommand', () => {
     const parsed = JSON.parse(out);
     expect(parsed.key).toBe('PROJ-9');
     expect(parsed.prompt).toBe('Audit the app');
-    expect(parsed.services[0].name).toBe('frontend');
+    expect(parsed.repos[0].name).toBe('frontend');
   });
 
   it('renders markdown when asked', () => {

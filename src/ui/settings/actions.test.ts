@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildSettingsActions, type SettingsActionsDeps } from './actions.js';
 import type { SettingsHostMessage } from './messages.js';
 import type { Manifest, ApproachDef } from '../../manifest/types.js';
+import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 
@@ -25,19 +26,20 @@ const APPROACH_NPM: ApproachDef = {
   },
 };
 
-const VALID: Manifest = {
-  host: 'localhost',
-  portRange: [4000, 4999],
-  baselineBranch: 'develop',
-  services: {
-    api: {
-      repoPath: '../api', start: 'npm run dev',
-      ports: [{ name: 'port', env: 'PORT', default: 3000 }],
-      dependsOn: [], hasMigrations: false, signals: [],
-    },
+const VALID: Manifest = buildManifest(
+  {
+    api: runnableRepo(
+      { ports: [slot('port', 'PORT', 3000)] },
+      { repoPath: '../api', signals: [] },
+    ),
   },
-  approaches: [APPROACH_A], agents: {}, worktreePathDisplay: 'relative',
-};
+  {
+    portRange: [4000, 4999],
+    approaches: [APPROACH_A],
+    agents: {},
+    worktreePathDisplay: 'relative',
+  },
+);
 
 const NPM_MANIFEST: Manifest = { ...VALID, approaches: [APPROACH_NPM] };
 

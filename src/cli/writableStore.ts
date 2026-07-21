@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { Store } from '../store/db.js';
+import { assertMigratedSchema } from './assertMigrated.js';
 
 /**
  * Open the karst registry read-WRITE using Node's BUILT-IN `node:sqlite`
@@ -18,6 +19,15 @@ import type { Store } from '../store/db.js';
  */
 export function openWritableStore(dbPath: string): Store {
   const db = new DatabaseSync(dbPath);
+  // Writable, but still NOT a migrator — only the extension migrates. Refuse a
+  // stale file loudly rather than writing a stage marker through queries that
+  // may reference columns this build renamed.
+  try {
+    assertMigratedSchema(db, dbPath);
+  } catch (e) {
+    db.close();
+    throw e;
+  }
   db.exec('PRAGMA foreign_keys = ON');
 
   const shim = {

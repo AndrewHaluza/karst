@@ -76,7 +76,7 @@ export function buildSetupStatus(input: SetupStatusInput): SetupItem[] {
       id: 'manifest',
       label: 'Create your karst.yml manifest',
       done: input.manifestExists,
-      detail: input.manifestExists ? null : 'Karst needs a manifest describing your services.',
+      detail: input.manifestExists ? null : 'Karst needs a manifest describing your repositories.',
     },
     ...deps,
   ];

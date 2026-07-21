@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { loadManifest, type Manifest } from '../manifest/load.js';
+import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
 import { generateProjectSlug } from '../project/slug.js';
 
 /**
@@ -68,7 +68,7 @@ export async function scaffoldManifest(): Promise<void> {
   writeFileSync(manifestPath, withId);
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifestPath));
   void vscode.window.showInformationMessage(
-    "Created karst.yml — set each service's repoPath, then try again.",
+    "Created karst.yml — set each repository's repoPath, then try again.",
   );
 }
 
@@ -105,7 +105,13 @@ export async function resolveManifest(): Promise<Manifest | undefined> {
   }
 
   try {
-    return loadManifest(manifestPath);
+    const { manifest, warnings } = loadManifestWithDiagnostics(manifestPath);
+    // Non-fatal: a legacy `services:` manifest still loads, but the author
+    // should know it's deprecated. One toast per resolve (not per repository).
+    for (const w of warnings) {
+      void vscode.window.showWarningMessage(`Karst manifest: ${w}`);
+    }
+    return manifest;
   } catch (err) {
     void vscode.window.showErrorMessage(
       `Karst manifest: ${err instanceof Error ? err.message : String(err)}`,
@@ -116,15 +122,18 @@ export async function resolveManifest(): Promise<Manifest | undefined> {
 
 /**
  * A safe empty manifest for onboarding to render against before a real one is
- * resolved (no services/approaches). Commands set the real manifest before
+ * resolved (no repositories/approaches). Commands set the real manifest before
  * opening; this is only the getter's fallback.
+ *
+ * Deliberately bypasses `validateManifest`, which requires a non-empty
+ * `repositories` map — this value never reaches disk.
  */
 export function emptyManifest(): Manifest {
   return {
     host: '127.0.0.1',
     portRange: [0, 0],
     baselineBranch: 'main',
-    services: {},
+    repositories: {},
     approaches: [],
     agents: {},
     worktreePathDisplay: 'relative',

@@ -366,7 +366,7 @@
 
 <nav class="nav">
   <button class="nav-btn active" data-section="general">General</button>
-  <button class="nav-btn" data-section="services">Services</button>
+  <button class="nav-btn" data-section="services">Repositories</button>
   <button class="nav-btn" data-section="approaches">Approaches</button>
   <button class="nav-btn" data-section="agents">Agents</button>
   <button class="nav-btn" data-section="ticketing">Ticketing</button>
@@ -425,11 +425,11 @@
       </div>
     </div>
 
-    <!-- Services -->
+    <!-- Repositories -->
     <div class="section hidden" id="section-services">
       <div id="serviceCards"></div>
       <div class="footer-row">
-        <button class="secondary" id="addServiceBtn">+ Add service</button>
+        <button class="secondary" id="addServiceBtn">+ Add repository</button>
       </div>
     </div>
 
@@ -616,7 +616,7 @@
     host: '',
     portRange: [0, 0],
     baselineBranch: '',
-    services: {},
+    repositories: {},
     approaches: [],
     agents: {},
     worktreePathDisplay: 'relative',
@@ -657,7 +657,7 @@
   let dirty = false;
   let valid = false;
   let validateTimer = null;
-  let openCards = new Set(); // service names currently expanded
+  let openCards = new Set(); // repository names currently expanded
 
   // installedIds: disk state pushed alongside `state` — independent of the
   // dirty `draft` manifest. confirmInstallId: id currently showing the
@@ -809,50 +809,66 @@
     markDirty();
   });
 
-  // ---- Services ----
-  function serviceNames() { return Object.keys(draft.services || {}); }
+  // ---- Repositories ----
+  function serviceNames() { return Object.keys(draft.repositories || {}); }
+  /** Only repositories that declare a service can be depended on — they own ports. */
+  function runnableNames() {
+    return serviceNames().filter((n) => draft.repositories[n] && draft.repositories[n].service);
+  }
 
   function renderServices() {
     const names = serviceNames();
     if (!names.length) {
-      el('serviceCards').innerHTML = '<div class="empty">No services configured.</div>';
+      el('serviceCards').innerHTML = '<div class="empty">No repositories configured.</div>';
       return;
     }
     el('serviceCards').innerHTML = names.map((name) => renderServiceCard(name)).join('');
   }
 
   function renderServiceCard(name) {
-    const svc = draft.services[name];
+    const repo = draft.repositories[name];
     const isOpen = openCards.has(name);
-    const otherNames = serviceNames().filter((n) => n !== name);
+    // A repository is runnable only if it declares a service. When it doesn't,
+    // the runtime fields are not rendered at all — there is nothing to fill in,
+    // and an empty "Start command" box is what used to invite a fake value.
+    const svc = repo.service;
+    const otherNames = runnableNames().filter((n) => n !== name);
     return `<div class="card ${isOpen ? 'open' : ''}" data-card="${esc(name)}">`
       + `<div class="card-head" data-toggle="${esc(name)}">`
       + `<span class="chevron">&#9656;</span>`
       + `<span class="card-title">${esc(name)}</span>`
+      + (svc ? '' : `<span class="field-hint" style="margin:0 0 0 8px">no service</span>`)
       + `<button class="secondary icon" data-remove-service="${esc(name)}">Remove</button>`
       + `</div>`
       + `<div class="card-body">`
       + `<label>Name</label>`
       + `<input type="text" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
       + `<label>Repo path</label>`
-      + `<input type="text" data-svc-field="repoPath" data-svc="${esc(name)}" value="${esc(svc.repoPath)}"/>`
-      + `<label>Start command</label>`
-      + `<input type="text" data-svc-field="start" data-svc="${esc(name)}" value="${esc(svc.start)}"/>`
-      + `<label>Health check</label>`
-      + `<input type="text" data-svc-field="health" data-svc="${esc(name)}" value="${esc(svc.health || '')}"/>`
+      + `<input type="text" data-svc-field="repoPath" data-svc="${esc(name)}" value="${esc(repo.repoPath)}"/>`
       + `<div class="toggle" style="margin-top:10px">`
-      + `<input type="checkbox" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${svc.hasMigrations ? 'checked' : ''}/>`
+      + `<input type="checkbox" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${repo.hasMigrations ? 'checked' : ''}/>`
       + `<label style="margin:0">Has migrations</label>`
       + `</div>`
 
-      + `<h2 style="margin-top:16px">Ports</h2>`
-      + renderPortsTable(name, svc.ports || [])
+      + `<div class="toggle" style="margin-top:10px">`
+      + `<input type="checkbox" data-runnable="${esc(name)}" ${svc ? 'checked' : ''}/>`
+      + `<label style="margin:0">Runnable service</label>`
+      + `</div>`
+      + `<div class="field-hint">Off means karst gives this repo a worktree but never starts it. No port, no health check.</div>`
 
-      + `<h2 style="margin-top:16px">Depends on</h2>`
-      + renderDependsOn(name, svc.dependsOn || [], otherNames)
+      + (svc
+        ? `<label>Start command</label>`
+          + `<input type="text" data-svc-field="start" data-svc="${esc(name)}" value="${esc(svc.start || '')}"/>`
+          + `<label>Health check</label>`
+          + `<input type="text" data-svc-field="health" data-svc="${esc(name)}" value="${esc(svc.health || '')}"/>`
+          + `<h2 style="margin-top:16px">Ports</h2>`
+          + renderPortsTable(name, svc.ports || [])
+          + `<h2 style="margin-top:16px">Depends on</h2>`
+          + renderDependsOn(name, svc.dependsOn || [], otherNames)
+        : '')
 
       + `<h2 style="margin-top:16px">Signals</h2>`
-      + renderSignalChips(name, svc.signals || [])
+      + renderSignalChips(name, repo.signals || [])
 
       + `</div></div>`;
   }
@@ -873,13 +889,14 @@
 
   function renderDependsOn(svcName, deps, otherNames) {
     if (!deps.length && !otherNames.length) {
-      return '<div class="empty">No other services to depend on.</div>'
+      return '<div class="empty">No other runnable repositories to depend on.</div>'
         + `<button class="secondary icon" data-add-dep="${esc(svcName)}" disabled>+ Add dependency</button>`;
     }
     const blocks = deps.map((d, i) => {
       const targetOpts = otherNames.map((n) =>
         `<option value="${esc(n)}" ${n === d.target ? 'selected' : ''}>${esc(n)}</option>`).join('');
-      const targetPorts = (draft.services[d.target] && draft.services[d.target].ports) || [];
+      const target = draft.repositories[d.target];
+      const targetPorts = (target && target.service && target.service.ports) || [];
       const portOpts = targetPorts.map((p) =>
         `<option value="${esc(p.name)}" ${p.name === d.port ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
       const binds = (d.bind || []).map((b, bi) => (
@@ -916,10 +933,13 @@
 
   el('addServiceBtn').addEventListener('click', () => {
     let n = 1;
-    let name = 'service-' + n;
-    while (draft.services[name]) { n += 1; name = 'service-' + n; }
-    draft.services = { ...draft.services, [name]: {
-      repoPath: '', start: '', health: '', ports: [], dependsOn: [], hasMigrations: false, signals: [],
+    let name = 'repo-' + n;
+    while (draft.repositories[name]) { n += 1; name = 'repo-' + n; }
+    // No `service` key: a new repository is not runnable until the user says so.
+    // The old default built an empty start/ports shape, which is what made a
+    // placeholder command the path of least resistance.
+    draft.repositories = { ...draft.repositories, [name]: {
+      repoPath: '', hasMigrations: false, signals: [],
     } };
     openCards.add(name);
     markDirty();
@@ -927,23 +947,28 @@
   });
 
   // Rename a service. The service name is the record key, so rename = re-key:
-  // rebuild draft.services preserving insertion order, carry the openCards entry,
+  // rebuild draft.repositories preserving insertion order, carry the openCards entry,
   // and repoint every dependsOn.target that referenced the old name. Blank or
   // duplicate names are rejected (re-render restores the old value).
   function renameService(oldName, raw) {
     const next = (raw || '').trim();
     if (next === oldName) return;
-    if (!next || draft.services[next]) { renderServices(); return; }
+    if (!next || draft.repositories[next]) { renderServices(); return; }
     const rebuilt = {};
-    for (const [k, v] of Object.entries(draft.services)) {
-      const svc = {
-        ...v,
-        dependsOn: (v.dependsOn || []).map((d) =>
-          d.target === oldName ? { ...d, target: next } : d),
-      };
-      rebuilt[k === oldName ? next : k] = svc;
+    for (const [k, v] of Object.entries(draft.repositories)) {
+      // Only a runnable repo has dependsOn edges to retarget.
+      rebuilt[k === oldName ? next : k] = v.service
+        ? {
+            ...v,
+            service: {
+              ...v.service,
+              dependsOn: (v.service.dependsOn || []).map((d) =>
+                d.target === oldName ? { ...d, target: next } : d),
+            },
+          }
+        : v;
     }
-    draft.services = rebuilt;
+    draft.repositories = rebuilt;
     if (openCards.has(oldName)) { openCards.delete(oldName); openCards.add(next); }
     markDirty();
     renderServices();
@@ -958,31 +983,67 @@
       return;
     }
     if (t.dataset.removeService) {
-      const { [t.dataset.removeService]: _drop, ...rest } = draft.services;
-      draft.services = rest;
+      const { [t.dataset.removeService]: _drop, ...rest } = draft.repositories;
+      draft.repositories = rest;
       openCards.delete(t.dataset.removeService);
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.runnable) {
+      const name = t.dataset.runnable;
+      const repo = draft.repositories[name];
+      if (t.checked) {
+        // Seed a minimal service the author then fills in. One port, because a
+        // service with none cannot be addressed and validation rejects it.
+        draft.repositories = { ...draft.repositories, [name]: {
+          ...repo,
+          service: { start: '', health: '', ports: [{ name: 'http', env: 'PORT', default: 3000 }], dependsOn: [] },
+        } };
+      } else {
+        // Build a new object WITHOUT the key rather than deleting, so the value
+        // is genuinely absent and writeManifest drops the block from the file.
+        const { service: _off, ...withoutService } = repo;
+        draft.repositories = { ...draft.repositories, [name]: withoutService };
+        // Any edge pointing at this repo now targets something with no ports.
+        for (const [k, v] of Object.entries(draft.repositories)) {
+          if (!v.service) continue;
+          const kept = (v.service.dependsOn || []).filter((d) => d.target !== name);
+          if (kept.length !== (v.service.dependsOn || []).length) {
+            draft.repositories[k] = { ...v, service: { ...v.service, dependsOn: kept } };
+          }
+        }
+      }
+      openCards.add(name);
       markDirty(); renderServices();
       return;
     }
     if (t.dataset.addPort) {
       const svc = t.dataset.addPort;
-      draft.services[svc].ports = [...draft.services[svc].ports, { name: '', env: '', default: 0 }];
+      const svcDef = draft.repositories[svc].service;
+      if (!svcDef) return;
+      svcDef.ports = [...(svcDef.ports || []), { name: '', env: '', default: 3000 }];
       markDirty(); renderServices();
       return;
     }
     if (t.dataset.removePort) {
       const svc = t.dataset.removePort, idx = Number(t.dataset.idx);
-      draft.services[svc].ports = draft.services[svc].ports.filter((_, i) => i !== idx);
+      const svcDef = draft.repositories[svc].service;
+      if (!svcDef) return;
+      svcDef.ports = (svcDef.ports || []).filter((_, i) => i !== idx);
       markDirty(); renderServices();
       return;
     }
     if (t.dataset.addDep) {
       const svc = t.dataset.addDep;
-      const others = serviceNames().filter((n) => n !== svc);
+      const svcDef = draft.repositories[svc].service;
+      if (!svcDef) return;
+      // Only runnable repositories own ports, so only they can be depended on.
+      const others = runnableNames().filter((n) => n !== svc);
       if (!others.length) return;
       const target = others[0];
-      const targetPorts = (draft.services[target] && draft.services[target].ports) || [];
-      draft.services[svc].dependsOn = [...draft.services[svc].dependsOn, {
+      const targetDef = draft.repositories[target].service;
+      const targetPorts = (targetDef && targetDef.ports) || [];
+      svcDef.dependsOn = [...(svcDef.dependsOn || []), {
         target, port: targetPorts[0] ? targetPorts[0].name : '', bind: [],
       }];
       markDirty(); renderServices();
@@ -990,27 +1051,31 @@
     }
     if (t.dataset.removeDep) {
       const svc = t.dataset.removeDep, idx = Number(t.dataset.idx);
-      draft.services[svc].dependsOn = draft.services[svc].dependsOn.filter((_, i) => i !== idx);
+      const svcDef = draft.repositories[svc].service;
+      if (!svcDef) return;
+      svcDef.dependsOn = (svcDef.dependsOn || []).filter((_, i) => i !== idx);
       markDirty(); renderServices();
       return;
     }
     if (t.dataset.addBind) {
       const svc = t.dataset.addBind, idx = Number(t.dataset.idx);
-      const dep = draft.services[svc].dependsOn[idx];
-      dep.bind = [...dep.bind, { env: '', template: '' }];
+      const dep = (draft.repositories[svc].service || {}).dependsOn?.[idx];
+      if (!dep) return;
+      dep.bind = [...(dep.bind || []), { env: '', template: '' }];
       markDirty(); renderServices();
       return;
     }
     if (t.dataset.removeBind) {
       const svc = t.dataset.removeBind, idx = Number(t.dataset.idx), bidx = Number(t.dataset.bidx);
-      const dep = draft.services[svc].dependsOn[idx];
-      dep.bind = dep.bind.filter((_, i) => i !== bidx);
+      const dep = (draft.repositories[svc].service || {}).dependsOn?.[idx];
+      if (!dep) return;
+      dep.bind = (dep.bind || []).filter((_, i) => i !== bidx);
       markDirty(); renderServices();
       return;
     }
     if (t.dataset.removeSignal) {
       const svc = t.dataset.removeSignal, idx = Number(t.dataset.idx);
-      draft.services[svc].signals = (draft.services[svc].signals || []).filter((_, i) => i !== idx);
+      draft.repositories[svc].signals = (draft.repositories[svc].signals || []).filter((_, i) => i !== idx);
       markDirty(); renderServices();
       return;
     }
@@ -1080,19 +1145,29 @@
     if (t.dataset.svcField) {
       const svc = t.dataset.svc, field = t.dataset.svcField;
       if (field === 'hasMigrations') return; // handled by change
-      draft.services[svc][field] = t.value;
+      if (field === 'repoPath') {
+        draft.repositories[svc].repoPath = t.value; // repository-level
+      } else {
+        const svcDef = draft.repositories[svc].service; // start / health
+        if (!svcDef) return;
+        svcDef[field] = t.value;
+      }
       markDirty();
       return;
     }
     if (t.dataset.portField) {
       const svc = t.dataset.svc, idx = Number(t.dataset.idx), field = t.dataset.portField;
-      draft.services[svc].ports[idx][field] = field === 'default' ? Number(t.value) || 0 : t.value;
+      const port = (draft.repositories[svc].service || {}).ports?.[idx];
+      if (!port) return;
+      port[field] = field === 'default' ? Number(t.value) || 0 : t.value;
       markDirty();
       return;
     }
     if (t.dataset.bindField) {
       const svc = t.dataset.svc, idx = Number(t.dataset.idx), bidx = Number(t.dataset.bidx), field = t.dataset.bindField;
-      draft.services[svc].dependsOn[idx].bind[bidx][field] = t.value;
+      const bind = (draft.repositories[svc].service || {}).dependsOn?.[idx]?.bind?.[bidx];
+      if (!bind) return;
+      bind[field] = t.value;
       markDirty();
       return;
     }
@@ -1106,13 +1181,15 @@
       return;
     }
     if (t.dataset.svcField === 'hasMigrations') {
-      draft.services[t.dataset.svc].hasMigrations = t.checked;
+      draft.repositories[t.dataset.svc].hasMigrations = t.checked;
       markDirty();
       return;
     }
     if (t.dataset.depField) {
       const svc = t.dataset.svc, idx = Number(t.dataset.idx), field = t.dataset.depField;
-      draft.services[svc].dependsOn[idx][field] = t.value;
+      const dep = (draft.repositories[svc].service || {}).dependsOn?.[idx];
+      if (!dep) return;
+      dep[field] = t.value;
       markDirty(); renderServices();
       return;
     }
@@ -1152,7 +1229,7 @@
       const svc = t.dataset.signalInput;
       const val = t.value.trim();
       if (val) {
-        draft.services[svc].signals = [...(draft.services[svc].signals || []), val];
+        draft.repositories[svc].signals = [...(draft.repositories[svc].signals || []), val];
         markDirty(); renderServices();
       }
       e.preventDefault();

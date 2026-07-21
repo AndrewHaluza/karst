@@ -78,6 +78,12 @@ export class DashboardManager {
      * Absent → the tab keeps the editor's default icon.
      */
     private readonly iconFor?: (ticketId: number) => string | undefined,
+    /**
+     * Whether a scoped repository declares a runnable service (manifest-backed,
+     * injected so this module stays manifest-free). Absent → assume runnable, so
+     * a window with no resolved manifest behaves as it did before.
+     */
+    private readonly isRepoRunnable?: (repo: string) => boolean,
   ) {}
 
   /** Open (or reveal) the dashboard for a ticket and push its initial state. */
@@ -120,6 +126,7 @@ export class DashboardManager {
       this.pathContext?.(),
       this.ticketing?.(),
       this.approachPhases,
+      this.isRepoRunnable,
     );
     panel.postMessage({ type: 'state', state });
     this.refreshIcon(ticketId, panel);

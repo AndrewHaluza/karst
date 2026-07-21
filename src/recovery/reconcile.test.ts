@@ -14,7 +14,7 @@ function seedServer(
 ): number {
   const info = store.db
     .prepare(
-      "INSERT INTO servers (ticket_id, service, host, port, pid, status, log_path) VALUES (?, 'backend', 'localhost', 8000, ?, ?, '/l')",
+      "INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path) VALUES (?, 'backend', 'localhost', 8000, ?, ?, '/l')",
     )
     .run(ticketId, pid, status);
   return Number(info.lastInsertRowid);

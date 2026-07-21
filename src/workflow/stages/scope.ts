@@ -25,13 +25,15 @@ export interface ScopeResult {
 export function scopeTicket(manifest: Manifest, hot: string[]): ScopeResult {
   const warnings: string[] = [];
   for (const name of hot) {
-    const svc = manifest.services[name];
-    if (!svc) {
-      throw new Error(`unknown service '${name}' in hot set (not in manifest)`);
+    const repo = manifest.repositories[name];
+    if (!repo) {
+      throw new Error(`unknown repository '${name}' in hot set (not in manifest)`);
     }
-    if (svc.hasMigrations) {
+    // Runnability is deliberately NOT checked: a repository with no service is a
+    // valid scope member (it gets a worktree, it just never starts).
+    if (repo.hasMigrations) {
       warnings.push(
-        `Service '${name}' runs migrations — not first-class under shared-DB. ` +
+        `Repository '${name}' carries migrations — not first-class under shared-DB. ` +
           `Its schema changes affect every other ticket sharing the database; review before spinning.`,
       );
     }
@@ -40,9 +42,10 @@ export function scopeTicket(manifest: Manifest, hot: string[]): ScopeResult {
 }
 
 /**
- * Confirm the scope: create one worktree per hot repo off `baselineBranch`.
+ * Confirm the scope: create one worktree per hot repository off `baselineBranch`.
  * The slug ties the branch/worktree to the ticket. Deduplicates repo paths so a
- * ticket scoping two services in one repo makes a single worktree.
+ * ticket scoping two repository entries at one repoPath (a monorepo with two
+ * runnable processes) makes a single worktree.
  */
 export function confirmScope(
   store: Store,
@@ -55,17 +58,17 @@ export function confirmScope(
   const slug = worktreeSlug(getTicket(store, ticketId));
 
   for (const name of hot) {
-    const svc = manifest.services[name];
-    if (!svc) {
-      throw new Error(`unknown service '${name}' in hot set (not in manifest)`);
+    const repo = manifest.repositories[name];
+    if (!repo) {
+      throw new Error(`unknown repository '${name}' in hot set (not in manifest)`);
     }
-    if (seen.has(svc.repoPath)) continue;
-    seen.add(svc.repoPath);
+    if (seen.has(repo.repoPath)) continue;
+    seen.add(repo.repoPath);
 
     records.push(
       createWorktree(store, {
         ticketId,
-        repoPath: svc.repoPath,
+        repoPath: repo.repoPath,
         slug,
         baseRef: manifest.baselineBranch,
       }),

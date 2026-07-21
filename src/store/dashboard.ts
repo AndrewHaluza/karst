@@ -32,7 +32,7 @@ export interface PrView {
 interface ServerRow {
   id: number;
   ticket_id: number | null;
-  service: string;
+  repo: string;
   host: string | null;
   port: number | null;
   status: string;
@@ -59,15 +59,15 @@ export function listServersByTicket(store: Store, ticketId: number): ServerView[
     .prepare(
       // Running AND stopped: stopped servers are retained (stopServer marks, not
       // deletes) so they surface as offline and can be restarted. Running float
-      // to the top; then alphabetical by service for a stable order.
-      `SELECT id, ticket_id, service, host, port, status FROM servers WHERE ticket_id = ?
-       ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, service`,
+      // to the top; then alphabetical by repository for a stable order.
+      `SELECT id, ticket_id, repo, host, port, status FROM servers WHERE ticket_id = ?
+       ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, repo`,
     )
     .all(ticketId) as ServerRow[];
   return rows.map((r) => ({
     id: r.id,
     ticketId: r.ticket_id,
-    service: r.service,
+    service: r.repo,
     host: r.host,
     port: r.port,
     status: r.status,

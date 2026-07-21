@@ -2,26 +2,28 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
-import type { Manifest, ServiceDef } from '../manifest/types.js';
+import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import {
+  manifest as buildManifest,
+  repo as buildRepo,
+  runnableRepo,
+  slot,
+} from '../manifest/fixtures.js';
 
-function svc(over: Partial<ServiceDef> = {}): ServiceDef {
-  return {
+/** A runnable repository — the default most of these cases want. */
+function svc(over: Partial<ServiceDef> = {}): RepositoryDef {
+  return runnableRepo({ ports: [slot('port', 'PORT', 3000)], ...over }, {
     repoPath: '/repos/frontend',
-    start: 'npm run dev',
-    ports: [{ name: 'port', env: 'PORT', default: 3000 }],
-    dependsOn: [],
-    hasMigrations: false,
-    ...over,
-  };
+  });
 }
 
-function manifest(services: Record<string, ServiceDef>): Manifest {
-  return {
-    host: 'localhost',
-    portRange: [3000, 3999],
-    baselineBranch: 'main',
-    services,
-  };
+/** A repository with no service — never runnable, no port. */
+function nonRunnable(repoPath = '/repos/docs'): RepositoryDef {
+  return buildRepo({ repoPath });
+}
+
+function manifest(repos: Record<string, RepositoryDef>): Manifest {
+  return buildManifest(repos, { portRange: [3000, 3999], baselineBranch: 'main' });
 }
 
 describe('buildTicketContext', () => {
@@ -44,7 +46,7 @@ describe('buildTicketContext', () => {
       .run(t.id);
     store.db
       .prepare(
-        "INSERT INTO servers (ticket_id, service, host, port, status) VALUES (?, 'frontend', '127.0.0.1', 3001, 'running')",
+        "INSERT INTO servers (ticket_id, repo, host, port, status) VALUES (?, 'frontend', '127.0.0.1', 3001, 'running')",
       )
       .run(t.id);
     store.db
@@ -55,7 +57,7 @@ describe('buildTicketContext', () => {
     return t.id;
   }
 
-  it('aggregates ticket, worktrees, servers, prs, and named services', () => {
+  it('aggregates ticket, worktrees, servers, prs, and named repositories', () => {
     const id = seed();
     const ctx = buildTicketContext(store, manifest({ frontend: svc(), backend: svc() }), id);
 
@@ -72,15 +74,15 @@ describe('buildTicketContext', () => {
     expect(ctx.prs).toEqual([
       { repo: 'frontend', number: 42, url: 'https://x/pr/42', status: 'open' },
     ]);
-    // Only services named in selectedRepos are included (not `backend`).
-    expect(ctx.services.map((s) => s.name)).toEqual(['frontend']);
-    expect(ctx.services[0]!.start).toBe('npm run dev');
+    // Only repositories named in selectedRepos are included (not `backend`).
+    expect(ctx.repos.map((r) => r.name)).toEqual(['frontend']);
+    expect(ctx.repos[0]!.start).toBe('npm run dev');
   });
 
-  it('tolerates a missing manifest (no services section)', () => {
+  it('marks every selected repo unknown when there is no manifest', () => {
     const id = seed();
     const ctx = buildTicketContext(store, undefined, id);
-    expect(ctx.services).toEqual([]);
+    expect(ctx.repos).toEqual([{ name: 'frontend', runnable: false, unknown: true }]);
   });
 });
 
@@ -109,7 +111,7 @@ describe('renderTicketContext', () => {
     expect(md).toContain('## Context brief\nA short brief');
     expect(md).toContain('## Worktrees & branches');
     expect(md).toContain('feat/x');
-    expect(md).toContain('## Services');
+    expect(md).toContain('## Repositories in scope');
   });
 
   describe('merge checks', () => {
@@ -174,6 +176,44 @@ describe('renderTicketContext', () => {
       expect(md).toContain("merge: unknown (fatal: couldn't find remote ref main)");
       expect(md).not.toContain('merge: clean');
     });
+  });
+
+  // A non-runnable repo used to render `start: undefined` into the agent's brief.
+  it('renders a repository with no service without inventing a start command', () => {
+    const t = createTicket(store, { key: 'P-1', title: 'x' });
+    updateTicketOnboarding(store, t.id, { selectedRepos: ['docs'] });
+    const md = renderTicketContext(
+      buildTicketContext(store, manifest({ docs: nonRunnable() }), t.id),
+    );
+
+    expect(md).toContain('- docs: /repos/docs (no service — not runnable)');
+    expect(md).not.toContain('undefined');
+    expect(md).not.toContain('start:');
+  });
+
+  // Previously `if (!def) continue` dropped it, telling the agent the repo did
+  // not exist rather than that karst could not find it.
+  it('says so when a selected repo is missing from the manifest, never dropping it', () => {
+    const t = createTicket(store, { key: 'P-2', title: 'x' });
+    updateTicketOnboarding(store, t.id, { selectedRepos: ['ghost'] });
+    const md = renderTicketContext(
+      buildTicketContext(store, manifest({ docs: nonRunnable() }), t.id),
+    );
+
+    expect(md).toContain('- ghost: (not in karst.yml)');
+  });
+
+  it('renders runnable and non-runnable repos in one section, not two', () => {
+    const t = createTicket(store, { key: 'P-3', title: 'x' });
+    updateTicketOnboarding(store, t.id, { selectedRepos: ['frontend', 'docs'] });
+    const md = renderTicketContext(
+      buildTicketContext(store, manifest({ frontend: svc(), docs: nonRunnable() }), t.id),
+    );
+
+    expect(md.match(/## Repositories in scope/g)).toHaveLength(1);
+    expect(md).not.toContain('## Services');
+    expect(md).toContain('- frontend: /repos/frontend (start: `npm run dev`)');
+    expect(md).toContain('- docs: /repos/docs (no service — not runnable)');
   });
 
   it('omits empty sections and falls back to the heading for an empty ticket', () => {

@@ -3,44 +3,47 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { buildOnboardingState } from './state.js';
-import type { Manifest, ServiceDef } from '../../manifest/types.js';
+import type { Manifest, RepositoryDef } from '../../manifest/types.js';
+import {
+  manifest as buildManifest,
+  repo as bareRepo,
+  runnableRepo,
+  slot,
+} from '../../manifest/fixtures.js';
 import type { PoolAgent } from '../../agents/pool.js';
 
 const AGENTS: PoolAgent[] = [{ name: 'reviewer', source: 'file' }];
 
-function svc(over: Partial<ServiceDef> = {}): ServiceDef {
-  return {
-    repoPath: '/repo',
-    start: 'npm run dev',
-    ports: [{ name: 'port', env: 'PORT', default: 3000 }],
-    dependsOn: [],
-    hasMigrations: false,
-    ...over,
-  };
+function svc(over: Partial<RepositoryDef> = {}): RepositoryDef {
+  return runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, over);
 }
 
-const MANIFEST: Manifest = {
-  host: 'localhost',
-  portRange: [4000, 4100],
-  baselineBranch: 'develop',
-  services: {
+const MANIFEST: Manifest = buildManifest(
+  {
     fe: svc({ signals: ['ui', 'modal'] }),
     be: svc({ signals: ['api'] }),
   },
-  approaches: [
-    {
-      id: 'rpi',
-      label: 'RPI',
-      recommended: true,
-      source: { type: 'git', repo: 'a/b', ref: 'main', include: ['.claude/agents'] },
-    },
-    { id: 'tdd', label: 'TDD', source: { type: 'git', repo: 'a/b', ref: 'main', include: ['skills/tdd'] } },
-    // No source → built-in approach, needs no install, always offered.
-    { id: 'direct', label: 'Direct' },
-  ],
-  agents: {},
-  worktreePathDisplay: 'absolute',
-};
+  {
+    portRange: [4000, 4100],
+    approaches: [
+      {
+        id: 'rpi',
+        label: 'RPI',
+        recommended: true,
+        source: { type: 'git', repo: 'a/b', ref: 'main', include: ['.claude/agents'] },
+      },
+      {
+        id: 'tdd',
+        label: 'TDD',
+        source: { type: 'git', repo: 'a/b', ref: 'main', include: ['skills/tdd'] },
+      },
+      // No source → built-in approach, needs no install, always offered.
+      { id: 'direct', label: 'Direct' },
+    ],
+    agents: {},
+    worktreePathDisplay: 'absolute',
+  },
+);
 
 describe('buildOnboardingState — create mode', () => {
   let store: Store;
@@ -120,13 +123,16 @@ describe('buildOnboardingState — create mode', () => {
     expect(s.selectedApproach).toBeNull();
   });
 
-  it('lists unclassified services', () => {
-    const m = { ...MANIFEST, services: { fe: svc({ signals: [] }), be: svc({ signals: ['api'] }) } };
+  it('lists unclassified repositories', () => {
+    const m: Manifest = {
+      ...MANIFEST,
+      repositories: { fe: svc({ signals: [] }), be: svc({ signals: ['api'] }) },
+    };
     const s = buildOnboardingState(store, m, () => [], () => []);
     expect(s.unclassified).toEqual(['fe']);
   });
 
-  it('seeds a repo row per service with its signals and no selection yet', () => {
+  it('seeds a repo row per repository with its signals and no selection yet', () => {
     const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
     expect(s.repos.map((r) => r.service).sort()).toEqual(['be', 'fe']);
     const fe = s.repos.find((r) => r.service === 'fe')!;
@@ -145,12 +151,29 @@ describe('buildOnboardingState — repo auto-selection & approach default', () =
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
-  it('auto-selects the lone service even with a zero score', () => {
-    const solo: Manifest = { ...MANIFEST, services: { only: svc({ signals: [] }) } };
+  it('auto-selects the lone repository even with a zero score', () => {
+    const solo: Manifest = { ...MANIFEST, repositories: { only: svc({ signals: [] }) } };
     const s = buildOnboardingState(store, solo, () => [], () => []);
     const row = s.repos.find((r) => r.service === 'only')!;
     expect(row.score).toBe(0);
-    expect(row.selected).toBe(true); // single service is always chosen
+    expect(row.selected).toBe(true); // single repository is always chosen
+  });
+
+  // The motivating case: karst's own extension repo is edited but never run.
+  it('offers a repository with no service, marked not runnable', () => {
+    const m: Manifest = {
+      ...MANIFEST,
+      repositories: { docs: bareRepo({ repoPath: '/repo/docs', signals: ['guide'] }) },
+    };
+    const s = buildOnboardingState(store, m, () => [], () => []);
+    const row = s.repos.find((r) => r.service === 'docs')!;
+    expect(row.runnable).toBe(false);
+    expect(row.selected).toBe(true); // sole repo: still auto-selected
+  });
+
+  it('marks a repository that declares a service as runnable', () => {
+    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    expect(s.repos.every((r) => r.runnable)).toBe(true);
   });
 
   it('does not auto-select any repo in a multi-service stack with no score hits', () => {

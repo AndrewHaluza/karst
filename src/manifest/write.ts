@@ -1,20 +1,22 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
-import { validateManifest, ManifestError } from './schema.js';
+import { validateManifest } from './schema.js';
+import { ManifestError } from './error.js';
+import { migrateLegacyManifest } from './migrate.js';
 import type { Manifest } from './types.js';
 
 /**
  * Write repo-classifier signal words back into `.karst/karst.yml` for one
- * service (§ onboarding classify-gate). Read → mutate → validate → serialize →
- * write. Re-validating before write guarantees we never persist a manifest the
- * loader would reject.
+ * repository (§ onboarding classify-gate). Read → migrate → copy → validate →
+ * serialize → write. Re-validating before write guarantees we never persist a
+ * manifest the loader would reject.
  *
  * TRADEOFF: `js-yaml.dump` does not preserve comments, so the file may be
  * reformatted (comments dropped) on write. This is gated behind an explicit user
- * "approve" in the UI and touches only the edited service's `signals`; the
+ * "approve" in the UI and touches only the edited repository's `signals`; the
  * behavior is documented for authors.
  */
-export function writeServiceSignals(path: string, service: string, signals: string[]): void {
+export function writeRepoSignals(path: string, repository: string, signals: string[]): void {
   // Validate the incoming signals up front so a bad write never touches the file.
   for (const [i, s] of signals.entries()) {
     if (typeof s !== 'string' || s.length === 0) {
@@ -33,22 +35,25 @@ export function writeServiceSignals(path: string, service: string, signals: stri
     throw new ManifestError('top level must be a mapping');
   }
 
-  const root = parsed as Record<string, unknown>;
-  const services = root.services;
-  if (typeof services !== 'object' || services === null || Array.isArray(services)) {
-    throw new ManifestError('services must be a mapping');
+  // Upgrade a legacy file in passing, so signals can be written to it without
+  // leaving a `services:` key the loader would then reject alongside the new one.
+  const migrated = migrateLegacyManifest(parsed as Record<string, unknown>).raw;
+  const root = isRecord(migrated) ? migrated : {};
+  const repositories = root.repositories;
+  if (typeof repositories !== 'object' || repositories === null || Array.isArray(repositories)) {
+    throw new ManifestError('repositories must be a mapping');
   }
-  const svc = (services as Record<string, unknown>)[service];
-  if (typeof svc !== 'object' || svc === null || Array.isArray(svc)) {
-    throw new ManifestError(`service "${service}" not found`);
+  const repo = (repositories as Record<string, unknown>)[repository];
+  if (typeof repo !== 'object' || repo === null || Array.isArray(repo)) {
+    throw new ManifestError(`repository "${repository}" not found`);
   }
 
-  // Mutate a copy, not the parsed tree in place (immutable-update discipline).
-  const nextServices = {
-    ...(services as Record<string, unknown>),
-    [service]: { ...(svc as Record<string, unknown>), signals: [...signals] },
+  // Copy, never mutate the parsed tree in place (immutable-update discipline).
+  const nextRepos = {
+    ...(repositories as Record<string, unknown>),
+    [repository]: { ...(repo as Record<string, unknown>), signals: [...signals] },
   };
-  const next = { ...root, services: nextServices };
+  const next = { ...root, repositories: nextRepos };
 
   // Re-validate the whole manifest before persisting — never write a file the
   // loader would later reject.
@@ -76,26 +81,41 @@ export function writeManifest(path: string, manifest: Manifest): void {
   }
   const root = isRecord(parsed) ? parsed : {};
 
-  // Overlay each edited service onto its raw counterpart so unmodeled sub-keys
-  // (e.g. author comments-as-values, future fields) survive.
-  const rawServices = isRecord(root.services) ? root.services : {};
-  const nextServices: Record<string, unknown> = {};
-  for (const [name, svc] of Object.entries(manifest.services)) {
-    const rawSvc = isRecord(rawServices[name]) ? rawServices[name] : {};
-    nextServices[name] = {
-      ...rawSvc,
-      repoPath: svc.repoPath,
-      start: svc.start,
-      health: svc.health,
-      ports: svc.ports,
-      dependsOn: svc.dependsOn,
-      hasMigrations: svc.hasMigrations,
-      signals: svc.signals ?? [],
+  // A legacy file is upgraded on write: migrating the raw tree first means the
+  // overlay lines up with `repositories`, and the stale `services:` key is gone
+  // rather than left behind to make the file fail its own validation on reload.
+  const migratedRaw = migrateLegacyManifest(root).raw;
+  const migrated = isRecord(migratedRaw) ? migratedRaw : {};
+  const rawRepos = isRecord(migrated.repositories) ? migrated.repositories : {};
+
+  // Overlay each edited repository onto its raw counterpart so unmodeled
+  // sub-keys (author comments-as-values, future fields) survive.
+  const nextRepos: Record<string, unknown> = {};
+  for (const [name, repo] of Object.entries(manifest.repositories)) {
+    const rawRepo = isRecord(rawRepos[name]) ? rawRepos[name] : {};
+    const rawService = isRecord(rawRepo.service) ? rawRepo.service : {};
+    nextRepos[name] = {
+      ...rawRepo,
+      repoPath: repo.repoPath,
+      hasMigrations: repo.hasMigrations,
+      signals: repo.signals ?? [],
+      // Undefined (not omitted) so the dumper DROPS a `service:` block the user
+      // just turned off — leaving the raw one would silently keep the repo
+      // runnable after they said it wasn't.
+      service: repo.service
+        ? {
+            ...rawService,
+            start: repo.service.start,
+            health: repo.service.health,
+            ports: repo.service.ports,
+            dependsOn: repo.service.dependsOn,
+          }
+        : undefined,
     };
   }
 
   const next = {
-    ...root, // preserve unknown top-level keys
+    ...migrated, // preserve unknown top-level keys (and drop the legacy `services:`)
     // Optional: written when set, dropped (→ omitted by the dumper) when cleared,
     // so the host falls back to the path-derived slug.
     id: manifest.id,
@@ -111,7 +131,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Optional: written when set, dropped (→ omitted by the dumper) when cleared,
     // so it falls back to "no default".
     defaultModel: manifest.defaultModel,
-    services: nextServices,
+    repositories: nextRepos,
     approaches: manifest.approaches ?? [],
     agents: manifest.agents ?? {},
     ticketing: manifest.ticketing ?? { provider: 'manual' },

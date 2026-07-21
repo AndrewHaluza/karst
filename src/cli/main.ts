@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
-import { loadManifest } from '../manifest/load.js';
+import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
 import { openReadonlyStore } from './readonlyStore.js';
 import { openWritableStore } from './writableStore.js';
@@ -10,14 +10,26 @@ import { runPhaseCommand } from './phase.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
 /**
+ * Write each manifest diagnostic to stderr, one line, prefixed `karst: ` — the
+ * same convention as the fatal-error path in `fail()`. stdout is machine-read
+ * JSON/markdown, so diagnostics must never land there.
+ */
+function writeManifestWarnings(warnings: readonly string[]): void {
+  for (const w of warnings) process.stderr.write(`karst: ${w}\n`);
+}
+
+/**
  * The project slug named by a manifest, or undefined when there is no path, the
  * file won't load, or it predates the `id` field. Never throws: a stage marker
  * must still fire when the manifest is missing — it just resolves unscoped.
+ * Legacy-manifest deprecation warnings are still surfaced to stderr on the way.
  */
 function loadProjectSlug(manifestPath: string | undefined): string | undefined {
   if (!manifestPath) return undefined;
   try {
-    return loadManifest(manifestPath).id;
+    const { manifest, warnings } = loadManifestWithDiagnostics(manifestPath);
+    writeManifestWarnings(warnings);
+    return manifest.id;
   } catch {
     return undefined;
   }
@@ -90,7 +102,9 @@ export function runCli(argv: string[]): string {
     let manifest: Manifest | undefined;
     if (manifestPath) {
       try {
-        manifest = loadManifest(manifestPath);
+        const loaded = loadManifestWithDiagnostics(manifestPath);
+        writeManifestWarnings(loaded.warnings);
+        manifest = loaded.manifest;
       } catch (e) {
         // A missing/invalid manifest is non-fatal — services just won't render.
         process.stderr.write(`karst: manifest load skipped (${(e as Error).message})\n`);

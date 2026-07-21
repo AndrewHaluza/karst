@@ -16,8 +16,8 @@ export interface TutorialStep {
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     id: 'configure',
-    label: 'Configure services & agent provider',
-    description: 'Open Settings to point each service at its repo and pick your agent CLI.',
+    label: 'Configure repositories & agent provider',
+    description: 'Open Settings to point each repository at its path and pick your agent CLI.',
     action: 'settings',
   },
   {
@@ -29,7 +29,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     id: 'launch',
     label: 'Pick repos + approach and launch the session',
-    description: 'Choose which services are in scope and how the agent should work, then start.',
+    description: 'Choose which repositories are in scope and how the agent should work, then start.',
     action: null,
   },
   {

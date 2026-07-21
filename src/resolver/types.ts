@@ -13,7 +13,19 @@ export interface ResolvedService {
 }
 
 export interface ResolveResult {
+  /**
+   * Runtime config per RUNNABLE repository. A repository declaring no service
+   * has no entry — ports and env are meaningless without a process, so a fake
+   * empty entry would just be a sentinel by another name. Use `nonRunnable` to
+   * tell "not runnable" apart from "not in the manifest".
+   */
   services: Record<string, ResolvedService>;
-  /** [H2] hot services in topological (dependency-first) order for startup */
+  /**
+   * Repositories in the manifest that declare no service. Reported explicitly so
+   * consumers can SAY so (previewEnv, the dashboard) rather than inferring it
+   * from an absence, which would read identically to a missing entry.
+   */
+  nonRunnable: string[];
+  /** [H2] hot runnable repos in topological (dependency-first) order for startup */
   startOrder: string[];
 }

@@ -1,8 +1,24 @@
 # Karst manifest — copy to `karst.yml` and point repoPath at your real repos.
 # Resolved by the `karst.manifestPath` setting (default ./karst.yml), relative
-# to the workspace root. Every hot service's repoPath must be a real git repo
-# that contains `baselineBranch`; `start` must be a runnable command and its
-# `health` URL must become reachable, or spin fails.
+# to the workspace root.
+#
+# A REPOSITORY is the primary entity: a git repo karst can worktree, scope to a
+# ticket, classify and ship. Every hot repo's repoPath must be a real git repo
+# containing `baselineBranch`.
+#
+# A SERVICE is an OPTIONAL relation on a repository, describing how to RUN it.
+# Only declare `service:` for repos that actually run a process. When you do,
+# `start` must be a runnable command and its `health` URL must become reachable,
+# or spin fails. A repo with no `service:` is fully first-class: it gets a
+# worktree so the agent can edit it, and karst never starts it, allocates it a
+# port, or health-checks it. Never invent a placeholder command or a fake port
+# just to register a repo — that is exactly what this shape removes.
+#
+# MIGRATION: manifests written before this used a top-level `services:` map with
+# start/health/ports/dependsOn flat on each entry. Those still load — karst
+# translates them in memory and warns — and the next Save from Settings writes
+# the new shape. A file carrying BOTH `services:` and `repositories:` is
+# rejected rather than guessed at.
 
 # `id` scopes this project's tickets, so several IDE windows can each work on a
 # different project without seeing each other's board. Karst stamps a generated
@@ -25,39 +41,53 @@ worktreePathDisplay: relative
 # Which coding-agent CLI karst launches sessions with: 'claude' (default) or 'codex'.
 agentProvider: claude
 
-services:
+repositories:
   backend:
     repoPath: /absolute/path/to/backend
-    start: node server.mjs
-    health: http://{host}:{port}/health
-    ports:
-      - name: port        # slot identity, referenced by dependsOn.port
-        env: PORT          # env var that sets this port on spawn
-        default: 8000      # baseline / default-mode value
-    dependsOn: []
     hasMigrations: false   # true → flagged "not first-class under shared-DB"
     # Repo-classifier signal words: ticket title/description/tag tokens that
-    # point a ticket at this service. Empty/absent = unclassified (onboarding
-    # prompts to author these before the first ticket).
+    # point a ticket at this repo. Empty/absent = unclassified (onboarding
+    # prompts to author these before the first ticket). Repository-level: a repo
+    # with no service still has to be routable, or no ticket could reach it.
     signals: [api, endpoint, backend, database, migration, service, model, query]
+    # Runnable. Everything under `service:` is meaningless without a process.
+    service:
+      start: node server.mjs
+      health: http://{host}:{port}/health
+      ports:
+        - name: port        # slot identity, referenced by dependsOn.port
+          env: PORT          # env var that sets this port on spawn
+          default: 8000      # baseline / default-mode value
+      dependsOn: []
 
   frontend:
     repoPath: /absolute/path/to/frontend
-    start: node server.mjs
-    health: http://{host}:{port}/health
-    ports:
-      - name: port
-        env: PORT
-        default: 3000
-    dependsOn:
-      - target: backend    # another service
-        port: port         # a port slot on that service
-        bind:
-          # env var the dependent gets, rendered from the target's (host, port)
-          - env: VITE_API_URL
-            template: http://{host}:{port}
     hasMigrations: false
     signals: [ui, frontend, react, page, component, dashboard, modal, form]
+    service:
+      start: node server.mjs
+      health: http://{host}:{port}/health
+      ports:
+        - name: port
+          env: PORT
+          default: 3000
+      dependsOn:
+        # The target must be a repo that DECLARES a service — you cannot bind to
+        # a port that does not exist, and karst rejects such an edge at load.
+        - target: backend  # another repository
+          port: port       # a port slot on that repository's service
+          bind:
+            # env var the dependent gets, rendered from the target's (host, port)
+            - env: VITE_API_URL
+              template: http://{host}:{port}
+
+  # A repository with NO service: karst's own tooling repo, a docs tree, a
+  # shared-config package. Scope it to a ticket and it gets a worktree like any
+  # other; nothing is ever started for it, and it owns no port.
+  tooling:
+    repoPath: /absolute/path/to/tooling
+    hasMigrations: false
+    signals: [tooling, script, ci, config, extension]
 
 # Development approaches offered on the onboarding page. Each approach
 # includes a description, entrypoint, and optional source recipe. Extensible — add custom entries.

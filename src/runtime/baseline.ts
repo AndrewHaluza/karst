@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
+import { isRunnable } from '../manifest/runnable.js';
 import { startHot, type ServerRecord } from './supervisor.js';
 import { renderHealthUrl } from './healthUrl.js';
 
@@ -19,7 +20,7 @@ function findRunningBaseline(store: Store, service: string): ServerRecord | null
   const row = store.db
     .prepare(
       `SELECT id, pid, port, host, log_path FROM servers
-       WHERE service = ? AND ticket_id IS NULL AND status = 'running'`,
+       WHERE repo = ? AND ticket_id IS NULL AND status = 'running'`,
     )
     .get(service) as RunningRow | undefined;
   if (!row) return null;
@@ -74,13 +75,21 @@ export async function ensureBaseline(
   const existing = findRunningBaseline(store, service);
   if (existing) return existing; // reuse, no double-start
 
-  const svc = manifest.services[service];
-  if (!svc) throw new Error(`service "${service}" not in manifest`);
+  const repo = manifest.repositories[service];
+  if (!repo) throw new Error(`repository "${service}" not in manifest`);
+  // Reachable only via a dependsOn edge, and `validateGraph` rejects an edge to a
+  // non-runnable target — so this is a defensive throw, not a user-facing path.
+  // It exists because the alternative (the old code) fabricated
+  // `http://host:undefined/health` and health-gated against it.
+  if (!isRunnable(repo)) {
+    throw new Error(`repository "${service}" declares no service and cannot run as a baseline`);
+  }
+  const svc = repo.service;
 
   const httpSlot = svc.ports.find((p) => p.name === 'http') ?? svc.ports[0]!;
   const port = httpSlot.default;
 
-  const checkout = ensureBaselineCheckout(svc.repoPath, service, manifest.baselineBranch);
+  const checkout = ensureBaselineCheckout(repo.repoPath, service, manifest.baselineBranch);
   const { command, args } = splitCommand(svc.start);
 
   const healthUrl = svc.health
@@ -109,7 +118,7 @@ export async function ensureBaseline(
 export function addBaselineRef(store: Store, ticketId: number, service: string): void {
   store.db
     .prepare(
-      'INSERT OR IGNORE INTO baseline_refs (ticket_id, service) VALUES (?, ?)',
+      'INSERT OR IGNORE INTO baseline_refs (ticket_id, repo) VALUES (?, ?)',
     )
     .run(ticketId, service);
 }

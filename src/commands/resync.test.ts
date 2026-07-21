@@ -25,7 +25,7 @@ describe('resync', () => {
     const id = createTicketFlow(store, { key: 'A', title: 'a' }).id;
     store.db
       .prepare(
-        "INSERT INTO servers (ticket_id, service, status, pid, log_path) VALUES (?, 'be', 'running', 7, '/l')",
+        "INSERT INTO servers (ticket_id, repo, status, pid, log_path) VALUES (?, 'be', 'running', 7, '/l')",
       )
       .run(id);
 
@@ -51,7 +51,7 @@ describe('resync', () => {
     const theirs = createTicketFlow(store, { key: 'B', title: 'b', projectId: 2 }).id;
     store.db
       .prepare(
-        "INSERT INTO servers (ticket_id, service, status, pid, log_path) VALUES (?, 'be', 'running', 7, '/l')",
+        "INSERT INTO servers (ticket_id, repo, status, pid, log_path) VALUES (?, 'be', 'running', 7, '/l')",
       )
       .run(theirs);
 

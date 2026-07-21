@@ -16,7 +16,7 @@ describe('buildDashboardState', () => {
     setStage(store, t.id, 'scope', { status: 'passed' });
     store.db
       .prepare(
-        `INSERT INTO servers (ticket_id, service, host, port, pid, status, log_path)
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
          VALUES (?, 'web', 'localhost', 5173, 1, 'running', '/tmp/x')`,
       )
       .run(t.id);
@@ -195,5 +195,39 @@ describe('buildDashboardState', () => {
       projectRoot: '/Users/nd/Work/projects/tatto-timer',
     });
     expect(state.worktrees[0]!.repoDisplay).toBe('../other-repo');
+  });
+});
+
+describe('buildDashboardState — runnable scope', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  function scoped(repos: string[]): number {
+    const t = createTicket(store, { key: 'P-1', title: 'x' });
+    updateTicketOnboarding(store, t.id, { selectedRepos: repos });
+    return t.id;
+  }
+
+  // A ticket scoping only non-runnable repos can never have a server, so the
+  // dashboard must not offer a Start button for it.
+  it('reports hasRunnableRepos false when nothing in scope declares a service', () => {
+    const id = scoped(['docs']);
+    const s = buildDashboardState(store, id, undefined, undefined, undefined, () => false);
+    expect(s.hasRunnableRepos).toBe(false);
+  });
+
+  it('reports true when at least one scoped repo is runnable', () => {
+    const id = scoped(['docs', 'api']);
+    const s = buildDashboardState(store, id, undefined, undefined, undefined, (r) => r === 'api');
+    expect(s.hasRunnableRepos).toBe(true);
+  });
+
+  it('assumes runnable when the caller injects nothing (manifest unresolved)', () => {
+    const id = scoped(['docs']);
+    expect(buildDashboardState(store, id).hasRunnableRepos).toBe(true);
+  });
+
+  it('reports false for an empty scope — there is nothing to start', () => {
+    expect(buildDashboardState(store, scoped([])).hasRunnableRepos).toBe(false);
   });
 });

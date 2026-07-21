@@ -1,4 +1,5 @@
-import type { Manifest, ServiceDef } from '../manifest/types.js';
+import type { Manifest } from '../manifest/types.js';
+import { isRunnable, nonRunnableNames, runnableEntries, runnableSubset, type RunnableRepo } from '../manifest/runnable.js';
 import type { PortAllocator } from './allocator.js';
 import type { ResolveResult, ResolvedService, ServiceMode } from './types.js';
 
@@ -30,10 +31,11 @@ function effectivePort(
 ): number {
   const allocated = hotPorts[target]?.[portName];
   if (allocated !== undefined) return allocated;
-  const slot = manifest.services[target]?.ports.find((p) => p.name === portName);
-  // schema validation guarantees the slot exists; guard defensively anyway
+  const slot = manifest.repositories[target]?.service?.ports.find((p) => p.name === portName);
+  // Graph validation guarantees the target is runnable and owns this slot;
+  // guard defensively anyway so a hand-built manifest fails loudly, not silently.
   if (!slot) {
-    throw new Error(`service "${target}" has no port slot "${portName}"`);
+    throw new Error(`repository "${target}" has no runnable port slot "${portName}"`);
   }
   return slot.default;
 }
@@ -42,7 +44,7 @@ function effectivePort(
  * Topological order over hot services, edges = hot→hot dependencies only
  * (dependency before dependent). Throws DependencyCycleError on a cycle.
  */
-function topoSort(hot: string[], services: Record<string, ServiceDef>): string[] {
+function topoSort(hot: string[], services: Record<string, RunnableRepo>): string[] {
   const hotSet = new Set(hot);
   const visited = new Set<string>();
   const onStack = new Set<string>();
@@ -54,8 +56,8 @@ function topoSort(hot: string[], services: Record<string, ServiceDef>): string[]
       throw new DependencyCycleError([...onStack, name]);
     }
     onStack.add(name);
-    const svc = services[name]!;
-    for (const dep of svc.dependsOn) {
+    const repo = services[name]!;
+    for (const dep of repo.service.dependsOn) {
       if (hotSet.has(dep.target)) visit(dep.target); // only hot→hot edges gate order
     }
     onStack.delete(name);
@@ -79,27 +81,38 @@ export function resolve(
   allocator: PortAllocator,
   ticketId: number,
 ): ResolveResult {
-  const hotSet = new Set(hot);
+  // A hot repository that declares no service is a legitimate scope member — it
+  // gets a worktree so the agent can edit it — but there is nothing to allocate
+  // a port for or to start. Narrow once, here, so no step below has to re-ask.
+  for (const name of hot) {
+    if (!manifest.repositories[name]) {
+      throw new Error(`hot repository "${name}" not in manifest`);
+    }
+  }
+  const hotRunnable = runnableSubset(manifest, hot);
+  const hotSet = new Set(hotRunnable);
 
   // Step 1: allocate alt ports for each hot service's owned slots.
   const hotPorts: Record<string, Record<string, number>> = {};
-  for (const name of hot) {
-    const svc = manifest.services[name];
-    if (!svc) throw new Error(`hot service "${name}" not in manifest`);
-    const slots = svc.ports.map((p) => p.name);
+  for (const name of hotRunnable) {
+    const repo = manifest.repositories[name]!;
+    if (!isRunnable(repo)) continue; // unreachable: runnableSubset already filtered
+    const slots = repo.service.ports.map((p) => p.name);
     hotPorts[name] = allocator.allocate(ticketId, name, slots);
   }
 
   const services: Record<string, ResolvedService> = {};
+  const runnable: Record<string, RunnableRepo> = {};
 
-  for (const [name, svc] of Object.entries(manifest.services)) {
+  for (const [name, repo] of runnableEntries(manifest)) {
+    runnable[name] = repo;
     const mode: ServiceMode = hotSet.has(name) ? 'hot' : 'baseline';
     const ports: Record<string, number> = {};
     const env: Record<string, string> = {};
     const baselineDeps: string[] = [];
 
     // own ports: hot → allocated, baseline → default
-    for (const slot of svc.ports) {
+    for (const slot of repo.service.ports) {
       const port =
         mode === 'hot' ? hotPorts[name]![slot.name]! : slot.default;
       ports[slot.name] = port;
@@ -109,7 +122,7 @@ export function resolve(
     // peer-reference env from dependsOn edges (only meaningful for hot services;
     // a baseline service runs from develop and isn't repointed by us)
     if (mode === 'hot') {
-      for (const dep of svc.dependsOn) {
+      for (const dep of repo.service.dependsOn) {
         const port = effectivePort(dep.target, dep.port, hotPorts, manifest);
         for (const b of dep.bind) {
           env[b.env] = renderTemplate(b.template, manifest.host, port);
@@ -121,7 +134,9 @@ export function resolve(
     services[name] = { mode, ports, env, baselineDeps };
   }
 
-  const startOrder = topoSort(hot, manifest.services);
+  // startOrder is runnable-only BY CONSTRUCTION, so spin's start loop can never
+  // reach a repository with no start command.
+  const startOrder = topoSort(hotRunnable, runnable);
 
-  return { services, startOrder };
+  return { services, nonRunnable: nonRunnableNames(manifest), startOrder };
 }

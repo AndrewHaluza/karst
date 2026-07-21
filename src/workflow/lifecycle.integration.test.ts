@@ -18,6 +18,7 @@ import type { TicketingProvider } from '../integrations/ticketing.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { GhRunner } from '../integrations/github.js';
 import type { GitRunner } from '../integrations/git.js';
+import { manifest as buildManifest, runnableRepo } from '../manifest/fixtures.js';
 
 /**
  * MVP definition-of-done (plan line 474), driven over the REAL stage modules and
@@ -73,20 +74,10 @@ describe('MVP lifecycle (workflow spine)', () => {
     expect(getTicket(store, id).stageCurrent).toBe('scope');
 
     // scope (frontend-only, no migration warning) -> impl
-    const manifest = {
-      host: 'localhost',
-      portRange: [4000, 4100] as [number, number],
-      baselineBranch: 'develop',
-      services: {
-        frontend: {
-          repoPath: '/repo/fe',
-          start: 'npm run dev',
-          ports: [{ name: 'http', env: 'PORT', default: 3000 }],
-          dependsOn: [],
-          hasMigrations: false,
-        },
-      },
-    };
+    const manifest = buildManifest(
+      { frontend: runnableRepo({}, { repoPath: '/repo/fe' }) },
+      { portRange: [4000, 4100] },
+    );
     expect(scopeTicket(manifest, ['frontend']).warnings).toEqual([]);
     transition(store, id, 'scope', { kind: 'passed' }); // -> impl
 

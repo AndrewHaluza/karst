@@ -205,10 +205,10 @@
 <h1 id="heading">New ticket</h1>
 <div class="sub" id="subhead"></div>
 
-<!-- 1. Classify gate (only when services lack signals) -->
+<!-- 1. Classify gate (only when repositories lack signals) -->
 <div class="card hidden" id="gateCard">
-  <h2>Classify services</h2>
-  <div class="sub">These services have no signal words yet. Add them once so tickets classify automatically.</div>
+  <h2>Classify repositories</h2>
+  <div class="sub">These repositories have no signal words yet. Add them once so tickets classify automatically.</div>
   <div id="gateList"></div>
 </div>
 
@@ -247,7 +247,7 @@
       <span class="synctag hidden" id="syncTag">in sync</span>
       <span class="delta hidden" id="deltaBadge"></span>
       <button class="secondary" id="analyzeBtn"
-              title="Fill the prompt, services & approach together from the brief">
+              title="Fill the prompt, repositories &amp; approach together from the brief">
         <span class="rico" aria-hidden="true">⟳</span><span id="analyzeLbl">Prefill</span>
       </button>
       <span class="busy hidden" id="analyzeBusy">analyzing…</span>
@@ -278,7 +278,7 @@
       <span class="st">Services<span class="stcount" id="repoCount"></span></span>
     </div>
     <div class="stepbody">
-      <div class="sub">Which services does this ticket change? Pre-selected from the classifier.</div>
+      <div class="sub">Which repositories does this ticket change? Pre-selected from the classifier.</div>
       <div class="chips" id="repoList"></div>
     </div>
 
@@ -504,17 +504,24 @@
 
   function renderRepos(repos) {
     lastRepos = repos || [];
-    if (!repos || !repos.length) { el('repoList').innerHTML = '<div class="empty">No services.</div>'; syncStepper(); return; }
+    if (!repos || !repos.length) { el('repoList').innerHTML = '<div class="empty">No repositories.</div>'; syncStepper(); return; }
     // Toggle chips: the whole chip is a button; `data-repo` drives the click
     // handler (delegated) which flips `draft.repos` and posts `set-repos`.
     el('repoList').innerHTML = repos.map((r) => {
       const on = repoSelected(r);
       // The classifier score is a relevance hint, not user-facing data — keep it
       // as a hover title so it stops leaking onto the chip as a stray number.
-      const title = r.score ? ` title="classifier score: ${esc(r.score)}"` : '';
+      // A repository with no service is fully selectable — it gets a worktree so
+      // the agent can edit it — but say that nothing will start, so an empty
+      // server list later reads as expected rather than broken.
+      const hint = r.runnable === false ? 'no service — worktree only' : '';
+      const titleText = [r.score ? `classifier score: ${r.score}` : '', hint]
+        .filter(Boolean).join(' · ');
+      const title = titleText ? ` title="${esc(titleText)}"` : '';
       return `<span class="chip${on ? ' on' : ''}" role="button" tabindex="0" data-repo="${esc(r.service)}"${title}>`
         + `<span class="tick" aria-hidden="true">✓</span>`
         + `<span>${esc(r.service)}</span>`
+        + (r.runnable === false ? `<span class="badge" style="margin-left:6px">no service</span>` : '')
         + `</span>`;
     }).join('');
     syncStepper();
@@ -664,7 +671,7 @@
     if (!prev) return '';
     if (prev.brief !== cur.brief) return 'brief refetched';
     if (prev.prompt !== cur.prompt) return 'prompt edited';
-    if (JSON.stringify(prev.repos) !== JSON.stringify(cur.repos)) return 'services changed';
+    if (JSON.stringify(prev.repos) !== JSON.stringify(cur.repos)) return 'repositories changed';
     return '';
   }
   // Something to reason over = a fetched brief OR a non-empty prompt.

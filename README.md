@@ -2,8 +2,8 @@
 
 Orchestrate AI-agent ticket workflows across a multi-repo stack — a VS Code
 extension that drives a ticket from **scope → implement → UAT → review → ship →
-done**, spinning up the services each ticket touches and gating every stage on a
-deterministic verdict.
+done**, spinning up the runnable services each ticket touches and gating every
+stage on a deterministic verdict.
 
 > **Status:** MVP (M0–M4) implemented. 215 tests, typecheck-clean.
 
@@ -16,8 +16,10 @@ Given a ticket and a manifest describing your stack, Karst:
 1. **Scopes** — partitions your repos into *hot* (the ticket touches them) and
    *baseline* (shared, run once), warns on migrations.
 2. **Spins** — creates a git worktree per hot repo under `.karst/worktrees/`,
-   allocates ports, overlays env + secrets, spawns each service and health-gates
-   it. Baseline services are pooled and shared.
+   allocates ports, overlays env + secrets, spawns each *runnable* repo's service
+   and health-gates it. Baseline services are pooled and shared. A repository
+   that declares no `service:` still gets its worktree — it is simply never
+   started, and owns no port.
 3. **Runs the agent** — an interactive `claude` session in the worktree; hooks
    report liveness (`running` / `idle` / `waiting-on-you`) back to the sidebar.
 4. **Gates each stage** on a **deterministic verdict** — UAT passes iff the test
@@ -136,13 +138,14 @@ A freshly created ticket sits at `scope` with no worktree. To make it live:
    [`karst.example.yml`](./karst.example.yml) to `karst.yml` yourself.) Override
    the location with the `karst.manifestPath` setting if needed.
 2. In the Tickets sidebar, click a ticket's **▶ Spin** action, then pick which
-   services are *hot* for that ticket.
+   repositories are *hot* for that ticket.
 3. Karst creates a worktree per hot repo, starts the baseline + hot servers, and
    health-gates each. On success the ticket's **session** action opens a `claude`
    terminal in the worktree, and the dashboard shows the running servers.
 
 Preconditions (enforced downstream, surfaced as errors, not crashes): each hot
-`repoPath` is a real git repo on `baselineBranch`; `start` is runnable; the
+`repoPath` is a real git repo on `baselineBranch`; a declared `service.start` is
+runnable; the
 `health` URL becomes reachable.
 
 ### The agent adapter seam

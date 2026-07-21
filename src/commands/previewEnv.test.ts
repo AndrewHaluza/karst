@@ -1,40 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { previewEnv } from './previewEnv.js';
 import type { Manifest } from '../manifest/types.js';
-
-function slot(name: string, env: string, def: number) {
-  return { name, env, default: def };
-}
+import { manifest as buildManifest, stack } from '../manifest/fixtures.js';
 
 function manifest(): Manifest {
-  return {
-    host: 'localhost',
-    portRange: [4000, 4999],
-    baselineBranch: 'develop',
-    services: {
-      backend: {
-        repoPath: '../backend',
-        start: 'npm run dev',
-        health: 'http://{host}:{port}/health',
-        ports: [slot('http', 'PORT', 3000)],
-        dependsOn: [],
-        hasMigrations: false,
-      },
-      frontend: {
-        repoPath: '../frontend',
-        start: 'npm run dev',
-        ports: [slot('http', 'PORT', 5173)],
-        dependsOn: [
-          {
-            target: 'backend',
-            port: 'http',
-            bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }],
-          },
-        ],
-        hasMigrations: false,
-      },
-    },
-  };
+  return buildManifest(stack({ backendRepo: '../backend', frontendRepo: '../frontend' }));
 }
 
 describe('previewEnv', () => {

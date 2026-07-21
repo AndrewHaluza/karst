@@ -3,51 +3,46 @@ import { openStore, type Store } from '../store/db.js';
 import { makePortAllocator } from './allocator.js';
 import { resolve } from './resolve.js';
 import type { Manifest } from '../manifest/types.js';
+import {
+  dependsOn,
+  httpSlot,
+  manifest as buildManifest,
+  repo,
+  runnableRepo,
+  slot,
+} from '../manifest/fixtures.js';
 
 /** Ticket id used for allocation in these unit tests. */
 const TID = 1;
 
-function slot(name: string, env: string, def: number) {
-  return { name, env, default: def };
-}
-
 /** backend(3000) <- frontend(5173, VITE_API_URL) ; contracts(6000) standalone */
 function manifest(): Manifest {
-  return {
-    host: 'localhost',
-    portRange: [4000, 4999],
-    baselineBranch: 'develop',
-    services: {
-      backend: {
-        repoPath: '../backend',
-        start: 'npm run dev',
+  return buildManifest({
+    backend: runnableRepo(
+      {
         health: 'http://{host}:{port}/health',
-        ports: [slot('http', 'PORT', 3000), slot('debug', 'DEBUG_PORT', 9229)],
-        dependsOn: [],
-        hasMigrations: false,
+        ports: [httpSlot(3000), slot('debug', 'DEBUG_PORT', 9229)],
       },
-      frontend: {
-        repoPath: '../frontend',
-        start: 'npm run dev',
-        ports: [slot('http', 'PORT', 5173)],
+      { repoPath: '../backend' },
+    ),
+    frontend: runnableRepo(
+      {
+        ports: [httpSlot(5173)],
         dependsOn: [
-          {
-            target: 'backend',
-            port: 'http',
-            bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }],
-          },
+          dependsOn('backend', 'http', [
+            { env: 'VITE_API_URL', template: 'http://{host}:{port}' },
+          ]),
         ],
-        hasMigrations: false,
       },
-      contracts: {
-        repoPath: '../contracts',
-        start: 'npm run watch',
-        ports: [slot('http', 'PORT', 6000)],
-        dependsOn: [],
-        hasMigrations: false,
-      },
-    },
-  };
+      { repoPath: '../frontend' },
+    ),
+    contracts: runnableRepo(
+      { start: 'npm run watch', ports: [httpSlot(6000)] },
+      { repoPath: '../contracts' },
+    ),
+    // Not runnable: no service, no port. Must never reach startOrder.
+    docs: repo({ repoPath: '../docs' }),
+  });
 }
 
 describe('resolve', () => {
@@ -109,7 +104,7 @@ describe('resolve', () => {
   it('renders {host} in a bind template from manifest.host', () => {
     const m = manifest();
     m.host = '127.0.0.1';
-    m.services.frontend!.dependsOn[0]!.bind = [
+    m.repositories.frontend!.service!.dependsOn[0]!.bind = [
       { env: 'BACKEND_HOST', template: '{host}' },
       { env: 'BACKEND_PORT', template: '{port}' },
     ];
@@ -123,7 +118,7 @@ describe('resolve', () => {
   it('3-node chain all hot → startOrder is dependency-first', () => {
     const m = manifest();
     // contracts <- backend <- frontend
-    m.services.backend!.dependsOn = [
+    m.repositories.backend!.service!.dependsOn = [
       { target: 'contracts', port: 'http', bind: [{ env: 'CONTRACTS_URL', template: 'http://{host}:{port}' }] },
     ];
     const r = resolve(m, ['contracts', 'backend', 'frontend'], alloc(), 1);
@@ -136,7 +131,7 @@ describe('resolve', () => {
 
   it('throws a clear error on a dependency cycle among hot services', () => {
     const m = manifest();
-    m.services.backend!.dependsOn = [
+    m.repositories.backend!.service!.dependsOn = [
       { target: 'frontend', port: 'http', bind: [{ env: 'FE', template: 'http://{host}:{port}' }] },
     ];
     // frontend depends on backend, backend depends on frontend → cycle
@@ -146,6 +141,43 @@ describe('resolve', () => {
   it('startOrder lists only hot services', () => {
     const r = resolve(manifest(), ['frontend'], alloc(), 1);
     expect(r.startOrder).toEqual(['frontend']);
+  });
+
+  // A repository with no service has no port and no process. It must not appear
+  // in `services` (ports/env are meaningless without one) and must never reach
+  // `startOrder`, which spin's start loop iterates.
+  describe('repositories with no service', () => {
+    it('excludes them from the resolved services map', () => {
+      const r = resolve(manifest(), ['frontend'], alloc(), TID);
+      expect(r.services.docs).toBeUndefined();
+    });
+
+    it('reports them explicitly, so absence is never inferred', () => {
+      expect(resolve(manifest(), ['frontend'], alloc(), TID).nonRunnable).toEqual(['docs']);
+    });
+
+    it('keeps them out of startOrder even when hot', () => {
+      const r = resolve(manifest(), ['frontend', 'docs'], alloc(), TID);
+      expect(r.startOrder).toEqual(['frontend']);
+    });
+
+    it('allocates no port for them', () => {
+      resolve(manifest(), ['docs'], alloc(), TID);
+      const rows = store.db
+        .prepare('SELECT COUNT(*) AS n FROM port_allocations WHERE ticket_id = ?')
+        .get(TID) as { n: number };
+      expect(rows.n).toBe(0);
+    });
+
+    it('resolves a hot set that is ENTIRELY non-runnable without throwing', () => {
+      const r = resolve(manifest(), ['docs'], alloc(), TID);
+      expect(r.startOrder).toEqual([]);
+      expect(r.services.docs).toBeUndefined();
+    });
+
+    it('still throws for a hot name that is not in the manifest at all', () => {
+      expect(() => resolve(manifest(), ['ghost'], alloc(), TID)).toThrow(/not in manifest/);
+    });
   });
 
   it('allocates ports under the passed ticketId, not a hardcoded one', () => {

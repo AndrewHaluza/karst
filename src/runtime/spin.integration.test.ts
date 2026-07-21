@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,23 @@ import { createTicket } from '../store/tickets.js';
 import { stopServer } from './supervisor.js';
 import { spinTicket, SpinCancelledError } from './spin.js';
 import { worktreeSlug } from './slug.js';
-import type { Manifest } from '../manifest/types.js';
+import { createWorktree } from './worktree.js';
+import type { DependsOn, Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import {
+  dependsOn,
+  httpSlot,
+  manifest as buildManifest,
+  repo as bareRepo,
+  runnableRepo,
+} from '../manifest/fixtures.js';
+
+// Wraps the real implementation (still calls through) so the dedup test below
+// can assert HOW MANY TIMES createWorktree is invoked, without changing any
+// other test's behavior in this file.
+vi.mock('./worktree.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./worktree.js')>();
+  return { ...actual, createWorktree: vi.fn(actual.createWorktree) };
+});
 
 function git(cwd: string, ...args: string[]): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -78,6 +94,56 @@ function port(): number {
   return portBase++;
 }
 
+/** A runnable repo running `server.mjs` and answering /health on `defaultPort`. */
+function node(
+  repoPath: string,
+  defaultPort: number,
+  over: Partial<ServiceDef> = {},
+): RepositoryDef {
+  return runnableRepo(
+    {
+      start: 'node server.mjs',
+      health: 'http://{host}:{port}/health',
+      ports: [httpSlot(defaultPort)],
+      ...over,
+    },
+    { repoPath },
+  );
+}
+
+/** A repository with no service: worktree only, nothing ever starts. */
+function plainRepo(repoPath: string): RepositoryDef {
+  return bareRepo({ repoPath });
+}
+
+/** Bind `target`'s http port into `env` on the dependent. */
+function bindHttp(target: string, env: string): DependsOn[] {
+  return [dependsOn(target, 'http', [{ env, template: 'http://{host}:{port}' }])];
+}
+
+/**
+ * The canonical backend <- frontend pair most cases below spin. The frontend's
+ * own default port is drawn fresh from `port()` (the allocator overrides it when
+ * the service is hot; it matters only for the baseline path).
+ */
+function feBeManifest(opts: {
+  backend: string;
+  frontend: string;
+  bePort: number;
+  fePort: number;
+  span?: number;
+}): Manifest {
+  return buildManifest(
+    {
+      backend: node(opts.backend, opts.bePort),
+      frontend: node(opts.frontend, port(), {
+        dependsOn: bindHttp('backend', 'VITE_API_URL'),
+      }),
+    },
+    { host: '127.0.0.1', portRange: [opts.fePort, opts.fePort + (opts.span ?? 20)] },
+  );
+}
+
 describe('spinTicket integration', () => {
   let store: Store;
   let root: string;
@@ -102,23 +168,7 @@ describe('spinTicket integration', () => {
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
 
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [fePort, fePort + 20],
-      baselineBranch: 'develop',
-      services: {
-        backend: {
-          repoPath: backend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: bePort }], dependsOn: [], hasMigrations: false,
-        },
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'backend', port: 'http', bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
-      },
-    };
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-1', title: 'fe only' });
     const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
@@ -128,7 +178,7 @@ describe('spinTicket integration', () => {
     expect(wt.path).toContain(join('frontend', '.karst', 'worktrees'));
 
     // baseline backend up on its default port
-    const beRow = store.db.prepare("SELECT port FROM servers WHERE service='backend' AND ticket_id IS NULL AND status='running'").get() as { port: number };
+    const beRow = store.db.prepare("SELECT port FROM servers WHERE repo='backend' AND ticket_id IS NULL AND status='running'").get() as { port: number };
     expect(beRow.port).toBe(bePort);
 
     // frontend up on an ALLOCATED alt port (from range), not its default
@@ -142,8 +192,8 @@ describe('spinTicket integration', () => {
     expect(body.proxied).toBe('from-backend');
 
     // baseline ref recorded
-    const ref = store.db.prepare('SELECT service FROM baseline_refs WHERE ticket_id = ?').get(ticket.id) as { service: string };
-    expect(ref.service).toBe('backend');
+    const ref = store.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = ?').get(ticket.id) as { repo: string };
+    expect(ref.repo).toBe('backend');
   });
 
   it('(a3) spins over a leftover branch from a prior aborted spin by attaching to it', async () => {
@@ -152,23 +202,7 @@ describe('spinTicket integration', () => {
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
 
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [fePort, fePort + 20],
-      baselineBranch: 'develop',
-      services: {
-        backend: {
-          repoPath: backend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: bePort }], dependsOn: [], hasMigrations: false,
-        },
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'backend', port: 'http', bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
-      },
-    };
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-3', title: 'leftover' });
     // Leftover branch a prior spin created and never cleaned up (the reported bug).
@@ -189,23 +223,7 @@ describe('spinTicket integration', () => {
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
 
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [fePort, fePort + 20],
-      baselineBranch: 'develop',
-      services: {
-        backend: {
-          repoPath: backend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: bePort }], dependsOn: [], hasMigrations: false,
-        },
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'backend', port: 'http', bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
-      },
-    };
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-4', title: 'resume' });
     await spinTicket(store, manifest, ticket.id, ['frontend']);
@@ -241,23 +259,7 @@ describe('spinTicket integration', () => {
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': NEVER_HEALTHY_FE });
 
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [fePort, fePort + 20],
-      baselineBranch: 'develop',
-      services: {
-        backend: {
-          repoPath: backend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: bePort }], dependsOn: [], hasMigrations: false,
-        },
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'backend', port: 'http', bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
-      },
-    };
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-5', title: 'cancel' });
     const ctrl = new AbortController();
@@ -285,23 +287,7 @@ describe('spinTicket integration', () => {
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': NEVER_HEALTHY_FE });
 
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [fePort, fePort + 20],
-      baselineBranch: 'develop',
-      services: {
-        backend: {
-          repoPath: backend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: bePort }], dependsOn: [], hasMigrations: false,
-        },
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'backend', port: 'http', bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
-      },
-    };
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-6', title: 'cancel-adopt' });
     // Pre-create the worktree + its row, so this spin ADOPTS rather than creates it.
@@ -328,17 +314,14 @@ describe('spinTicket integration', () => {
 
   it('(a2) a wrong baselineBranch rejects via preflight and leaves the DB untouched', async () => {
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC }); // on develop
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [port(), port() + 20],
-      baselineBranch: 'nonexistent-branch', // not in the repo
-      services: {
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }], dependsOn: [], hasMigrations: false,
-        },
+    const manifest = buildManifest(
+      { frontend: node(frontend, port()) },
+      {
+        host: '127.0.0.1',
+        portRange: [port(), port() + 20],
+        baselineBranch: 'nonexistent-branch', // not in the repo
       },
-    };
+    );
     const ticket = createTicket(store, { key: 'PROJ-9', title: 'bad branch' });
 
     await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
@@ -361,29 +344,14 @@ describe('spinTicket integration', () => {
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': orderRecorderSrc(orderLog, 'frontend') });
 
     const base = port();
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [base, base + 30],
-      baselineBranch: 'develop',
-      services: {
-        contracts: {
-          repoPath: contracts, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }], dependsOn: [], hasMigrations: false,
-        },
-        backend: {
-          repoPath: backend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'contracts', port: 'http', bind: [{ env: 'CONTRACTS_URL', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'backend', port: 'http', bind: [{ env: 'API', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
+    const manifest = buildManifest(
+      {
+        contracts: node(contracts, port()),
+        backend: node(backend, port(), { dependsOn: bindHttp('contracts', 'CONTRACTS_URL') }),
+        frontend: node(frontend, port(), { dependsOn: bindHttp('backend', 'API') }),
       },
-    };
+      { host: '127.0.0.1', portRange: [base, base + 30] },
+    );
 
     const ticket = createTicket(store, { key: 'PROJ-2', title: 'chain' });
     await spinTicket(store, manifest, ticket.id, ['contracts', 'backend', 'frontend']);
@@ -393,36 +361,132 @@ describe('spinTicket integration', () => {
     expect(order).toEqual(['contracts', 'backend', 'frontend']); // dependency-first
   });
 
+  // The motivating case: karst's own extension repo is scoped to a ticket, gets a
+  // worktree so the agent can edit it, and starts nothing. Before this it needed a
+  // fake `start` and a fake port, and spin threw a TypeError without them.
+  it('(c) a hot repo with NO service gets a worktree but no port and no process', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
+    const docs = makeRepo(root, 'docs', { 'README.md': '# docs\n' });
+
+    const base = feBeManifest({ backend, frontend, bePort, fePort });
+    const manifest: Manifest = {
+      ...base,
+      repositories: { ...base.repositories, docs: plainRepo(docs) },
+    };
+
+    const ticket = createTicket(store, { key: 'PROJ-C', title: 'edit docs too' });
+    const result = await spinTicket(store, manifest, ticket.id, ['frontend', 'docs']);
+
+    // Both repos got a worktree — the docs branch is what the agent edits on.
+    const wts = store.db
+      .prepare('SELECT repo FROM worktrees WHERE ticket_id = ? ORDER BY repo')
+      .all(ticket.id) as { repo: string }[];
+    expect(wts.map((w) => w.repo).sort()).toEqual([docs, frontend].sort());
+
+    // Exactly one server, and it is the frontend — docs started nothing.
+    expect(result.servers.map((s) => s.service)).toEqual(['frontend']);
+    const docsServers = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE repo = 'docs'")
+      .get() as { n: number };
+    expect(docsServers.n).toBe(0);
+
+    // And no port was allocated to it.
+    const docsPorts = store.db
+      .prepare("SELECT COUNT(*) AS n FROM port_allocations WHERE ticket_id = ? AND repo = 'docs'")
+      .get(ticket.id) as { n: number };
+    expect(docsPorts.n).toBe(0);
+  });
+
+  it('(c2) a hot set of ONLY non-runnable repos spins to a worktree and no servers', async () => {
+    const docs = makeRepo(root, 'docs', { 'README.md': '# docs\n' });
+    const base = port();
+    const manifest = buildManifest(
+      { docs: plainRepo(docs) },
+      { host: '127.0.0.1', portRange: [base, base + 10] },
+    );
+
+    const ticket = createTicket(store, { key: 'PROJ-C2', title: 'docs only' });
+    const result = await spinTicket(store, manifest, ticket.id, ['docs']);
+
+    expect(result.servers).toEqual([]);
+    const wt = store.db
+      .prepare('SELECT COUNT(*) AS n FROM worktrees WHERE ticket_id = ?')
+      .get(ticket.id) as { n: number };
+    expect(wt.n).toBe(1);
+  });
+
+  // Two repository ENTRIES sharing one repoPath (a monorepo with two runnable
+  // processes) share ONE worktree — the slug is per-ticket, not per-entry — but
+  // still get distinct port allocations and distinct server rows, because those
+  // are keyed by repository NAME, not repoPath. Restores the worktreeByRepo
+  // dedup 53314d6 added and b7f223d wrongly deleted.
+  it('(d) two hot repository entries sharing one repoPath share ONE worktree but get distinct ports/servers', async () => {
+    const base = port();
+    const mono = makeRepo(root, 'mono', {
+      'api.mjs': BACKEND_SRC,
+      'web.mjs': BACKEND_SRC,
+    });
+    const manifest = buildManifest(
+      {
+        api: node(mono, port(), { start: 'node api.mjs' }),
+        web: node(mono, port(), { start: 'node web.mjs' }),
+      },
+      { host: '127.0.0.1', portRange: [base, base + 20] },
+    );
+
+    const ticket = createTicket(store, { key: 'PROJ-D', title: 'monorepo two services' });
+    const before = vi.mocked(createWorktree).mock.calls.length;
+    const result = await spinTicket(store, manifest, ticket.id, ['api', 'web']);
+    const callsDuringSpin = vi.mocked(createWorktree).mock.calls.length - before;
+
+    // one worktree CREATED (not once per repository entry)…
+    expect(callsDuringSpin).toBe(1);
+    // …and one worktree ROW, shared by both entries.
+    const wt = store.db
+      .prepare('SELECT COUNT(*) AS n FROM worktrees WHERE ticket_id = ?')
+      .get(ticket.id) as { n: number };
+    expect(wt.n).toBe(1);
+
+    // both services started, on distinct ports.
+    expect(result.servers.map((s) => s.service).sort()).toEqual(['api', 'web']);
+    const apiSrv = result.servers.find((s) => s.service === 'api')!;
+    const webSrv = result.servers.find((s) => s.service === 'web')!;
+    expect(apiSrv.status).toBe('running');
+    expect(webSrv.status).toBe('running');
+    expect(apiSrv.port).not.toBe(webSrv.port);
+
+    // distinct port allocations, keyed by repository name (not repoPath).
+    const allocations = store.db
+      .prepare('SELECT repo, port FROM port_allocations WHERE ticket_id = ? ORDER BY repo')
+      .all(ticket.id) as { repo: string; port: number }[];
+    expect(allocations.map((a) => a.repo)).toEqual(['api', 'web']);
+    expect(allocations[0]!.port).not.toBe(allocations[1]!.port);
+
+    // distinct server rows, keyed by repository name.
+    const serverRows = store.db
+      .prepare("SELECT repo, port FROM servers WHERE ticket_id = ? AND status='running' ORDER BY repo")
+      .all(ticket.id) as { repo: string; port: number }[];
+    expect(serverRows.map((r) => r.repo)).toEqual(['api', 'web']);
+    expect(serverRows[0]!.port).not.toBe(serverRows[1]!.port);
+  });
+
   it('a second ticket reuses the same baseline backend (no double-start)', async () => {
     const bePort = port();
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
     const fePort = port();
 
-    const manifest: Manifest = {
-      host: '127.0.0.1',
-      portRange: [fePort, fePort + 30],
-      baselineBranch: 'develop',
-      services: {
-        backend: {
-          repoPath: backend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: bePort }], dependsOn: [], hasMigrations: false,
-        },
-        frontend: {
-          repoPath: frontend, start: 'node server.mjs', health: 'http://{host}:{port}/health',
-          ports: [{ name: 'http', env: 'PORT', default: port() }],
-          dependsOn: [{ target: 'backend', port: 'http', bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }] }],
-          hasMigrations: false,
-        },
-      },
-    };
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort, span: 30 });
 
     const t1 = createTicket(store, { key: 'PROJ-A', title: 'a' });
     const t2 = createTicket(store, { key: 'PROJ-B', title: 'b' });
     await spinTicket(store, manifest, t1.id, ['frontend']);
     await spinTicket(store, manifest, t2.id, ['frontend']);
 
-    const baselines = store.db.prepare("SELECT COUNT(*) AS n FROM servers WHERE service='backend' AND ticket_id IS NULL AND status='running'").get() as { n: number };
+    const baselines = store.db.prepare("SELECT COUNT(*) AS n FROM servers WHERE repo='backend' AND ticket_id IS NULL AND status='running'").get() as { n: number };
     expect(baselines.n).toBe(1); // one baseline shared by both tickets
   });
 });

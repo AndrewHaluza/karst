@@ -89,7 +89,7 @@ describe('buildSidebarState', () => {
   it('rows carry the ticket servers and worktrees for the expanded body', () => {
     const t = createTicket(store, { key: 'A-1', title: 'has infra' });
     store.db
-      .prepare("INSERT INTO servers (ticket_id, service, host, port, status) VALUES (?,?,?,?, 'running')")
+      .prepare("INSERT INTO servers (ticket_id, repo, host, port, status) VALUES (?,?,?,?, 'running')")
       .run(t.id, 'backend', 'localhost', 4000);
     store.db
       .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?,?,?,?)')

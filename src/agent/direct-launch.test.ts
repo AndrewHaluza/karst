@@ -41,7 +41,15 @@ describe('direct approach launch path (integration)', () => {
         worktrees: [],
         servers: [],
         prs: [],
-        services: [],
+        repos: [
+          {
+            name: 'backend',
+            repoPath: '/repo/backend',
+            start: 'npm run dev',
+            runnable: true,
+            unknown: false,
+          },
+        ],
       });
       const seed = buildSessionSeed(contextMarkdown, approachPrompt);
       expect(seed).toBeDefined();

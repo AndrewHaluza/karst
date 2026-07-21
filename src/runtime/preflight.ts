@@ -46,22 +46,25 @@ function checkedOutPath(repoPath: string, branch: string): string | null {
  * so a wrong branch or bad path fails fast with a friendly `SpinError` instead of
  * a raw `git worktree add … fatal:` dump mid-spin (and creates nothing partial).
  *
- * Repo paths are deduped — a repo backing several hot services is checked once.
- * `slug` is the ticket's worktree slug (key-or-id + title); with a single slug
- * per ticket, two hot services sharing a repo map to the same path/branch, so
- * the target-check loop dedups by repoPath too.
+ * Runnability is irrelevant here: a repository with no service still gets a
+ * worktree, so its git preconditions matter just as much.
+ *
+ * Repository ENTRIES may share a `repoPath` (a monorepo with several runnable
+ * processes — see manifest/validate/graph.ts), so this loop dedups by
+ * repoPath: a repo backing several hot entries is checked once, not once per
+ * entry.
  */
 export function preflightSpin(manifest: Manifest, slug: string, hot: string[]): void {
   const problems: string[] = [];
   const seen = new Set<string>();
 
   for (const name of hot) {
-    const svc = manifest.services[name];
-    if (!svc) {
-      problems.push(`service '${name}' is not in the manifest`);
+    const repo = manifest.repositories[name];
+    if (!repo) {
+      problems.push(`repository '${name}' is not in the manifest`);
       continue;
     }
-    const repoPath = svc.repoPath;
+    const repoPath = repo.repoPath;
     if (seen.has(repoPath)) continue;
     seen.add(repoPath);
 
@@ -79,28 +82,31 @@ export function preflightSpin(manifest: Manifest, slug: string, hot: string[]): 
     }
   }
 
-  // Per-service target checks (each hot service has its own slug → branch → path).
+  // Per-repository target checks (each hot repo has its own slug → branch → path).
   // A leftover branch that's free to attach is fine — `createWorktree` reuses it,
   // and a worktree THIS ticket already owns (right path, right branch) is adopted
   // on retry, not a collision. Reject only the unrecoverable cases: our branch
   // checked out at a FOREIGN path, or the target path occupied by something that
   // isn't our worktree — either would make `git worktree add` fail mid-spin.
+  //
+  // Deduped by repoPath too: with one slug per ticket, two hot entries sharing
+  // a repo map to the same target path/branch, so checking twice is redundant.
   const seenTargets = new Set<string>();
   for (const name of hot) {
-    const svc = manifest.services[name];
-    if (!svc) continue; // already reported above
-    if (seenTargets.has(svc.repoPath)) continue; // one worktree per repo
-    seenTargets.add(svc.repoPath);
-    const { path, branch } = worktreePaths(svc.repoPath, slug);
+    const repo = manifest.repositories[name];
+    if (!repo) continue; // already reported above
+    if (seenTargets.has(repo.repoPath)) continue;
+    seenTargets.add(repo.repoPath);
+    const { path, branch } = worktreePaths(repo.repoPath, slug);
 
-    const boundTo = checkedOutPath(svc.repoPath, branch);
+    const boundTo = checkedOutPath(repo.repoPath, branch);
     if (boundTo !== null && canonicalPath(boundTo) === canonicalPath(path)) {
       // Our own worktree already sits here — a resumable spin. Not a problem.
       continue;
     }
     if (boundTo !== null) {
       problems.push(
-        `branch '${branch}' is already checked out by another worktree in ${svc.repoPath} — tear that ticket down first`,
+        `branch '${branch}' is already checked out by another worktree in ${repo.repoPath} — tear that ticket down first`,
       );
     } else if (existsSync(path)) {
       problems.push(
