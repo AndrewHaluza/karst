@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { STAGE_KEYS } from '../model/types.js';
-import { STAGE_GRAPH, MAIN_LINE, isBranch } from './graph.js';
+import { STAGE_GRAPH, MAIN_LINE, isBranch, isTerminal, needsConfirm } from './graph.js';
 
 describe('branch stages', () => {
   it('fix is a branch — nothing reaches it except a failed verdict', () => {
@@ -28,6 +28,24 @@ describe('branch stages', () => {
   it('every stage is either on the main line or a branch, never neither', () => {
     for (const key of STAGE_KEYS) {
       expect(MAIN_LINE.includes(key) || isBranch(key), `unplaced stage: ${key}`).toBe(true);
+    }
+  });
+
+  it('ship is the confirm stage — it cannot start without the user', () => {
+    expect(needsConfirm('ship')).toBe(true);
+  });
+
+  it('no agent-driven stage is a confirm stage', () => {
+    // The acceptance line: a stage that runs on its own must never claim to be
+    // waiting on the user, or "Needs you" means nothing.
+    for (const key of ['scope', 'impl', 'uat', 'review', 'fix'] as const) {
+      expect(needsConfirm(key), `${key} must not require confirmation`).toBe(false);
+    }
+  });
+
+  it('a confirm stage is never terminal — confirming is what moves it on', () => {
+    for (const key of STAGE_KEYS) {
+      expect(needsConfirm(key) && isTerminal(key), `${key} cannot be both`).toBe(false);
     }
   });
 

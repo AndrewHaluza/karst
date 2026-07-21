@@ -42,6 +42,32 @@ describe('ticketGlyph', () => {
   it('running → blue', () => {
     expect(ticketGlyph(ticket({ agentState: 'running' }))).toBe('blue');
   });
+  it('parked at a confirm stage → amber, with no agent involved at all', () => {
+    // No session runs at ship, so no hook can ever set agentState='waiting'.
+    // The stage itself is the needs-you signal.
+    expect(
+      ticketGlyph(
+        ticket({
+          stageCurrent: 'ship',
+          agentState: 'idle',
+          stages: [{ stageKey: 'ship', status: 'pending' } as never],
+        }),
+      ),
+    ).toBe('amber');
+  });
+
+  it('a confirm stage actually running → blue, not amber', () => {
+    expect(
+      ticketGlyph(
+        ticket({
+          stageCurrent: 'ship',
+          agentState: 'idle',
+          stages: [{ stageKey: 'ship', status: 'running' } as never],
+        }),
+      ),
+    ).toBe('blue');
+  });
+
   it('pending/idle → gray', () => {
     expect(
       ticketGlyph(

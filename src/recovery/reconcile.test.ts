@@ -43,6 +43,26 @@ describe('deriveStageCurrent', () => {
     expect(deriveStageCurrent(getTicket(store, id).stages)).toBe('scope');
   });
 
+  it('is a parked confirm stage, not the passed stage that led to it', () => {
+    // A parked ship is `pending` but has been ENTERED (it has a startedAt), which
+    // is what separates it from a stage nothing has reached yet.
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'review', { status: 'passed', endedAt: '2026-01-01T00:00:00.000Z' });
+    setStage(store, id, 'ship', { status: 'pending', startedAt: '2026-01-01T00:00:01.000Z' });
+    expect(deriveStageCurrent(getTicket(store, id).stages)).toBe('ship');
+  });
+
+  it('still ignores a pending stage nothing has entered', () => {
+    // Without a startedAt, `pending` means "never reached" — the signal that
+    // keeps a fresh ticket at scope instead of jumping to the end of the graph.
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'scope', { status: 'passed', endedAt: '2026-01-01T00:00:00.000Z' });
+    setStage(store, id, 'ship', { status: 'pending', startedAt: null });
+    expect(deriveStageCurrent(getTicket(store, id).stages)).toBe('scope');
+  });
+
   it('picks review over the earlier-passed fix across the loop back-edge (by recency, not key order)', () => {
     // fix comes AFTER review in STAGE_KEYS, but the graph loops fix->review.
     // After fix passes and review re-runs to a terminal verdict, the *current*
@@ -84,11 +104,58 @@ describe('reconcileOnStart', () => {
 
   it('leaves a running non-terminal stage alone (it is genuinely re-runnable)', () => {
     const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
-    transition(store, id, 'review', { kind: 'passed' }); // ship running
+    transition(store, id, 'impl', { kind: 'passed' }); // uat running
 
     reconcileOnStart(store, () => false);
 
-    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!.status).toBe('running');
+    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'uat')!.status).toBe('running');
+  });
+
+  // A confirm stage cannot be mid-run across a restart: the click that starts it
+  // is a live user action, and the process that would have been shipping is gone.
+  // Older builds entered ship as 'running', and those rows outlive the fix — left
+  // alone the ticket stays blue / "In progress" and never reads as needs-you.
+  it('parks a confirm stage an older build left running', () => {
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'review', { status: 'passed', endedAt: '2026-07-16T10:00:00Z' });
+    setStage(store, id, 'ship', { status: 'running', startedAt: '2026-07-16T10:00:01Z' });
+
+    reconcileOnStart(store, () => false);
+
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!;
+    expect(ship.status).toBe('pending');
+    expect(ship.startedAt).toBe('2026-07-16T10:00:01Z');
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('does not drag a ticket parked at ship back to the stage it came from', () => {
+    // The trap: a parked ship is `pending`, and deriveStageCurrent used to skip
+    // every pending stage — so boot re-derived `review` and the ticket silently
+    // walked backwards, losing the confirm it was waiting on.
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    transition(store, id, 'review', { kind: 'passed' }); // parks at ship
+
+    reconcileOnStart(store, () => false);
+
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('a failed ship survives boot as failed, not re-parked as needs-you', () => {
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'review', { status: 'passed', endedAt: '2026-07-16T10:00:00Z' });
+    setStage(store, id, 'ship', {
+      status: 'failed',
+      verdict: 'gh exploded',
+      startedAt: '2026-07-16T10:00:01Z',
+      endedAt: '2026-07-16T10:00:02Z',
+    });
+
+    reconcileOnStart(store, () => false);
+
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!;
+    expect(ship.status).toBe('failed');
+    expect(ship.verdict).toBe('gh exploded');
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
   it('restores stage_current from the stages table for every ticket', () => {

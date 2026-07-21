@@ -51,6 +51,33 @@ describe('stageBadge', () => {
     expect(b.glyph).toBe('amber');
   });
 
+  // The bug this fixes: a ticket parked at ship is waiting on a button click and
+  // nothing else. It used to read "Shipping" (blue) because the machine entered
+  // ship as running, so "Needs you" was never reached by any ticket.
+  it('a ticket parked at ship reads as needs-you', () => {
+    const b = stageBadge(ticket('ship', 'pending'));
+    expect(b.label).toBe('Needs you');
+    expect(b.glyph).toBe('amber');
+  });
+
+  it('a ship that is actually running still reads as shipping, not needs-you', () => {
+    const b = stageBadge(ticket('ship', 'running'));
+    expect(b.label).toBe('Shipping');
+    expect(b.glyph).toBe('blue');
+  });
+
+  it('a failed ship stays blocked — it reports the failure, not needs-you', () => {
+    const b = stageBadge(ticket('ship', 'failed'));
+    expect(b.label).toBe('Ship failed');
+    expect(b.glyph).toBe('red');
+  });
+
+  it('a pending agent-driven stage does not claim to need the user', () => {
+    // Only a confirm stage parks on the user; awaiting a gate is not needs-you.
+    expect(stageBadge(ticket('review', 'pending')).label).toBe('Awaiting review');
+    expect(stageBadge(ticket('review', 'pending')).glyph).not.toBe('amber');
+  });
+
   it('a failed stage names the stage that failed', () => {
     const b = stageBadge(ticket('uat', 'failed'));
     expect(b.label).toBe('UAT failed');
