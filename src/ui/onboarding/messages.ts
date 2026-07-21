@@ -74,10 +74,15 @@ function isStringArray(v: unknown): v is string[] {
 /** Validate the shared draft-persist fields (submit and save both carry these). */
 function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null {
   const str = (k: string): boolean => typeof m[k] === 'string' && (m[k] as string).length > 0;
-  // description may be empty; key + title must be present. repos defaults to
-  // [] and approach/agent to null when absent/malformed, so an older webview
-  // (or a crafted message) degrades to "no scope" rather than being rejected.
-  if (!(str('key') && str('title') && typeof m.description === 'string')) return null;
+  // description may be empty; so may key — a blank key on a manual ticket
+  // means "generate one at persist time" (see actions.ts persistDraft). The
+  // field must still be PRESENT (a string), just not necessarily non-empty;
+  // title must be present and non-empty. repos defaults to [] and
+  // approach/agent to null when absent/malformed, so an older webview (or a
+  // crafted message) degrades to "no scope" rather than being rejected.
+  if (!(typeof m.key === 'string' && str('title') && typeof m.description === 'string')) {
+    return null;
+  }
   const repos = isStringArray(m.repos) ? m.repos : [];
   const approach = typeof m.approach === 'string' && m.approach.length > 0 ? m.approach : null;
   const agent = typeof m.agent === 'string' && m.agent.length > 0 ? m.agent : null;

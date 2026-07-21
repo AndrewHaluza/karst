@@ -6,6 +6,7 @@ import {
   getTicket,
   updateTicketCore,
   updateTicketOnboarding,
+  generateTicketKey,
 } from '../../store/tickets.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { scoreRepos } from '../../workflow/classify/gate.js';
@@ -123,16 +124,22 @@ function persistDraft(
   deps: OnboardingActionsDeps,
   input: TicketDraftFields,
 ): number {
+  // The key is optional on the webview's manual-entry path (§ manual ticket
+  // creation): a blank key means "generate one now". Resolved once, here, so
+  // create and edit share the exact same key whether it's persisted via
+  // createTicketFlow or updateTicketCore below — never generated twice, never
+  // lost between the two branches.
+  const key = input.key || generateTicketKey(deps.store, { projectId: deps.projectId });
   let ticketId: number;
   if (ctx.ticketId !== undefined) {
-    updateTicketCore(deps.store, ctx.ticketId, { key: input.key, title: input.title });
+    updateTicketCore(deps.store, ctx.ticketId, { key, title: input.title });
     if (input.description) {
       updateTicketOnboarding(deps.store, ctx.ticketId, { description: input.description });
     }
     ticketId = ctx.ticketId;
   } else {
     const t = createTicketFlow(deps.store, {
-      key: input.key,
+      key,
       title: input.title,
       description: input.description || undefined,
       projectId: deps.projectId,

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { Store } from './db.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { rowToStage, type Stage } from './stages.js';
@@ -191,6 +192,22 @@ export function getTicketByKey(
     .prepare(`SELECT * FROM tickets ${whereClause('key = ?', sql)} LIMIT 1`)
     .get(key, ...params) as TicketRow | undefined;
   return row ? rowToTicket(row) : undefined;
+}
+
+/**
+ * Auto-generated key for a manually created ticket left blank by the user
+ * (§ manual ticket creation — key is optional). Shaped like a hand-typed key
+ * (`MANUAL-XXXXXXXX`) so downstream consumers can't tell it apart from one the
+ * user supplied. Collisions are astronomically unlikely at 4 bytes of entropy,
+ * but a retry-on-collision loop makes the uniqueness guarantee actual rather
+ * than probabilistic, scoped the same way `getTicketByKey` is.
+ */
+export function generateTicketKey(store: Store, scope: ProjectScope = {}): string {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = `MANUAL-${randomBytes(4).toString('hex').toUpperCase()}`;
+    if (!getTicketByKey(store, candidate, scope)) return candidate;
+  }
+  throw new Error('failed to generate a unique ticket key');
 }
 
 /** Load a ticket with all its stage rows. Throws if the id is unknown. */
