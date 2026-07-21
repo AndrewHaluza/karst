@@ -21,6 +21,7 @@ import {
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
 import type { Manifest } from '../manifest/types.js';
+import { isRunnable } from '../manifest/runnable.js';
 
 export interface TicketContextWorktree {
   repo: string;
@@ -50,11 +51,24 @@ export interface TicketContextPr {
   mergeCheck?: MergeCheckView;
 }
 
-export interface TicketContextService {
+/**
+ * One repository in the ticket's scope, as the agent sees it.
+ *
+ * `repoPath` is absent when the name is not in the manifest at all — that used
+ * to be dropped silently (`if (!def) continue`), which told the agent the repo
+ * did not exist rather than that karst could not find it. `start`/`health` are
+ * absent when the repository declares no service; the old shape typed `start` as
+ * required and rendered the literal string "undefined" into the brief.
+ */
+export interface TicketContextRepo {
   name: string;
-  repoPath: string;
-  start: string;
+  repoPath?: string;
+  start?: string;
   health?: string;
+  /** False when the repository declares no service. Stated, never inferred. */
+  runnable: boolean;
+  /** True when the selected name has no manifest entry. */
+  unknown: boolean;
 }
 
 /** Everything a session needs about a ticket, JSON-serializable for the CLI. */
@@ -70,13 +84,13 @@ export interface TicketContext {
   worktrees: TicketContextWorktree[];
   servers: TicketContextServer[];
   prs: TicketContextPr[];
-  services: TicketContextService[];
+  repos: TicketContextRepo[];
 }
 
 /**
  * Aggregate all ticket-implementation data by id. Pure over the injected store
  * and manifest — no fs, no vscode. `manifest` is optional (absent at some launch
- * paths) → the services section is simply empty.
+ * paths) → every selected repo renders as unknown rather than vanishing.
  */
 export function buildTicketContext(
   store: Store,
@@ -86,18 +100,20 @@ export function buildTicketContext(
   const t = getTicket(store, ticketId);
   const mergeChecks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
 
-  const services: TicketContextService[] = [];
-  const defs = manifest?.services ?? {};
-  for (const name of t.selectedRepos) {
+  const defs = manifest?.repositories ?? {};
+  const repos: TicketContextRepo[] = t.selectedRepos.map((name) => {
     const def = defs[name];
-    if (!def) continue;
-    services.push({
+    if (!def) return { name, runnable: false, unknown: true };
+    const service = isRunnable(def) ? def.service : undefined;
+    return {
       name,
       repoPath: def.repoPath,
-      start: def.start,
-      ...(def.health !== undefined ? { health: def.health } : {}),
-    });
-  }
+      runnable: service !== undefined,
+      unknown: false,
+      ...(service ? { start: service.start } : {}),
+      ...(service?.health !== undefined ? { health: service.health } : {}),
+    };
+  });
 
   return {
     key: t.key,
@@ -134,7 +150,7 @@ export function buildTicketContext(
           : {}),
       };
     }),
-    services,
+    repos,
   };
 }
 
@@ -149,7 +165,7 @@ function ticketHeading(ctx: TicketContext): string {
  * Render a `TicketContext` to deterministic markdown. Only non-empty sections
  * are emitted, so a bare ticket yields just its heading rather than a wall of
  * empty headings (mirrors the prior seed behavior, now enriched with
- * worktrees/branches, services, and PRs).
+ * worktrees/branches, repositories, and PRs).
  */
 export function renderTicketContext(ctx: TicketContext): string {
   const parts: string[] = [`# Ticket: ${ticketHeading(ctx)}`];
@@ -160,8 +176,17 @@ export function renderTicketContext(ctx: TicketContext): string {
   const brief = ctx.brief?.trim();
   if (brief) parts.push(`## Context brief\n${brief}`);
 
-  if (ctx.selectedRepos.length > 0) {
-    parts.push(`## Repositories in scope\n${ctx.selectedRepos.map((r) => `- ${r}`).join('\n')}`);
+  // One section, not two. The old render emitted a bare name list AND a richer
+  // "## Services" list, so a repository appeared twice and a non-runnable one
+  // appeared in the first with no hint it would never start.
+  if (ctx.repos.length > 0) {
+    const rows = ctx.repos.map((r) => {
+      if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
+      if (!r.start) return `- ${r.name}: ${r.repoPath} (no service — not runnable)`;
+      const health = r.health ? `, health: ${r.health}` : '';
+      return `- ${r.name}: ${r.repoPath} (start: \`${r.start}\`${health})`;
+    });
+    parts.push(`## Repositories in scope\n${rows.join('\n')}`);
   }
 
   if (ctx.worktrees.length > 0) {
@@ -171,14 +196,6 @@ export function renderTicketContext(ctx: TicketContext): string {
       return `- ${w.repo}: \`${branch}\`${base} — ${w.path}`;
     });
     parts.push(`## Worktrees & branches\n${rows.join('\n')}`);
-  }
-
-  if (ctx.services.length > 0) {
-    const rows = ctx.services.map((s) => {
-      const health = s.health ? `, health: ${s.health}` : '';
-      return `- ${s.name}: ${s.repoPath} (start: \`${s.start}\`${health})`;
-    });
-    parts.push(`## Services\n${rows.join('\n')}`);
   }
 
   if (ctx.servers.length > 0) {

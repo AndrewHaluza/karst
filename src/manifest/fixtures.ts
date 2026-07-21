@@ -1,0 +1,121 @@
+/**
+ * Shared manifest builders for tests.
+ *
+ * Test-only: excluded from `tsconfig.build.json` so it never ships in `dist/`.
+ * It lives beside the model rather than under a `__fixtures__` folder because it
+ * is the model's own test vocabulary — when the manifest shape changes, this is
+ * the one file that has to follow it.
+ *
+ * Before this module, ~26 hand-inlined manifest literals and six copy-pasted
+ * `svc()` factories were spread across 18 test files, so every shape change was
+ * a 26-file diff in which a real regression could hide among the mechanical
+ * edits. Build fixtures from here instead; pass overrides for the one field the
+ * test is actually about.
+ *
+ * Every builder returns a fresh object and never mutates its arguments.
+ */
+
+import type {
+  BindVar,
+  DependsOn,
+  Manifest,
+  PortSlot,
+  RepositoryDef,
+  ServiceDef,
+} from './types.js';
+
+/** A port slot. `default` is the baseline / non-hot value. */
+export function slot(name: string, env: string, defaultPort: number): PortSlot {
+  return { name, env, default: defaultPort };
+}
+
+/** The conventional single HTTP slot most fixtures want. */
+export function httpSlot(defaultPort = 3000): PortSlot {
+  return slot('http', 'PORT', defaultPort);
+}
+
+/** One `dependsOn` edge: `target`'s `port` slot rendered into `bind` env vars. */
+export function dependsOn(target: string, port: string, bind: BindVar[]): DependsOn {
+  return { target, port, bind };
+}
+
+/**
+ * The runnable relation. Defaults describe the simplest runnable unit: one start
+ * command, one HTTP port, no dependencies.
+ */
+export function svc(over: Partial<ServiceDef> = {}): ServiceDef {
+  return {
+    start: 'npm run dev',
+    ports: [httpSlot()],
+    dependsOn: [],
+    ...over,
+  };
+}
+
+/**
+ * A repository. Defaults to NON-RUNNABLE — pass `service: svc()` to make it
+ * runnable. That default is deliberate: it makes the non-runnable case the easy
+ * one to write, so tests reach for it rather than defaulting every fixture to a
+ * process that has to exist.
+ */
+export function repo(over: Partial<RepositoryDef> = {}): RepositoryDef {
+  return {
+    repoPath: '/repo',
+    hasMigrations: false,
+    ...over,
+  };
+}
+
+/** Shorthand for the common "repository that runs something" fixture. */
+export function runnableRepo(
+  service: Partial<ServiceDef> = {},
+  over: Partial<RepositoryDef> = {},
+): RepositoryDef {
+  return repo({ ...over, service: svc(service) });
+}
+
+/**
+ * A whole manifest. `repositories` is required because it is what a test is
+ * nearly always varying; everything else defaults and is overridable via `over`.
+ */
+export function manifest(
+  repositories: Record<string, RepositoryDef>,
+  over: Partial<Manifest> = {},
+): Manifest {
+  return {
+    host: 'localhost',
+    portRange: [4000, 4999],
+    baselineBranch: 'develop',
+    repositories,
+    ...over,
+  };
+}
+
+/**
+ * The canonical two-service stack: `frontend` depends on `backend`'s http port
+ * and binds it into `VITE_API_URL`. This exact pair is what the resolver, spin,
+ * and preflight suites all need — it exercises the dependsOn/bind path, which is
+ * the resolver's silent-failure surface.
+ */
+export function stack(over: { backendRepo?: string; frontendRepo?: string } = {}): Record<
+  string,
+  RepositoryDef
+> {
+  return {
+    backend: runnableRepo(
+      { health: 'http://{host}:{port}/health', ports: [httpSlot(3000)] },
+      { repoPath: over.backendRepo ?? '/repo/backend' },
+    ),
+    frontend: runnableRepo(
+      {
+        ports: [httpSlot(5173)],
+        dependsOn: [
+          dependsOn('backend', 'http', [
+            { env: 'VITE_API_URL', template: 'http://{host}:{port}' },
+          ]),
+        ],
+      },
+      { repoPath: over.frontendRepo ?? '/repo/frontend' },
+    ),
+  };
+}

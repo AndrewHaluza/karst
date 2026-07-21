@@ -7,7 +7,7 @@ import type { Store } from '../store/db.js';
  */
 export interface PortAllocator {
   /** Allocate one contiguous port per slot for a ticket's service. */
-  allocate(ticketId: number, service: string, slots: string[]): Record<string, number>;
+  allocate(ticketId: number, repo: string, slots: string[]): Record<string, number>;
   /** Free every port held by a ticket (teardown). */
   release(ticketId: number): void;
 }
@@ -71,7 +71,7 @@ export function makeDryRunAllocator(range: [number, number]): PortAllocator {
 export function makePortAllocator(store: Store, range: [number, number]): PortAllocator {
   const selectUsed = store.db.prepare('SELECT port FROM port_allocations');
   const insert = store.db.prepare(
-    'INSERT INTO port_allocations (ticket_id, service, port_name, port) VALUES (?, ?, ?, ?)',
+    'INSERT INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?, ?, ?, ?)',
   );
   const deleteByTicket = store.db.prepare('DELETE FROM port_allocations WHERE ticket_id = ?');
 
@@ -80,7 +80,7 @@ export function makePortAllocator(store: Store, range: [number, number]): PortAl
   }
 
   const allocate = store.db.transaction(
-    (ticketId: number, service: string, slots: string[]): Record<string, number> => {
+    (ticketId: number, repo: string, slots: string[]): Record<string, number> => {
       if (slots.length === 0) return {};
       const used = currentUsed();
       const start = findContiguous(used, range, slots.length);
@@ -89,7 +89,7 @@ export function makePortAllocator(store: Store, range: [number, number]): PortAl
       const out: Record<string, number> = {};
       slots.forEach((slot, i) => {
         const port = start + i;
-        insert.run(ticketId, service, slot, port); // UNIQUE(port) enforces correctness
+        insert.run(ticketId, repo, slot, port); // UNIQUE(port) enforces correctness
         out[slot] = port;
       });
       return out;

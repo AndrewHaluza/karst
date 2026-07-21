@@ -102,7 +102,7 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Services whose signal words hit the brief (score > 0), classifier order. */
+/** Repositories whose signal words hit the brief (score > 0), classifier order. */
 function scoredRepos(manifest: Manifest, brief: ContextBrief): string[] {
   return scoreRepos(manifest, {
     title: brief.title,
@@ -110,7 +110,7 @@ function scoredRepos(manifest: Manifest, brief: ContextBrief): string[] {
     tags: brief.tags,
   })
     .filter((r) => r.score > 0)
-    .map((r) => r.service);
+    .map((r) => r.repo);
 }
 
 /**
@@ -212,16 +212,18 @@ export function buildOnboardingActions(
     },
 
     async suggestSignals(service: string): Promise<void> {
-      const svc = deps.manifest.services[service];
-      if (!svc) {
-        ctx.post({ type: 'error', message: `Unknown service "${service}".` });
+      // Signals classify a SOURCE TREE, so this works for a non-runnable
+      // repository too — only `repoPath` is read.
+      const repo = deps.manifest.repositories[service];
+      if (!repo) {
+        ctx.post({ type: 'error', message: `Unknown repository "${service}".` });
         return;
       }
       ctx.post({ type: 'busy', what: 'suggest', on: true });
       try {
         const signals = await suggestSignalsAI(deps.adapter, {
           service,
-          repoPath: svc.repoPath,
+          repoPath: repo.repoPath,
         });
         ctx.post({ type: 'signals-suggested', service, signals });
       } catch (e) {
@@ -297,10 +299,10 @@ export function buildOnboardingActions(
           title: bound?.title ?? '',
           description: [prompt, brief].filter(Boolean).join('\n'),
           tags: [],
-        }).map((r) => [r.service, r.score]),
+        }).map((r) => [r.repo, r.score]),
       );
-      const services: AnalyzeServiceInput[] = Object.entries(deps.manifest.services).map(
-        ([name, svc]) => ({ name, signals: svc.signals ?? [], score: scores.get(name) ?? 0 }),
+      const services: AnalyzeServiceInput[] = Object.entries(deps.manifest.repositories).map(
+        ([name, def]) => ({ name, signals: def.signals ?? [], score: scores.get(name) ?? 0 }),
       );
 
       ctx.post({ type: 'busy', what: 'analyze', on: true });

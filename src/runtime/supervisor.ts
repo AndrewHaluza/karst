@@ -145,12 +145,12 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   // stopped server replaces its offline row instead of accumulating duplicates.
   // `IS` is null-safe, so baseline servers (ticket_id NULL) match correctly.
   store.db
-    .prepare('DELETE FROM servers WHERE service = ? AND ticket_id IS ?')
+    .prepare('DELETE FROM servers WHERE repo = ? AND ticket_id IS ?')
     .run(opts.service, opts.ticketId);
 
   const info = store.db
     .prepare(
-      `INSERT INTO servers (ticket_id, service, host, port, pid, status, log_path)
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
        VALUES (?, ?, ?, ?, ?, 'running', ?)`,
     )
     .run(opts.ticketId, opts.service, opts.host, opts.port, pid, opts.logPath);
@@ -178,7 +178,7 @@ interface ServerRow {
  * than deleting lets a stopped server surface on the dashboard as offline so the
  * user can restart it, instead of silently vanishing. Duplicate accumulation is
  * prevented at the other end: `startHot` drops any prior row for the same
- * (ticket, service) before inserting the fresh running one.
+ * (ticket, repo) before inserting the fresh running one.
  */
 export function stopServer(store: Store, id: number): void {
   const row = store.db

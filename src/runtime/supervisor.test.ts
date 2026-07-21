@@ -228,7 +228,7 @@ describe('server supervisor', () => {
     // Only the fresh running row remains for (ticket 5, backend) — the stopped
     // one was replaced, not accumulated.
     const rows = store.db
-      .prepare("SELECT id, status FROM servers WHERE ticket_id = 5 AND service = 'backend'")
+      .prepare("SELECT id, status FROM servers WHERE ticket_id = 5 AND repo = 'backend'")
       .all() as { id: number; status: string }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe(rec2.id);

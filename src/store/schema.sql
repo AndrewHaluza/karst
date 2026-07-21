@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   source_fetched_at TEXT,                 -- when the source was last fetched
   approach          TEXT,                 -- chosen development approach id
   agent             TEXT,                 -- chosen single-subagent id (nullable)
-  selected_repos    TEXT,                 -- JSON array of confirmed service names
+  selected_repos    TEXT,                 -- JSON array of confirmed repository names
   -- v3 lifecycle column (kept in sync with migrations.ts v3 ALTER):
   archived_at       TEXT,                 -- soft-delete timestamp; NULL = active
   -- v5 model column (kept in sync with migrations.ts v5 ALTER):
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS worktrees (
 
 CREATE TABLE IF NOT EXISTS port_allocations (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
-  service       TEXT NOT NULL,
+  repo          TEXT NOT NULL,        -- repository name (renamed from `service` in v10)
   port_name     TEXT NOT NULL,
   port          INTEGER NOT NULL,
   UNIQUE (port)                       -- the correctness guard under concurrency
@@ -114,14 +114,14 @@ CREATE TABLE IF NOT EXISTS port_allocations (
 
 CREATE TABLE IF NOT EXISTS baseline_refs (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
-  service       TEXT NOT NULL,
-  PRIMARY KEY (ticket_id, service)
+  repo          TEXT NOT NULL,        -- repository name (renamed from `service` in v10)
+  PRIMARY KEY (ticket_id, repo)
 );
 
 CREATE TABLE IF NOT EXISTS servers (
   id            INTEGER PRIMARY KEY,
   ticket_id     INTEGER,              -- NULL => baseline singleton
-  service       TEXT NOT NULL,
+  repo          TEXT NOT NULL,        -- repository name (renamed from `service` in v10)
   host          TEXT,
   port          INTEGER,
   pid           INTEGER,

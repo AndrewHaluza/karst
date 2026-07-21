@@ -39,9 +39,9 @@ const JUNK = new Set([
 function buildPrompt(input: SuggestInput): string {
   return [
     `You classify tickets to code repositories.`,
-    `For the service "${input.service}" (path: ${input.repoPath}), output the`,
+    `For the repository "${input.service}" (path: ${input.repoPath}), output the`,
     `signal words that, appearing in a ticket's title, description, or tags,`,
-    `mean the ticket touches THIS service specifically.`,
+    `mean the ticket touches THIS repository specifically.`,
     `Rules:`,
     `(1) at most ${MAX_SIGNALS} words;`,
     `(2) each is a SINGLE lowercase token — no spaces, no hyphens`,

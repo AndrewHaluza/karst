@@ -2,12 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { SettingsManager, type SettingsPanel, type LoadedManifest } from './panel.js';
 import type { SettingsHostMessage } from './messages.js';
 import type { Manifest } from '../../manifest/types.js';
+import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 
-const M: Manifest = {
-  host: 'localhost', portRange: [4000, 4999], baselineBranch: 'develop',
-  services: { api: { repoPath: '../api', start: 'x', ports: [{ name: 'port', env: 'PORT', default: 3000 }], dependsOn: [], hasMigrations: false, signals: [] } },
-  approaches: [], agents: {}, worktreePathDisplay: 'relative',
-};
+const M: Manifest = buildManifest(
+  {
+    api: runnableRepo(
+      { start: 'x', ports: [slot('port', 'PORT', 3000)] },
+      { repoPath: '../api', signals: [] },
+    ),
+  },
+  { portRange: [4000, 4999], approaches: [], agents: {}, worktreePathDisplay: 'relative' },
+);
 
 class FakePanel implements SettingsPanel {
   posted: SettingsHostMessage[] = [];

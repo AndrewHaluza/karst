@@ -7,10 +7,26 @@ import { writeManifest } from './write.js';
 import { loadManifest } from './load.js';
 import type { Manifest } from './types.js';
 
-// Includes an unknown top-level key (`extraTopLevel`) and an unmodeled service
-// sub-key (`services.backend.customField`) that must SURVIVE a write.
+// Includes an unknown top-level key (`extraTopLevel`) and an unmodeled repository
+// sub-key (`repositories.backend.customField`) that must SURVIVE a write.
 const RAW = `
 extraTopLevel: keep-me
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+    customField: also-keep
+    service:
+      start: npm run dev
+      ports:
+        - { name: http, env: PORT, default: 3000 }
+      dependsOn: []
+`;
+
+/** A pre-rework manifest, for the on-disk upgrade path. */
+const LEGACY_RAW = `
 host: localhost
 portRange: [4000, 4999]
 baselineBranch: develop
@@ -18,7 +34,6 @@ services:
   backend:
     repoPath: ../backend
     start: npm run dev
-    customField: also-keep
     ports:
       - { name: http, env: PORT, default: 3000 }
     dependsOn: []
@@ -44,14 +59,14 @@ describe('writeManifest', () => {
     }
   });
 
-  it('preserves unknown top-level keys and unmodeled service fields', () => {
+  it('preserves unknown top-level keys and unmodeled repository fields', () => {
     const { path, cleanup } = fixture();
     try {
       const m = loadManifest(path);
       writeManifest(path, { ...m, host: '0.0.0.0' });
       const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
       expect(raw.extraTopLevel).toBe('keep-me');
-      expect(raw.services.backend.customField).toBe('also-keep');
+      expect(raw.repositories.backend.customField).toBe('also-keep');
       expect(raw.host).toBe('0.0.0.0'); // edit landed
     } finally {
       cleanup();
@@ -90,15 +105,24 @@ describe('writeManifest', () => {
         host: '0.0.0.0',
         portRange: [5000, 5999],
         baselineBranch: 'main',
-        services: {
+        repositories: {
           backend: {
             repoPath: '../backend',
-            start: 'npm run dev',
-            health: 'http://{host}:{port}/health',
-            ports: [{ name: 'http', env: 'PORT', default: 3000 }],
-            dependsOn: [],
             hasMigrations: true,
             signals: ['api', 'endpoint'],
+            service: {
+              start: 'npm run dev',
+              health: 'http://{host}:{port}/health',
+              ports: [{ name: 'http', env: 'PORT', default: 3000 }],
+              dependsOn: [],
+            },
+          },
+          // A non-runnable repository must survive the round-trip too — if the
+          // overlay wrote an empty `service: {}` here, reload would reject it.
+          docs: {
+            repoPath: '../docs',
+            hasMigrations: false,
+            signals: ['readme'],
           },
         },
         approaches: [
@@ -135,6 +159,43 @@ describe('writeManifest', () => {
       writeManifest(path, full);
       const reloaded = loadManifest(path);
       expect(reloaded).toEqual(full);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Turning a repository's service OFF must actually remove the block. If the
+  // overlay merely omitted the key, the raw `service:` would survive and the
+  // repo would silently stay runnable after the user said it wasn't.
+  it('drops the `service:` block when a repository becomes non-runnable', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const backend = m.repositories.backend!;
+      const { service: _removed, ...withoutService } = backend;
+      writeManifest(path, { ...m, repositories: { backend: withoutService } });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.repositories.backend.service).toBeUndefined();
+      expect(loadManifest(path).repositories.backend!.service).toBeUndefined();
+      // The unmodeled sub-key still survives.
+      expect(raw.repositories.backend.customField).toBe('also-keep');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('upgrades a legacy `services:` file on write, leaving no stale key', () => {
+    const { path, cleanup } = fixture(LEGACY_RAW);
+    try {
+      const m = loadManifest(path); // migrated in memory
+      writeManifest(path, { ...m, host: '0.0.0.0' });
+
+      const text = readFileSync(path, 'utf8');
+      expect(text).toContain('repositories:');
+      expect(text).not.toContain('services:');
+      // And the upgraded file reloads clean (both keys present would throw).
+      expect(loadManifest(path).repositories.backend!.service!.start).toBe('npm run dev');
     } finally {
       cleanup();
     }

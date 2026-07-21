@@ -54,7 +54,7 @@ describe('openStore', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
     const insert = store.db.prepare(
-      'INSERT INTO port_allocations (ticket_id, service, port_name, port) VALUES (?,?,?,?)',
+      'INSERT INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?,?,?,?)',
     );
     insert.run(1, 'frontend', 'PORT', 47201);
     expect(() => insert.run(2, 'backend', 'PORT', 47201)).toThrow(/UNIQUE/i);
@@ -100,10 +100,10 @@ describe('openStore', () => {
     expect(cols).toContain('archived_at');
   });
 
-  it('reports schema user_version 9', () => {
+  it('reports schema user_version 10', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
-    expect(store.db.pragma('user_version', { simple: true })).toBe(9);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(10);
   });
 
   it('tickets carries the v4 agent column', () => {
@@ -149,7 +149,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-4') as { title: string } | undefined;
     expect(row?.title).toBe('v4 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(9);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(10);
   });
 
   it('migrates a v5 DB to v6, adding projects + project_id and leaving rows unassigned', () => {
@@ -180,7 +180,7 @@ describe('openStore', () => {
       .get('OLD-5') as { title: string; project_id: number | null } | undefined;
     expect(row?.title).toBe('v5 row');
     expect(row?.project_id).toBeNull();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(9);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(10);
   });
 
   it('migrates a v6 DB to v7, adding gate_runs without touching stages', () => {
@@ -211,7 +211,7 @@ describe('openStore', () => {
     // them would be the inference the no-inference guarantee forbids.
     const runs = migrated.db.prepare('SELECT * FROM gate_runs').all();
     expect(runs).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(9);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(10);
   });
 
   it('migrates a v7 DB to v8, adding phase_marks without touching stages', () => {
@@ -242,7 +242,7 @@ describe('openStore', () => {
     // inventing marks would be exactly the inference karst forbids.
     const marks = migrated.db.prepare('SELECT * FROM phase_marks').all();
     expect(marks).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(9);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(10);
   });
 
   it('migrates a v8 DB to v9, adding merge_checks without touching prs', () => {
@@ -274,7 +274,83 @@ describe('openStore', () => {
     // merge check until its next ship — never a manufactured "clean".
     const checks = migrated.db.prepare('SELECT * FROM merge_checks').all();
     expect(checks).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(9);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(10);
+  });
+
+  // v10 is the first NON-additive step: a column rename. The values never
+  // changed meaning (they were always manifest keys), so nothing is backfilled —
+  // but existing rows must survive intact, which is what this proves.
+  it('migrates a v9 DB to v10, renaming service -> repo and preserving rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE servers (
+        id INTEGER PRIMARY KEY, ticket_id INTEGER, service TEXT NOT NULL,
+        host TEXT, port INTEGER, pid INTEGER, status TEXT NOT NULL, log_path TEXT,
+        started_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE port_allocations (
+        ticket_id INTEGER NOT NULL, service TEXT NOT NULL,
+        port_name TEXT NOT NULL, port INTEGER NOT NULL, UNIQUE (port)
+      );
+      CREATE TABLE baseline_refs (
+        ticket_id INTEGER NOT NULL, service TEXT NOT NULL,
+        PRIMARY KEY (ticket_id, service)
+      );
+    `);
+    legacy
+      .prepare("INSERT INTO servers (ticket_id, service, host, port, status) VALUES (1,'api','h',3000,'running')")
+      .run();
+    legacy.prepare("INSERT INTO port_allocations VALUES (1,'api','http',4000)").run();
+    legacy.prepare("INSERT INTO baseline_refs VALUES (1,'api')").run();
+    legacy.pragma('user_version = 9');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+
+    for (const table of ['servers', 'port_allocations', 'baseline_refs']) {
+      const cols = new Set(
+        (migrated.db.prepare(`PRAGMA table_info('${table}')`).all() as { name: string }[])
+          .map((c) => c.name),
+      );
+      expect(cols.has('repo')).toBe(true);
+      expect(cols.has('service')).toBe(false);
+    }
+
+    // Every row survived the rename with its value intact.
+    expect(
+      migrated.db.prepare('SELECT repo, port, status FROM servers WHERE ticket_id = 1').get(),
+    ).toEqual({ repo: 'api', port: 3000, status: 'running' });
+    expect(
+      migrated.db.prepare('SELECT repo, port FROM port_allocations WHERE ticket_id = 1').get(),
+    ).toEqual({ repo: 'api', port: 4000 });
+    expect(
+      migrated.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
+    ).toEqual({ repo: 'api' });
+
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(10);
+  });
+
+  // The rename step is guarded on the CURRENT columns, so re-running it (a fresh
+  // DB, or a second open) must be a no-op rather than an error.
+  it('is a no-op on a fresh DB, which already has repo columns', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+
+    const first = openStore(path);
+    first.db.prepare("INSERT INTO baseline_refs (ticket_id, repo) VALUES (1,'api')").run();
+    first.close();
+
+    const reopened = openStore(path); // migrate() runs again
+    cleanups.push(() => reopened.close());
+    expect(
+      reopened.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
+    ).toEqual({ repo: 'api' });
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(10);
   });
 
   it('enforces UNIQUE(slug) on projects', () => {
@@ -310,7 +386,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-2') as { title: string } | undefined;
     expect(row?.title).toBe('v2 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(9);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(10);
   });
 
   it('migrates a v1 DB to v2, adding columns and preserving rows', () => {

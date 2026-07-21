@@ -48,9 +48,10 @@ import { writeHookSettings } from './agent/settings.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { stopServer } from './runtime/supervisor.js';
-import { loadManifest, type Manifest } from './manifest/load.js';
+import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import type { PathContext } from './ui/dashboard/state.js';
-import { writeServiceSignals } from './manifest/write.js';
+import { writeRepoSignals } from './manifest/write.js';
+import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
 import {
   resolveManifest,
@@ -209,7 +210,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
-  }), () => worktreePathContext(currentManifest()), () => currentManifest()?.ticketLabelTemplate, logError,
+  }), () => worktreePathContext(currentManifest(), logger.warn), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id);
   const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
   provider.bind(sidebarHost);
@@ -391,7 +392,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const loadSettingsState = (): LoadedManifest => {
     const path = manifestPathOrThrow();
     try {
-      return { manifest: loadManifest(path), error: null };
+      const { manifest, warnings } = loadManifestWithDiagnostics(path);
+      // Non-fatal: log to the Karst output channel rather than a toast — the
+      // Settings page the user just opened is where they'd fix it, and the
+      // migrate.ts warning tells them to Save here to write the new shape.
+      for (const w of warnings) logger.warn(`karst.yml: ${w}`);
+      return { manifest, error: null };
     } catch (e) {
       return {
         manifest: currentManifest() ?? emptyManifest(),
@@ -534,7 +540,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       // A started ticket belongs to its dashboard — onboarding hands off there.
       openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId),
-      writeSignals: writeServiceSignals,
+      writeSignals: writeRepoSignals,
       // Re-read the manifest from disk after a signal writeback so the panel's
       // manifest getter (currentManifest) reflects the saved signals — the gate
       // clears and the repo row shows them on the next pushState.
@@ -716,7 +722,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             makeTokenProvider(context),
           ),
       ),
-    () => worktreePathContext(currentManifest()),
+    () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
     // Live ticketing config so the dashboard links to the source board (§ C3).
     () => currentManifest()?.ticketing,
@@ -734,6 +740,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     },
     tabIconFor,
+    // Runnability comes from the live manifest. Report false ONLY when the
+    // manifest positively says this repo has no service; an unresolved manifest
+    // or an unknown name answers true, so the dashboard degrades to offering the
+    // button rather than hiding one that would have worked.
+    (repo) => {
+      const def = currentManifest()?.repositories[repo];
+      return def === undefined || isRunnable(def);
+    },
   );
 
   // The live verbose channel (§ naming/status): whatever a tab or terminal
@@ -1189,20 +1203,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Pre-select all hot services on first spin; on later spins default to the
+      // Pre-select all repositories on first spin; on later spins default to the
       // set the user last chose for THIS ticket (workspace-scoped memory). A
-      // service removed from the manifest since then simply drops out.
-      const serviceNames = Object.keys(manifest.services);
+      // repository removed from the manifest since then simply drops out.
+      //
+      // Repositories with no service are offered too — they get a worktree so the
+      // agent can edit them, they just never start a process. The description
+      // says so, rather than leaving the user to wonder why nothing came up.
+      const repoNames = Object.keys(manifest.repositories);
       const memKey = `karst.spin.services.${ticketId}`;
       const remembered = context.workspaceState.get<string[]>(memKey);
-      const items = serviceNames.map((name) => ({
+      const items = repoNames.map((name) => ({
         label: name,
+        description: serviceOf(manifest, name) !== undefined
+          ? undefined
+          : 'no service — worktree only',
         picked: remembered ? remembered.includes(name) : true,
       }));
 
       const picked = await vscode.window.showQuickPick(items, {
         canPickMany: true,
-        title: `Spin ${label} — select hot services`,
+        title: `Spin ${label} — select repositories`,
       });
       if (!picked || picked.length === 0) return; // cancelled or empty
       const hot = picked.map((i) => i.label);
@@ -1356,15 +1377,25 @@ export function deactivate(): void {
  * `worktreePathDisplay` + the workspace root. Reads the already-resolved
  * manifest when available, else quietly loads it (no prompts — the dashboard
  * shouldn't nag). Returns undefined (→ absolute paths) when nothing is resolvable.
+ *
+ * `warn` is only invoked on the fallback disk-read (the common case reuses
+ * `current`, already surfaced by whoever resolved it) — defaults to a no-op so
+ * this stays silent, matching the "no prompts" contract, unless a caller opts
+ * into logging (extension.ts's activate() passes `logger.warn`).
  */
-function worktreePathContext(current: Manifest | undefined): PathContext | undefined {
+function worktreePathContext(
+  current: Manifest | undefined,
+  warn: (message: string) => void = () => {},
+): PathContext | undefined {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) return undefined;
 
   let manifest = current;
   if (!manifest) {
     try {
-      manifest = loadManifest(manifestPathOrThrow());
+      const loaded = loadManifestWithDiagnostics(manifestPathOrThrow());
+      for (const w of loaded.warnings) warn(`karst.yml: ${w}`);
+      manifest = loaded.manifest;
     } catch {
       return undefined; // no/invalid manifest — fall back to absolute paths
     }

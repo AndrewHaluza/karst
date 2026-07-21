@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadManifest } from './load.js';
+import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 
 /** Write YAML to a temp file, return its path; caller cleans the dir. */
 function fixture(yaml: string): { path: string; cleanup: () => void } {
@@ -16,25 +16,27 @@ const VALID = `
 host: localhost
 portRange: [4000, 4999]
 baselineBranch: develop
-services:
+repositories:
   backend:
     repoPath: ../backend
-    start: npm run dev
-    health: "http://{host}:{port}/health"
-    ports:
-      - { name: http, env: PORT, default: 3000 }
-      - { name: debug, env: DEBUG_PORT, default: 9229 }
-    dependsOn: []
+    service:
+      start: npm run dev
+      health: "http://{host}:{port}/health"
+      ports:
+        - { name: http, env: PORT, default: 3000 }
+        - { name: debug, env: DEBUG_PORT, default: 9229 }
+      dependsOn: []
   frontend:
     repoPath: ../frontend
-    start: npm run dev
-    ports:
-      - { name: http, env: PORT, default: 5173 }
-    dependsOn:
-      - target: backend
-        port: http
-        bind:
-          - { env: VITE_API_URL, template: "http://{host}:{port}" }
+    service:
+      start: npm run dev
+      ports:
+        - { name: http, env: PORT, default: 5173 }
+      dependsOn:
+        - target: backend
+          port: http
+          bind:
+            - { env: VITE_API_URL, template: "http://{host}:{port}" }
 `;
 
 describe('loadManifest', () => {
@@ -45,18 +47,18 @@ describe('loadManifest', () => {
       expect(m.host).toBe('localhost');
       expect(m.portRange).toEqual([4000, 4999]);
       expect(m.baselineBranch).toBe('develop');
-      expect(Object.keys(m.services)).toEqual(['backend', 'frontend']);
+      expect(Object.keys(m.repositories)).toEqual(['backend', 'frontend']);
 
-      const be = m.services.backend!;
+      const be = m.repositories.backend!;
       expect(be.repoPath).toBe('../backend');
-      expect(be.start).toBe('npm run dev');
-      expect(be.health).toBe('http://{host}:{port}/health');
-      expect(be.ports).toHaveLength(2);
-      expect(be.ports[0]).toEqual({ name: 'http', env: 'PORT', default: 3000 });
-      expect(be.dependsOn).toEqual([]);
+      expect(be.service!.start).toBe('npm run dev');
+      expect(be.service!.health).toBe('http://{host}:{port}/health');
+      expect(be.service!.ports).toHaveLength(2);
+      expect(be.service!.ports[0]).toEqual({ name: 'http', env: 'PORT', default: 3000 });
+      expect(be.service!.dependsOn).toEqual([]);
 
-      const fe = m.services.frontend!;
-      expect(fe.dependsOn[0]).toEqual({
+      const fe = m.repositories.frontend!;
+      expect(fe.service!.dependsOn[0]).toEqual({
         target: 'backend',
         port: 'http',
         bind: [{ env: 'VITE_API_URL', template: 'http://{host}:{port}' }],
@@ -70,8 +72,8 @@ describe('loadManifest', () => {
     const { path, cleanup } = fixture(VALID);
     try {
       const m = loadManifest(path);
-      expect(m.services.backend!.hasMigrations).toBe(false);
-      expect(m.services.frontend!.hasMigrations).toBe(false);
+      expect(m.repositories.backend!.hasMigrations).toBe(false);
+      expect(m.repositories.frontend!.hasMigrations).toBe(false);
     } finally {
       cleanup();
     }
@@ -79,12 +81,12 @@ describe('loadManifest', () => {
 
   it('reads hasMigrations when declared', () => {
     const yaml = VALID.replace(
-      'dependsOn: []\n  frontend:',
-      'dependsOn: []\n    hasMigrations: true\n  frontend:',
+      '      dependsOn: []\n  frontend:',
+      '      dependsOn: []\n    hasMigrations: true\n  frontend:',
     );
     const { path, cleanup } = fixture(yaml);
     try {
-      expect(loadManifest(path).services.backend!.hasMigrations).toBe(true);
+      expect(loadManifest(path).repositories.backend!.hasMigrations).toBe(true);
     } finally {
       cleanup();
     }
@@ -129,10 +131,10 @@ describe('loadManifest', () => {
     }
   });
 
-  it('throws when services is empty or missing', () => {
+  it('throws when repositories is empty or missing', () => {
     const { path, cleanup } = fixture('host: localhost\nportRange: [4000,4999]\nbaselineBranch: develop\n');
     try {
-      expect(() => loadManifest(path)).toThrow(/services/i);
+      expect(() => loadManifest(path)).toThrow(/repositories/i);
     } finally {
       cleanup();
     }
@@ -169,7 +171,7 @@ describe('loadManifest', () => {
 
   it('throws when a dependsOn edge has an empty bind', () => {
     const yaml = VALID.replace(
-      'bind:\n          - { env: VITE_API_URL, template: "http://{host}:{port}" }',
+      'bind:\n            - { env: VITE_API_URL, template: "http://{host}:{port}" }',
       'bind: []',
     );
     const { path, cleanup } = fixture(yaml);
@@ -180,7 +182,7 @@ describe('loadManifest', () => {
     }
   });
 
-  it('throws when a service is missing repoPath', () => {
+  it('throws when a repository is missing repoPath', () => {
     const yaml = VALID.replace('    repoPath: ../backend\n', '');
     const { path, cleanup } = fixture(yaml);
     try {
@@ -190,10 +192,10 @@ describe('loadManifest', () => {
     }
   });
 
-  it('throws when a service has no ports', () => {
+  it('throws when a DECLARED service has no ports', () => {
     const yaml = VALID.replace(
-      '    ports:\n      - { name: http, env: PORT, default: 5173 }\n',
-      '    ports: []\n',
+      '      ports:\n        - { name: http, env: PORT, default: 5173 }\n',
+      '      ports: []\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -206,15 +208,237 @@ describe('loadManifest', () => {
   it('throws ManifestError when the file does not exist', () => {
     expect(() => loadManifest('/no/such/karst.yml')).toThrow(/cannot read/);
   });
+
+  // Every validation message must say WHICH karst.yml is wrong: a user may have
+  // one per project plus the example, and a bare "portRange must be ..." is not
+  // actionable against a set of files.
+  it('names the offending file in the error message', () => {
+    const { path, cleanup } = fixture(VALID.replace('portRange: [4000, 4999]', 'portRange: 4000'));
+    try {
+      expect(() => loadManifest(path)).toThrow(path);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
-describe('service signals', () => {
+describe('repositories without a service', () => {
+  const DOCS = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  docs:
+    repoPath: ../docs
+    signals: [readme, guide]
+`;
+
+  // The motivating case: karst's own extension repo is edited, never run. Before
+  // this, registering it required inventing a fake start command and a fake port.
+  it('accepts a repository that declares no service', () => {
+    const { path, cleanup } = fixture(DOCS);
+    try {
+      const docs = loadManifest(path).repositories.docs!;
+      expect(docs.repoPath).toBe('../docs');
+      expect(docs.service).toBeUndefined();
+      expect(docs.signals).toEqual(['readme', 'guide']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('accepts a manifest whose repositories are ALL non-runnable', () => {
+    const { path, cleanup } = fixture(DOCS);
+    try {
+      expect(Object.keys(loadManifest(path).repositories)).toEqual(['docs']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // A half-migrated file leaves runtime fields at repository level, where they
+  // are inert — accepting them would silently turn a runnable repo into a
+  // non-runnable one and nothing would ever start.
+  it.each(['start: npm run dev', 'ports: []', 'dependsOn: []', 'health: "http://x"'])(
+    'rejects the stray repository-level runtime field %s',
+    (field) => {
+      const { path, cleanup } = fixture(`${DOCS}    ${field}\n`);
+      try {
+        expect(() => loadManifest(path)).toThrow(/at repository level/);
+        expect(() => loadManifest(path)).toThrow(/move it under/);
+      } finally {
+        cleanup();
+      }
+    },
+  );
+
+  // `health` is optional, and the settings UI seeds an empty input for it. Blank
+  // must therefore mean "not set", the way every other optional string in this
+  // manifest normalizes — not "invalid", which would report a required-field
+  // error for a field that is not required.
+  it('normalizes a blank health to unset rather than rejecting it', () => {
+    const yaml = `${DOCS}    service:\n      start: npm run dev\n      health: ""\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).repositories.docs!.service!.health).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('still rejects a non-string health', () => {
+    const yaml = `${DOCS}    service:\n      start: npm run dev\n      health: 42\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.health/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a declared service with no start command', () => {
+    const yaml = `${DOCS}    service:\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.start/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('tells the author to omit `service:` when a declared one has no ports', () => {
+    const yaml = `${DOCS}    service:\n      start: npm run dev\n      ports: []\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/omit the whole/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // You cannot bind to a port that does not exist.
+  it('rejects a dependsOn edge targeting a repository with no service', () => {
+    const yaml = `${VALID}  docs:\n    repoPath: ../docs\n`.replace(
+      'target: backend',
+      'target: docs',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/declares no service/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('legacy `services:` manifests', () => {
+  const LEGACY = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+services:
+  backend:
+    repoPath: ../backend
+    start: npm run dev
+    ports:
+      - { name: http, env: PORT, default: 3000 }
+    dependsOn: []
+    hasMigrations: true
+    signals: [api]
+`;
+
+  it('still loads, translating each entry into a repository with a service', () => {
+    const { path, cleanup } = fixture(LEGACY);
+    try {
+      const be = loadManifest(path).repositories.backend!;
+      expect(be.repoPath).toBe('../backend');
+      expect(be.hasMigrations).toBe(true);
+      expect(be.signals).toEqual(['api']);
+      expect(be.service!.start).toBe('npm run dev');
+      expect(be.service!.ports[0]!.default).toBe(3000);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('reports a deprecation warning naming the fix', () => {
+    const { path, cleanup } = fixture(LEGACY);
+    try {
+      const { warnings } = loadManifestWithDiagnostics(path);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(/legacy `services:` key/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('reports no warning for a current manifest', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifestWithDiagnostics(path).warnings).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Never guess which key is authoritative.
+  it('refuses a file carrying BOTH keys, naming the file', () => {
+    const { path, cleanup } = fixture(`${LEGACY}repositories:\n  docs:\n    repoPath: ../docs\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/both `repositories:` and the legacy/);
+      expect(() => loadManifest(path)).toThrow(path);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // An ordinary monorepo with two runnable processes: two legacy `services:`
+  // entries at the same repoPath. This used to load fine; PR #32 briefly made
+  // it a hard load-time failure (`assertDistinctRepoPaths`). Two repository
+  // entries sharing a repoPath is the INTENDED shape now — the worktree slug
+  // is per-ticket, not per-entry — so this must load end to end, migration
+  // included.
+  it('migrates two legacy entries sharing one repoPath into two repositories that still share it', () => {
+    const yaml = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+services:
+  api:
+    repoPath: ../mono
+    start: npm run api
+    ports:
+      - { name: http, env: PORT, default: 3000 }
+    dependsOn: []
+  web:
+    repoPath: ../mono
+    start: npm run web
+    ports:
+      - { name: http, env: PORT, default: 3001 }
+    dependsOn: []
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const { manifest, warnings } = loadManifestWithDiagnostics(path);
+      expect(warnings).toHaveLength(1);
+      expect(Object.keys(manifest.repositories)).toEqual(['api', 'web']);
+      expect(manifest.repositories.api!.repoPath).toBe('../mono');
+      expect(manifest.repositories.web!.repoPath).toBe('../mono');
+      expect(manifest.repositories.api!.service!.start).toBe('npm run api');
+      expect(manifest.repositories.web!.service!.start).toBe('npm run web');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('repository signals', () => {
   it('defaults signals to [] when omitted (unclassified)', () => {
     const { path, cleanup } = fixture(VALID);
     try {
       const m = loadManifest(path);
-      expect(m.services.backend!.signals).toEqual([]);
-      expect(m.services.frontend!.signals).toEqual([]);
+      expect(m.repositories.backend!.signals).toEqual([]);
+      expect(m.repositories.frontend!.signals).toEqual([]);
     } finally {
       cleanup();
     }
@@ -222,12 +446,12 @@ describe('service signals', () => {
 
   it('parses declared signal words', () => {
     const yaml = VALID.replace(
-      '    dependsOn: []\n  frontend:',
-      '    dependsOn: []\n    signals: [api, endpoint, migration]\n  frontend:',
+      '      dependsOn: []\n  frontend:',
+      '      dependsOn: []\n    signals: [api, endpoint, migration]\n  frontend:',
     );
     const { path, cleanup } = fixture(yaml);
     try {
-      expect(loadManifest(path).services.backend!.signals).toEqual([
+      expect(loadManifest(path).repositories.backend!.signals).toEqual([
         'api',
         'endpoint',
         'migration',
@@ -239,8 +463,8 @@ describe('service signals', () => {
 
   it('throws when a signal is not a non-empty string', () => {
     const yaml = VALID.replace(
-      '    dependsOn: []\n  frontend:',
-      '    dependsOn: []\n    signals: [api, ""]\n  frontend:',
+      '      dependsOn: []\n  frontend:',
+      '      dependsOn: []\n    signals: [api, ""]\n  frontend:',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -252,8 +476,8 @@ describe('service signals', () => {
 
   it('throws when signals is not an array', () => {
     const yaml = VALID.replace(
-      '    dependsOn: []\n  frontend:',
-      '    dependsOn: []\n    signals: nope\n  frontend:',
+      '      dependsOn: []\n  frontend:',
+      '      dependsOn: []\n    signals: nope\n  frontend:',
     );
     const { path, cleanup } = fixture(yaml);
     try {

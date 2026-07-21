@@ -10,35 +10,29 @@ import type { OnboardingActionsCtx } from './panel.js';
 import type { OnboardingHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
-import type { Manifest, ServiceDef } from '../../manifest/types.js';
+import type { Manifest, RepositoryDef } from '../../manifest/types.js';
+import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 
-function svc(over: Partial<ServiceDef> = {}): ServiceDef {
-  return {
-    repoPath: '/repo',
-    start: 'x',
-    ports: [{ name: 'port', env: 'PORT', default: 3000 }],
-    dependsOn: [],
-    hasMigrations: false,
-    ...over,
-  };
+function svc(over: Partial<RepositoryDef> = {}): RepositoryDef {
+  return runnableRepo({ start: 'x', ports: [slot('port', 'PORT', 3000)] }, over);
 }
 
-const MANIFEST: Manifest = {
-  host: 'localhost',
-  portRange: [4000, 4100],
-  baselineBranch: 'develop',
-  services: { fe: svc({ signals: ['ui'] }), be: svc({ signals: ['api'] }) },
-  approaches: [
-    {
-      id: 'rpi',
-      label: 'RPI',
-      recommended: true,
-      source: { type: 'git', repo: 'a/b', ref: 'main', include: ['.claude/agents'] },
-    },
-  ],
-  agents: {},
-  worktreePathDisplay: 'absolute',
-};
+const MANIFEST: Manifest = buildManifest(
+  { fe: svc({ signals: ['ui'] }), be: svc({ signals: ['api'] }) },
+  {
+    portRange: [4000, 4100],
+    approaches: [
+      {
+        id: 'rpi',
+        label: 'RPI',
+        recommended: true,
+        source: { type: 'git', repo: 'a/b', ref: 'main', include: ['.claude/agents'] },
+      },
+    ],
+    agents: {},
+    worktreePathDisplay: 'absolute',
+  },
+);
 
 const BRIEF: ContextBrief = {
   title: 'Login modal',

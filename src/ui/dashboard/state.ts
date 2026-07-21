@@ -44,6 +44,8 @@ export interface DashboardState {
    */
   now: NowLine;
   servers: ServerView[];
+  /** False when nothing in scope declares a service — nothing can ever start. */
+  hasRunnableRepos: boolean;
   worktrees: WorktreeView[];
   prs: PrView[];
   /** Configured ticketing provider ('clickup' | 'manual'); null when unknown. */
@@ -90,6 +92,13 @@ export function buildDashboardState(
    * to the installed package's `workflow`). Injected so this stays pure/testable.
    */
   approachPhases: (approachId: string | null) => string[] = () => [],
+  /**
+   * Whether a scoped repository declares a runnable service. Injected (the state
+   * builder never reads the manifest) and defaults to "assume runnable", so a
+   * caller that cannot resolve the manifest degrades to the previous behavior
+   * rather than hiding a working button.
+   */
+  isRepoRunnable: (repo: string) => boolean = () => true,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const stepper = buildStepper(ticket.stages);
@@ -114,6 +123,10 @@ export function buildDashboardState(
     currentStage,
     now: buildNowLine(currentStage, { fixAttempts }),
     servers: listServersByTicket(store, ticketId),
+    // Drives whether "Start servers" is offered at all. A ticket scoping only
+    // non-runnable repositories can never have a server, so presenting a live
+    // Start button there is a dead affordance dressed as an available action.
+    hasRunnableRepos: ticket.selectedRepos.some((r) => isRepoRunnable(r)),
     worktrees,
     prs,
     provider: ticketing?.provider ?? null,

@@ -11,6 +11,7 @@ import { renderHealthUrl } from './healthUrl.js';
 import { preflightSpin } from './preflight.js';
 import { getTicket } from '../store/tickets.js';
 import { worktreeSlug } from './slug.js';
+import { isRunnable } from '../manifest/runnable.js';
 
 export interface SpinResult {
   servers: ServerRecord[];
@@ -136,31 +137,37 @@ export async function spinTicket(
   try {
     bail();
 
-    // 1. create one worktree per hot repo (services sharing a repo share the
-    //    worktree — one slug per ticket, deduped by repoPath).
+    // 1. one worktree per hot REPOPATH — INCLUDING repositories that declare no
+    //    service. A non-runnable repo is still edited by the agent, so it needs
+    //    its branch; it just never reaches step 3. Repository entries may share
+    //    a repoPath (a monorepo with several runnable processes), and the
+    //    worktree slug is per-TICKET, so those entries intentionally map to one
+    //    worktree — dedup here, or the second `createWorktree` call would just
+    //    redundantly adopt what the first created.
     const worktreePath: Record<string, string> = {};
     const worktreeByRepo = new Map<string, WorktreeRecord>();
-    for (const service of hot) {
+    for (const name of hot) {
       bail();
-      const svc = manifest.services[service]!;
-      let wt = worktreeByRepo.get(svc.repoPath);
+      const repo = manifest.repositories[name]!;
+      let wt = worktreeByRepo.get(repo.repoPath);
       if (!wt) {
         wt = createWorktree(store, {
           ticketId,
-          repoPath: svc.repoPath,
+          repoPath: repo.repoPath,
           slug,
           baseRef: manifest.baselineBranch,
         });
-        worktreeByRepo.set(svc.repoPath, wt);
+        worktreeByRepo.set(repo.repoPath, wt);
         created.push(wt);
       }
-      worktreePath[service] = wt.path;
+      worktreePath[name] = wt.path;
     }
 
     // 2. ensure every baseline dependency is up + record the ref edge.
     const baselineDeps = new Set<string>();
-    for (const service of hot) {
-      for (const dep of resolved.services[service]!.baselineDeps) baselineDeps.add(dep);
+    for (const name of hot) {
+      // Non-runnable repos have no resolver entry and therefore no dependencies.
+      for (const dep of resolved.services[name]?.baselineDeps ?? []) baselineDeps.add(dep);
     }
     for (const dep of baselineDeps) {
       bail();
@@ -169,25 +176,29 @@ export async function spinTicket(
     }
 
     // 3. start hot services in dependency-first order, health-gating each.
-    for (const service of resolved.startOrder) {
+    for (const name of resolved.startOrder) {
       bail();
-      const svc = manifest.services[service]!;
-      const cwd = worktreePath[service]!;
-      const resolvedSvc = resolved.services[service]!;
+      const repo = manifest.repositories[name]!;
+      // startOrder is built from runnable repos only, so this never fires; the
+      // guard is what lets the compiler drop the old `!` on start/ports.
+      if (!isRunnable(repo)) continue;
+      const service = repo.service;
+      const cwd = worktreePath[name]!;
+      const resolvedSvc = resolved.services[name]!;
 
-      const spawnEnv = buildSpawnEnv(join(svc.repoPath, '.env'), resolvedSvc.env);
+      const spawnEnv = buildSpawnEnv(join(repo.repoPath, '.env'), resolvedSvc.env);
       // Expand ${PORT}-style tokens against the resolved env so a manifest can
       // pin the port in the command (independent of the worktree's own config).
-      const { command, args } = splitCommand(expandEnvTokens(svc.start, spawnEnv));
-      const httpSlot = svc.ports.find((p) => p.name === 'http') ?? svc.ports[0]!;
+      const { command, args } = splitCommand(expandEnvTokens(service.start, spawnEnv));
+      const httpSlot = service.ports.find((p) => p.name === 'http') ?? service.ports[0]!;
       const ownPort = resolvedSvc.ports[httpSlot.name]!;
-      const healthUrl = svc.health
-        ? renderHealthUrl(svc.health, manifest.host, ownPort)
+      const healthUrl = service.health
+        ? renderHealthUrl(service.health, manifest.host, ownPort)
         : `http://${manifest.host}:${ownPort}/health`;
 
       const rec = await startHot(store, {
         ticketId,
-        service,
+        service: name,
         command,
         args,
         cwd,
@@ -195,7 +206,7 @@ export async function spinTicket(
         host: manifest.host,
         port: ownPort,
         healthUrl,
-        logPath: join(cwd, `${service}.log`),
+        logPath: join(cwd, `${name}.log`),
         signal,
       });
       servers.push(rec);

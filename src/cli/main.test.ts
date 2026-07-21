@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseGlobalFlags, runCli } from './main.js';
@@ -75,5 +75,88 @@ describe('runCli — stage marker', () => {
 
   it('names every verb it accepts when the subcommand is unknown', () => {
     expect(() => runCli(['bogus', '--db', dbPath])).toThrow(/phase/);
+  });
+});
+
+describe('runCli — legacy manifest deprecation warning', () => {
+  let dir: string;
+  let dbPath: string;
+  let legacyManifestPath: string;
+
+  const LEGACY_MANIFEST = `
+id: proj
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+services:
+  backend:
+    repoPath: ../backend
+    start: npm run dev
+    ports:
+      - { name: http, env: PORT, default: 3000 }
+`;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-legacy-'));
+    dbPath = join(dir, 'karst.db');
+    legacyManifestPath = join(dir, 'karst.yml');
+    writeFileSync(legacyManifestPath, LEGACY_MANIFEST);
+    const seed = openStore(dbPath);
+    createTicket(seed, { key: 'K-1', title: 'demo' });
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('writes the legacy-manifest warning to stderr, prefixed `karst: `, and keeps stdout clean', () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const out = runCli(['context', 'K-1', '--db', dbPath, '--manifest', legacyManifestPath]);
+
+      expect(out).not.toMatch(/legacy/i);
+      expect(out).not.toMatch(/karst:/);
+
+      const written = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(written).toMatch(/^karst: /m);
+      expect(written).toMatch(/legacy `services:` key/);
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
+  it('surfaces the warning for the stage marker path too (loadProjectSlug)', () => {
+    transition(openStore(dbPath), 1, 'scope', { kind: 'passed' });
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1', '--manifest', legacyManifestPath]);
+      const written = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(written).toMatch(/karst: .*legacy `services:` key/);
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
+  it('reports no warning for a current (non-legacy) manifest', () => {
+    const currentPath = join(dir, 'current.yml');
+    writeFileSync(
+      currentPath,
+      `
+id: proj2
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+`,
+    );
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      runCli(['context', 'K-1', '--db', dbPath, '--manifest', currentPath]);
+      const written = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(written).not.toMatch(/legacy/i);
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 });

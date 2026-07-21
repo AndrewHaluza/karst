@@ -544,7 +544,7 @@
       + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '');
   }
 
-  function renderServers(servers) {
+  function renderServers(servers, hasRunnableRepos) {
     el('srvCount').textContent = servers.length ? `${servers.length}` : '';
     el('servers').innerHTML = servers.length ? servers.map((s) => {
       // Online = filled green (status light); offline = hollow ring (see .sdot.off).
@@ -565,9 +565,13 @@
         + addr
         + `<span class="sacts">${acts}</span></div>`;
     }).join('')
-      // No servers → a live affordance to spin them (todo-5: was a dead end).
-      : `<div class="empty">No servers running.`
-        + ` <button data-act="spin-servers">Start servers</button></div>`;
+      // No servers. Offer to spin ONLY when something in scope can actually run —
+      // otherwise the button is a dead end, and "No servers running" would imply
+      // a state that is achievable when it is not.
+      : (hasRunnableRepos === false
+        ? `<div class="empty">No runnable services in scope.</div>`
+        : `<div class="empty">No servers running.`
+          + ` <button data-act="spin-servers">Start servers</button></div>`);
   }
 
   function renderWorktrees(wts) {
@@ -645,7 +649,7 @@
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
     renderNow(state.now);
-    renderServers(state.servers);
+    renderServers(state.servers, state.hasRunnableRepos);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs);
   }

@@ -78,7 +78,7 @@ function healTerminalStages(store: Store, ticketId: number, stages: Stage[]): St
 interface ServerRow {
   id: number;
   ticket_id: number | null;
-  service: string;
+  repo: string;
   pid: number | null;
   status: string;
 }
@@ -103,7 +103,7 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
     }
 
     const running = store.db
-      .prepare("SELECT id, ticket_id, service, pid, status FROM servers WHERE status = 'running'")
+      .prepare("SELECT id, ticket_id, repo, pid, status FROM servers WHERE status = 'running'")
       .all() as ServerRow[];
 
     // Mark dead 'running' rows as stopped (pid nulled) rather than deleting, so
@@ -118,7 +118,7 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
         deadServers.push({
           id: row.id,
           ticketId: row.ticket_id,
-          service: row.service,
+          service: row.repo,
           pid: row.pid,
         });
       }

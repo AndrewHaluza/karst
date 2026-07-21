@@ -1,25 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { buildSettingsState } from './state.js';
 import type { Manifest } from '../../manifest/types.js';
+import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 
-const M: Manifest = {
-  host: 'localhost',
-  portRange: [4000, 4999],
-  baselineBranch: 'develop',
-  services: {
-    backend: {
-      repoPath: '../backend',
-      start: 'npm run dev',
-      ports: [{ name: 'port', env: 'PORT', default: 3000 }],
-      dependsOn: [],
-      hasMigrations: false,
-      signals: [],
-    },
+const M: Manifest = buildManifest(
+  {
+    backend: runnableRepo(
+      { ports: [slot('port', 'PORT', 3000)] },
+      { repoPath: '../backend', signals: [] },
+    ),
   },
-  approaches: [{ id: 'tdd', label: 'TDD', recommended: true }],
-  agents: { implement: { role: 'implement', command: 'claude' } },
-  worktreePathDisplay: 'relative',
-};
+  {
+    portRange: [4000, 4999],
+    approaches: [{ id: 'tdd', label: 'TDD', recommended: true }],
+    agents: { implement: { role: 'implement', command: 'claude' } },
+    worktreePathDisplay: 'relative',
+  },
+);
 
 describe('buildSettingsState', () => {
   it('carries the whole manifest and a null error by default', () => {

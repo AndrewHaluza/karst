@@ -15,32 +15,66 @@ export interface BindVar {
 }
 
 export interface DependsOn {
-  target: string; // another service name
-  port: string; // a port slot name on the target
+  target: string; // another repository name (which must declare a service)
+  port: string; // a port slot name on the target's service
   bind: BindVar[]; // env var(s) rendered from the target's (host, port)
 }
 
+/**
+ * The RUNNABLE ASPECT of a repository — an optional relation, not an entity.
+ *
+ * Everything here is meaningless without a process to run: a start command, the
+ * ports that process binds, the URL that proves it came up, and the peers it
+ * needs addresses for. A repository that is only ever edited (karst's own
+ * extension repo, a docs tree, a shared-config package) declares no service and
+ * therefore cannot carry any of these fields — which is the point. Before this
+ * split they were mandatory, so such a repository could only be registered by
+ * inventing a fake `start` and a fake port.
+ *
+ * `repoPath`, `hasMigrations` and `signals` live on `RepositoryDef` instead:
+ * they describe the source tree, and stay true whether or not anything runs.
+ */
 export interface ServiceDef {
-  repoPath: string;
   start: string;
   health?: string;
-  ports: PortSlot[];
+  ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
   dependsOn: DependsOn[];
+}
+
+/**
+ * The PRIMARY ENTITY: a git repository karst can worktree, scope to a ticket,
+ * classify, and ship. Runnability is the optional part (`service`), not the
+ * assumption.
+ */
+export interface RepositoryDef {
+  repoPath: string;
   /**
-   * [M2] Author-declared: does this service run DB migrations? Drives T4.2's
-   * "not first-class under shared-DB" warning. Deterministic (not a filesystem
-   * heuristic) so the resolver/scope path stays pure. Defaults false.
+   * [M2] Author-declared: does this repository carry DB migrations? Drives
+   * T4.2's "not first-class under shared-DB" warning. Deterministic (not a
+   * filesystem heuristic) so the resolver/scope path stays pure. Repository-level
+   * because a migration is something the source tree CONTAINS — a repo with no
+   * runnable service can still hold migrations. Defaults false.
    */
   hasMigrations: boolean;
   /**
    * Repo-classifier signal words (title/description/tag tokens that point a
-   * ticket at this service). Authored ahead of ticket time; empty/absent = the
-   * service is "unclassified" and the onboarding classify-gate prompts for
-   * signals. `validateManifest` always populates this (defaulting `[]`); it is
-   * optional on the type only so hand-built fixtures need not supply it. Read it
-   * via `isServiceClassified` / `?? []`, never assume presence.
+   * ticket at this repository). Authored ahead of ticket time; empty/absent =
+   * the repository is "unclassified" and the onboarding classify-gate prompts
+   * for signals. `validateManifest` always populates this (defaulting `[]`); it
+   * is optional on the type only so hand-built fixtures need not supply it. Read
+   * it via `isRepoClassified` / `?? []`, never assume presence.
+   *
+   * Repository-level: a non-runnable repo still has to be classifiable, or no
+   * ticket could ever be routed to it.
    */
   signals?: string[];
+  /**
+   * The runnable relation. ABSENT means this repository is not runnable — that
+   * is a valid, first-class state, never an error and never a sentinel. Gate on
+   * it via `isRunnable` (`manifest/runnable.ts`) rather than testing the field
+   * directly, so the narrowing is done in one place.
+   */
+  service?: ServiceDef;
 }
 
 /**
@@ -147,7 +181,12 @@ export interface Manifest {
   host: string;
   portRange: [number, number];
   baselineBranch: string;
-  services: Record<string, ServiceDef>;
+  /**
+   * Every repository karst knows about, keyed by the name tickets and the
+   * registry refer to it by. Was `services` before repositories became the
+   * primary entity; `manifest/migrate.ts` translates the legacy key on load.
+   */
+  repositories: Record<string, RepositoryDef>;
   /**
    * Onboarding development approaches; `validateManifest` always sets this
    * (`[]` when none configured). Optional on the type only so hand-built

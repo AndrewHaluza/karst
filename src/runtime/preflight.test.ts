@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Manifest, ServiceDef } from '../manifest/types.js';
+import type { Manifest, RepositoryDef } from '../manifest/types.js';
+import {
+  manifest as buildManifest,
+  repo as bareRepo,
+  runnableRepo,
+} from '../manifest/fixtures.js';
 import { preflightSpin, SpinError } from './preflight.js';
 
 function git(cwd: string, ...args: string[]): void {
@@ -23,18 +28,16 @@ function makeRepo(branch: string): string {
   return dir;
 }
 
-function svc(repoPath: string): ServiceDef {
-  return {
-    repoPath,
-    start: 'node server.mjs',
-    ports: [{ name: 'http', env: 'PORT', default: 3000 }],
-    dependsOn: [],
-    hasMigrations: false,
-  };
+function svc(repoPath: string): RepositoryDef {
+  return runnableRepo({ start: 'node server.mjs' }, { repoPath });
 }
 
-function manifest(baselineBranch: string, services: Record<string, ServiceDef>): Manifest {
-  return { host: '127.0.0.1', portRange: [4000, 4100], baselineBranch, services };
+function manifest(baselineBranch: string, repos: Record<string, RepositoryDef>): Manifest {
+  return buildManifest(repos, {
+    host: '127.0.0.1',
+    portRange: [4000, 4100],
+    baselineBranch,
+  });
 }
 
 describe('preflightSpin', () => {
@@ -58,6 +61,12 @@ describe('preflightSpin', () => {
     expect(() =>
       preflightSpin(manifest('develop', { frontend: svc(r) }), '1-frontend', ['frontend']),
     ).not.toThrow();
+  });
+
+  it('names the repository, not a service, when it is missing from the manifest', () => {
+    expect(() => preflightSpin(manifest('develop', {}), '1-x', ['ghost'])).toThrow(
+      /repository 'ghost' is not in the manifest/,
+    );
   });
 
   it('throws SpinError naming the branch + repo when the baseline branch is missing', () => {
@@ -91,21 +100,65 @@ describe('preflightSpin', () => {
     ).toThrow(SpinError);
   });
 
-  it('dedupes a repo backing multiple hot services — one problem line, not two', () => {
-    const r = repo('main'); // missing develop
+  // Two DISTINCT repositories are each checked once — no cross-repo dedup here.
+  it('reports each hot repository once', () => {
+    const a = repo('main'); // missing develop
+    const b = repo('main');
     try {
-      preflightSpin(
-        manifest('develop', { api: svc(r), web: svc(r) }),
-        '1-shared',
-        ['api', 'web'],
-      );
+      preflightSpin(manifest('develop', { api: svc(a), web: svc(b) }), '1-shared', ['api', 'web']);
       throw new Error('expected throw');
     } catch (err) {
       const msg = (err as SpinError).message;
-      // the repo path appears once, not once per service
-      const occurrences = msg.split(r).length - 1;
-      expect(occurrences).toBe(1);
+      expect(msg.split(a).length - 1).toBe(1);
+      expect(msg.split(b).length - 1).toBe(1);
     }
+  });
+
+  // Two repository ENTRIES sharing one repoPath (a monorepo with two runnable
+  // processes) are checked once, not once per entry — otherwise the same
+  // problem is reported twice for what is physically one repository. Restores
+  // the dedup 53314d6 added and b7f223d wrongly deleted (it deleted the dedup
+  // AND the validation that made shared repoPaths reachable at all — see
+  // manifest/validate/graph.ts).
+  it('dedupes a repo backing multiple hot repository entries — one problem line, not two', () => {
+    const r = repo('main'); // missing develop
+    try {
+      preflightSpin(manifest('develop', { api: svc(r), web: svc(r) }), '1-shared', ['api', 'web']);
+      throw new Error('expected throw');
+    } catch (err) {
+      const msg = (err as SpinError).message;
+      // the repo path appears once, not once per repository entry
+      expect(msg.split(r).length - 1).toBe(1);
+    }
+  });
+
+  // The target-check loop (worktree path/branch) dedups the same way: one
+  // slug per ticket means two entries sharing a repoPath map to the same
+  // worktree path and branch, which is the intended outcome, not a collision.
+  it('dedupes the target check for two hot repository entries in one repo (one slug per ticket)', () => {
+    const r = repo('develop');
+    // Our own worktree at the shared slug path — created once for the repo.
+    // With per-entry slugs this would false-flag the second entry; deduped it
+    // must pass.
+    const ownWt = join(r, '.karst', 'worktrees', '1-shared');
+    git(r, 'worktree', 'add', '-q', '-b', 'karst/1-shared', ownWt, 'develop');
+    expect(() =>
+      preflightSpin(manifest('develop', { api: svc(r), web: svc(r) }), '1-shared', ['api', 'web']),
+    ).not.toThrow();
+  });
+
+  // A repository with no service still gets a worktree, so its git preconditions
+  // matter exactly as much as a runnable one's.
+  it('checks a repository that declares no service', () => {
+    const r = repo('main'); // missing develop
+    const m = manifest('develop', { docs: bareRepo({ repoPath: r }) });
+    expect(() => preflightSpin(m, '1-docs', ['docs'])).toThrow(SpinError);
+  });
+
+  it('passes a non-runnable repository whose git preconditions are met', () => {
+    const r = repo('develop');
+    const m = manifest('develop', { docs: bareRepo({ repoPath: r }) });
+    expect(() => preflightSpin(m, '1-docs', ['docs'])).not.toThrow();
   });
 
   it('passes when the target branch exists but is free (recoverable — attach)', () => {
@@ -142,18 +195,17 @@ describe('preflightSpin', () => {
     }
   });
 
-  it('dedupes the target check for two hot services in one repo (one slug per ticket)', () => {
-    const r = repo('develop');
-    // Our own worktree at the shared slug path — created once for the repo. With
-    // per-service slugs this would false-flag the second service; deduped it must pass.
-    const ownWt = join(r, '.karst', 'worktrees', '1-shared');
-    git(r, 'worktree', 'add', '-q', '-b', 'karst/1-shared', ownWt, 'develop');
+  it('adopts this ticket\'s own worktree across several hot repositories', () => {
+    const a = repo('develop');
+    const b = repo('develop');
+    // One slug per ticket, so each repo has its own worktree at the same slug —
+    // both already ours, so this is a resumable spin, not a collision.
+    for (const r of [a, b]) {
+      git(r, 'worktree', 'add', '-q', '-b', 'karst/1-shared',
+          join(r, '.karst', 'worktrees', '1-shared'), 'develop');
+    }
     expect(() =>
-      preflightSpin(
-        manifest('develop', { api: svc(r), web: svc(r) }),
-        '1-shared',
-        ['api', 'web'],
-      ),
+      preflightSpin(manifest('develop', { api: svc(a), web: svc(b) }), '1-shared', ['api', 'web']),
     ).not.toThrow();
   });
 

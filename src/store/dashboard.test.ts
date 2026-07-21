@@ -17,7 +17,7 @@ function seedServer(
 ): void {
   store.db
     .prepare(
-      `INSERT INTO servers (ticket_id, service, host, port, pid, status, log_path)
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
        VALUES (?, ?, 'localhost', ?, 111, ?, '/tmp/x.log')`,
     )
     .run(ticketId, service, port, status);
@@ -45,8 +45,8 @@ describe('dashboard store queries', () => {
     const a = createTicket(store, { key: 'A', title: 'a' });
     seedServer(store, a.id, 'web', 5173, 'running');
     seedServer(store, a.id, 'api', 8000, 'stopped');
-    const running = store.db.prepare("SELECT id FROM servers WHERE service='web'").get() as { id: number };
-    const stopped = store.db.prepare("SELECT id FROM servers WHERE service='api'").get() as { id: number };
+    const running = store.db.prepare("SELECT id FROM servers WHERE repo='web'").get() as { id: number };
+    const stopped = store.db.prepare("SELECT id FROM servers WHERE repo='api'").get() as { id: number };
 
     expect(serverAddress(store, running.id)).toEqual({ host: 'localhost', port: 5173 });
     expect(serverAddress(store, stopped.id)).toBeNull(); // not running

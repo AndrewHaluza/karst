@@ -7,6 +7,7 @@ import { openStore, type Store } from '../store/db.js';
 import { stopServer } from './supervisor.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
 import type { Manifest } from '../manifest/types.js';
+import { httpSlot, manifest as buildManifest, runnableRepo } from '../manifest/fixtures.js';
 
 function git(cwd: string, ...args: string[]): string {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -52,21 +53,19 @@ function makeRepo(): string {
 }
 
 function manifest(repoPath: string, port: number): Manifest {
-  return {
-    host: '127.0.0.1',
-    portRange: [4000, 4999],
-    baselineBranch: 'develop',
-    services: {
-      backend: {
-        repoPath,
-        start: `node server.mjs`,
-        health: `http://{host}:{port}/health`,
-        ports: [{ name: 'http', env: 'PORT', default: port }],
-        dependsOn: [],
-        hasMigrations: false,
-      },
+  return buildManifest(
+    {
+      backend: runnableRepo(
+        {
+          start: 'node server.mjs',
+          health: 'http://{host}:{port}/health',
+          ports: [httpSlot(port)],
+        },
+        { repoPath },
+      ),
     },
-  };
+    { host: '127.0.0.1' },
+  );
 }
 
 describe('baseline pool', () => {
@@ -108,7 +107,7 @@ describe('baseline pool', () => {
     expect(second.pid).toBe(first.pid); // same process
     expect(second.id).toBe(first.id);
     const rows = store.db
-      .prepare("SELECT COUNT(*) AS n FROM servers WHERE service = 'backend' AND status = 'running'")
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE repo = 'backend' AND status = 'running'")
       .get() as { n: number };
     expect(rows.n).toBe(1); // exactly one baseline
   });
@@ -116,12 +115,12 @@ describe('baseline pool', () => {
   it('addBaselineRef records the ledger edge', () => {
     addBaselineRef(store, 5, 'backend');
     const row = store.db
-      .prepare('SELECT ticket_id, service FROM baseline_refs WHERE ticket_id = ? AND service = ?')
-      .get(5, 'backend') as { ticket_id: number; service: string } | undefined;
-    expect(row).toEqual({ ticket_id: 5, service: 'backend' });
+      .prepare('SELECT ticket_id, repo FROM baseline_refs WHERE ticket_id = ? AND repo = ?')
+      .get(5, 'backend') as { ticket_id: number; repo: string } | undefined;
+    expect(row).toEqual({ ticket_id: 5, repo: 'backend' });
   });
 
-  it('addBaselineRef is idempotent (PK on ticket+service)', () => {
+  it('addBaselineRef is idempotent (PK on ticket+repo)', () => {
     addBaselineRef(store, 5, 'backend');
     addBaselineRef(store, 5, 'backend');
     const n = store.db

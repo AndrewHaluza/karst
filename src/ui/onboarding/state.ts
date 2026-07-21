@@ -1,11 +1,12 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import type { Manifest, ApproachDef, TicketProvider } from '../../manifest/types.js';
-import { unclassifiedServices, scoreRepos } from '../../workflow/classify/gate.js';
+import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { KNOWN_MODELS, type ModelOption } from '../../agent/models.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
+import { isRunnable } from '../../manifest/runnable.js';
 
 /**
  * Serializable state for the onboarding page (§ onboarding). One surface serves
@@ -14,11 +15,18 @@ import { providerTicketUrl } from '../../integrations/ticketUrl.js';
  * crosses the postMessage boundary and survives a webview reload.
  */
 
-/** One repo row: a service, its signals, its classifier score, and selection. */
+/** One repo row: a repository, its signals, its classifier score, and selection. */
 export interface RepoRow {
+  /** Repository name. Field kept as `service` for the webview wire protocol. */
   service: string;
   signals: string[];
   score: number;
+  /**
+   * False when the repository declares no service. The picker still offers it —
+   * this only drives the "worktree only, nothing starts" hint, so the user is
+   * told rather than surprised.
+   */
+  runnable: boolean;
   selected: boolean;
 }
 
@@ -126,27 +134,31 @@ export function buildOnboardingState(
 ): OnboardingState {
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
-  const unclassified = unclassifiedServices(manifest);
+  const unclassified = unclassifiedRepos(manifest);
   const provider: TicketProvider = manifest.ticketing?.provider ?? 'manual';
 
-  const serviceEntries = Object.entries(manifest.services);
+  const repoEntries = Object.entries(manifest.repositories);
   /**
-   * One row per service. `scores` maps service→classifier score (empty in
-   * create mode, before any ticket text exists). Selection precedence: an
-   * explicit `selectedSet` wins; with no explicit pick yet, auto-select a
-   * service that scored a hit OR the lone service (single-service stack has no
-   * choice to make, so it is always pre-checked).
+   * One row per repository — runnable or not. A repository with no service is
+   * still fully selectable: it gets a worktree so the agent can edit it, which
+   * is the whole point of scoping karst's own extension repo to a ticket.
+   *
+   * `scores` maps repo→classifier score (empty in create mode, before any ticket
+   * text exists). Selection precedence: an explicit `selectedSet` wins; with no
+   * explicit pick yet, auto-select a repository that scored a hit OR the lone
+   * repository (a single-repo stack has no choice to make).
    */
-  const soleService = serviceEntries.length === 1;
+  const soleRepo = repoEntries.length === 1;
   const makeRepos = (selectedSet: Set<string>, scores: Map<string, number>): RepoRow[] => {
     const hasExplicit = selectedSet.size > 0;
-    return serviceEntries.map(([service, svc]) => {
-      const score = scores.get(service) ?? 0;
+    return repoEntries.map(([name, def]) => {
+      const score = scores.get(name) ?? 0;
       return {
-        service,
-        signals: svc.signals ?? [],
+        service: name,
+        signals: def.signals ?? [],
         score,
-        selected: hasExplicit ? selectedSet.has(service) : score > 0 || soleService,
+        runnable: isRunnable(def),
+        selected: hasExplicit ? selectedSet.has(name) : score > 0 || soleRepo,
       };
     });
   };
@@ -184,7 +196,7 @@ export function buildOnboardingState(
       title: ticket.title ?? '',
       description: ticket.description ?? '',
       tags: [],
-    }).map((r) => [r.service, r.score]),
+    }).map((r) => [r.repo, r.score]),
   );
   return {
     mode: 'edit',
