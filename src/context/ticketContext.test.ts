@@ -112,6 +112,70 @@ describe('renderTicketContext', () => {
     expect(md).toContain('## Services');
   });
 
+  describe('merge checks', () => {
+    function seedPr(id: number): void {
+      store.db
+        .prepare(
+          "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'frontend', 42, 'https://x/pr/42', 'open')",
+        )
+        .run(id);
+    }
+
+    function record(id: number, state: string, files: string[], reason: string | null): void {
+      store.db
+        .prepare(
+          `INSERT INTO merge_checks (ticket_id, repo, state, files, reason, head_sha, base_sha, base_ref, checked_at)
+           VALUES (?, 'frontend', ?, ?, ?, 'aaa', 'bbb', 'main', '2026-07-21T10:00:00.000Z')`,
+        )
+        .run(id, state, JSON.stringify(files), reason);
+    }
+
+    // A ticket shipped before merge checks existed must render byte-identically,
+    // and its JSON must carry no new key — the CLI's consumers are agents.
+    it('omits the merge suffix entirely when nothing was ever checked', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'x' });
+      seedPr(t.id);
+      const ctx = buildTicketContext(store, undefined, t.id);
+
+      expect(ctx.prs[0]).not.toHaveProperty('mergeCheck');
+      expect(renderTicketContext(ctx)).toContain('- frontend #42 [open] — https://x/pr/42');
+      expect(renderTicketContext(ctx)).not.toContain('merge:');
+    });
+
+    it('renders a clean check on the PR line', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'x' });
+      seedPr(t.id);
+      record(t.id, 'clean', [], null);
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, t.id));
+
+      expect(md).toContain('· merge: clean');
+    });
+
+    it('renders a conflict with the conflicting files', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'x' });
+      seedPr(t.id);
+      record(t.id, 'conflicted', ['src/a.ts', 'src/b.ts'], null);
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, t.id));
+
+      expect(md).toContain('merge: conflicted (2 files: src/a.ts, src/b.ts)');
+    });
+
+    // An agent reading this must be able to tell "checked, fine" from "we do not
+    // know", and must get git's own words to act on.
+    it('renders an unknown check with git’s reason, never as clean', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'x' });
+      seedPr(t.id);
+      record(t.id, 'unknown', [], "fatal: couldn't find remote ref main");
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, t.id));
+
+      expect(md).toContain("merge: unknown (fatal: couldn't find remote ref main)");
+      expect(md).not.toContain('merge: clean');
+    });
+  });
+
   it('omits empty sections and falls back to the heading for an empty ticket', () => {
     const t = createTicket(store, { key: '', title: '' });
     const ctx = buildTicketContext(store, undefined, t.id);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { commitAllIfDirty, pushBranch, type GitRunner } from './git.js';
+import { commitAllIfDirty, pushBranch, defaultGitRunner, runGit, type GitRunner } from './git.js';
 
 /** Runner whose reply is keyed by the git subcommand; succeeds silently otherwise. */
 function scriptedGit(
@@ -99,5 +99,49 @@ describe('pushBranch', () => {
   it('falls back to the exit code when git said nothing at all', async () => {
     const git: GitRunner = async () => ({ stdout: '', stderr: '', exitCode: 1 });
     await expect(pushBranch(git, '/wt/fe')).rejects.toThrow(/git exit 1/);
+  });
+});
+
+describe('defaultGitRunner', () => {
+  it('returns git’s stdout and a zero exit for a command that succeeds', async () => {
+    const r = await defaultGitRunner(['--version'], process.cwd());
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/^git version /);
+  });
+
+  it('reports the exit code and stderr rather than throwing, so the caller decides', async () => {
+    const r = await defaultGitRunner(['rev-parse', 'definitely-not-a-ref'], process.cwd());
+
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr.trim()).not.toBe('');
+  });
+
+  // Same invariant as `gates/run.ts`, and now for a stronger reason: the ship path
+  // fetches from a remote, so a synchronous spawn would freeze the extension host —
+  // hook endpoint, every webview, every other session — for a network round trip.
+  it('leaves the event loop free while git runs', async () => {
+    let ticks = 0;
+    const timer = setInterval(() => (ticks += 1), 10);
+    // `git help -a` is pure-local and reliably slow enough to observe.
+    await runGit(['log', '--oneline', '-n', '200'], process.cwd());
+    clearInterval(timer);
+    expect(ticks).toBeGreaterThan(0);
+  });
+
+  // A hung git (an unreachable remote, a credential prompt) must not hold ship
+  // open forever. The timeout is an answer, not an exception.
+  it('kills a hung git and answers with a nonzero exit and a timeout reason', async () => {
+    const r = await runGit(['-c', 'alias.hang=!sleep 5', 'hang'], process.cwd(), 150);
+
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toMatch(/timed out/i);
+  });
+
+  it('answers with a reason when git itself cannot be spawned', async () => {
+    const r = await runGit(['--version'], '/nonexistent-directory-for-karst-test');
+
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr.trim()).not.toBe('');
   });
 });

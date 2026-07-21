@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -161,6 +161,33 @@ export function migrate(db: Database): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stage_key, id)',
     );
+  }
+
+  if (current < 9) {
+    // v9 records whether each shipped branch still merges into its base. Fresh DBs
+    // already carry it (schema.sql), so the IF NOT EXISTS makes this a no-op there
+    // and purely additive on a legacy DB. Nothing on `stages` or `prs` is touched.
+    //
+    // NOT backfilled, and cannot be: mergeability is a live property of two refs
+    // that have both moved since. Computing it here would need a fetch per repo
+    // from inside a migration, and writing down today's answer as though it were
+    // the answer at ship time is exactly the inference the no-inference guarantee
+    // forbids. Already-shipped tickets simply show no merge check until their next
+    // ship — absence renders as nothing, never as "clean".
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS merge_checks (
+        ticket_id     INTEGER NOT NULL,
+        repo          TEXT NOT NULL,
+        state         TEXT NOT NULL,
+        files         TEXT NOT NULL,
+        reason        TEXT,
+        head_sha      TEXT,
+        base_sha      TEXT,
+        base_ref      TEXT,
+        checked_at    TEXT NOT NULL,
+        PRIMARY KEY (ticket_id, repo)
+      )
+    `);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

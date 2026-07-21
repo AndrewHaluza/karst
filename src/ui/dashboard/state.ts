@@ -16,6 +16,7 @@ import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { buildStageInside, type StageInside } from '../../model/inside/index.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
+import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import { countFixAttempts } from '../../workflow/fixAttempts.js';
@@ -125,6 +126,7 @@ export function buildDashboardState(
       gateRuns: listGateRuns(store, ticketId),
       worktrees,
       prs,
+      mergeChecks: listMergeChecksByTicket(store, ticketId),
       session: {
         sessionId: ticket.sessionId,
         agentState: ticket.agentState,

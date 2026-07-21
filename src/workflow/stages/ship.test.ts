@@ -6,6 +6,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
+import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { transition } from '../machine.js';
 import { shipTicket } from './ship.js';
 import type { GhRunner } from '../../integrations/github.js';
@@ -71,6 +72,31 @@ function fakeGit(): { git: GitRunner; calls: { args: string[]; cwd: string }[] }
   return { git, calls };
 }
 
+/**
+ * The git verbs that CHANGE something. Ship also runs a read-only merge probe
+ * (`fetch` / `rev-parse` / `merge-tree`) on every invocation, and the assertions
+ * below are about what ship *does to the repo* — an idempotency test that broke
+ * because a probe read the remote would be testing the wrong thing.
+ */
+const MUTATING = new Set(['status', 'add', 'commit', 'push']);
+function mutating<T extends { args: string[] }>(calls: T[]): T[] {
+  return calls.filter((c) => MUTATING.has(c.args[0]!));
+}
+
+/**
+ * git that answers the merge probe: fetch works, both refs resolve, merge-tree
+ * reports the given outcome. Everything else (status/add/commit/push) succeeds.
+ */
+function gitWithMergeProbe(probe: { exitCode: number; stdout?: string; stderr?: string }): GitRunner {
+  return async (args) => {
+    if (args[0] === 'rev-parse') return { stdout: 'abc1234\n', stderr: '', exitCode: 0 };
+    if (args[0] === 'merge-tree') {
+      return { stdout: probe.stdout ?? '', stderr: probe.stderr ?? '', exitCode: probe.exitCode };
+    }
+    return { stdout: '', stderr: '', exitCode: 0 };
+  };
+}
+
 function fakeAdapter(): AgentAdapter {
   return {
     runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'Generated PR body.' }),
@@ -104,7 +130,7 @@ describe('shipTicket', () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const order: string[] = [];
     const git: GitRunner = async (args, cwd) => {
-      order.push(`git ${args[0]}`);
+      if (MUTATING.has(args[0]!)) order.push(`git ${args[0]}`);
       expect(cwd).toBe(join(dir, 'fe'));
       return { stdout: '', stderr: '', exitCode: 0 };
     };
@@ -140,7 +166,7 @@ describe('shipTicket', () => {
 
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), recording);
 
-    expect(calls).toEqual([
+    expect(mutating(calls.map((args) => ({ args }))).map((c) => c.args)).toEqual([
       ['status', '--porcelain'],
       ['add', '-A'],
       ['commit', '-m', 'add search'],
@@ -180,7 +206,7 @@ describe('shipTicket', () => {
 
     expect([...new Set(calls.map((c) => c.cwd))].sort()).toEqual([join(dir, 'be'), join(dir, 'fe')]);
     // Clean worktrees (the fake reports no changes) → status only, then push.
-    for (const c of calls) expect(c.args[0]).toMatch(/^(status|push)$/);
+    for (const c of mutating(calls)) expect(c.args[0]).toMatch(/^(status|push)$/);
     expect(calls.filter((c) => c.args[0] === 'push').map((c) => c.args)).toEqual([
       ['push', '-u', 'origin', 'HEAD'],
       ['push', '-u', 'origin', 'HEAD'],
@@ -221,7 +247,7 @@ describe('shipTicket', () => {
 
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
 
-    expect(calls).toEqual([]);
+    expect(mutating(calls)).toEqual([]);
   });
 
   it('opens one PR per hot repo and writes rows to prs', async () => {
@@ -308,7 +334,7 @@ describe('shipTicket', () => {
       await shipTicket(store, { ticketId: id }, second.gh, fakeAdapter(), git);
 
       expect(second.args).toEqual([]);
-      expect(calls).toEqual([]);
+      expect(mutating(calls)).toEqual([]);
       expect(listPrsByTicket(store, id)).toHaveLength(1);
     });
 
@@ -335,6 +361,131 @@ describe('shipTicket', () => {
     const { gh } = fakeGh();
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
     expect(getTicket(store, id).stageCurrent).toBe('done');
+  });
+
+  // Ship used to advance to `done` without ever asking whether the branch could
+  // merge, so a ticket could finish carrying a PR nobody could land.
+  describe('merge conflict tracking', () => {
+    it('records a clean check for each shipped repo', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      const { gh } = fakeGh();
+
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), gitWithMergeProbe({ exitCode: 0 }));
+
+      const checks = listMergeChecksByTicket(store, id);
+      expect(checks.map((c) => [c.repo, c.state])).toEqual([
+        ['/repo/backend', 'clean'],
+        ['/repo/frontend', 'clean'],
+      ]);
+      expect(checks[0]?.baseRef).toBe('develop');
+    });
+
+    it('records the conflicting files when the branch cannot merge', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = fakeGh();
+
+      await shipTicket(
+        store,
+        { ticketId: id },
+        gh,
+        fakeAdapter(),
+        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\nsrc/b.ts\n' }),
+      );
+
+      const [check] = listMergeChecksByTicket(store, id);
+      expect(check?.state).toBe('conflicted');
+      expect(check?.files).toEqual(['src/a.ts', 'src/b.ts']);
+    });
+
+    // The decision this feature turns on: `ship` has no `failed` edge, so making a
+    // conflict fail the stage would park the ticket at `ship` forever — and a
+    // retry cannot resolve a conflict, only a human rebase can. The PR exists, so
+    // the ship succeeded; the conflict is recorded state, not a verdict.
+    it('a conflict does not fail the ship — the ticket still reaches done', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = fakeGh();
+
+      const res = await shipTicket(
+        store,
+        { ticketId: id },
+        gh,
+        fakeAdapter(),
+        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\n' }),
+      );
+
+      expect(res.prs).toHaveLength(1);
+      const t = getTicket(store, id);
+      expect(t.stageCurrent).toBe('done');
+      expect(t.stages.find((s) => s.stageKey === 'ship')?.status).toBe('passed');
+    });
+
+    // Distinguishing "checked, no conflict" from "could not check" is the point.
+    // A probe that fails must never be recorded as clean.
+    it('records unknown, not clean, when the check itself fails', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = fakeGh();
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'fetch') {
+          return { stdout: '', stderr: "fatal: couldn't find remote ref develop", exitCode: 128 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+      const [check] = listMergeChecksByTicket(store, id);
+      expect(check?.state).toBe('unknown');
+      expect(check?.reason).toContain("couldn't find remote ref develop");
+      expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    // The staleness requirement: the base moves under a PR nobody touched, so the
+    // re-ship that skips all the PR work is exactly when a fresh answer matters.
+    it('refreshes the check on a re-ship, even for a repo whose PR already exists', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = fakeGh();
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), gitWithMergeProbe({ exitCode: 0 }));
+      expect(listMergeChecksByTicket(store, id)[0]?.state).toBe('clean');
+
+      // Base moved; the same branch no longer merges.
+      await shipTicket(
+        store,
+        { ticketId: id },
+        gh,
+        fakeAdapter(),
+        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\n' }),
+      );
+
+      const checks = listMergeChecksByTicket(store, id);
+      expect(checks).toHaveLength(1); // overwritten, not appended
+      expect(checks[0]?.state).toBe('conflicted');
+    });
+
+    // Observability must not be able to sink the operation it observes.
+    it('a failure to record the check does not fail the ship', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = fakeGh();
+      store.db.exec('DROP TABLE merge_checks');
+
+      const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+      expect(res.prs).toHaveLength(1);
+      expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    // A ship that never opened a PR has not shipped; there is nothing to report
+    // mergeability about, and the stage stays parked.
+    it('records nothing when the ship itself failed', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const gh: GhRunner = async () => ({ stdout: '', stderr: 'gh: not authenticated', exitCode: 1 });
+
+      await expect(
+        shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git),
+      ).rejects.toThrow();
+
+      expect(listMergeChecksByTicket(store, id)).toEqual([]);
+    });
   });
 
   it('is idempotent — a re-run skips repos with an existing open PR (no duplicate)', async () => {

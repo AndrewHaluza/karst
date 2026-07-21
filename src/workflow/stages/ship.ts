@@ -12,6 +12,9 @@ import {
   defaultGitRunner,
   type GitRunner,
 } from '../../integrations/git.js';
+import { checkMergeable } from '../mergeCheck.js';
+import { setMergeCheck } from '../../store/mergeChecks.js';
+import type { WorktreeView } from '../../store/dashboard.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -48,6 +51,49 @@ async function describePr(
     cwd,
   });
   return r.raw.trim() || title;
+}
+
+/**
+ * Record, for every worktree, whether its branch still merges into its base.
+ *
+ * Runs for EVERY worktree, including one whose PR already existed and was skipped
+ * above: mergeability goes stale on its own — the base moves under a PR nobody
+ * touched — so a re-ship that skipped the PR work is exactly when a refreshed
+ * answer matters most. This is also the whole staleness story (F4): the check is
+ * re-run on every ship and the row is overwritten, so there is never a second,
+ * older answer to accidentally read.
+ *
+ * A conflict does NOT fail the stage. `ship` has no `failed` edge, so treating one
+ * as a failure would park the ticket at `ship` with no way out — and a retry
+ * cannot resolve a conflict, only a human rebase can. Conflict state is recorded
+ * and surfaced; the shipping itself succeeded, because the PR exists.
+ *
+ * Never throws for the same reason: `checkMergeable` already converts every git
+ * failure into `unknown`, and a store failure here must not sink a ship that
+ * otherwise worked. Observability is not allowed to break the operation it
+ * observes.
+ */
+async function recordMergeChecks(
+  store: Store,
+  ticketId: number,
+  worktrees: readonly WorktreeView[],
+  git: GitRunner,
+): Promise<void> {
+  for (const wt of worktrees) {
+    try {
+      const check = await checkMergeable(git, wt.path, wt.baseRef);
+      setMergeCheck(store, {
+        ...check,
+        ticketId,
+        repo: wt.repo,
+        baseRef: wt.baseRef,
+        checkedAt: nowIso(),
+      });
+    } catch {
+      // Already-degraded state: nothing is recorded for this repo, and a missing
+      // row renders as nothing rather than as "clean".
+    }
+  }
 }
 
 export async function shipTicket(
@@ -132,7 +178,12 @@ export async function shipTicket(
     throw err;
   }
 
-  // PRs opened → ship passes → done.
+  // Every branch is now pushed, so the merge probe measures what a reviewer would
+  // actually see on the PR. Deliberately outside the try above: a failure here is
+  // not a ship failure, and this must not reach the catch that parks the ticket.
+  await recordMergeChecks(store, opts.ticketId, worktrees, git);
+
+  // PRs opened → ship passes → done. Unaffected by merge state, by design.
   transition(store, opts.ticketId, 'ship', { kind: 'passed' });
 
   return { prs };
