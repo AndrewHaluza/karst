@@ -2,8 +2,10 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { Verdict } from '../../model/types.js';
-import { setStage } from '../../store/stages.js';
+import { setStage, stageAttempt } from '../../store/stages.js';
+import { recordGateRun } from '../../store/gateRuns.js';
 import { transition } from '../machine.js';
+import { nowIso } from '../../model/time.js';
 import { REVIEW_GATES, readPackageScripts } from '../gates/scripts.js';
 import { runCommand } from '../gates/run.js';
 
@@ -24,6 +26,13 @@ export interface GateResult {
    */
   exitCode: number | null;
   output: string;
+  /**
+   * When the gate's process started and ended. Both absent for a gate that never
+   * ran — it has no duration, and stamping one would read as a zero-length run
+   * rather than as "karst had no question to ask".
+   */
+  startedAt?: string;
+  endedAt?: string;
 }
 
 /** Runs the review gates (lint/typecheck/test); injected for unit tests. */
@@ -68,8 +77,20 @@ export function makeGateRunner(): GateRunner {
         });
         continue;
       }
+      // Stamped around the await, not around a sync call: `runCommand` is async
+      // precisely so the host's event loop keeps serving hooks while npm runs,
+      // so this pair measures the child's wall-clock life, which is what the
+      // panel reports. The skipped branch above stamps neither — a gate that
+      // never ran has no duration, and a zero-length one would read as a pass.
+      const startedAt = nowIso();
       const r = await runCommand('npm', args, cwd);
-      results.push({ name, exitCode: r.exitCode, output: r.output });
+      results.push({
+        name,
+        exitCode: r.exitCode,
+        output: r.output,
+        startedAt,
+        endedAt: nowIso(),
+      });
     }
     return results;
   };
@@ -101,9 +122,27 @@ export async function runReview(
       ? { kind: 'passed' }
       : { kind: 'failed', reason: `gates failed: ${failing.map((g) => g.name).join(', ')}` };
 
-  // Artifact write folded into the transition transaction — atomic with the verdict.
+  // Artifact write and gate evidence folded into the transition transaction —
+  // atomic with the verdict, so a verdict never lands without the gates that
+  // produced it.
+  const runAt = nowIso();
   transition(store, opts.ticketId, 'review', verdict, () => {
     setStage(store, opts.ticketId, 'review', { artifactPath });
+    recordGateRun(store, {
+      ticketId: opts.ticketId,
+      stageKey: 'review',
+      // Read inside the transaction, before the machine bumps it on a failure:
+      // these gates belong to the attempt that RAN, not to the one its failure
+      // creates.
+      attempt: stageAttempt(store, opts.ticketId, 'review'),
+      runAt,
+      gates: gates.map((g) => ({
+        gateName: g.name,
+        exitCode: g.exitCode,
+        startedAt: g.startedAt ?? null,
+        endedAt: g.endedAt ?? null,
+      })),
+    });
   });
 
   return { verdict, artifactPath, gates };

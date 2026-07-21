@@ -12,10 +12,16 @@ import type { TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { buildNowLine, type NowLine } from '../../model/nowLine.js';
+import { buildStageRail, type StageRail } from '../../model/stageRail.js';
+import { buildStageInside, type StageInside } from '../../model/inside/index.js';
+import { listGateRuns } from '../../store/gateRuns.js';
+import { listPhaseMarks } from '../../store/phaseMarks.js';
+import { nowIso } from '../../model/time.js';
+import type { StageKey } from '../../model/types.js';
 import { countFixAttempts } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 
-export type { PathContext, StepperCell, NowLine };
+export type { PathContext, StepperCell, NowLine, StageRail, StageInside };
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
@@ -48,14 +54,24 @@ export interface DashboardState {
   /** Synthesized context brief, shown as a hover on the provider link; or null. */
   brief: string | null;
   /**
-   * The approach's internal workflow phases (§ impl sub-stages) — a read-only
-   * breakdown of what the single `impl` machine node covers for this approach
-   * (e.g. research → plan → implement). Empty when the approach has no workflow.
-   * These are NOT machine nodes and carry no per-phase live state: impl exposes
-   * no deterministic sub-signal (the no-inference guarantee), so the breakdown is
-   * informational and its emphasis tracks the single impl stage status.
+   * The stage graph as it is drawn: the forward path, plus the fix return
+   * channel that hangs below it. `stepper` above stays the flat canonical
+   * projection; this is the shape the rail renders.
    */
-  implPhases: string[];
+  rail: StageRail;
+  /**
+   * What happens inside each stage — observed operations for a stage that ran or
+   * is running, a static blurb for one that has not. All seven are precomputed
+   * so clicking a stage re-points the panel without a round trip to the host.
+   */
+  inside: Record<StageKey, StageInside>;
+  /**
+   * The approach driving impl, and the workflow phases it DECLARES. The phases
+   * carry no per-phase state and never will: impl exposes no deterministic
+   * sub-signal (the no-inference guarantee), so they describe what the agent was
+   * asked to do, not what karst watched it do.
+   */
+  approach: { id: string; phases: string[] } | null;
 }
 
 /**
@@ -83,6 +99,10 @@ export function buildDashboardState(
     repoDisplay: repoDisplayPath(w.repo, pathContext),
   }));
 
+  const fixAttempts = countFixAttempts(ticket.stages);
+  const prs = listPrsByTicket(store, ticketId);
+  const phases = approachPhases(ticket.approach);
+
   return {
     ticketId: ticket.id,
     key: ticket.key,
@@ -91,14 +111,31 @@ export function buildDashboardState(
     agentState: ticket.agentState,
     stepper,
     currentStage,
-    now: buildNowLine(currentStage, { fixAttempts: countFixAttempts(ticket.stages) }),
+    now: buildNowLine(currentStage, { fixAttempts }),
     servers: listServersByTicket(store, ticketId),
     worktrees,
-    prs: listPrsByTicket(store, ticketId),
+    prs,
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
     brief: ticket.brief,
-    implPhases: approachPhases(ticket.approach),
+    rail: buildStageRail(stepper, fixAttempts),
+    inside: buildStageInside({
+      stepper,
+      gateRuns: listGateRuns(store, ticketId),
+      worktrees,
+      prs,
+      session: {
+        sessionId: ticket.sessionId,
+        agentState: ticket.agentState,
+        model: ticket.model,
+      },
+      selectedRepos: ticket.selectedRepos,
+      phases,
+      marks: listPhaseMarks(store, ticketId),
+      fixAttempts,
+      now: nowIso(),
+    }),
+    approach: ticket.approach ? { id: ticket.approach, phases } : null,
   };
 }

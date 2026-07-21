@@ -57,6 +57,21 @@ const COLUMN: Record<keyof StagePatch, string> = {
 };
 
 /**
+ * A stage's current `attempt`, or 0 when it has no row yet.
+ *
+ * Deliberately does not throw on a missing row: callers use this to label
+ * evidence *inside* a transition's transaction, and the machine already has the
+ * authoritative missing-stage guard. Throwing a second, different error here
+ * would only mask that one.
+ */
+export function stageAttempt(store: Store, ticketId: number, stageKey: StageKey): number {
+  const row = store.db
+    .prepare('SELECT attempt FROM stages WHERE ticket_id = ? AND stage_key = ?')
+    .get(ticketId, stageKey) as { attempt: number } | undefined;
+  return row?.attempt ?? 0;
+}
+
+/**
  * Patch a single stage row (single-writer discipline — all stage mutation goes
  * through here). Only the fields present in `patch` are written; the rest are
  * left as-is, so a status-only update never clobbers a stored verdict.

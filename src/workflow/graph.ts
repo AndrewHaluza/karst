@@ -1,4 +1,4 @@
-import type { StageKey } from '../model/types.js';
+import { STAGE_KEYS, type StageKey } from '../model/types.js';
 
 /**
  * The stage graph (§11) — a graph, not a line. Edges are keyed by the *verdict
@@ -45,6 +45,29 @@ export function isTerminal(stage: StageKey): boolean {
   const edges = STAGE_GRAPH[stage];
   return edges.passed === undefined && edges.failed === undefined;
 }
+
+/**
+ * True when a stage is reached ONLY by a failed verdict — a return channel, not
+ * a step on the forward path. `fix` is the one today.
+ *
+ * Requires at least one inbound edge, so the entry stage (`scope`, which nothing
+ * reaches) stays on the main line rather than being pushed off it.
+ *
+ * Derived from the table, like isTerminal, so a second branch never has to be
+ * remembered here. This is the distinction the dashboard rail failed to make:
+ * projecting all of STAGE_KEYS onto a line drew `fix` as a step between review
+ * and ship, claiming a forward path that does not exist.
+ */
+export function isBranch(stage: StageKey): boolean {
+  const inbound = Object.values(STAGE_GRAPH).flatMap((edges) => [
+    ...(edges.passed === stage ? (['passed'] as const) : []),
+    ...(edges.failed === stage ? (['failed'] as const) : []),
+  ]);
+  return inbound.length > 0 && inbound.every((kind) => kind === 'failed');
+}
+
+/** The forward path: every stage except the return channels, in canonical order. */
+export const MAIN_LINE: readonly StageKey[] = STAGE_KEYS.filter((k) => !isBranch(k));
 
 /** Stages whose `failed` verdict routes to the fix loop. */
 export const GATE_STAGES: readonly StageKey[] = ['uat', 'review'] as const;

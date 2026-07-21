@@ -11,3 +11,6 @@ coverage/
 # of the approach package, never a source.
 .karst-plugin/
 *.vsix
+# macOS Finder metadata — binary, per-directory, and rewritten by merely opening
+# the folder, so it lands in commits that have nothing to do with it.
+.DS_Store

@@ -2,8 +2,10 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { Verdict } from '../../model/types.js';
-import { setStage } from '../../store/stages.js';
+import { setStage, stageAttempt } from '../../store/stages.js';
+import { recordGateRun } from '../../store/gateRuns.js';
 import { transition } from '../machine.js';
+import { nowIso } from '../../model/time.js';
 import { UAT_GATE, readPackageScripts } from '../gates/scripts.js';
 import { runCommand } from '../gates/run.js';
 
@@ -22,6 +24,12 @@ export interface TestResult {
    */
   exitCode: number | null;
   output: string;
+  /**
+   * When the suite started and ended. Both absent when it never ran — it has no
+   * duration, and stamping one would read as a zero-length run.
+   */
+  startedAt?: string;
+  endedAt?: string;
 }
 
 /** Runs the test command; injected so the stage is unit-testable without a suite. */
@@ -45,7 +53,14 @@ export interface UatOutcome {
  * the caller named this command and its absence IS a failure of the repo's setup.
  */
 export function makeTestRunner(command: string, args: string[]): TestRunner {
-  return (cwd) => runCommand(command, args, cwd);
+  return async (cwd) => {
+    // Stamped around the await so the pair measures the suite's wall-clock life.
+    // `makeNpmTestRunner` returns early — without stamps — when the repo defines
+    // no test script: that gate never ran, so it has no duration.
+    const startedAt = nowIso();
+    const r = await runCommand(command, args, cwd);
+    return { ...r, startedAt, endedAt: nowIso() };
+  };
 }
 
 /**
@@ -71,7 +86,7 @@ export async function runUat(
   opts: RunUatOpts,
   runner: TestRunner = makeNpmTestRunner(),
 ): Promise<UatOutcome> {
-  const { exitCode, output } = await runner(opts.cwd);
+  const { exitCode, output, startedAt, endedAt } = await runner(opts.cwd);
 
   mkdirSync(opts.artifactDir, { recursive: true });
   const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}.log`);
@@ -88,10 +103,28 @@ export async function runUat(
       ? { kind: 'passed' }
       : { kind: 'failed', reason: `exit ${exitCode}` };
 
-  // Record the artifact on the uat stage *inside* the transition transaction,
-  // so the evidence and the verdict commit atomically (never one without the other).
+  // Record the artifact and the gate row on the uat stage *inside* the transition
+  // transaction, so the evidence and the verdict commit atomically (never one
+  // without the other).
+  const runAt = nowIso();
   transition(store, opts.ticketId, 'uat', verdict, () => {
     setStage(store, opts.ticketId, 'uat', { artifactPath });
+    recordGateRun(store, {
+      ticketId: opts.ticketId,
+      stageKey: 'uat',
+      // Read before the machine bumps it on a failure: this suite belongs to the
+      // attempt that ran, not to the one its failure creates.
+      attempt: stageAttempt(store, opts.ticketId, 'uat'),
+      runAt,
+      gates: [
+        {
+          gateName: UAT_GATE.name,
+          exitCode,
+          startedAt: startedAt ?? null,
+          endedAt: endedAt ?? null,
+        },
+      ],
+    });
   });
 
   return { verdict, artifactPath };

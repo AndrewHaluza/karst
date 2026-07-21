@@ -221,6 +221,7 @@ export class ClaudeAdapter implements AgentAdapter {
         phases: opts.pkg.workflow!,
         ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
         ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
+        ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
       });
       writeFileSync(join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`), body);
       pluginDirs.push(karstDir);

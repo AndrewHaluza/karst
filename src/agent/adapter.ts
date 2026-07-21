@@ -66,6 +66,15 @@ export interface MaterializeOpts {
    * "<db>" --ticket`. Absent → no marker step (the impl boundary stays manual).
    */
   cliStagePrefix?: string;
+  /**
+   * Builds, for one phase name, the shell command prefix a workflow step runs
+   * (with the ticket key appended) to report that the agent has ENTERED that
+   * phase, e.g. `node "<ext>/dist/cli/main.js" phase research --db "<db>"
+   * --manifest "<yml>" --ticket`. A function rather than a fixed prefix because
+   * the name is baked into the command, one per phase. Absent → no phase
+   * markers (karst records no per-phase state, exactly as before).
+   */
+  cliPhasePrefix?: (phaseName: string) => string;
 }
 
 /**

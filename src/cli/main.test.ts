@@ -72,4 +72,8 @@ describe('runCli — stage marker', () => {
   it('rejects an unknown subcommand', () => {
     expect(() => runCli(['bogus', '--db', dbPath])).toThrow(/bogus|unknown/);
   });
+
+  it('names every verb it accepts when the subcommand is unknown', () => {
+    expect(() => runCli(['bogus', '--db', dbPath])).toThrow(/phase/);
+  });
 });

@@ -6,6 +6,7 @@ import { openReadonlyStore } from './readonlyStore.js';
 import { openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
 import { runStageCommand } from './stage.js';
+import { runPhaseCommand } from './phase.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
 /**
@@ -33,6 +34,11 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *             `uat`/`review`/`ship` are decided by exit codes, never by the agent
  *             (see parseStageArgs). Writable via node:sqlite so it needs no
  *             better-sqlite3 addon.
+ *   phase:    `… phase <name> --db <db> --manifest <yml> --ticket <ticketKey>`
+ *             append-only evidence that the agent REPORTED entering a phase of
+ *             its declared workflow. A separate parse path that never produces a
+ *             `Verdict` and never touches the machine: a mark records an event,
+ *             it cannot move a ticket (see parsePhaseArgs).
  *
  * Self-contained: every path it needs is passed as a flag, so it does no
  * workspace discovery.
@@ -114,7 +120,27 @@ export function runCli(argv: string[]): string {
     }
   }
 
-  throw new Error(`unknown command '${subcommand ?? ''}' (want 'context' or 'stage')`);
+  // A SEPARATE branch from `stage`, on purpose: a phase mark is an event, not a
+  // verdict, so it must not share the parser whose narrowing keeps an injected
+  // agent from forging one (see src/cli/phase.ts). Same store, same
+  // project-scoped resolution — `--manifest` is what stops a key two projects
+  // share from marking the wrong board.
+  if (subcommand === 'phase') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!ticket) throw new Error('missing --ticket <key>');
+    const store = openWritableStore(db);
+    try {
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      if (!found) throw new Error(`no ticket found for key '${ticket}'`);
+      return runPhaseCommand(store, found.id, rest);
+    } finally {
+      store.close();
+    }
+  }
+
+  throw new Error(
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stage' or 'phase')`,
+  );
 }
 
 function fail(message: string): never {

@@ -72,8 +72,23 @@ export function renderWorkflowCommand(input: {
    * marker step (the impl boundary stays manual).
    */
   stageCommand?: string;
+  /**
+   * When given, each phase step gains ONE extra clause: run
+   * `<phaseCommand(name)> $ARGUMENTS` on entering that phase, so karst has
+   * deterministic evidence of where inside a long impl stage the session is.
+   *
+   * A function of the phase name, not a fixed prefix, because the name is baked
+   * into the middle of the composed command (`… phase research --db … --ticket`)
+   * exactly as the stage token is in `stageCommand` — the caller owns the whole
+   * wire format, this function only appends the ticket arg.
+   *
+   * Absent → the steps render byte-identically to a build with no marker
+   * support at all. That matters: an approach materialized by a host that cannot
+   * accept marks must not be told to run a command that does not exist.
+   */
+  phaseCommand?: (phaseName: string) => string;
 }): string {
-  const { id, label, phases, contextCommand, stageCommand } = input;
+  const { id, label, phases, contextCommand, stageCommand, phaseCommand } = input;
   const loadInstruction = contextCommand
     ? 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
       `First, load the ticket's full context by running \`${contextCommand} $ARGUMENTS\` ` +
@@ -94,6 +109,18 @@ export function renderWorkflowCommand(input: {
     const step = i + 1;
     const parts: string[] = [`**${phase.name}**`];
     if (phase.description !== undefined) parts.push(phase.description);
+    // Placed BEFORE the phase's own instruction so reading order is execution
+    // order. Worded "first" but printed last, the agent meets "run the slash
+    // command" before it is told to report, and the marker is the clause most
+    // easily skipped — non-compliance is what makes this whole feature record
+    // nothing (§8).
+    //
+    // One short clause, deliberately: these markers compete with the actual work
+    // (§8, command-line noise). "Report entering" — a mark says the agent said
+    // it was starting this phase, never that it completed one.
+    if (phaseCommand) {
+      parts.push(`First run \`${phaseCommand(phase.name)} $ARGUMENTS\` to report entering it.`);
+    }
     if (phase.command !== undefined) parts.push(`Run the \`${phase.command}\` slash command.`);
     else parts.push('Handle this step manually (no native slash command for this phase).');
     lines.push(`${step}. ${parts.join(' — ')}`);

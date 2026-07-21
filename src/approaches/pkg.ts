@@ -3,6 +3,7 @@ import { join, isAbsolute, dirname } from 'node:path';
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
 import { ManifestError } from '../manifest/schema.js';
 import type { WorkflowPhase } from '../manifest/types.js';
+import { isSafePhaseName, phaseNameFault } from './phaseName.js';
 
 /**
  * Neutral, agent-agnostic on-disk approach package: metadata (approach.yml) +
@@ -124,7 +125,21 @@ function requireArtifacts(v: unknown): ApproachArtifact[] {
   });
 }
 
-/** Validate the optional `workflow` list; each phase requires a non-empty `name`. */
+/**
+ * Reject a phase name that could not be safely interpolated into a command
+ * line. Fails loudly at install rather than materializing a weaponized command.
+ *
+ * The charset and the wording live in `phaseName.ts` because the marker CLI
+ * re-validates on receipt — argv is never trusted just because install-time
+ * validation ran — and two copies of that regex would drift silently.
+ */
+function assertSafePhaseName(name: string, where: string): void {
+  if (!isSafePhaseName(name)) {
+    throw new ManifestError(phaseNameFault(where, name));
+  }
+}
+
+/** Validate the optional `workflow` list; each phase requires a safe `name`. */
 function requireWorkflow(v: unknown): WorkflowPhase[] {
   if (!Array.isArray(v)) {
     throw new ManifestError('workflow must be an array');
@@ -135,6 +150,7 @@ function requireWorkflow(v: unknown): WorkflowPhase[] {
     }
     const rec = entry as Record<string, unknown>;
     const name = requireString(rec.name, `workflow[${i}].name`);
+    assertSafePhaseName(name, `workflow[${i}].name`);
     return {
       name,
       ...(rec.command !== undefined

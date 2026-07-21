@@ -7,6 +7,7 @@ import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { runReview, type GateRunner } from './review.js';
+import { listGateRuns } from '../../store/gateRuns.js';
 
 function walkToReview(store: Store, id: number): void {
   transition(store, id, 'scope', { kind: 'passed' });
@@ -99,5 +100,70 @@ describe('runReview', () => {
     expect(contents).toContain('typecheck');
     const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review');
     expect(review?.artifactPath).toBe(res.artifactPath);
+  });
+
+  it('records one gate row per gate, in the order the runner reported them', async () => {
+    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
+    const runs = listGateRuns(store, id);
+    expect(runs.map((r) => r.gateName)).toEqual(['lint', 'typecheck', 'test']);
+    expect(runs.every((r) => r.stageKey === 'review')).toBe(true);
+    expect(new Set(runs.map((r) => r.runAt)).size).toBe(1); // one invocation, one batch
+  });
+
+  it('files a failing run under the attempt it ran as, not the one its failure creates', async () => {
+    // `transition` increments `attempt` on the failed branch. The gates belong to
+    // the run that produced the failure, so they must be read before that bump.
+    const gates: GateRunner = async () => [{ name: 'test', exitCode: 1, output: 'boom' }];
+    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
+
+    expect(listGateRuns(store, id).map((r) => r.attempt)).toEqual([0]);
+    const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review');
+    expect(review?.attempt).toBe(1);
+  });
+
+  it('records a skipped gate as null, never as a pass', async () => {
+    const gates: GateRunner = async () => [
+      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
+    ];
+    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
+    expect(listGateRuns(store, id)[0]!.exitCode).toBeNull();
+  });
+
+  it('stores the timings a gate reports and leaves a skipped gate without any', async () => {
+    const gates: GateRunner = async () => [
+      {
+        name: 'lint',
+        exitCode: 0,
+        output: 'ok',
+        startedAt: '2026-07-20T12:00:00.000Z',
+        endedAt: '2026-07-20T12:00:06.400Z',
+      },
+      { name: 'test', exitCode: null, output: 'no "test" script in package.json' },
+    ];
+    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
+    const [lint, test] = listGateRuns(store, id);
+    expect(lint!.startedAt).toBe('2026-07-20T12:00:00.000Z');
+    expect(lint!.endedAt).toBe('2026-07-20T12:00:06.400Z');
+    // A gate that never ran has no duration; inventing one would read as a
+    // zero-length run rather than as "karst had nothing to ask".
+    expect(test!.startedAt).toBeNull();
+    expect(test!.endedAt).toBeNull();
+  });
+
+  it('leaves no gate rows behind when the transition throws', async () => {
+    // The gates are written inside the transition's transaction, so evidence and
+    // verdict land together or not at all. Dropping the stage row makes the
+    // machine throw *after* the premutate has queued the gates, which is exactly
+    // the window a non-atomic write would leak through.
+    store.db
+      .prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?')
+      .run(id, 'review');
+
+    await expect(
+      runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never),
+    ).rejects.toThrow(/has no stage 'review'/);
+
+    expect(listGateRuns(store, id)).toEqual([]);
+    expect(getTicket(store, id).stageCurrent).toBe('review'); // no advance either
   });
 });
