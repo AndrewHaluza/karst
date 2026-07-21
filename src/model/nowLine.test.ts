@@ -14,6 +14,18 @@ describe('buildNowLine', () => {
     });
   });
 
+  it('says not-started for a saved-but-never-run ticket (scope still pending)', () => {
+    expect(buildNowLine(cell({ stageKey: 'scope', status: 'pending' }))).toEqual({
+      text: 'Now: not started. Launch a session to begin.',
+    });
+  });
+
+  it('still names live scoping once the scope stage is actually running', () => {
+    expect(buildNowLine(cell({ stageKey: 'scope', status: 'running' }))).toEqual({
+      text: 'Now: scoping the ticket — the agent is gathering context.',
+    });
+  });
+
   it('names the gate that is running', () => {
     expect(buildNowLine(cell({ stageKey: 'uat' })).text).toBe(
       'Now: running the UAT gate — tests in the ticket’s worktree.',

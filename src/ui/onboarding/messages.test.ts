@@ -58,6 +58,24 @@ describe('parseOnboardingMessage', () => {
     });
   });
 
+  it('accepts a well-formed save message, mirroring submit validation', () => {
+    expect(
+      parseOnboardingMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
+    ).toEqual({
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null,
+    });
+    expect(
+      parseOnboardingMessage({
+        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+      }),
+    ).toEqual({
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+    });
+    expect(parseOnboardingMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
+    expect(parseOnboardingMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
+    expect(parseOnboardingMessage({ type: 'save', key: 'P-1', title: 't' })).toBeNull(); // missing description
+  });
+
   it('accepts a well-formed set-agent message', () => {
     expect(parseOnboardingMessage({ type: 'set-agent', id: 'reviewer' })).toEqual({
       type: 'set-agent',
@@ -115,6 +133,7 @@ describe('routeOnboardingAction', () => {
       analyze: vi.fn(),
       openTicketLink: vi.fn(),
       submit: vi.fn(),
+      save: vi.fn(),
       requestState: vi.fn(),
     };
   }
@@ -140,6 +159,17 @@ describe('routeOnboardingAction', () => {
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
+  });
+
+  it('routes a valid save message to the save action', () => {
+    const actions = spyActions();
+    routeOnboardingAction(
+      { type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8' },
+      actions,
+    );
+    expect(actions.save).toHaveBeenCalledWith({
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+    });
   });
 
   it('ignores install-approach (removed — install now lives in settings)', () => {
