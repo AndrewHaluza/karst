@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { TicketingProvider, ContextBrief } from '../../integrations/ticketing.js';
+import { renderAttachmentSection } from '../../integrations/attachmentMarkdown.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import {
   getTicket,
@@ -91,10 +92,9 @@ function renderBrief(brief: ContextBrief): string {
     lines.push('', '## Comments');
     for (const c of brief.comments) lines.push(`- ${c.author}: ${c.text}`);
   }
-  if (brief.attachments.length) {
-    lines.push('', '## Attachments');
-    for (const a of brief.attachments) lines.push(`- ${a.name} (${a.url})`);
-  }
+  // Attachments come last and only when present, so a ticket without them
+  // renders exactly the string it did before attachments were embedded.
+  lines.push(...renderAttachmentSection(brief.attachments));
   return lines.join('\n');
 }
 

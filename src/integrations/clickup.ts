@@ -5,6 +5,7 @@ import type {
   BriefAttachment,
   TicketList,
 } from './ticketing.js';
+import { materializeAttachments } from './attachments.js';
 
 /**
  * ClickUp ticketing provider (§15). Runs on the extension host: it fetches a
@@ -46,7 +47,7 @@ interface RawTask {
   text_content?: string;
   description?: string;
   tags?: { name?: string }[];
-  attachments?: { title?: string; url?: string }[];
+  attachments?: { title?: string; url?: string; mimetype?: string }[];
 }
 interface RawComments {
   comments?: { comment_text?: string; user?: { username?: string }; date?: string }[];
@@ -87,7 +88,28 @@ function parseTags(task: RawTask): string[] {
 function parseAttachments(task: RawTask): BriefAttachment[] {
   return (task.attachments ?? [])
     .filter((a) => typeof a.title === 'string' && typeof a.url === 'string')
-    .map((a) => ({ name: a.title as string, url: a.url as string }));
+    .map((a) => ({
+      name: a.title as string,
+      url: a.url as string,
+      ...(typeof a.mimetype === 'string' ? { mimeType: a.mimetype } : {}),
+    }));
+}
+
+/**
+ * Attachment bodies live on ClickUp's own file hosts, NOT on `api.clickup.com`,
+ * and the payload names that host — so the token is scoped by hostname here
+ * rather than sent with every download. A payload that points an attachment at
+ * an unrelated host gets an anonymous request, which is the whole point: the
+ * URL is attacker-influenced data, and the token must not follow it off-domain.
+ */
+function isClickupHost(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    if (protocol !== 'https:') return false;
+    return hostname === 'clickup.com' || hostname.endsWith('.clickup.com');
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -212,12 +234,21 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
         `${API_BASE}/task/${ref}/comment${commentSuffix}`,
       )) as RawComments;
 
+      // Attachments are downloaded here, not at render time: the brief is a
+      // plain string persisted on the ticket, so the fetch is the only moment
+      // the token and the HTTP client are in scope. A download failure is
+      // recorded on the attachment and never fails the ticket fetch.
+      const attachments = await materializeAttachments(parseAttachments(task), {
+        fetchFn: deps.fetchFn,
+        authFor: async (url) => (isClickupHost(url) ? await deps.token() : undefined),
+      });
+
       return {
         title: task.name ?? '',
         description: pickDescription(task),
         tags: parseTags(task),
         comments: parseComments(comments),
-        attachments: parseAttachments(task),
+        attachments,
       };
     },
   };

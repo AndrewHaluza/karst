@@ -14,10 +14,30 @@ export interface BriefComment {
   date: string; // provider-native timestamp string (kept opaque)
 }
 
-/** One attachment reference on a fetched ticket. */
+/**
+ * How a downloaded attachment can be represented in the brief. `unavailable` is
+ * a first-class outcome, not an error channel: a 403 on one attachment degrades
+ * that attachment, never the brief.
+ */
+export type AttachmentKind = 'image' | 'text' | 'binary' | 'unavailable';
+
+/**
+ * One attachment on a fetched ticket. A provider parses `name`/`url` out of its
+ * payload; everything below is filled in by `materializeAttachments` after the
+ * download, and is absent on a brief whose attachments were never fetched.
+ */
 export interface BriefAttachment {
   name: string;
   url: string;
+  mimeType?: string;
+  /** Full downloaded size in bytes — reported even when `content` is capped. */
+  size?: number;
+  kind?: AttachmentKind;
+  /** Inlined body, `kind: 'text'` only. Capped at `MAX_EMBED_BYTES`. */
+  content?: string;
+  truncated?: boolean;
+  /** Why the download failed, `kind: 'unavailable'` only. Never a credential. */
+  error?: string;
 }
 
 /**
