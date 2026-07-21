@@ -137,3 +137,28 @@ CREATE TABLE IF NOT EXISTS prs (
   url           TEXT,
   status        TEXT
 );
+
+-- Whether a ticket's branch still merges into its base, per repo, as of the last
+-- ship. NOT append-only, unlike gate_runs and phase_marks, and the difference is
+-- the point: those record that an event happened, this records what is true NOW.
+-- Mergeability is a property of two moving refs, so yesterday's `clean` is not
+-- weaker evidence — it is a lie, and the one presented most confidently. A
+-- re-check therefore OVERWRITES (upsert on the natural key) rather than appending.
+--
+-- Keyed (ticket_id, repo): each worktree targets its own base_ref, so conflict is
+-- per-repo, and one current answer per repo is exactly the question consumers ask.
+--
+-- `state` is three-valued on purpose. 'unknown' is not a degraded 'clean': it is
+-- the absence of an answer, and `reason` carries git's own words for why.
+CREATE TABLE IF NOT EXISTS merge_checks (
+  ticket_id     INTEGER NOT NULL,     -- -> tickets.id
+  repo          TEXT NOT NULL,        -- matches worktrees.repo
+  state         TEXT NOT NULL,        -- clean | conflicted | unknown
+  files         TEXT NOT NULL,        -- JSON array of conflicting paths; '[]' when none
+  reason        TEXT,                 -- git's own message; NULL unless state='unknown'
+  head_sha      TEXT,                 -- the SHAs the verdict was computed from, so a
+  base_sha      TEXT,                 -- reader can tell a current answer from a stale one
+  base_ref      TEXT,
+  checked_at    TEXT NOT NULL,
+  PRIMARY KEY (ticket_id, repo)
+);

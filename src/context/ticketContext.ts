@@ -18,6 +18,8 @@ import {
   listServersByTicket,
   listPrsByTicket,
 } from '../store/dashboard.js';
+import { listMergeChecksByTicket } from '../store/mergeChecks.js';
+import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
 import type { Manifest } from '../manifest/types.js';
 
 export interface TicketContextWorktree {
@@ -40,6 +42,12 @@ export interface TicketContextPr {
   number: number | null;
   url: string | null;
   status: string | null;
+  /**
+   * Whether this repo's branch still merges into its base, as of the last ship.
+   * Optional and omitted entirely when never checked — a ticket shipped before
+   * this existed renders exactly as it did before, and never as "clean".
+   */
+  mergeCheck?: MergeCheckView;
 }
 
 export interface TicketContextService {
@@ -76,6 +84,7 @@ export function buildTicketContext(
   ticketId: number,
 ): TicketContext {
   const t = getTicket(store, ticketId);
+  const mergeChecks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
 
   const services: TicketContextService[] = [];
   const defs = manifest?.services ?? {};
@@ -111,12 +120,20 @@ export function buildTicketContext(
       port: s.port,
       status: s.status,
     })),
-    prs: listPrsByTicket(store, ticketId).map((p) => ({
-      repo: p.repo,
-      number: p.number,
-      url: p.url,
-      status: p.status,
-    })),
+    prs: listPrsByTicket(store, ticketId).map((p) => {
+      const check = mergeChecks.get(p.repo);
+      return {
+        repo: p.repo,
+        number: p.number,
+        url: p.url,
+        status: p.status,
+        // Spread rather than `mergeCheck: undefined`, so a never-checked PR
+        // serializes to the exact JSON the CLI emitted before this existed.
+        ...(check
+          ? { mergeCheck: { state: check.state, files: check.files, reason: check.reason } }
+          : {}),
+      };
+    }),
     services,
   };
 }
@@ -176,7 +193,10 @@ export function renderTicketContext(ctx: TicketContext): string {
       const num = p.number !== null ? `#${p.number}` : '(no number)';
       const url = p.url ? ` — ${p.url}` : '';
       const status = p.status ? ` [${p.status}]` : '';
-      return `- ${p.repo} ${num}${status}${url}`;
+      // Suffixed on the existing line rather than given a section of its own: an
+      // agent already reads this list, and mergeability is a fact ABOUT the PR.
+      const merge = p.mergeCheck ? ` · merge: ${summarizeMergeCheck(p.mergeCheck)}` : '';
+      return `- ${p.repo} ${num}${status}${url}${merge}`;
     });
     parts.push(`## Pull requests\n${rows.join('\n')}`);
   }

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 /**
  * Git integration for the stages that talk to a remote. The runner is injected so
@@ -17,17 +17,82 @@ export interface GitResult {
 
 export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>;
 
+/**
+ * How long a single git invocation may take before it is killed and answered as a
+ * failure. Ship fetches from a remote, so "hung" is a real state: an unreachable
+ * host, or git blocking on a credential prompt with no tty to answer it.
+ */
+export const GIT_TIMEOUT_MS = 60_000;
+
+/**
+ * `git <args>` in `cwd`, asynchronously. Never throws and never rejects — the exit
+ * code is the answer, including for a spawn failure or a timeout.
+ *
+ * Async `spawn`, NOT `spawnSync`: this runs in the extension host, where the hook
+ * endpoint, every webview and every other session share one event loop. A
+ * synchronous spawn froze all of them for the duration of the call — tolerable
+ * for local plumbing, indefensible once ship fetches from a remote.
+ */
+export function runGit(
+  args: string[],
+  cwd: string,
+  timeoutMs: number = GIT_TIMEOUT_MS,
+): Promise<GitResult> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const settle = (result: GitResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    // Armed before the child exists so a spawn that never starts still settles.
+    const timer = setTimeout(() => {
+      child?.kill('SIGKILL');
+      settle({
+        stdout,
+        stderr: `${stderr}git timed out after ${timeoutMs}ms: git ${args.join(' ')}`,
+        exitCode: 1,
+      });
+    }, timeoutMs);
+
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn('git', args, { cwd });
+    } catch (err) {
+      // A bad `cwd` throws synchronously on some platforms rather than emitting.
+      settle({
+        stdout: '',
+        stderr: `could not run git: ${err instanceof Error ? err.message : String(err)}`,
+        exitCode: 1,
+      });
+      return;
+    }
+
+    child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+    child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+
+    child.once('error', (err: Error) => {
+      settle({ stdout, stderr: `${stderr}could not run git: ${err.message}`, exitCode: 1 });
+    });
+
+    child.once('close', (code) => {
+      const exitCode = code ?? 1;
+      settle({
+        stdout,
+        stderr: stderr || (exitCode !== 0 ? `git exited ${exitCode}` : ''),
+        exitCode,
+      });
+    });
+  });
+}
+
 /** Default runner: `git <args>` in `cwd`. Never throws — the exit code is the answer. */
-export const defaultGitRunner: GitRunner = async (args, cwd) => {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
-  const exitCode = r.status ?? 1;
-  const spawnFailure = r.error ? `could not run git: ${r.error.message}` : '';
-  return {
-    stdout: r.stdout ?? '',
-    stderr: r.stderr || spawnFailure || (exitCode !== 0 ? `git exited ${exitCode}` : ''),
-    exitCode,
-  };
-};
+export const defaultGitRunner: GitRunner = (args, cwd) => runGit(args, cwd);
 
 /** `git <args>` in `cwd`, throwing git's own reason (never a bare colon) on failure. */
 async function run(git: GitRunner, args: string[], cwd: string, what: string): Promise<string> {

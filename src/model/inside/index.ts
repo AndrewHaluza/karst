@@ -1,6 +1,8 @@
 import type { GateRun } from '../../store/gateRuns.js';
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { WorktreeView, PrView } from '../../store/dashboard.js';
+import type { MergeCheckRow } from '../../store/mergeChecks.js';
+import { summarizeMergeCheck, mergeOpStatus } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { STAGE_KEYS } from '../types.js';
@@ -19,6 +21,12 @@ export interface StageInsideInput {
   gateRuns: readonly GateRun[];
   worktrees: readonly WorktreeView[];
   prs: readonly PrView[];
+  /**
+   * Current mergeability per repo, as of the last ship. Optional: a caller that
+   * predates the merge check simply renders no merge rows, which is the correct
+   * reading of "we have not checked" — never "clean".
+   */
+  mergeChecks?: readonly MergeCheckRow[];
   session: SessionView;
   /** The hot repo set the ticket was scoped to. */
   selectedRepos: readonly string[];
@@ -67,11 +75,21 @@ function scopeInside(
 }
 
 /**
- * Ship's evidence is the PR rows it wrote, plus — on a failure — the real error
- * its catch stored on the stage. The individual commit/push/describe steps are
- * not recorded, so they are not claimed.
+ * Ship's evidence is the PR rows it wrote and the merge check it recorded per
+ * repo, plus — on a failure — the real error its catch stored on the stage. The
+ * individual commit/push/describe steps are not recorded, so they are not
+ * claimed.
+ *
+ * A repo with no merge check emits no merge row. Absence is evidence of nothing:
+ * a ticket shipped before this existed, or a check that never got written, must
+ * not be rendered as "clean".
  */
-function shipInside(cell: StepperCell, prs: readonly PrView[], now: string): StageInside {
+function shipInside(
+  cell: StepperCell,
+  prs: readonly PrView[],
+  mergeChecks: readonly MergeCheckRow[],
+  now: string,
+): StageInside {
   if (cell.status === 'failed') {
     return inside(cell, now, [
       {
@@ -82,12 +100,26 @@ function shipInside(cell: StepperCell, prs: readonly PrView[], now: string): Sta
       },
     ]);
   }
-  const ops = prs.map((pr): StageOp => ({
-    status: 'pass',
-    name: 'pr',
-    detail: pr.number ? `${pr.repo} #${pr.number}` : pr.repo,
-    duration: '',
-  }));
+  const checksByRepo = new Map(mergeChecks.map((c) => [c.repo, c]));
+  const ops = prs.flatMap((pr): StageOp[] => {
+    const prOp: StageOp = {
+      status: 'pass',
+      name: 'pr',
+      detail: pr.number ? `${pr.repo} #${pr.number}` : pr.repo,
+      duration: '',
+    };
+    const check = checksByRepo.get(pr.repo);
+    if (!check) return [prOp];
+    return [
+      prOp,
+      {
+        status: mergeOpStatus(check.state),
+        name: 'merge',
+        detail: `${pr.repo} · ${summarizeMergeCheck(check)}`,
+        duration: '',
+      },
+    ];
+  });
   return inside(cell, now, ops);
 }
 
@@ -104,7 +136,7 @@ function stripFor(key: StageKey, cell: StepperCell, input: StageInsideInput): St
     case 'fix':
       return fixInside(cell, input.session.sessionId, input.fixAttempts, input.now);
     case 'ship':
-      return shipInside(cell, input.prs, input.now);
+      return shipInside(cell, input.prs, input.mergeChecks ?? [], input.now);
     case 'done':
       // Terminal: the machine stamps started_at === ended_at, so the duration is
       // structurally zero and there is no step to report. Arriving IS the event.
