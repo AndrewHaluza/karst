@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, getTicket } from '../store/tickets.js';
+import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { transition } from './machine.js';
-import type { Stage } from '../store/stages.js';
+import { setStage, type Stage } from '../store/stages.js';
 import type { StageKey } from '../model/types.js';
+import { stageBadge } from '../model/stageBadge.js';
+import { ticketGlyph } from '../model/ticketGlyph.js';
+import { facetOf } from '../ui/sidebar/facets.js';
 
 function stageOf(store: Store, ticketId: number, key: StageKey): Stage {
   const s = getTicket(store, ticketId).stages.find((x) => x.stageKey === key);
@@ -73,10 +76,94 @@ describe('transition (stage machine core)', () => {
   });
 
   it('a non-terminal stage is still entered as running (not completed)', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    const impl = stageOf(store, ticketId, 'impl');
+    expect(impl.status).toBe('running');
+    expect(impl.endedAt).toBeNull();
+  });
+
+  // A confirm stage does not start itself: reaching `ship` parks the ticket until
+  // the user clicks Confirm ship. Entered 'running' it claimed work nobody was
+  // doing, which painted the ticket blue / "In progress" — so the needs-you state
+  // (amber, "Needs you") was unreachable for the one stage that always needs you.
+  it('entering a confirm stage parks it as pending — nothing runs until the user acts', () => {
     transition(store, ticketId, 'review', { kind: 'passed' });
+
     const ship = stageOf(store, ticketId, 'ship');
-    expect(ship.status).toBe('running');
+    expect(ship.status).toBe('pending');
+    expect(ship.startedAt).not.toBeNull();
     expect(ship.endedAt).toBeNull();
+    expect(getTicket(store, ticketId).stageCurrent).toBe('ship');
+  });
+
+  // Re-entering ship after a failed attempt (fix → review → ship) must not leave
+  // the previous attempt's endedAt behind: deriveStageCurrent ranks stages by
+  // `endedAt ?? startedAt`, so a stale timestamp makes the parked ship look older
+  // than the review it just came from.
+  it('re-entering a confirm stage clears the previous attempt end time', () => {
+    transition(store, ticketId, 'review', { kind: 'passed' });
+    setStage(store, ticketId, 'ship', { status: 'failed', endedAt: '2020-01-01T00:00:00.000Z' });
+
+    transition(store, ticketId, 'review', { kind: 'passed' });
+
+    const ship = stageOf(store, ticketId, 'ship');
+    expect(ship.status).toBe('pending');
+    expect(ship.endedAt).toBeNull();
+  });
+
+  // End to end over a real store: the machine and the derivation are the two
+  // halves this bug fell between, so walking a ticket to ship and reading what
+  // the user would actually see is the assertion that matters.
+  describe('what the user sees while a ticket waits on them', () => {
+    function walkToShip(): void {
+      transition(store, ticketId, 'scope', { kind: 'passed' });
+      transition(store, ticketId, 'impl', { kind: 'passed' });
+      transition(store, ticketId, 'uat', { kind: 'passed' });
+      transition(store, ticketId, 'review', { kind: 'passed' });
+    }
+
+    it('a ticket parked at ship reports needs-you on every surface', () => {
+      walkToShip();
+      const t = getTicket(store, ticketId);
+
+      expect(t.stageCurrent).toBe('ship');
+      expect(stageBadge(t).label).toBe('Needs you');
+      expect(ticketGlyph(t)).toBe('amber');
+      expect(facetOf(t)).toBe('input');
+    });
+
+    it('no earlier stage on that walk ever claims to need the user', () => {
+      // The other half of the acceptance line: the agent-driven stages must not
+      // start reporting needs-you just because ship now can.
+      for (const from of ['scope', 'impl', 'uat'] as const) {
+        transition(store, ticketId, from, { kind: 'passed' });
+        const t = getTicket(store, ticketId);
+        expect(stageBadge(t).label, `${t.stageCurrent} must not need the user`).not.toBe('Needs you');
+        expect(facetOf(t), `${t.stageCurrent} must not be in Needs you`).not.toBe('input');
+      }
+    });
+
+    it('confirming the ship clears needs-you — it is working, then shipped', () => {
+      walkToShip();
+
+      // The click: shipTicket marks the stage running before it opens the PRs.
+      setStage(store, ticketId, 'ship', { status: 'running' });
+      expect(stageBadge(getTicket(store, ticketId)).label).toBe('Shipping');
+      expect(facetOf(getTicket(store, ticketId))).toBe('running');
+
+      transition(store, ticketId, 'ship', { kind: 'passed' });
+      expect(stageBadge(getTicket(store, ticketId)).label).toBe('Done');
+      expect(facetOf(getTicket(store, ticketId))).toBe('done');
+    });
+
+    it('a waiting agent still reports needs-you, unchanged by any of this', () => {
+      transition(store, ticketId, 'scope', { kind: 'passed' }); // impl, running
+      setAgentState(store, ticketId, 'waiting');
+
+      const t = getTicket(store, ticketId);
+      expect(stageBadge(t).label).toBe('Needs you');
+      expect(facetOf(t)).toBe('input');
+    });
   });
 
   it('a null verdict does NOT transition (no-inference guarantee)', () => {

@@ -1,7 +1,7 @@
 import type { TicketWithStages } from '../store/tickets.js';
 import { STAGE_KEYS, type StageKey } from './types.js';
 import { isTerminal } from '../workflow/graph.js';
-import { currentStageStatus, ticketGlyph } from './ticketGlyph.js';
+import { currentStageStatus, needsUser, ticketGlyph } from './ticketGlyph.js';
 import type { Glyph } from './glyph.js';
 
 /**
@@ -53,10 +53,11 @@ export interface StageBadge {
 /**
  * The one derivation of a ticket's stage badge, shared by every ticket list.
  *
- * Precedence mirrors `glyphFor`: a waiting agent (needs-you) outranks stage
- * state, because it is the thing the user must act on. A ticket with no current
- * stage — or whose current stage has no row yet — falls back rather than
- * rendering blank, so "nothing to show" never reads as an error.
+ * Precedence mirrors `ticketGlyph`: needs-you outranks stage state, because it
+ * is the thing the user must act on — whether that is a waiting agent or a stage
+ * parked on a click. A ticket with no current stage — or whose current stage has
+ * no row yet — falls back rather than rendering blank, so "nothing to show"
+ * never reads as an error.
  */
 export function stageBadge(t: TicketWithStages): StageBadge {
   const glyph = ticketGlyph(t);
@@ -67,7 +68,9 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   if (stage === null) return { label: 'Not started', glyph, stage };
 
   const title = STAGE_TITLE[stage];
-  if (t.agentState === 'waiting') return { label: 'Needs you', glyph, stage };
+  // Both needs-you sources (a waiting agent, a stage parked on a click) resolve
+  // in `needsUser`, so this label and the amber glyph always agree.
+  if (needsUser(t)) return { label: 'Needs you', glyph, stage };
 
   const status = currentStageStatus(t);
   if (status === 'failed') return { label: `${title} failed`, glyph, stage };
