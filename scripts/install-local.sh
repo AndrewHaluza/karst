@@ -99,7 +99,10 @@ for name in "${selected[@]}"; do
 
   echo "== $name =="
   KARST_TARGET_APP_BINARY="$app_bin" npm run rebuild:electron
-  npx vsce package
+  # --skip-license / --allow-missing-repository stop vsce from raising the
+  # packaging warnings that otherwise trigger an interactive
+  # "Do you want to continue? [y/N]" confirm and stall a non-interactive run.
+  npx vsce package --skip-license --allow-missing-repository
   VSIX="$(ls -t *.vsix | head -1)"
 
   if [ ! -e "$cli_bin" ]; then
