@@ -13,9 +13,17 @@ const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview
  * silently dropping the stage/status the host went to the trouble of computing.
  */
 describe('sidebar webview.html', () => {
-  it('renders the stage badge on every collapsed row', () => {
-    expect(HTML).toContain('class="stage g-${esc(row.glyph)}"');
-    expect(HTML).toContain('${esc(stageText)}');
+  it('renders the stage chip on every collapsed row, colored by the shared stage token', () => {
+    // The chip carries stg-<stage> (model/stagePalette), the SAME token the
+    // dashboard rail paints with — never the status glyph class it used to.
+    expect(HTML).toContain('class="stage ${esc(stageClass)}"');
+    expect(HTML).toContain('${esc(stageChip)}');
+  });
+
+  it('states the stage (not status) in the chip, with the full phrase in the tooltip', () => {
+    // stageChip is the bare stage key; stageText (the status phrase) is the title.
+    expect(HTML).toContain('title="${esc(stageText)}">${esc(stageChip)}');
+    expect(HTML).toContain('const stageChip = row.stageChip || stageText;');
   });
 
   it('states the stage in the expanded body, above ports and worktrees', () => {

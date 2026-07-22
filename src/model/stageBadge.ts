@@ -27,7 +27,7 @@ const STAGE_ACTIVITY: Readonly<Record<StageKey, string>> = {
   review: 'Reviewing',
   fix: 'Fixing',
   ship: 'Shipping',
-  done: 'Shipped',
+  done: 'Done',
 };
 
 /** A ticket's stage rendered for display: the label plus its palette color. */
@@ -36,6 +36,18 @@ export interface StageBadge {
   label: string;
   /** Palette color, from the single glyph source (H1) — never a per-view hex. */
   glyph: Glyph;
+  /**
+   * The stage itself, or null when the ticket has none (never started, or its
+   * stored stage is outside the graph).
+   *
+   * Separate from `label` because the two answer different questions: `label`
+   * folds status and agent state into a phrase ("Implementing", "Needs you"),
+   * while the row chip states WHERE the ticket is and lets the status dot on the
+   * other side of the row state whether it needs you. The chip used to render
+   * `label`, so a stage slot carried status words in two colors — three stages
+   * were indistinguishable and `fix` never appeared at all.
+   */
+  stage: StageKey | null;
 }
 
 /**
@@ -51,22 +63,22 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   // `stageCurrent` is a stored string: a row written by an older schema (or a
   // stage since removed from the graph) is not a StageKey, and is treated the
   // same as none rather than indexing the title map with it.
-  const stage = STAGE_KEYS.find((k) => k === t.stageCurrent);
-  if (stage === undefined) return { label: 'Not started', glyph };
+  const stage = STAGE_KEYS.find((k) => k === t.stageCurrent) ?? null;
+  if (stage === null) return { label: 'Not started', glyph, stage };
 
   const title = STAGE_TITLE[stage];
-  if (t.agentState === 'waiting') return { label: 'Needs you', glyph };
+  if (t.agentState === 'waiting') return { label: 'Needs you', glyph, stage };
 
   const status = currentStageStatus(t);
-  if (status === 'failed') return { label: `${title} failed`, glyph };
-  if (status === 'running') return { label: STAGE_ACTIVITY[stage], glyph };
-  if (status === 'skipped') return { label: `${title} skipped`, glyph };
+  if (status === 'failed') return { label: `${title} failed`, glyph, stage };
+  if (status === 'running') return { label: STAGE_ACTIVITY[stage], glyph, stage };
+  if (status === 'skipped') return { label: `${title} skipped`, glyph, stage };
   if (status === 'passed') {
     // Arriving at a terminal stage IS completing it (workflow/machine.ts), so
     // the exit reads as the outcome, not as another finished step.
-    return { label: isTerminal(stage) ? 'Shipped' : `${title} passed`, glyph };
+    return { label: isTerminal(stage) ? 'Done' : `${title} passed`, glyph, stage };
   }
   // pending
-  if (stage === 'scope') return { label: 'Not scoped', glyph };
-  return { label: `Awaiting ${title.toLowerCase()}`, glyph };
+  if (stage === 'scope') return { label: 'Not scoped', glyph, stage };
+  return { label: `Awaiting ${title.toLowerCase()}`, glyph, stage };
 }

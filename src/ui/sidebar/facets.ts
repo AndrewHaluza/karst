@@ -31,7 +31,7 @@ export const FACETS: readonly Facet[] = [
   { key: 'running', label: 'In progress' },
   { key: 'input', label: 'Needs you' },
   { key: 'failed', label: 'Blocked' },
-  { key: 'done', label: 'Shipped' },
+  { key: 'done', label: 'Done' },
   { key: 'archived', label: 'Archived' },
 ];
 

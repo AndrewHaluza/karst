@@ -62,6 +62,17 @@ describe('buildTicketNodes', () => {
     expect(n.glyph).toBe('gray');
   });
 
+  it('carries the stage color class the chip renders, matching the dashboard rail', () => {
+    expect(buildTicketNodes([ticket({ stageCurrent: 'impl' })])[0]!.stageClass).toBe('stg-impl');
+    expect(buildTicketNodes([ticket({ stageCurrent: 'uat' })])[0]!.stageClass).toBe('stg-uat');
+  });
+
+  it('a chipped stage key is the key itself (uppercased in the view), and a stageless ticket falls back', () => {
+    expect(buildTicketNodes([ticket({ stageCurrent: 'review' })])[0]!.stageChip).toBe('review');
+    expect(buildTicketNodes([ticket({ stageCurrent: null, stages: [] })])[0]!.stageClass).toBe('stg-unknown');
+    expect(buildTicketNodes([ticket({ stageCurrent: null, stages: [] })])[0]!.stageChip).toBe('none');
+  });
+
   it('glyph reflects current stage status + agent state (running impl => blue)', () => {
     const n = buildTicketNodes([ticket({ stageCurrent: 'impl', agentState: 'none' })])[0]!;
     expect(n.glyph).toBe('blue');
