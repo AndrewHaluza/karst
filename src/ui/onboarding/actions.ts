@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { TicketingProvider, ContextBrief } from '../../integrations/ticketing.js';
-import { renderAttachmentSection } from '../../integrations/attachmentMarkdown.js';
+import { renderBrief } from '../../integrations/briefMarkdown.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import {
   getTicket,
@@ -82,20 +82,6 @@ export interface OnboardingActionsDeps {
   listInstalledIds: () => string[];
   /** Open a URL in the external browser (vscode.env.openExternal). */
   openUrl?: (url: string) => void | Promise<void>;
-}
-
-/** Render a fetched brief into the plain-text `brief` column. */
-function renderBrief(brief: ContextBrief): string {
-  const lines = [`# ${brief.title}`, '', brief.description];
-  if (brief.tags.length) lines.push('', `Tags: ${brief.tags.join(', ')}`);
-  if (brief.comments.length) {
-    lines.push('', '## Comments');
-    for (const c of brief.comments) lines.push(`- ${c.author}: ${c.text}`);
-  }
-  // Attachments come last and only when present, so a ticket without them
-  // renders exactly the string it did before attachments were embedded.
-  lines.push(...renderAttachmentSection(brief.attachments));
-  return lines.join('\n');
 }
 
 function errorMessage(e: unknown): string {

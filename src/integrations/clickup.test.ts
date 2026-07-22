@@ -186,6 +186,91 @@ describe('clickupProvider.fetchTicket', () => {
   });
 });
 
+describe('clickupProvider.fetchTicket enrichment', () => {
+  const RICH = {
+    id: 'T-100',
+    name: 'Rich task',
+    text_content: 'Blocked work. Spec at https://docs.example/spec.',
+    url: 'https://app.clickup.com/t/T-100',
+    status: { status: 'in review' },
+    priority: { priority: 'urgent' },
+    date_created: '1700000000000',
+    date_updated: '1700000500000',
+    due_date: '1700900000000',
+    start_date: null,
+    date_closed: null,
+    list: { name: 'Sprint 12' },
+    assignees: [{ username: 'jane', email: 'jane@x.io' }, { email: 'noname@x.io' }],
+    creator: { username: 'bob' },
+    watchers: [{ username: 'kim' }],
+    parent: 'EPIC-9',
+    linked_tasks: [{ task_id: 'REL-1' }, { task_id: 'T-100' }],
+    dependencies: [
+      { task_id: 'T-100', depends_on: 'DEP-1', type: 1 },
+      { task_id: 'DOWN-1', depends_on: 'T-100', type: 0 },
+    ],
+  };
+
+  it('parses status, priority, url, milestone, people, relations, timestamps, links', async () => {
+    const { fn } = fakeFetch({
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100': { json: RICH },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    const brief = await provider.fetchTicket!('T-100');
+
+    expect(brief.status).toBe('in review');
+    expect(brief.priority).toBe('urgent');
+    expect(brief.url).toBe('https://app.clickup.com/t/T-100');
+    expect(brief.milestone).toBe('Sprint 12');
+
+    // People: named assignee + email-only assignee, reporter (creator), watcher.
+    expect(brief.people).toEqual([
+      { name: 'jane', role: 'assignee', email: 'jane@x.io' },
+      { name: 'noname@x.io', role: 'assignee', email: 'noname@x.io' },
+      { name: 'bob', role: 'reporter' },
+      { name: 'kim', role: 'watcher' },
+    ]);
+
+    // Relations: parent, related (self-link to T-100 dropped), and dependency
+    // direction derived from which id is this task.
+    expect(brief.relations).toEqual([
+      { kind: 'parent', ref: 'EPIC-9' },
+      { kind: 'related', ref: 'REL-1' },
+      { kind: 'blocked-by', ref: 'DEP-1' },
+      { kind: 'blocks', ref: 'DOWN-1' },
+    ]);
+
+    expect(brief.timestamps?.created).toBe(new Date(1700000000000).toISOString());
+    expect(brief.timestamps?.updated).toBe(new Date(1700000500000).toISOString());
+    expect(brief.timestamps?.due).toBe(new Date(1700900000000).toISOString());
+    // null/absent times are omitted, not surfaced as epoch zero.
+    expect(brief.timestamps?.start).toBeUndefined();
+    expect(brief.timestamps?.closed).toBeUndefined();
+
+    expect(brief.links).toEqual(['https://docs.example/spec']);
+  });
+
+  it('omits every enrichment field on a bare task (backward-compatible shape)', async () => {
+    const { fn } = fakeFetch({
+      '/task/x/comment': { json: {} },
+      '/task/x': { json: { id: 'x', name: 'bare' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    const brief = await provider.fetchTicket!('x');
+    expect(brief.status).toBeUndefined();
+    expect(brief.priority).toBeUndefined();
+    expect(brief.url).toBeUndefined();
+    expect(brief.milestone).toBeUndefined();
+    expect(brief.people).toBeUndefined();
+    expect(brief.relations).toBeUndefined();
+    expect(brief.timestamps).toBeUndefined();
+    expect(brief.links).toBeUndefined();
+  });
+});
+
 const LIST = {
   id: '42',
   name: 'Sprint',

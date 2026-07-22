@@ -1018,9 +1018,47 @@
   });
 
   // Turn a fetched ContextBrief into the same text shape the host persists.
+  // Mirrors src/integrations/briefMarkdown.ts — a drawer PREVIEW only (the host
+  // renders the authoritative persisted brief); keep the section order in sync.
+  const RELATION_LABEL = {
+    'blocks': 'Blocks', 'blocked-by': 'Blocked by', 'parent': 'Parent',
+    'child': 'Child', 'duplicate': 'Duplicate of', 'related': 'Related to',
+  };
+  const ROLE_LABEL = { assignee: 'Assignee', reporter: 'Reporter', watcher: 'Watcher' };
   function briefToText(b) {
     if (!b) return '';
     const lines = ['# ' + b.title, '', b.description || ''];
+    const details = [];
+    if (b.status) details.push('- Status: ' + b.status);
+    if (b.priority) details.push('- Priority: ' + b.priority);
+    if (b.milestone) details.push('- Sprint/Milestone: ' + b.milestone);
+    if (b.url) details.push('- Link: ' + b.url);
+    if (details.length) lines.push('', '## Details', ...details);
+    if (b.people && b.people.length) {
+      lines.push('', '## People');
+      for (const p of b.people) {
+        lines.push('- ' + (ROLE_LABEL[p.role] || p.role) + ': ' + p.name + (p.email ? ' <' + p.email + '>' : ''));
+      }
+    }
+    if (b.relations && b.relations.length) {
+      lines.push('', '## Relations');
+      for (const r of b.relations) {
+        lines.push('- ' + (RELATION_LABEL[r.kind] || r.kind) + ': ' + r.ref + (r.title ? ' — ' + r.title : ''));
+      }
+    }
+    if (b.timestamps) {
+      const t = b.timestamps, rows = [];
+      if (t.created) rows.push('- Created: ' + t.created);
+      if (t.updated) rows.push('- Updated: ' + t.updated);
+      if (t.start) rows.push('- Start: ' + t.start);
+      if (t.due) rows.push('- Due: ' + t.due);
+      if (t.closed) rows.push('- Closed: ' + t.closed);
+      if (rows.length) lines.push('', '## Dates', ...rows);
+    }
+    if (b.links && b.links.length) {
+      lines.push('', '## Links');
+      for (const l of b.links) lines.push('- ' + l);
+    }
     if (b.tags && b.tags.length) lines.push('', 'Tags: ' + b.tags.join(', '));
     if (b.comments && b.comments.length) {
       lines.push('', '## Comments');

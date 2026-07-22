@@ -15,6 +15,56 @@ export interface BriefComment {
 }
 
 /**
+ * How two tickets relate, normalized across providers. `blocked-by`/`blocks`
+ * carry ordering (do the other first / it waits on this); `parent`/`child` are
+ * epic↔subtask; `duplicate`/`related` are informational. A provider maps its
+ * own dependency vocabulary onto this closed set — an unmappable link is
+ * dropped, never guessed.
+ */
+export type RelationKind =
+  | 'blocks'
+  | 'blocked-by'
+  | 'parent'
+  | 'child'
+  | 'duplicate'
+  | 'related';
+
+/**
+ * One inter-ticket link. `ref` is the related ticket's provider ref (id/key);
+ * `title`/`status` are filled only when the source payload carries them cheaply
+ * (no extra fetch), so a relation degrades to a bare ref rather than vanishing.
+ */
+export interface BriefRelation {
+  kind: RelationKind;
+  ref: string;
+  title?: string;
+  status?: string;
+}
+
+/** A person's role on the ticket, so overlap with in-flight work is visible. */
+export type PersonRole = 'assignee' | 'reporter' | 'watcher';
+
+/** One person on a fetched ticket, normalized across providers. */
+export interface BriefPerson {
+  name: string;
+  role: PersonRole;
+  email?: string;
+}
+
+/**
+ * Ticket time fields, each provider-native ISO-8601 where derivable (epoch ms
+ * is normalized to ISO) else the raw provider string. Every field is optional:
+ * absent means the provider did not expose it, never "epoch zero".
+ */
+export interface BriefTimestamps {
+  created?: string;
+  updated?: string;
+  due?: string;
+  start?: string;
+  closed?: string;
+}
+
+/**
  * How a downloaded attachment can be represented in the brief. `unavailable` is
  * a first-class outcome, not an error channel: a 403 on one attachment degrades
  * that attachment, never the brief.
@@ -50,6 +100,27 @@ export interface ContextBrief {
   tags: string[];
   comments: BriefComment[];
   attachments: BriefAttachment[];
+  /**
+   * Everything below is OPTIONAL and additive: a provider populates a field only
+   * when it exposes it, and a brief with none of them renders byte-identically to
+   * the pre-enrichment brief. Consumers must treat absence as "unknown".
+   */
+  /** Current workflow state (e.g. "in review"). */
+  status?: string;
+  /** Priority label (e.g. "urgent"), provider-native. */
+  priority?: string;
+  /** Canonical ticket URL, for cross-reference from the brief. */
+  url?: string;
+  /** Sprint / milestone / containing-list name. */
+  milestone?: string;
+  /** Assignees, reporter, and relevant watchers. */
+  people?: BriefPerson[];
+  /** Inter-ticket links (blocks, parent/child, duplicate, related). */
+  relations?: BriefRelation[];
+  /** Created / updated / due / start / closed times. */
+  timestamps?: BriefTimestamps;
+  /** Distinct http(s) links found embedded in the description. */
+  links?: string[];
 }
 
 /** One ClickUp list, for the settings List picker. */

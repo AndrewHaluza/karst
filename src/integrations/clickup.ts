@@ -3,9 +3,13 @@ import type {
   ContextBrief,
   BriefComment,
   BriefAttachment,
+  BriefPerson,
+  BriefRelation,
+  BriefTimestamps,
   TicketList,
 } from './ticketing.js';
 import { materializeAttachments } from './attachments.js';
+import { extractLinks, toIsoDate } from './briefFields.js';
 
 /**
  * ClickUp ticketing provider (§15). Runs on the extension host: it fetches a
@@ -41,13 +45,46 @@ export class ClickupError extends Error {
   }
 }
 
+/** A ClickUp member as it appears under assignees/watchers/creator. */
+interface RawUser {
+  username?: string;
+  email?: string;
+}
+
+/**
+ * A ClickUp dependency edge. Both ids are present on every edge; `type` is 1 for
+ * "waiting on" and 0 for "blocking", but direction is derived from which id is
+ * THIS task, not from `type` (see `parseRelations`).
+ */
+interface RawDependency {
+  task_id?: string;
+  depends_on?: string;
+  type?: number;
+}
+
 /** Shapes we read out of the ClickUp payloads (everything else is ignored). */
 interface RawTask {
+  id?: string;
   name?: string;
   text_content?: string;
   description?: string;
+  url?: string;
   tags?: { name?: string }[];
   attachments?: { title?: string; url?: string; mimetype?: string }[];
+  status?: { status?: string };
+  priority?: { priority?: string } | null;
+  date_created?: string;
+  date_updated?: string;
+  date_closed?: string;
+  due_date?: string | null;
+  start_date?: string | null;
+  assignees?: RawUser[];
+  watchers?: RawUser[];
+  creator?: RawUser;
+  parent?: string | null;
+  linked_tasks?: { task_id?: string }[];
+  dependencies?: RawDependency[];
+  list?: { name?: string };
 }
 interface RawComments {
   comments?: { comment_text?: string; user?: { username?: string }; date?: string }[];
@@ -132,6 +169,83 @@ function parseComments(raw: RawComments): BriefComment[] {
     text: c.comment_text ?? '',
     date: c.date ?? '',
   }));
+}
+
+function personName(u: RawUser): string | undefined {
+  return u.username?.trim() || u.email?.trim() || undefined;
+}
+
+function personFrom(u: RawUser, role: BriefPerson['role']): BriefPerson | undefined {
+  const name = personName(u);
+  if (!name) return undefined;
+  const email = u.email?.trim();
+  return { name, role, ...(email ? { email } : {}) };
+}
+
+/**
+ * Assignees, reporter (ClickUp's `creator`), and watchers — flattened into one
+ * role-tagged list. A member with neither username nor email is dropped rather
+ * than surfaced as "unknown", since it carries no signal about who owns the work.
+ */
+function parsePeople(task: RawTask): BriefPerson[] {
+  const out: BriefPerson[] = [];
+  for (const a of task.assignees ?? []) {
+    const p = personFrom(a, 'assignee');
+    if (p) out.push(p);
+  }
+  if (task.creator) {
+    const p = personFrom(task.creator, 'reporter');
+    if (p) out.push(p);
+  }
+  for (const w of task.watchers ?? []) {
+    const p = personFrom(w, 'watcher');
+    if (p) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Map ClickUp's parent/linked-tasks/dependencies onto normalized relations.
+ * Dependency direction is read from WHICH id is this task, not from `type`:
+ * an edge where this task is `task_id` means it waits on `depends_on`
+ * (blocked-by); where this task is `depends_on`, the other task waits on it
+ * (blocks). Self-referential or id-less edges are skipped.
+ */
+function parseRelations(task: RawTask): BriefRelation[] {
+  const out: BriefRelation[] = [];
+  const self = task.id;
+  if (typeof task.parent === 'string' && task.parent) {
+    out.push({ kind: 'parent', ref: task.parent });
+  }
+  for (const l of task.linked_tasks ?? []) {
+    if (typeof l.task_id === 'string' && l.task_id && l.task_id !== self) {
+      out.push({ kind: 'related', ref: l.task_id });
+    }
+  }
+  for (const d of task.dependencies ?? []) {
+    if (self && d.task_id === self && typeof d.depends_on === 'string' && d.depends_on) {
+      out.push({ kind: 'blocked-by', ref: d.depends_on });
+    } else if (self && d.depends_on === self && typeof d.task_id === 'string' && d.task_id) {
+      out.push({ kind: 'blocks', ref: d.task_id });
+    }
+  }
+  return out;
+}
+
+/** Normalize ClickUp's epoch-ms date fields to ISO, dropping absent ones. */
+function parseTimestamps(task: RawTask): BriefTimestamps | undefined {
+  const ts: BriefTimestamps = {};
+  const created = toIsoDate(task.date_created);
+  const updated = toIsoDate(task.date_updated);
+  const due = toIsoDate(task.due_date);
+  const start = toIsoDate(task.start_date);
+  const closed = toIsoDate(task.date_closed);
+  if (created) ts.created = created;
+  if (updated) ts.updated = updated;
+  if (due) ts.due = due;
+  if (start) ts.start = start;
+  if (closed) ts.closed = closed;
+  return Object.keys(ts).length ? ts : undefined;
 }
 
 /** Build a ClickUp provider bound to injected HTTP + token. */
@@ -243,12 +357,33 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
         authFor: async (url) => (isClickupHost(url) ? await deps.token() : undefined),
       });
 
+      // Everything past the original five fields is spread in ONLY when the
+      // payload carried it, so a task exposing none of it yields the exact brief
+      // shape (and rendered string) it did before enrichment.
+      const description = pickDescription(task);
+      const status = task.status?.status?.trim();
+      const priority = task.priority?.priority?.trim();
+      const url = typeof task.url === 'string' && task.url.trim() ? task.url : undefined;
+      const milestone = task.list?.name?.trim();
+      const people = parsePeople(task);
+      const relations = parseRelations(task);
+      const timestamps = parseTimestamps(task);
+      const links = extractLinks(description);
+
       return {
         title: task.name ?? '',
-        description: pickDescription(task),
+        description,
         tags: parseTags(task),
         comments: parseComments(comments),
         attachments,
+        ...(status ? { status } : {}),
+        ...(priority ? { priority } : {}),
+        ...(url ? { url } : {}),
+        ...(milestone ? { milestone } : {}),
+        ...(people.length ? { people } : {}),
+        ...(relations.length ? { relations } : {}),
+        ...(timestamps ? { timestamps } : {}),
+        ...(links.length ? { links } : {}),
       };
     },
   };

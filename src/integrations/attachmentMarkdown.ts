@@ -18,7 +18,7 @@ import type { BriefAttachment } from './ticketing.js';
  */
 
 /** Escape the markdown that would let a filename break out of its own line. */
-function escapeInline(text: string): string {
+export function escapeInline(text: string): string {
   return text
     .replace(/\s+/g, ' ')
     .replace(/([\\`*_[\]()<>#|~])/g, '\\$1')
