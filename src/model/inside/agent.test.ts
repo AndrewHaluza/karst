@@ -291,10 +291,16 @@ describe('implInside', () => {
     expect(agent.detail).toContain('no session');
   });
 
-  it('has nothing to show before the stage has run', () => {
-    const strip = implInside(cell('impl', 'pending'), SESSION, ['research'], [], NOW);
-    expect(strip.ops).toEqual([]);
+  it('shows the declared phases before the stage has run — declared, not observed', () => {
+    // The approach's workflow phases are static config, known before impl ever
+    // starts — the same class of fact as a gate's spec list — so pending shows
+    // them (note-status: declared, never observed), not the blurb.
+    const none = { sessionId: null, agentState: 'none', model: null };
+    const strip = implInside(cell('impl', 'pending'), none, ['research', 'plan'], [], NOW);
     expect(strip.clock).toBe('has not run yet');
+    expect(strip.ops.map((o) => o.name)).toEqual(['agent', 'driver', 'phases', 'recorded']);
+    expect(strip.ops.find((o) => o.name === 'agent')!.status).toBe('note');
+    expect(strip.ops.find((o) => o.name === 'phases')!.detail).toBe('research → plan');
   });
 });
 
@@ -333,7 +339,12 @@ describe('fixInside', () => {
     expect(ops.map((o) => o.name)).toEqual(['agent', 'returns']);
   });
 
-  it('has nothing to show before the loop has been entered', () => {
-    expect(fixInside(cell('fix', 'pending'), null, 0, NOW).ops).toEqual([]);
+  it('shows where it returns to before the loop has been entered', () => {
+    // "returns to review, N attempts left" is static config, not an observation
+    // of the run — known before fix ever starts.
+    const ops = fixInside(cell('fix', 'pending'), null, 0, NOW).ops;
+    expect(ops.map((o) => o.name)).toEqual(['agent', 'returns']);
+    expect(ops.find((o) => o.name === 'agent')!.status).toBe('note');
+    expect(ops.find((o) => o.name === 'returns')!.detail).toContain('3 attempts left');
   });
 });

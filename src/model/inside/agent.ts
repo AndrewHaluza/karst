@@ -158,8 +158,10 @@ export function implInside(
   marks: readonly PhaseMark[],
   now: string,
 ): StageInside {
-  if (cell.status === 'pending') return inside(cell, now, []);
-
+  // The approach's declared workflow phases are static config, known before
+  // impl ever starts — the same class of fact as a gate's spec list — so a
+  // not-yet-started impl shows them too (declaredRows, `note`-status: declared,
+  // never observed), instead of blurb.
   const elapsed = formatDuration(cell.startedAt, cell.endedAt ?? now);
   const agent = agentOp(session, cell.status, (id) =>
     session.model ? `session ${id} — ${session.model}` : `session ${id}`,
@@ -185,8 +187,8 @@ export function fixInside(
   fixAttempts: number,
   now: string,
 ): StageInside {
-  if (cell.status === 'pending') return inside(cell, now, []);
-
+  // Where fix returns to, and how many attempts remain, is static config —
+  // known before the fix loop is ever entered — so pending shows it too.
   const left = Math.max(FIX_ATTEMPT_CAP - fixAttempts, 0);
   const remaining =
     left === 0 ? 'no attempts left' : `${left} attempt${left === 1 ? '' : 's'} left`;

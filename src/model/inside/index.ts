@@ -54,7 +54,28 @@ function scopeInside(
   selectedRepos: readonly string[],
   now: string,
 ): StageInside {
-  if (worktrees.length === 0) return inside(cell, now, []);
+  if (worktrees.length === 0) {
+    // The hot repo set is chosen at ticket creation, before scope ever runs —
+    // static config, the same class of fact as a gate's spec list — so a
+    // not-yet-started scope shows the worktree it WILL create per repo,
+    // pending, instead of blurb. No repo selected yet: nothing to preview.
+    if (cell.status !== 'pending' || selectedRepos.length === 0) return inside(cell, now, []);
+    const count = selectedRepos.length;
+    return inside(cell, now, [
+      {
+        status: 'pending',
+        name: 'hot set',
+        detail: `${count} ${count === 1 ? 'service' : 'services'} to validate against the manifest`,
+        duration: '',
+      },
+      ...selectedRepos.map((repo): StageOp => ({
+        status: 'pending',
+        name: 'worktree',
+        detail: repo,
+        duration: '',
+      })),
+    ]);
+  }
 
   const count = selectedRepos.length || worktrees.length;
   const ops: StageOp[] = [

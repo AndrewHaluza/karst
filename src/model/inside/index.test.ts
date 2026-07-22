@@ -65,12 +65,14 @@ describe('buildStageInside', () => {
 
   it('gives a stage with nothing predefined a blurb instead of empty rows', () => {
     // Empty operation rows would imply karst tried something and got nothing.
-    // review/uat are exempt: their gate list is static, so they show it pending
-    // even before the stage runs (covered in gates.test.ts) — every other stage
-    // has nothing enumerable yet, so it falls back to the blurb.
+    // review/uat/impl/fix are exempt: each has a static, already-known-in-advance
+    // list (gate specs; declared workflow phases; the fix-loop's return info) that
+    // it shows before the stage runs (covered in gates.test.ts/agent.test.ts) —
+    // scope/ship join them once a repo is actually selected (see their own
+    // describe blocks); with nothing selected yet, they too fall back to blurb.
     const all = build({});
     for (const key of STAGE_KEYS) {
-      if (key === 'review' || key === 'uat') continue;
+      if (key === 'review' || key === 'uat' || key === 'impl' || key === 'fix') continue;
       expect(all[key].ops, `${key} invented rows`).toEqual([]);
       expect(all[key].blurb.length, `${key} has no blurb`).toBeGreaterThan(0);
     }
@@ -90,8 +92,23 @@ describe('buildStageInside', () => {
       expect(ops[1]!.detail).toContain('karst/t-1');
     });
 
-    it('has nothing to show when no worktree was created', () => {
+    it('has nothing to show when no worktree was created and no repo is selected yet', () => {
       expect(build({ scope: 'running' }).scope.ops).toEqual([]);
+    });
+
+    it('shows a pending worktree row per hot repo before scope has run', () => {
+      const ops = build(
+        { scope: 'pending' },
+        { selectedRepos: ['api', 'web'] },
+      ).scope.ops;
+      expect(ops.map((o) => [o.name, o.status])).toEqual([
+        ['hot set', 'pending'],
+        ['worktree', 'pending'],
+        ['worktree', 'pending'],
+      ]);
+      expect(ops[0]!.detail).toContain('2');
+      expect(ops[1]!.detail).toContain('api');
+      expect(ops[2]!.detail).toContain('web');
     });
   });
 
