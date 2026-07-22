@@ -342,6 +342,12 @@
   .now{display:flex;align-items:center;gap:10px;margin:14px 6px 2px;padding-top:11px;
     border-top:1px solid var(--border);font-size:12px;color:var(--text)}
   .now .ntext{flex:1}
+  /* The ship-in-progress spinner rides in the Now line at the gate-node size.
+     .spin is display:block, so it needs an explicit box here. */
+  .now .spin{width:13px;height:13px;flex:none;color:var(--st-running)}
+  /* The resolved-success flash: a brief "Shipped ✓" beside the settled line. */
+  .now .shipbadge{font-weight:600;flex:none}
+  .now .shipbadge.ok{color:var(--st-done)}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
   .panel.span{grid-column:1 / -1}
@@ -427,6 +433,15 @@
   // Whether the optional fix loop is expanded. Local view state like the
   // selection — never in DashboardState, so a host push can't reset it.
   let fixExpanded = false;
+  // Ship-in-flight view state. `shipping` is set the instant the user clicks
+  // Confirm ship — BEFORE any host round trip — so the click always registers
+  // visibly. It stays true (overriding every state push, which still reads the
+  // ship stage as "ready") until the ship stage resolves: advanced past ship
+  // (success) or landed failed (error). `shipLabel` is the live phase the host
+  // streams via `ship-progress`; `shipDone` is the brief post-success flash.
+  let shipping = false;
+  let shipLabel = '';
+  let shipDone = null;
 
   // The connector INTO this node: lit once the previous stage passed, accented
   // into a running node, broken (red) into a failed one, dim when unreached.
@@ -598,13 +613,44 @@
   // and shipped in the state, so it is unit-tested and lives in exactly one place.
   const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket' };
 
+  // While a ship is in flight the Now line becomes a live spinner + phase label,
+  // never the (still "ready to ship") host copy — so the click is unambiguous and
+  // no second Confirm button exists to double-submit.
+  function renderShipProgress() {
+    el('now').innerHTML = `<span class="spin" aria-hidden="true"></span>`
+      + `<span class="ntext">${esc(shipLabel || 'Shipping…')}</span>`;
+  }
+
   function renderNow(now) {
+    if (shipping) { renderShipProgress(); return; }
     const line = now || { text: '' };
     const a = line.action;
     const type = a && NOW_MESSAGE[a.kind];
     const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
-    el('now').innerHTML = `<span class="ntext">${esc(line.text)}</span>`
+    // A brief success flash beside the settled line once a ship resolves — the
+    // clear "it worked" beat before the dashboard shows the done state.
+    const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
+    el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
       + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '');
+  }
+
+  // Decide whether an incoming snapshot ends the in-flight ship. Keyed off host
+  // truth (the ship stage's own status), never the copy: while shipping the
+  // stage sits at `running`, so every push would otherwise rebuild the plain
+  // "Confirm ship" line and wipe the spinner. Success = advanced past ship;
+  // error = ship landed failed (the Now line + fault card then explain it).
+  function resolveShipping(state) {
+    if (!shipping) return;
+    const atShip = state.stageCurrent === 'ship';
+    const failed = atShip && state.currentStage && state.currentStage.status === 'failed';
+    if (failed) {
+      shipping = false; // the failed Now line + fault card are the explicit error state
+    } else if (!atShip) {
+      shipping = false;
+      shipDone = 'success';
+      setTimeout(() => { shipDone = null; render(lastState); }, 2400);
+    }
+    // else still at ship (running) → hold the spinner across this push
   }
 
   function renderServers(servers, hasRunnableRepos) {
@@ -762,6 +808,16 @@
     if (!btn) return;
     e.preventDefault();
     const act = btn.dataset.act;
+    // Confirm ship kicks off slow backend work (model call + gh pr create). Guard
+    // against double-submit and show that the click registered BEFORE the host is
+    // even asked — no window where the button looks inert with work underway.
+    if (act === 'ship-ticket') {
+      if (shipping) return;
+      shipping = true;
+      shipDone = null;
+      shipLabel = 'Shipping…';
+      renderShipProgress();
+    }
     if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
     else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
     else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
@@ -771,7 +827,17 @@
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
-    if (msg && msg.type === 'state') {
+    if (!msg) return;
+    // Live ship phase label, streamed while the ship runs. Ignored unless a ship
+    // is in flight (a stale message can't hijack the Now line).
+    if (msg.type === 'ship-progress') {
+      if (shipping && typeof msg.label === 'string') { shipLabel = msg.label; renderShipProgress(); }
+      return;
+    }
+    if (msg.type === 'state') {
+      // Resolve an in-flight ship FIRST, so render() draws either the held
+      // spinner or the settled line — never a flash of the stale "Confirm ship".
+      resolveShipping(msg.state);
       // Never touches selectedStage, so a full re-render preserves the user's
       // selection for free — including during a run, when pushes are frequent.
       render(msg.state);

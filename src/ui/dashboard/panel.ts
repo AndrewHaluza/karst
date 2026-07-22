@@ -133,6 +133,20 @@ export class DashboardManager {
   }
 
   /**
+   * Push a transient ship-progress label to a ticket panel; no-op if not open.
+   *
+   * Separate from `pushState` on purpose: the ship stage's live phase ("Pushing
+   * branch…") is not in the store — `buildDashboardState` cannot re-derive it —
+   * so it rides its own ephemeral message that the webview overlays on the "Now"
+   * line while a ship is in flight, then discards on the next real state push.
+   */
+  postShipProgress(ticketId: number, label: string): void {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    panel.postMessage({ type: 'ship-progress', label });
+  }
+
+  /**
    * Push fresh state to every open panel. Used by background sweeps (e.g. PR
    * status sync) whose result may touch any open ticket, so the caller need not
    * track which ticket changed.

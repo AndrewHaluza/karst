@@ -96,16 +96,27 @@ async function recordMergeChecks(
   }
 }
 
+/**
+ * Short, human-readable phase label emitted as the ship progresses. Deliberately
+ * non-throwing at the call sites (the caller's UI is observing, not controlling)
+ * — a broken observer must never sink a ship that otherwise works.
+ */
+export type ShipProgress = (label: string) => void;
+
 export async function shipTicket(
   store: Store,
   opts: ShipOpts,
   gh: GhRunner = defaultGhRunner,
   adapter?: AgentAdapter,
   git: GitRunner = defaultGitRunner,
+  onProgress: ShipProgress = () => {},
 ): Promise<ShipResult> {
   const ticket = getTicket(store, opts.ticketId);
   const worktrees = listWorktreesByTicket(store, opts.ticketId);
   const title = ticket.title ?? ticket.key ?? `Ticket ${opts.ticketId}`;
+  // Name the repo in the label only when there is more than one worktree —
+  // otherwise the suffix is noise on the common single-repo ship.
+  const tag = (repo: string) => (worktrees.length > 1 ? ` (${repo})` : '');
 
   const insert = store.db.prepare(
     "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, 'open')",
@@ -130,6 +141,7 @@ export async function shipTicket(
         prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
         continue;
       }
+      onProgress(`Committing changes${tag(wt.repo)}…`);
       // Push FIRST. `gh pr create` refuses a branch that exists only on this
       // machine ("you must first push the current branch to a remote"), and every
       // ticket works on a fresh worktree branch — so the branch is always
@@ -140,6 +152,7 @@ export async function shipTicket(
       // that it committed. Work left in the worktree would push an empty branch and
       // `gh pr create` would fail with "No commits between main and karst/…".
       await commitAllIfDirty(git, wt.path, title);
+      onProgress(`Pushing branch${tag(wt.repo)}…`);
       await pushBranch(git, wt.path);
       // The `prs` table only knows about PRs karst itself opened, so a PR opened
       // by hand — or by a run whose row was lost — used to make ship fail with
@@ -152,13 +165,16 @@ export async function shipTicket(
       // Probing BEFORE the create rather than rescuing after it also keeps
       // `describePr` from paying for prose describing a PR that already exists.
       const existing = await findOpenPr(gh, wt.path);
-      const opened =
-        existing ??
-        (await openPr(gh, {
-          cwd: wt.path,
-          title,
-          body: adapter ? await describePr(adapter, wt.path, title) : title,
-        }));
+      let opened = existing;
+      if (!opened) {
+        let body = title;
+        if (adapter) {
+          onProgress(`Writing PR description${tag(wt.repo)}…`);
+          body = await describePr(adapter, wt.path, title);
+        }
+        onProgress(`Opening pull request${tag(wt.repo)}…`);
+        opened = await openPr(gh, { cwd: wt.path, title, body });
+      }
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
       prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
     }
@@ -181,6 +197,7 @@ export async function shipTicket(
   // Every branch is now pushed, so the merge probe measures what a reviewer would
   // actually see on the PR. Deliberately outside the try above: a failure here is
   // not a ship failure, and this must not reach the catch that parks the ticket.
+  onProgress('Checking mergeability…');
   await recordMergeChecks(store, opts.ticketId, worktrees, git);
 
   // PRs opened → ship passes → done. Unaffected by merge state, by design.

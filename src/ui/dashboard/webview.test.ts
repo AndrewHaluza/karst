@@ -171,4 +171,47 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toContain('renderSubsteps');
     expect(HTML).not.toContain('implPhases');
   });
+
+  /**
+   * Confirm-ship progress feedback. The bug: clicking Confirm ship kicked off
+   * slow backend work (model call + `gh pr create`) with zero UI change until it
+   * finished — the button looked inert and users could not tell the click even
+   * registered. These guard the pieces that fix it; the pixels need F5.
+   */
+  it('registers the confirm-ship click before the host round trip', () => {
+    // shipping is flipped and the spinner drawn inside the click handler, not on
+    // the next state push — so there is no window where the button looks inert.
+    expect(HTML).toMatch(/act === 'ship-ticket'/);
+    expect(HTML).toMatch(/shipping = true/);
+    expect(HTML).toContain('renderShipProgress()');
+  });
+
+  it('guards against a double confirm-ship submit while one is in flight', () => {
+    // Re-clicking must not fire a second ship. The handler bails when already
+    // shipping, and the spinner render drops the button entirely as a backstop.
+    expect(HTML).toMatch(/if \(shipping\) return/);
+  });
+
+  it('holds the ship spinner across state pushes until the stage resolves', () => {
+    // Every push still reads the ship stage as "ready" (it sits at running), so
+    // renderNow must short-circuit to the spinner while shipping, and the
+    // resolution must key off host stage truth — not the button copy.
+    expect(HTML).toMatch(/function renderNow\(now\) \{\s*if \(shipping\)/);
+    expect(HTML).toMatch(/stageCurrent === 'ship'/);
+    expect(HTML).toMatch(/status === 'failed'/);
+  });
+
+  it('updates the ship status label from host ship-progress messages', () => {
+    // The live phase ("Pushing branch…") is not in DashboardState; it rides its
+    // own transient message that only applies while a ship is in flight.
+    expect(HTML).toContain("'ship-progress'");
+    expect(HTML).toMatch(/shipLabel = msg\.label/);
+  });
+
+  it('resolves the ship to an explicit success flash', () => {
+    // On completion the indicator settles to a clear success beat, distinct from
+    // the idle and processing states.
+    expect(HTML).toMatch(/shipDone = 'success'/);
+    expect(HTML).toContain('✓ Shipped');
+  });
 });

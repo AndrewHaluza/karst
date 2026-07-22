@@ -137,6 +137,25 @@ describe('DashboardManager', () => {
     expect(stopServer).toHaveBeenCalledWith(9);
   });
 
+  it('posts a ship-progress label to the open panel (transient, not a state push)', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+    mgr.openDashboard(t.id);
+    panels[0]!.posted.length = 0; // drop the open-time state push
+    mgr.postShipProgress(t.id, 'Pushing branch…');
+
+    expect(panels[0]!.posted).toEqual([{ type: 'ship-progress', label: 'Pushing branch…' }]);
+  });
+
+  it('postShipProgress on an unopened ticket is a no-op', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+    expect(() => mgr.postShipProgress(t.id, 'x')).not.toThrow();
+  });
+
   it('disposing a panel drops it from the map so reopen creates a new one', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     const { host, panels } = fakeHost();

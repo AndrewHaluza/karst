@@ -736,6 +736,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fetch,
             makeTokenProvider(context),
           ),
+        (label) => dashboard.postShipProgress(ticketId, label),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
@@ -1663,6 +1664,9 @@ function makeDashboardActions(
   // window reload — same getter pattern as the onboarding provider.
   ticketing: () => TicketingConfig | undefined,
   ticketingProvider: () => TicketingProvider,
+  // Stream a short live phase label to the dashboard while `shipTicket` runs, so
+  // the confirm-ship click has visible progress instead of a frozen button.
+  onShipProgress: (label: string) => void,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {
@@ -1725,7 +1729,7 @@ function makeDashboardActions(
       // the PR description first, so an unguarded click burns a call per repo and
       // then dies at `gh pr create`.
       if (!guardCapability('ship')) return;
-      void runShipTicket(store, { ticketId }, undefined, agentAdapter)
+      void runShipTicket(store, { ticketId }, undefined, agentAdapter, undefined, onShipProgress)
         .then(async () => {
           // The PRs are open and the branch is pushed — the irreversible part
           // succeeded, and ship.ts already transitioned to done. So a failed

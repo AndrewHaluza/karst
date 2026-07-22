@@ -508,4 +508,63 @@ describe('shipTicket', () => {
     expect(listPrsByTicket(store, id)).toHaveLength(2);
     expect(res.prs).toHaveLength(2);
   });
+
+  // The dashboard was inert while ship ran; the phase labels are what it now
+  // shows, so ship must emit them in the order the work happens.
+  it('streams human-readable phase labels as it ships', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const labels: string[] = [];
+    await shipTicket(
+      store,
+      { ticketId: id },
+      fakeGh().gh,
+      fakeAdapter(),
+      fakeGit().git,
+      (label) => labels.push(label),
+    );
+
+    // Ordered: commit → push → describe → open → merge check.
+    expect(labels).toEqual([
+      expect.stringMatching(/^Committing changes/),
+      expect.stringMatching(/^Pushing branch/),
+      expect.stringMatching(/^Writing PR description/),
+      expect.stringMatching(/^Opening pull request/),
+      'Checking mergeability…',
+    ]);
+    // Single worktree → no repo suffix noise.
+    expect(labels[0]).toBe('Committing changes…');
+  });
+
+  it('tags each label with the repo name when several worktrees ship', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+    const labels: string[] = [];
+    await shipTicket(
+      store,
+      { ticketId: id },
+      fakeGh().gh,
+      fakeAdapter(),
+      fakeGit().git,
+      (label) => labels.push(label),
+    );
+
+    expect(labels).toContain('Pushing branch (/repo/frontend)…');
+    expect(labels).toContain('Pushing branch (/repo/backend)…');
+  });
+
+  it('does not ask for a PR description when there is no adapter', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const labels: string[] = [];
+    await shipTicket(
+      store,
+      { ticketId: id },
+      fakeGh().gh,
+      undefined,
+      fakeGit().git,
+      (label) => labels.push(label),
+    );
+
+    expect(labels).not.toContain('Writing PR description…');
+    expect(labels).toContain('Opening pull request…');
+  });
 });
