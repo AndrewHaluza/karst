@@ -46,13 +46,21 @@ describe('stagePaletteCss', () => {
   it('declares a token and a color class per stage', () => {
     for (const key of STAGE_KEYS) {
       expect(css).toContain(`--stage-${key}:${STAGE_COLORS[key].dark}`);
-      expect(css).toContain(`.stg-${key}{color:var(--stage-${key})}`);
+      expect(css).toContain(`.stg-${key}{color:var(--stage-${key})`);
+    }
+  });
+
+  it('exposes each stage hue as --stg-color, so a knocked-out fill can reference it', () => {
+    // A filled node overrides `color` for glyph contrast; fills must read the hue
+    // from a handle the override cannot disturb, not from currentColor.
+    for (const key of STAGE_KEYS) {
+      expect(css).toContain(`.stg-${key}{color:var(--stage-${key});--stg-color:var(--stage-${key})}`);
     }
   });
 
   it('declares the fallback token and class', () => {
     expect(css).toContain(`--stage-${STAGE_FALLBACK_KEY}:`);
-    expect(css).toContain(`.stg-${STAGE_FALLBACK_KEY}{color:var(--stage-${STAGE_FALLBACK_KEY})}`);
+    expect(css).toContain(`.stg-${STAGE_FALLBACK_KEY}{color:var(--stage-${STAGE_FALLBACK_KEY})`);
   });
 
   it('overrides every token for light themes', () => {

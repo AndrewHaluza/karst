@@ -85,8 +85,13 @@ export function stagePaletteCss(): string {
     entries()
       .map(([key, color]) => `--stage-${key}:${pick(color)};`)
       .join('');
+  // Each class sets BOTH `color` (so text/currentColor read the stage hue) and
+  // `--stg-color` (a stable handle on the hue). A filled node overrides its own
+  // `color` to knock the glyph out against the fill, which would make
+  // `currentColor` resolve to the knockout color — so fills reference
+  // `--stg-color`, which the color override cannot disturb.
   const classes = entries()
-    .map(([key]) => `.stg-${key}{color:var(--stage-${key})}`)
+    .map(([key]) => `.stg-${key}{color:var(--stage-${key});--stg-color:var(--stage-${key})}`)
     .join('');
   return (
     `:root{${decls((c) => c.dark)}}` +
