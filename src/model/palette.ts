@@ -1,3 +1,5 @@
+import { stagePaletteCss } from './stagePalette.js';
+
 /**
  * The unified stages/states color system (§ Phase E) — single source of truth.
  *
@@ -46,7 +48,10 @@ export function paletteCss(): string {
     // Legacy dashboard aliases (stepper / agent pill / server dots).
     '--st-running:var(--k-running);--st-input:var(--k-attention);--st-failed:var(--k-failed);' +
     '--st-done:var(--k-passed);--st-pending:var(--k-pending);' +
-    '}'
+    '}' +
+    // The stage ramp ships through the same marker: one injection point, so a
+    // webview cannot end up with status colors but no stage colors.
+    stagePaletteCss()
   );
 }
 

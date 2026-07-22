@@ -152,7 +152,7 @@ describe('transition (stage machine core)', () => {
       expect(facetOf(getTicket(store, ticketId))).toBe('running');
 
       transition(store, ticketId, 'ship', { kind: 'passed' });
-      expect(stageBadge(getTicket(store, ticketId)).label).toBe('Shipped');
+      expect(stageBadge(getTicket(store, ticketId)).label).toBe('Done');
       expect(facetOf(getTicket(store, ticketId))).toBe('done');
     });
 

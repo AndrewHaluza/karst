@@ -1,6 +1,7 @@
 import { ticketLabel, type TicketWithStages } from '../../store/tickets.js';
 import { ticketGlyph, currentStageStatus } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
+import { stageColorClass } from '../../model/stagePalette.js';
 import type { Glyph } from '../../model/glyph.js';
 
 /**
@@ -21,6 +22,19 @@ export interface TicketNode {
    * a stageless ticket renders a phrase rather than an empty pill.
    */
   stageLabel: string;
+  /**
+   * Color class for the stage chip — the same `stg-<stage>` token the dashboard
+   * rail paints with, so a stage reads the identical color in both views. Falls
+   * back to `stg-unknown` for a stageless ticket rather than rendering uncolored.
+   */
+  stageClass: string;
+  /**
+   * The chip's TEXT: the bare stage key (the view uppercases it), NOT the
+   * status phrase in `stageLabel`. Status is already the dot on the left of the
+   * row, so the chip states only where the ticket is. `none` when there is no
+   * stage yet.
+   */
+  stageChip: string;
   /** True when soft-deleted; drives the archived row actions (unarchive/delete). */
   archived: boolean;
   collapsible: true;
@@ -31,16 +45,21 @@ export function buildTicketNodes(
   tickets: readonly TicketWithStages[],
   labelTemplate?: string,
 ): TicketNode[] {
-  return tickets.map((t) => ({
-    kind: 'ticket',
-    ticketId: t.id,
-    label: ticketLabel(t, labelTemplate),
-    glyph: ticketGlyph(t),
-    description: `${t.stageCurrent ?? 'none'} (${currentStageStatus(t)})`,
-    stageLabel: stageBadge(t).label,
-    archived: t.archivedAt !== null,
-    collapsible: true,
-  }));
+  return tickets.map((t) => {
+    const badge = stageBadge(t);
+    return {
+      kind: 'ticket',
+      ticketId: t.id,
+      label: ticketLabel(t, labelTemplate),
+      glyph: badge.glyph,
+      description: `${t.stageCurrent ?? 'none'} (${currentStageStatus(t)})`,
+      stageLabel: badge.label,
+      stageClass: stageColorClass(badge.stage),
+      stageChip: badge.stage ?? 'none',
+      archived: t.archivedAt !== null,
+      collapsible: true,
+    };
+  });
 }
 
 /** Case-insensitive substring filter over key + title; blank query = all. */

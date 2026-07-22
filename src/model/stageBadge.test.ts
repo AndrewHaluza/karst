@@ -84,10 +84,23 @@ describe('stageBadge', () => {
     expect(b.glyph).toBe('red');
   });
 
-  it('the terminal stage reads as shipped', () => {
+  it('the terminal stage reads as done', () => {
     const b = stageBadge(ticket('done', 'passed'));
-    expect(b.label).toBe('Shipped');
+    expect(b.label).toBe('Done');
     expect(b.glyph).toBe('green');
+  });
+
+  it('carries the stage key itself, so the chip can color and name it', () => {
+    // The label paraphrases (stage, status, agent); the chip states the stage
+    // alone, because status already has the dot on the other side of the row.
+    expect(stageBadge(ticket('uat', 'failed')).stage).toBe('uat');
+    expect(stageBadge(ticket('impl', 'running', { agentState: 'waiting' })).stage).toBe('impl');
+  });
+
+  it('has no stage key when the ticket has not started or the stage left the graph', () => {
+    const t = ticket('impl', 'running');
+    expect(stageBadge(ticket(null, 'pending')).stage).toBeNull();
+    expect(stageBadge({ ...t, stageCurrent: 'legacy-stage' as unknown as StageKey }).stage).toBeNull();
   });
 
   it('pending stages read as awaiting, with scope spelled out', () => {

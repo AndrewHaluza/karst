@@ -89,10 +89,16 @@
   .g-green{color:var(--g-done)}
   .g-gray{color:var(--g-gray)}
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
-  /* The stage pill carries the same g-* class as the mark, so its text IS the
-     palette color and its fill is that color washed out — one token, no hex. */
-  .stage{font-size:10px;padding:1px 7px;border-radius:9px;flex:0 0 auto;font-weight:500;
+  /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
+     so its text IS the stage color and its fill is that color washed out — the
+     same token the dashboard rail paints with. Uppercase + tracking so the chip
+     text matches the rail's stage label letter-for-letter. */
+  .stage{font-size:10px;padding:1px 7px;border-radius:9px;flex:0 0 auto;font-weight:600;
+    text-transform:uppercase;letter-spacing:.06em;
     background:color-mix(in srgb, currentColor 16%, transparent)}
+  /* An unclassified stage (newer schema, or none yet) reads as a dashed outline
+     rather than a solid chip, so "unknown" never masquerades as a real stage. */
+  .stage.stg-unknown{border:1px dashed currentColor}
   /* Actions overlay the row's right edge on hover so showing them never reflows
      the row. The stage pill hides under them (same slot) to avoid overlap. */
   .rowacts{display:flex;gap:1px;position:absolute;right:6px;top:50%;transform:translateY(-50%);
@@ -150,7 +156,7 @@
     { key:'running', label:'In progress', color:'running' },
     { key:'input', label:'Needs you', color:'input' },
     { key:'failed', label:'Blocked', color:'failed' },
-    { key:'done', label:'Shipped', color:'done' },
+    { key:'done', label:'Done', color:'done' },
     { key:'archived', label:'Archived', color:null },
   ];
 
@@ -205,6 +211,12 @@
       // A restored snapshot (vscode.getState) can predate stageLabel, so fall
       // back rather than render an empty pill on the first paint after upgrade.
       const stageText = row.stageLabel || row.description || '—';
+      // The chip states the STAGE (colored by the shared stg-* token, matching
+      // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
+      // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
+      // neutral class rather than render blank.
+      const stageChip = row.stageChip || stageText;
+      const stageClass = row.stageClass || 'stg-unknown';
       const acts = row.archived
         ? `<button class="ia" data-act="unarchive" data-id="${row.ticketId}" title="Unarchive">${ic.unarch}</button>`
           + `<button class="ia danger" data-act="delete" data-id="${row.ticketId}" title="Delete permanently">${ic.del}</button>`
@@ -222,12 +234,12 @@
         + `<span class="chev" data-toggle="${row.ticketId}">${chev}</span>`
         + `<span class="glyph g-${esc(row.glyph)}" title="${esc(row.description)}">${ic.mark}<span class="sdot"></span></span>`
         + `<span class="name">${esc(row.label)}</span>`
-        + `<span class="stage g-${esc(row.glyph)}" title="${esc(row.description)}">${esc(stageText)}</span>`
+        + `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`
         + `<span class="rowacts">${acts}</span>`
         + `</div>`
         + `<div class="body">`
         + `<div class="mline"><span class="k">Stage</span>`
-        + `<span class="stg g-${esc(row.glyph)}" title="${esc(row.description)}">${esc(stageText)}</span></div>`
+        + `<span class="stg ${esc(stageClass)}" title="${esc(row.description)}">${esc(stageText)}</span></div>`
         + `<div class="mline"><span class="k">Ports</span><span class="v">${esc(portsText(row))}</span></div>`
         + `<div class="mline"><span class="k">Worktrees</span><span class="tags">${worktreeTags(row)}</span></div>`
         + `<div class="actions">${bodyActs}</div>`

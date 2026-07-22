@@ -1,0 +1,258 @@
+<title>Stage palette — karst</title>
+<style>
+  :root{
+    --ground:#f6f7f9; --panel:#ffffff; --line:#dcdfe6;
+    --ink:#1c1f26; --dim:#5d6472; --faint:#868d9c;
+    --accent:#1f6feb;
+    /* canonical stage palette — light */
+    --stage-scope:#8250df;
+    --stage-impl:#4f46e5;
+    --stage-uat:#b45309;
+    --stage-review:#0e7490;
+    --stage-fix:#c93636;
+    --stage-ship:#bf3989;
+    --stage-done:#1a7f37;
+    --stage-unknown:#6e7681;
+    --chip-mix:14%;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#15171c; --panel:#1c1f26; --line:#2d323c;
+      --ink:#e6e8ee; --dim:#9aa2b1; --faint:#6d7484;
+      --accent:#3794ff;
+      --stage-scope:#a371f7;
+      --stage-impl:#7f7bf5;
+      --stage-uat:#d18616;
+      --stage-review:#2ea8b5;
+      --stage-fix:#f14c4c;
+      --stage-ship:#d162c4;
+      --stage-done:#3fb950;
+      --stage-unknown:#7d8590;
+      --chip-mix:18%;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#15171c; --panel:#1c1f26; --line:#2d323c;
+    --ink:#e6e8ee; --dim:#9aa2b1; --faint:#6d7484;
+    --accent:#3794ff;
+    --stage-scope:#a371f7; --stage-impl:#7f7bf5; --stage-uat:#d18616;
+    --stage-review:#2ea8b5; --stage-fix:#f14c4c; --stage-ship:#d162c4;
+    --stage-done:#3fb950; --stage-unknown:#7d8590; --chip-mix:18%;
+  }
+  :root[data-theme="light"]{
+    --ground:#f6f7f9; --panel:#ffffff; --line:#dcdfe6;
+    --ink:#1c1f26; --dim:#5d6472; --faint:#868d9c;
+    --accent:#1f6feb;
+    --stage-scope:#8250df; --stage-impl:#4f46e5; --stage-uat:#b45309;
+    --stage-review:#0e7490; --stage-fix:#c93636; --stage-ship:#bf3989;
+    --stage-done:#1a7f37; --stage-unknown:#6e7681; --chip-mix:14%;
+  }
+
+  /* STATUS colors — a separate ramp from the stage palette, and deliberately so:
+     the left of a list row answers "does this need me?" (in progress / needs you /
+     blocked / shipped), the right answers "where is it?". Same four colors the
+     sidebar already ships. */
+  :root{
+    --k-running:#1f6feb; --k-input:#9a6700; --k-failed:#c93636;
+    --k-done:#1a7f37; --k-idle:#6e7681;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--k-running:#3794ff; --k-input:#cca700; --k-failed:#f14c4c;
+      --k-done:#4bb64b; --k-idle:#8b8b8b}
+  }
+  :root[data-theme="dark"]{--k-running:#3794ff; --k-input:#cca700; --k-failed:#f14c4c;
+    --k-done:#4bb64b; --k-idle:#8b8b8b}
+  :root[data-theme="light"]{--k-running:#1f6feb; --k-input:#9a6700; --k-failed:#c93636;
+    --k-done:#1a7f37; --k-idle:#6e7681}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--ui);
+    font-size:14px;line-height:1.5;padding:40px 24px 80px}
+  .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:34px}
+  h1{font-size:22px;margin:0;letter-spacing:-.01em}
+  h2{font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);font-weight:600}
+  p{margin:0;color:var(--dim);max-width:64ch}
+  code{font-family:var(--mono);font-size:.92em}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+
+  /* ── palette table ─────────────────────────────────────────── */
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .tbl th{text-align:left;font-weight:600;color:var(--faint);font-size:10.5px;
+    text-transform:uppercase;letter-spacing:.08em;padding:0 10px 8px 0}
+  .tbl td{padding:7px 10px 7px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+  .tbl td.hex{font-family:var(--mono);color:var(--dim)}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px;margin-right:8px}
+  .tok{font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+
+  /* ── dashboard rail (stage-colored) ────────────────────────── */
+  .rail{display:flex;align-items:flex-start;padding:8px 0 2px}
+  .st{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
+  .st .seg{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--line);z-index:0}
+  .st:first-child .seg{display:none}
+  .st .seg.lit{background:currentColor;opacity:.5}
+  .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+    background:var(--panel);border:2px solid currentColor;color:inherit;
+    position:relative;z-index:1;font-size:13px;font-weight:700}
+  /* The label carries the stage token — same color, same string, same casing as
+     the list chip. Inherits from the .st's stage class, so it can never drift. */
+  .lbl{margin-top:9px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    color:currentColor;font-weight:600}
+  .st.filled .node{background:currentColor;color:var(--panel)}
+  .st.pending{opacity:.45}
+  .st.pending .node{border-style:dashed}
+  .st.failed .node{border-style:dashed;background:transparent}
+  .fixrow{display:flex;justify-content:center;margin-top:14px}
+  .fixnode{display:inline-flex;align-items:center;gap:8px;font-size:10px;
+    text-transform:uppercase;letter-spacing:.06em;color:var(--stage-fix)}
+  .fixnode .node{width:26px;height:26px;font-size:12px}
+
+  /* ── list rows ─────────────────────────────────────────────── */
+  .rows{display:flex;flex-direction:column}
+  .row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:5px;font-size:12.5px}
+  .row:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
+  /* Left of the row stays on the STATUS ramp, untouched by this change. */
+  .dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+  .k-running{color:var(--k-running)} .k-input{color:var(--k-input)}
+  .k-failed{color:var(--k-failed)} .k-done{color:var(--k-done)}
+  .k-idle{color:var(--k-idle)}
+  .k-idle .dot{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
+  .chev{color:var(--faint);flex:0 0 auto;font-size:13px;width:10px}
+  /* No `color` here — the k-* class on this same element owns it, and a later
+     rule of equal specificity would silently win and gray out every state. */
+  .glyph{position:relative;width:16px;height:16px;flex:0 0 auto;display:grid;place-items:center}
+  .glyph .mark{font-size:13px;color:currentColor}
+  .glyph .dot{position:absolute;right:-2px;bottom:-1px;width:7px;height:7px;
+    box-shadow:0 0 0 1.5px var(--panel)}
+  .kind{color:var(--faint);font-family:var(--mono);font-size:11px;margin-right:2px}
+
+  /* Status facets — unchanged behavior and colors; only "Shipped" is renamed. */
+  .facets{display:flex;gap:5px;flex-wrap:wrap;padding-bottom:12px;margin-bottom:6px;
+    border-bottom:1px solid var(--line)}
+  .facet{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:11px;
+    font-size:11px;border:1px solid var(--line);color:var(--dim)}
+  .facet.on{background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink)}
+  .facet b{font-weight:600;font-variant-numeric:tabular-nums}
+  .fdot{width:8px;height:8px;border-radius:50%;background:currentColor}
+
+  /* before → after */
+  .swap{display:flex;align-items:center;gap:16px}
+  .swapcol{display:flex;flex-direction:column;align-items:flex-start;gap:7px}
+  .swaphd{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+  .swaparrow{color:var(--faint);font-size:16px}
+  .oldchip{font-size:10px;padding:1px 7px;border-radius:9px;font-weight:500}
+  .old-blue{color:#fff;background:var(--k-running)}
+  .old-green{color:#0b3d1c;background:#9ae6a8}
+  .key{font-family:var(--mono);font-size:11px;color:var(--faint);flex:0 0 auto}
+  .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  /* Chip text IS the rail label: one string, one casing. Uppercase + tracking
+     matches .lbl on the rail, so a stage reads the same in both views. */
+  .chip{font-size:10px;padding:1px 7px;border-radius:9px;flex:0 0 auto;font-weight:600;
+    text-transform:uppercase;letter-spacing:.06em;
+    background:color-mix(in srgb,currentColor var(--chip-mix),transparent)}
+
+  .s-scope{color:var(--stage-scope)} .s-impl{color:var(--stage-impl)}
+  .s-uat{color:var(--stage-uat)} .s-review{color:var(--stage-review)}
+  .s-fix{color:var(--stage-fix)} .s-ship{color:var(--stage-ship)}
+  .s-done{color:var(--stage-done)} .s-unknown{color:var(--stage-unknown)}
+  .s-unknown .chip,.chip.s-unknown{border:1px dashed currentColor}
+
+  .note{font-size:12.5px;color:var(--dim)}
+  .note b{color:var(--ink);font-weight:600}
+  ul{margin:8px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px}
+  li{margin:4px 0}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Stage palette — one map, two views</h1>
+    <p>Proposed canonical stage→color mapping. Same token drives the dashboard rail and the sidebar list chip, so a stage reads identically in both. Toggle your OS theme (or this page's theme control) to check both grounds.</p>
+  </header>
+
+  <section class="panel">
+    <h2>Canonical map</h2>
+    <table class="tbl">
+      <thead><tr><th>Stage</th><th>Token</th><th>Dark</th><th>Light</th><th>Chip</th></tr></thead>
+      <tbody>
+        <tr><td><span class="sw" style="background:var(--stage-scope)"></span>scope</td><td class="tok">--stage-scope</td><td class="hex">#a371f7</td><td class="hex">#8250df</td><td class="s-scope"><span class="chip">scope</span></td></tr>
+        <tr><td><span class="sw" style="background:var(--stage-impl)"></span>impl</td><td class="tok">--stage-impl</td><td class="hex">#7f7bf5</td><td class="hex">#4f46e5</td><td class="s-impl"><span class="chip">impl</span></td></tr>
+        <tr><td><span class="sw" style="background:var(--stage-uat)"></span>uat</td><td class="tok">--stage-uat</td><td class="hex">#d18616</td><td class="hex">#b45309</td><td class="s-uat"><span class="chip">uat</span></td></tr>
+        <tr><td><span class="sw" style="background:var(--stage-review)"></span>review</td><td class="tok">--stage-review</td><td class="hex">#2ea8b5</td><td class="hex">#0e7490</td><td class="s-review"><span class="chip">review</span></td></tr>
+        <tr><td><span class="sw" style="background:var(--stage-fix)"></span>fix</td><td class="tok">--stage-fix</td><td class="hex">#f14c4c</td><td class="hex">#c93636</td><td class="s-fix"><span class="chip">fix</span></td></tr>
+        <tr><td><span class="sw" style="background:var(--stage-ship)"></span>ship</td><td class="tok">--stage-ship</td><td class="hex">#d162c4</td><td class="hex">#bf3989</td><td class="s-ship"><span class="chip">ship</span></td></tr>
+        <tr><td><span class="sw" style="background:var(--stage-done)"></span>done</td><td class="tok">--stage-done</td><td class="hex">#3fb950</td><td class="hex">#1a7f37</td><td class="s-done"><span class="chip">done</span></td></tr>
+        <tr><td><span class="sw" style="background:var(--stage-unknown)"></span>unknown</td><td class="tok">--stage-unknown</td><td class="hex">#7d8590</td><td class="hex">#6e7681</td><td class="s-unknown"><span class="chip">unknown</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="cols">
+    <section class="panel">
+      <h2>Dashboard rail</h2>
+      <div class="rail">
+        <div class="st filled s-scope"><span class="seg"></span><div class="node">✓</div><div class="lbl">scope</div></div>
+        <div class="st filled s-impl"><span class="seg lit"></span><div class="node">●</div><div class="lbl">impl</div></div>
+        <div class="st failed s-uat"><span class="seg lit"></span><div class="node">!</div><div class="lbl">uat</div></div>
+        <div class="st pending s-review"><span class="seg"></span><div class="node">○</div><div class="lbl">review</div></div>
+        <div class="st pending s-ship"><span class="seg"></span><div class="node">○</div><div class="lbl">ship</div></div>
+        <div class="st pending s-done"><span class="seg"></span><div class="node">○</div><div class="lbl">done</div></div>
+      </div>
+      <div class="fixrow"><span class="fixnode"><span class="node">↺</span> fix — return channel</span></div>
+      <p class="note" style="margin-top:14px">Hue = stage identity (fixed), on the node <b>and</b> its label — the label is the same string and the same color as the list chip. Shape still carries status: filled = passed, hollow = pending, dashed = failed. Color alone never states status, so the rail survives colorblind and high-contrast themes.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Sidebar list</h2>
+      <div class="facets">
+        <span class="facet on">All <b>28</b></span>
+        <span class="facet"><span class="fdot k-running"></span>In progress <b>3</b></span>
+        <span class="facet"><span class="fdot k-input"></span>Needs you <b>0</b></span>
+        <span class="facet"><span class="fdot k-failed"></span>Blocked <b>1</b></span>
+        <span class="facet"><span class="fdot k-done"></span>Done <b>23</b></span>
+        <span class="facet">Archived <b>12</b></span>
+      </div>
+      <div class="rows">
+        <div class="row"><span class="chev">›</span><span class="glyph k-running"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e7gwzv</span><span class="name"><span class="kind">[FIX]</span> Stages colores and list improvements</span><span class="chip s-impl">impl</span></div>
+        <div class="row"><span class="chev">›</span><span class="glyph k-done"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e7n5qc</span><span class="name"><span class="kind">[FIX]</span> brief should be properly generated</span><span class="chip s-done">done</span></div>
+        <div class="row"><span class="chev">›</span><span class="glyph k-input"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e7d7x7</span><span class="name"><span class="kind">[FIX]</span> status "Needs you" never reached</span><span class="chip s-uat">uat</span></div>
+        <div class="row"><span class="chev">›</span><span class="glyph k-failed"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e61v0e</span><span class="name"><span class="kind">[FIX]</span> Wrong impl steps loaded</span><span class="chip s-fix">fix</span></div>
+        <div class="row"><span class="chev">›</span><span class="glyph k-running"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e7bwaf</span><span class="name"><span class="kind">[FEAT]</span> Ship stage should track conflicts</span><span class="chip s-ship">ship</span></div>
+        <div class="row"><span class="chev">›</span><span class="glyph k-running"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e6u7v8</span><span class="name"><span class="kind">[FIX]</span> Ticket list statuses and stages</span><span class="chip s-review">review</span></div>
+        <div class="row"><span class="chev">›</span><span class="glyph k-idle"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e5qk8e</span><span class="name"><span class="kind">[FIX]</span> For manual ticket creation key optional</span><span class="chip s-scope">scope</span></div>
+        <div class="row"><span class="chev">›</span><span class="glyph k-idle"><span class="mark">⑂</span><span class="dot"></span></span><span class="key">869e71cz3</span><span class="name"><span class="kind">[FEAT]</span> A stage this build has never seen</span><span class="chip s-unknown">unknown</span></div>
+      </div>
+
+      <h2 style="margin:22px 0 10px">What the chip replaces</h2>
+      <div class="swap">
+        <div class="swapcol"><span class="swaphd">now</span>
+          <span class="oldchip old-blue">Implementing</span>
+          <span class="oldchip old-green">Shipped</span>
+          <span class="oldchip old-green">Shipped</span>
+          <span class="oldchip old-blue">Needs you</span>
+        </div>
+        <div class="swaparrow">→</div>
+        <div class="swapcol"><span class="swaphd">proposed</span>
+          <span class="chip s-impl">impl</span>
+          <span class="chip s-done">done</span>
+          <span class="chip s-ship">ship</span>
+          <span class="chip s-uat">uat</span>
+        </div>
+      </div>
+      <p class="note" style="margin-top:14px">Two ramps, one row. <b>Left</b> is unchanged — karst mark plus the status dot (in progress, needs you, blocked, shipped). <b>Right</b> is the stage chip on the stage palette. The chip stops paraphrasing status ("Implementing", "Shipped", "UAT failed" all encoded status in a stage slot, in two colors) and states the stage only — status is already the dot two columns left. Chip shape is unchanged: 10px, 9px radius, fill is <code>color-mix(currentColor, transparent)</code>.</p>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Open questions</h2>
+    <ul>
+      <li>The reference artifact would not open for me — claude.ai served it as a public reader and refused. Paste its hex values and I swap this table; nothing else in the design changes.</li>
+      <li><b>No stage may reuse a status color.</b> <code>impl</code> was VS Code's chart blue — the same blue as "In progress" — so a row read blue twice for two different reasons. It is now indigo. The stage palette is checked against the status ramp (blue / amber / red / green) as a rule, not case by case; <code>fix</code>/red and <code>done</code>/green are the two where the meanings genuinely coincide.</li>
+      <li><b>Status ramp untouched</b> — In progress (blue), Needs you (amber), Blocked (red) keep their colors and their job: the facet row and the dot on the mark. Only the wording changes: <b>Shipped → Done</b>, in the facet and everywhere else that phrase appears.</li>
+      <li><b>Status phrases leaving the chip:</b> today the chip says "Implementing", "Shipped", "UAT failed", "Needs you" — status wearing a stage slot. The proposal makes it the stage key alone. Status still reads from the dot on the left, and the full phrase stays in the row tooltip.</li>
+      <li><b>A ticket with no stage yet</b> ("Not started") gets the dashed <code>unknown</code> chip reading <code>none</code> — tell me if you would rather it show no chip at all.</li>
+      <li><b>done</b> is green — completion reads green everywhere else in the product. <b>ship</b> takes magenta, the one hue not already spoken for by another stage or by the running/blocked status colors.</li>
+    </ul>
+  </section>
+</div>
