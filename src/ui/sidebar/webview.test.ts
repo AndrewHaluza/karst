@@ -26,11 +26,30 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('const stageChip = row.stageChip || stageText;');
   });
 
-  it('states the stage in the expanded body, above ports and worktrees', () => {
-    const stage = HTML.indexOf('<span class="k">Stage</span>');
-    const ports = HTML.indexOf('<span class="k">Ports</span>');
-    expect(stage).toBeGreaterThan(-1);
-    expect(stage).toBeLessThan(ports);
+  it('renders a 5-segment stage rail in the expanded body', () => {
+    // One cell per rail entry, colored by the shared stg-* token, current marked.
+    expect(HTML).toContain('class="rail"');
+    expect(HTML).toContain('(row.rail || []).map');
+    expect(HTML).toContain('cell.current');
+    expect(HTML).toContain('cell.colorClass');
+  });
+
+  it('renders a next-action line carrying the failure reason and attempt', () => {
+    expect(HTML).toContain('class="nextact"');
+    expect(HTML).toContain('row.nextAction');
+  });
+
+  it('renders a meta line that omits empty tokens instead of dashes', () => {
+    expect(HTML).toContain('class="meta"');
+    expect(HTML).toContain('metaLine(row)');
+    // No more fixed "—" Ports/Worktrees rows.
+    expect(HTML).not.toContain('<span class="k">Ports</span>');
+    expect(HTML).not.toContain('<span class="k">Worktrees</span>');
+  });
+
+  it('keeps the labeled body actions (dashboard + session)', () => {
+    expect(HTML).toContain("data-act=\"open-dashboard\"");
+    expect(HTML).toContain('Session');
   });
 
   it('falls back rather than painting an empty pill from a stale snapshot', () => {

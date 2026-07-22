@@ -31,9 +31,9 @@ export interface SidebarWorktree extends WorktreeView {
 
 /** One ticket row: the collapsed node fields plus its expanded-body detail. */
 export interface TicketRow extends TicketNode {
-  /** Running servers backing the expanded "Ports" line. */
+  /** Running servers backing the expanded meta line. */
   servers: ServerView[];
-  /** Worktrees backing the expanded "Worktrees" line. */
+  /** Worktrees backing the expanded meta line. */
   worktrees: SidebarWorktree[];
 }
 
