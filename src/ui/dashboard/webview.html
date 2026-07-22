@@ -222,6 +222,24 @@
   .loop .fixnode.sel .node{box-shadow:0 0 0 2px var(--panel-bg),0 0 0 4px var(--st-sel)}
   .loop .fixnode.sel .lbl{color:var(--text)}
 
+  /* fix is optional, so it defaults collapsed: the whole return channel is
+     dropped and row 1 shrinks to the approach chip it still has to carry. Only
+     the toggle remains, sitting where the bracket would be. Armed never collapses
+     (renderRail omits the class), so a live loop is always drawn. */
+  .loop.collapsed{grid-template-rows:auto auto}
+  /* A dim stage-hued pill in fix's own colour (stg-fix on the button), so the
+     affordance still reads as "the fix loop" while it is hidden. Centred on the
+     branch, exactly where the fix node would sit. */
+  .fixtoggle{position:absolute;top:2px;left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
+    transform:translateX(-50%);font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;
+    padding:2px 8px;border-radius:9px;border:1px dashed var(--border);background:var(--panel-bg);
+    color:var(--text-faint);white-space:nowrap;cursor:pointer;line-height:1.4}
+  .fixtoggle:hover{background:var(--hover);border-color:var(--text-dim);color:var(--text-dim)}
+  .fixtoggle:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
+  /* When the branch is shown, the toggle steps aside to the band's right edge so
+     it never overlaps the fix node it now sits beside. */
+  .fixtoggle.open{left:auto;right:2px;transform:none}
+
   /* impl's stem drops from the rail and STOPS at the approach chip — the same
      move the bracket makes into the fix node. Running it the full band height
      left a line dangling past the chip, which read as two unrelated marks. */
@@ -401,6 +419,9 @@
   // selection through the host would snap the panel back mid-run.
   let lastState = null;
   let selectedStage = null;
+  // Whether the optional fix loop is expanded. Local view state like the
+  // selection — never in DashboardState, so a host push can't reset it.
+  let fixExpanded = false;
 
   // The connector INTO this node: lit once the previous stage passed, accented
   // into a running node, broken (red) into a failed one, dim when unreached.
@@ -438,7 +459,7 @@
   // The rail: the forward path, then the band carrying fix and impl's approach.
   // Geometry comes from the host (state.rail.geometry) as CSS custom properties,
   // so every attachment point below is a calc() that follows the columns.
-  function renderRail(rail, approach, sel) {
+  function renderRail(rail, approach, sel, fixExpanded) {
     const g = rail.geometry;
     const nodes = rail.main.map((cell, i) => {
       const cls = STEP_CLASS[cell.status] || '';
@@ -455,18 +476,38 @@
     const fixSel = sel === 'fix';
     const implRunning = rail.main.some((c) => c.stageKey === 'impl' && c.status === 'running');
 
+    // fix is a RETURN CHANNEL reached only on a failed gate, so it stays hidden
+    // until the user asks for it — on a ticket that never looped it would just eat
+    // the band's height. `armed` (fix running, or a gate sitting failed) forces it
+    // open, and so does selecting it: hiding a live loop, or the stage whose Inside
+    // strip is showing, would hide the very state the user is looking at.
+    const showFix = fixExpanded || rail.armed || fixSel;
+    // No toggle while armed: there is nothing optional to collapse when the loop is
+    // actually running.
+    const toggle = rail.armed
+      ? ''
+      : showFix
+        ? `<button class="fixtoggle open" data-fixtoggle aria-expanded="true"`
+          + ` title="Hide the optional fix loop">hide fix ⌃</button>`
+        : `<button class="fixtoggle" data-fixtoggle aria-expanded="false"`
+          + ` title="fix runs only when a uat or review gate fails — show the loop">+ fix ⌄</button>`;
+    const branch = showFix
+      ? `<div class="drop"></div><div class="ret"></div>`
+        + `<div class="retlbl">pass → review</div><div class="faillbl">fail</div>`
+        + `<div class="fixnode stg-fix ${fixSel ? 'sel' : ''}"`
+        + ` title="Entered only when the uat or review gate fails; on pass it returns to review.">`
+        + `<button class="node" data-stage="fix" aria-pressed="${fixSel}">↺</button>`
+        + `<div class="cl"><span class="lbl">fix</span>`
+        + `<span class="cap">${esc(rail.cap || 'idle')}</span></div></div>`
+      : '';
+
     el('rail').innerHTML =
       `<div class="track" style="--cols:${g.cols};--impl:${g.impl};--uat:${g.uat};--review:${g.review}">`
       + `<div class="main">${nodes}</div>`
-      + `<div class="loop ${rail.armed ? 'armed' : ''}">`
+      + `<div class="loop ${rail.armed ? 'armed' : ''} ${showFix ? '' : 'collapsed'}">`
       + `<div class="implstem ${implRunning ? 'on' : ''}"></div>`
-      + `<div class="drop"></div><div class="ret"></div>`
-      + `<div class="retlbl">pass → review</div><div class="faillbl">fail</div>`
-      + `<div class="fixnode stg-fix ${fixSel ? 'sel' : ''}"`
-      + ` title="Entered only when the uat or review gate fails; on pass it returns to review.">`
-      + `<button class="node" data-stage="fix" aria-pressed="${fixSel}">↺</button>`
-      + `<div class="cl"><span class="lbl">fix</span>`
-      + `<span class="cap">${esc(rail.cap || 'idle')}</span></div></div>`
+      + branch
+      + toggle
       + renderApproach(approach, rail)
       + `</div></div>`;
   }
@@ -661,7 +702,7 @@
     el('title').textContent = state.title || '(untitled)';
     renderKeyPill(state);
     renderAgent(state.agentState);
-    renderRail(state.rail, state.approach, sel);
+    renderRail(state.rail, state.approach, sel, fixExpanded);
     renderInside(state, sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
@@ -674,10 +715,16 @@
   // Selection is view state: persisted BESIDE the host's snapshot, never inside
   // it. Inside `state` it would be dropped by the next push (the host builds
   // that from the DB) and would put a webview concern in a host-owned type.
-  const persist = () => vscode.setState({ state: lastState, sel: selectedStage });
+  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, fixExpanded });
 
   function select(stage) {
     selectedStage = stage;
+    render(lastState);
+    persist();
+  }
+
+  function toggleFix() {
+    fixExpanded = !fixExpanded;
     render(lastState);
     persist();
   }
@@ -687,6 +734,7 @@
   // Clicking a stage re-points the strip. Purely local — no host round trip, so
   // it stays instant and survives every state push.
   document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-fixtoggle]')) { toggleFix(); return; }
     const node = e.target.closest('[data-stage]');
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
@@ -732,6 +780,7 @@
   const restored = prev && prev.state ? prev : prev ? { state: prev, sel: null } : null;
   if (restored && restored.state) {
     selectedStage = restored.sel || null;
+    fixExpanded = restored.fixExpanded || false;
     render(restored.state);
   }
 </script>

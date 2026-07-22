@@ -41,12 +41,41 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toContain('renderStepper(state.stepper)');
   });
 
-  it('renders fix as the branch, below the main line', () => {
+  it('renders fix as the optional branch, never on the main line', () => {
+    // The regression net for the flattening bug: fix must stay off the forward
+    // path. The main-line nodes are built by mapping rail.main with an
+    // interpolated data-stage; fix carries its own literal data-stage="fix" and
+    // is gated behind `showFix`, so it can only be the branch, never a step.
     expect(HTML).toContain('data-stage="fix"');
-    const loopAt = HTML.indexOf('class="loop');
+    const showFixAt = HTML.search(/showFix\s*=/);
     const fixAt = HTML.indexOf('data-stage="fix"');
-    expect(loopAt).toBeGreaterThan(-1);
-    expect(fixAt).toBeGreaterThan(loopAt);
+    expect(showFixAt).toBeGreaterThan(-1);
+    expect(fixAt).toBeGreaterThan(showFixAt);
+  });
+
+  it('hides the fix branch by default, behind an expand/collapse toggle', () => {
+    // fix is a RETURN CHANNEL reached only on a failed gate, so it must not eat
+    // graph space on a ticket that never looped. It rides behind a toggle and a
+    // `collapsed` loop state instead of rendering unconditionally.
+    expect(HTML).toContain('data-fixtoggle');
+    expect(HTML).toContain('fixExpanded');
+    expect(HTML).toMatch(/showFix\s*=/);
+    // The collapse is CSS-driven, so a `.loop.collapsed` rule must exist to hide
+    // the branch and reclaim the band's height.
+    expect(HTML).toMatch(/\.loop\.collapsed\{/);
+  });
+
+  it('forces the fix branch open while the loop is armed', () => {
+    // Armed = fix is running or a gate has failed. Hiding a live loop would hide
+    // the very state the user needs, so `showFix` must key off `armed`.
+    expect(HTML).toMatch(/showFix\s*=[^;]*\brail\.armed\b/);
+  });
+
+  it('persists the fix toggle beside the host state, like the selection', () => {
+    // Same reasoning as `sel`: it is a webview concern, so it rides alongside the
+    // host snapshot in setState and is restored on reload.
+    expect(HTML).toMatch(/setState\(\{ state:[^}]*fixExpanded/);
+    expect(HTML).toMatch(/fixExpanded\s*=\s*[^;]*restored/);
   });
 
   it('makes every stage node a real button, so the rail is keyboard-reachable', () => {
