@@ -3,8 +3,10 @@ import { listTickets, listArchivedTickets } from '../../store/tickets.js';
 import {
   listServersByTicket,
   listWorktreesByTicket,
+  listPrsByTicket,
   type ServerView,
   type WorktreeView,
+  type PrView,
 } from '../../store/dashboard.js';
 import { buildTicketNodes, filterTickets, type TicketNode } from './items.js';
 import {
@@ -35,6 +37,8 @@ export interface TicketRow extends TicketNode {
   servers: ServerView[];
   /** Worktrees backing the expanded meta line. */
   worktrees: SidebarWorktree[];
+  /** Open PRs backing the expanded meta line (rendered as "PR #<n>"). */
+  prs: PrView[];
 }
 
 export interface SidebarState {
@@ -89,6 +93,7 @@ export function buildSidebarState(
       ...w,
       repoDisplay: repoDisplayPath(w.repo, pathContext),
     })),
+    prs: listPrsByTicket(store, node.ticketId),
   }));
 
   return {

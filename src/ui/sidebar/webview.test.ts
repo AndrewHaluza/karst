@@ -26,22 +26,34 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('const stageChip = row.stageChip || stageText;');
   });
 
-  it('renders a 5-segment stage rail in the expanded body', () => {
-    // One cell per rail entry, colored by the shared stg-* token, current marked.
-    expect(HTML).toContain('class="rail"');
-    expect(HTML).toContain('(row.rail || []).map');
-    expect(HTML).toContain('cell.current');
-    expect(HTML).toContain('cell.colorClass');
+  it('does NOT repeat the stage as a rail — the collapsed row chip already states it', () => {
+    expect(HTML).not.toContain('class="rail"');
+    expect(HTML).not.toContain('railHtml');
   });
 
-  it('renders a next-action line carrying the failure reason and attempt', () => {
-    expect(HTML).toContain('class="nextact"');
-    expect(HTML).toContain('row.nextAction');
+  it('renders a blocker line ONLY on failure (reason + attempt), never the plain status', () => {
+    // The line is gated on row.blocker; a non-failed ticket renders nothing here,
+    // so "Implementing"/"Awaiting review"/"Not started" are never duplicated.
+    expect(HTML).toContain('const b = row.blocker; if (!b) return');
+    expect(HTML).toContain('b.reason');
+    expect(HTML).toContain('b.attempt');
+    // No plain-status fallback text in the blocker slot.
+    expect(HTML).not.toContain('row.nextAction');
   });
 
-  it('renders a meta line that omits empty tokens instead of dashes', () => {
+  it('renders an activity line for the session runtime state + relative time', () => {
+    expect(HTML).toContain('class="activity"');
+    expect(HTML).toContain('activityLine(row)');
+    expect(HTML).toContain('row.activityLabel');
+    expect(HTML).toContain('relTime(row.lastActiveAt)');
+  });
+
+  it('renders a meta line that omits empty tokens (model/repos/ports/PR) instead of dashes', () => {
     expect(HTML).toContain('class="meta"');
     expect(HTML).toContain('metaLine(row)');
+    // PRs are surfaced in the meta line as "PR #<n>".
+    expect(HTML).toContain('row.prs');
+    expect(HTML).toContain("'PR #'");
     // No more fixed "—" Ports/Worktrees rows.
     expect(HTML).not.toContain('<span class="k">Ports</span>');
     expect(HTML).not.toContain('<span class="k">Worktrees</span>');

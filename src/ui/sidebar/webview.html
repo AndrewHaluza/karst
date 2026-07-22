@@ -114,23 +114,11 @@
   .body{display:none;padding:4px 8px 10px 28px}
   .ticket.open .body{display:block}
 
-  /* stage rail — five milestone dots joined by connectors */
-  .rail{display:flex;align-items:center;gap:0;margin:2px 0 6px}
-  .rail .seg{display:flex;align-items:center;flex:1 1 0;min-width:0}
-  .rail .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;
-    border:1.5px solid var(--stg-color);background:transparent}
-  .rail .seg.passed .dot{background:var(--stg-color)}
-  .rail .seg.failed .dot{background:var(--g-failed);border-color:var(--g-failed);color:var(--g-failed)}
-  .rail .seg.running .dot{background:var(--stg-color);opacity:.85;animation:railpulse 1.4s ease-in-out infinite}
-  .rail .seg.skipped .dot{border-style:dashed;opacity:.5}
-  .rail .seg.current .dot{box-shadow:0 0 0 3px var(--vscode-list-hoverBackground)}
-  .rail .bar{flex:1 1 auto;height:1.5px;background:currentColor;opacity:.35;margin:0 3px;color:var(--g-gray)}
-  .rail .seg:last-child{flex:0 0 auto}
-  @keyframes railpulse{0%,100%{opacity:.5}50%{opacity:1}}
-
-  .nextact{font-size:11.5px;margin:2px 0;color:var(--vscode-foreground)}
+  .nextact{font-size:11.5px;margin:3px 0 2px;color:var(--vscode-foreground)}
   .nextact.warn{color:var(--g-failed)}
   .nextact .att{color:var(--g-gray);font-family:var(--mono);font-size:10.5px;margin-left:4px}
+
+  .activity{font-size:11px;color:var(--vscode-descriptionForeground);margin:2px 0}
 
   .meta{font-size:10.5px;color:var(--vscode-descriptionForeground);
     font-family:var(--mono);margin:4px 0 2px;word-break:break-word}
@@ -203,21 +191,38 @@
     }).join('');
   }
 
-  function railHtml(row) {
-    return (row.rail || []).map((cell, i, arr) => {
-      const cls = ['seg', cell.status, cell.current ? 'current' : ''].filter(Boolean).join(' ');
-      const bar = i < arr.length - 1 ? '<span class="bar"></span>' : '';
-      return `<span class="${cls} ${esc(cell.colorClass)}" title="${esc(cell.title)}"><span class="dot"></span></span>${bar}`;
-    }).join('');
+  // Compact "4m ago" / "2h ago" from an ISO timestamp, against the viewer's
+  // clock (the host stores UTC; formatting here keeps the model host-clock-free).
+  function relTime(iso) {
+    if (!iso) return '';
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return '';
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 45) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return m + 'm ago';
+    const h = Math.round(m / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+
+  // The activity line: runtime state of the ticket's session, plus when it last
+  // moved. New info vs the collapsed row (which only states the stage).
+  function activityLine(row) {
+    const label = row.activityLabel || 'No active session';
+    const rel = relTime(row.lastActiveAt);
+    return rel ? `${esc(label)} · ${esc(rel)}` : esc(label);
   }
 
   function metaLine(row) {
     const ports = (row.servers || []).map((s) => s.port).filter(Boolean);
     const repos = (row.worktrees || []).map((w) => w.repoDisplay || w.repo).filter(Boolean);
+    const prs = (row.prs || []).map((p) => p.number).filter((n) => n != null);
     const tokens = [];
     if (row.model) tokens.push(esc(row.model));
     if (repos.length) tokens.push(esc(repos.join('+')));
     if (ports.length) tokens.push(esc(ports.map((p) => ':' + p).join(', ')));
+    if (prs.length) tokens.push(esc(prs.map((n) => 'PR #' + n).join(', ')));
     return tokens.join(' · ');
   }
 
@@ -264,12 +269,14 @@
         + `<span class="rowacts">${acts}</span>`
         + `</div>`
         + `<div class="body">`
-        + `<div class="rail">${railHtml(row)}</div>`
-        + (() => { const na = row.nextAction || { text: row.stageLabel || '—', warn: false, attempt: 0 };
-            const att = na.attempt ? `<span class="att">attempt ${na.attempt}</span>` : '';
-            return na.warn
-              ? `<div class="nextact warn">${esc(na.text)}${att}</div>`
-              : `<div class="nextact">${esc(na.text)}${att}</div>`; })()
+        + (() => { const b = row.blocker; if (!b) return '';
+            // Only the failure REASON is new — the status ("failed") is already the
+            // row's left glyph color, so we never repeat it here.
+            const txt = b.reason ? esc(b.reason) : '';
+            const att = b.attempt ? `<span class="att">attempt ${b.attempt}</span>` : '';
+            if (!txt && !att) return '';
+            return `<div class="nextact warn">⚠ ${txt}${att}</div>`; })()
+        + `<div class="activity">${activityLine(row)}</div>`
         + (() => { const m = metaLine(row); return m ? `<div class="meta">${m}</div>` : ''; })()
         + `<div class="actions">${bodyActs}</div>`
         + `</div></div>`;

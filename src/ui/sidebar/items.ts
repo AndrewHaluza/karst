@@ -1,45 +1,39 @@
 import { ticketLabel, type TicketWithStages } from '../../store/tickets.js';
-import { ticketGlyph, currentStageStatus, needsUser } from '../../model/ticketGlyph.js';
-import { stageBadge, STAGE_TITLE } from '../../model/stageBadge.js';
+import { ticketGlyph, currentStageStatus } from '../../model/ticketGlyph.js';
+import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import type { Glyph } from '../../model/glyph.js';
-import type { StageKey, StageStatus } from '../../model/types.js';
-
-/** The five linear milestones the expanded rail always renders, in order. */
-const RAIL_STAGES: readonly StageKey[] = ['scope', 'impl', 'uat', 'review', 'ship'];
 
 /**
- * Which rail segment carries the "current" ring for a given stored stage. `fix`
- * (a retry loop off review) and `done` (terminal, after ship) are not linear rail
- * segments, so they borrow the nearest milestone: fix→review, done→ship. Every
- * other stage maps to itself; an unknown/absent stage → no current cell.
+ * Human phrase for the expanded "activity" line — the runtime state of the
+ * ticket's agent/session, which the collapsed row does NOT show (the row states
+ * WHERE the ticket is; this states whether anything is working on it right now).
  */
-function currentRailKey(stageCurrent: string | null): StageKey | null {
-  if (stageCurrent === 'fix') return 'review';
-  if (stageCurrent === 'done') return 'ship';
-  return RAIL_STAGES.find((k) => k === stageCurrent) ?? null;
+function activityLabel(agentState: string | null): string {
+  switch (agentState) {
+    case 'running':
+      return 'Agent running';
+    case 'waiting':
+      return 'Agent waiting for input';
+    case 'idle':
+      return 'Session idle';
+    default:
+      return 'No active session';
+  }
 }
 
-/** One segment of the expanded-body stage rail. */
-export interface RailCell {
-  key: StageKey;
-  /** Human milestone name (STAGE_TITLE) — the same words the dashboard uses. */
-  title: string;
-  /** Status from the matching stage row; `pending` when the row is absent. */
-  status: StageStatus;
-  /** True only for the ticket's current stage. */
-  current: boolean;
-  /** Shared `stg-<stage>` color token (single palette source). */
-  colorClass: string;
-}
-
-/** The one actionable line for the expanded body. */
-export interface NextAction {
-  /** The sentence, e.g. "UAT failed: 2 tests red" or "Awaiting review". */
-  text: string;
-  /** True when it demands attention (needs-you or a failed stage) → warn tone. */
-  warn: boolean;
-  /** Attempt number to show; 0 when not applicable (hidden). */
+/**
+ * The expanded body's blocker line — the ONE thing the collapsed row can't show.
+ * The row's left glyph already states the status (running / needs-you / failed /
+ * done) by color and the chip states the stage, so a plain "UAT failed" phrase is
+ * pure duplication. The failure REASON (the stage verdict) is the new information,
+ * so this is populated only when the current stage failed; `null` otherwise, and
+ * the line is then not rendered at all.
+ */
+export interface Blocker {
+  /** The failure reason (stage `verdict`), or null when the stage failed without one. */
+  reason: string | null;
+  /** Attempt the failure is filed under (0 when none). */
   attempt: number;
 }
 
@@ -75,17 +69,22 @@ export interface TicketNode {
    */
   stageChip: string;
   /**
-   * Fixed 5-segment pipeline rail for the expanded body — scope→impl→uat→review
-   * →ship, each colored by its own status. `fix`/`done` are not linear segments
-   * (they surface in the next-action line), so the rail stays a stable width.
+   * The blocker line for the expanded body — the failure reason + attempt, and
+   * only when the current stage failed. `null` (line omitted) otherwise, because
+   * every non-failed status is already the row's left glyph color.
    */
-  rail: RailCell[];
-  /** Current stage's failure reason (`verdict`), or null. Drives the "… failed: <reason>" line. */
-  reason: string | null;
-  /** Current stage's attempt count (0 when no current stage). */
-  attempt: number;
-  /** The one actionable line for the expanded body, derived from real stage status. */
-  nextAction: NextAction;
+  blocker: Blocker | null;
+  /**
+   * Runtime state of the ticket's agent/session for the expanded activity line —
+   * "Agent running" / "Session idle" / "No active session". New information: the
+   * collapsed row shows the stage, never whether a session is live.
+   */
+  activityLabel: string;
+  /**
+   * When the current stage last moved (its `endedAt` else `startedAt`), or null.
+   * Raw ISO — the webview formats it relative to the viewer's clock ("4m ago").
+   */
+  lastActiveAt: string | null;
   /** Per-ticket launch model (`ticket.model`); null = inherit the manifest default. */
   model: string | null;
   /** True when soft-deleted; drives the archived row actions (unarchive/delete). */
@@ -101,24 +100,10 @@ export function buildTicketNodes(
   return tickets.map((t) => {
     const badge = stageBadge(t);
     const current = t.stages.find((s) => s.stageKey === t.stageCurrent);
-    const currentKey = currentRailKey(t.stageCurrent);
-    const rail: RailCell[] = RAIL_STAGES.map((key) => {
-      const s = t.stages.find((st) => st.stageKey === key);
-      return {
-        key,
-        title: STAGE_TITLE[key],
-        status: s?.status ?? 'pending',
-        current: key === currentKey,
-        colorClass: stageColorClass(key),
-      };
-    });
-    const status = currentStageStatus(t);
-    const failed = status === 'failed';
-    const nextAction: NextAction = {
-      text: failed && current?.verdict ? `${badge.label}: ${current.verdict}` : badge.label,
-      warn: failed || needsUser(t),
-      attempt: failed ? (current?.attempt ?? 0) : 0,
-    };
+    const failed = currentStageStatus(t) === 'failed';
+    const blocker: Blocker | null = failed
+      ? { reason: current?.verdict ?? null, attempt: current?.attempt ?? 0 }
+      : null;
     return {
       kind: 'ticket',
       ticketId: t.id,
@@ -128,10 +113,9 @@ export function buildTicketNodes(
       stageLabel: badge.label,
       stageClass: stageColorClass(badge.stage),
       stageChip: badge.stage ?? 'none',
-      rail,
-      reason: current?.verdict ?? null,
-      attempt: current?.attempt ?? 0,
-      nextAction,
+      blocker,
+      activityLabel: activityLabel(t.agentState),
+      lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,
       archived: t.archivedAt !== null,
       collapsible: true,
