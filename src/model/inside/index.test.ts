@@ -63,10 +63,14 @@ describe('buildStageInside', () => {
     }
   });
 
-  it('gives a stage that has not run a blurb instead of empty rows', () => {
+  it('gives a stage with nothing predefined a blurb instead of empty rows', () => {
     // Empty operation rows would imply karst tried something and got nothing.
+    // review/uat are exempt: their gate list is static, so they show it pending
+    // even before the stage runs (covered in gates.test.ts) — every other stage
+    // has nothing enumerable yet, so it falls back to the blurb.
     const all = build({});
     for (const key of STAGE_KEYS) {
+      if (key === 'review' || key === 'uat') continue;
       expect(all[key].ops, `${key} invented rows`).toEqual([]);
       expect(all[key].blurb.length, `${key} has no blurb`).toBeGreaterThan(0);
     }
@@ -173,6 +177,25 @@ describe('buildStageInside', () => {
         ['pr', 'pass'],
         ['merge', 'pass'],
       ]);
+    });
+
+    it('shows a pending pr/merge row per hot repo before ship has run', () => {
+      const ops = build(
+        { ship: 'pending' },
+        { selectedRepos: ['api', 'web'] },
+      ).ship.ops;
+      expect(ops.map((o) => [o.name, o.status])).toEqual([
+        ['pr', 'pending'],
+        ['merge', 'pending'],
+        ['pr', 'pending'],
+        ['merge', 'pending'],
+      ]);
+      expect(ops[0]!.detail).toContain('api');
+      expect(ops[2]!.detail).toContain('web');
+    });
+
+    it('has nothing to show before ship when no repo is even selected yet', () => {
+      expect(build({ ship: 'pending' }).ship.ops).toEqual([]);
     });
 
     it('surfaces the real error when ship failed', () => {

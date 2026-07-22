@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
+import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { buildDashboardState, type PathContext } from './state.js';
 import { routeAction, type DashboardActions } from './messages.js';
 
@@ -133,17 +134,17 @@ export class DashboardManager {
   }
 
   /**
-   * Push a transient ship-progress label to a ticket panel; no-op if not open.
+   * Push a transient ship-progress event to a ticket panel; no-op if not open.
    *
-   * Separate from `pushState` on purpose: the ship stage's live phase ("Pushing
-   * branch…") is not in the store — `buildDashboardState` cannot re-derive it —
-   * so it rides its own ephemeral message that the webview overlays on the "Now"
-   * line while a ship is in flight, then discards on the next real state push.
+   * Separate from `pushState` on purpose: the ship stage's live per-step state
+   * is not in the store — `buildDashboardState` cannot re-derive it — so it
+   * rides its own ephemeral message that the webview overlays on the Inside
+   * block while a ship is in flight, then discards on the next real state push.
    */
-  postShipProgress(ticketId: number, label: string): void {
+  postShipProgress(ticketId: number, event: ShipStepEvent): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
-    panel.postMessage({ type: 'ship-progress', label });
+    panel.postMessage({ type: 'ship-progress', event });
   }
 
   /**

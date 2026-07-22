@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
+import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 
 /** In-memory PanelHost double: records created panels + messages. */
 function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
@@ -137,23 +138,26 @@ describe('DashboardManager', () => {
     expect(stopServer).toHaveBeenCalledWith(9);
   });
 
-  it('posts a ship-progress label to the open panel (transient, not a state push)', () => {
+  it('posts a ship-progress event to the open panel (transient, not a state push)', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     const { host, panels } = fakeHost();
     const mgr = new DashboardManager(store, host, () => ({}) as never);
+    const event: ShipStepEvent = { repo: '/repo/a', step: 'push', status: 'run' };
 
     mgr.openDashboard(t.id);
     panels[0]!.posted.length = 0; // drop the open-time state push
-    mgr.postShipProgress(t.id, 'Pushing branch…');
+    mgr.postShipProgress(t.id, event);
 
-    expect(panels[0]!.posted).toEqual([{ type: 'ship-progress', label: 'Pushing branch…' }]);
+    expect(panels[0]!.posted).toEqual([{ type: 'ship-progress', event }]);
   });
 
   it('postShipProgress on an unopened ticket is a no-op', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     const { host } = fakeHost();
     const mgr = new DashboardManager(store, host, () => ({}) as never);
-    expect(() => mgr.postShipProgress(t.id, 'x')).not.toThrow();
+    expect(() =>
+      mgr.postShipProgress(t.id, { repo: '/repo/a', step: 'push', status: 'run' }),
+    ).not.toThrow();
   });
 
   it('disposing a panel drops it from the map so reopen creates a new one', () => {

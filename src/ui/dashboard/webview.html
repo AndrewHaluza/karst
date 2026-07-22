@@ -437,11 +437,63 @@
   // Confirm ship — BEFORE any host round trip — so the click always registers
   // visibly. It stays true (overriding every state push, which still reads the
   // ship stage as "ready") until the ship stage resolves: advanced past ship
-  // (success) or landed failed (error). `shipLabel` is the live phase the host
-  // streams via `ship-progress`; `shipDone` is the brief post-success flash.
+  // (success) or landed failed (error). `shipOps` is per-repo/per-step live
+  // state the host streams via `ship-progress`, overlaid onto the Inside block;
+  // `shipDone` is the brief post-success flash.
   let shipping = false;
-  let shipLabel = '';
+  let shipOps = null;
   let shipDone = null;
+
+  // The steps a ship COULD show, in the order they happen. `describe` is
+  // omitted unless it's actually touched (a ticket with no agent adapter never
+  // fires it, and a permanently-pending row would misreport that).
+  const SHIP_STEP_ORDER = ['commit', 'push', 'describe', 'pr', 'merge'];
+  const SHIP_BASE_STEPS = ['commit', 'push', 'pr', 'merge'];
+
+  function seedShipOps(worktrees) {
+    const map = {};
+    for (const w of worktrees || []) map[w.repo] = {};
+    return map;
+  }
+
+  // Pure: repo list + accumulated per-repo/per-step events → ordered StageOp[].
+  // Kept separate from rendering so the shape mirrors `StageOp` exactly and the
+  // logic reads the same as the host's `shipInside`/`gateOp` pending rows.
+  function flattenShipOps(worktrees, opsByRepo) {
+    const out = [];
+    for (const w of worktrees || []) {
+      const touched = (opsByRepo && opsByRepo[w.repo]) || {};
+      const steps = SHIP_STEP_ORDER.filter(
+        (s) => SHIP_BASE_STEPS.includes(s) || Object.prototype.hasOwnProperty.call(touched, s),
+      );
+      // A host-supplied detail (the idempotent-skip / merge-failure notes) must
+      // not silently replace the repo name on a multi-repo ship — otherwise two
+      // repos' "note" rows read identically with no way to tell them apart.
+      const repoTag = worktrees.length > 1 ? w.repoDisplay || w.repo : '';
+      for (const step of steps) {
+        const row = touched[step];
+        const base = (row && row.detail) || w.repoDisplay || w.repo;
+        out.push({
+          status: row ? row.status : 'pending',
+          name: step,
+          detail: repoTag && row && row.detail ? `${repoTag}: ${base}` : base,
+          duration: '',
+        });
+      }
+    }
+    return out;
+  }
+
+  // Overlay the live per-step ops onto the ship strip while a ship is in
+  // flight and the ship stage is the one selected — every other stage/state
+  // reads `state.inside` exactly as the host built it.
+  function shippingView(state, sel) {
+    if (!shipping || sel !== 'ship' || !state.inside || !state.inside.ship) return state;
+    return {
+      ...state,
+      inside: { ...state.inside, ship: { ...state.inside.ship, ops: flattenShipOps(state.worktrees, shipOps) } },
+    };
+  }
 
   // The connector INTO this node: lit once the previous stage passed, accented
   // into a running node, broken (red) into a failed one, dim when unreached.
@@ -613,16 +665,14 @@
   // and shipped in the state, so it is unit-tested and lives in exactly one place.
   const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket' };
 
-  // While a ship is in flight the Now line becomes a live spinner + phase label,
-  // never the (still "ready to ship") host copy — so the click is unambiguous and
-  // no second Confirm button exists to double-submit.
-  function renderShipProgress() {
-    el('now').innerHTML = `<span class="spin" aria-hidden="true"></span>`
-      + `<span class="ntext">${esc(shipLabel || 'Shipping…')}</span>`;
-  }
-
   function renderNow(now) {
-    if (shipping) { renderShipProgress(); return; }
+    // While a ship is in flight, the real per-step progress lives in the Inside
+    // block; this line is a static sentence, never a spinner label — and no
+    // button, since the confirm click already happened (no second one to make).
+    if (shipping) {
+      el('now').innerHTML = `<span class="ntext">${esc('Now: shipping — committing, pushing, and opening PRs for each hot repo.')}</span>`;
+      return;
+    }
     const line = now || { text: '' };
     const a = line.action;
     const type = a && NOW_MESSAGE[a.kind];
@@ -645,8 +695,10 @@
     const failed = atShip && state.currentStage && state.currentStage.status === 'failed';
     if (failed) {
       shipping = false; // the failed Now line + fault card are the explicit error state
+      shipOps = null;
     } else if (!atShip) {
       shipping = false;
+      shipOps = null;
       shipDone = 'success';
       setTimeout(() => { shipDone = null; render(lastState); }, 2400);
     }
@@ -754,7 +806,7 @@
     renderKeyPill(state);
     renderAgent(state.agentState);
     renderRail(state.rail, state.approach, sel, fixExpanded);
-    renderInside(state, sel);
+    renderInside(shippingView(state, sel), sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
     renderNow(state.now);
@@ -815,8 +867,8 @@
       if (shipping) return;
       shipping = true;
       shipDone = null;
-      shipLabel = 'Shipping…';
-      renderShipProgress();
+      shipOps = seedShipOps(lastState ? lastState.worktrees : []);
+      render(lastState);
     }
     if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
     else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
@@ -828,10 +880,16 @@
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    // Live ship phase label, streamed while the ship runs. Ignored unless a ship
-    // is in flight (a stale message can't hijack the Now line).
+    // Live per-repo/per-step ship progress. Ignored unless a ship is in flight
+    // (a stale message can't resurrect a stale overlay).
     if (msg.type === 'ship-progress') {
-      if (shipping && typeof msg.label === 'string') { shipLabel = msg.label; renderShipProgress(); }
+      if (shipping && msg.event && msg.event.repo) {
+        const e = msg.event;
+        if (!shipOps) shipOps = {};
+        if (!shipOps[e.repo]) shipOps[e.repo] = {};
+        shipOps[e.repo][e.step] = { status: e.status, detail: e.detail };
+        render(lastState);
+      }
       return;
     }
     if (msg.type === 'state') {

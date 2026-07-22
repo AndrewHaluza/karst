@@ -88,6 +88,7 @@ function shipInside(
   cell: StepperCell,
   prs: readonly PrView[],
   mergeChecks: readonly MergeCheckRow[],
+  selectedRepos: readonly string[],
   now: string,
 ): StageInside {
   if (cell.status === 'failed') {
@@ -99,6 +100,20 @@ function shipInside(
         duration: '',
       },
     ]);
+  }
+  // Before ship has opened anything, `prs` is empty — but the hot repo set is
+  // already known, so the pr/merge rows it WILL produce are a static fact, not
+  // a guess. Shown only pre-run: once a PR exists for a repo, its real row
+  // (below) replaces this one, so there is never a pending row beside a real one.
+  if (prs.length === 0 && cell.status === 'pending' && selectedRepos.length > 0) {
+    return inside(
+      cell,
+      now,
+      selectedRepos.flatMap((repo): StageOp[] => [
+        { status: 'pending', name: 'pr', detail: repo, duration: '' },
+        { status: 'pending', name: 'merge', detail: repo, duration: '' },
+      ]),
+    );
   }
   const checksByRepo = new Map(mergeChecks.map((c) => [c.repo, c]));
   const ops = prs.flatMap((pr): StageOp[] => {
@@ -136,7 +151,7 @@ function stripFor(key: StageKey, cell: StepperCell, input: StageInsideInput): St
     case 'fix':
       return fixInside(cell, input.session.sessionId, input.fixAttempts, input.now);
     case 'ship':
-      return shipInside(cell, input.prs, input.mergeChecks ?? [], input.now);
+      return shipInside(cell, input.prs, input.mergeChecks ?? [], input.selectedRepos, input.now);
     case 'done':
       // Terminal: the machine stamps started_at === ended_at, so the duration is
       // structurally zero and there is no step to report. Arriving IS the event.

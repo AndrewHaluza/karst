@@ -14,6 +14,7 @@ import {
 } from '../../integrations/git.js';
 import { checkMergeable } from '../mergeCheck.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
+import { mergeOpStatus } from '../../model/mergeCheckView.js';
 import type { WorktreeView } from '../../store/dashboard.js';
 
 /**
@@ -78,8 +79,10 @@ async function recordMergeChecks(
   ticketId: number,
   worktrees: readonly WorktreeView[],
   git: GitRunner,
+  onProgress: ShipProgress,
 ): Promise<void> {
   for (const wt of worktrees) {
+    onProgress({ repo: wt.repo, step: 'merge', status: 'run' });
     try {
       const check = await checkMergeable(git, wt.path, wt.baseRef);
       setMergeCheck(store, {
@@ -89,19 +92,38 @@ async function recordMergeChecks(
         baseRef: wt.baseRef,
         checkedAt: nowIso(),
       });
+      // Matches the status `shipInside` will read back from the persisted row,
+      // so the live event and the post-hoc render never disagree.
+      onProgress({ repo: wt.repo, step: 'merge', status: mergeOpStatus(check.state) });
     } catch {
       // Already-degraded state: nothing is recorded for this repo, and a missing
       // row renders as nothing rather than as "clean".
+      onProgress({ repo: wt.repo, step: 'merge', status: 'note', detail: 'check failed' });
     }
   }
 }
 
+/** One step of ship's per-repo work, in the order it happens. */
+export type ShipStep = 'commit' | 'push' | 'describe' | 'pr' | 'merge';
+
 /**
- * Short, human-readable phase label emitted as the ship progresses. Deliberately
+ * One structured progress event. `note` marks a step that was not (re-)run —
+ * an idempotent retry adopting an already-open PR — so the live view never
+ * claims work happened that didn't.
+ */
+export interface ShipStepEvent {
+  repo: string;
+  step: ShipStep;
+  status: 'run' | 'pass' | 'fail' | 'note';
+  detail?: string;
+}
+
+/**
+ * Structured progress emitted as the ship progresses. Deliberately
  * non-throwing at the call sites (the caller's UI is observing, not controlling)
  * — a broken observer must never sink a ship that otherwise works.
  */
-export type ShipProgress = (label: string) => void;
+export type ShipProgress = (event: ShipStepEvent) => void;
 
 export async function shipTicket(
   store: Store,
@@ -114,9 +136,6 @@ export async function shipTicket(
   const ticket = getTicket(store, opts.ticketId);
   const worktrees = listWorktreesByTicket(store, opts.ticketId);
   const title = ticket.title ?? ticket.key ?? `Ticket ${opts.ticketId}`;
-  // Name the repo in the label only when there is more than one worktree —
-  // otherwise the suffix is noise on the common single-repo ship.
-  const tag = (repo: string) => (worktrees.length > 1 ? ` (${repo})` : '');
 
   const insert = store.db.prepare(
     "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, 'open')",
@@ -139,9 +158,20 @@ export async function shipTicket(
         | undefined;
       if (prior) {
         prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
+        // Nothing ran this time — say so for every step this repo skips,
+        // rather than leaving commit/push looking like they are still "to
+        // come" (the old free-text channel simply skipped this repo entirely).
+        const skipped: ShipStep[] = adapter ? ['commit', 'push', 'describe', 'pr'] : ['commit', 'push', 'pr'];
+        for (const step of skipped) {
+          onProgress({
+            repo: wt.repo,
+            step,
+            status: 'note',
+            detail: 'existing PR already open — not re-shipped',
+          });
+        }
         continue;
       }
-      onProgress(`Committing changes${tag(wt.repo)}…`);
       // Push FIRST. `gh pr create` refuses a branch that exists only on this
       // machine ("you must first push the current branch to a remote"), and every
       // ticket works on a fresh worktree branch — so the branch is always
@@ -151,9 +181,14 @@ export async function shipTicket(
       // Commit before push: a stage marker means the agent thinks it is done, not
       // that it committed. Work left in the worktree would push an empty branch and
       // `gh pr create` would fail with "No commits between main and karst/…".
+      onProgress({ repo: wt.repo, step: 'commit', status: 'run' });
       await commitAllIfDirty(git, wt.path, title);
-      onProgress(`Pushing branch${tag(wt.repo)}…`);
+      onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
+
+      onProgress({ repo: wt.repo, step: 'push', status: 'run' });
       await pushBranch(git, wt.path);
+      onProgress({ repo: wt.repo, step: 'push', status: 'pass' });
+
       // The `prs` table only knows about PRs karst itself opened, so a PR opened
       // by hand — or by a run whose row was lost — used to make ship fail with
       // gh's "a pull request for branch … already exists", permanently: openPr
@@ -164,17 +199,19 @@ export async function shipTicket(
       //
       // Probing BEFORE the create rather than rescuing after it also keeps
       // `describePr` from paying for prose describing a PR that already exists.
+      onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
       const existing = await findOpenPr(gh, wt.path);
       let opened = existing;
       if (!opened) {
         let body = title;
         if (adapter) {
-          onProgress(`Writing PR description${tag(wt.repo)}…`);
+          onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
           body = await describePr(adapter, wt.path, title);
+          onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
         }
-        onProgress(`Opening pull request${tag(wt.repo)}…`);
         opened = await openPr(gh, { cwd: wt.path, title, body });
       }
+      onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
       prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
     }
@@ -197,8 +234,7 @@ export async function shipTicket(
   // Every branch is now pushed, so the merge probe measures what a reviewer would
   // actually see on the PR. Deliberately outside the try above: a failure here is
   // not a ship failure, and this must not reach the catch that parks the ticket.
-  onProgress('Checking mergeability…');
-  await recordMergeChecks(store, opts.ticketId, worktrees, git);
+  await recordMergeChecks(store, opts.ticketId, worktrees, git, onProgress);
 
   // PRs opened → ship passes → done. Unaffected by merge state, by design.
   transition(store, opts.ticketId, 'ship', { kind: 'passed' });

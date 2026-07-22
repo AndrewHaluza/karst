@@ -71,9 +71,20 @@ describe('buildNowLine', () => {
   });
 
   it('offers ship confirmation at the ship boundary', () => {
-    expect(buildNowLine(cell({ stageKey: 'ship' }))).toEqual({
+    // `needsConfirm` (machine.ts) parks a stage requiring confirmation at
+    // `pending`, not `running`, until the user clicks — real machine behavior.
+    expect(buildNowLine(cell({ stageKey: 'ship', status: 'pending' }))).toEqual({
       text: 'Now: ready to ship. Confirm to open the PRs.',
       action: { kind: 'ship', label: 'Confirm ship' },
+    });
+  });
+
+  it('names live shipping once confirmed, with no button — the click already happened', () => {
+    // The old free-text overlay used to hijack this line entirely; the real
+    // per-step progress now lives in the Inside block instead, so this is a
+    // static sentence, never a spinner label.
+    expect(buildNowLine(cell({ stageKey: 'ship', status: 'running' }))).toEqual({
+      text: 'Now: shipping — committing, pushing, and opening PRs for each hot repo.',
     });
   });
 

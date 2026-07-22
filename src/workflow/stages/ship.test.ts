@@ -8,7 +8,7 @@ import { getTicket } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { transition } from '../machine.js';
-import { shipTicket } from './ship.js';
+import { shipTicket, type ShipStepEvent } from './ship.js';
 import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -509,62 +509,116 @@ describe('shipTicket', () => {
     expect(res.prs).toHaveLength(2);
   });
 
-  // The dashboard was inert while ship ran; the phase labels are what it now
-  // shows, so ship must emit them in the order the work happens.
-  it('streams human-readable phase labels as it ships', async () => {
-    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
-    const labels: string[] = [];
-    await shipTicket(
-      store,
-      { ticketId: id },
-      fakeGh().gh,
-      fakeAdapter(),
-      fakeGit().git,
-      (label) => labels.push(label),
-    );
+  // The dashboard used to render this as free text on the Now line; it now
+  // reads it as structured per-repo/per-step rows inside the Inside block, so
+  // ship must emit run→pass pairs in the order the work happens.
+  describe('structured progress events', () => {
+    function pairs(events: ShipStepEvent[]): [string, string][] {
+      return events.map((e) => [e.step, e.status]);
+    }
 
-    // Ordered: commit → push → describe → open → merge check.
-    expect(labels).toEqual([
-      expect.stringMatching(/^Committing changes/),
-      expect.stringMatching(/^Pushing branch/),
-      expect.stringMatching(/^Writing PR description/),
-      expect.stringMatching(/^Opening pull request/),
-      'Checking mergeability…',
-    ]);
-    // Single worktree → no repo suffix noise.
-    expect(labels[0]).toBe('Committing changes…');
-  });
+    it('emits run then pass for commit, push, describe, and pr, in order', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        fakeAdapter(),
+        gitWithMergeProbe({ exitCode: 0 }),
+        (e) => events.push(e),
+      );
 
-  it('tags each label with the repo name when several worktrees ship', async () => {
-    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
-    seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
-    const labels: string[] = [];
-    await shipTicket(
-      store,
-      { ticketId: id },
-      fakeGh().gh,
-      fakeAdapter(),
-      fakeGit().git,
-      (label) => labels.push(label),
-    );
+      expect(pairs(events)).toEqual([
+        ['commit', 'run'],
+        ['commit', 'pass'],
+        ['push', 'run'],
+        ['push', 'pass'],
+        ['pr', 'run'],
+        ['describe', 'run'],
+        ['describe', 'pass'],
+        ['pr', 'pass'],
+        ['merge', 'run'],
+        ['merge', 'pass'],
+      ]);
+      expect(events.every((e) => e.repo === '/repo/frontend')).toBe(true);
+    });
 
-    expect(labels).toContain('Pushing branch (/repo/frontend)…');
-    expect(labels).toContain('Pushing branch (/repo/backend)…');
-  });
+    it('carries the repo on every event when several worktrees ship', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        fakeAdapter(),
+        fakeGit().git,
+        (e) => events.push(e),
+      );
 
-  it('does not ask for a PR description when there is no adapter', async () => {
-    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
-    const labels: string[] = [];
-    await shipTicket(
-      store,
-      { ticketId: id },
-      fakeGh().gh,
-      undefined,
-      fakeGit().git,
-      (label) => labels.push(label),
-    );
+      expect(events.some((e) => e.repo === '/repo/frontend' && e.step === 'push')).toBe(true);
+      expect(events.some((e) => e.repo === '/repo/backend' && e.step === 'push')).toBe(true);
+    });
 
-    expect(labels).not.toContain('Writing PR description…');
-    expect(labels).toContain('Opening pull request…');
+    it('does not emit a describe event when there is no adapter', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        undefined,
+        fakeGit().git,
+        (e) => events.push(e),
+      );
+
+      expect(events.some((e) => e.step === 'describe')).toBe(false);
+      expect(events.some((e) => e.step === 'pr' && e.status === 'pass')).toBe(true);
+    });
+
+    // The idempotent-retry path used to emit nothing for a skipped repo — a
+    // silent gap in the live view. It must say what happened, honestly: `note`,
+    // never `pass`, since commit/push did not run this time.
+    it('emits a note, not a pass, for a repo whose PR was already open', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 1, 'u', 'open')")
+        .run(id, '/repo/frontend');
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        fakeAdapter(),
+        fakeGit().git,
+        (e) => events.push(e),
+      );
+
+      // Every step this repo skips must say so — commit/push must not sit at an
+      // implied "still to come" with no event ever explaining why they never run.
+      // Merge still runs (mergeability is re-checked on every ship, even for a
+      // repo whose PR-opening was skipped), so it is exempt from the note check.
+      const skippedEvents = events.filter((e) => e.step !== 'merge');
+      expect(skippedEvents.map((e) => e.step)).toEqual(['commit', 'push', 'describe', 'pr']);
+      expect(skippedEvents.every((e) => e.status === 'note' && e.repo === '/repo/frontend')).toBe(true);
+      expect(events.some((e) => e.step === 'merge')).toBe(true);
+    });
+
+    it('resolves the merge event to the same status the persisted check gets', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        fakeAdapter(),
+        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\n' }),
+        (e) => events.push(e),
+      );
+
+      const merge = events.find((e) => e.step === 'merge' && e.status !== 'run');
+      expect(merge?.status).toBe('fail');
+    });
   });
 });

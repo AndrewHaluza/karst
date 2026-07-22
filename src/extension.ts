@@ -88,7 +88,7 @@ import { runStageDriver } from './workflow/driver.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
 import { runUat } from './workflow/stages/uat.js';
 import { runReview } from './workflow/stages/review.js';
-import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
+import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import {
   getTicket,
@@ -736,7 +736,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fetch,
             makeTokenProvider(context),
           ),
-        (label) => dashboard.postShipProgress(ticketId, label),
+        (event) => dashboard.postShipProgress(ticketId, event),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
@@ -1668,9 +1668,10 @@ function makeDashboardActions(
   // window reload — same getter pattern as the onboarding provider.
   ticketing: () => TicketingConfig | undefined,
   ticketingProvider: () => TicketingProvider,
-  // Stream a short live phase label to the dashboard while `shipTicket` runs, so
-  // the confirm-ship click has visible progress instead of a frozen button.
-  onShipProgress: (label: string) => void,
+  // Stream structured per-repo/per-step progress to the dashboard while
+  // `shipTicket` runs, so the confirm-ship click has visible progress instead
+  // of a frozen button.
+  onShipProgress: (event: ShipStepEvent) => void,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {

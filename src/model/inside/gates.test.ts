@@ -94,6 +94,11 @@ describe('reviewInside', () => {
     expect(done.at(-1)).toMatchObject({ name: 'diff', status: 'pass' });
   });
 
+  it('names no diff row before the stage has run — nothing opened or promised yet', () => {
+    const ops = reviewInside(cell('review', 'pending'), [], NOW).ops;
+    expect(ops.find((o) => o.name === 'diff')).toBeUndefined();
+  });
+
   it('shows a gate duration when the run recorded one', () => {
     const runs = [
       run('review', 'lint', 0, {
@@ -105,9 +110,13 @@ describe('reviewInside', () => {
     expect(ops.find((o) => o.name === 'lint')!.duration).toBe('6.4s');
   });
 
-  it('has nothing to show before the stage has run', () => {
+  it('shows the gate list as pending before the stage has run, and no diff row yet', () => {
+    // The gate list is static, so naming it before the stage starts is truthful
+    // — it just isn't evidence yet. No "diff" row: it neither opened nor is
+    // about to, so nothing observed or promised exists to name.
     const strip = reviewInside(cell('review', 'pending'), [], NOW);
-    expect(strip.ops).toEqual([]);
+    expect(strip.ops.map((o) => o.name)).toEqual(['lint', 'typecheck', 'test']);
+    expect(strip.ops.every((o) => o.status === 'pending')).toBe(true);
     expect(strip.blurb).not.toBe('');
     expect(strip.clock).toBe('has not run yet');
   });
@@ -149,7 +158,9 @@ describe('uatInside', () => {
     ]);
   });
 
-  it('has nothing to show before the stage has run', () => {
-    expect(uatInside(cell('uat', 'pending'), [], NOW).ops).toEqual([]);
+  it('shows the suite as pending before the stage has run', () => {
+    expect(uatInside(cell('uat', 'pending'), [], NOW).ops).toEqual([
+      { status: 'pending', name: 'test', detail: 'npm test', duration: '' },
+    ]);
   });
 });

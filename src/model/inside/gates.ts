@@ -42,13 +42,14 @@ function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateRun[] {
  * the repo defines no such script, so karst had no question to ask and the gate
  * says nothing about the ticket either way.
  */
-function gateOp(spec: GateSpec, run: GateRun | undefined, stageRunning: boolean): StageOp | null {
+function gateOp(spec: GateSpec, run: GateRun | undefined, showPending: boolean): StageOp | null {
   const cmd = command(spec);
   if (!run) {
-    // Only worth naming while the stage is live — the gate list is static, so
-    // "still to come" is a fact. On a finished stage a missing row means the
-    // gates predate this record, and inventing one would be a guess.
-    return stageRunning ? { status: 'pending', name: spec.name, detail: cmd, duration: '' } : null;
+    // Worth naming before OR during the run — the gate list is static, so
+    // "still to come" is a fact whether the stage is pending or live. On a
+    // finished stage a missing row means the gates predate this record, and
+    // inventing one would be a guess.
+    return showPending ? { status: 'pending', name: spec.name, detail: cmd, duration: '' } : null;
   }
   const duration = formatDuration(run.startedAt, run.endedAt);
   if (run.exitCode === null) {
@@ -70,10 +71,10 @@ function gateOp(spec: GateSpec, run: GateRun | undefined, stageRunning: boolean)
 function gateOps(
   specs: readonly GateSpec[],
   batch: readonly GateRun[],
-  stageRunning: boolean,
+  showPending: boolean,
 ): StageOp[] {
   return specs
-    .map((spec) => gateOp(spec, batch.find((r) => r.gateName === spec.name), stageRunning))
+    .map((spec) => gateOp(spec, batch.find((r) => r.gateName === spec.name), showPending))
     .filter((op): op is StageOp => op !== null);
 }
 
@@ -83,11 +84,15 @@ export function reviewInside(
   now: string,
 ): StageInside {
   const running = cell.status === 'running';
-  const ops = gateOps(REVIEW_GATES, latestBatch(runs, 'review'), running);
+  const finished = cell.status === 'passed' || cell.status === 'failed';
+  const ops = gateOps(REVIEW_GATES, latestBatch(runs, 'review'), running || cell.status === 'pending');
 
   // The diff is opened unconditionally, on both verdicts — so once the stage has
-  // finished this is something karst observed, not something it expects.
-  if (ops.length > 0 || running) {
+  // finished this is something karst observed, not something it expects. Before
+  // the stage starts, nothing has opened and nothing is promised yet, so no row.
+  // A finished stage with no gate rows of its own (e.g. rows belonging to
+  // another stage) has no evidence to hang a diff row on either.
+  if (running || (finished && ops.length > 0)) {
     ops.push(
       running
         ? {
@@ -104,6 +109,7 @@ export function reviewInside(
 }
 
 export function uatInside(cell: StepperCell, runs: readonly GateRun[], now: string): StageInside {
-  const ops = gateOps([UAT_GATE], latestBatch(runs, 'uat'), cell.status === 'running');
+  const showPending = cell.status === 'running' || cell.status === 'pending';
+  const ops = gateOps([UAT_GATE], latestBatch(runs, 'uat'), showPending);
   return inside(cell, now, ops);
 }

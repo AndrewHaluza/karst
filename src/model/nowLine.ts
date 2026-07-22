@@ -87,12 +87,19 @@ export function buildNowLine(
       // Ship has no failed edge (graph.ts): a ship that could not open its PRs
       // leaves the ticket parked right here, so the line has to say so and offer
       // the retry — the same action, renamed for what it now does.
-      return cell.status === 'failed'
-        ? {
-            text: 'Now: ship failed — the PRs were not opened. Check the reason above, then try again.',
-            action: { kind: 'ship', label: 'Retry ship' },
-          }
-        : { text: 'Now: ready to ship. Confirm to open the PRs.', action: { kind: 'ship', label: 'Confirm ship' } };
+      if (cell.status === 'failed') {
+        return {
+          text: 'Now: ship failed — the PRs were not opened. Check the reason above, then try again.',
+          action: { kind: 'ship', label: 'Retry ship' },
+        };
+      }
+      // Running: the confirm click already happened — no button, and no more
+      // free-text step narration here. The real per-step progress lives in the
+      // Inside block; this line just says what phase the ticket is in.
+      if (cell.status === 'running') {
+        return { text: 'Now: shipping — committing, pushing, and opening PRs for each hot repo.' };
+      }
+      return { text: 'Now: ready to ship. Confirm to open the PRs.', action: { kind: 'ship', label: 'Confirm ship' } };
     case 'done':
       return { text: 'Done.' };
   }
