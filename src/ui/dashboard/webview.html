@@ -360,7 +360,12 @@
   .srv .addr.off{font-style:italic;opacity:.7}
   .srv .sacts,.wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:4px}
   .wt .wbr{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .pr .pst{font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
+  .pr .pst{font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);text-transform:uppercase;letter-spacing:.4px}
+  /* Live PR state at a glance: open green, merged purple, closed red, draft muted. */
+  .pr .pst-open{background:var(--vscode-testing-iconPassed,#2ea043);color:#fff}
+  .pr .pst-merged{background:#8957e5;color:#fff}
+  .pr .pst-closed{background:var(--vscode-testing-iconFailed,#cf222e);color:#fff}
+  .pr .pst-draft,.pr .pst-unknown{background:var(--vscode-descriptionForeground,#8b949e);color:var(--vscode-editor-background,#0d1117)}
   .pr .pnum{font-family:var(--mono);color:var(--link)}
   .pr .ptitle{flex:1;font-size:12.5px}
 
@@ -647,7 +652,7 @@
   function renderPrs(prs) {
     el('prCount').textContent = prs.length ? `${prs.length}` : '';
     el('prs').innerHTML = prs.length ? prs.map((p) => (
-      `<div class="pr"><span class="pst">${esc(p.status || '')}</span>`
+      `<div class="pr"><span class="pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
       + `<span class="prepo">${esc(p.repo)}</span>`
       + `<span class="ptitle">${esc(p.url || '')}</span>`
       + `<span class="pnum">#${esc(p.number)}</span>`

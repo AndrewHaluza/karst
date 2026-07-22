@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { openPr, findOpenPr, toGhResult, type GhRunner } from './github.js';
+import {
+  openPr,
+  findOpenPr,
+  toGhResult,
+  normalizePrState,
+  fetchPrState,
+  type GhRunner,
+} from './github.js';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 
 describe('toGhResult', () => {
@@ -135,5 +142,60 @@ describe('findOpenPr', () => {
   it('is null when the JSON carries no url — an adopted PR with no link is useless', async () => {
     const gh: GhRunner = async () => ({ stdout: viewJson({ number: 3, state: 'OPEN' }), exitCode: 0 });
     expect(await findOpenPr(gh, '/wt')).toBeNull();
+  });
+});
+
+describe('normalizePrState', () => {
+  it('maps gh’s upstream states onto the dashboard vocabulary', () => {
+    expect(normalizePrState('MERGED', false)).toBe('merged');
+    expect(normalizePrState('CLOSED', false)).toBe('closed');
+    expect(normalizePrState('OPEN', false)).toBe('open');
+  });
+
+  // A draft is state OPEN with isDraft true — it needs its own label, or a PR
+  // still being written reads as ready for review.
+  it('distinguishes a draft from a ready open PR', () => {
+    expect(normalizePrState('OPEN', true)).toBe('draft');
+    expect(normalizePrState('OPEN', false)).toBe('open');
+  });
+
+  // A state gh never emits (a new upstream status, a garbled row) must not be
+  // guessed into one of the known buckets — 'unknown' is the honest answer.
+  it('is unknown for any unrecognised state', () => {
+    expect(normalizePrState('WEIRD', false)).toBe('unknown');
+    expect(normalizePrState(undefined, false)).toBe('unknown');
+    expect(normalizePrState(null, undefined)).toBe('unknown');
+  });
+});
+
+describe('fetchPrState', () => {
+  it('asks gh for the PR’s state by ref, in the given cwd', async () => {
+    const calls: { args: string[]; cwd: string }[] = [];
+    const gh: GhRunner = async (args, cwd) => {
+      calls.push({ args, cwd });
+      return { stdout: viewJson({ state: 'MERGED', isDraft: false }), exitCode: 0 };
+    };
+    const status = await fetchPrState(gh, 'https://github.com/o/r/pull/9', '/wt/a');
+    expect(calls[0]!.args).toEqual(['pr', 'view', 'https://github.com/o/r/pull/9', '--json', 'state,isDraft']);
+    expect(calls[0]!.cwd).toBe('/wt/a');
+    expect(status).toBe('merged');
+  });
+
+  it('reads a draft PR as draft', async () => {
+    const gh: GhRunner = async () => ({ stdout: viewJson({ state: 'OPEN', isDraft: true }), exitCode: 0 });
+    expect(await fetchPrState(gh, '12', '/wt')).toBe('draft');
+  });
+
+  // Every failure — bad auth, a deleted PR, a dead remote — is 'unknown', never a
+  // throw and never a wrong state. The caller must be free to keep the last known
+  // status rather than overwrite it with a guess.
+  it('is unknown when gh exits nonzero', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', exitCode: 1, stderr: 'could not resolve to a PullRequest' });
+    expect(await fetchPrState(gh, 'https://x/pull/1', '/wt')).toBe('unknown');
+  });
+
+  it('is unknown on output that is not JSON', async () => {
+    const gh: GhRunner = async () => ({ stdout: 'not json', exitCode: 0 });
+    expect(await fetchPrState(gh, '1', '/wt')).toBe('unknown');
   });
 });

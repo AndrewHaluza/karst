@@ -47,6 +47,8 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { writeHookSettings } from './agent/settings.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
+import { defaultGhRunnerAsync } from './integrations/github.js';
+import { syncPrStatuses } from './workflow/prSync.js';
 import { stopServer } from './runtime/supervisor.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
@@ -168,6 +170,14 @@ const HOOK_PORT_KEY = 'karst.hookPort';
  * per-workspace flag would let the second window adopt all over again.
  */
 const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
+
+/**
+ * How often to re-probe open PRs for their real upstream state. A minute keeps
+ * the dashboard current (acceptance §2) without hammering gh; the re-entrancy
+ * guard drops a tick that overlaps a still-running sweep, so a slow probe never
+ * stacks.
+ */
+const PR_SYNC_INTERVAL_MS = 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
@@ -927,6 +937,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   for (const id of ticketsToSweep(listTickets(localStore, { projectId: currentProject()?.id }))) {
     maybeDrive(id, 'activation-sweep');
   }
+
+  // PR status sync: `ship` writes every PR as 'open' and nothing ever revised it,
+  // so a merged/closed/reopened PR read 'open' forever. Re-probe upstream via gh
+  // on a timer AND once on activation (which corrects PRs already stuck 'open').
+  //
+  // Scoped to this window's project (projects invariant). Async spawn only — gh
+  // runs off the event loop, and a re-entrancy guard drops a tick that lands
+  // while a slow sweep is still going, so a dead remote can never pile up sweeps.
+  let prSyncRunning = false;
+  const runPrSync = async (): Promise<void> => {
+    if (prSyncRunning) return;
+    prSyncRunning = true;
+    try {
+      const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
+        projectId: currentProject()?.id,
+      });
+      if (changed > 0) {
+        provider.refresh();
+        dashboard.pushAll();
+      }
+    } catch (e) {
+      logError('karst: PR status sync failed', e);
+    } finally {
+      prSyncRunning = false;
+    }
+  };
+  void runPrSync();
+  const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });
 
   // Startup dependency preflight (§ todo-5): karst shells out to tools it doesn't
   // bundle. The registry is the whole list — never hand-maintain one here, or the

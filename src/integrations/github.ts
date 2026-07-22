@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 
 /**
@@ -66,6 +66,30 @@ export const defaultGhRunner: GhRunner = async (args, cwd) => {
   return toGhResult(spawnSync('gh', args, { cwd, encoding: 'utf8' }));
 };
 
+/**
+ * Non-blocking `gh` runner — same auth and semantics as `defaultGhRunner`, but
+ * async `spawn` instead of `spawnSync`.
+ *
+ * Required for anything that runs on the extension host's event loop on a timer
+ * (the PR status sync), not just in a one-off user action. `spawnSync` there
+ * would freeze the host — hook endpoint, every webview, the whole UI — for the
+ * length of a network `gh pr view`, once a minute (same trap the gate runner
+ * avoids). The output→`GhResult` mapping (incl. the ENOENT→install-copy
+ * translation) is shared with the sync runner via `toGhResult`.
+ */
+export const defaultGhRunnerAsync: GhRunner = (args, cwd) =>
+  new Promise((resolve) => {
+    const child = spawn('gh', [...args], { cwd });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (c: Buffer) => (stdout += c.toString()));
+    child.stderr?.on('data', (c: Buffer) => (stderr += c.toString()));
+    child.once('error', (error: Error & { code?: string }) =>
+      resolve(toGhResult({ stdout, stderr, status: null, error })),
+    );
+    child.once('close', (code) => resolve(toGhResult({ stdout, stderr, status: code })));
+  });
+
 /** Extract the trailing PR number from a `gh` PR URL (…/pull/<n>). */
 function prNumberFromUrl(url: string): number | null {
   const m = url.match(/\/pull\/(\d+)/);
@@ -107,6 +131,55 @@ export async function findOpenPr(gh: GhRunner, cwd: string): Promise<OpenedPr | 
 
   const number = typeof view.number === 'number' ? view.number : prNumberFromUrl(view.url);
   return { url: view.url, number };
+}
+
+/**
+ * The dashboard's PR vocabulary. A superset of gh's `state` (OPEN/CLOSED/MERGED)
+ * because a draft — state OPEN with `isDraft` — earns its own label, and because
+ * every failure to determine the true state must have a name the caller can
+ * refuse to persist.
+ */
+export type PrStatus = 'open' | 'draft' | 'closed' | 'merged' | 'unknown';
+
+/** The `gh pr view --json state,isDraft` fields — gh's output, so all optional. */
+interface PrStateView {
+  state?: unknown;
+  isDraft?: unknown;
+}
+
+/**
+ * Map gh's `state` (+ `isDraft`) onto the dashboard vocabulary. Anything gh never
+ * emits — a future upstream status, a garbled row — is 'unknown', not guessed
+ * into a known bucket: a wrong-but-confident status is worse than an honest one.
+ */
+export function normalizePrState(state: unknown, isDraft: unknown): PrStatus {
+  if (state === 'MERGED') return 'merged';
+  if (state === 'CLOSED') return 'closed';
+  if (state === 'OPEN') return isDraft === true ? 'draft' : 'open';
+  return 'unknown';
+}
+
+/**
+ * Current upstream state of a recorded PR, normalized. Queried by `ref` — a PR
+ * URL or number — so it works for any stored PR without that branch being
+ * checked out; `cwd` still points gh at a repo so it can resolve auth/host.
+ *
+ * 'unknown' on EVERY failure (bad auth, a PR deleted upstream, a dead remote,
+ * unparseable output), never a throw. The sync caller reads 'unknown' as "keep
+ * the last state we saw" — a probe that cannot see the PR must not overwrite a
+ * real status with a guess (F4: no stale-or-wrong cached status).
+ */
+export async function fetchPrState(gh: GhRunner, ref: string, cwd: string): Promise<PrStatus> {
+  const r = await gh(['pr', 'view', ref, '--json', 'state,isDraft'], cwd);
+  if (r.exitCode !== 0) return 'unknown';
+
+  let view: PrStateView;
+  try {
+    view = JSON.parse(r.stdout) as PrStateView;
+  } catch {
+    return 'unknown';
+  }
+  return normalizePrState(view.state, view.isDraft);
 }
 
 /**

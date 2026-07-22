@@ -132,6 +132,15 @@ export class DashboardManager {
     this.refreshIcon(ticketId, panel);
   }
 
+  /**
+   * Push fresh state to every open panel. Used by background sweeps (e.g. PR
+   * status sync) whose result may touch any open ticket, so the caller need not
+   * track which ticket changed.
+   */
+  pushAll(): void {
+    for (const ticketId of this.panels.keys()) this.pushState(ticketId);
+  }
+
   /** Re-point the tab icon at the ticket's current status glyph. */
   private refreshIcon(ticketId: number, panel: DashboardPanel): void {
     const icon = this.iconFor?.(ticketId);
