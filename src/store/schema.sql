@@ -104,6 +104,20 @@ CREATE TABLE IF NOT EXISTS worktrees (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS worktree_archives (
+  id              INTEGER PRIMARY KEY,
+  ticket_id       INTEGER NOT NULL,     -- -> tickets.id
+  repo            TEXT NOT NULL,        -- worktrees.repo (the repoPath)
+  path            TEXT NOT NULL,        -- original worktree folder (restore target)
+  branch          TEXT NOT NULL,        -- karst/<slug>, survives archive
+  base_ref        TEXT,                 -- branch point, carried from the worktrees row
+  archive_ref     TEXT NOT NULL,        -- refs/karst/archive/<slug>; '' = no uncommitted delta
+  method          TEXT NOT NULL,        -- 'git-ref' (only value in v1)
+  reclaimed_bytes INTEGER,              -- reserved/nullable; not populated in v1
+  archived_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_worktree_archives_ticket ON worktree_archives(ticket_id, path);
+
 CREATE TABLE IF NOT EXISTS port_allocations (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
   repo          TEXT NOT NULL,        -- repository name (renamed from `service` in v10)

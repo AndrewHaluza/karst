@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -214,6 +214,30 @@ export function migrate(db: Database): void {
         db.exec(`ALTER TABLE ${table} RENAME COLUMN service TO repo`);
       }
     }
+  }
+
+  if (current < 11) {
+    // v11 adds the worktree-archive registry. Fresh DBs already carry it
+    // (schema.sql), so IF NOT EXISTS makes this a no-op there and purely additive
+    // on a legacy DB. Nothing is backfilled: an archive is a git ref that only
+    // exists once a worktree is actually archived — there is nothing to derive.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS worktree_archives (
+        id              INTEGER PRIMARY KEY,
+        ticket_id       INTEGER NOT NULL,
+        repo            TEXT NOT NULL,
+        path            TEXT NOT NULL,
+        branch          TEXT NOT NULL,
+        base_ref        TEXT,
+        archive_ref     TEXT NOT NULL,
+        method          TEXT NOT NULL,
+        reclaimed_bytes INTEGER,
+        archived_at     TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_worktree_archives_ticket ON worktree_archives(ticket_id, path)',
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

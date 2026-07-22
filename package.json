@@ -116,6 +116,11 @@
         "icon": "$(trash)"
       },
       {
+        "command": "karst.archiveInactiveWorktrees",
+        "title": "Karst: Archive Inactive Worktrees",
+        "icon": "$(archive)"
+      },
+      {
         "command": "karst.openSettings",
         "title": "Karst: Settings",
         "icon": "$(gear)"

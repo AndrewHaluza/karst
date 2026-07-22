@@ -48,6 +48,11 @@ import { writeHookSettings } from './agent/settings.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { stopServer } from './runtime/supervisor.js';
+import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
+import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
+import { listArchives } from './store/worktreeArchives.js';
+import { makePortAllocator } from './resolver/allocator.js';
+import { defaultGitRunner } from './integrations/git.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import type { PathContext } from './ui/dashboard/state.js';
 import { writeRepoSignals } from './manifest/write.js';
@@ -1275,15 +1280,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       manifests.set(manifest, manifestPathOrThrow());
       onboarding.openEdit(ticketId);
     }),
-    vscode.commands.registerCommand('karst.archiveTicket', (arg: unknown) => {
+    vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
       archiveTicket(localStore, ticketId);
+      const manifest = currentManifest();
+      if (manifest) {
+        const allocator = makePortAllocator(localStore, manifest.portRange);
+        for (const w of listWorktreesByTicket(localStore, ticketId)) {
+          if (!w.branch) continue;
+          try {
+            await archiveWorktree(defaultGitRunner, localStore, allocator, {
+              ticketId,
+              repoPath: w.repo,
+              path: w.path,
+              branch: w.branch,
+              baseRef: w.baseRef ?? w.branch,
+            });
+          } catch (err) {
+            channel.appendLine(`archive worktree failed for ${w.path}: ${String(err)}`);
+            void vscode.window.showWarningMessage(`Worktree not archived: ${String(err)}`);
+          }
+        }
+      }
       provider.refresh();
     }),
-    vscode.commands.registerCommand('karst.unarchiveTicket', (arg: unknown) => {
+    vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
+      for (const a of listArchives(localStore, ticketId)) {
+        try {
+          const r = await restoreWorktree(defaultGitRunner, localStore, { ticketId, path: a.path });
+          if (r.outcome === 'skipped') {
+            void vscode.window.showWarningMessage(`Worktree not restored: ${r.reason ?? 'unknown reason'}`);
+          }
+        } catch (err) {
+          channel.appendLine(`restore worktree failed for ${a.path}: ${String(err)}`);
+          void vscode.window.showWarningMessage(`Worktree not restored: ${String(err)}`);
+        }
+      }
       unarchiveTicket(localStore, ticketId);
       provider.refresh();
     }),
@@ -1300,6 +1335,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (choice !== 'Delete') return;
       deleteTicket(localStore, ticketId);
+      provider.refresh();
+    }),
+    vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {
+      const manifest = currentManifest();
+      if (!manifest) {
+        void vscode.window.showWarningMessage('Karst: no manifest loaded.');
+        return;
+      }
+      const allocator = makePortAllocator(localStore, manifest.portRange);
+      const summary = await archiveInactiveWorktrees(defaultGitRunner, localStore, allocator, {
+        projectId: currentProject()?.id,
+      });
+      void vscode.window.showInformationMessage(
+        `Karst: archived ${summary.archived} worktree(s), skipped ${summary.skipped}, failed ${summary.failed}.`,
+      );
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
