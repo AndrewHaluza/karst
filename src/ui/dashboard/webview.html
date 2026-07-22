@@ -102,7 +102,7 @@
      independent reads. A stageKey with no stg-* class falls through to this
      neutral default rather than rendering uncolored. */
   .st{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0;
-    color:var(--st-pending)}
+    color:var(--st-pending);--stg-color:var(--st-pending)}
   .st .seg{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
   .st:first-child .seg{display:none}
   .st .seg.lit{background:var(--st-done);opacity:.55}
@@ -113,7 +113,7 @@
   /* Pending is a hollow ring in the stage's hue (border + glyph both
      currentColor, inherited from .st). Status changes the FILL, not the color. */
   .st .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
-    background:var(--panel-bg);border:2px solid currentColor;color:currentColor;
+    background:var(--panel-bg);border:2px solid var(--stg-color);color:var(--stg-color);
     position:relative;z-index:1;font-size:13px;font-weight:700;line-height:1;
     padding:0;cursor:pointer;font-family:inherit}
   .st .node:hover{filter:brightness(1.25)}
@@ -130,16 +130,16 @@
   .st .meta{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);margin-top:3px;height:12px}
   /* Passed/running FILL the node in the stage hue; the glyph knocks out against
      it. Hue still says which stage, fill says it is done/working. */
-  .st.done .node{background:currentColor;border-color:currentColor;color:var(--vscode-editor-background)}
+  .st.done .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--vscode-editor-background)}
   /* Skipped is the one status that leaves the stage ramp: a stage that never ran
      has no identity to assert, so it reads neutral gray. */
   .st.skipped .node{background:var(--st-pending);border-color:var(--st-pending);color:var(--vscode-editor-background);opacity:.55}
   /* No pulse on a running node: it carries a spinner, and two simultaneous
      animations on one 30px mark read as noise. */
-  .st.running .node{background:currentColor;border-color:currentColor;color:var(--vscode-editor-background)}
+  .st.running .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--vscode-editor-background)}
   /* Failed reads as a break in the circuit: hollow + dashed, never filled — in
      the stage's hue (fix's is red, which is also its status meaning). */
-  .st.failed .node{background:transparent;border-color:currentColor;border-style:dashed;color:currentColor}
+  .st.failed .node{background:transparent;border-color:var(--stg-color);border-style:dashed;color:var(--stg-color)}
   /* Selection is a RING, never a fill — status already owns fill and the stage
      owns hue, and all three must stay independently readable, so the ring keeps
      its own off-ramp purple. */
@@ -205,7 +205,7 @@
     left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
     transform:translateX(-50%)}
   .loop .fixnode .node{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
-    background:var(--panel-bg);border:2px dashed currentColor;color:currentColor;
+    background:var(--panel-bg);border:2px dashed var(--stg-color);color:var(--stg-color);
     font-size:12px;font-weight:700;flex:none;padding:0;cursor:pointer;font-family:inherit}
   .loop .fixnode .node:hover{filter:brightness(1.25)}
   /* focusBorder, not --st-sel — same fusion with the selection ring as the rail
@@ -215,8 +215,8 @@
   .loop .fixnode .lbl{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:inherit}
   .loop .fixnode .cap{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);white-space:nowrap}
   /* Armed FILLS the ring (status: the loop is live); hue stays fix's. */
-  .loop.armed .fixnode .node{border-style:solid;border-color:currentColor;
-    background:currentColor;color:var(--vscode-editor-background);
+  .loop.armed .fixnode .node{border-style:solid;border-color:var(--stg-color);
+    background:var(--stg-color);color:var(--vscode-editor-background);
     animation:node-pulse 1.7s ease-in-out infinite}
   .loop.armed .fixnode .cap{color:var(--st-input)}
   .loop .fixnode.sel .node{box-shadow:0 0 0 2px var(--panel-bg),0 0 0 4px var(--st-sel)}
