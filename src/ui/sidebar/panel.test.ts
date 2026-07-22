@@ -30,7 +30,7 @@ function fakeHost(): { host: SidebarViewHost; resolve: () => FakeView } {
 
 function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
   return {
-    setFacet: vi.fn(),
+    toggleFacet: vi.fn(),
     setFilter: vi.fn(),
     refresh: vi.fn(),
     requestState: vi.fn(),
@@ -62,7 +62,7 @@ describe('SidebarViewManager', () => {
     expect(view.posted[0]!.rows.map((r) => r.label)).toEqual(['A-1 — one']);
   });
 
-  it('setFacet / setFilter / refresh each re-push and getFacet reflects the pick', () => {
+  it('toggleFacet / setFilter / refresh each re-push and getFacets reflects the pick', () => {
     createTicket(store, { key: 'A-1', title: 'one' });
     const mgr = new SidebarViewManager(store, () => stubActions());
     const { host, resolve } = fakeHost();
@@ -70,13 +70,30 @@ describe('SidebarViewManager', () => {
     const view = resolve();
     view.posted.length = 0;
 
-    mgr.setFacet('archived');
+    mgr.toggleFacet('archived');
     mgr.setFilter('x');
     mgr.refresh();
     expect(view.posted).toHaveLength(3);
-    expect(mgr.getFacet()).toBe('archived');
-    expect(view.posted[0]!.facet).toBe('archived');
+    expect(mgr.getFacets()).toEqual(['archived']);
+    expect(view.posted[0]!.facets).toEqual(['archived']);
     expect(view.posted[1]!.filter).toBe('x');
+  });
+
+  it('toggleFacet builds a multi-status union and getFacets reflects it', () => {
+    createTicket(store, { key: 'A-1', title: 'one' });
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    view.posted.length = 0;
+
+    mgr.toggleFacet('running');
+    mgr.toggleFacet('failed');
+    expect(mgr.getFacets()).toEqual(['running', 'failed']);
+    expect(view.posted.at(-1)!.facets).toEqual(['running', 'failed']);
+
+    mgr.toggleFacet('running'); // toggle one off
+    expect(mgr.getFacets()).toEqual(['failed']);
   });
 
   it('routes an inbound message to the matching action', () => {

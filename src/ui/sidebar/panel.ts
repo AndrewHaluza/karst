@@ -6,7 +6,13 @@ import {
   type SidebarActions,
   type SidebarHostMessage,
 } from './messages.js';
-import type { FacetKey } from './facets.js';
+import {
+  toggleFacet,
+  normalizeSelection,
+  DEFAULT_SELECTION,
+  type FacetKey,
+  type FacetSelection,
+} from './facets.js';
 import type { PathContext } from '../worktreePath.js';
 
 /**
@@ -28,7 +34,7 @@ export interface SidebarViewHost {
 /**
  * Sidebar ticket-list manager (replaces the native `KarstTreeProvider`). Holds
  * the current facet + filter and re-pushes serialized state to the webview on
- * every `refresh`/`setFilter`/`setFacet` — the SAME method names the extension's
+ * every `refresh`/`setFilter`/`toggleFacet` — the SAME method names the extension's
  * existing call sites used on the tree provider, so those call sites are
  * unchanged. Inbound webview messages route to injected `SidebarActions`.
  *
@@ -37,7 +43,7 @@ export interface SidebarViewHost {
  */
 export class SidebarViewManager {
   private view: SidebarView | undefined;
-  private facet: FacetKey = 'all';
+  private facets: FacetKey[] = [...DEFAULT_SELECTION];
   private filter = '';
 
   constructor(
@@ -80,7 +86,7 @@ export class SidebarViewManager {
     const state = buildSidebarState(
       this.store,
       {
-        facet: this.facet,
+        facets: this.facets,
         filter: this.filter,
         labelTemplate: this.labelTemplate?.(),
         projectId: this.projectId?.(),
@@ -101,14 +107,20 @@ export class SidebarViewManager {
     this.push();
   }
 
-  /** Set the active state facet and re-push. */
-  setFacet(facet: FacetKey): void {
-    this.facet = facet;
+  /** Toggle one facet chip in the multi-select selection and re-push. */
+  toggleFacet(facet: FacetKey): void {
+    this.facets = toggleFacet(this.facets, facet);
     this.push();
   }
 
-  /** The active facet (for the filterState command to mark the current pick). */
-  getFacet(): FacetKey {
-    return this.facet;
+  /** Replace the whole selection (e.g. the multi-pick command) and re-push. */
+  setFacets(facets: FacetSelection): void {
+    this.facets = normalizeSelection(facets);
+    this.push();
+  }
+
+  /** The active selection (for the filterState command to mark current picks). */
+  getFacets(): FacetKey[] {
+    return this.facets;
   }
 }

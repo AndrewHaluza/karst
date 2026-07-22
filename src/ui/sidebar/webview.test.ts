@@ -42,6 +42,17 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('.glyph .sdot{');
   });
 
+  it('lets multiple status chips light at once (multi-select fix)', () => {
+    // A chip click reports which facet was clicked; the host owns the union.
+    expect(HTML).toContain("post({ type:'toggle-facet', facet: t.dataset.facet })");
+    // Lit state is membership in the selection SET, not equality with one facet.
+    expect(HTML).toContain('const sel = new Set(state.facets || [');
+    expect(HTML).toContain("sel.has(f.key) ? ' on' : ''");
+    // The single-facet equality check must be gone.
+    expect(HTML).not.toContain('state.facet ===');
+    expect(HTML).not.toContain("type:'set-facet'");
+  });
+
   it('keeps the injection markers — each fails silently when lost', () => {
     for (const marker of ['<!--KARST_CSP-->', '/*KARST_PALETTE*/']) {
       expect(HTML).toContain(marker);

@@ -9,7 +9,7 @@ import { FACETS, type FacetKey } from './facets.js';
 
 /** Webview → host. Row actions carry a numeric `ticketId` (→ `ticketIdArg`). */
 export type SidebarWebviewMessage =
-  | { type: 'set-facet'; facet: FacetKey }
+  | { type: 'toggle-facet'; facet: FacetKey }
   | { type: 'set-filter'; query: string }
   | { type: 'refresh' }
   | { type: 'request-state' }
@@ -28,7 +28,7 @@ export type SidebarHostMessage = { type: 'state'; state: SidebarState };
 
 /** Host-side effects the sidebar can trigger (executeCommand passthrough). */
 export interface SidebarActions {
-  setFacet(facet: FacetKey): void;
+  toggleFacet(facet: FacetKey): void;
   setFilter(query: string): void;
   refresh(): void;
   requestState(): void;
@@ -61,9 +61,9 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'create':
     case 'open-settings':
       return { type: m.type };
-    case 'set-facet':
+    case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
-        ? { type: 'set-facet', facet: m.facet as FacetKey }
+        ? { type: 'toggle-facet', facet: m.facet as FacetKey }
         : null;
     case 'set-filter':
       return typeof m.query === 'string' ? { type: 'set-filter', query: m.query } : null;
@@ -85,8 +85,8 @@ export function routeSidebarAction(raw: unknown, actions: SidebarActions): void 
   const msg = parseSidebarMessage(raw);
   if (!msg) return;
   switch (msg.type) {
-    case 'set-facet':
-      return actions.setFacet(msg.facet);
+    case 'toggle-facet':
+      return actions.toggleFacet(msg.facet);
     case 'set-filter':
       return actions.setFilter(msg.query);
     case 'refresh':

@@ -8,9 +8,11 @@ import {
 } from '../../store/dashboard.js';
 import { buildTicketNodes, filterTickets, type TicketNode } from './items.js';
 import {
-  filterByFacet,
+  filterBySelection,
   facetCounts,
+  normalizeSelection,
   type FacetKey,
+  type FacetSelection,
 } from './facets.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 
@@ -36,8 +38,12 @@ export interface TicketRow extends TicketNode {
 }
 
 export interface SidebarState {
-  /** Active state facet (`all` by default; `archived` shows soft-deleted). */
-  facet: FacetKey;
+  /**
+   * Active facet selection — the lit chips. Multi-select: several status facets
+   * can be on at once (their union). `['all']` by default; `['archived']` is the
+   * exclusive soft-deleted view. Always normalized (never a bare `[]`).
+   */
+  facets: FacetKey[];
   /** Case-insensitive key/title search filter (empty = no filter). */
   filter: string;
   /** Per-facet counts for the chip badges (archived counted separately). */
@@ -56,7 +62,7 @@ export interface SidebarState {
 export function buildSidebarState(
   store: Store,
   opts: {
-    facet: FacetKey;
+    facets: FacetSelection;
     filter: string;
     labelTemplate?: string;
     /**
@@ -72,7 +78,8 @@ export function buildSidebarState(
   const active = listTickets(store, scope);
   const archived = listArchivedTickets(store, scope);
 
-  const source = opts.facet === 'archived' ? archived : filterByFacet(active, opts.facet);
+  const facets = normalizeSelection(opts.facets);
+  const source = facets.includes('archived') ? archived : filterBySelection(active, facets);
   const visible = filterTickets(source, opts.filter);
 
   const rows: TicketRow[] = buildTicketNodes(visible, opts.labelTemplate).map((node) => ({
@@ -85,7 +92,7 @@ export function buildSidebarState(
   }));
 
   return {
-    facet: opts.facet,
+    facets,
     filter: opts.filter,
     counts: facetCounts(active, archived.length),
     rows,

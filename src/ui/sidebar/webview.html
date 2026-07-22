@@ -161,7 +161,8 @@
   ];
 
   // Current state snapshot + which rows are expanded (kept across re-renders).
-  let state = { facet:'all', filter:'', counts:{}, rows:[] };
+  // `facets` is the multi-select selection (lit chips); `['all']` = no filter.
+  let state = { facets:['all'], filter:'', counts:{}, rows:[] };
   const open = new Set();
 
   const chev = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>';
@@ -178,11 +179,14 @@
   };
 
   function renderFacets() {
+    // Multi-select: any number of status chips can be lit at once (their union).
+    // `all` is lit only when nothing else is; `aria-pressed` mirrors the toggle.
+    const sel = new Set(state.facets || ['all']);
     el('facets').innerHTML = FACET_META.map((f) => {
       const n = state.counts[f.key] ?? 0;
-      const on = state.facet === f.key ? ' on' : '';
+      const on = sel.has(f.key) ? ' on' : '';
       const dot = f.color ? `<span class="dot g-${f.color}"></span>` : '';
-      return `<button class="facet${on}" data-facet="${f.key}">${dot}${f.label} <span class="n">${n}</span></button>`;
+      return `<button class="facet${on}" data-facet="${f.key}" aria-pressed="${sel.has(f.key)}">${dot}${f.label} <span class="n">${n}</span></button>`;
     }).join('');
   }
 
@@ -200,7 +204,7 @@
     if (!state.rows.length) {
       L.innerHTML = state.filter
         ? '<div class="empty">No tickets match.</div>'
-        : (state.facet === 'archived'
+        : ((state.facets || []).includes('archived')
             ? '<div class="empty">No archived tickets.</div>'
             : '<div class="empty">No tickets yet. <a id="emptyNew">Create ticket</a></div>');
       const a = el('emptyNew'); if (a) a.onclick = () => post({ type:'create' });
@@ -268,7 +272,8 @@
       return;
     }
     if (t.dataset.facet) {
-      post({ type:'set-facet', facet: t.dataset.facet });
+      // Report only WHICH chip was clicked; the host owns the toggle/union logic.
+      post({ type:'toggle-facet', facet: t.dataset.facet });
       return;
     }
     if (t.dataset.toggle) {

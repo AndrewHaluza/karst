@@ -14,16 +14,16 @@ describe('buildSidebarState', () => {
     const gone = createTicket(store, { key: 'B-1', title: 'archived' });
     archiveTicket(store, gone.id);
 
-    const state = buildSidebarState(store, { facet: 'all', filter: '' });
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
     expect(state.rows.map((r) => r.label)).toEqual(['A-1 — active']);
-    expect(state.facet).toBe('all');
+    expect(state.facets).toEqual(['all']);
   });
 
   it('shows only the bound project when one is given', () => {
     createTicket(store, { key: 'A-1', title: 'mine', projectId: 1 });
     createTicket(store, { key: 'B-1', title: 'theirs', projectId: 2 });
 
-    const state = buildSidebarState(store, { facet: 'all', filter: '', projectId: 1 });
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId: 1 });
     expect(state.rows.map((r) => r.label)).toEqual(['A-1 — mine']);
   });
 
@@ -33,7 +33,7 @@ describe('buildSidebarState', () => {
     archiveTicket(store, mine.id);
     archiveTicket(store, theirs.id);
 
-    const state = buildSidebarState(store, { facet: 'archived', filter: '', projectId: 1 });
+    const state = buildSidebarState(store, { facets: ['archived'], filter: '', projectId: 1 });
     expect(state.rows.map((r) => r.ticketId)).toEqual([mine.id]);
   });
 
@@ -43,7 +43,7 @@ describe('buildSidebarState', () => {
     const other = createTicket(store, { key: 'B-2', title: 'theirs archived', projectId: 2 });
     archiveTicket(store, other.id);
 
-    const state = buildSidebarState(store, { facet: 'all', filter: '', projectId: 1 });
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId: 1 });
     expect(state.counts.all).toBe(1);
     expect(state.counts.archived).toBe(0);
   });
@@ -53,7 +53,7 @@ describe('buildSidebarState', () => {
     const gone = createTicket(store, { key: 'B-1', title: 'archived' });
     archiveTicket(store, gone.id);
 
-    const state = buildSidebarState(store, { facet: 'archived', filter: '' });
+    const state = buildSidebarState(store, { facets: ['archived'], filter: '' });
     expect(state.rows.map((r) => r.ticketId)).toEqual([gone.id]);
     expect(state.rows[0]!.archived).toBe(true);
   });
@@ -63,15 +63,27 @@ describe('buildSidebarState', () => {
     setStage(store, r.id, 'scope', { status: 'running' });
     createTicket(store, { key: 'P-1', title: 'pending' });
 
-    const state = buildSidebarState(store, { facet: 'running', filter: '' });
+    const state = buildSidebarState(store, { facets: ['running'], filter: '' });
     expect(state.rows.map((x) => x.ticketId)).toEqual([r.id]);
+  });
+
+  it('a multi-status selection returns the union (fix: several statuses at once)', () => {
+    const r = createTicket(store, { key: 'R-1', title: 'running' });
+    setStage(store, r.id, 'scope', { status: 'running' });
+    const f = createTicket(store, { key: 'F-1', title: 'failed' });
+    setStage(store, f.id, 'scope', { status: 'failed' });
+    createTicket(store, { key: 'P-1', title: 'pending' });
+
+    const state = buildSidebarState(store, { facets: ['running', 'failed'], filter: '' });
+    expect(state.rows.map((x) => x.ticketId).sort()).toEqual([r.id, f.id].sort());
+    expect(state.facets).toEqual(['running', 'failed']);
   });
 
   it('filter narrows by key/title, case-insensitive', () => {
     createTicket(store, { key: 'A-1', title: 'add login' });
     createTicket(store, { key: 'B-1', title: 'fix logout' });
 
-    const state = buildSidebarState(store, { facet: 'all', filter: 'LOGIN' });
+    const state = buildSidebarState(store, { facets: ['all'], filter: 'LOGIN' });
     expect(state.rows.map((r) => r.label)).toEqual(['A-1 — add login']);
   });
 
@@ -80,7 +92,7 @@ describe('buildSidebarState', () => {
     const gone = createTicket(store, { key: 'B-1', title: 'gone' });
     archiveTicket(store, gone.id);
 
-    const state = buildSidebarState(store, { facet: 'all', filter: 'login' });
+    const state = buildSidebarState(store, { facets: ['all'], filter: 'login' });
     expect(state.rows).toHaveLength(1); // filtered
     expect(state.counts.all).toBe(1); // one active ticket total
     expect(state.counts.archived).toBe(1);
@@ -95,7 +107,7 @@ describe('buildSidebarState', () => {
       .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?,?,?,?)')
       .run(t.id, 'backend', '/wt/backend', 'feature/A-1');
 
-    const state = buildSidebarState(store, { facet: 'all', filter: '' });
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
     const row = state.rows[0]!;
     expect(row.servers.map((s) => s.service)).toEqual(['backend']);
     expect(row.worktrees.map((w) => w.repo)).toEqual(['backend']);
@@ -107,7 +119,7 @@ describe('buildSidebarState', () => {
       .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?,?,?,?)')
       .run(t.id, '/Users/nd/Work/projects/tatto-timer', '/wt/tt', 'feature/A-1');
 
-    const state = buildSidebarState(store, { facet: 'all', filter: '' });
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
     expect(state.rows[0]!.worktrees[0]!.repoDisplay).toBe('/Users/nd/Work/projects/tatto-timer');
   });
 
@@ -119,7 +131,7 @@ describe('buildSidebarState', () => {
 
     const state = buildSidebarState(
       store,
-      { facet: 'all', filter: '' },
+      { facets: ['all'], filter: '' },
       { display: 'relative', projectRoot: '/Users/nd/Work/projects/tatto-timer' },
     );
     // repo IS the workspace root → `./<name>` (the bug's single-repo case).

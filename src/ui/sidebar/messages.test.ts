@@ -8,13 +8,13 @@ describe('parseSidebarMessage', () => {
     }
   });
 
-  it('accepts set-facet with a known facet, rejects unknown', () => {
-    expect(parseSidebarMessage({ type: 'set-facet', facet: 'running' })).toEqual({
-      type: 'set-facet',
+  it('accepts toggle-facet with a known facet, rejects unknown', () => {
+    expect(parseSidebarMessage({ type: 'toggle-facet', facet: 'running' })).toEqual({
+      type: 'toggle-facet',
       facet: 'running',
     });
-    expect(parseSidebarMessage({ type: 'set-facet', facet: 'bogus' })).toBeNull();
-    expect(parseSidebarMessage({ type: 'set-facet' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'toggle-facet', facet: 'bogus' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'toggle-facet' })).toBeNull();
   });
 
   it('accepts set-filter with a string query', () => {
@@ -42,7 +42,7 @@ describe('parseSidebarMessage', () => {
 describe('routeSidebarAction', () => {
   function makeActions(): SidebarActions {
     return {
-      setFacet: vi.fn(),
+      toggleFacet: vi.fn(),
       setFilter: vi.fn(),
       refresh: vi.fn(),
       requestState: vi.fn(),
@@ -60,13 +60,13 @@ describe('routeSidebarAction', () => {
 
   it('dispatches each message to its action with the right arg', () => {
     const a = makeActions();
-    routeSidebarAction({ type: 'set-facet', facet: 'failed' }, a);
+    routeSidebarAction({ type: 'toggle-facet', facet: 'failed' }, a);
     routeSidebarAction({ type: 'set-filter', query: 'q' }, a);
     routeSidebarAction({ type: 'spin', ticketId: 7 }, a);
     routeSidebarAction({ type: 'archive', ticketId: 8 }, a);
     routeSidebarAction({ type: 'create' }, a);
 
-    expect(a.setFacet).toHaveBeenCalledWith('failed');
+    expect(a.toggleFacet).toHaveBeenCalledWith('failed');
     expect(a.setFilter).toHaveBeenCalledWith('q');
     expect(a.spin).toHaveBeenCalledWith(7);
     expect(a.archive).toHaveBeenCalledWith(8);

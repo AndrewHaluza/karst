@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { facetOf, matchesFacet, filterByFacet, facetCounts, FACETS } from './facets.js';
+import {
+  facetOf,
+  matchesSelection,
+  filterBySelection,
+  toggleFacet,
+  normalizeSelection,
+  facetCounts,
+  FACETS,
+} from './facets.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 import type { StageKey } from '../../model/types.js';
 
@@ -65,19 +73,63 @@ describe('facetOf', () => {
   });
 });
 
-describe('matchesFacet', () => {
+describe('matchesSelection', () => {
   const running = ticket({ stageCurrent: 'impl', stages: [stage('impl', 'running')] });
-  it('all matches everything', () => {
-    expect(matchesFacet(running, 'all')).toBe(true);
-    expect(matchesFacet(ticket({ stageCurrent: 'scope', stages: [stage('scope', 'pending')] }), 'all')).toBe(true);
+  it('all (empty union) matches everything', () => {
+    expect(matchesSelection(running, ['all'])).toBe(true);
+    expect(matchesSelection(ticket({ stageCurrent: 'scope', stages: [stage('scope', 'pending')] }), ['all'])).toBe(true);
   });
-  it('a facet matches only its own tickets', () => {
-    expect(matchesFacet(running, 'running')).toBe(true);
-    expect(matchesFacet(running, 'failed')).toBe(false);
+  it('a single status matches only its own tickets', () => {
+    expect(matchesSelection(running, ['running'])).toBe(true);
+    expect(matchesSelection(running, ['failed'])).toBe(false);
+  });
+  it('a union matches a ticket in ANY selected status', () => {
+    expect(matchesSelection(running, ['running', 'failed'])).toBe(true);
+    expect(matchesSelection(running, ['input', 'failed'])).toBe(false);
+  });
+  it('archived never matches an active ticket', () => {
+    expect(matchesSelection(running, ['archived'])).toBe(false);
   });
 });
 
-describe('filterByFacet + facetCounts', () => {
+describe('normalizeSelection', () => {
+  it('empty collapses to [all]', () => {
+    expect(normalizeSelection([])).toEqual(['all']);
+    expect(normalizeSelection(['all'])).toEqual(['all']);
+  });
+  it('drops all when a real status is present', () => {
+    expect(normalizeSelection(['all', 'failed'])).toEqual(['failed']);
+  });
+  it('archived wins and drops everything else', () => {
+    expect(normalizeSelection(['archived', 'failed', 'all'])).toEqual(['archived']);
+  });
+  it('dedups and orders by FACETS', () => {
+    expect(normalizeSelection(['done', 'running', 'running', 'input'])).toEqual(['running', 'input', 'done']);
+  });
+});
+
+describe('toggleFacet', () => {
+  it('all resets any selection', () => {
+    expect(toggleFacet(['running', 'failed'], 'all')).toEqual(['all']);
+  });
+  it('a status adds to the union, dropping all', () => {
+    expect(toggleFacet(['all'], 'running')).toEqual(['running']);
+    expect(toggleFacet(['running'], 'failed')).toEqual(['running', 'failed']);
+  });
+  it('toggling a lit status removes it; emptying returns to all', () => {
+    expect(toggleFacet(['running', 'failed'], 'failed')).toEqual(['running']);
+    expect(toggleFacet(['running'], 'running')).toEqual(['all']);
+  });
+  it('archived is exclusive; toggling it off returns to all', () => {
+    expect(toggleFacet(['running'], 'archived')).toEqual(['archived']);
+    expect(toggleFacet(['archived'], 'archived')).toEqual(['all']);
+  });
+  it('a status click while archived leaves archived for that status', () => {
+    expect(toggleFacet(['archived'], 'failed')).toEqual(['failed']);
+  });
+});
+
+describe('filterBySelection + facetCounts', () => {
   const tickets = [
     ticket({ id: 1, stageCurrent: 'impl', stages: [stage('impl', 'running')] }),       // running
     ticket({ id: 2, agentState: 'waiting', stageCurrent: 'scope', stages: [stage('scope', 'pending')] }), // input
@@ -85,11 +137,19 @@ describe('filterByFacet + facetCounts', () => {
     ticket({ id: 4, stageCurrent: 'scope', stages: [stage('scope', 'pending')] }),      // none
   ];
 
-  it('filters to the facet, all returns everything', () => {
-    expect(filterByFacet(tickets, 'all')).toHaveLength(4);
-    expect(filterByFacet(tickets, 'running').map((t) => t.id)).toEqual([1]);
-    expect(filterByFacet(tickets, 'input').map((t) => t.id)).toEqual([2]);
-    expect(filterByFacet(tickets, 'failed').map((t) => t.id)).toEqual([3]);
+  it('filters to the selection, all returns everything', () => {
+    expect(filterBySelection(tickets, ['all'])).toHaveLength(4);
+    expect(filterBySelection(tickets, ['running']).map((t) => t.id)).toEqual([1]);
+    expect(filterBySelection(tickets, ['input']).map((t) => t.id)).toEqual([2]);
+    expect(filterBySelection(tickets, ['failed']).map((t) => t.id)).toEqual([3]);
+  });
+
+  it('a union returns the tickets in any selected status (order preserved)', () => {
+    expect(filterBySelection(tickets, ['running', 'failed']).map((t) => t.id)).toEqual([1, 3]);
+  });
+
+  it('archived yields nothing here (sourced separately)', () => {
+    expect(filterBySelection(tickets, ['archived'])).toEqual([]);
   });
 
   it('counts each facet; all = active total; archived passed in', () => {

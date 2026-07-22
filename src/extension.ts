@@ -212,7 +212,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // messages to the existing karst.* commands (executeCommand passthrough) so the
   // command handlers stay the single source of behavior.
   const provider = new SidebarViewManager(localStore, (mgr) => ({
-    setFacet: (facet) => mgr.setFacet(facet),
+    toggleFacet: (facet) => mgr.toggleFacet(facet),
     setFilter: (query) => mgr.setFilter(query),
     refresh: () => mgr.refresh(),
     requestState: () => mgr.refresh(),
@@ -1399,23 +1399,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.setFilter(query ?? '');
     }),
     vscode.commands.registerCommand('karst.filterState', async () => {
-      // Facet counts reflect the live store; the active facet is marked so the
-      // picker reads as a stateful toggle.
+      // Facet counts reflect the live store; the current selection is pre-picked
+      // so the multi-select picker reads as a stateful toggle. Multiple status
+      // facets can be chosen at once (their union); `normalizeSelection` (via
+      // setFacets) resolves the exclusive All/Archived cases.
       const scope = { projectId: currentProject()?.id };
       const counts = facetCounts(
         listTickets(localStore, scope),
         listArchivedTickets(localStore, scope).length,
       );
-      const active = provider.getFacet();
-      const pick = await vscode.window.showQuickPick(
+      const active = new Set(provider.getFacets());
+      const picks = await vscode.window.showQuickPick(
         FACETS.map((f) => ({
-          label: `${f.key === active ? '$(check) ' : ''}${f.label}`,
+          label: f.label,
           description: `${counts[f.key]}`,
           facet: f.key,
+          picked: active.has(f.key),
         })),
-        { placeHolder: 'Filter tickets by state' },
+        { placeHolder: 'Filter tickets by state (pick any)', canPickMany: true },
       );
-      if (pick) provider.setFacet(pick.facet);
+      // `undefined` = dismissed (leave selection); an empty array = cleared → All.
+      if (picks) provider.setFacets(picks.map((p) => p.facet));
     }),
     vscode.commands.registerCommand('karst.openSettings', () => {
       // Settings reads the manifest file DIRECTLY, not via resolveManifest — an
