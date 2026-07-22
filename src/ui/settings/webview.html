@@ -581,6 +581,15 @@
 
     <label for="af-entrypoint">Entrypoint</label>
     <input type="text" id="af-entrypoint" placeholder="research (bare name, no .md)" />
+    <div class="drawer-note">
+      The method prompt loaded at launch. A BARE name (no <code>.md</code>) that must
+      match something the source collects, or install fails: a skill folder
+      (<code>skills/&lt;name&gt;/</code>), an agent/command file
+      (<code>&lt;name&gt;.md</code>), or a flat prompt. The collected
+      agents/commands/skills load as artifacts regardless. Leave blank only for a
+      built-in/local approach that ships no source — a sourced approach that
+      collects nothing is rejected at install.
+    </div>
 
     <div class="toggle" style="margin-top:10px">
       <input type="checkbox" id="af-recommended" />
@@ -1543,6 +1552,14 @@
 
     draft.approaches = nextApproaches;
     markDirty();
+    // Persist to disk NOW — a drawer Save must be a real save, not just an
+    // in-memory draft edit that waits for the page-level Save button. Otherwise
+    // the approach is absent from the manifest FILE that Install reads, and
+    // Install fails with "Unknown approach" until a second, separate save
+    // (869e836xh, defect 1). The host validates the whole draft, writes it,
+    // reloads, and pushes fresh state (which re-renders the roster with the
+    // persisted approach + refreshed installedIds), then a 'saved' ack.
+    post({ type: 'save', manifest: draft });
     renderApproaches();
     closeApproachDrawer();
   }
@@ -1553,6 +1570,10 @@
     if (!approachDrawerEditId || installedIds.includes(approachDrawerEditId)) return;
     draft.approaches = (draft.approaches || []).filter((a) => a.id !== approachDrawerEditId);
     markDirty();
+    // Persist immediately — same reasoning as submitApproachDrawer: a drawer
+    // mutation must reach the manifest file, not linger as an unsaved draft
+    // (869e836xh, defect 1).
+    post({ type: 'save', manifest: draft });
     renderApproaches();
     closeApproachDrawer();
   }

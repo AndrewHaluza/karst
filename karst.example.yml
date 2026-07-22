@@ -123,12 +123,21 @@ approaches:
       - { name: research, command: /rpi:research }
       - { name: plan, command: /rpi:plan }
       - { name: implement, command: /rpi:implement }
-  # NOTE: no `gsd` example here. The npm package `get-shit-done` is a Pomodoro
-  # timer CLI (`gsd <minutes>`), NOT an agent workflow — it ships no
-  # agents/skills/commands and has no `init` subcommand (verified: `npm pack`
-  # yields only README + gsd.js). If you want a phased-delivery approach, point
-  # `source` at a repo/package that actually ships the workflow files and set a
-  # real `entrypoint` that resolves against them.
+  # GSD (Get Shit Done) — a spec-driven phase-loop framework. Its npm package
+  # `@opengsd/gsd-core` is a Claude-Code PLUGIN: the skills/agents/commands live
+  # in the package/repo tree, they are NOT scaffolded by running the bin. So use
+  # a `git` source (like the superpowers approaches above) that fetches those
+  # files directly — an `npm` source with `collect: []` runs the CLI in a
+  # throwaway temp dir and gathers nothing, so it installs empty and is now
+  # REJECTED at install ("collected nothing installable"). `entrypoint` resolves
+  # to the fetched skill folder skills/gsd-next/SKILL.md. Add more `include`
+  # globs (e.g. commands/gsd) to load additional artifacts.
+  - id: gsd
+    label: "Get Shit Done"
+    description: "Spec-driven phase loop; heavy research/plan/execute in fresh-context subagents."
+    entrypoint: gsd-next
+    source: { type: git, repo: open-gsd/gsd-core, ref: main,
+              include: [skills/gsd-next] }
   - id: "superpowers:writing-plans"
     label: "Write a plan first"
     description: "Scope known but non-trivial — plan before executing."

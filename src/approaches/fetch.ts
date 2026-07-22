@@ -486,6 +486,35 @@ function assertWorkflowCommandsResolvable(
 }
 
 /**
+ * Reject a package that would contribute NOTHING to a launch — no method prompt
+ * (an `entrypoint` resolving to a collected prompt/artifact), no loadable
+ * artifacts (agents/commands/skills), and no `workflow` orchestrator. Such a
+ * package installs "clean" yet silently launches with ticket context only (the
+ * `extension.ts` "produced no method prompt or loadable artifacts" warning).
+ * Fail at install — where the manifest input is entered — instead of deferring
+ * to a soft launch-time warning (869e836xh, defect 2).
+ *
+ * Ordering note: `assertEntrypointResolvable` runs first, so by here a declared
+ * `entrypoint` already matched something collected — a set entrypoint therefore
+ * implies non-empty `prompts`/`artifacts`. This guard only catches the case
+ * where NOTHING was declared or collected.
+ */
+function assertPackageContributes(
+  def: ApproachDef,
+  prompts: readonly CollectedPrompt[],
+  artifacts: readonly ApproachArtifact[],
+): void {
+  const hasWorkflow = (def.workflow?.length ?? 0) > 0;
+  if (prompts.length > 0 || artifacts.length > 0 || hasWorkflow) return;
+  throw new ApproachInstallError(
+    `approach "${def.id}" collected nothing installable — its source produced no ` +
+      `agents, commands, skills, or prompts, and it declares no workflow. Check the ` +
+      `source (git \`include\` / npm \`collect\` paths) and set an \`entrypoint\` that ` +
+      `resolves against what is collected.`,
+  );
+}
+
+/**
  * Assemble collected results into a package and write it structure-preserving.
  * Flat prompts are written under `prompts/<name>` (legacy `readPromptBody`
  * compat + basename entrypoints); structured files at their relPath; the typed
@@ -502,6 +531,7 @@ function assembleAndWrite(
 
   assertEntrypointResolvable(def, prompts, artifacts);
   assertWorkflowCommandsResolvable(def, artifacts);
+  assertPackageContributes(def, prompts, artifacts);
 
   const pkg: ApproachPackage = {
     id: def.id,

@@ -670,4 +670,52 @@ describe('installApproach — npm source', () => {
       installApproach(def, { fetchFn: throwingFetch, baseDir: base, runCommand }),
     ).rejects.toThrow(ApproachInstallError);
   });
+
+  // Regression (869e836xh, defect 2): an approach with an empty `collect`, no
+  // `entrypoint`, and no `workflow` (the misconfigured `gsd` shape) used to
+  // install "clean" as an empty package, then fail only at launch with a soft
+  // "produced no method prompt or loadable artifacts" warning. Reject it at
+  // install instead — the failure must surface where the input is entered.
+  it('throws ApproachInstallError when the package would contribute nothing', async () => {
+    const base = makeBaseDir();
+    const runCommand: RunCommand = () => ({ code: 0, out: 'ok' }); // collects nothing
+
+    const def: ApproachDef = {
+      id: 'gsd',
+      label: 'Get Shit Done',
+      // no entrypoint, no workflow
+      source: {
+        type: 'npm',
+        package: '@opengsd/gsd-core',
+        command: 'npx @opengsd/gsd-core@latest',
+        collect: [],
+      },
+    };
+
+    await expect(
+      installApproach(def, { fetchFn: throwingFetch, baseDir: base, runCommand }),
+    ).rejects.toThrow(ApproachInstallError);
+    // Nothing partial written to disk.
+    expect(readApproachPackage(base, 'gsd')).toBeNull();
+  });
+});
+
+describe('installApproach — empty-package guard (git source)', () => {
+  it('throws when a git include collects no artifacts, prompts, entrypoint, or workflow', async () => {
+    const base = makeBaseDir();
+    // A contents API that returns an empty directory — nothing to collect.
+    const fetchFn: FetchLike = (async () => contentsResponse([])) as unknown as FetchLike;
+
+    const def: ApproachDef = {
+      id: 'empty-git',
+      label: 'Empty Git',
+      // no entrypoint, no workflow
+      source: { type: 'git', repo: 'owner/repo', ref: 'main', include: ['docs'] },
+    };
+
+    await expect(
+      installApproach(def, { fetchFn, baseDir: base, runCommand: noopRunCommand }),
+    ).rejects.toThrow(ApproachInstallError);
+    expect(readApproachPackage(base, 'empty-git')).toBeNull();
+  });
 });
