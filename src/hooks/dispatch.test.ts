@@ -58,6 +58,55 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('waiting');
   });
 
+  // Real Claude Code payloads carry the symbolic kind in `notification_type`;
+  // `message` is free-text ("Claude needs your permission to use Bash"). The
+  // amber signal must key off `notification_type`, or a real permission prompt
+  // (e.g. non-statically-analyzable Bash) never surfaces "Needs you".
+  it('Notification with notification_type permission_prompt + free-text message → waiting', () => {
+    const id = ticketAt();
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      notification_type: 'permission_prompt',
+      message: 'Claude needs your permission to use Bash',
+    });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('Notification with notification_type idle_prompt → waiting', () => {
+    const id = ticketAt();
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      notification_type: 'idle_prompt',
+      message: 'Claude is waiting for your input',
+    });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('Notification with notification_type agent_needs_input → waiting', () => {
+    const id = ticketAt();
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      notification_type: 'agent_needs_input',
+      message: 'Agent is waiting for your input',
+    });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('Notification with a non-input notification_type (auth_success) does not flip to waiting', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      notification_type: 'auth_success',
+      message: 'Logged in',
+    });
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
   it('UserPromptSubmit flips a waiting agent back to running', () => {
     const id = ticketAt();
     dispatchHook(store, { hook_event_name: 'Notification', cwd: WT, message: 'idle_prompt' });
@@ -120,8 +169,20 @@ describe('dispatchHook', () => {
 describe('parseHookPayload', () => {
   it('accepts a well-formed payload of optional strings', () => {
     expect(
-      parseHookPayload({ hook_event_name: 'Stop', cwd: '/wt', session_id: 's', message: 'm' }),
-    ).toEqual({ hook_event_name: 'Stop', cwd: '/wt', session_id: 's', message: 'm' });
+      parseHookPayload({
+        hook_event_name: 'Notification',
+        cwd: '/wt',
+        session_id: 's',
+        message: 'm',
+        notification_type: 'permission_prompt',
+      }),
+    ).toEqual({
+      hook_event_name: 'Notification',
+      cwd: '/wt',
+      session_id: 's',
+      message: 'm',
+      notification_type: 'permission_prompt',
+    });
   });
 
   it('accepts an empty object (all fields optional)', () => {
@@ -130,7 +191,12 @@ describe('parseHookPayload', () => {
       cwd: undefined,
       session_id: undefined,
       message: undefined,
+      notification_type: undefined,
     });
+  });
+
+  it('rejects a non-string notification_type', () => {
+    expect(parseHookPayload({ notification_type: 123 })).toBeNull();
   });
 
   it('rejects a non-object (null / array / primitive)', () => {

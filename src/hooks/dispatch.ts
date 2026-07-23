@@ -5,14 +5,21 @@ import type { AgentState } from '../model/types.js';
 
 /**
  * Claude Code hook payload (M0/T0.2 §143): JSON with `session_id`, `cwd`
- * (= worktree path), `hook_event_name`, plus event-specific fields. `message`
- * carries the Notification kind (`idle_prompt` / `permission_prompt`).
+ * (= worktree path), `hook_event_name`, plus event-specific fields.
+ *
+ * The Notification kind lives in `notification_type` (`permission_prompt`,
+ * `idle_prompt`, `agent_needs_input`, …) — a SYMBOLIC field. `message` is the
+ * human-readable string Claude renders ("Claude needs your permission to use
+ * Bash") and is NOT a stable identifier. Keying the amber signal off `message`
+ * was the "Needs you" bug: a real permission prompt never matched, so it never
+ * surfaced.
  */
 export interface HookPayload {
   hook_event_name?: string;
   cwd?: string;
   session_id?: string;
   message?: string;
+  notification_type?: string;
 }
 
 /** Called after a mutation so views (sidebar + dashboard) can refresh (§14). */
@@ -33,7 +40,8 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     !optStr(o.hook_event_name) ||
     !optStr(o.cwd) ||
     !optStr(o.session_id) ||
-    !optStr(o.message)
+    !optStr(o.message) ||
+    !optStr(o.notification_type)
   ) {
     return null;
   }
@@ -42,8 +50,22 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     cwd: o.cwd as string | undefined,
     session_id: o.session_id as string | undefined,
     message: o.message as string | undefined,
+    notification_type: o.notification_type as string | undefined,
   };
 }
+
+/**
+ * The Notification kinds that mean "blocked on the user" — the amber signal.
+ * A permission dialog, a 60s idle prompt, an agent/MCP input request. Kinds that
+ * report a completed action (`auth_success`, `agent_completed`,
+ * `elicitation_complete`) are deliberately absent: they need no answer.
+ */
+const WAITING_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
+  'permission_prompt',
+  'idle_prompt',
+  'agent_needs_input',
+  'elicitation_dialog',
+]);
 
 /**
  * Map a hook event to the ticket's next `agent_state`, or `null` for events
@@ -58,11 +80,13 @@ function nextAgentState(payload: HookPayload): AgentState | null {
     case 'SessionEnd':
     case 'Stop':
       return 'idle';
-    case 'Notification':
-      // needs-you: the amber signal. Only these two kinds fire it (§5.6, T0.2).
-      return payload.message === 'idle_prompt' || payload.message === 'permission_prompt'
-        ? 'waiting'
-        : null;
+    case 'Notification': {
+      // needs-you: the amber signal. The kind is in `notification_type`; older
+      // payloads that only carried it in `message` (the pre-fix symbolic values)
+      // still resolve, so no live session regresses.
+      const kind = payload.notification_type ?? payload.message;
+      return kind !== undefined && WAITING_NOTIFICATION_TYPES.has(kind) ? 'waiting' : null;
+    }
     case 'UserPromptSubmit':
     case 'PostToolUse':
       // activity after a wait → back to running (flips amber off).
