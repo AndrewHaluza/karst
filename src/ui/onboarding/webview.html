@@ -337,10 +337,10 @@
   // ticket creation) — a non-manual ticket still needs its key/fetch-id to
   // identify what to fetch, so that requirement is unchanged.
   let currentProvider = 'manual';
-  // Analyzer recommendation: { id, reason } once an `analysis` resolves. The
-  // analyzer MOVES the pick (it sets draft.approach as part of the coupled
-  // decision); this drives the reason badge shown next to that row. A later
-  // explicit user click on another card still wins.
+  // Analyzer recommendation: { id, reason } once an `analysis` resolves. It is a
+  // SUGGESTION only — it drives the reason badge next to that row but never moves
+  // the pick (draft.approach). The user's explicit selection is authoritative;
+  // they opt into the recommendation by clicking its card (ticket 869e889uh).
   let aiSuggestion = null;
 
   function renderOnboardingTicketLink(state) {
@@ -971,11 +971,11 @@
         break;
       }
       case 'analysis': {
-        // The coupled analyzer result: apply all three decisions together. The
-        // synthesized prompt is authoritative (it replaces the placeholder raw
-        // description / the prompt the user asked to analyze). Repos + approach
-        // are preselected; the approach carries a reason badge. A later explicit
-        // user edit/click still wins.
+        // The analyzer result: the synthesized prompt is authoritative (it
+        // replaces the placeholder raw description / the prompt the user asked to
+        // analyze) and repos are preselected. The approach is a SUGGESTION only —
+        // it carries a reason badge but never moves the pick (see below). A later
+        // explicit user edit/click still wins.
         if (typeof msg.prompt === 'string' && msg.prompt.trim()) {
           el('desc').value = msg.prompt;
         }
@@ -984,7 +984,10 @@
           for (const r of lastRepos) draft.repos[r.service] = picked.has(r.service);
         }
         if (msg.approachId) {
-          draft.approach = msg.approachId;
+          // Suggestion ONLY: badge the row, never move draft.approach. Moving the
+          // pick would replace the user's explicit selection and then persist it on
+          // the next save — the exact silent clobber ticket 869e889uh fixes. The
+          // user's selection stays authoritative; they opt in by clicking the row.
           aiSuggestion = { id: msg.approachId, reason: msg.reason || '' };
         }
         // Snapshot the inputs this analysis covered (read AFTER applying the

@@ -644,12 +644,37 @@ describe('buildOnboardingActions', () => {
       reason: 'UI-only change',
     });
     expect(posted[posted.length - 1]).toEqual({ type: 'busy', what: 'analyze', on: false });
-    // persisted onto the ticket + re-pushed state
+    // prompt + repos are prefilled onto the ticket + re-pushed state…
     const reloaded = getTicket(store, t.id);
     expect(reloaded.description).toBe('Add an X button');
     expect(reloaded.selectedRepos).toEqual(['fe']);
-    expect(reloaded.approach).toBe('rpi');
+    // …but the approach is a SUGGESTION only (surfaced via the analysis post),
+    // never auto-persisted — the user's explicit selection is authoritative.
+    expect(reloaded.approach).toBeNull();
     expect(pushes).toBe(1);
+  });
+
+  it('analyze never overwrites the approach the user already selected', async () => {
+    const t = createTicket(store, { key: 'P-A', title: 't' });
+    // The ticket already carries a launched approach (stored verbatim).
+    updateTicketOnboarding(store, t.id, {
+      brief: 'the brief text', selectedRepos: [], approach: 'superpowers:writing-plans',
+    });
+    deps.adapter = analyzerAdapter(
+      '{"prompt":"Add an X button","approach":"rpi","repos":[],"reason":"plan first"}',
+    );
+    const posted: OnboardingHostMessage[] = [];
+    const ctx: OnboardingActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    // The analyzer's pick still surfaces to the page as a suggestion (badge)…
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ approachId: 'rpi' });
+    // …but the ticket's stored approach is untouched — no silent clobber.
+    expect(getTicket(store, t.id).approach).toBe('superpowers:writing-plans');
   });
 
   it('analyze posts an error and busy off when the adapter rejects', async () => {

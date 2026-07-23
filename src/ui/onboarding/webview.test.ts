@@ -46,6 +46,18 @@ describe('onboarding webview.html', () => {
     expect(refKeydown![1]).toContain('doFetch()');
   });
 
+  it('the analyzer result badges the approach but never moves the pick', () => {
+    // The AI approach is a suggestion: it sets aiSuggestion (the row badge) but
+    // must NOT assign draft.approach, or an AI pick silently replaces the user's
+    // explicit selection — which then gets persisted on the next save. The user's
+    // selection is authoritative. See ticket 869e889uh.
+    const caseMatch = HTML.match(/case 'analysis': {([\s\S]*?)\n {6}}/);
+    expect(caseMatch, "analysis message handler not found").toBeTruthy();
+    const body = caseMatch![1]!;
+    expect(body).toContain('aiSuggestion =');
+    expect(body).not.toMatch(/draft\.approach\s*=/);
+  });
+
   it('doFetch is a no-op when the fetch button is hidden or already busy/done', () => {
     const fnMatch = HTML.match(/function doFetch\(\)\s*{([\s\S]*?)\n {2}}/);
     expect(fnMatch, 'doFetch() not found').toBeTruthy();

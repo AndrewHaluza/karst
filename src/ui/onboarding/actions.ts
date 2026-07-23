@@ -298,10 +298,16 @@ export function buildOnboardingActions(
         // mode holds the draft in the webview until submit, so just return the
         // analysis and let the page apply it.
         if (ctx.ticketId !== undefined) {
+          // Prefill the prompt and repos, but NOT the approach: the analyzer's
+          // approach is a suggestion the page badges, never an auto-persisted
+          // pick. The user's explicit selection is the sole authority for what is
+          // stored, launched, and shown on the dashboard — persisting the AI pick
+          // here silently overwrote a chosen approach (ticket 869e889uh). It rides
+          // the `analysis` post below for the page to surface; committing it needs
+          // an explicit set-approach / save / submit.
           updateTicketOnboarding(deps.store, ctx.ticketId, {
             description: analysis.prompt,
             selectedRepos: analysis.repos,
-            approach: analysis.approachId,
           });
           ctx.pushState();
         }
