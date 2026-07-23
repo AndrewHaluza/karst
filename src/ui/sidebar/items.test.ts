@@ -114,6 +114,17 @@ describe('buildTicketNodes', () => {
     expect(buildTicketNodes([ticket({ agentState: null })])[0]!.activityLabel).toBe('No active session');
   });
 
+  it('sessionAction reads Continue for a captured interactive session, Start otherwise', () => {
+    // Interrupted impl/fix with a captured id → the button continues in place.
+    expect(
+      buildTicketNodes([ticket({ sessionId: 'sid', stageCurrent: 'impl' })])[0]!.sessionAction,
+    ).toEqual({ kind: 'continue', label: 'Continue' });
+    // Drafted, never run (no id) → the button starts a fresh session.
+    expect(
+      buildTicketNodes([ticket({ sessionId: null, stageCurrent: 'scope' })])[0]!.sessionAction,
+    ).toEqual({ kind: 'start', label: 'Start' });
+  });
+
   it('lastActiveAt is the current stage endedAt, else startedAt, else null', () => {
     const ended = buildTicketNodes([
       ticket({

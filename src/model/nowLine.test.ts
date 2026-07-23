@@ -106,4 +106,38 @@ describe('buildNowLine', () => {
       text: 'Now: not started. Launch a session to begin.',
     });
   });
+
+  it('offers a discoverable Start button on a never-started ticket', () => {
+    // Case (b)/(c): a returning user needs a visible action, not just prose.
+    expect(buildNowLine(null, { sessionAction: { kind: 'start', label: 'Start' } })).toEqual({
+      text: 'Now: not started. Launch a session to begin.',
+      action: { kind: 'session', label: 'Start session' },
+    });
+    expect(
+      buildNowLine(cell({ stageKey: 'scope', status: 'pending' }), {
+        sessionAction: { kind: 'start', label: 'Start' },
+      }).action,
+    ).toEqual({ kind: 'session', label: 'Start session' });
+  });
+
+  it('offers a Continue button while impl is in progress', () => {
+    // Case (a): mid-work, the dashboard must let the user resume in place.
+    expect(
+      buildNowLine(cell({ stageKey: 'impl' }), {
+        sessionAction: { kind: 'continue', label: 'Continue' },
+      }),
+    ).toEqual({
+      text: 'Now: implementing — the agent is working in its terminal.',
+      action: { kind: 'session', label: 'Continue session' },
+    });
+  });
+
+  it('never lets the session button override a stage that owns its action', () => {
+    // Ship keeps its own confirm/retry action even when a sessionAction is passed.
+    expect(
+      buildNowLine(cell({ stageKey: 'ship', status: 'pending' }), {
+        sessionAction: { kind: 'start', label: 'Start' },
+      }).action,
+    ).toEqual({ kind: 'ship', label: 'Confirm ship' });
+  });
 });

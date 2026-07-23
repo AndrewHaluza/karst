@@ -3,6 +3,7 @@ import { ticketGlyph, currentStageStatus } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import type { Glyph } from '../../model/glyph.js';
+import { sessionAction, type SessionAction } from '../../agent/sessionAction.js';
 
 /**
  * Human phrase for the expanded "activity" line — the runtime state of the
@@ -81,6 +82,13 @@ export interface TicketNode {
    */
   activityLabel: string;
   /**
+   * What the row's session button does and reads — "Continue" a captured
+   * interactive session, or "Start" a fresh one. The single, always-visible
+   * returning-user entry point, so it must never be a generic verb that hides
+   * which of the two will happen.
+   */
+  sessionAction: SessionAction;
+  /**
    * When the current stage last moved (its `endedAt` else `startedAt`), or null.
    * Raw ISO — the webview formats it relative to the viewer's clock ("4m ago").
    */
@@ -115,6 +123,7 @@ export function buildTicketNodes(
       stageChip: badge.stage ?? 'none',
       blocker,
       activityLabel: activityLabel(t.agentState),
+      sessionAction: sessionAction(t),
       lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,
       archived: t.archivedAt !== null,

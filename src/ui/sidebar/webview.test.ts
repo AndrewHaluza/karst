@@ -61,7 +61,13 @@ describe('sidebar webview.html', () => {
 
   it('keeps the labeled body actions (dashboard + session)', () => {
     expect(HTML).toContain("data-act=\"open-dashboard\"");
-    expect(HTML).toContain('Session');
+    expect(HTML).toContain('data-act="open-session"');
+  });
+
+  it('labels the session button with the continue-or-start verb, not a generic word', () => {
+    // The verb comes from row.sessionAction so the button says which it does.
+    expect(HTML).toContain('row.sessionAction');
+    expect(HTML).toContain('${sessVerb} session');
   });
 
   it('falls back rather than painting an empty pill from a stale snapshot', () => {

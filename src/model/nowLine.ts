@@ -1,14 +1,18 @@
 import { FIX_ATTEMPT_CAP } from '../workflow/fixAttempts.js';
+import type { SessionAction } from '../agent/sessionAction.js';
 import type { StepperCell } from './stepper.js';
 
 /**
  * The one thing the user can do about the current stage. Rendered as a button
  * beside the "Now" line; `open-log` carries the path the host should open.
+ * `session` is the returning-user continue-or-start entry point (its label
+ * already carries the verb).
  */
 export type NowAction =
   | { kind: 'open-log'; label: string; path: string }
   | { kind: 'ship'; label: string }
-  | { kind: 'resume'; label: string };
+  | { kind: 'resume'; label: string }
+  | { kind: 'session'; label: string };
 
 /** A plain sentence naming what is happening, plus the next action (if any). */
 export interface NowLine {
@@ -58,9 +62,18 @@ function fixing(attempts: number): NowLine {
  */
 export function buildNowLine(
   cell: StepperCell | null,
-  ctx: { fixAttempts?: number } = {},
+  ctx: { fixAttempts?: number; sessionAction?: SessionAction } = {},
 ): NowLine {
-  if (!cell) return { text: 'Now: not started. Launch a session to begin.' };
+  // The returning-user entry point (§ start/continue): the verb rides on the
+  // label ("Start session" / "Continue session"). Attached ONLY to the states
+  // where launching is the user's move — never over a stage that owns its own
+  // action (a failed gate's log, ship's confirm/retry, fix's manual resume).
+  const session: NowAction | undefined = ctx.sessionAction
+    ? { kind: 'session', label: `${ctx.sessionAction.label} session` }
+    : undefined;
+  const NOT_STARTED = 'Now: not started. Launch a session to begin.';
+
+  if (!cell) return session ? { text: NOT_STARTED, action: session } : { text: NOT_STARTED };
 
   switch (cell.stageKey) {
     case 'scope':
@@ -68,11 +81,16 @@ export function buildNowLine(
       // `pending` forever until startTicket runs — reuse the same "not
       // started" copy the null-cell (§ no stage row at all) case uses, so the
       // dashboard never claims an agent is active when nothing was launched.
-      return cell.status === 'pending'
-        ? { text: 'Now: not started. Launch a session to begin.' }
-        : { text: 'Now: scoping the ticket — the agent is gathering context.' };
-    case 'impl':
-      return { text: 'Now: implementing — the agent is working in its terminal.' };
+      if (cell.status === 'pending') {
+        return session ? { text: NOT_STARTED, action: session } : { text: NOT_STARTED };
+      }
+      return { text: 'Now: scoping the ticket — the agent is gathering context.' };
+    case 'impl': {
+      // Impl is interactive and can be interrupted — offer the continue-or-start
+      // button so a returning user resumes without hunting the sidebar.
+      const text = 'Now: implementing — the agent is working in its terminal.';
+      return session ? { text, action: session } : { text };
+    }
     case 'uat':
       return cell.status === 'failed'
         ? gateFailed(cell)

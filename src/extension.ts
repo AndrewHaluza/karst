@@ -1060,10 +1060,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!guardCapability('sessions')) return;
-      const wt = listWorktreesByTicket(localStore, ticketId)[0];
+      // The single continue-or-start entry point must never dead-end. A drafted
+      // ticket that was never run has no worktree yet — rather than tell the user
+      // to "scope it first", scope its selected repos now (the same confirmScope +
+      // scope→impl transition the onboarding Start runs), then open the session in
+      // the fresh worktree. This is what makes the sidebar/dashboard button work
+      // for the drafted-but-unstarted case, not just the interrupted one.
+      let wt = listWorktreesByTicket(localStore, ticketId)[0];
       if (!wt) {
-        void vscode.window.showWarningMessage(`Ticket #${ticketId} has no worktree yet — scope it first.`);
-        return;
+        const draft = getTicket(localStore, ticketId);
+        if (draft.selectedRepos.length === 0) {
+          void vscode.window.showWarningMessage(
+            `Ticket #${ticketId} has no repositories selected — edit it to choose one, then start.`,
+          );
+          return;
+        }
+        try {
+          confirmScope(localStore, currentManifest() ?? emptyManifest(), ticketId, draft.selectedRepos);
+          // Scope has only a pass edge → impl (it is not a gate), so pass it: the
+          // session then opens in the impl worktree, and the dashboard reads impl.
+          transition(localStore, ticketId, 'scope', { kind: 'passed' });
+          provider.refresh();
+        } catch (e) {
+          logError('start ticket (scope on session open) failed', e);
+          void vscode.window.showErrorMessage(
+            `Could not start ticket #${ticketId}: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          return;
+        }
+        wt = listWorktreesByTicket(localStore, ticketId)[0];
+        if (!wt) {
+          void vscode.window.showWarningMessage(`Ticket #${ticketId} could not be scoped — check its repositories.`);
+          return;
+        }
       }
       const t = getTicket(localStore, ticketId);
 

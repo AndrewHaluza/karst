@@ -663,7 +663,10 @@
 
   // One sentence + at most one button. The copy is built host-side (model/nowLine)
   // and shipped in the state, so it is unit-tested and lives in exactly one place.
-  const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket' };
+  // `session` and `resume` both route to resume-ticket: the host's openSession
+  // resolves --resume vs. a fresh (self-scoping) launch on its own, so the verb
+  // is a label concern only — the button always reaches the one entry point.
+  const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket', session: 'resume-ticket' };
 
   function renderNow(now) {
     // While a ship is in flight, the real per-step progress lives in the Inside

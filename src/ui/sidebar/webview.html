@@ -248,18 +248,23 @@
       // neutral class rather than render blank.
       const stageChip = row.stageChip || stageText;
       const stageClass = row.stageClass || 'stg-unknown';
+      // The session button states which of the two it does — "Continue" a
+      // captured interactive session, or "Start" a fresh one. A pre-upgrade
+      // snapshot has no sessionAction, so fall back to "Start" rather than an
+      // empty verb. The single, always-visible returning-user entry point.
+      const sessVerb = (row.sessionAction && row.sessionAction.label) || 'Start';
       const acts = row.archived
         ? `<button class="ia" data-act="unarchive" data-id="${row.ticketId}" title="Unarchive">${ic.unarch}</button>`
           + `<button class="ia danger" data-act="delete" data-id="${row.ticketId}" title="Delete permanently">${ic.del}</button>`
         : `<button class="ia" data-act="spin" data-id="${row.ticketId}" title="Spin">${ic.spin}</button>`
-          + `<button class="ia" data-act="open-session" data-id="${row.ticketId}" title="Open session">${ic.sess}</button>`
+          + `<button class="ia" data-act="open-session" data-id="${row.ticketId}" title="${sessVerb} session">${ic.sess}</button>`
           + `<button class="ia" data-act="edit" data-id="${row.ticketId}" title="Edit">${ic.edit}</button>`
           + `<button class="ia" data-act="archive" data-id="${row.ticketId}" title="Archive">${ic.arch}</button>`;
       const bodyActs = row.archived
         ? `<button class="btn" data-act="unarchive" data-id="${row.ticketId}">${ic.unarch} Unarchive</button>`
           + `<button class="btn" data-act="delete" data-id="${row.ticketId}">${ic.del} Delete</button>`
         : `<button class="btn pri" data-act="open-dashboard" data-id="${row.ticketId}">${ic.dash} Open dashboard</button>`
-          + `<button class="btn" data-act="open-session" data-id="${row.ticketId}">${ic.sess} Session</button>`;
+          + `<button class="btn" data-act="open-session" data-id="${row.ticketId}">${ic.sess} ${sessVerb} session</button>`;
       return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
         + `<div class="row"${row.archived ? '' : ` data-open="${row.ticketId}"`}>`
         + `<span class="chev" data-toggle="${row.ticketId}">${chev}</span>`

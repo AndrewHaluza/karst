@@ -12,6 +12,7 @@ import type { TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { buildNowLine, type NowLine } from '../../model/nowLine.js';
+import { sessionAction } from '../../agent/sessionAction.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { buildStageInside, type StageInside } from '../../model/inside/index.js';
 import { listGateRuns } from '../../store/gateRuns.js';
@@ -121,7 +122,10 @@ export function buildDashboardState(
     agentState: ticket.agentState,
     stepper,
     currentStage,
-    now: buildNowLine(currentStage, { fixAttempts }),
+    now: buildNowLine(currentStage, {
+      fixAttempts,
+      sessionAction: sessionAction(ticket),
+    }),
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live
