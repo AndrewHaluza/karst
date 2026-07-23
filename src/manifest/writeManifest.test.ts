@@ -87,6 +87,7 @@ describe('writeManifest', () => {
         teamId: '9001',
         listId: '42',
         advanceOnShip: false,
+        advanceOnStart: false,
       });
     } finally {
       cleanup();
@@ -151,6 +152,8 @@ describe('writeManifest', () => {
           listId: '42',
           advanceOnShip: true,
           shipStatus: 'in review',
+          advanceOnStart: true,
+          startStatus: 'in dev',
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',

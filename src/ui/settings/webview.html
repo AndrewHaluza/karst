@@ -495,6 +495,26 @@
         </div>
       </div>
 
+      <!-- On-start advance. Hidden unless provider === clickup: manual has no
+           statuses to list, and advancing a local no-op record means nothing. -->
+      <div class="card open hidden" id="startAdvanceCard">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <div class="toggle">
+            <input type="checkbox" id="f-advanceOnStart" />
+            <label for="f-advanceOnStart">Set the ticket status when work starts</label>
+          </div>
+
+          <div id="startAdvanceStatusRow" class="hidden" style="margin-top:10px">
+            <label for="f-startStatus">Status at start of work</label>
+            <div class="row" style="align-items:center">
+              <select id="f-startStatus"></select>
+              <button class="secondary fixed icon-btn" id="refreshStartStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
+            </div>
+            <div id="startStatusHint" class="field-hint"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- After-ship advance. Hidden unless provider === clickup: manual has no
            statuses to list, and advancing a local no-op record means nothing. -->
       <div class="card open hidden" id="advanceCard">
@@ -1851,6 +1871,75 @@
     }
   }
 
+  // ---- On-start advance (status pushed to the ticket provider when work
+  // starts). Shares `ticketStatuses`/`requestTicketStatuses` above — both cards
+  // advance within the same configured list, so one fetch serves both.
+  const DEFAULT_START_STATUS = 'in progress';
+
+  // Prefer a status literally named "in progress" (the common case across
+  // trackers) over just taking the first entry — same fallback name as
+  // `start.ts`'s DEFAULT_START_STATUS, so what the UI pre-selects matches what
+  // the runtime falls back to when nothing is configured at all.
+  function pickDefaultStartStatus(names) {
+    const match = names.find((n) => n.trim().toLowerCase() === DEFAULT_START_STATUS);
+    return match || names[0];
+  }
+
+  function renderStartAdvance() {
+    const cfg = ticketingCfg();
+    const isClickup = cfg.provider === 'clickup';
+    el('startAdvanceCard').classList.toggle('hidden', !isClickup);
+    if (!isClickup) return;
+
+    const on = el('f-advanceOnStart').checked;
+    el('startAdvanceStatusRow').classList.toggle('hidden', !on);
+
+    const sel = el('f-startStatus');
+    const saved = cfg.startStatus || '';
+    const loaded = ticketStatuses !== null;
+    const names = ticketStatuses || [];
+    const empty = loaded && names.length === 0;
+    const stale = saved && !names.includes(saved);
+    const options = stale ? [saved].concat(names) : names;
+
+    sel.innerHTML = options
+      .map((n) => `<option value="${esc(n)}"${n === saved ? ' selected' : ''}>${esc(n)}</option>`)
+      .join('');
+
+    sel.disabled = !loaded || empty;
+
+    let hint = statusHintText;
+    if (empty) hint = 'This list has no statuses.';
+    else if (loaded && stale) hint = `"${saved}" is no longer in this list.`;
+    el('startStatusHint').textContent = hint;
+
+    // Same write-back guard as renderAdvance(): only sync the draft once
+    // statuses have actually loaded, so a fresh panel open can't erase a saved
+    // config before the options exist to select it. Unlike shipStatus,
+    // startStatus is allowed to stay blank (advanceTicketOnStart falls back to
+    // DEFAULT_START_STATUS at runtime) — so an empty pick still counts as "on".
+    if (!loaded) return;
+    const value = sel.value || '';
+    cfg.advanceOnStart = on;
+    if (value) cfg.startStatus = value; else delete cfg.startStatus;
+  }
+
+  el('f-advanceOnStart').addEventListener('change', () => {
+    if (el('f-advanceOnStart').checked && ticketStatuses === null) requestTicketStatuses();
+    else renderStartAdvance();
+    markDirty();
+  });
+
+  el('f-startStatus').addEventListener('change', () => {
+    ticketingCfg().startStatus = el('f-startStatus').value;
+    renderStartAdvance();
+    markDirty();
+  });
+
+  el('refreshStartStatusesBtn').addEventListener('click', () => {
+    requestTicketStatuses();
+  });
+
   el('f-advanceOnShip').addEventListener('change', () => {
     // Fetch on toggle-on, never on listId keystrokes — that would hammer the API
     // on the way to a valid id. Refresh covers a later edit.
@@ -1884,6 +1973,7 @@
     statusHintText = '';
     renderLists();
     renderAdvance();
+    renderStartAdvance();
     markDirty();
   });
 
@@ -1924,6 +2014,8 @@
     if (id !== 'clickup') {
       cfg.advanceOnShip = false;
       delete cfg.shipStatus;
+      cfg.advanceOnStart = false;
+      delete cfg.startStatus;
     }
     markDirty(); renderTicketing(); closeProviderMenu();
     el('providerTrigger').focus();
@@ -1965,6 +2057,8 @@
     el('clearTokenBtn').classList.toggle('hidden', !tokenConfigured);
     el('f-advanceOnShip').checked = Boolean(cfg.advanceOnShip);
     renderAdvance();
+    el('f-advanceOnStart').checked = Boolean(cfg.advanceOnStart);
+    renderStartAdvance();
     // Auto-load lists the first time the ClickUp section is shown with prereqs
     // met. Guarded by listsRequested so repeated renders (and a failed fetch that
     // leaves ticketLists null) can't re-fire it; Refresh is the retry path.
@@ -2050,7 +2144,13 @@
         if (!ticketingCfg().shipStatus && msg.statuses.length > 0) {
           ticketingCfg().shipStatus = msg.statuses[0];
         }
+        // Same coherence rule for the start side, but prefer a status actually
+        // named "in progress" when the list has one (§ pickDefaultStartStatus).
+        if (!ticketingCfg().startStatus && msg.statuses.length > 0) {
+          ticketingCfg().startStatus = pickDefaultStartStatus(msg.statuses);
+        }
         renderAdvance();
+        renderStartAdvance();
         markDirty();
         break;
       }
@@ -2058,6 +2158,7 @@
         ticketStatuses = null;
         statusHintText = msg.message;
         renderAdvance();
+        renderStartAdvance();
         break;
       }
       case 'ticket-lists': {

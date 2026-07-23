@@ -145,12 +145,18 @@ function validateAgents(raw: unknown): Record<string, AgentDef> {
  * silently inert (the manual provider only records locally).
  */
 function validateTicketing(raw: unknown): TicketingConfig {
-  if (raw === undefined) return { provider: 'manual', advanceOnShip: false };
+  if (raw === undefined) {
+    return { provider: 'manual', advanceOnShip: false, advanceOnStart: false };
+  }
   if (!isObject(raw)) throw new ManifestError('ticketing must be a mapping');
   if (raw.provider !== 'clickup' && raw.provider !== 'manual') {
     throw new ManifestError("ticketing.provider must be 'clickup' or 'manual'");
   }
-  const config: TicketingConfig = { provider: raw.provider, advanceOnShip: false };
+  const config: TicketingConfig = {
+    provider: raw.provider,
+    advanceOnShip: false,
+    advanceOnStart: false,
+  };
   if (raw.teamId !== undefined) {
     config.teamId = requireString(raw.teamId, 'ticketing.teamId');
   }
@@ -181,6 +187,28 @@ function validateTicketing(raw: unknown): TicketingConfig {
         "ticketing.advanceOnShip requires a provider that can set status (not 'manual')",
       );
     }
+  }
+  // `startStatus` is deliberately NOT required when `advanceOnStart` is true —
+  // `advanceTicketOnStart` (start.ts) falls back to a sensible default ('in
+  // progress') so a missing/blank config still does something useful, unlike
+  // ship's stricter coherence guard above.
+  if (raw.startStatus !== undefined) {
+    if (typeof raw.startStatus !== 'string') {
+      throw new ManifestError('ticketing.startStatus must be a string');
+    }
+    const status = raw.startStatus.trim();
+    if (status) config.startStatus = status;
+  }
+  if (raw.advanceOnStart !== undefined) {
+    if (typeof raw.advanceOnStart !== 'boolean') {
+      throw new ManifestError('ticketing.advanceOnStart must be a boolean');
+    }
+    config.advanceOnStart = raw.advanceOnStart;
+  }
+  if (config.advanceOnStart && config.provider === 'manual') {
+    throw new ManifestError(
+      "ticketing.advanceOnStart requires a provider that can set status (not 'manual')",
+    );
   }
   return config;
 }

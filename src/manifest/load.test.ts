@@ -800,7 +800,11 @@ describe('ticketing', () => {
   it("defaults to { provider: 'manual' } when omitted", () => {
     const { path, cleanup } = fixture(VALID);
     try {
-      expect(loadManifest(path).ticketing).toEqual({ provider: 'manual', advanceOnShip: false });
+      expect(loadManifest(path).ticketing).toEqual({
+        provider: 'manual',
+        advanceOnShip: false,
+        advanceOnStart: false,
+      });
     } finally {
       cleanup();
     }
@@ -815,6 +819,7 @@ describe('ticketing', () => {
         teamId: '9001',
         listId: '42',
         advanceOnShip: false,
+        advanceOnStart: false,
       });
     } finally {
       cleanup();
@@ -856,6 +861,7 @@ describe('ticketing', () => {
         listId: '42',
         advanceOnShip: true,
         shipStatus: 'in review',
+        advanceOnStart: false,
       });
     } finally {
       cleanup();
@@ -911,6 +917,68 @@ describe('ticketing', () => {
     const { path, cleanup } = fixture(yaml);
     try {
       expect(() => loadManifest(path)).toThrow(/advanceOnShip must be a boolean/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses advanceOnStart and startStatus', () => {
+    const yaml =
+      `${VALID}\nticketing:\n  provider: clickup\n  listId: "42"\n` +
+      `  advanceOnStart: true\n  startStatus: "in dev"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).ticketing).toEqual({
+        provider: 'clickup',
+        listId: '42',
+        advanceOnShip: false,
+        advanceOnStart: true,
+        startStatus: 'in dev',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('does NOT require startStatus when advanceOnStart is true (falls back to a default)', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  advanceOnStart: true\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const t = loadManifest(path).ticketing!;
+      expect(t.advanceOnStart).toBe(true);
+      expect(t).not.toHaveProperty('startStatus');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('normalizes an empty startStatus to undefined', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  startStatus: ""\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const t = loadManifest(path).ticketing!;
+      expect(t.provider).toBe('clickup');
+      expect(t).not.toHaveProperty('startStatus');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects advanceOnStart on the 'manual' provider", () => {
+    const yaml = `${VALID}\nticketing:\n  provider: manual\n  advanceOnStart: true\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/requires a provider that can set status/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-boolean advanceOnStart', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  advanceOnStart: "yes"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/advanceOnStart must be a boolean/);
     } finally {
       cleanup();
     }

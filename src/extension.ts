@@ -90,6 +90,7 @@ import { runUat } from './workflow/stages/uat.js';
 import { runReview } from './workflow/stages/review.js';
 import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
+import { advanceTicketOnStart } from './workflow/stages/start.js';
 import {
   getTicket,
   ticketLabel,
@@ -546,6 +547,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // surfaces as a failed start instead of a silent stall with the ticket
           // already advanced to impl.
           await vscode.commands.executeCommand('karst.openSession', ticketId);
+          // The session is open and the ticket has already advanced to impl —
+          // the irreversible part succeeded, so a failed status push warns; it
+          // never turns a started ticket into a failed start (mirrors
+          // `advanceTicketOnShip`'s catch in `shipTicket` below).
+          try {
+            const res = await advanceTicketOnStart(
+              localStore,
+              ticketId,
+              manifest.ticketing,
+              makeTicketingProvider(manifest.ticketing, fetch, makeTokenProvider(context)),
+            );
+            if (!res.advanced && res.reason === 'no-ref') {
+              logError(`ticket #${ticketId} started without a status update: no provider ref`, undefined);
+            }
+          } catch (e) {
+            logError('ticket status update failed', e);
+          }
           return { ok: true };
         } catch (err) {
           const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;

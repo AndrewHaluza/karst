@@ -164,6 +164,19 @@ export interface TicketingConfig {
    * id). Required when `advanceOnShip` is true; blank normalizes to undefined.
    */
   shipStatus?: string;
+  /**
+   * Push `startStatus` to the provider when work begins on a ticket. Always set
+   * by `validateManifest` (default `false`).
+   */
+  advanceOnStart?: boolean;
+  /**
+   * Provider status NAME to set at start of work (ClickUp's PUT takes a name,
+   * not an id). Optional even when `advanceOnStart` is true — unlike
+   * `shipStatus`, a blank/missing value falls back to
+   * `start.ts`'s `DEFAULT_START_STATUS` rather than failing validation, since
+   * "in progress" is a sensible default most trackers already have.
+   */
+  startStatus?: string;
 }
 
 export interface Manifest {
