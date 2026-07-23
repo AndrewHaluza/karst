@@ -118,11 +118,11 @@ describe('buildTicketNodes', () => {
     // Interrupted impl/fix with a captured id → the button continues in place.
     expect(
       buildTicketNodes([ticket({ sessionId: 'sid', stageCurrent: 'impl' })])[0]!.sessionAction,
-    ).toEqual({ kind: 'continue', label: 'Continue' });
+    ).toEqual({ kind: 'continue', label: 'Continue', detail: 'resume impl' });
     // Drafted, never run (no id) → the button starts a fresh session.
     expect(
       buildTicketNodes([ticket({ sessionId: null, stageCurrent: 'scope' })])[0]!.sessionAction,
-    ).toEqual({ kind: 'start', label: 'Start' });
+    ).toEqual({ kind: 'start', label: 'Start', detail: 'fresh session' });
   });
 
   it('lastActiveAt is the current stage endedAt, else startedAt, else null', () => {

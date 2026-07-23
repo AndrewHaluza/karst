@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, mkdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { makePortAllocator } from '../resolver/allocator.js';
-import { createWorktree, removeWorktree, reinstallDeps } from './worktree.js';
+import { createWorktree, removeWorktree, reinstallDeps, ticketIdForWorktreePath } from './worktree.js';
 
 function git(cwd: string, ...args: string[]): string {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -210,5 +210,34 @@ describe('worktree lifecycle', () => {
       .prepare('SELECT deps_mode FROM worktrees WHERE ticket_id = 1')
       .get() as { deps_mode: string };
     expect(row.deps_mode).toBe('local');
+  });
+});
+
+describe('ticketIdForWorktreePath (symlink-invariant)', () => {
+  it('resolves a realpath cwd against a raw stored worktree path', () => {
+    const store = openStore(':memory:');
+    // A ticket + a real worktree dir reached through a symlinked parent.
+    store.db.prepare(
+      `INSERT INTO tickets (id, key, title, source, stage_current)
+       VALUES (1, 'K-1', 't', 'manual', 'impl')`,
+    ).run();
+    const realBase = realpathSync(mkdtempSync(join(tmpdir(), 'karst-wt-')));
+    const link = join(realBase, 'link');
+    const target = join(realBase, 'target');
+    mkdirSync(target);
+    symlinkSync(target, link);
+    const storedPath = join(link, 'wt'); // raw, symlinked — how createWorktree stores it
+    mkdirSync(storedPath);
+    store.db.prepare(
+      `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+       VALUES (1, ?, ?, 'karst/k-1', 'main', 'inherited')`,
+    ).run(realBase, storedPath);
+
+    // The hook reports the realpath-resolved cwd (git/Claude behavior).
+    const hookCwd = realpathSync(storedPath);
+    expect(ticketIdForWorktreePath(store, hookCwd)).toBe(1);
+
+    store.close();
+    rmSync(realBase, { recursive: true, force: true });
   });
 });

@@ -70,6 +70,10 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('${sessVerb} session');
   });
 
+  it('renders the session subtitle from row.sessionAction.detail', () => {
+    expect(HTML).toContain('row.sessionAction.detail');
+  });
+
   it('falls back rather than painting an empty pill from a stale snapshot', () => {
     expect(HTML).toContain("row.stageLabel || row.description || '—'");
   });

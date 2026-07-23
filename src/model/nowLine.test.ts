@@ -109,26 +109,26 @@ describe('buildNowLine', () => {
 
   it('offers a discoverable Start button on a never-started ticket', () => {
     // Case (b)/(c): a returning user needs a visible action, not just prose.
-    expect(buildNowLine(null, { sessionAction: { kind: 'start', label: 'Start' } })).toEqual({
+    expect(buildNowLine(null, { sessionAction: { kind: 'start', label: 'Start', detail: 'fresh session' } })).toEqual({
       text: 'Now: not started. Launch a session to begin.',
-      action: { kind: 'session', label: 'Start session' },
+      action: { kind: 'session', label: 'Start session', detail: 'fresh session' },
     });
     expect(
       buildNowLine(cell({ stageKey: 'scope', status: 'pending' }), {
-        sessionAction: { kind: 'start', label: 'Start' },
+        sessionAction: { kind: 'start', label: 'Start', detail: 'fresh session' },
       }).action,
-    ).toEqual({ kind: 'session', label: 'Start session' });
+    ).toEqual({ kind: 'session', label: 'Start session', detail: 'fresh session' });
   });
 
   it('offers a Continue button while impl is in progress', () => {
     // Case (a): mid-work, the dashboard must let the user resume in place.
     expect(
       buildNowLine(cell({ stageKey: 'impl' }), {
-        sessionAction: { kind: 'continue', label: 'Continue' },
+        sessionAction: { kind: 'continue', label: 'Continue', detail: 'resume impl' },
       }),
     ).toEqual({
       text: 'Now: implementing — the agent is working in its terminal.',
-      action: { kind: 'session', label: 'Continue session' },
+      action: { kind: 'session', label: 'Continue session', detail: 'resume impl' },
     });
   });
 
@@ -136,7 +136,7 @@ describe('buildNowLine', () => {
     // Ship keeps its own confirm/retry action even when a sessionAction is passed.
     expect(
       buildNowLine(cell({ stageKey: 'ship', status: 'pending' }), {
-        sessionAction: { kind: 'start', label: 'Start' },
+        sessionAction: { kind: 'start', label: 'Start', detail: 'fresh session' },
       }).action,
     ).toEqual({ kind: 'ship', label: 'Confirm ship' });
   });

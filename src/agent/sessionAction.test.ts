@@ -2,38 +2,42 @@ import { describe, it, expect } from 'vitest';
 import { sessionAction } from './sessionAction.js';
 
 describe('sessionAction', () => {
-  it('continues an interrupted interactive session (impl/fix with a captured id)', () => {
-    // Case (a): mid-work interruption — resume the exact session, don't re-seed.
-    expect(sessionAction({ sessionId: 'abc', stageCurrent: 'impl' })).toEqual({
-      kind: 'continue',
-      label: 'Continue',
-    });
-    expect(sessionAction({ sessionId: 'abc', stageCurrent: 'fix' })).toEqual({
-      kind: 'continue',
-      label: 'Continue',
-    });
+  it('OPEN when the agent is live, regardless of stage', () => {
+    expect(sessionAction({ sessionId: 'a', stageCurrent: 'impl', agentState: 'running' }))
+      .toEqual({ kind: 'open', label: 'Open', detail: 'session is live · jump to terminal' });
   });
 
-  it('starts when a drafted ticket was never run (no session, still at scope)', () => {
-    // Case (b): drafted-but-unstarted — nothing to resume, so START is correct.
-    expect(sessionAction({ sessionId: null, stageCurrent: 'scope' })).toEqual({
-      kind: 'start',
-      label: 'Start',
-    });
+  it('CONTINUE an interrupted impl/fix with a captured id', () => {
+    expect(sessionAction({ sessionId: 'a', stageCurrent: 'impl', agentState: 'idle' }))
+      .toEqual({ kind: 'continue', label: 'Continue', detail: 'resume impl' });
+    expect(sessionAction({ sessionId: 'a', stageCurrent: 'fix', agentState: 'idle' }))
+      .toEqual({ kind: 'continue', label: 'Continue', detail: 'resume fix' });
   });
 
-  it('starts when no session exists yet', () => {
-    // Case (c): fresh — no captured id at all.
-    expect(sessionAction({ sessionId: null, stageCurrent: null })).toEqual({
-      kind: 'start',
-      label: 'Start',
-    });
+  it('START (re-seed) at impl/fix when no id was captured', () => {
+    expect(sessionAction({ sessionId: null, stageCurrent: 'impl' }))
+      .toEqual({ kind: 'start', label: 'Start', detail: 're-seed from context' });
   });
 
-  it('starts on non-interactive stages even with a captured id (no resume there)', () => {
-    // A captured id at a gate stage is not resumable — a fresh, fully-seeded
-    // session is correct, so the entry point reads START, not CONTINUE.
-    expect(sessionAction({ sessionId: 'abc', stageCurrent: 'uat' }).kind).toBe('start');
-    expect(sessionAction({ sessionId: 'abc', stageCurrent: 'review' }).kind).toBe('start');
+  it('RESUME when parked at a gate/ship stage', () => {
+    expect(sessionAction({ sessionId: 'a', stageCurrent: 'uat' }))
+      .toEqual({ kind: 'resume', label: 'Resume', detail: 'picks up at uat' });
+    expect(sessionAction({ sessionId: null, stageCurrent: 'review' }))
+      .toEqual({ kind: 'resume', label: 'Resume', detail: 'picks up at review' });
+    expect(sessionAction({ sessionId: null, stageCurrent: 'ship' }).kind).toBe('resume');
+  });
+
+  it('REOPEN when done', () => {
+    expect(sessionAction({ sessionId: 'a', stageCurrent: 'done' }))
+      .toEqual({ kind: 'reopen', label: 'Reopen', detail: 'shipped · follow-up session' });
+  });
+
+  it('START (fresh) for a draft — null/scope — naming the repo count', () => {
+    expect(sessionAction({ sessionId: null, stageCurrent: null, selectedRepos: ['a', 'b'] }))
+      .toEqual({ kind: 'start', label: 'Start', detail: 'fresh · scopes 2 repos' });
+    expect(sessionAction({ sessionId: null, stageCurrent: 'scope', selectedRepos: ['a'] }))
+      .toEqual({ kind: 'start', label: 'Start', detail: 'fresh · scopes 1 repo' });
+    expect(sessionAction({ sessionId: null, stageCurrent: null }))
+      .toEqual({ kind: 'start', label: 'Start', detail: 'fresh session' });
   });
 });

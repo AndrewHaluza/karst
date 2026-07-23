@@ -20,6 +20,10 @@ const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview
  * or a selection round trip that fails in a real webview. Those need F5.
  */
 describe('dashboard webview.html', () => {
+  it('renders the Now session subtitle from action.detail', () => {
+    expect(HTML).toContain('a.detail');
+  });
+
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
     // markers are load-bearing at runtime (renderKeyPill calls providerIconHtml,

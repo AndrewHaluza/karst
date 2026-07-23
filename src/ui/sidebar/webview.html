@@ -119,6 +119,7 @@
   .nextact .att{color:var(--g-gray);font-family:var(--mono);font-size:10.5px;margin-left:4px}
 
   .activity{font-size:11px;color:var(--vscode-descriptionForeground);margin:2px 0}
+  .sess-sub{color:var(--vscode-foreground)}
 
   .meta{font-size:10.5px;color:var(--vscode-descriptionForeground);
     font-family:var(--mono);margin:4px 0 2px;word-break:break-word}
@@ -207,11 +208,13 @@
   }
 
   // The activity line: runtime state of the ticket's session, plus when it last
-  // moved. New info vs the collapsed row (which only states the stage).
+  // moved. The second line explains what the session action will do.
   function activityLine(row) {
     const label = row.activityLabel || 'No active session';
     const rel = relTime(row.lastActiveAt);
-    return rel ? `${esc(label)} · ${esc(rel)}` : esc(label);
+    const head = rel ? `${esc(label)} · ${esc(rel)}` : esc(label);
+    const detail = row.sessionAction && row.sessionAction.detail;
+    return detail ? `${head}<br><span class="sess-sub">${esc(detail)}</span>` : head;
   }
 
   function metaLine(row) {

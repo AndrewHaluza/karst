@@ -240,8 +240,17 @@ export function reinstallDeps(store: Store, record: WorktreeRecord): WorktreeRec
  * stray hook can't mutate an unrelated ticket.
  */
 export function ticketIdForWorktreePath(store: Store, path: string): number | null {
-  const row = store.db
-    .prepare('SELECT ticket_id FROM worktrees WHERE path = ?')
-    .get(path) as { ticket_id: number } | undefined;
-  return row ? row.ticket_id : null;
+  // The hook's `cwd` is realpath-resolved (git/Claude report the real path), but
+  // the stored `path` is a raw `join()` — a symlinked repoPath would never match a
+  // raw `WHERE path = ?`. Compare canonically on both sides (the worktrees table
+  // is tiny, so a scan is fine) — the same reason `worktreeRegisteredAt` above
+  // canonicalizes before comparing git's output.
+  const want = canonicalPath(path);
+  const rows = store.db
+    .prepare('SELECT ticket_id, path FROM worktrees')
+    .all() as { ticket_id: number; path: string }[];
+  for (const r of rows) {
+    if (canonicalPath(r.path) === want) return r.ticket_id;
+  }
+  return null;
 }

@@ -12,7 +12,7 @@ export type NowAction =
   | { kind: 'open-log'; label: string; path: string }
   | { kind: 'ship'; label: string }
   | { kind: 'resume'; label: string }
-  | { kind: 'session'; label: string };
+  | { kind: 'session'; label: string; detail: string };
 
 /** A plain sentence naming what is happening, plus the next action (if any). */
 export interface NowLine {
@@ -69,7 +69,11 @@ export function buildNowLine(
   // where launching is the user's move — never over a stage that owns its own
   // action (a failed gate's log, ship's confirm/retry, fix's manual resume).
   const session: NowAction | undefined = ctx.sessionAction
-    ? { kind: 'session', label: `${ctx.sessionAction.label} session` }
+    ? {
+        kind: 'session',
+        label: `${ctx.sessionAction.label} session`,
+        detail: ctx.sessionAction.detail,
+      }
     : undefined;
   const NOT_STARTED = 'Now: not started. Launch a session to begin.';
 

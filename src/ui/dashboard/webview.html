@@ -339,9 +339,10 @@
 
   /* The "Now" line — one plain sentence naming what is happening and the next
      action the user controls. Built host-side (state.now) so the copy is tested. */
-  .now{display:flex;align-items:center;gap:10px;margin:14px 6px 2px;padding-top:11px;
+  .now{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 6px 2px;padding-top:11px;
     border-top:1px solid var(--border);font-size:12px;color:var(--text)}
   .now .ntext{flex:1}
+  .now .now-sub{flex-basis:100%;font-size:11px;color:var(--text-dim)}
   /* The ship-in-progress spinner rides in the Now line at the gate-node size.
      .spin is display:block, so it needs an explicit box here. */
   .now .spin{width:13px;height:13px;flex:none;color:var(--st-running)}
@@ -683,8 +684,12 @@
     // A brief success flash beside the settled line once a ship resolves — the
     // clear "it worked" beat before the dashboard shows the done state.
     const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
+    const sub = a && a.kind === 'session' && a.detail
+      ? `<div class="now-sub">${esc(a.detail)}</div>`
+      : '';
     el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
-      + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '');
+      + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '')
+      + sub;
   }
 
   // Decide whether an incoming snapshot ends the in-flight ship. Keyed off host
