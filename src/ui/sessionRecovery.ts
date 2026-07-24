@@ -15,11 +15,12 @@ export type RestoredSessionOpenResult =
   | { kind: 'not-open' }
   | { kind: 'closed' }
   | { kind: 'timed-out' }
+  | { kind: 'interrupted' }
   | { kind: 'rejected'; error: unknown };
 
 type ReadinessResult = Extract<
   RestoredSessionOpenResult,
-  { kind: 'opened' | 'closed' | 'timed-out' }
+  { kind: 'opened' | 'closed' | 'timed-out' | 'interrupted' }
 >;
 
 interface PendingReadiness {
@@ -182,9 +183,10 @@ export class SessionRecoveryLifecycle {
   shutdown(): void {
     for (const [ticketId, pending] of this.pending) {
       clearTimeout(pending.timer);
-      if (!pending.result) {
-        pending.result = { kind: 'closed' };
-        pending.resolve(pending.result);
+      if (!pending.result || pending.result.kind === 'opened') {
+        const unresolved = pending.result === undefined;
+        pending.result = { kind: 'interrupted' };
+        if (unresolved) pending.resolve(pending.result);
       }
       this.blockUnidentified.add(ticketId);
     }
@@ -230,11 +232,15 @@ export async function resumeRestoredSession(
     try {
       await open(ticketId);
     } catch (error) {
+      const observed = readiness.result();
+      if (observed?.kind === 'interrupted') return observed;
       return { kind: 'rejected', error };
     }
 
     const observed = readiness.result();
-    if (observed?.kind === 'closed') return observed;
+    if (observed?.kind === 'closed' || observed?.kind === 'interrupted') {
+      return observed;
+    }
     if (!sessions.isOpen(ticketId)) return { kind: 'not-open' };
     if (observed) return observed;
     return await readiness.promise;
@@ -287,6 +293,20 @@ export interface RecoveryCandidate {
 export interface BackgroundRecoveryResult extends RestoredRecoveryResult {
   /** Persisted ownership that no longer has active DB liveness in this window. */
   discard: number[];
+}
+
+export type RecoveryOutcomeDisposition =
+  | 'ready'
+  | 'retry-next-activation'
+  | 'abandon';
+
+/** Decide whether recovery completion may clear durable ownership and liveness. */
+export function recoveryOutcomeDisposition(
+  outcome: RestoredSessionOpenResult,
+): RecoveryOutcomeDisposition {
+  if (outcome.kind === 'opened') return 'ready';
+  if (outcome.kind === 'interrupted') return 'retry-next-activation';
+  return 'abandon';
 }
 
 export type SessionOwnershipAction = 'add' | 'remove' | 'keep';
@@ -351,6 +371,20 @@ export function planBackgroundSessionRecovery(
     else result.idle.push(ticket.id);
   }
   return result;
+}
+
+/** Merge visible-terminal and hidden-ownership recovery without double launches. */
+export function planSessionRecovery(
+  tickets: readonly RecoveryCandidate[],
+  ownedTicketIds: readonly number[],
+  restored: RestoredRecoveryResult,
+): BackgroundRecoveryResult {
+  const background = planBackgroundSessionRecovery(tickets, ownedTicketIds);
+  return {
+    resume: [...new Set([...restored.resume, ...background.resume])],
+    idle: [...new Set([...restored.idle, ...background.idle])],
+    discard: background.discard,
+  };
 }
 
 /**

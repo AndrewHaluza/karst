@@ -19,8 +19,9 @@ import {
 } from './ui/session.js';
 import {
   classifyRestoredSession,
-  planBackgroundSessionRecovery,
+  planSessionRecovery,
   recoverSession,
+  recoveryOutcomeDisposition,
   sessionOwnershipAction,
   SerializedStateWriter,
   SessionRecoveryLifecycle,
@@ -1653,18 +1654,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const restored = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));
   });
-  const background = planBackgroundSessionRecovery(
+  const recoveryPlan = planSessionRecovery(
     candidates,
     [...ownedSessionTickets],
+    restored,
   );
   let ownershipChanged = false;
-  for (const ticketId of background.discard) {
+  for (const ticketId of recoveryPlan.discard) {
     ownershipChanged = ownedSessionTickets.delete(ticketId) || ownershipChanged;
   }
-  const idleTicketIds = new Set([...restored.idle, ...background.idle]);
-  const resumeTicketIds = new Set([...restored.resume, ...background.resume]);
 
-  for (const ticketId of idleTicketIds) {
+  for (const ticketId of recoveryPlan.idle) {
     setAgentState(localStore, ticketId, 'idle');
     ownershipChanged =
       ownedSessionTickets.delete(ticketId) || ownershipChanged;
@@ -1673,11 +1673,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   }
   if (ownershipChanged) await persistOwnedSessionTickets();
-  if (idleTicketIds.size > 0) {
+  if (recoveryPlan.idle.length > 0) {
     provider.refresh();
     dashboard.pushAll();
   }
-  for (const ticketId of resumeTicketIds) {
+  for (const ticketId of recoveryPlan.resume) {
     const recoveryTask = recoverSession(
       sessions,
       recoveryLifecycle,
@@ -1687,7 +1687,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           recovery: true,
         }),
     ).then(async (outcome) => {
-      if (outcome.kind === 'opened') return;
+      const disposition = recoveryOutcomeDisposition(outcome);
+      if (disposition === 'ready') return;
+      if (disposition === 'retry-next-activation') return;
       setAgentState(localStore, ticketId, 'idle');
       ownedSessionTickets.delete(ticketId);
       await persistOwnedSessionTickets();

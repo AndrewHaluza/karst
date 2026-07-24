@@ -428,7 +428,7 @@ describe('recovery lifecycle ordering', () => {
 
       lifecycle.shutdown();
 
-      await expect(recovery).resolves.toEqual({ kind: 'closed' });
+      await expect(recovery).resolves.toEqual({ kind: 'interrupted' });
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
