@@ -64,6 +64,11 @@ export function resolveNodeExecutable(
 
 const CODEX_HOOK_BRIDGE = String.raw`const http = require('node:http');
 
+// A liveness hook is best-effort. It must never turn a missing/stale endpoint
+// (or malformed invocation) into a user-facing Codex hook failure.
+process.on('uncaughtException', () => process.exit(0));
+process.on('unhandledRejection', () => process.exit(0));
+
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
@@ -97,7 +102,12 @@ process.stdin.on('end', () => {
     cwd: raw.cwd,
     session_id: raw.session_id,
   });
-  const target = new URL(process.argv[2]);
+  let target;
+  try {
+    target = new URL(process.argv[2]);
+  } catch {
+    process.exit(0);
+  }
   const req = http.request({
     hostname: target.hostname,
     port: target.port,
@@ -109,6 +119,7 @@ process.stdin.on('end', () => {
     },
     timeout: 2000,
   });
+  req.on('response', (res) => res.resume());
   req.on('error', () => process.exit(0));
   req.on('timeout', () => req.destroy());
   req.end(payload);

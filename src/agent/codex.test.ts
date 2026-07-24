@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   chmodSync,
@@ -163,6 +164,30 @@ describe('CodexAdapter interactive commands', () => {
     expect(sessionStart).toContain(
       `command = "\\\"${resolveNodeExecutable()}\\\" `,
     );
+  });
+
+  it('keeps hook bridge failures from surfacing as failed Codex hooks', () => {
+    const configDir = makeWorktree();
+    new CodexAdapter().buildInteractiveCommand({
+      cwd: makeWorktree(),
+      hookChannel: {
+        endpointUrl: 'http://127.0.0.1:4567/hooks',
+        configDir,
+      },
+    });
+
+    const bridgePath = join(configDir, 'codex', 'bridge.cjs');
+    const result = spawnSync(resolveNodeExecutable(), [bridgePath], {
+      input: JSON.stringify({
+        hook_event_name: 'PostToolUse',
+        session_id: 'thread-1',
+        cwd: '/wt',
+      }),
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
   });
 });
 
