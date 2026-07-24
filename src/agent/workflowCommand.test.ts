@@ -68,6 +68,8 @@ describe('renderWorkflowCommand', () => {
 
     it('carries one marker call per phase, each naming its own phase', () => {
       const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, phaseCommand });
+      expect(body).toContain('request approval');
+      expect(body).toContain('outside the workspace sandbox');
       for (const p of rpiPhases) {
         expect(body).toContain(
           `node "/ext/dist/cli/main.js" phase ${p.name} --db "/x.db" --manifest "/k.yml" --ticket $ARGUMENTS`,
@@ -156,6 +158,8 @@ describe('renderDoneMarkerInstruction', () => {
     expect(s.toLowerCase()).toContain('confirmation');
     // a session ending is not a verdict (§5.4) — the agent must fire the marker itself
     expect(s.toLowerCase()).toContain('session ending does not advance');
+    expect(s).toContain('request approval');
+    expect(s).toContain('outside the workspace sandbox');
   });
 
   it('names no stage of its own — the stage is already baked into the command', () => {

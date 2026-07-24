@@ -340,6 +340,18 @@ Four integration rules proved especially important:
 - Return exact adapter-owned runtime paths and clean only those paths under
   reserved Karst roots. Never remove repository-owned `.agents` or `.codex`
   content.
+- Treat Karst-created worktrees and Karst-generated hooks as trusted at the
+  adapter boundary using the provider's narrow, purpose-built flags. Clear
+  inherited hooks before bypassing hook trust so only the complete,
+  Karst-authored event set can execute. A
+  headless launch must not stop before consuming its prompt merely because the
+  provider has not persisted trust for the new worktree, and generated
+  lifecycle hooks must not require a separate manual trust ceremony.
+- Karst's agent-facing CLI records stage and phase evidence in a shared
+  global-storage registry outside the worktree. Do not grant the agent sandbox
+  write access to that directory: it would let injected commands bypass the
+  CLI's narrow parser and alter other projects. Tell the agent to request
+  approval for the exact marker command outside the workspace sandbox instead.
 
 ## 12. Common failure modes
 
@@ -358,6 +370,10 @@ Four integration rules proved especially important:
   webviews, and all sessions.
 - **Unsafe materialization:** a name or relative path escapes the session
   customization directory.
+- **Trust gate before prompt consumption:** a newly-created worktree causes a
+  headless launch to exit before the supplied prompt runs.
+- **Read-only control plane:** the agent can edit its worktree but cannot write
+  Karst's registry, so explicit stage and phase markers fail.
 
 When one of these appears, fix the abstraction or boundary test. Do not patch a
 provider special case into the extension host.

@@ -148,6 +148,10 @@ function appendHookArgs(
     JSON.stringify(bridgePath),
     JSON.stringify(endpointUrl),
   ].join(' ');
+  // Remove every inherited hook before installing the complete event set
+  // below. This makes the trust bypass authorize only Karst-authored commands,
+  // never repository- or user-configured hooks.
+  args.push('-c', 'hooks={}');
   for (const event of CODEX_HOOK_EVENTS) {
     const value =
       `[{ hooks = [{ type = "command", command = ${JSON.stringify(command)}, ` +
@@ -315,6 +319,7 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.resume) args.push('resume');
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+    if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
     const ownedPaths = opts.hookChannel
       ? [
           appendHookArgs(
@@ -436,6 +441,9 @@ export class CodexAdapter implements AgentAdapter {
     const args = opts.resume
       ? ['exec', 'resume', '--json']
       : ['exec', '--json'];
+    // Karst creates and owns the selected worktree. Headless Codex still
+    // requires this opt-out before it will consume the supplied prompt.
+    args.push('--skip-git-repo-check');
     if (opts.model) args.push('--model', opts.model);
     appendPolicyArgs(args, opts.permissionMode);
     if (opts.resume) {

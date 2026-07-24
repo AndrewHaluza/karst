@@ -42,7 +42,8 @@ export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: str
     "When you have finished this stage's work — whether that is code, research, or a " +
     `confirmation — run \`${stageCommand} ${ticketArg}\` to record the done marker and ` +
     'advance the ticket to its next stage. A session ending does not advance the ticket ' +
-    'on its own — you must fire this marker explicitly.'
+    'on its own — you must fire this marker explicitly. If access to the Karst registry ' +
+    'is denied, request approval to run this exact marker command outside the workspace sandbox.'
   );
 }
 
@@ -102,6 +103,14 @@ export function renderWorkflowCommand(input: {
     '',
     loadInstruction,
     '',
+    ...(phaseCommand
+      ? [
+          'Phase marker commands write Karst state outside the worktree. If the workspace ' +
+            'sandbox denies one, request approval to run that exact marker command outside ' +
+            'the workspace sandbox.',
+          '',
+        ]
+      : []),
     'Then work through the following phases in order:',
     '',
   ];

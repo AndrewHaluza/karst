@@ -130,11 +130,13 @@ describe('CodexAdapter interactive commands', () => {
     expect(readFileSync(hooksPath, 'utf8')).toBe('{"user":"owned"}');
     expect(readFileSync(bridgePath, 'utf8')).toContain('permission_prompt');
     expect(cmd.ownedPaths).toEqual([join(worktree, '.codex', 'karst')]);
-    expect(cmd.args).not.toContain('--dangerously-bypass-hook-trust');
+    expect(cmd.args).toContain('--dangerously-bypass-hook-trust');
+    expect(cmd.args).not.toContain('--add-dir');
     const overrides = cmd.args.filter(
       (_arg, index) => cmd.args[index - 1] === '-c',
     );
-    expect(overrides).toHaveLength(6);
+    expect(overrides).toHaveLength(7);
+    expect(overrides[0]).toBe('hooks={}');
     expect(
       overrides.some((value) => value.startsWith('hooks.SessionStart=')),
     ).toBe(true);
@@ -215,6 +217,7 @@ describe('CodexAdapter headless execution', () => {
       [
         'exec',
         '--json',
+        '--skip-git-repo-check',
         '--model',
         'custom-model',
         '--ask-for-approval',
@@ -242,7 +245,14 @@ describe('CodexAdapter headless execution', () => {
     });
     expect(spawn).toHaveBeenCalledWith(
       'codex',
-      ['exec', 'resume', '--json', 'thread-7', 'continue'],
+      [
+        'exec',
+        'resume',
+        '--json',
+        '--skip-git-repo-check',
+        'thread-7',
+        'continue',
+      ],
       '/wt',
     );
   });
