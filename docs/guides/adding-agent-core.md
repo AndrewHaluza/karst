@@ -314,9 +314,9 @@ the source HTML, never the generated copy.
 
 ## 11. Codex implementation notes
 
-`codex` already exists as a legal but unimplemented provider. A Codex
-integration should begin by verifying the currently installed Codex CLI rather
-than copying Claude or Antigravity flags.
+Codex is implemented as the reference for extending Karst beyond Claude and
+Antigravity. Its integration verified the installed CLI rather than copying
+another provider's flags.
 
 In particular, determine:
 
@@ -328,8 +328,18 @@ In particular, determine:
 - whether an additional directory or configuration argument is required;
 - the live model list and whether models are account-dependent.
 
-Only after those answers are proven should `CodexAdapter` be added to the
-registry and `codex` moved into `IMPLEMENTED_PROVIDERS`.
+Four integration rules proved especially important:
+
+- Resolve the adapter when an operation starts, not once at extension
+  activation, so a saved provider change applies to interactive and headless
+  work.
+- Keep the lifecycle endpoint provider-neutral. Each adapter owns the concrete
+  hook configuration and normalization for its CLI.
+- Return the provider-native workflow invocation from approach
+  materialization; the extension must not guess slash-command or skill syntax.
+- Return exact adapter-owned runtime paths and clean only those paths under
+  reserved Karst roots. Never remove repository-owned `.agents` or `.codex`
+  content.
 
 ## 12. Common failure modes
 

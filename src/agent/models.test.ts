@@ -46,6 +46,10 @@ describe('KNOWN_MODELS', () => {
     );
     expect(modelsForProvider('antigravity').map((m) => m.id)).not.toContain('claude-opus-4-8');
   });
+
+  it('offers no speculative curated Codex models', () => {
+    expect(modelsForProvider('codex')).toEqual([]);
+  });
 });
 
 describe('resolveModel', () => {
@@ -71,6 +75,18 @@ describe('resolveModel', () => {
 });
 
 describe('resolveModelForProvider', () => {
+  it('preserves an explicit custom Codex model id', () => {
+    expect(
+      resolveModelForProvider('codex', 'team-codex-model', undefined),
+    ).toBe('team-codex-model');
+  });
+
+  it('drops a known model from another provider when Codex is selected', () => {
+    expect(
+      resolveModelForProvider('codex', 'claude-sonnet-5', undefined),
+    ).toBeUndefined();
+  });
+
   it('skips a ticket model known to belong to another provider', () => {
     expect(
       resolveModelForProvider('antigravity', 'claude-opus-4-8', 'gemini-3.6-flash-high'),

@@ -1,4 +1,5 @@
-import type { AgentAdapter } from '../agent/adapter.js';
+import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
+import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -46,8 +47,12 @@ export interface FakeTerminal extends SessionTerminal {
   disposeHandler?: () => void;
 }
 
-/** Resolve the hook-settings path for a session (T3.4 `writeHookSettings`). */
-export type SettingsPathFor = (ticketId: number, worktreePath: string) => string;
+/** Resolve the provider-neutral lifecycle channel for a session. */
+export type HookChannelFor = () => HookChannel;
+export type CleanupOwnedPaths = (
+  worktreePath: string,
+  ownedPaths: readonly string[],
+) => void;
 
 /**
  * Collapse a prompt to a single line. A terminal line ends at the newline: the
@@ -70,9 +75,8 @@ export class SessionManager {
   private readonly terminals = new Map<number, SessionTerminal>();
 
   constructor(
-    private readonly adapter: AgentAdapter,
     private readonly host: TerminalHost,
-    private readonly settingsPathFor: SettingsPathFor,
+    private readonly hookChannelFor: HookChannelFor,
     /**
      * Fired AFTER a session's terminal closes and its map entry is dropped, so a
      * consumer can resume gate work under `isOpen === false`. The host wires this
@@ -80,6 +84,7 @@ export class SessionManager {
      * gets driven without waiting for a SessionEnd hook to reach the endpoint.
      */
     private readonly onDidCloseSession?: (ticketId: number) => void,
+    private readonly cleanup: CleanupOwnedPaths = cleanupOwnedPaths,
   ) {}
 
   /**
@@ -94,6 +99,7 @@ export class SessionManager {
    * an agent session id to continue via `--resume`, fresh-launch only.
    */
   openSession(
+    adapter: AgentAdapter,
     ticketId: number,
     worktreePath: string,
     label?: { key?: string | null; title?: string | null },
@@ -102,6 +108,7 @@ export class SessionManager {
     model?: string,
     resume?: string,
     naming?: { name: string; iconPath?: string; color?: string },
+    ownedPaths: string[] = [],
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
@@ -109,15 +116,15 @@ export class SessionManager {
       return;
     }
 
-    const settingsPath = this.settingsPathFor(ticketId, worktreePath);
-    const cmd = this.adapter.buildInteractiveCommand({
+    const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
-      settingsPath,
+      hookChannel: this.hookChannelFor(),
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
       ...(model ? { model } : {}),
       ...(resume ? { resume } : {}),
     });
+    const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 
     const terminal = this.host.createTerminal({
       name: naming?.name ?? `Karst: ${label?.key ?? `#${ticketId}`}`,
@@ -130,7 +137,11 @@ export class SessionManager {
     });
     terminal.onDidClose(() => {
       this.terminals.delete(ticketId);
-      this.onDidCloseSession?.(ticketId);
+      try {
+        this.cleanup(worktreePath, cleanupPaths);
+      } finally {
+        this.onDidCloseSession?.(ticketId);
+      }
     });
     this.terminals.set(ticketId, terminal);
     terminal.show();

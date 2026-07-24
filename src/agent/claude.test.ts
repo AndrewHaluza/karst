@@ -88,13 +88,23 @@ describe('ClaudeAdapter.buildInteractiveCommand', () => {
     expect(args).not.toContain('-p');
   });
 
-  it('threads --settings <path> when a settingsPath is given', () => {
-    const { args } = adapter.buildInteractiveCommand({
-      cwd: '/wt/a',
-      settingsPath: '/tmp/hooks.json',
-    });
-    expect(args).toContain('--settings');
-    expect(args[args.indexOf('--settings') + 1]).toBe('/tmp/hooks.json');
+  it('materializes --settings from a provider-neutral hook channel', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-claude-hooks-'));
+    try {
+      const { args } = adapter.buildInteractiveCommand({
+        cwd: '/wt/a',
+        hookChannel: {
+          endpointUrl: 'http://127.0.0.1:4567/hooks',
+          configDir: dir,
+        },
+      });
+      expect(args).toContain('--settings');
+      expect(args[args.indexOf('--settings') + 1]).toBe(
+        join(dir, 'karst-hooks.4567.settings.json'),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('omits --settings when no path is given', () => {
@@ -103,7 +113,7 @@ describe('ClaudeAdapter.buildInteractiveCommand', () => {
   });
 
   it('advertises capabilities (http hooks + resume)', () => {
-    expect(adapter.capabilities.httpHooks).toBe(true);
+    expect(adapter.capabilities.lifecycleEvents).toBe(true);
     expect(adapter.capabilities.resume).toBe(true);
   });
 
@@ -115,11 +125,10 @@ describe('buildInteractiveCommand initialPrompt', () => {
   it('appends initialPrompt as a positional after a `--` end-of-options separator', () => {
     const cmd = adapter.buildInteractiveCommand({
       cwd: '/wt',
-      settingsPath: '/s.json',
       initialPrompt: 'do the thing',
     });
     expect(cmd.command).toBe('claude');
-    expect(cmd.args).toEqual(['--settings', '/s.json', '--', 'do the thing']);
+    expect(cmd.args).toEqual(['--', 'do the thing']);
   });
 
   it('appends initialPrompt even without settingsPath', () => {
@@ -138,8 +147,8 @@ describe('buildInteractiveCommand initialPrompt', () => {
   });
 
   it('omits the positional when initialPrompt is absent', () => {
-    const cmd = adapter.buildInteractiveCommand({ cwd: '/wt', settingsPath: '/s.json' });
-    expect(cmd.args).toEqual(['--settings', '/s.json']);
+    const cmd = adapter.buildInteractiveCommand({ cwd: '/wt' });
+    expect(cmd.args).toEqual([]);
   });
 
   it('omits the positional when initialPrompt is empty', () => {
@@ -150,21 +159,19 @@ describe('buildInteractiveCommand initialPrompt', () => {
   it('appends extraArgs (e.g. --plugin-dir) before the positional', () => {
     const cmd = adapter.buildInteractiveCommand({
       cwd: '/wt',
-      settingsPath: '/s.json',
       extraArgs: ['--plugin-dir', '/plug'],
       initialPrompt: 'go',
     });
-    expect(cmd.args).toEqual(['--settings', '/s.json', '--plugin-dir', '/plug', '--', 'go']);
+    expect(cmd.args).toEqual(['--plugin-dir', '/plug', '--', 'go']);
   });
 
   it('threads --model when a model is given (before the positional seed)', () => {
     const cmd = adapter.buildInteractiveCommand({
       cwd: '/wt',
-      settingsPath: '/s.json',
       model: 'claude-opus-4-8',
       initialPrompt: 'go',
     });
-    expect(cmd.args).toEqual(['--settings', '/s.json', '--model', 'claude-opus-4-8', '--', 'go']);
+    expect(cmd.args).toEqual(['--model', 'claude-opus-4-8', '--', 'go']);
   });
 
   it('omits --model when none is given', () => {
@@ -286,7 +293,8 @@ describe('ClaudeAdapter.materializeApproach', () => {
     const cmdPath = join(sessionDir, '.karst-plugin', 'karst', 'commands', 'rpi.md');
     expect(existsSync(cmdPath)).toBe(true);
     const body = readFileSync(cmdPath, 'utf8');
-    expect(body).toContain('/karst:rpi');
+    expect(body).toContain('# RPI');
+    expect(result.invocation).toBe('/karst:rpi');
     expect(body).toContain('/rpi:research');
   });
 

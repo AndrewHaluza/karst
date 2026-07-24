@@ -16,7 +16,7 @@ import {
   type SessionTerminal,
 } from './ui/session.js';
 import { resolveAdapter } from './agent/registry.js';
-import type { AgentAdapter } from './agent/adapter.js';
+import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
@@ -44,7 +44,6 @@ import {
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
-import { writeHookSettings } from './agent/settings.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
@@ -248,11 +247,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // into agent-specific launch args).
   // No manifest is resolved yet at this point in activation; only 'claude' is
   // functional today (see agent/registry.ts) so the fallback is always correct.
-  const agentAdapter = resolveAdapter('claude');
   const sessions = new SessionManager(
-    agentAdapter,
     makeTerminalHost(),
-    () => writeHookSettings(endpoint?.port ?? 0, settingsDir),
+    () => {
+      if (!endpoint) {
+        throw new Error('karst: hook endpoint is not bound');
+      }
+      return { endpointUrl: endpoint.url, configDir: settingsDir };
+    },
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
     // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
     (ticketId) => maybeDrive(ticketId, 'session-closed'),
@@ -268,6 +270,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     load: loadManifest,
   });
   const currentManifest = (): Manifest | undefined => manifests.get();
+  const currentAgentAdapter = (): AgentAdapter =>
+    resolveAdapter(currentManifest()?.agentProvider ?? 'claude');
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // onboarding (after a signal writeback) and settings (after a save) so both
@@ -737,7 +741,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       makeDashboardActions(
         localStore,
         ticketId,
-        agentAdapter,
+        currentAgentAdapter,
         () => onboarding.openEdit(ticketId),
         () => {
           provider.refresh();
@@ -1057,6 +1061,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.openSession', (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
+      const adapter = currentAgentAdapter();
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!guardCapability('sessions')) return;
@@ -1123,7 +1128,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // materializeApproach below under the sibling `karst` plugin) actually gets
       // invoked with the ticket key. `buildWorkflowInvocation` is the single source
       // of truth for the command name, shared with the materializer so they can't drift.
-      const invocation =
+      let invocation =
         pkg?.workflow?.length && t.approach
           ? buildWorkflowInvocation(t.approach, t.key ?? '')
           : null;
@@ -1198,7 +1203,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // "continue". `currentStage` carries both (state.ts → buildStepper).
       const fixBrief =
         t.stageCurrent === 'fix' ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages) : null;
-      const seedPrompt = resumeId
+      let seedPrompt = resumeId
         ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}\n\n${markerInstruction}`
         : initialPrompt;
 
@@ -1210,11 +1215,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // built-in, never installed) — the adapter still needs an id/label to build
       // the plugin dir. Any failure degrades gracefully to no extras (still a
       // valid session).
-      let extraArgs: string[] | undefined;
+      let materialized: Materialized = { extraArgs: [], ownedPaths: [] };
       try {
         const matPkg = pkg ?? (soloAgent ? { id: t.approach!, label: t.approach! } : null);
-        if (matPkg && agentAdapter.materializeApproach) {
-          const materialized = agentAdapter.materializeApproach({
+        if (matPkg && adapter.materializeApproach) {
+          materialized = adapter.materializeApproach({
             pkg: matPkg,
             baseDir: approachesDirOrThrow(),
             sessionDir: wt.path,
@@ -1223,11 +1228,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             cliStagePrefix: buildCliStagePrefix(context, dbPath),
             cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
           });
-          extraArgs = materialized.extraArgs.length > 0 ? materialized.extraArgs : undefined;
         }
-      } catch {
-        extraArgs = undefined;
+      } catch (error) {
+        logError(`approach materialization failed for ticket ${ticketId}`, error);
       }
+      invocation =
+        materialized.invocation && pkg?.workflow?.length
+          ? `${materialized.invocation} ${t.key ?? ''}`.trim()
+          : null;
+      if (!resumeId) {
+        seedPrompt = buildSessionSeed(
+          ticketContextMd,
+          approachPrompt ?? delegation,
+          invocation,
+          markerInstruction,
+        );
+      }
+      const extraArgs =
+        materialized.extraArgs.length > 0
+          ? materialized.extraArgs
+          : undefined;
 
       // A SOURCED approach (git/npm) that produced neither a method prompt NOR
       // materialized artifacts is broken (dangling entrypoint / package missing)
@@ -1269,6 +1289,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
 
       sessions.openSession(
+        adapter,
         ticketId,
         wt.path,
         { key: t.key, title: t.title },
@@ -1277,6 +1298,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         model,
         resumeId,
         naming,
+        materialized.ownedPaths,
       );
       showStatusFor(ticketId);
     }),
@@ -1710,7 +1732,7 @@ type CapabilityGuard = (capability: Capability, silent?: boolean) => boolean;
 function makeDashboardActions(
   store: Store,
   ticketId: number,
-  agentAdapter: AgentAdapter,
+  agentAdapter: () => AgentAdapter,
   editTicket: () => void,
   afterServerChange: () => void,
   logError: LogError,
@@ -1785,7 +1807,14 @@ function makeDashboardActions(
       // the PR description first, so an unguarded click burns a call per repo and
       // then dies at `gh pr create`.
       if (!guardCapability('ship')) return;
-      void runShipTicket(store, { ticketId }, undefined, agentAdapter, undefined, onShipProgress)
+      void runShipTicket(
+        store,
+        { ticketId },
+        undefined,
+        agentAdapter(),
+        undefined,
+        onShipProgress,
+      )
         .then(async () => {
           // The PRs are open and the branch is pushed — the irreversible part
           // succeeded, and ship.ts already transitioned to done. So a failed

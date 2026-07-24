@@ -12,6 +12,7 @@ import type {
   HeadlessResult,
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
+import { writeHookSettings } from './settings.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
@@ -89,7 +90,7 @@ const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
  * Keeps every Claude-specific flag here so nothing leaks past `AgentAdapter`.
  */
 export class ClaudeAdapter implements AgentAdapter {
-  readonly capabilities: AgentCapabilities = { httpHooks: true, resume: true };
+  readonly capabilities: AgentCapabilities = { lifecycleEvents: true, resume: true };
   readonly requiredBinary = CLAUDE_BIN;
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -102,8 +103,14 @@ export class ClaudeAdapter implements AgentAdapter {
    */
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
     const args: string[] = [];
-    if (opts.settingsPath) {
-      args.push('--settings', opts.settingsPath);
+    if (opts.hookChannel) {
+      args.push(
+        '--settings',
+        writeHookSettings(
+          opts.hookChannel.endpointUrl,
+          opts.hookChannel.configDir,
+        ),
+      );
     }
     if (opts.resume && opts.resume.length > 0) {
       // Continue a previously-captured session instead of a cold start (§5.3).
@@ -151,7 +158,7 @@ export class ClaudeAdapter implements AgentAdapter {
     const solo = opts.soloAgent;
     if (solo) assertSafeAgentName(solo.name);
     if (artifacts.length === 0 && !hasWorkflow && !solo) {
-      return { extraArgs: [] };
+      return { extraArgs: [], ownedPaths: [] };
     }
     if (opts.pkg.id === KARST_PLUGIN_NAME) {
       // `karst` is reserved for the generated orchestrator's sibling plugin
@@ -227,7 +234,17 @@ export class ClaudeAdapter implements AgentAdapter {
       pluginDirs.push(karstDir);
     }
 
-    return { extraArgs: pluginDirs.flatMap((d) => ['--plugin-dir', d]) };
+    return {
+      extraArgs: pluginDirs.flatMap((d) => ['--plugin-dir', d]),
+      ownedPaths: pluginDirs,
+      ...(hasWorkflow
+        ? {
+            invocation: `/${KARST_PLUGIN_NAME}:${orchestratorCommandBasename(
+              opts.pkg.id,
+            )}`,
+          }
+        : {}),
+    };
   }
 
   /**
@@ -241,7 +258,6 @@ export class ClaudeAdapter implements AgentAdapter {
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
     const args = ['-p', opts.prompt, '--output-format', 'json'];
     if (opts.resume) args.push('--resume', opts.resume);
-    if (opts.settingsPath) args.push('--settings', opts.settingsPath);
     if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));

@@ -27,7 +27,7 @@ describe('AntigravityAdapter', () => {
   it('declares the correct binary and capabilities', () => {
     const adapter = new AntigravityAdapter();
     expect(adapter.requiredBinary).toBe('agy');
-    expect(adapter.capabilities.httpHooks).toBe(false);
+    expect(adapter.capabilities.lifecycleEvents).toBe(false);
     expect(adapter.capabilities.resume).toBe(false);
   });
 
@@ -212,7 +212,8 @@ describe('AntigravityAdapter', () => {
         'utf8',
       );
       expect(body).toContain('name: do-it');
-      expect(body).toContain('# /karst:do-it — Do It');
+      expect(body).toContain('# Do It');
+      expect(res.invocation).toBe('$do-it');
       expect(body).toContain('**step1**');
     });
   });

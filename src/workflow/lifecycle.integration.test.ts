@@ -45,7 +45,7 @@ const adapter: AgentAdapter = {
   runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'PR body.' }),
   buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
   requiredBinary: 'claude',
-  capabilities: { httpHooks: true, resume: true },
+  capabilities: { lifecycleEvents: true, resume: true },
 };
 // `pr view` is ship's "already shipped?" probe; a fresh branch has no PR, which
 // gh reports as a nonzero exit. Answered explicitly rather than letting the

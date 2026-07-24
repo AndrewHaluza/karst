@@ -5,15 +5,30 @@ import { join } from 'node:path';
 import { buildHookSettings, writeHookSettings, hookUrl } from './settings.js';
 
 describe('buildHookSettings', () => {
+  it('builds Claude hook settings from an explicit endpoint URL', () => {
+    const settings = JSON.parse(
+      buildHookSettings('http://127.0.0.1:4567/hooks'),
+    ) as {
+      hooks: Record<string, { hooks: { url?: string; command?: string }[] }[]>;
+    };
+
+    expect(settings.hooks.Stop![0]!.hooks[0]!.url).toBe(
+      'http://127.0.0.1:4567/hooks',
+    );
+    expect(settings.hooks.SessionStart![0]!.hooks[0]!.command).toContain(
+      "'http://127.0.0.1:4567/hooks'",
+    );
+  });
+
   it('targets the actual bound port', () => {
-    const s = JSON.parse(buildHookSettings(54321));
+    const s = JSON.parse(buildHookSettings(hookUrl(54321)));
     const url = s.hooks.Stop[0].hooks[0].url as string;
     expect(url).toContain(':54321');
     expect(hookUrl(54321)).toBe(url);
   });
 
   it('registers SessionStart as a type:command curl bridge (not http)', () => {
-    const s = JSON.parse(buildHookSettings(4000));
+    const s = JSON.parse(buildHookSettings(hookUrl(4000)));
     const bridge = s.hooks.SessionStart[0].hooks[0];
     expect(bridge.type).toBe('command');
     expect(bridge.command).toContain('curl');
@@ -22,7 +37,7 @@ describe('buildHookSettings', () => {
   });
 
   it('registers Stop/Notification/SessionEnd/UserPromptSubmit/PostToolUse as type:http on the bound port', () => {
-    const s = JSON.parse(buildHookSettings(4000));
+    const s = JSON.parse(buildHookSettings(hookUrl(4000)));
     for (const event of ['Stop', 'Notification', 'SessionEnd', 'UserPromptSubmit', 'PostToolUse']) {
       const hook = s.hooks[event][0].hooks[0];
       expect(hook.type, event).toBe('http');
@@ -30,14 +45,15 @@ describe('buildHookSettings', () => {
     }
   });
 
-  // Port 0 means "the endpoint has not bound yet" — the caller's `?? 0` fallback.
-  // Written out it becomes http://127.0.0.1:0/hooks: a session that launches with
-  // it ECONNREFUSEDs on every hook for its whole life, silently. Refuse instead.
-  it('refuses a port the endpoint has not bound', () => {
-    expect(() => buildHookSettings(0)).toThrow(/port/i);
+  it('refuses a non-loopback or unbound endpoint', () => {
+    expect(() => buildHookSettings('http://127.0.0.1:0/hooks')).toThrow(
+      /endpoint/i,
+    );
     const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
     try {
-      expect(() => writeHookSettings(0, dir)).toThrow(/port/i);
+      expect(() =>
+        writeHookSettings('https://example.com/hooks', dir),
+      ).toThrow(/loopback/i);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -46,7 +62,7 @@ describe('buildHookSettings', () => {
   it('writeHookSettings writes the JSON to disk and returns the path', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
     try {
-      const p = writeHookSettings(4000, dir);
+      const p = writeHookSettings(hookUrl(4000), dir);
       const written = JSON.parse(readFileSync(p, 'utf8'));
       expect(written.hooks.Stop[0].hooks[0].url).toBe(hookUrl(4000));
     } finally {
@@ -62,8 +78,8 @@ describe('buildHookSettings', () => {
   it('gives each port its own file, so two windows cannot overwrite each other', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
     try {
-      const a = writeHookSettings(4000, dir);
-      const b = writeHookSettings(5000, dir);
+      const a = writeHookSettings(hookUrl(4000), dir);
+      const b = writeHookSettings(hookUrl(5000), dir);
       expect(a).not.toBe(b);
 
       // Both survive, each still pointing at its own window's endpoint.
@@ -77,7 +93,9 @@ describe('buildHookSettings', () => {
   it('is stable for one port, so re-launching a session reuses the file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
     try {
-      expect(writeHookSettings(4000, dir)).toBe(writeHookSettings(4000, dir));
+      expect(writeHookSettings(hookUrl(4000), dir)).toBe(
+        writeHookSettings(hookUrl(4000), dir),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

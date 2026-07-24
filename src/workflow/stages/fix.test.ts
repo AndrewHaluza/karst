@@ -21,7 +21,7 @@ function fakeAdapter(): { adapter: AgentAdapter; calls: unknown[] } {
     },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
     requiredBinary: 'claude',
-    capabilities: { httpHooks: true, resume: true },
+    capabilities: { lifecycleEvents: true, resume: true },
   };
   return { adapter, calls };
 }

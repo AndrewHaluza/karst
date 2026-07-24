@@ -60,7 +60,7 @@ const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
 export class AntigravityAdapter implements AgentAdapter {
   // agy supports `--conversation`, but Karst has no Antigravity hook/channel
   // that can capture an interactive conversation id yet.
-  readonly capabilities: AgentCapabilities = { httpHooks: false, resume: false };
+  readonly capabilities: AgentCapabilities = { lifecycleEvents: false, resume: false };
   readonly requiredBinary = AGY_BIN;
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -68,7 +68,7 @@ export class AntigravityAdapter implements AgentAdapter {
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
     const args: string[] = [];
 
-    // agy doesn't have an exact --settings equivalent for HTTP hooks yet (we set httpHooks: false).
+    // agy does not yet expose a lifecycle channel Karst can normalize.
 
     if (opts.resume && opts.resume.length > 0) {
       args.push('--conversation', opts.resume);
@@ -91,7 +91,7 @@ export class AntigravityAdapter implements AgentAdapter {
     const solo = opts.soloAgent;
     if (solo) assertSafeAgentName(solo.name);
     if (artifacts.length === 0 && !hasWorkflow && !solo) {
-      return { extraArgs: [] };
+      return { extraArgs: [], ownedPaths: [] };
     }
     if (opts.pkg.id === KARST_PLUGIN_NAME) {
       throw new Error(`materializeApproach: approach id "${KARST_PLUGIN_NAME}" is reserved`);
@@ -142,8 +142,9 @@ export class AntigravityAdapter implements AgentAdapter {
       writeFileSync(dest, solo.body);
     }
 
+    let karstDir: string | undefined;
     if (hasWorkflow) {
-      const karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
+      karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
       const skillDir = join(karstDir, 'skills', opts.pkg.id);
       mkdirSync(skillDir, { recursive: true });
       writeFileSync(
@@ -171,7 +172,11 @@ export class AntigravityAdapter implements AgentAdapter {
 
     // Sessions launch with `cwd === sessionDir`, so Antigravity discovers this
     // workspace plugin without an additional `--add-dir`.
-    return { extraArgs: [] };
+    return {
+      extraArgs: [],
+      ownedPaths: [pluginDir, ...(karstDir ? [karstDir] : [])],
+      ...(hasWorkflow ? { invocation: `$${opts.pkg.id}` } : {}),
+    };
   }
 
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {

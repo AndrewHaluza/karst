@@ -8,7 +8,7 @@ import type { AnalyzeServiceInput } from './analyze.js';
 function fakeAdapter(raw: string): AgentAdapter {
   return {
     requiredBinary: 'claude',
-    capabilities: { httpHooks: false, resume: false },
+    capabilities: { lifecycleEvents: false, resume: false },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
     async runHeadless(): Promise<HeadlessResult> {
       return { sessionId: 's1', verdict: null, raw };
@@ -22,7 +22,7 @@ function capturingAdapter(raw: string): { adapter: AgentAdapter; prompts: string
     prompts,
     adapter: {
       requiredBinary: 'claude',
-      capabilities: { httpHooks: false, resume: false },
+      capabilities: { lifecycleEvents: false, resume: false },
       buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
       async runHeadless(opts): Promise<HeadlessResult> {
         prompts.push(opts.prompt);
@@ -35,7 +35,7 @@ function capturingAdapter(raw: string): { adapter: AgentAdapter; prompts: string
 function rejectingAdapter(): AgentAdapter {
   return {
     requiredBinary: 'claude',
-    capabilities: { httpHooks: false, resume: false },
+    capabilities: { lifecycleEvents: false, resume: false },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
     runHeadless: () => Promise.reject(new Error('agent unavailable')),
   };

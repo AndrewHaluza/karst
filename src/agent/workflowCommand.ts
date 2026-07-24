@@ -98,7 +98,7 @@ export function renderWorkflowCommand(input: {
       'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
       'what is being asked before proceeding.';
   const lines: string[] = [
-    `# /${KARST_PLUGIN_NAME}:${orchestratorCommandBasename(id)} — ${label}`,
+    `# ${label}`,
     '',
     loadInstruction,
     '',

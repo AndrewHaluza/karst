@@ -160,6 +160,13 @@ export const AGENT_CLI_DEPENDENCIES: Partial<Record<AgentProvider, RequiredDepen
       "Install Claude Code (https://docs.claude.com/claude-code) so the 'claude' command is on your PATH, then reload the window.",
     enables: 'sessions',
   },
+  codex: {
+    binary: 'codex',
+    label: 'the OpenAI Codex CLI',
+    install:
+      "Install the Codex CLI from https://developers.openai.com/codex/cli so the 'codex' command is on your PATH, then reload the window.",
+    enables: 'sessions',
+  },
   antigravity: {
     binary: 'agy',
     label: 'the Antigravity CLI (agy)',

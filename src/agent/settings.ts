@@ -27,19 +27,20 @@ const HTTP_EVENTS = [
  * No `async` flag: HTTP hooks are inherently non-blocking; the endpoint just
  * returns a fast 2xx (T0.2 finding 2).
  */
-export function buildHookSettings(port: number): string {
-  // A session reads --settings once, at launch, and never again: whatever port is
-  // baked in here is the only one it will ever POST to. Port 0 ("endpoint not
-  // bound yet") would write http://127.0.0.1:0/hooks and every hook of that
-  // session's life would ECONNREFUSE. Refuse to launch instead.
-  if (!Number.isInteger(port) || port <= 0) {
-    throw new Error(`karst: refusing to write hook settings for unbound port ${port}`);
+export function buildHookSettings(endpointUrl: string): string {
+  const parsed = new URL(endpointUrl);
+  if (
+    parsed.protocol !== 'http:' ||
+    parsed.hostname !== '127.0.0.1' ||
+    parsed.port === '' ||
+    parsed.port === '0'
+  ) {
+    throw new Error(`karst: refusing non-loopback hook endpoint ${endpointUrl}`);
   }
-  const url = hookUrl(port);
-  const httpHook = { type: 'http', url, timeout: 10 };
+  const httpHook = { type: 'http', url: endpointUrl, timeout: 10 };
   const bridgeHook = {
     type: 'command',
-    command: `curl -s -m 5 -X POST -H 'Content-Type: application/json' --data-binary @- '${url}' >/dev/null 2>&1`,
+    command: `curl -s -m 5 -X POST -H 'Content-Type: application/json' --data-binary @- '${endpointUrl}' >/dev/null 2>&1`,
   };
 
   const hooks: Record<string, unknown> = {
@@ -63,8 +64,9 @@ export function buildHookSettings(port: number): string {
  * host, which then drove the ticket and opened terminals in the wrong window.
  * Keying by port makes each window's file its own, and stable across relaunches.
  */
-export function writeHookSettings(port: number, dir: string): string {
+export function writeHookSettings(endpointUrl: string, dir: string): string {
+  const port = new URL(endpointUrl).port;
   const path = join(dir, `karst-hooks.${port}.settings.json`);
-  writeFileSync(path, buildHookSettings(port));
+  writeFileSync(path, buildHookSettings(endpointUrl));
   return path;
 }

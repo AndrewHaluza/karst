@@ -6,7 +6,7 @@ import type { AgentAdapter, HeadlessResult } from '../../agent/adapter.js';
 function fakeAdapter(raw: string): AgentAdapter {
   return {
     requiredBinary: 'claude',
-    capabilities: { httpHooks: false, resume: false },
+    capabilities: { lifecycleEvents: false, resume: false },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
     async runHeadless(): Promise<HeadlessResult> {
       return { sessionId: 's1', verdict: null, raw };
@@ -17,7 +17,7 @@ function fakeAdapter(raw: string): AgentAdapter {
 function rejectingAdapter(): AgentAdapter {
   return {
     requiredBinary: 'claude',
-    capabilities: { httpHooks: false, resume: false },
+    capabilities: { lifecycleEvents: false, resume: false },
     buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
     runHeadless: () => Promise.reject(new Error('agent unavailable')),
   };

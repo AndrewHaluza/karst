@@ -38,7 +38,7 @@ baselineBranch: develop
 # workspace root — e.g. ./frontend) or 'absolute'.
 worktreePathDisplay: relative
 
-# Which coding-agent CLI karst launches sessions with: 'claude' (default), 'codex', or 'antigravity'.
+# Agent CLI used for sessions: claude, codex, or antigravity.
 agentProvider: claude
 
 repositories:

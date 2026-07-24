@@ -54,8 +54,12 @@ describe('buildSettingsState', () => {
     expect(buildSettingsState(M, null, [], true).tokenConfigured).toBe(true);
   });
 
-  it('defaults implementedProviders to claude and antigravity', () => {
-    expect(buildSettingsState(M).implementedProviders).toEqual(['claude', 'antigravity']);
+  it('defaults implementedProviders to all usable providers', () => {
+    expect(buildSettingsState(M).implementedProviders).toEqual([
+      'claude',
+      'codex',
+      'antigravity',
+    ]);
   });
 
   it('carries implementedProviders when provided', () => {

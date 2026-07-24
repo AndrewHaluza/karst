@@ -57,7 +57,6 @@ describe('direct approach launch path (integration)', () => {
       // 3. Build the real interactive command and assert the seed rides through.
       const cmd = new ClaudeAdapter().buildInteractiveCommand({
         cwd: '/wt/acme-42',
-        settingsPath: '/tmp/hooks.json',
         ...(seed ? { initialPrompt: seed } : {}),
       });
 

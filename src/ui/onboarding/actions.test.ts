@@ -53,7 +53,7 @@ function fakeProvider(over: Partial<TicketingProvider> = {}): TicketingProvider 
 function fakeAdapter(): AgentAdapter {
   return {
     requiredBinary: 'claude',
-    capabilities: { httpHooks: false, resume: false },
+    capabilities: { lifecycleEvents: false, resume: false },
     buildInteractiveCommand: () => ({ command: 'c', args: [], env: {} }),
     runHeadless: vi.fn(async () => ({ sessionId: 's', verdict: null, raw: '["x","y"]' })),
   };

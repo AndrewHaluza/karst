@@ -13,7 +13,7 @@ export interface RunHeadlessOpts {
   allowedTools?: string[];
   permissionMode?: string;
   resume?: string; // session_id to continue
-  settingsPath?: string; // registers the HTTP hook, scoped to our sessions
+  model?: string;
 }
 
 export interface HeadlessResult {
@@ -24,7 +24,7 @@ export interface HeadlessResult {
 
 export interface InteractiveCommandOpts {
   cwd: string;
-  settingsPath?: string; // registers the HTTP hook, scoped to our sessions
+  hookChannel?: HookChannel;
   resume?: string; // session_id to --resume an interrupted interactive session (§5.3)
   initialPrompt?: string; // seed prompt for the session (e.g. an approach entrypoint)
   model?: string; // resolved launch model id (§ model selection); omitted → agent CLI default
@@ -33,6 +33,11 @@ export interface InteractiveCommandOpts {
    * `--plugin-dir <dir>`). Opaque to the launcher; appended by the adapter.
    */
   extraArgs?: string[];
+}
+
+export interface HookChannel {
+  endpointUrl: string;
+  configDir: string;
 }
 
 /**
@@ -96,16 +101,22 @@ export interface MaterializablePackage {
 export interface Materialized {
   /** Extra CLI args to append (e.g. `--plugin-dir <dir>`). */
   extraArgs: string[];
+  /** Native agent invocation for the generated workflow, when one exists. */
+  invocation?: string;
+  /** Exact runtime paths created by the adapter and safe to remove on close. */
+  ownedPaths: string[];
 }
 
 export interface InteractiveCommand {
   command: string;
   args: string[];
   env: Record<string, string>;
+  /** Exact runtime paths generated while building this command. */
+  ownedPaths?: string[];
 }
 
 export interface AgentCapabilities {
-  httpHooks: boolean;
+  lifecycleEvents: boolean;
   resume: boolean;
 }
 

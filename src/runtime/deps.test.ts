@@ -45,8 +45,9 @@ describe('agentDependency', () => {
   it('falls back to a generic entry for a provider without confirmed docs', () => {
     const dep = agentDependency('codex');
     expect(dep.binary).toBe('codex');
-    expect(dep.label).toBe('the codex CLI');
-    expect(dep.install).toContain("'codex' is on your PATH");
+    expect(dep.label).toBe('the OpenAI Codex CLI');
+    expect(dep.install).toMatch(/openai\.com|developers\.openai\.com/);
+    expect(AGENT_CLI_DEPENDENCIES.codex).toEqual(dep);
   });
 
   // Guard against binary-name drift: the dependency check must probe the SAME

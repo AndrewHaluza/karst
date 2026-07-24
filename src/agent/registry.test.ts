@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { resolveAdapter, IMPLEMENTED_PROVIDERS } from './registry.js';
 import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
+import { CodexAdapter } from './codex.js';
 
 describe('resolveAdapter', () => {
   it('resolves claude to a ClaudeAdapter instance', () => {
@@ -12,13 +13,17 @@ describe('resolveAdapter', () => {
     expect(resolveAdapter('antigravity')).toBeInstanceOf(AntigravityAdapter);
   });
 
-  it('falls back to ClaudeAdapter for an unimplemented provider (codex)', () => {
-    expect(resolveAdapter('codex')).toBeInstanceOf(ClaudeAdapter);
+  it('resolves codex to a CodexAdapter instance', () => {
+    expect(resolveAdapter('codex')).toBeInstanceOf(CodexAdapter);
   });
 });
 
 describe('IMPLEMENTED_PROVIDERS', () => {
-  it('lists claude and antigravity', () => {
-    expect(IMPLEMENTED_PROVIDERS).toEqual(['claude', 'antigravity']);
+  it('lists every usable provider in stable UI order', () => {
+    expect(IMPLEMENTED_PROVIDERS).toEqual([
+      'claude',
+      'codex',
+      'antigravity',
+    ]);
   });
 });

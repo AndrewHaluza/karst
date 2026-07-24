@@ -16,9 +16,10 @@ const rpiPhases: WorkflowPhase[] = [
 ];
 
 describe('renderWorkflowCommand', () => {
-  it('titles the command /karst:<id>', () => {
+  it('uses a provider-neutral title', () => {
     const body = renderWorkflowCommand({ id: 'rpi', label: 'Research, Plan, Implement', phases: rpiPhases });
-    expect(body).toContain('/karst:rpi');
+    expect(body).toContain('# Research, Plan, Implement');
+    expect(body).not.toContain('/karst:rpi');
     expect(body).not.toContain('/rpi:karst');
     expect(body).toContain('Research, Plan, Implement');
   });
@@ -123,7 +124,7 @@ describe('renderWorkflowCommand', () => {
       });
       expect(body).toBe(
         [
-          '# /karst:rpi — Research, Plan, Implement',
+          '# Research, Plan, Implement',
           '',
           'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
             'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
