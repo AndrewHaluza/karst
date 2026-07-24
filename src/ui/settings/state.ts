@@ -49,7 +49,7 @@ export function buildSettingsState(
   error: string | null = null,
   installedIds: string[] = [],
   tokenConfigured = false,
-  implementedProviders: AgentProvider[] = ['claude'],
+  implementedProviders: AgentProvider[] = ['claude', 'antigravity'],
   agents: SettingsAgentRow[] = [],
   approachCommands: Record<string, string[]> = {},
 ): SettingsState {

@@ -3,7 +3,7 @@ import { getTicket } from '../../store/tickets.js';
 import type { Manifest, ApproachDef, TicketProvider } from '../../manifest/types.js';
 import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
-import { KNOWN_MODELS, type ModelOption } from '../../agent/models.js';
+import { modelsForProvider, type ModelOption } from '../../agent/models.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { isRunnable } from '../../manifest/runnable.js';
@@ -179,7 +179,7 @@ export function buildOnboardingState(
       selectedApproach: defaultApproach(approaches),
       agents,
       selectedAgent: null,
-      models: [...KNOWN_MODELS],
+      models: [...modelsForProvider(manifest.agentProvider ?? 'claude')],
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
       sessionOpen: false, // create mode has no ticket → nothing to lock
@@ -214,7 +214,7 @@ export function buildOnboardingState(
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
     agents,
     selectedAgent: ticket.agent ?? null,
-    models: [...KNOWN_MODELS],
+    models: [...modelsForProvider(manifest.agentProvider ?? 'claude')],
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
     sessionOpen: isSessionOpen(ticketId),

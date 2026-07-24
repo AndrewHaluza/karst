@@ -24,7 +24,7 @@ import { renderFixBrief } from './agent/fixBrief.js';
 import { countFixAttempts, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow/fixAttempts.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
-import { resolveModel } from './agent/models.js';
+import { resolveModelForProvider } from './agent/models.js';
 import {
   renderTicketLabel,
   DEFAULT_TERMINAL_NAME_TEMPLATE,
@@ -1246,7 +1246,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resolve the launch model: the ticket's own model wins, else the manifest
       // default, else undefined (let the agent CLI pick). Threaded as `--model`.
-      const model = resolveModel(t.model, currentManifest()?.defaultModel);
+      const model = resolveModelForProvider(
+        currentManifest()?.agentProvider ?? 'claude',
+        t.model,
+        currentManifest()?.defaultModel,
+      );
 
       // Terminal name/icon/color are frozen at creation, so resolve the ticket's
       // glyph ONCE here: the color is the stage-at-launch, and the template keeps

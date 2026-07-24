@@ -1,12 +1,14 @@
 import type { AgentProvider } from '../manifest/types.js';
 import type { AgentAdapter } from './adapter.js';
 import { ClaudeAdapter } from './claude.js';
+import { AntigravityAdapter } from './antigravity.js';
 
 /** Providers with a working adapter today. Used to gate the settings UI. */
-export const IMPLEMENTED_PROVIDERS: readonly AgentProvider[] = ['claude'];
+export const IMPLEMENTED_PROVIDERS: readonly AgentProvider[] = ['claude', 'antigravity'];
 
 const FACTORIES: Partial<Record<AgentProvider, () => AgentAdapter>> = {
   claude: () => new ClaudeAdapter(),
+  antigravity: () => new AntigravityAdapter(),
 };
 
 /**

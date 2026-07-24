@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { KNOWN_MODELS, resolveModel } from './models.js';
+import {
+  KNOWN_MODELS,
+  modelsForProvider,
+  resolveModel,
+  resolveModelForProvider,
+} from './models.js';
 
 describe('KNOWN_MODELS', () => {
   it('offers the curated launch models with stable ids', () => {
@@ -9,6 +14,17 @@ describe('KNOWN_MODELS', () => {
       'claude-sonnet-5',
       'claude-haiku-4-5',
       'claude-fable-5',
+      'gemini-3.6-flash-high',
+      'gemini-3.6-flash-medium',
+      'gemini-3.6-flash-low',
+      'gemini-3.5-flash-high',
+      'gemini-3.5-flash-medium',
+      'gemini-3.5-flash-low',
+      'gemini-3.1-pro-high',
+      'gemini-3.1-pro-low',
+      'claude-sonnet-4-6',
+      'claude-opus-4-6-thinking',
+      'gpt-oss-120b-medium',
     ]);
   });
 
@@ -16,6 +32,19 @@ describe('KNOWN_MODELS', () => {
     for (const m of KNOWN_MODELS) {
       expect(m.label.length).toBeGreaterThan(0);
     }
+  });
+
+  it('filters launch models by agent provider', () => {
+    expect(modelsForProvider('claude').map((m) => m.id)).toEqual([
+      'claude-opus-4-8',
+      'claude-sonnet-5',
+      'claude-haiku-4-5',
+      'claude-fable-5',
+    ]);
+    expect(modelsForProvider('antigravity').map((m) => m.id)).toContain(
+      'gemini-3.6-flash-high',
+    );
+    expect(modelsForProvider('antigravity').map((m) => m.id)).not.toContain('claude-opus-4-8');
   });
 });
 
@@ -38,5 +67,19 @@ describe('resolveModel', () => {
 
   it('treats a blank default as unset', () => {
     expect(resolveModel(null, '   ')).toBeUndefined();
+  });
+});
+
+describe('resolveModelForProvider', () => {
+  it('skips a ticket model known to belong to another provider', () => {
+    expect(
+      resolveModelForProvider('antigravity', 'claude-opus-4-8', 'gemini-3.6-flash-high'),
+    ).toBe('gemini-3.6-flash-high');
+  });
+
+  it('preserves unknown custom model ids', () => {
+    expect(resolveModelForProvider('antigravity', 'custom-preview-model', undefined)).toBe(
+      'custom-preview-model',
+    );
   });
 });

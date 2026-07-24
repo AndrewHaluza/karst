@@ -1034,6 +1034,15 @@ describe('agentProvider', () => {
     }
   });
 
+  it("preserves an explicit 'antigravity' setting", () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentProvider: antigravity\n`);
+    try {
+      expect(loadManifest(path).agentProvider).toBe('antigravity');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('throws on an invalid value', () => {
     const { path, cleanup } = fixture(`${VALID}\nagentProvider: gpt\n`);
     try {

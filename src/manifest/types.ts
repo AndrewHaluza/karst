@@ -141,7 +141,7 @@ export type WorktreePathDisplay = 'absolute' | 'relative';
 export type TicketProvider = 'clickup' | 'manual';
 
 /** Which coding-agent CLI karst launches sessions with. */
-export type AgentProvider = 'claude' | 'codex';
+export type AgentProvider = 'claude' | 'codex' | 'antigravity';
 
 /**
  * Ticketing integration config (§15). `provider` selects the backend;

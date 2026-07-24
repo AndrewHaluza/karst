@@ -34,6 +34,14 @@ describe('agentDependency', () => {
     expect(AGENT_CLI_DEPENDENCIES.claude).toEqual(dep);
   });
 
+  it('returns the confirmed antigravity entry', () => {
+    const dep = agentDependency('antigravity');
+    expect(dep.binary).toBe('agy');
+    expect(dep.label).toBe('the Antigravity CLI (agy)');
+    expect(dep.install).toMatch(/Antigravity CLI/);
+    expect(AGENT_CLI_DEPENDENCIES.antigravity).toEqual(dep);
+  });
+
   it('falls back to a generic entry for a provider without confirmed docs', () => {
     const dep = agentDependency('codex');
     expect(dep.binary).toBe('codex');
@@ -45,6 +53,10 @@ describe('agentDependency', () => {
   // binary the launcher spawns, else the checklist reports a false present/missing.
   it('probes the same binary the claude adapter launches', () => {
     expect(agentDependency('claude').binary).toBe(resolveAdapter('claude').requiredBinary);
+  });
+
+  it('probes the same binary the antigravity adapter launches', () => {
+    expect(agentDependency('antigravity').binary).toBe(resolveAdapter('antigravity').requiredBinary);
   });
 });
 
