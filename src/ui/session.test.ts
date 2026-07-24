@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SessionManager, type TerminalHost, type FakeTerminal } from './session.js';
+import {
+  continueSessionInBackground,
+  SessionManager,
+  type TerminalHost,
+  type FakeTerminal,
+} from './session.js';
 import type { AgentAdapter, InteractiveCommandOpts } from '../agent/adapter.js';
 
 /** Records the interactive command built, so the test can assert on it. */
@@ -166,7 +171,7 @@ describe('SessionManager', () => {
     mgr.openSession(adapter, 1, '/wt/a');
     mgr.openSession(adapter, 1, '/wt/a');
     expect(terminals).toHaveLength(1);
-    expect(terminals[0]!.shown).toBeGreaterThanOrEqual(1);
+    expect(terminals[0]!.shown).toBe(2);
   });
 
   it('separate tickets get separate terminals', () => {
@@ -188,7 +193,7 @@ describe('SessionManager', () => {
     expect(terminals[0]!.shown).toBe(before + 1);
   });
 
-  it('nudge types a prompt into the live terminal and reveals it', () => {
+  it('nudge types a prompt without revealing the IDE terminal', () => {
     // The gate now runs while the session is still open, so a failed gate has to
     // reach the agent that is already sitting at its prompt — openSession would
     // only focus the terminal and drop the brief on the floor.
@@ -200,7 +205,70 @@ describe('SessionManager', () => {
 
     expect(mgr.nudge(1, 'review failed: lint')).toBe(true);
     expect(terminals[0]!.sent).toEqual(['review failed: lint']);
-    expect(terminals[0]!.shown).toBe(before + 1);
+    expect(terminals[0]!.shown).toBe(before);
+  });
+
+  it('can launch an automated continuation without revealing the IDE terminal', () => {
+    const { adapter } = fakeAdapter('codex');
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(
+      adapter,
+      1,
+      '/wt/a',
+      undefined,
+      'continue',
+      undefined,
+      undefined,
+      'session-1',
+      undefined,
+      [],
+      { reveal: false },
+    );
+
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]!.shown).toBe(0);
+  });
+
+  it('keeps an automated re-open of an existing terminal in the background', () => {
+    const { adapter } = fakeAdapter('codex');
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 1, '/wt/a');
+
+    mgr.openSession(
+      adapter,
+      1,
+      '/wt/a',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      { reveal: false },
+    );
+
+    expect(terminals[0]!.shown).toBe(1);
+  });
+
+  it('opens a closed automated continuation with reveal disabled', () => {
+    const open = vi.fn();
+    const sessions = { nudge: vi.fn(() => false) };
+
+    expect(continueSessionInBackground(sessions, open, 7, 'fix it')).toBe(false);
+    expect(open).toHaveBeenCalledWith(7, { reveal: false });
+  });
+
+  it('nudges a live automated continuation without opening another session', () => {
+    const open = vi.fn();
+    const sessions = { nudge: vi.fn(() => true) };
+
+    expect(continueSessionInBackground(sessions, open, 7, 'fix it')).toBe(true);
+    expect(sessions.nudge).toHaveBeenCalledWith(7, 'fix it');
+    expect(open).not.toHaveBeenCalled();
   });
 
   it('nudge sends one line — a newline would submit the prompt half-typed', () => {

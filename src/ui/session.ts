@@ -54,6 +54,17 @@ export type CleanupOwnedPaths = (
   ownedPaths: readonly string[],
 ) => void;
 
+export function continueSessionInBackground(
+  sessions: Pick<SessionManager, 'nudge'>,
+  open: (ticketId: number, options: { reveal: false }) => void,
+  ticketId: number,
+  prompt: string,
+): boolean {
+  if (sessions.nudge(ticketId, prompt)) return true;
+  open(ticketId, { reveal: false });
+  return false;
+}
+
 /**
  * Collapse a prompt to a single line. A terminal line ends at the newline: the
  * agent's REPL reads each one as a separate submit, so a multi-line prompt would
@@ -109,10 +120,11 @@ export class SessionManager {
     resume?: string,
     naming?: { name: string; iconPath?: string; color?: string },
     ownedPaths: string[] = [],
+    options: { reveal?: boolean } = {},
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
-      existing.show();
+      if (options.reveal !== false) existing.show();
       return;
     }
 
@@ -144,11 +156,11 @@ export class SessionManager {
       }
     });
     this.terminals.set(ticketId, terminal);
-    terminal.show();
+    if (options.reveal !== false) terminal.show();
   }
 
   /**
-   * Send a prompt to a session that is ALREADY open, and reveal it. Returns
+   * Send a prompt to a session that is ALREADY open without revealing it. Returns
    * false when the ticket has no live terminal, so the caller can fall back to
    * `openSession` instead of silently dropping the prompt.
    *
@@ -162,7 +174,6 @@ export class SessionManager {
     const terminal = this.terminals.get(ticketId);
     if (!terminal) return false;
     terminal.sendText(toSingleLine(prompt));
-    terminal.show();
     return true;
   }
 

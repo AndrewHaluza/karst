@@ -11,6 +11,7 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
+  continueSessionInBackground,
   SessionManager,
   type TerminalHost,
   type SessionTerminal,
@@ -879,10 +880,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   //
   // Two ways in, because gates now run WHILE the session is open (the marker, not
   // the terminal, says the work is done). If that session is still live, the agent
-  // is sitting at its prompt: `openSession` would only focus the terminal and drop
-  // the brief on the floor, so nudge it instead. Only a closed session gets a fresh
-  // (--resume) launch. The marker rides along either way — the live session was
-  // seeded the IMPL marker, and firing that at fix would move the wrong stage.
+  // is sitting at its prompt: `openSession` would drop the brief on the floor, so
+  // nudge it instead. Only a closed session gets a fresh background (--resume)
+  // launch. Neither path reveals the IDE. The marker rides along either way —
+  // the live session was seeded the IMPL marker, and firing that at fix would
+  // move the wrong stage.
   //
   // Capped: an unfixable ticket would otherwise loop fix→review→fix forever,
   // burning tokens with no human ever looking. At the cap the ticket stays parked
@@ -906,12 +908,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       buildCliStagePrefix(context, dbPath, 'fix'),
       t.key ?? String(ticketId),
     );
-    if (sessions.nudge(ticketId, `${brief}\n\n${marker}`)) {
+    const nudged = continueSessionInBackground(
+      sessions,
+      (id, options) => {
+        void vscode.commands.executeCommand('karst.openSession', id, options);
+      },
+      ticketId,
+      `${brief}\n\n${marker}`,
+    );
+    if (nudged) {
       logger.info(`stage driver: ticket ${ticketId} → nudged live session to fix (attempt ${attempts})`);
       return;
     }
     logger.info(`stage driver: ticket ${ticketId} → resuming agent to fix (attempt ${attempts})`);
-    void vscode.commands.executeCommand('karst.openSession', ticketId);
   }
 
   // The §5.4-safe driver nudge, from any trigger: the explicit marker (or a prior
@@ -1058,10 +1067,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.openDashboard(ticketId);
       showStatusFor(ticketId);
     }),
-    vscode.commands.registerCommand('karst.openSession', (arg: unknown) => {
-      const ticketId = ticketIdArg(arg);
-      if (ticketId === undefined) return;
-      const adapter = currentAgentAdapter();
+    vscode.commands.registerCommand(
+      'karst.openSession',
+      (arg: unknown, options: { reveal?: boolean } = {}) => {
+        const ticketId = ticketIdArg(arg);
+        if (ticketId === undefined) return;
+        const adapter = currentAgentAdapter();
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!guardCapability('sessions')) return;
@@ -1288,20 +1299,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         color: glyphThemeColorKey(glyph),
       };
 
-      sessions.openSession(
-        adapter,
-        ticketId,
-        wt.path,
-        { key: t.key, title: t.title },
-        seedPrompt,
-        extraArgs,
-        model,
-        resumeId,
-        naming,
-        materialized.ownedPaths,
-      );
-      showStatusFor(ticketId);
-    }),
+        sessions.openSession(
+          adapter,
+          ticketId,
+          wt.path,
+          { key: t.key, title: t.title },
+          seedPrompt,
+          extraArgs,
+          model,
+          resumeId,
+          naming,
+          materialized.ownedPaths,
+          options,
+        );
+        showStatusFor(ticketId);
+      },
+    ),
     vscode.commands.registerCommand('karst.spinTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
