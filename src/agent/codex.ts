@@ -133,7 +133,7 @@ process.stdin.on('end', () => {
   const req = http.request({
     hostname: target.hostname,
     port: target.port,
-    path: target.pathname,
+    path: target.pathname + target.search,
     method: 'POST',
     headers: {
       'content-type': 'application/json',

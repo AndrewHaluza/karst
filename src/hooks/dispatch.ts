@@ -20,10 +20,16 @@ export interface HookPayload {
   session_id?: string;
   message?: string;
   notification_type?: string;
+  /** Endpoint-derived launch generation; never trusted from the JSON body. */
+  launchId?: string;
 }
 
 /** Called after a mutation so views (sidebar + dashboard) can refresh (§14). */
-export type NotifyTicket = (ticketId: number) => void;
+export type NotifyTicket = (ticketId: number, payload: HookPayload) => void;
+export type ShouldApplyHookState = (
+  ticketId: number,
+  payload: HookPayload,
+) => boolean;
 
 /**
  * Narrow untrusted JSON to a HookPayload — the hook body is external input, so
@@ -105,10 +111,15 @@ export function dispatchHook(
   store: Store,
   payload: HookPayload,
   notify?: NotifyTicket,
+  shouldApplyState?: ShouldApplyHookState,
 ): void {
   if (!payload.cwd) return;
   const ticketId = ticketIdForWorktreePath(store, payload.cwd);
   if (ticketId === null) return;
+  // Generation ownership guards every lifecycle mutation, including session_id.
+  // Checking only before agent_state let a rejected stale SessionStart replace
+  // the current conversation id even though its running state was ignored.
+  if (shouldApplyState && !shouldApplyState(ticketId, payload)) return;
 
   // Persist the session on its first event so resume (§5.3) has a target. Only
   // SessionStart carries the authoritative id for a fresh session; later events
@@ -121,5 +132,5 @@ export function dispatchHook(
   if (state === null) return;
 
   setAgentState(store, ticketId, state);
-  notify?.(ticketId);
+  notify?.(ticketId, payload);
 }

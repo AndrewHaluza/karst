@@ -22,7 +22,8 @@ describe('sweepHookSettings', () => {
 
   it('removes hook-settings files older than the cutoff', () => {
     seed('karst-hooks.4000.settings.json', 30);
-    expect(sweepHookSettings(dir, 7)).toBe(1);
+    seed('karst-hooks.4000.a1b2c3d4e5f60718.settings.json', 30);
+    expect(sweepHookSettings(dir, 7)).toBe(2);
     expect(readdirSync(dir)).toEqual([]);
   });
 

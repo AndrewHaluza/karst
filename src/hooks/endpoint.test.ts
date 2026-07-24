@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
-import { startHookEndpoint, type HookEndpoint } from './endpoint.js';
+import {
+  parseHookRequestTarget,
+  startHookEndpoint,
+  type HookEndpoint,
+} from './endpoint.js';
+import { connect } from 'node:net';
 
 async function post(url: string, body: unknown): Promise<number> {
   const res = await fetch(url, {
@@ -11,6 +16,28 @@ async function post(url: string, body: unknown): Promise<number> {
   });
   await res.text();
   return res.status;
+}
+
+async function rawRequest(port: number, target: string): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    let response = '';
+    socket.setEncoding('utf8');
+    socket.on('connect', () => {
+      socket.write(
+        `POST ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{}`,
+      );
+    });
+    socket.on('data', (chunk) => {
+      response += chunk;
+    });
+    socket.on('end', () => {
+      const match = /^HTTP\/1\.1 (\d{3})/.exec(response);
+      if (!match) reject(new Error(`missing HTTP status in ${response}`));
+      else resolve(Number(match[1]));
+    });
+    socket.on('error', reject);
+  });
 }
 
 describe('startHookEndpoint', () => {
@@ -78,6 +105,55 @@ describe('startHookEndpoint', () => {
     expect(status).toBeGreaterThanOrEqual(200);
     expect(status).toBeLessThan(300);
     expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('derives the launch generation from the endpoint URL, not hook JSON', async () => {
+    ep.close();
+    let observedLaunch: string | undefined;
+    ep = await startHookEndpoint(store, 0, (_ticketId, payload) => {
+      observedLaunch = payload.launchId;
+    });
+    ticketAt();
+
+    const launchId = '123e4567-e89b-42d3-a456-426614174000';
+    await post(`${ep.url}?karstLaunch=${launchId}`, {
+      hook_event_name: 'SessionStart',
+      cwd: WT,
+      launchId: 'forged-body-value',
+    });
+
+    expect(observedLaunch).toBe(launchId);
+  });
+
+  it('rejects malformed request targets without dispatching', async () => {
+    const id = ticketAt();
+    expect(parseHookRequestTarget('http://[')).toEqual({
+      kind: 'bad-request',
+    });
+    expect(await rawRequest(ep.port, '/hooks?karstLaunch=%')).toBe(400);
+    expect(getTicket(store, id).agentState).toBe('none');
+  });
+
+  it('returns 404 for POSTs outside the hook path', async () => {
+    const id = ticketAt();
+    expect(
+      await post(`${ep.url.replace('/hooks', '/not-hooks')}`, {
+        hook_event_name: 'SessionStart',
+        cwd: WT,
+      }),
+    ).toBe(404);
+    expect(getTicket(store, id).agentState).toBe('none');
+  });
+
+  it('rejects a malformed launch generation without dispatching', async () => {
+    const id = ticketAt();
+    expect(
+      await post(`${ep.url}?karstLaunch=not-a-uuid`, {
+        hook_event_name: 'SessionStart',
+        cwd: WT,
+      }),
+    ).toBe(400);
+    expect(getTicket(store, id).agentState).toBe('none');
   });
 
   it('a malformed body returns 2xx and does not crash the endpoint', async () => {
