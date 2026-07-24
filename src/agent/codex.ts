@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
 import {
+  accessSync,
+  constants,
   cpSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
@@ -34,6 +37,30 @@ const CODEX_HOOK_EVENTS = [
   'Stop',
   'SessionEnd',
 ] as const;
+
+export function resolveNodeExecutable(
+  pathValue = process.env.PATH ?? '',
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const separator = platform === 'win32' ? ';' : ':';
+  const executable = platform === 'win32' ? 'node.exe' : 'node';
+  for (const directory of pathValue.split(separator)) {
+    if (!directory) continue;
+    const candidate = join(directory, executable);
+    if (!existsSync(candidate)) continue;
+    if (platform !== 'win32') {
+      try {
+        accessSync(candidate, constants.X_OK);
+      } catch {
+        continue;
+      }
+    }
+    return candidate;
+  }
+  throw new Error(
+    'karst: Codex hooks require a standalone Node.js executable on PATH',
+  );
+}
 
 const CODEX_HOOK_BRIDGE = String.raw`const http = require('node:http');
 
@@ -144,7 +171,7 @@ function appendHookArgs(
   mkdirSync(bridgeDir, { recursive: true });
   writeFileSync(bridgePath, CODEX_HOOK_BRIDGE);
   const command = [
-    JSON.stringify(process.execPath),
+    JSON.stringify(resolveNodeExecutable()),
     JSON.stringify(bridgePath),
     JSON.stringify(endpointUrl),
   ].join(' ');

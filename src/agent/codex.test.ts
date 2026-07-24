@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   existsSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,6 +13,7 @@ import { dirname, join } from 'node:path';
 import {
   CodexAdapter,
   parseCodexJsonl,
+  resolveNodeExecutable,
   type SpawnHeadless,
 } from './codex.js';
 
@@ -144,6 +146,50 @@ describe('CodexAdapter interactive commands', () => {
     expect(
       overrides.some((value) => value.startsWith('hooks.PermissionRequest=')),
     ).toBe(true);
+  });
+
+  it('runs hook bridges with the standalone Node resolved from PATH', () => {
+    const cmd = new CodexAdapter().buildInteractiveCommand({
+      cwd: makeWorktree(),
+      hookChannel: {
+        endpointUrl: 'http://127.0.0.1:4567/hooks',
+        configDir: makeWorktree(),
+      },
+    });
+
+    const sessionStart = cmd.args.find((value) =>
+      value.startsWith('hooks.SessionStart='),
+    );
+    expect(sessionStart).toContain(
+      `command = "\\\"${resolveNodeExecutable()}\\\" `,
+    );
+  });
+});
+
+describe('resolveNodeExecutable', () => {
+  it('resolves and quotes a standalone Node executable from a path with spaces', () => {
+    const binDir = join(makeWorktree(), 'bin with spaces');
+    const nodePath = join(binDir, 'node');
+    mkdirSync(binDir);
+    writeFileSync(nodePath, '');
+    chmodSync(nodePath, 0o755);
+
+    expect(resolveNodeExecutable(binDir, 'darwin')).toBe(nodePath);
+  });
+
+  it('uses the Windows executable name and PATH separator', () => {
+    const first = makeWorktree();
+    const second = makeWorktree();
+    const nodePath = join(second, 'node.exe');
+    writeFileSync(nodePath, '');
+
+    expect(resolveNodeExecutable(`${first};${second}`, 'win32')).toBe(nodePath);
+  });
+
+  it('fails before launch when standalone Node is unavailable', () => {
+    expect(() => resolveNodeExecutable('', 'darwin')).toThrow(
+      /standalone Node\.js executable.*PATH/,
+    );
   });
 });
 
