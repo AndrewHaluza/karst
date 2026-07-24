@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
 import {
@@ -62,12 +63,32 @@ export function resolveNodeExecutable(
   );
 }
 
-const CODEX_HOOK_BRIDGE = String.raw`const http = require('node:http');
+const CODEX_HOOK_BRIDGE = String.raw`const fs = require('node:fs');
+const http = require('node:http');
+
+let eventName = 'unknown';
+const diagnosticsPath = process.argv[3];
+function logFailure(outcome) {
+  try {
+    if (!diagnosticsPath || fs.existsSync(diagnosticsPath) && fs.statSync(diagnosticsPath).size >= 64 * 1024) return;
+    fs.appendFileSync(diagnosticsPath, JSON.stringify({
+      at: new Date().toISOString(),
+      event: eventName,
+      outcome,
+    }) + '\n', { mode: 0o600 });
+  } catch {}
+}
 
 // A liveness hook is best-effort. It must never turn a missing/stale endpoint
 // (or malformed invocation) into a user-facing Codex hook failure.
-process.on('uncaughtException', () => process.exit(0));
-process.on('unhandledRejection', () => process.exit(0));
+process.on('uncaughtException', () => {
+  logFailure('uncaught-exception');
+  process.exit(0);
+});
+process.on('unhandledRejection', () => {
+  logFailure('unhandled-rejection');
+  process.exit(0);
+});
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -83,6 +104,7 @@ process.stdin.on('end', () => {
     process.exit(0);
   }
   const event = raw.hook_event_name;
+  if (typeof event === 'string') eventName = event.slice(0, 64);
   if (
     typeof event !== 'string' ||
     typeof raw.cwd !== 'string' ||
@@ -120,7 +142,10 @@ process.stdin.on('end', () => {
     timeout: 2000,
   });
   req.on('response', (res) => res.resume());
-  req.on('error', () => process.exit(0));
+  req.on('error', () => {
+    logFailure('request-error');
+    process.exit(0);
+  });
   req.on('timeout', () => req.destroy());
   req.end(payload);
 });
@@ -179,12 +204,21 @@ function appendHookArgs(
   }
   const bridgeDir = join(configDir, 'codex');
   const bridgePath = join(bridgeDir, 'bridge.cjs');
+  const diagnosticsPath = join(bridgeDir, 'hook-failures.jsonl');
   mkdirSync(bridgeDir, { recursive: true });
-  writeFileSync(bridgePath, CODEX_HOOK_BRIDGE);
+  const current = existsSync(bridgePath)
+    ? readFileSync(bridgePath, 'utf8')
+    : null;
+  if (current !== CODEX_HOOK_BRIDGE) {
+    const temporaryPath = `${bridgePath}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(temporaryPath, CODEX_HOOK_BRIDGE);
+    renameSync(temporaryPath, bridgePath);
+  }
   const command = [
     JSON.stringify(resolveNodeExecutable()),
     JSON.stringify(bridgePath),
     JSON.stringify(endpointUrl),
+    JSON.stringify(diagnosticsPath),
   ].join(' ');
   // Remove every inherited hook before installing the complete event set
   // below. This makes the trust bypass authorize only Karst-authored commands,
