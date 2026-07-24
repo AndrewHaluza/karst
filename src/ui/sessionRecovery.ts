@@ -15,7 +15,7 @@ export type RestoredSessionOpenResult =
   | { kind: 'not-open' }
   | { kind: 'closed' }
   | { kind: 'timed-out' }
-  | { kind: 'interrupted' }
+  | { kind: 'interrupted'; cleanupError?: unknown }
   | { kind: 'rejected'; error: unknown };
 
 type ReadinessResult = Extract<
@@ -274,6 +274,9 @@ export async function recoverSession(
     try {
       sessions.disposeSession(ticketId);
     } catch (error) {
+      if (outcome.kind === 'interrupted') {
+        return { ...outcome, cleanupError: error };
+      }
       // Retirement is best-effort cleanup after a recovery failure. Preserve
       // that failure as a result so the caller still applies its idle,
       // ownership-removal, persistence, logging, and UI-refresh fallback.

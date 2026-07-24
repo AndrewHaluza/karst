@@ -1689,7 +1689,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ).then(async (outcome) => {
       const disposition = recoveryOutcomeDisposition(outcome);
       if (disposition === 'ready') return;
-      if (disposition === 'retry-next-activation') return;
+      if (disposition === 'retry-next-activation') {
+        if (outcome.kind === 'interrupted' && outcome.cleanupError !== undefined) {
+          logError(
+            `session recovery interrupted cleanup failed for ticket ${ticketId}`,
+            outcome.cleanupError,
+          );
+        }
+        return;
+      }
       setAgentState(localStore, ticketId, 'idle');
       ownedSessionTickets.delete(ticketId);
       await persistOwnedSessionTickets();
