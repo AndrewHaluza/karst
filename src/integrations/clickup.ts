@@ -21,6 +21,8 @@ import { extractLinks, toIsoDate } from './briefFields.js';
  */
 
 const API_BASE = 'https://api.clickup.com/api/v2';
+/** Metadata is optional, so it must never delay a ticket brief indefinitely. */
+const RELATION_METADATA_TIMEOUT_MS = 5_000;
 
 /** Provider `fetch` — the global `fetch` signature, injected for testability. */
 export type FetchLike = typeof fetch;
@@ -85,6 +87,7 @@ interface RawTask {
   linked_tasks?: { task_id?: string }[];
   dependencies?: RawDependency[];
   list?: { name?: string };
+  subtasks?: RawTask[];
 }
 interface RawComments {
   comments?: { comment_text?: string; user?: { username?: string }; date?: string }[];
@@ -229,7 +232,35 @@ function parseRelations(task: RawTask): BriefRelation[] {
       out.push({ kind: 'blocks', ref: d.task_id });
     }
   }
+  for (const child of task.subtasks ?? []) {
+    if (
+      self &&
+      child.parent === self &&
+      typeof child.id === 'string' &&
+      child.id
+    ) {
+      const title = child.name?.trim();
+      const status = child.status?.status?.trim();
+      out.push({
+        kind: 'child',
+        ref: child.id,
+        ...(title ? { title } : {}),
+        ...(status ? { status } : {}),
+      });
+    }
+  }
   return out;
+}
+
+function taskQuery(teamId: string | undefined, includeSubtasks = false): string {
+  const query = new URLSearchParams();
+  if (teamId) {
+    query.set('custom_task_ids', 'true');
+    query.set('team_id', teamId);
+  }
+  if (includeSubtasks) query.set('include_subtasks', 'true');
+  const encoded = query.toString();
+  return encoded ? `?${encoded}` : '';
 }
 
 /** Normalize ClickUp's epoch-ms date fields to ISO, dropping absent ones. */
@@ -248,14 +279,19 @@ function parseTimestamps(task: RawTask): BriefTimestamps | undefined {
   return Object.keys(ts).length ? ts : undefined;
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Build a ClickUp provider bound to injected HTTP + token. */
 export function clickupProvider(deps: ClickupDeps): TicketingProvider {
-  async function getJson(url: string): Promise<unknown> {
+  async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
     const token = await deps.token();
     let res: Response;
     try {
       res = await deps.fetchFn(url, {
         headers: { Authorization: token, 'Content-Type': 'application/json' },
+        ...(signal ? { signal } : {}),
       });
     } catch (e) {
       throw new ClickupError(`request failed: ${(e as Error).message}`);
@@ -268,6 +304,42 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
     } catch (e) {
       throw new ClickupError(`invalid JSON from ${url}: ${(e as Error).message}`);
     }
+  }
+
+  async function enrichRelations(relations: BriefRelation[]): Promise<BriefRelation[]> {
+    const pending = new Map<string, Promise<unknown | undefined>>();
+
+    function metadata(ref: string): Promise<unknown | undefined> {
+      const existing = pending.get(ref);
+      if (existing) return existing;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), RELATION_METADATA_TIMEOUT_MS);
+      const request = getJson(
+        `${API_BASE}/task/${encodeURIComponent(ref)}`,
+        controller.signal,
+      )
+        .then((raw) => raw)
+        .catch(() => undefined)
+        .finally(() => clearTimeout(timeout));
+      pending.set(ref, request);
+      return request;
+    }
+
+    return Promise.all(
+      relations.map(async (relation) => {
+        if (relation.title && relation.status) return relation;
+        const task = await metadata(relation.ref);
+        if (!isObject(task)) return relation;
+        const title = relation.title ?? (typeof task.name === 'string' ? task.name.trim() : undefined);
+        const rawStatus = isObject(task.status) ? task.status.status : undefined;
+        const status = relation.status ?? (typeof rawStatus === 'string' ? rawStatus.trim() : undefined);
+        return {
+          ...relation,
+          ...(title ? { title } : {}),
+          ...(status ? { status } : {}),
+        };
+      }),
+    );
   }
 
   async function putJson(url: string, body: unknown): Promise<void> {
@@ -287,9 +359,6 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
     }
   }
 
-  const teamSuffix = deps.teamId ? `?custom_task_ids=true&team_id=${deps.teamId}` : '';
-  const commentSuffix = deps.teamId ? `?custom_task_ids=true&team_id=${deps.teamId}` : '';
-
   return {
     /**
      * Set a task's status. ClickUp takes the status NAME (`{status: "in review"}`),
@@ -297,7 +366,7 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
      * ticket key — see `advanceTicketOnShip`.
      */
     async updateStatus(ref: string, status: string): Promise<void> {
-      await putJson(`${API_BASE}/task/${encodeURIComponent(ref)}${teamSuffix}`, { status });
+      await putJson(`${API_BASE}/task/${encodeURIComponent(ref)}${taskQuery(deps.teamId)}`, { status });
     },
 
     async listStatuses(): Promise<string[]> {
@@ -343,9 +412,9 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
 
     async fetchTicket(ref: string): Promise<ContextBrief> {
       // Task + comments fetched sequentially; both share the injected token.
-      const task = (await getJson(`${API_BASE}/task/${ref}${teamSuffix}`)) as RawTask;
+      const task = (await getJson(`${API_BASE}/task/${ref}${taskQuery(deps.teamId, true)}`)) as RawTask;
       const comments = (await getJson(
-        `${API_BASE}/task/${ref}/comment${commentSuffix}`,
+        `${API_BASE}/task/${ref}/comment${taskQuery(deps.teamId)}`,
       )) as RawComments;
 
       // Attachments are downloaded here, not at render time: the brief is a
@@ -366,7 +435,7 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
       const url = typeof task.url === 'string' && task.url.trim() ? task.url : undefined;
       const milestone = task.list?.name?.trim();
       const people = parsePeople(task);
-      const relations = parseRelations(task);
+      const relations = await enrichRelations(parseRelations(task));
       const timestamps = parseTimestamps(task);
       const links = extractLinks(description);
 

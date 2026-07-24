@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { clickupProvider, ClickupError } from './clickup.js';
 
 /** A minimal fetch double: routes by URL substring to a canned Response. */
@@ -268,6 +268,233 @@ describe('clickupProvider.fetchTicket enrichment', () => {
     expect(brief.relations).toBeUndefined();
     expect(brief.timestamps).toBeUndefined();
     expect(brief.links).toBeUndefined();
+  });
+
+  it('requests subtasks and includes only immediate children as rich child relations', async () => {
+    const { fn, calls } = fakeFetch({
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100': {
+        json: {
+          id: 'T-100',
+          name: 'Parent',
+          subtasks: [
+            { id: 'C-1', parent: 'T-100', name: 'Immediate', status: { status: 'to do' } },
+            { id: 'GC-1', parent: 'C-1', name: 'Nested', status: { status: 'open' } },
+            { parent: 'T-100', name: 'Missing id' },
+          ],
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    const brief = await provider.fetchTicket!('T-100');
+
+    expect(calls.find((c) => c.url.includes('/task/T-100?'))?.url)
+      .toContain('include_subtasks=true');
+    expect(brief.relations).toEqual([
+      { kind: 'child', ref: 'C-1', title: 'Immediate', status: 'to do' },
+    ]);
+  });
+
+  it('composes include_subtasks with custom task id parameters', async () => {
+    const { fn, calls } = fakeFetch({
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100': { json: { id: 'T-100', name: 'Parent' } },
+    });
+    const provider = clickupProvider({
+      fetchFn: fn,
+      token: async () => 'tok',
+      teamId: '9001',
+    });
+
+    await provider.fetchTicket!('T-100');
+
+    const taskCall = calls.find((c) =>
+      c.url.includes('/task/T-100?') && !c.url.includes('/comment'),
+    );
+    expect(taskCall?.url).toContain('include_subtasks=true');
+    expect(taskCall?.url).toContain('custom_task_ids=true');
+    expect(taskCall?.url).toContain('team_id=9001');
+  });
+
+  it('uses a canonical relation id without custom-id parameters after fetching a custom primary ref', async () => {
+    const { fn, calls } = fakeFetch({
+      '/task/CUSTOM-100/comment': { json: {} },
+      '/task/CUSTOM-100?': {
+        json: {
+          id: 'CANON-100',
+          name: 'Parent',
+          linked_tasks: [{ task_id: 'CANON-REL' }],
+        },
+      },
+      '/task/CANON-REL': {
+        json: { id: 'CANON-REL', name: 'Canonical relation', status: { status: 'open' } },
+      },
+    });
+    const provider = clickupProvider({
+      fetchFn: fn,
+      token: async () => 'tok',
+      teamId: '9001',
+    });
+
+    const brief = await provider.fetchTicket!('CUSTOM-100');
+
+    expect(calls.find((c) => c.url.includes('/task/CUSTOM-100?'))?.url)
+      .toContain('custom_task_ids=true&team_id=9001');
+    expect(calls.find((c) => c.url.includes('/task/CUSTOM-100/comment?'))?.url)
+      .toContain('custom_task_ids=true&team_id=9001');
+    expect(calls.find((c) => c.url.includes('/task/CANON-REL'))?.url)
+      .toBe('https://api.clickup.com/api/v2/task/CANON-REL');
+    expect(brief.relations).toEqual([
+      { kind: 'related', ref: 'CANON-REL', title: 'Canonical relation', status: 'open' },
+    ]);
+  });
+
+  it('enriches unresolved task relations with title and status', async () => {
+    const { fn } = fakeFetch({
+      '/task/REL-1': {
+        json: { id: 'REL-1', name: 'Related work', status: { status: 'in progress' } },
+      },
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100?': {
+        json: {
+          id: 'T-100',
+          name: 'Parent',
+          linked_tasks: [{ task_id: 'REL-1' }],
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    const brief = await provider.fetchTicket!('T-100');
+
+    expect(brief.relations).toEqual([
+      {
+        kind: 'related',
+        ref: 'REL-1',
+        title: 'Related work',
+        status: 'in progress',
+      },
+    ]);
+  });
+
+  it('fetches a repeated unresolved relation ref only once', async () => {
+    const { fn, calls } = fakeFetch({
+      '/task/REL-1': { json: { id: 'REL-1', name: 'Shared relation' } },
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100?': {
+        json: {
+          id: 'T-100',
+          name: 'Parent',
+          linked_tasks: [{ task_id: 'REL-1' }],
+          dependencies: [{ task_id: 'T-100', depends_on: 'REL-1' }],
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await provider.fetchTicket!('T-100');
+
+    expect(calls.filter((c) => c.url.endsWith('/task/REL-1'))).toHaveLength(1);
+  });
+
+  it('keeps a bare relation when metadata fetch fails', async () => {
+    const { fn } = fakeFetch({
+      '/task/REL-1': { status: 403, json: {} },
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100?': {
+        json: {
+          id: 'T-100',
+          name: 'Parent',
+          linked_tasks: [{ task_id: 'REL-1' }],
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await expect(provider.fetchTicket!('T-100')).resolves.toMatchObject({
+      relations: [{ kind: 'related', ref: 'REL-1' }],
+    });
+  });
+
+  it('keeps a bare relation when metadata fetch times out', async () => {
+    vi.useFakeTimers();
+    try {
+      let metadataSignal: AbortSignal | undefined;
+      let signalMetadataStarted!: () => void;
+      const metadataStarted = new Promise<void>((resolve) => {
+        signalMetadataStarted = resolve;
+      });
+      const fn = (async (url: string | URL, init?: RequestInit) => {
+        const requestUrl = String(url);
+        if (requestUrl.includes('/task/REL-1')) {
+          metadataSignal = init?.signal ?? undefined;
+          signalMetadataStarted();
+          return new Promise<Response>((_resolve, reject) => {
+            metadataSignal?.addEventListener('abort', () => {
+              reject(new DOMException('metadata request timed out', 'AbortError'));
+            }, { once: true });
+          });
+        }
+        if (requestUrl.includes('/comment')) return new Response(JSON.stringify({}));
+        return new Response(JSON.stringify({
+          id: 'T-100',
+          name: 'Parent',
+          linked_tasks: [{ task_id: 'REL-1' }],
+        }));
+      }) as typeof fetch;
+      const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+      const briefPromise = provider.fetchTicket!('T-100');
+      await metadataStarted;
+      expect(metadataSignal).toBeDefined();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(briefPromise).resolves.toMatchObject({
+        relations: [{ kind: 'related', ref: 'REL-1' }],
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a bare relation when successful metadata is malformed', async () => {
+    const { fn } = fakeFetch({
+      '/task/REL-1': { json: { id: 'REL-1', name: { malformed: true }, status: { status: 42 } } },
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100?': {
+        json: {
+          id: 'T-100',
+          name: 'Parent',
+          linked_tasks: [{ task_id: 'REL-1' }],
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await expect(provider.fetchTicket!('T-100')).resolves.toMatchObject({
+      relations: [{ kind: 'related', ref: 'REL-1' }],
+    });
+  });
+
+  it('keeps a bare relation when successful metadata is null', async () => {
+    const { fn } = fakeFetch({
+      '/task/REL-1': { json: null },
+      '/task/T-100/comment': { json: {} },
+      '/task/T-100?': {
+        json: {
+          id: 'T-100',
+          name: 'Parent',
+          linked_tasks: [{ task_id: 'REL-1' }],
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await expect(provider.fetchTicket!('T-100')).resolves.toMatchObject({
+      relations: [{ kind: 'related', ref: 'REL-1' }],
+    });
   });
 });
 
