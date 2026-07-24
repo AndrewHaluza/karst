@@ -35,6 +35,7 @@ function fakeHost(): { host: TerminalHost; terminals: FakeTerminal[] } {
         cwd: opts.cwd,
         shellPath: opts.shellPath,
         shellArgs: opts.shellArgs,
+        hideFromUser: opts.hideFromUser,
         iconPath: opts.iconPath,
         color: opts.color,
         shown: 0,
@@ -70,6 +71,7 @@ describe('SessionManager', () => {
     mgr.openSession(adapter, 1, '/wt/a');
     expect(terminals).toHaveLength(1);
     expect(terminals[0]!.cwd).toBe('/wt/a');
+    expect(terminals[0]!.hideFromUser).toBeUndefined();
   });
 
   it('names the terminal by ticket key with the title as description', () => {
@@ -229,6 +231,7 @@ describe('SessionManager', () => {
 
     expect(terminals).toHaveLength(1);
     expect(terminals[0]!.shown).toBe(0);
+    expect(terminals[0]!.hideFromUser).toBe(true);
   });
 
   it('keeps an automated re-open of an existing terminal in the background', () => {

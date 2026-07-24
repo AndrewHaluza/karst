@@ -21,6 +21,8 @@ export interface CreateTerminalOpts {
   cwd: string;
   shellPath: string;
   shellArgs: string[];
+  /** Keep automated continuations out of the visible terminal UI. */
+  hideFromUser?: boolean;
   /** File path to a tinted icon SVG (real: mapped to `vscode.Uri.file`). */
   iconPath?: string;
   /** Terminal-color ThemeColor key (real: `new vscode.ThemeColor(color)`). */
@@ -39,6 +41,7 @@ export interface FakeTerminal extends SessionTerminal {
   cwd: string;
   shellPath: string;
   shellArgs: string[];
+  hideFromUser?: boolean;
   iconPath?: string;
   color?: string;
   shown: number;
@@ -144,6 +147,7 @@ export class SessionManager {
       cwd: worktreePath,
       shellPath: cmd.command,
       shellArgs: cmd.args,
+      ...(options.reveal === false ? { hideFromUser: true } : {}),
       ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
       ...(naming?.color ? { color: naming.color } : {}),
     });

@@ -1711,6 +1711,7 @@ function makeTerminalHost(): TerminalHost {
         cwd: opts.cwd,
         shellPath: opts.shellPath,
         shellArgs: opts.shellArgs,
+        hideFromUser: opts.hideFromUser,
         // Name/icon/color are frozen at creation — `Terminal.creationOptions` is
         // readonly, so the launch glyph is what the tab keeps for its lifetime.
         ...(opts.iconPath ? { iconPath: vscode.Uri.file(opts.iconPath) } : {}),
