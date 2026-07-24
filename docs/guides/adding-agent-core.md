@@ -335,6 +335,9 @@ Four integration rules proved especially important:
   work.
 - Keep the lifecycle endpoint provider-neutral. Each adapter owns the concrete
   hook configuration and normalization for its CLI.
+- Write generated hook bridges and settings into `HookChannel.configDir`, not
+  the repository or worktree. Runtime hook plumbing must never appear in a
+  ticket diff even when a session exits abnormally.
 - Return the provider-native workflow invocation from approach
   materialization; the extension must not guess slash-command or skill syntax.
 - Return exact adapter-owned runtime paths and clean only those paths under

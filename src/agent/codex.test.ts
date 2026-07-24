@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -111,8 +112,7 @@ describe('CodexAdapter interactive commands', () => {
 
   it('materializes Codex command hooks and passes the project config layer', () => {
     const worktree = makeWorktree();
-    const configDir = join(worktree, '.karst-runtime');
-    mkdirSync(configDir, { recursive: true });
+    const configDir = makeWorktree();
     const hooksPath = join(worktree, '.codex', 'hooks.json');
     mkdirSync(dirname(hooksPath), { recursive: true });
     writeFileSync(hooksPath, '{"user":"owned"}');
@@ -126,10 +126,11 @@ describe('CodexAdapter interactive commands', () => {
       initialPrompt: 'go',
     });
 
-    const bridgePath = join(worktree, '.codex', 'karst', 'bridge.cjs');
+    const bridgePath = join(configDir, 'codex', 'bridge.cjs');
     expect(readFileSync(hooksPath, 'utf8')).toBe('{"user":"owned"}');
     expect(readFileSync(bridgePath, 'utf8')).toContain('permission_prompt');
-    expect(cmd.ownedPaths).toEqual([join(worktree, '.codex', 'karst')]);
+    expect(existsSync(join(worktree, '.codex', 'karst'))).toBe(false);
+    expect(cmd.ownedPaths).toBeUndefined();
     expect(cmd.args).toContain('--dangerously-bypass-hook-trust');
     expect(cmd.args).not.toContain('--add-dir');
     const overrides = cmd.args.filter(

@@ -127,9 +127,9 @@ export function codexHookNormalizer(post: PostHook) {
 
 function appendHookArgs(
   args: string[],
-  cwd: string,
+  configDir: string,
   endpointUrl: string,
-): string {
+): void {
   const target = new URL(endpointUrl);
   if (
     target.protocol !== 'http:' ||
@@ -139,9 +139,9 @@ function appendHookArgs(
   ) {
     throw new Error(`karst: refusing non-loopback hook endpoint ${endpointUrl}`);
   }
-  const ownedPath = join(cwd, '.codex', 'karst');
-  const bridgePath = join(ownedPath, 'bridge.cjs');
-  mkdirSync(ownedPath, { recursive: true });
+  const bridgeDir = join(configDir, 'codex');
+  const bridgePath = join(bridgeDir, 'bridge.cjs');
+  mkdirSync(bridgeDir, { recursive: true });
   writeFileSync(bridgePath, CODEX_HOOK_BRIDGE);
   const command = [
     JSON.stringify(process.execPath),
@@ -158,7 +158,6 @@ function appendHookArgs(
       'timeout = 3 }] }]';
     args.push('-c', `hooks.${event}=${value}`);
   }
-  return ownedPath;
 }
 
 export interface HeadlessSpawnResult {
@@ -320,15 +319,13 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
-    const ownedPaths = opts.hookChannel
-      ? [
-          appendHookArgs(
-            args,
-            opts.cwd,
-            opts.hookChannel.endpointUrl,
-          ),
-        ]
-      : [];
+    if (opts.hookChannel) {
+      appendHookArgs(
+        args,
+        opts.hookChannel.configDir,
+        opts.hookChannel.endpointUrl,
+      );
+    }
     if (opts.resume) {
       args.push(opts.resume);
       if (opts.initialPrompt) args.push(opts.initialPrompt);
@@ -339,7 +336,6 @@ export class CodexAdapter implements AgentAdapter {
       command: CODEX_BIN,
       args,
       env: {},
-      ...(ownedPaths.length > 0 ? { ownedPaths } : {}),
     };
   }
 

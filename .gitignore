@@ -7,6 +7,9 @@ coverage/
 # service repos never track karst artifacts, but the karst project commits its yml.)
 .karst/worktrees/
 .claude/settings.local.json
+# Generated Codex lifecycle bridge. Repository-owned files elsewhere under
+# `.codex/` remain trackable.
+.codex/karst/
 # Materialized at launch by ClaudeAdapter.materializeApproach — a build product
 # of the approach package, never a source.
 .karst-plugin/
