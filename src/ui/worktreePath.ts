@@ -1,4 +1,4 @@
-import { relative, basename } from 'node:path';
+import { relative, basename, sep } from 'node:path';
 import type { WorktreePathDisplay } from '../manifest/types.js';
 
 /**
@@ -21,7 +21,11 @@ export interface PathContext {
  */
 export function repoDisplayPath(repo: string, ctx?: PathContext): string {
   if (!ctx || ctx.display !== 'relative') return repo;
-  const rel = relative(ctx.projectRoot, repo);
+  // Forward slashes, on every host: this is a LABEL for the webviews, not a path
+  // anything opens, and on Windows `relative` would render the sibling case as
+  // `..\other-repo`. Split on `sep` rather than replacing backslashes, so a POSIX
+  // directory whose NAME legitimately contains one is left alone.
+  const rel = relative(ctx.projectRoot, repo).split(sep).join('/');
   if (rel === '') return `./${basename(repo)}`; // repo IS the workspace root
   return rel.startsWith('..') ? rel : `./${rel}`;
 }
