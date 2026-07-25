@@ -125,7 +125,11 @@ services:
   });
 
   it('surfaces the warning for the stage marker path too (loadProjectSlug)', () => {
-    transition(openStore(dbPath), 1, 'scope', { kind: 'passed' });
+    // Closed, not leaked: the registry file is deleted in afterEach, and Windows
+    // refuses to unlink a database another handle still has open.
+    const seed = openStore(dbPath);
+    transition(seed, 1, 'scope', { kind: 'passed' });
+    seed.close();
     const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1', '--manifest', legacyManifestPath]);

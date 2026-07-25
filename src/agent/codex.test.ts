@@ -161,9 +161,14 @@ describe('CodexAdapter interactive commands', () => {
     const sessionStart = cmd.args.find((value) =>
       value.startsWith('hooks.SessionStart='),
     );
-    expect(sessionStart).toContain(
-      `command = "\\\"${resolveNodeExecutable()}\\\" `,
-    );
+    // Assert on the DECODED command, not the TOML source text. The command is
+    // JSON-quoted into the TOML value, so on Windows every separator in the node
+    // path arrives doubled (`C:\\Program Files\\...`) — matching raw text here
+    // only ever worked because a mac path has no backslashes to escape.
+    const quoted = /command = ("(?:[^"\\]|\\.)*")/.exec(sessionStart ?? '')?.[1];
+    expect(quoted).toBeDefined();
+    const command = JSON.parse(quoted!) as string;
+    expect(command.startsWith(`${JSON.stringify(resolveNodeExecutable())} `)).toBe(true);
   });
 
   it('keeps hook bridge failures from surfacing as failed Codex hooks', () => {
@@ -193,13 +198,18 @@ describe('CodexAdapter interactive commands', () => {
 
 describe('resolveNodeExecutable', () => {
   it('resolves and quotes a standalone Node executable from a path with spaces', () => {
+    // Exercised against the HOST platform, deliberately. What this test is about
+    // is the spaces; each platform's executable name and PATH separator has its
+    // own test. Pinning it to 'darwin' cannot work on Windows, where the POSIX
+    // branch splits PATH on ':' and a real absolute path starts `C:\`.
+    const platform = process.platform;
     const binDir = join(makeWorktree(), 'bin with spaces');
-    const nodePath = join(binDir, 'node');
+    const nodePath = join(binDir, platform === 'win32' ? 'node.exe' : 'node');
     mkdirSync(binDir);
     writeFileSync(nodePath, '');
     chmodSync(nodePath, 0o755);
 
-    expect(resolveNodeExecutable(binDir, 'darwin')).toBe(nodePath);
+    expect(resolveNodeExecutable(binDir, platform)).toBe(nodePath);
   });
 
   it('uses the Windows executable name and PATH separator', () => {
