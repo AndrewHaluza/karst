@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import type { AgentProvider } from '../manifest/types.js';
+import { prepareCommand } from './command.js';
 
 /**
  * Startup dependency preflight (§ todo-5 dependencies check). karst shells out to
@@ -104,7 +105,11 @@ export const GH_DEPENDENCY: RequiredDependency = {
  */
 export function binaryExists(binary: string): boolean {
   try {
-    const r = spawnSync(binary, ['--version'], { encoding: 'utf8' });
+    const p = prepareCommand(binary, ['--version']);
+    const r = spawnSync(p.command, p.args, {
+      encoding: 'utf8',
+      windowsVerbatimArguments: p.windowsVerbatimArguments,
+    });
     return !r.error && r.status === 0;
   } catch {
     return false;
@@ -120,7 +125,11 @@ export function binaryExists(binary: string): boolean {
  */
 export function commandSucceeds(binary: string, args: readonly string[]): boolean {
   try {
-    const r = spawnSync(binary, [...args], { stdio: 'ignore' });
+    const p = prepareCommand(binary, args);
+    const r = spawnSync(p.command, p.args, {
+      stdio: 'ignore',
+      windowsVerbatimArguments: p.windowsVerbatimArguments,
+    });
     return !r.error && r.status === 0;
   } catch {
     return false;
