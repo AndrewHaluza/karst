@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { openSync, closeSync, readFileSync, existsSync } from 'node:fs';
 import type { Store } from '../store/db.js';
-import { waitForHealth } from './health.js';
+import { isServing, waitForHealth } from './health.js';
 
 /**
  * SIGKILL a process AND its descendants. Children are spawned `detached`, making
@@ -81,6 +81,20 @@ function rejectAfter(ms: number, err: Error): Promise<never> {
 }
 
 export async function startHot(store: Store, opts: StartHotOpts): Promise<ServerRecord> {
+  // Somebody is already on this port and answering health. Nothing we spawn can
+  // bind it, so the child will die of EADDRINUSE while the health check passes
+  // against the FOREIGN listener — and karst would record the dead pid as
+  // 'running', offering a server nothing could stop or restart. Refuse instead,
+  // and say whose problem it is. Reuse of a server karst itself started is
+  // decided upstream from the `servers` table, never by adopting a health 200.
+  if (await isServing(opts.healthUrl)) {
+    throw new Error(
+      `could not start '${opts.service}': ${opts.host}:${opts.port} is already serving ` +
+        `${opts.healthUrl}. Another process owns that port — a server leaked by an earlier ` +
+        `run, or an unrelated app. Stop it, or give '${opts.service}' a different port in karst.yml.`,
+    );
+  }
+
   const logFd = openSync(opts.logPath, 'a');
 
   let child;
@@ -108,6 +122,26 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   });
   spawnFailed.catch(() => {});
 
+  // A process that DIED cannot be the thing answering /health — something else on
+  // the port is (a leaked server from a previous run, an unrelated app). Without
+  // this race that foreign 200 was accepted and the dead pid recorded as
+  // 'running', so the dashboard offered a server nothing could stop or restart.
+  // Only a NON-ZERO exit counts: a launcher that daemonises (`docker compose up
+  // -d`) legitimately exits 0 and gets healthy afterwards.
+  const exitedBadly = new Promise<never>((_, reject) => {
+    child.once('exit', (code, signal) => {
+      if (code === 0) return; // daemonised launcher — keep waiting for health
+      const how = code === null ? `on ${signal}` : `with code ${code}`;
+      reject(
+        new Error(
+          `could not start '${opts.service}': the process exited ${how} before it became ` +
+            `healthy. See the log: ${opts.logPath}`,
+        ),
+      );
+    });
+  });
+  exitedBadly.catch(() => {});
+
   const pid = child.pid;
   if (pid === undefined) {
     // No pid means the spawn failed; the reason is a tick behind us on the
@@ -132,6 +166,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
         signal: opts.signal,
       }),
       spawnFailed,
+      exitedBadly,
     ]);
   } catch (err) {
     // Health failed or the start was cancelled — reap the whole tree, not just

@@ -45,6 +45,20 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
+ * One probe: is something ALREADY answering this health URL? Used before a start
+ * to tell "my service came up" from "someone else's is on my port" — a question
+ * `waitForHealth` cannot answer, because by then both look identical.
+ */
+export async function isServing(url: string, timeoutMs = 1_000): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok;
+  } catch {
+    return false; // nothing listening, or not answering in time
+  }
+}
+
+/**
  * Poll a health URL until it returns a 2xx, with exponential backoff, or reject
  * with HealthTimeoutError after timeoutMs (§7.2 step 4 — health-gated start).
  * A connection refused (server not up yet) is treated the same as a non-2xx:
