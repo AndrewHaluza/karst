@@ -28,7 +28,7 @@ import {
   shouldApplySessionHookState,
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
-import { resolveAdapter } from './agent/registry.js';
+import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
@@ -324,8 +324,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     load: loadManifest,
   });
   const currentManifest = (): Manifest | undefined => manifests.get();
-  const currentAgentAdapter = (): AgentAdapter =>
-    resolveAdapter(currentManifest()?.agentProvider ?? 'claude');
+  const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
+    const ticketProvider =
+      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
+    return resolveAdapter(resolveProvider(ticketProvider, currentManifest()?.agentProvider));
+  };
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // onboarding (after a signal writeback) and settings (after a save) so both
@@ -435,8 +438,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * it protects are host-agnostic by invariant — a PATH probe wired inside them
    * would fail their own unit tests on a machine without gh.
    */
-  const guardCapability = (capability: Capability, silent = false): boolean => {
-    const provider = currentManifest()?.agentProvider ?? 'claude';
+  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+    const ticketProvider =
+      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
+    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
     const faults = ensureCapability(
       capability,
       dependencyRegistry(provider),
@@ -795,7 +800,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       makeDashboardActions(
         localStore,
         ticketId,
-        currentAgentAdapter,
+        () => currentAgentAdapter(ticketId),
         () => onboarding.openEdit(ticketId),
         () => {
           provider.refresh();
@@ -991,7 +996,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // nonzero, the driver reads that as a code verdict, and the ticket parks at
     // fix in a loop no agent can win. Warn once — the activation sweep drives
     // every parked ticket, and N toasts say nothing the first one didn't.
-    if (!guardCapability('gates', gateToolsWarned)) {
+    if (!guardCapability('gates', ticketId, gateToolsWarned)) {
       gateToolsWarned = true;
       logger.warn(`stage driver: ${trigger} → ticket ${ticketId} not driven, gate tools missing`);
       return;
@@ -1161,10 +1166,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (arg: unknown, options: { reveal?: boolean; recovery?: boolean } = {}) => {
         const ticketId = ticketIdArg(arg);
         if (ticketId === undefined) return;
-        const adapter = currentAgentAdapter();
+        const adapter = currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!guardCapability('sessions')) return;
+      if (!guardCapability('sessions', ticketId)) return;
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -1370,8 +1375,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resolve the launch model: the ticket's own model wins, else the manifest
       // default, else undefined (let the agent CLI pick). Threaded as `--model`.
+      // The provider it's resolved against is this same ticket's own resolved
+      // agent core (§ agent core selection) — a ticket overridden to a different
+      // provider must not carry an incompatible model pick across the switch.
       const model = resolveModelForProvider(
-        currentManifest()?.agentProvider ?? 'claude',
+        resolveProvider(t.agentProvider, currentManifest()?.agentProvider),
         t.model,
         currentManifest()?.defaultModel,
       );
@@ -1417,7 +1425,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       // A spin creates worktrees and installs deps into them; both tools fail
       // deep inside that, long after the user stopped watching.
-      if (!guardCapability('worktrees') || !guardCapability('gates')) return;
+      if (!guardCapability('worktrees', ticketId) || !guardCapability('gates', ticketId)) return;
 
       const manifest = await resolveManifest();
       if (!manifest) return; // no folder / scaffolded / invalid — message already shown
@@ -1945,7 +1953,7 @@ function makeTerminalHost(): TerminalHost {
  * user to re-spin — honest rather than a fake no-op.
  */
 /** True when the capability's tools are present; otherwise tells the user why not. */
-type CapabilityGuard = (capability: Capability, silent?: boolean) => boolean;
+type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: boolean) => boolean;
 
 function makeDashboardActions(
   store: Store,
@@ -2040,7 +2048,7 @@ function makeDashboardActions(
       // Before the model call, not after: `runShipTicket` asks a model to write
       // the PR description first, so an unguarded click burns a call per repo and
       // then dies at `gh pr create`.
-      if (!guardCapability('ship')) return;
+      if (!guardCapability('ship', ticketId)) return;
       void runShipTicket(
         store,
         { ticketId, manifest: manifest() },
