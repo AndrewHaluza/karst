@@ -12,6 +12,7 @@ import { shipTicket, type ShipStepEvent } from './ship.js';
 import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import { manifest, repo } from '../../manifest/fixtures.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string, path: string): void {
   store.db
@@ -145,6 +146,34 @@ describe('shipTicket', () => {
     // The probe sits after the push, not before it: an existing PR must still
     // receive the branch's new commits. Adopting is not skipping.
     expect(order).toEqual(['git status', 'git push', 'gh pr view', 'gh pr create']);
+  });
+
+  it('targets the current repository baseline instead of the worktree creation-time base', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[1] === 'view') {
+        return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+      }
+      return { stdout: 'https://github.com/o/r/pull/1', exitCode: 0 };
+    };
+
+    await shipTicket(
+      store,
+      {
+        ticketId: id,
+        manifest: manifest({
+          frontend: repo({ repoPath: '/repo/frontend', baselineBranch: 'release' }),
+        }),
+      },
+      gh,
+      undefined,
+      fakeGit().git,
+    );
+
+    expect(calls.find((args) => args[1] === 'create')).toContain('release');
+    expect(listMergeChecksByTicket(store, id)[0]!.baseRef).toBe('release');
   });
 
   // The reported bug: impl/uat/review all passed but the work was never committed,

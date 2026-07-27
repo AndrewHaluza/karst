@@ -805,6 +805,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         logError,
         guardCapability,
+        currentManifest,
         () => currentManifest()?.ticketing,
         () =>
           makeTicketingProvider(
@@ -1947,6 +1948,9 @@ function makeDashboardActions(
   afterServerChange: () => void,
   logError: LogError,
   guardCapability: CapabilityGuard,
+  // Read fresh when the user confirms ship so a mid-session branch edit
+  // controls the PR target.
+  manifest: () => Manifest | undefined,
   // Read fresh at call time so a status saved in settings applies without a
   // window reload — same getter pattern as the onboarding provider.
   ticketing: () => TicketingConfig | undefined,
@@ -2032,7 +2036,7 @@ function makeDashboardActions(
       if (!guardCapability('ship')) return;
       void runShipTicket(
         store,
-        { ticketId },
+        { ticketId, manifest: manifest() },
         undefined,
         agentAdapter(),
         undefined,

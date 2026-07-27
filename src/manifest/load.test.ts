@@ -92,6 +92,38 @@ describe('loadManifest', () => {
     }
   });
 
+  it('reads a repository baselineBranch override while leaving others inherited', () => {
+    const yaml = VALID.replace(
+      '    repoPath: ../backend',
+      '    repoPath: ../backend\n    baselineBranch: release',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const m = loadManifest(path);
+      expect(m.repositories.backend!.baselineBranch).toBe('release');
+      expect(m.repositories.frontend!.baselineBranch).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects conflicting baseline branches for entries sharing one repoPath', () => {
+    const yaml = VALID
+      .replace(
+        '    repoPath: ../backend',
+        '    repoPath: ../shared\n    baselineBranch: release',
+      )
+      .replace('    repoPath: ../frontend', '    repoPath: ../shared');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /repositories "backend" and "frontend".*repoPath.*different baseline branches/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   it('throws a clear error on an unknown dependsOn.target', () => {
     const yaml = VALID.replace('target: backend', 'target: nonexistent');
     const { path, cleanup } = fixture(yaml);

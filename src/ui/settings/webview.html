@@ -890,6 +890,8 @@
       + `<input type="text" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
       + `<label>Repo path</label>`
       + `<input type="text" data-svc-field="repoPath" data-svc="${esc(name)}" value="${esc(repo.repoPath)}"/>`
+      + `<label>Baseline branch override <span class="field-hint">(blank inherits ${esc(draft.baselineBranch)})</span></label>`
+      + `<input type="text" data-svc-field="baselineBranch" data-svc="${esc(name)}" value="${esc(repo.baselineBranch || '')}"/>`
       + `<div class="toggle" style="margin-top:10px">`
       + `<input type="checkbox" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${repo.hasMigrations ? 'checked' : ''}/>`
       + `<label style="margin:0">Has migrations</label>`
@@ -1192,6 +1194,9 @@
       if (field === 'hasMigrations') return; // handled by change
       if (field === 'repoPath') {
         draft.repositories[svc].repoPath = t.value; // repository-level
+      } else if (field === 'baselineBranch') {
+        if (t.value.trim() === '') delete draft.repositories[svc].baselineBranch;
+        else draft.repositories[svc].baselineBranch = t.value;
       } else {
         const svcDef = draft.repositories[svc].service; // start / health
         if (!svcDef) return;

@@ -109,6 +109,7 @@ describe('writeManifest', () => {
         repositories: {
           backend: {
             repoPath: '../backend',
+            baselineBranch: 'release',
             hasMigrations: true,
             signals: ['api', 'endpoint'],
             service: {
