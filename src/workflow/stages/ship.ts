@@ -8,6 +8,7 @@ import { nowIso } from '../../model/time.js';
 import { openPr, findOpenPr, defaultGhRunner, type GhRunner } from '../../integrations/github.js';
 import {
   commitAllIfDirty,
+  hasChangesFrom,
   pushBranch,
   defaultGitRunner,
   type GitRunner,
@@ -193,6 +194,33 @@ export async function shipTicket(
       await commitAllIfDirty(git, wt.path, title);
       onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
 
+      const base = opts.manifest
+        ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
+        : wt.baseRef ?? undefined;
+      if (base && !(await hasChangesFrom(git, wt.path, base))) {
+        onProgress({
+          repo: wt.repo,
+          step: 'push',
+          status: 'note',
+          detail: `no push needed — no changes from ${base}`,
+        });
+        if (adapter) {
+          onProgress({
+            repo: wt.repo,
+            step: 'describe',
+            status: 'note',
+            detail: `no description needed — no changes from ${base}`,
+          });
+        }
+        onProgress({
+          repo: wt.repo,
+          step: 'pr',
+          status: 'note',
+          detail: `no PR needed — no changes from ${base}`,
+        });
+        continue;
+      }
+
       onProgress({ repo: wt.repo, step: 'push', status: 'run' });
       await pushBranch(git, wt.path);
       onProgress({ repo: wt.repo, step: 'push', status: 'pass' });
@@ -217,9 +245,6 @@ export async function shipTicket(
           body = await describePr(adapter, wt.path, title);
           onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
         }
-        const base = opts.manifest
-          ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
-          : wt.baseRef ?? undefined;
         opened = await openPr(gh, { cwd: wt.path, title, body, base });
       }
       onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
