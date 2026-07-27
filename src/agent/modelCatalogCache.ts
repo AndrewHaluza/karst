@@ -13,12 +13,10 @@ function cacheKey(provider: AgentProvider): string {
   return `karst.modelCatalog.${provider}`;
 }
 
-/** Adapt VS Code's global Memento to the model loader's synchronous cache seam. */
+/** Adapt VS Code's global Memento to the model loader's cache seam. */
 export function makeMementoCatalogCache(memento: Memento): CatalogCache {
   return {
     get: (provider) => memento.get<CatalogCacheEntry>(cacheKey(provider)),
-    set: (provider, entry) => {
-      void memento.update(cacheKey(provider), entry);
-    },
+    set: (provider, entry) => memento.update(cacheKey(provider), entry),
   };
 }

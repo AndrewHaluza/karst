@@ -28,7 +28,7 @@ export interface CatalogCacheEntry {
 
 export interface CatalogCache {
   get(provider: AgentProvider): CatalogCacheEntry | undefined;
-  set(provider: AgentProvider, entry: CatalogCacheEntry): void;
+  set(provider: AgentProvider, entry: CatalogCacheEntry): void | PromiseLike<void>;
 }
 
 export interface FetchLimits {
@@ -147,11 +147,11 @@ export async function loadModelCatalog(
     if (cli) {
       catalog[provider] = cli;
       sources[provider] = 'cli';
-      deps.cache?.set(provider, { models: cli, source: 'cli', fetchedAt: Date.now() });
+      await deps.cache?.set(provider, { models: cli, source: 'cli', fetchedAt: Date.now() });
     } else if (fromFeed) {
       catalog[provider] = fromFeed;
       sources[provider] = 'feed';
-      deps.cache?.set(provider, { models: fromFeed, source: 'feed', fetchedAt: Date.now() });
+      await deps.cache?.set(provider, { models: fromFeed, source: 'feed', fetchedAt: Date.now() });
     } else if (cached) {
       catalog[provider] = cached;
       sources[provider] = 'cache';

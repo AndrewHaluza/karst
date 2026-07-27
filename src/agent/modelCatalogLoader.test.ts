@@ -104,6 +104,19 @@ describe('loadModelCatalog', () => {
     expect(result.catalog.antigravity).toEqual(models('antigravity', 'bundled-antigravity'));
     expect(cache.writes).toEqual(['claude']);
   });
+
+  it('rejects when persisting a resolved provider catalog fails', async () => {
+    const updateFailure = Promise.reject(new Error('global state unavailable'));
+    void updateFailure.catch(() => {});
+    const cache: CatalogCache = {
+      get: () => undefined,
+      set: () => updateFailure,
+    };
+
+    await expect(loadModelCatalog(baseDeps(cache, feed({
+      claude: [{ id: 'feed-claude', label: 'Feed Claude' }],
+    })))).rejects.toThrow('global state unavailable');
+  });
 });
 
 describe('fetchModelFeed', () => {

@@ -32,4 +32,15 @@ describe('makeMementoCatalogCache', () => {
 
     expect(values.get('karst.modelCatalog.claude')).toEqual(ENTRY);
   });
+
+  it('returns a rejected Memento update to its caller', async () => {
+    const updateFailure = Promise.reject(new Error('global state unavailable'));
+    void updateFailure.catch(() => {});
+    const cache = makeMementoCatalogCache({
+      get: () => undefined,
+      update: () => updateFailure,
+    });
+
+    await expect(cache.set('claude', ENTRY)).rejects.toThrow('global state unavailable');
+  });
 });
