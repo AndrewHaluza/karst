@@ -143,42 +143,35 @@ describe('SessionManager', () => {
     expect(JSON.stringify(terminals[0]!.env)).not.toContain('secret');
   });
 
-  it('three reloads retain exactly one responsive restored terminal', () => {
-    const { adapter } = fakeAdapter();
-    const { host, terminals } = fakeHost([], true);
-    const reloadableHost = host as TerminalHost & {
-      restoreCreatedTerminals(): void;
-      liveTerminals(): FakeTerminal[];
-      flushCloseEvents(): void;
+  it('three reloads retain one provider-neutral restored terminal without relaunching', () => {
+    const neverLaunchAdapter: AgentAdapter = {
+      buildInteractiveCommand: () => {
+        throw new Error('restoration must not build an agent command');
+      },
+      runHeadless: () => Promise.reject(new Error('not used')),
+      requiredBinary: 'any-provider',
+      capabilities: { lifecycleEvents: true, resume: true },
     };
-
-    let manager = new SessionManager(host, channelFor);
-    manager.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, 'session-7');
+    const restored = fakeRestored(7);
+    const { host, terminals } = fakeHost([restored]);
+    let manager: SessionManager;
 
     for (let cycle = 1; cycle <= 3; cycle++) {
-      reloadableHost.restoreCreatedTerminals();
       manager = new SessionManager(host, channelFor);
-      expect(manager.reconcileRestoredSessions(() => 'resume').resume).toEqual([7]);
-      manager.openSession(
-        adapter,
-        7,
-        '/wt/a',
-        undefined,
-        'continue',
-        undefined,
-        undefined,
-        'session-7',
-      );
-      expect(manager.nudge(7, `responsive-${cycle}`)).toBe(true);
-      expect(reloadableHost.liveTerminals()).toHaveLength(1);
+      expect(manager.reconcileRestoredSessions(() => 'resume')).toEqual({
+        resume: [7],
+        idle: [],
+      });
+      manager.openSession(neverLaunchAdapter, 7, '/wt/a');
 
-      reloadableHost.flushCloseEvents();
+      expect(manager.nudge(7, `responsive-${cycle}`)).toBe(true);
       expect(manager.isOpen(7)).toBe(true);
-      expect(reloadableHost.liveTerminals()).toHaveLength(1);
+      expect(restored.terminal.disposed).toBe(false);
+      expect([restored.terminal].filter((terminal) => !terminal.disposed)).toHaveLength(1);
+      expect(terminals).toHaveLength(0);
     }
 
-    expect(terminals).toHaveLength(1);
-    expect(terminals[0]!.sent).toEqual(['responsive-1', 'responsive-2', 'responsive-3']);
+    expect(restored.terminal.sent).toEqual(['responsive-1', 'responsive-2', 'responsive-3']);
   });
 
   it('adopts one active restored terminal without creating a replacement', () => {
