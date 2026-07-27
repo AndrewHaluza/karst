@@ -6,7 +6,13 @@ import { resolve } from '../resolver/resolve.js';
 import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.js';
 import { buildSpawnEnv } from './env.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
-import { startHot, stopServer, stopTicketServers, type ServerRecord } from './supervisor.js';
+import {
+  startHot,
+  stopServer,
+  stopTicketServers,
+  pruneOrphanServers,
+  type ServerRecord,
+} from './supervisor.js';
 import { renderHealthUrl } from './healthUrl.js';
 import { preflightSpin } from './preflight.js';
 import { getTicket } from '../store/tickets.js';
@@ -123,6 +129,12 @@ export async function spinTicket(
   // server fighting the first — the "retry makes a duplicate on the same port"
   // bug. killTree reaps the whole tree (launcher + Vite grandchild).
   stopTicketServers(store, ticketId);
+  // Then drop the rows whose repository the manifest no longer declares. A
+  // rename re-keys the registry (servers are keyed by repository NAME), so the
+  // pre-rename row is unreachable — no spin can start a manifest key that is
+  // gone — yet it kept rendering as an offline server beside the new name. Runs
+  // AFTER the stop above so a row is never deleted out from under a live pid.
+  pruneOrphanServers(store, ticketId, Object.keys(manifest.repositories));
   // Clean-slate the ticket's transient allocations so a retry (a prior spin that
   // died mid-way) re-resolves fresh instead of double-inserting ports — the
   // worktree it already created is adopted by createWorktree, baseline_refs is

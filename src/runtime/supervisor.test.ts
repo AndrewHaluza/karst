@@ -4,7 +4,13 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { startHot, stopServer, stopTicketServers, tailLog } from './supervisor.js';
+import {
+  startHot,
+  stopServer,
+  stopTicketServers,
+  pruneOrphanServers,
+  tailLog,
+} from './supervisor.js';
 import { freePortWindow, removeTempDir } from './fixtures.js';
 
 /**
@@ -429,5 +435,68 @@ describe('server supervisor', () => {
     expect(tailLog(rec)).toMatch(/booting on/);
 
     stopServer(store, rec.id);
+  });
+});
+
+describe('pruneOrphanServers', () => {
+  let store: Store;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  /** Insert a server row directly — no process; only the row shape matters here. */
+  function row(ticketId: number | null, repo: string, status: string): number {
+    const info = store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+         VALUES (?, ?, '127.0.0.1', 3000, NULL, ?, '/tmp/x.log')`,
+      )
+      .run(ticketId, repo, status);
+    return Number(info.lastInsertRowid);
+  }
+
+  const exists = (id: number): boolean =>
+    store.db.prepare('SELECT id FROM servers WHERE id = ?').get(id) !== undefined;
+
+  it('deletes rows naming a repository the manifest no longer declares', () => {
+    const renamed = row(7, 'backend', 'stopped'); // manifest key gone (renamed to BE)
+    const kept = row(7, 'BE', 'running');
+
+    pruneOrphanServers(store, 7, ['BE', 'FE']);
+
+    expect(exists(renamed)).toBe(false);
+    expect(exists(kept)).toBe(true);
+  });
+
+  it('keeps a stopped row whose repository still exists (deselected, not renamed)', () => {
+    const offline = row(7, 'FE', 'stopped');
+
+    pruneOrphanServers(store, 7, ['BE', 'FE']);
+
+    expect(exists(offline)).toBe(true);
+  });
+
+  it('touches neither another ticket nor a baseline row', () => {
+    const otherTicket = row(9, 'backend', 'stopped');
+    const baseline = row(null, 'backend', 'running');
+
+    pruneOrphanServers(store, 7, ['BE']);
+
+    expect(exists(otherTicket)).toBe(true);
+    expect(exists(baseline)).toBe(true);
+  });
+
+  it('with no known repositories, reaps every row of the ticket', () => {
+    const a = row(7, 'backend', 'stopped');
+    const baseline = row(null, 'backend', 'running');
+
+    pruneOrphanServers(store, 7, []);
+
+    expect(exists(a)).toBe(false);
+    expect(exists(baseline)).toBe(true);
   });
 });
