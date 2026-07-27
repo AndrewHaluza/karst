@@ -92,15 +92,26 @@ function fakeHost(
 
 function fakeRestored(
   ticketId: number,
-): RestoredSession & { terminal: { disposed: boolean } } {
+): RestoredSession & {
+  terminal: {
+    shown: number;
+    sent: string[];
+    disposed: boolean;
+    disposeHandler?: () => void;
+  };
+} {
   const terminal = {
+    shown: 0,
+    sent: [] as string[],
     disposed: false,
-    show: () => {},
-    sendText: () => {},
+    disposeHandler: undefined as (() => void) | undefined,
+    show: () => terminal.shown++,
+    sendText: (text: string) => terminal.sent.push(text),
     dispose: () => {
       terminal.disposed = true;
+      terminal.disposeHandler?.();
     },
-    onDidClose: () => {},
+    onDidClose: (handler: () => void) => (terminal.disposeHandler = handler),
   };
   return { ticketId, terminal };
 }
@@ -132,7 +143,7 @@ describe('SessionManager', () => {
     expect(JSON.stringify(terminals[0]!.env)).not.toContain('secret');
   });
 
-  it('three delayed-close reloads leave exactly one responsive replacement each', () => {
+  it('three reloads retain exactly one responsive restored terminal', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost([], true);
     const reloadableHost = host as TerminalHost & {
@@ -161,34 +172,63 @@ describe('SessionManager', () => {
       expect(manager.nudge(7, `responsive-${cycle}`)).toBe(true);
       expect(reloadableHost.liveTerminals()).toHaveLength(1);
 
-      // VS Code can deliver the stale terminal's close notification after the
-      // replacement has already started. It must not remove the replacement.
       reloadableHost.flushCloseEvents();
       expect(manager.isOpen(7)).toBe(true);
       expect(reloadableHost.liveTerminals()).toHaveLength(1);
     }
 
-    expect(terminals).toHaveLength(4);
-    expect(terminals.slice(1).map((terminal) => terminal.sent)).toEqual([
-      ['responsive-1'],
-      ['responsive-2'],
-      ['responsive-3'],
-    ]);
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]!.sent).toEqual(['responsive-1', 'responsive-2', 'responsive-3']);
   });
 
-  it('disposes duplicate restored handles and returns one resumable ticket', () => {
+  it('adopts one active restored terminal without creating a replacement', () => {
+    const restored = fakeRestored(7);
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([restored]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.reconcileRestoredSessions(() => 'resume')).toEqual({
+      resume: [7],
+      idle: [],
+    });
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(mgr.isOpen(7)).toBe(true);
+    expect(restored.terminal.disposed).toBe(false);
+    expect(terminals).toHaveLength(0);
+  });
+
+  it('adopts an inactive restored terminal and keeps it responsive', () => {
+    const restored = fakeRestored(8);
+    const { host } = fakeHost([restored]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.reconcileRestoredSessions(() => 'idle')).toEqual({
+      resume: [],
+      idle: [8],
+    });
+    expect(mgr.nudge(8, 'continue')).toBe(true);
+    expect(restored.terminal.sent).toEqual(['continue']);
+    expect(restored.terminal.disposed).toBe(false);
+  });
+
+  it('keeps the first duplicate restored handle and disposes later handles', () => {
     const restored = [fakeRestored(7), fakeRestored(7)];
-    const { host } = fakeHost(restored);
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost(restored);
     const mgr = new SessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions((id) => (id === 7 ? 'resume' : 'ignore'))).toEqual({
       resume: [7],
       idle: [],
     });
-    expect(restored.every(({ terminal }) => terminal.disposed)).toBe(true);
+    expect(restored[0]!.terminal.disposed).toBe(false);
+    expect(restored[1]!.terminal.disposed).toBe(true);
+    mgr.openSession(adapter, 7, '/wt/a');
+    expect(terminals).toHaveLength(0);
   });
 
-  it('disposes a tagged non-resumable terminal into recoverable idle state', () => {
+  it('keeps a tagged non-resumable terminal in recoverable idle state', () => {
     const restored = [fakeRestored(8)];
     const { host } = fakeHost(restored);
     const mgr = new SessionManager(host, channelFor);
@@ -197,7 +237,7 @@ describe('SessionManager', () => {
       resume: [],
       idle: [8],
     });
-    expect(restored[0]!.terminal.disposed).toBe(true);
+    expect(restored[0]!.terminal.disposed).toBe(false);
   });
 
   it('ignores untagged terminals', () => {

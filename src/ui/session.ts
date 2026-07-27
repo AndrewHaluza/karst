@@ -129,6 +129,32 @@ export class SessionManager {
     ) => void,
   ) {}
 
+  private trackTerminal(
+    ticketId: number,
+    terminal: SessionTerminal,
+    launchId?: string,
+    cleanupOwned?: () => void,
+  ): void {
+    if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
+    this.terminals.set(ticketId, terminal);
+    terminal.onDidClose(() => {
+      // A recovery timeout can dispose one terminal and immediately create its
+      // retry before VS Code delivers the old close event. Only the handle that
+      // is still current may clear the ticket or announce that its session ended.
+      const wasCurrent = this.terminals.get(ticketId) === terminal;
+      if (wasCurrent) this.terminals.delete(ticketId);
+      try {
+        // Materialized paths are ticket-scoped and a retry may reuse them. A
+        // delayed close from the retired handle must not delete assets now owned
+        // by its replacement.
+        if (wasCurrent) cleanupOwned?.();
+      } finally {
+        if (wasCurrent) this.onDidCloseSession?.(ticketId);
+        this.onDidCloseTerminal?.(ticketId, launchId);
+      }
+    });
+  }
+
   /**
    * Open (or focus) the interactive session for a ticket. The optional `label`
    * carries the ticket's key + title so the terminal reads `Karst: <key>` with
@@ -187,24 +213,7 @@ export class SessionManager {
       cleanupStarted = true;
       this.cleanup(worktreePath, cleanupPaths);
     };
-    this.cleanupByTerminal.set(terminal, cleanupOwned);
-    terminal.onDidClose(() => {
-      // A recovery timeout can dispose one terminal and immediately create its
-      // retry before VS Code delivers the old close event. Only the handle that
-      // is still current may clear the ticket or announce that its session ended.
-      const wasCurrent = this.terminals.get(ticketId) === terminal;
-      if (wasCurrent) this.terminals.delete(ticketId);
-      try {
-        // Materialized paths are ticket-scoped and a retry may reuse them. A
-        // delayed close from the retired handle must not delete assets now owned
-        // by its replacement.
-        if (wasCurrent) cleanupOwned();
-      } finally {
-        if (wasCurrent) this.onDidCloseSession?.(ticketId);
-        this.onDidCloseTerminal?.(ticketId, hookChannel.launchId);
-      }
-    });
-    this.terminals.set(ticketId, terminal);
+    this.trackTerminal(ticketId, terminal, hookChannel.launchId, cleanupOwned);
     if (options.reveal !== false) terminal.show();
   }
 
@@ -212,8 +221,8 @@ export class SessionManager {
    * Reconcile only restored terminals owned by this window's project. Ignored
    * handles are left alone: another project (or a window without a project)
    * must never dispose a terminal it cannot safely own. Recovered terminals
-   * are deliberately not entered into the live map; their visible terminal is
-   * being replaced by a fresh launch or an idle state.
+   * are adopted into the live map so their existing agent session remains
+   * usable after an IDE reload.
    */
   reconcileRestoredSessions(
     classify: (ticketId: number) => RestoredSessionDisposition,
@@ -224,9 +233,12 @@ export class SessionManager {
     for (const { ticketId, terminal } of this.host.restoredSessions?.() ?? []) {
       const disposition = classify(ticketId);
       if (disposition === 'ignore') continue;
-      terminal.dispose();
-      if (recovered.has(ticketId)) continue;
+      if (recovered.has(ticketId)) {
+        terminal.dispose();
+        continue;
+      }
       recovered.add(ticketId);
+      this.trackTerminal(ticketId, terminal);
       result[disposition].push(ticketId);
     }
 
