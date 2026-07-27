@@ -20,6 +20,7 @@ import { isRunnable } from '../runnable.js';
 function assertDependenciesResolve(repositories: Record<string, RepositoryDef>): void {
   for (const [name, repo] of Object.entries(repositories)) {
     if (!isRunnable(repo)) continue; // no service, no edges
+    if (repo.enabled === false) continue; // draft: not used by the system yet
 
     for (const [i, dep] of repo.service.dependsOn.entries()) {
       const where = `repository "${name}" service.dependsOn[${i}]`;
@@ -33,6 +34,11 @@ function assertDependenciesResolve(repositories: Record<string, RepositoryDef>):
           `${where} targets "${dep.target}", which declares no service — ` +
             `there is no port to bind to. Give "${dep.target}" a \`service:\` block ` +
             `or drop the dependency.`,
+        );
+      }
+      if (target.enabled === false) {
+        throw new ManifestError(
+          `${where} targets "${dep.target}", which is disabled — enable it or drop the dependency.`,
         );
       }
       if (!target.service.ports.some((p) => p.name === dep.port)) {

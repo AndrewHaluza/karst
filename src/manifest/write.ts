@@ -101,6 +101,10 @@ export function writeManifest(path: string, manifest: Manifest): void {
       baselineBranch: repo.baselineBranch,
       hasMigrations: repo.hasMigrations,
       signals: repo.signals ?? [],
+      // Write enabled only when false (draft mode); true is the default and
+      // omitting it keeps the file cleaner. Undefined→omitted so stale enabled:true
+      // (if it existed) gets dropped.
+      enabled: repo.enabled === false ? false : undefined,
       // Undefined (not omitted) so the dumper DROPS a `service:` block the user
       // just turned off — leaving the raw one would silently keep the repo
       // runnable after they said it wasn't.
