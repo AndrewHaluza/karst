@@ -241,6 +241,36 @@ export function stopTicketServers(store: Store, ticketId: number): void {
   for (const { id } of rows) stopServer(store, id);
 }
 
+/**
+ * Delete a ticket's server rows whose repository name is no longer declared by
+ * the manifest — the rows a repository RENAME orphans.
+ *
+ * `servers` is keyed by repository NAME (as are `port_allocations`), and
+ * `startHot` replaces only a row of the SAME name. A retained `stopped` row is
+ * normally the point (it surfaces as offline and can be restarted), but once its
+ * manifest key is gone nothing can ever start it again: it rendered forever on
+ * the dashboard beside the new name — the same stack listed twice, old and new —
+ * behind a Restart button that could only fail.
+ *
+ * Membership in the MANIFEST is the test, deliberately, not membership in the
+ * spin's hot set: a repository the user simply deselected for this spin is still
+ * real and keeps its offline row.
+ *
+ * Ticket-scoped: baseline rows (`ticket_id IS NULL`) are shared across tickets
+ * and are not one ticket's spin to reap.
+ */
+export function pruneOrphanServers(
+  store: Store,
+  ticketId: number,
+  knownRepos: readonly string[],
+): void {
+  const placeholders = knownRepos.map(() => '?').join(',');
+  const sql = knownRepos.length
+    ? `DELETE FROM servers WHERE ticket_id = ? AND repo NOT IN (${placeholders})`
+    : 'DELETE FROM servers WHERE ticket_id = ?';
+  store.db.prepare(sql).run(ticketId, ...knownRepos);
+}
+
 /** Read the current contents of a server's log file (§10 log-tail). */
 export function tailLog(record: Pick<ServerRecord, 'logPath'>): string {
   if (!existsSync(record.logPath)) return '';

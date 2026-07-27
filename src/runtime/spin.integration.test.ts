@@ -481,6 +481,42 @@ describe('spinTicket integration', () => {
     expect(serverRows[0]!.port).not.toBe(serverRows[1]!.port);
   });
 
+  // Renaming a repository in karst.yml re-keys everything the registry stores by
+  // repository NAME. `startHot` only replaces a row of the SAME name, so the old
+  // name's retained (offline) row survived every later spin and rendered on the
+  // dashboard beside the new one — the same stack listed twice, under both names,
+  // with a Restart button that could never resolve the vanished manifest key.
+  it('reaps a renamed repository’s orphan server row on the next spin', async () => {
+    const base = port();
+    const beRepo = makeRepo(root, 'be', { 'server.mjs': BACKEND_SRC });
+    const feRepo = makeRepo(root, 'fe', { 'server.mjs': BACKEND_SRC });
+    const manifest = buildManifest(
+      { BE: node(beRepo, port()), FE: node(feRepo, port()) },
+      { host: '127.0.0.1', portRange: [base, base + 20] },
+    );
+
+    const ticket = createTicket(store, { key: 'PROJ-R', title: 'renamed repos' });
+    const seed = store.db.prepare(
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+       VALUES (?, ?, '127.0.0.1', 3000, NULL, 'stopped', '/tmp/x.log')`,
+    );
+    seed.run(ticket.id, 'backend'); // pre-rename name of BE
+    seed.run(ticket.id, 'frontend'); // pre-rename name of FE
+    seed.run(ticket.id, 'FE'); // still in the manifest — merely not hot this spin
+
+    await spinTicket(store, manifest, ticket.id, ['BE']);
+
+    const rows = store.db
+      .prepare('SELECT repo, status FROM servers WHERE ticket_id = ? ORDER BY repo')
+      .all(ticket.id) as { repo: string; status: string }[];
+    // The vanished names are gone; the deselected-but-declared repo keeps its
+    // offline row, because the user chose not to start it — it was not renamed.
+    expect(rows).toEqual([
+      { repo: 'BE', status: 'running' },
+      { repo: 'FE', status: 'stopped' },
+    ]);
+  });
+
   it('a second ticket reuses the same baseline backend (no double-start)', async () => {
     const bePort = port();
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
