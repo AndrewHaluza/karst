@@ -68,6 +68,7 @@ function fakeGit(): { git: GitRunner; calls: { args: string[]; cwd: string }[] }
   const calls: { args: string[]; cwd: string }[] = [];
   const git: GitRunner = async (args, cwd) => {
     calls.push({ args, cwd });
+    if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
     return { stdout: '', stderr: '', exitCode: 0 };
   };
   return { git, calls };
@@ -90,6 +91,7 @@ function mutating<T extends { args: string[] }>(calls: T[]): T[] {
  */
 function gitWithMergeProbe(probe: { exitCode: number; stdout?: string; stderr?: string }): GitRunner {
   return async (args) => {
+    if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
     if (args[0] === 'rev-parse') return { stdout: 'abc1234\n', stderr: '', exitCode: 0 };
     if (args[0] === 'merge-tree') {
       return { stdout: probe.stdout ?? '', stderr: probe.stderr ?? '', exitCode: probe.exitCode };
@@ -133,6 +135,7 @@ describe('shipTicket', () => {
     const git: GitRunner = async (args, cwd) => {
       if (MUTATING.has(args[0]!)) order.push(`git ${args[0]}`);
       expect(cwd).toBe(join(dir, 'fe'));
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
       return { stdout: '', stderr: '', exitCode: 0 };
     };
     const gh: GhRunner = async (args) => {
@@ -184,7 +187,7 @@ describe('shipTicket', () => {
     const git: GitRunner = async (args) => ({
       stdout: args[0] === 'status' ? ' M src/a.ts\n' : '',
       stderr: '',
-      exitCode: 0,
+      exitCode: args[0] === 'diff' ? 1 : 0,
     });
     const calls: string[][] = [];
     const recording: GitRunner = async (args, cwd) => {
@@ -201,6 +204,80 @@ describe('shipTicket', () => {
       ['commit', '-m', 'add search'],
       ['push', '-u', 'origin', 'HEAD'],
     ]);
+  });
+
+  describe('when the branch has no effective changes from its target', () => {
+    it('succeeds without pushing or invoking PR creation and reports the no-op', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const calls: string[][] = [];
+      const git: GitRunner = async (args) => {
+        calls.push(args);
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 0 };
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      const ghCalls: string[][] = [];
+      const gh: GhRunner = async (args) => {
+        ghCalls.push(args);
+        return { stdout: '', stderr: 'GraphQL: No commits between develop and karst/x', exitCode: 1 };
+      };
+      const events: ShipStepEvent[] = [];
+
+      const result = await shipTicket(
+        store,
+        { ticketId: id },
+        gh,
+        fakeAdapter(),
+        git,
+        (event) => events.push(event),
+      );
+
+      expect(result.prs).toEqual([]);
+      expect(ghCalls).toEqual([]);
+      expect(calls.some((args) => args[0] === 'push')).toBe(false);
+      expect(calls).toContainEqual(['fetch', 'origin', 'develop']);
+      expect(calls).toContainEqual(['diff', '--quiet', 'origin/develop...HEAD']);
+      expect(events).toContainEqual({
+        repo: '/repo/frontend',
+        step: 'pr',
+        status: 'note',
+        detail: 'no PR needed — no changes from develop',
+      });
+      expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    it('preserves normal PR creation when an effective change is present', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const order: string[] = [];
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'fetch') order.push('git fetch');
+        if (args[0] === 'diff') {
+          order.push('git diff');
+          return { stdout: '', stderr: '', exitCode: 1 };
+        }
+        if (MUTATING.has(args[0]!)) order.push(`git ${args[0]}`);
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      const gh: GhRunner = async (args) => {
+        order.push(`gh pr ${args[1]}`);
+        if (args[1] === 'view') {
+          return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        }
+        return { stdout: 'https://github.com/o/r/pull/1', stderr: '', exitCode: 0 };
+      };
+
+      const result = await shipTicket(store, { ticketId: id }, gh, undefined, git);
+
+      expect(result.prs).toHaveLength(1);
+      expect(order).toEqual([
+        'git status',
+        'git fetch',
+        'git diff',
+        'git push',
+        'gh pr view',
+        'gh pr create',
+        'git fetch',
+      ]);
+    });
   });
 
   // A dirty tree that cannot be committed (hook rejects, gpg signing fails) means

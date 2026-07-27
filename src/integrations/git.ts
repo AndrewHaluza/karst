@@ -128,6 +128,33 @@ export async function commitAllIfDirty(
 }
 
 /**
+ * Whether HEAD has an effective file change from the target branch.
+ *
+ * `diff --quiet` deliberately checks the resulting tree, not merely whether the
+ * branch contains commits: a commit/revert pair is just as much a no-op to a PR
+ * as a branch with no commits at all. Exit 1 means differences; any higher exit
+ * is a real git failure and must not be mistaken for "changes exist".
+ */
+export async function hasChangesFrom(
+  git: GitRunner,
+  cwd: string,
+  baseRef: string,
+): Promise<boolean> {
+  // If the remote cannot be refreshed, preserve shipping's existing behavior:
+  // attempt the PR and let GitHub decide. A failed optimization must not turn a
+  // potentially valid ship into a new hard failure.
+  const fetched = await git(['fetch', 'origin', baseRef], cwd);
+  if (fetched.exitCode !== 0) return true;
+
+  const result = await git(['diff', '--quiet', `origin/${baseRef}...HEAD`], cwd);
+  if (result.exitCode === 0) return false;
+  if (result.exitCode === 1) return true;
+
+  const reason = result.stderr.trim() || result.stdout.trim() || `git exit ${result.exitCode}`;
+  throw new Error(`git diff failed in ${cwd}: ${reason}`);
+}
+
+/**
  * Publish the worktree's branch so a PR can be opened from it.
  *
  * `HEAD` rather than the branch name: it is what the worktree is actually on,
