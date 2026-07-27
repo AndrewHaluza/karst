@@ -90,6 +90,22 @@ describe('buildHookSettings', () => {
     }
   });
 
+  it('gives each launch on one port its own immutable settings file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
+    try {
+      const firstUrl = `${hookUrl(4000)}?karstLaunch=first`;
+      const secondUrl = `${hookUrl(4000)}?karstLaunch=second`;
+      const first = writeHookSettings(firstUrl, dir);
+      const second = writeHookSettings(secondUrl, dir);
+
+      expect(first).not.toBe(second);
+      expect(JSON.parse(readFileSync(first, 'utf8')).hooks.Stop[0].hooks[0].url).toBe(firstUrl);
+      expect(JSON.parse(readFileSync(second, 'utf8')).hooks.Stop[0].hooks[0].url).toBe(secondUrl);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('is stable for one port, so re-launching a session reuses the file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-settings-'));
     try {

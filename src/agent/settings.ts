@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 /** The endpoint URL the hooks POST to, for a given bound port. */
 export function hookUrl(port: number): string {
@@ -57,16 +58,22 @@ export function buildHookSettings(endpointUrl: string): string {
  * Write the hook settings JSON into `dir` and return its path. Consumed by the
  * session launcher (T3.3) as the `--settings` argument (the C2 wiring).
  *
- * The filename carries the port because `dir` is global storage — shared by
- * every IDE window — while the port is per-window. With one fixed name, two
- * windows launching sessions raced: the second rewrote the file the first was
- * about to hand its agent, pointing that agent's hooks at the wrong extension
- * host, which then drove the ticket and opened terminals in the wrong window.
- * Keying by port makes each window's file its own, and stable across relaunches.
+ * The filename carries the port plus a hash whenever the endpoint has a query.
+ * The port isolates windows; the hash isolates per-launch lifecycle generations
+ * within one window. Files are immutable for a given full endpoint URL, so a
+ * second session cannot rewrite settings before the first agent reads them.
  */
 export function writeHookSettings(endpointUrl: string, dir: string): string {
-  const port = new URL(endpointUrl).port;
-  const path = join(dir, `karst-hooks.${port}.settings.json`);
+  const endpoint = new URL(endpointUrl);
+  const port = endpoint.port;
+  const generation =
+    endpoint.search === ''
+      ? ''
+      : `.${createHash('sha256').update(endpointUrl).digest('hex').slice(0, 16)}`;
+  const path = join(
+    dir,
+    `karst-hooks.${port}${generation}.settings.json`,
+  );
   writeFileSync(path, buildHookSettings(endpointUrl));
   return path;
 }

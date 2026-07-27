@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   continueSessionInBackground,
+  KARST_TICKET_ENV,
   SessionManager,
   type TerminalHost,
   type FakeTerminal,
+  type RestoredSession,
 } from './session.js';
 import type { AgentAdapter, InteractiveCommandOpts } from '../agent/adapter.js';
 
@@ -25,9 +27,25 @@ function fakeAdapter(binary = 'fake-agent'): {
   return { adapter, calls };
 }
 
-function fakeHost(): { host: TerminalHost; terminals: FakeTerminal[] } {
+function fakeHost(
+  restored: RestoredSession[] = [],
+  delayClose = false,
+): {
+  host: TerminalHost & {
+    restoreCreatedTerminals(): void;
+    liveTerminals(): FakeTerminal[];
+    flushCloseEvents(): void;
+  };
+  terminals: FakeTerminal[];
+} {
   const terminals: FakeTerminal[] = [];
-  const host: TerminalHost = {
+  const pendingCloseEvents: Array<() => void> = [];
+  let restoredSessions = restored;
+  const host: TerminalHost & {
+    restoreCreatedTerminals(): void;
+    liveTerminals(): FakeTerminal[];
+    flushCloseEvents(): void;
+  } = {
     createTerminal: (opts) => {
       const term: FakeTerminal = {
         name: opts.name,
@@ -35,6 +53,7 @@ function fakeHost(): { host: TerminalHost; terminals: FakeTerminal[] } {
         cwd: opts.cwd,
         shellPath: opts.shellPath,
         shellArgs: opts.shellArgs,
+        env: opts.env,
         hideFromUser: opts.hideFromUser,
         iconPath: opts.iconPath,
         color: opts.color,
@@ -45,15 +64,45 @@ function fakeHost(): { host: TerminalHost; terminals: FakeTerminal[] } {
         sendText: (text) => term.sent.push(text),
         dispose: () => {
           term.disposed = true;
-          term.disposeHandler?.();
+          if (!term.disposeHandler) return;
+          if (delayClose) pendingCloseEvents.push(term.disposeHandler);
+          else term.disposeHandler();
         },
         onDidClose: (h) => (term.disposeHandler = h),
       };
       terminals.push(term);
       return term;
     },
+    restoredSessions: () => restoredSessions,
+    restoreCreatedTerminals: () => {
+      restoredSessions = terminals.filter((terminal) => !terminal.disposed).flatMap((terminal) => {
+        const raw = terminal.env[KARST_TICKET_ENV];
+        return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
+          ? [{ ticketId: Number(raw), terminal }]
+          : [];
+      });
+    },
+    liveTerminals: () => terminals.filter((terminal) => !terminal.disposed),
+    flushCloseEvents: () => {
+      for (const close of pendingCloseEvents.splice(0)) close();
+    },
   };
   return { host, terminals };
+}
+
+function fakeRestored(
+  ticketId: number,
+): RestoredSession & { terminal: { disposed: boolean } } {
+  const terminal = {
+    disposed: false,
+    show: () => {},
+    sendText: () => {},
+    dispose: () => {
+      terminal.disposed = true;
+    },
+    onDidClose: () => {},
+  };
+  return { ticketId, terminal };
 }
 
 describe('SessionManager', () => {
@@ -62,6 +111,121 @@ describe('SessionManager', () => {
     configDir: '/runtime',
   };
   const channelFor = () => channel;
+
+  it('tags a new terminal with only its ticket id', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(
+      adapter,
+      7,
+      '/wt/a',
+      undefined,
+      'secret prompt',
+      undefined,
+      undefined,
+      'secret-session',
+    );
+
+    expect(terminals[0]!.env).toEqual({ [KARST_TICKET_ENV]: '7' });
+    expect(JSON.stringify(terminals[0]!.env)).not.toContain('secret');
+  });
+
+  it('three delayed-close reloads leave exactly one responsive replacement each', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const reloadableHost = host as TerminalHost & {
+      restoreCreatedTerminals(): void;
+      liveTerminals(): FakeTerminal[];
+      flushCloseEvents(): void;
+    };
+
+    let manager = new SessionManager(host, channelFor);
+    manager.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, 'session-7');
+
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      reloadableHost.restoreCreatedTerminals();
+      manager = new SessionManager(host, channelFor);
+      expect(manager.reconcileRestoredSessions(() => 'resume').resume).toEqual([7]);
+      manager.openSession(
+        adapter,
+        7,
+        '/wt/a',
+        undefined,
+        'continue',
+        undefined,
+        undefined,
+        'session-7',
+      );
+      expect(manager.nudge(7, `responsive-${cycle}`)).toBe(true);
+      expect(reloadableHost.liveTerminals()).toHaveLength(1);
+
+      // VS Code can deliver the stale terminal's close notification after the
+      // replacement has already started. It must not remove the replacement.
+      reloadableHost.flushCloseEvents();
+      expect(manager.isOpen(7)).toBe(true);
+      expect(reloadableHost.liveTerminals()).toHaveLength(1);
+    }
+
+    expect(terminals).toHaveLength(4);
+    expect(terminals.slice(1).map((terminal) => terminal.sent)).toEqual([
+      ['responsive-1'],
+      ['responsive-2'],
+      ['responsive-3'],
+    ]);
+  });
+
+  it('disposes duplicate restored handles and returns one resumable ticket', () => {
+    const restored = [fakeRestored(7), fakeRestored(7)];
+    const { host } = fakeHost(restored);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.reconcileRestoredSessions((id) => (id === 7 ? 'resume' : 'ignore'))).toEqual({
+      resume: [7],
+      idle: [],
+    });
+    expect(restored.every(({ terminal }) => terminal.disposed)).toBe(true);
+  });
+
+  it('disposes a tagged non-resumable terminal into recoverable idle state', () => {
+    const restored = [fakeRestored(8)];
+    const { host } = fakeHost(restored);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.reconcileRestoredSessions(() => 'idle')).toEqual({
+      resume: [],
+      idle: [8],
+    });
+    expect(restored[0]!.terminal.disposed).toBe(true);
+  });
+
+  it('ignores untagged terminals', () => {
+    const unrelated = fakeRestored(9).terminal;
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.reconcileRestoredSessions(() => 'resume')).toEqual({ resume: [], idle: [] });
+    expect(unrelated.disposed).toBe(false);
+  });
+
+  it('ignores foreign restored terminals without disposing them', () => {
+    const foreign = fakeRestored(8);
+    const { host } = fakeHost([foreign]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.reconcileRestoredSessions(() => 'ignore')).toEqual({ resume: [], idle: [] });
+    expect(foreign.terminal.disposed).toBe(false);
+  });
+
+  it('ignores restored terminals when this window has no current project', () => {
+    const restored = fakeRestored(8);
+    const { host } = fakeHost([restored]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.reconcileRestoredSessions(() => 'ignore')).toEqual({ resume: [], idle: [] });
+    expect(restored.terminal.disposed).toBe(false);
+  });
 
   it('openSession creates a terminal in the worktree cwd', () => {
     const { adapter } = fakeAdapter();
@@ -378,6 +542,106 @@ describe('SessionManager', () => {
     terminals[0]!.dispose();
 
     expect(mgr.isOpen(1)).toBe(false);
+  });
+
+  it('disposes an unready recovery terminal so a retry can create a replacement', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const observedCloses: number[] = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      undefined,
+      undefined,
+      (ticketId) => observedCloses.push(ticketId),
+    );
+    mgr.openSession(adapter, 1, '/wt/a');
+
+    mgr.disposeSession(1);
+    mgr.openSession(adapter, 1, '/wt/a');
+    host.flushCloseEvents();
+
+    expect(terminals).toHaveLength(2);
+    expect(terminals[0]!.disposed).toBe(true);
+    expect(mgr.isOpen(1)).toBe(true);
+    expect(observedCloses).toEqual([1]);
+  });
+
+  it('cleans owned assets exactly once when deliberately disposed without replacement', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost([], true);
+    const cleanup = vi.fn();
+    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+
+    mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
+      '/wt/a/.codex/karst/retired',
+    ]);
+    mgr.disposeSession(1);
+
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledWith('/wt/a', ['/wt/a/.codex/karst/retired']);
+
+    host.flushCloseEvents();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans retired assets without letting its delayed close clean different replacement assets', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const cleanup = vi.fn();
+    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+
+    mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
+      '/wt/a/.codex/karst/retired',
+    ]);
+    mgr.disposeSession(1);
+    mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
+      '/wt/a/.codex/karst/replacement',
+    ]);
+
+    expect(cleanup.mock.calls).toEqual([
+      ['/wt/a', ['/wt/a/.codex/karst/retired']],
+    ]);
+
+    host.flushCloseEvents();
+    expect(cleanup.mock.calls).toEqual([
+      ['/wt/a', ['/wt/a/.codex/karst/retired']],
+    ]);
+    expect(mgr.isOpen(1)).toBe(true);
+
+    terminals[1]!.dispose();
+    host.flushCloseEvents();
+    expect(cleanup.mock.calls).toEqual([
+      ['/wt/a', ['/wt/a/.codex/karst/retired']],
+      ['/wt/a', ['/wt/a/.codex/karst/replacement']],
+    ]);
+  });
+
+  it('does not clean replacement assets when the old terminal closes late', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const cleanup = vi.fn();
+    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+
+    mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
+      '/wt/a/.codex/active',
+    ]);
+    mgr.disposeSession(1);
+    mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
+      '/wt/a/.codex/active',
+    ]);
+
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenLastCalledWith('/wt/a', ['/wt/a/.codex/active']);
+
+    host.flushCloseEvents();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(mgr.isOpen(1)).toBe(true);
+
+    terminals[1]!.dispose();
+    host.flushCloseEvents();
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(cleanup).toHaveBeenLastCalledWith('/wt/a', ['/wt/a/.codex/active']);
   });
 
   it('invokes onDidCloseSession with the ticket id after the terminal closes (isOpen already false)', () => {

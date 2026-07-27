@@ -38,6 +38,38 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('idle');
   });
 
+  it('a lifecycle barrier can reject a stale SessionEnd after replacement SessionStart', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionEnd', cwd: WT },
+      undefined,
+      () => false,
+    );
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('rejects a stale SessionStart before it can overwrite the current session id', () => {
+    const id = ticketAt();
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'current-session' },
+      undefined,
+      () => true,
+    );
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'stale-session' },
+      undefined,
+      () => false,
+    );
+
+    const ticket = getTicket(store, id);
+    expect(ticket.sessionId).toBe('current-session');
+    expect(ticket.agentState).toBe('running');
+  });
+
   it('Notification (idle_prompt) flips agent_state to waiting (amber)', () => {
     const id = ticketAt();
     dispatchHook(store, {
@@ -139,8 +171,9 @@ describe('dispatchHook', () => {
   it('fans out to the notify callback with the affected ticket id', () => {
     const id = ticketAt();
     const notify = vi.fn();
-    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT }, notify);
-    expect(notify).toHaveBeenCalledWith(id);
+    const payload = { hook_event_name: 'SessionStart', cwd: WT };
+    dispatchHook(store, payload, notify);
+    expect(notify).toHaveBeenCalledWith(id, payload);
   });
 
   it('does not call notify when nothing matched', () => {

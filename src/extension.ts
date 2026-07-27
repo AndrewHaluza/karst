@@ -12,10 +12,22 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
   continueSessionInBackground,
+  KARST_TICKET_ENV,
   SessionManager,
   type TerminalHost,
   type SessionTerminal,
 } from './ui/session.js';
+import {
+  classifyRestoredSession,
+  planSessionRecovery,
+  recoverSession,
+  recoveryOutcomeDisposition,
+  sessionOwnershipAction,
+  SerializedStateWriter,
+  SessionRecoveryLifecycle,
+  shouldApplySessionHookState,
+  type RecoveryCandidate,
+} from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { buildSessionSeed } from './agent/seed.js';
@@ -96,6 +108,7 @@ import {
   ticketLabel,
   listTickets,
   listArchivedTickets,
+  setAgentState,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
@@ -164,6 +177,8 @@ const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
  * posting to, and every one of them ECONNREFUSED for the rest of its life.
  */
 const HOOK_PORT_KEY = 'karst.hookPort';
+/** Tickets whose terminals this window launched, including hidden terminals. */
+const OWNED_SESSION_TICKETS_KEY = 'karst.ownedSessionTickets';
 
 /**
  * Global (cross-window) flag: the one-shot adoption of pre-v6 tickets has run.
@@ -182,6 +197,9 @@ const PR_SYNC_INTERVAL_MS = 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+let flushSessionOwnership: (() => Promise<void>) | undefined;
+let shutdownSessionRecovery: (() => void) | undefined;
+const pendingSessionRecoveryTasks = new Set<Promise<void>>();
 
 /** Per-ticket single-flight + Stop bookkeeping for the auto-driver (§11/§12). */
 const driver = new DriverController();
@@ -248,17 +266,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // into agent-specific launch args).
   // No manifest is resolved yet at this point in activation; only 'claude' is
   // functional today (see agent/registry.ts) so the fallback is always correct.
+  const recoveryLifecycle = new SessionRecoveryLifecycle();
+  const ownedSessionTickets = new Set(
+    context.workspaceState.get<number[]>(OWNED_SESSION_TICKETS_KEY) ?? [],
+  );
+  const ownershipWriter = new SerializedStateWriter<number[]>(
+    (snapshot) =>
+      context.workspaceState.update(OWNED_SESSION_TICKETS_KEY, snapshot),
+    (error) => {
+      logError('session ownership persistence failed', error);
+    },
+  );
+  flushSessionOwnership = () => ownershipWriter.flush();
+  shutdownSessionRecovery = () => recoveryLifecycle.shutdown();
+  pendingSessionRecoveryTasks.clear();
+  const persistOwnedSessionTickets = (): Promise<void> => {
+    const snapshot = [...ownedSessionTickets].sort((a, b) => a - b);
+    return ownershipWriter.enqueue(snapshot);
+  };
   const sessions = new SessionManager(
     makeTerminalHost(),
-    () => {
+    (ticketId) => {
       if (!endpoint) {
         throw new Error('karst: hook endpoint is not bound');
       }
-      return { endpointUrl: endpoint.url, configDir: settingsDir };
+      const launchId = recoveryLifecycle.startLaunch(ticketId);
+      const hookEndpoint = new URL(endpoint.url);
+      hookEndpoint.searchParams.set('karstLaunch', launchId);
+      return {
+        endpointUrl: hookEndpoint.toString(),
+        configDir: settingsDir,
+        launchId,
+      };
     },
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
     // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
-    (ticketId) => maybeDrive(ticketId, 'session-closed'),
+    (ticketId) => {
+      ownedSessionTickets.delete(ticketId);
+      void persistOwnedSessionTickets();
+      setAgentState(localStore, ticketId, 'idle');
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      maybeDrive(ticketId, 'session-closed');
+    },
+    undefined,
+    (ticketId, launchId) =>
+      recoveryLifecycle.sessionClosed(ticketId, launchId),
   );
 
   // The live manifest. Loaded on first read rather than assigned by whichever
@@ -949,11 +1002,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
-  endpoint = await startHookEndpoint(localStore, rememberedPort, (ticketId) => {
-    provider.refresh();
-    dashboard.pushState(ticketId);
-    maybeDrive(ticketId, 'hook');
-  }, logError);
+  endpoint = await startHookEndpoint(
+    localStore,
+    rememberedPort,
+    (ticketId, payload) => {
+      if (payload.hook_event_name === 'SessionStart') {
+        recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
+      }
+      const ownership = sessionOwnershipAction(
+        payload.hook_event_name,
+        sessions.isOpen(ticketId),
+      );
+      const ownershipChanged =
+        ownership === 'add'
+          ? !ownedSessionTickets.has(ticketId)
+          : ownership === 'remove'
+            ? ownedSessionTickets.has(ticketId)
+            : false;
+      if (ownership === 'add') ownedSessionTickets.add(ticketId);
+      if (ownership === 'remove') ownedSessionTickets.delete(ticketId);
+      if (ownershipChanged) void persistOwnedSessionTickets();
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      maybeDrive(ticketId, 'hook');
+    },
+    logError,
+    (ticketId, payload) =>
+      shouldApplySessionHookState(
+        sessions,
+        recoveryLifecycle,
+        ticketId,
+        payload,
+      ),
+  );
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
   }
@@ -1069,7 +1150,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand(
       'karst.openSession',
-      (arg: unknown, options: { reveal?: boolean } = {}) => {
+      async (arg: unknown, options: { reveal?: boolean; recovery?: boolean } = {}) => {
         const ticketId = ticketIdArg(arg);
         if (ticketId === undefined) return;
         const adapter = currentAgentAdapter();
@@ -1084,6 +1165,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // for the drafted-but-unstarted case, not just the interrupted one.
       let wt = listWorktreesByTicket(localStore, ticketId)[0];
       if (!wt) {
+        // Recovery must never reinterpret an already-impl/fix ticket as a new
+        // draft. A missing recovery worktree is corruption/recoverable idle,
+        // not permission to run scope and transition the stage.
+        if (options.recovery) return;
         const draft = getTicket(localStore, ticketId);
         if (draft.selectedRepos.length === 0) {
           void vscode.window.showWarningMessage(
@@ -1312,6 +1397,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           materialized.ownedPaths,
           options,
         );
+        if (sessions.isOpen(ticketId)) {
+          ownedSessionTickets.add(ticketId);
+          await persistOwnedSessionTickets();
+        }
         showStatusFor(ticketId);
       },
     ),
@@ -1543,11 +1632,103 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       welcome.open();
     }),
   );
+
+  // VS Code restores terminal tabs across an extension-host reload, but the old
+  // host's SessionManager cannot be restored with them. Discard those stale UI
+  // handles and reopen only the current project's resumable sessions through
+  // the registered command, so its usual scoping/seed/materialization path is
+  // preserved.
+  const projectId = currentProject()?.id;
+  const currentTickets =
+    projectId === undefined ? [] : listTickets(localStore, { projectId });
+  const candidates: RecoveryCandidate[] = currentTickets.map((ticket) => ({
+    id: ticket.id,
+    agentState: ticket.agentState,
+    canResume: shouldResumeSession({
+      sessionId: ticket.sessionId,
+      stageCurrent: ticket.stageCurrent as StageKey,
+    }),
+    hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
+  }));
+  const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  const restored = sessions.reconcileRestoredSessions((ticketId) => {
+    return classifyRestoredSession(candidateById.get(ticketId));
+  });
+  const recoveryPlan = planSessionRecovery(
+    candidates,
+    [...ownedSessionTickets],
+    restored,
+  );
+  let ownershipChanged = false;
+  for (const ticketId of recoveryPlan.discard) {
+    ownershipChanged = ownedSessionTickets.delete(ticketId) || ownershipChanged;
+  }
+
+  for (const ticketId of recoveryPlan.idle) {
+    setAgentState(localStore, ticketId, 'idle');
+    ownershipChanged =
+      ownedSessionTickets.delete(ticketId) || ownershipChanged;
+    logger.warn(
+      `session recovery: ticket ${ticketId} has no resumable session or worktree`,
+    );
+  }
+  if (ownershipChanged) await persistOwnedSessionTickets();
+  if (recoveryPlan.idle.length > 0) {
+    provider.refresh();
+    dashboard.pushAll();
+  }
+  for (const ticketId of recoveryPlan.resume) {
+    const recoveryTask = recoverSession(
+      sessions,
+      recoveryLifecycle,
+      ticketId,
+      (id) =>
+        vscode.commands.executeCommand('karst.openSession', id, {
+          recovery: true,
+        }),
+    ).then(async (outcome) => {
+      const disposition = recoveryOutcomeDisposition(outcome);
+      if (disposition === 'ready') return;
+      if (disposition === 'retry-next-activation') {
+        if (outcome.kind === 'interrupted' && outcome.cleanupError !== undefined) {
+          logError(
+            `session recovery interrupted cleanup failed for ticket ${ticketId}`,
+            outcome.cleanupError,
+          );
+        }
+        return;
+      }
+      setAgentState(localStore, ticketId, 'idle');
+      ownedSessionTickets.delete(ticketId);
+      await persistOwnedSessionTickets();
+      if (outcome.kind === 'rejected') {
+        logError(`session recovery failed for ticket ${ticketId}`, outcome.error);
+      } else {
+        logger.warn(
+          `session recovery failed for ticket ${ticketId}: replacement ${outcome.kind}`,
+        );
+      }
+      provider.refresh();
+      dashboard.pushState(ticketId);
+    }).catch((error) => {
+      logError(`session recovery completion failed for ticket ${ticketId}`, error);
+    });
+    pendingSessionRecoveryTasks.add(recoveryTask);
+    void recoveryTask.finally(() => {
+      pendingSessionRecoveryTasks.delete(recoveryTask);
+    });
+  }
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   endpoint?.close();
   endpoint = undefined;
+  shutdownSessionRecovery?.();
+  await Promise.allSettled([...pendingSessionRecoveryTasks]);
+  await flushSessionOwnership?.();
+  pendingSessionRecoveryTasks.clear();
+  shutdownSessionRecovery = undefined;
+  flushSessionOwnership = undefined;
   store?.close();
   store = undefined;
 }
@@ -1699,6 +1880,23 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
   };
 }
 
+/** Wrap a VS Code terminal for both freshly-created and restored sessions. */
+function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
+  return {
+    show: () => terminal.show(),
+    sendText: (text) => terminal.sendText(text, true),
+    dispose: () => terminal.dispose(),
+    onDidClose: (handler) => {
+      const sub = vscode.window.onDidCloseTerminal((closed) => {
+        if (closed === terminal) {
+          sub.dispose();
+          handler();
+        }
+      });
+    },
+  };
+}
+
 /** Real terminals, wrapped in the `SessionTerminal` interface. */
 function makeTerminalHost(): TerminalHost {
   return {
@@ -1711,26 +1909,24 @@ function makeTerminalHost(): TerminalHost {
         cwd: opts.cwd,
         shellPath: opts.shellPath,
         shellArgs: opts.shellArgs,
+        env: opts.env,
         hideFromUser: opts.hideFromUser,
         // Name/icon/color are frozen at creation — `Terminal.creationOptions` is
         // readonly, so the launch glyph is what the tab keeps for its lifetime.
         ...(opts.iconPath ? { iconPath: vscode.Uri.file(opts.iconPath) } : {}),
         ...(opts.color ? { color: new vscode.ThemeColor(opts.color) } : {}),
       });
-      return {
-        show: () => terminal.show(),
-        sendText: (text) => terminal.sendText(text, true),
-        dispose: () => terminal.dispose(),
-        onDidClose: (handler) => {
-          const sub = vscode.window.onDidCloseTerminal((closed) => {
-            if (closed === terminal) {
-              sub.dispose();
-              handler();
-            }
-          });
-        },
-      };
+      return wrapTerminal(terminal);
     },
+    restoredSessions: () =>
+      vscode.window.terminals.flatMap((terminal) => {
+        const creationOptions = terminal.creationOptions;
+        const env = 'env' in creationOptions ? creationOptions.env : undefined;
+        const raw = env?.[KARST_TICKET_ENV];
+        return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
+          ? [{ ticketId: Number(raw), terminal: wrapTerminal(terminal) }]
+          : [];
+      }),
   };
 }
 

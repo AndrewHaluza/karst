@@ -7,6 +7,8 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -171,7 +173,27 @@ describe('CodexAdapter interactive commands', () => {
     expect(command.startsWith(`${JSON.stringify(resolveNodeExecutable())} `)).toBe(true);
   });
 
-  it('keeps hook bridge failures from surfacing as failed Codex hooks', () => {
+  it('does not replace the shared bridge when another terminal session launches', () => {
+    const configDir = makeWorktree();
+    const adapter = new CodexAdapter();
+    const opts = {
+      cwd: makeWorktree(),
+      hookChannel: {
+        endpointUrl: 'http://127.0.0.1:4567/hooks',
+        configDir,
+      },
+    };
+    adapter.buildInteractiveCommand(opts);
+    const bridgePath = join(configDir, 'codex', 'bridge.cjs');
+    const old = new Date('2020-01-01T00:00:00Z');
+    utimesSync(bridgePath, old, old);
+
+    adapter.buildInteractiveCommand(opts);
+
+    expect(statSync(bridgePath).mtimeMs).toBe(old.getTime());
+  });
+
+  it('records a sanitized diagnostic when a hook cannot reach the endpoint', () => {
     const configDir = makeWorktree();
     new CodexAdapter().buildInteractiveCommand({
       cwd: makeWorktree(),
@@ -182,17 +204,27 @@ describe('CodexAdapter interactive commands', () => {
     });
 
     const bridgePath = join(configDir, 'codex', 'bridge.cjs');
-    const result = spawnSync(resolveNodeExecutable(), [bridgePath], {
-      input: JSON.stringify({
-        hook_event_name: 'PostToolUse',
-        session_id: 'thread-1',
-        cwd: '/wt',
-      }),
-      encoding: 'utf8',
-    });
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const result = spawnSync(
+      resolveNodeExecutable(),
+      [bridgePath, 'http://127.0.0.1:4567/hooks', diagnosticsPath],
+      {
+        input: JSON.stringify({
+          hook_event_name: 'PostToolUse',
+          session_id: 'thread-1',
+          cwd: '/wt',
+        }),
+        encoding: 'utf8',
+      },
+    );
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
+    const diagnostics = readFileSync(diagnosticsPath, 'utf8');
+    expect(diagnostics).toContain('"event":"PostToolUse"');
+    expect(diagnostics).toContain('"outcome":"request-error"');
+    expect(diagnostics).not.toContain('/wt');
+    expect(diagnostics).not.toContain('thread-1');
   });
 });
 

@@ -2,7 +2,7 @@ import { readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * Housekeeping for the per-port hook-settings files (`writeHookSettings`).
+ * Housekeeping for per-window/per-launch hook settings (`writeHookSettings`).
  *
  * The hook endpoint binds an ephemeral port, so every window launch mints a new
  * filename and the old one is never revisited — without a sweep they accumulate
@@ -15,7 +15,8 @@ import { join } from 'node:path';
  */
 
 /** Only files this module's writer produced. The pre-port legacy name is excluded on purpose. */
-const HOOK_SETTINGS_RE = /^karst-hooks\.\d+\.settings\.json$/;
+const HOOK_SETTINGS_RE =
+  /^karst-hooks\.\d+(?:\.[a-f0-9]{16})?\.settings\.json$/;
 
 /** How stale a hook-settings file must be before it is swept, in days. */
 export const DEFAULT_SWEEP_AGE_DAYS = 7;

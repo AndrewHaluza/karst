@@ -38,6 +38,8 @@ export interface InteractiveCommandOpts {
 export interface HookChannel {
   endpointUrl: string;
   configDir: string;
+  /** Opaque per-terminal generation used only to order lifecycle hooks. */
+  launchId?: string;
 }
 
 /**

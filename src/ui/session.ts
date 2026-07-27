@@ -14,6 +14,24 @@ export interface SessionTerminal {
   onDidClose(handler: () => void): void;
 }
 
+/** Environment key that binds a restored terminal to its ticket. */
+export const KARST_TICKET_ENV = 'KARST_TICKET_ID';
+
+/** A host-discovered terminal previously created for a Karst ticket. */
+export interface RestoredSession {
+  ticketId: number;
+  terminal: SessionTerminal;
+}
+
+/** Tickets whose restored terminals should resume or remain recoverable idle. */
+export interface RestoredRecoveryResult {
+  resume: number[];
+  idle: number[];
+}
+
+/** The current window's recovery decision for a restored terminal. */
+export type RestoredSessionDisposition = 'resume' | 'idle' | 'ignore';
+
 export interface CreateTerminalOpts {
   name: string;
   /** Dimmed text beside the name (real: `vscode.TerminalOptions.description`). */
@@ -21,6 +39,8 @@ export interface CreateTerminalOpts {
   cwd: string;
   shellPath: string;
   shellArgs: string[];
+  /** Environment variables passed to the terminal process. */
+  env: Record<string, string>;
   /** Keep automated continuations out of the visible terminal UI. */
   hideFromUser?: boolean;
   /** File path to a tinted icon SVG (real: mapped to `vscode.Uri.file`). */
@@ -32,6 +52,7 @@ export interface CreateTerminalOpts {
 /** Factory the manager uses to mint terminals (real: `createTerminal`). */
 export interface TerminalHost {
   createTerminal(opts: CreateTerminalOpts): SessionTerminal;
+  restoredSessions?(): RestoredSession[];
 }
 
 /** Test double surface — extends the terminal with recorded state. */
@@ -41,6 +62,7 @@ export interface FakeTerminal extends SessionTerminal {
   cwd: string;
   shellPath: string;
   shellArgs: string[];
+  env: Record<string, string>;
   hideFromUser?: boolean;
   iconPath?: string;
   color?: string;
@@ -51,7 +73,7 @@ export interface FakeTerminal extends SessionTerminal {
 }
 
 /** Resolve the provider-neutral lifecycle channel for a session. */
-export type HookChannelFor = () => HookChannel;
+export type HookChannelFor = (ticketId: number) => HookChannel;
 export type CleanupOwnedPaths = (
   worktreePath: string,
   ownedPaths: readonly string[],
@@ -87,6 +109,7 @@ function toSingleLine(text: string): string {
  */
 export class SessionManager {
   private readonly terminals = new Map<number, SessionTerminal>();
+  private readonly cleanupByTerminal = new WeakMap<SessionTerminal, () => void>();
 
   constructor(
     private readonly host: TerminalHost,
@@ -99,6 +122,11 @@ export class SessionManager {
      */
     private readonly onDidCloseSession?: (ticketId: number) => void,
     private readonly cleanup: CleanupOwnedPaths = cleanupOwnedPaths,
+    /** Observes every owned handle close, including a retired recovery handle. */
+    private readonly onDidCloseTerminal?: (
+      ticketId: number,
+      launchId: string | undefined,
+    ) => void,
   ) {}
 
   /**
@@ -131,9 +159,10 @@ export class SessionManager {
       return;
     }
 
+    const hookChannel = this.hookChannelFor(ticketId);
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
-      hookChannel: this.hookChannelFor(),
+      hookChannel,
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
       ...(model ? { model } : {}),
@@ -147,20 +176,61 @@ export class SessionManager {
       cwd: worktreePath,
       shellPath: cmd.command,
       shellArgs: cmd.args,
+      env: { ...cmd.env, [KARST_TICKET_ENV]: String(ticketId) },
       ...(options.reveal === false ? { hideFromUser: true } : {}),
       ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
       ...(naming?.color ? { color: naming.color } : {}),
     });
+    let cleanupStarted = false;
+    const cleanupOwned = (): void => {
+      if (cleanupStarted) return;
+      cleanupStarted = true;
+      this.cleanup(worktreePath, cleanupPaths);
+    };
+    this.cleanupByTerminal.set(terminal, cleanupOwned);
     terminal.onDidClose(() => {
-      this.terminals.delete(ticketId);
+      // A recovery timeout can dispose one terminal and immediately create its
+      // retry before VS Code delivers the old close event. Only the handle that
+      // is still current may clear the ticket or announce that its session ended.
+      const wasCurrent = this.terminals.get(ticketId) === terminal;
+      if (wasCurrent) this.terminals.delete(ticketId);
       try {
-        this.cleanup(worktreePath, cleanupPaths);
+        // Materialized paths are ticket-scoped and a retry may reuse them. A
+        // delayed close from the retired handle must not delete assets now owned
+        // by its replacement.
+        if (wasCurrent) cleanupOwned();
       } finally {
-        this.onDidCloseSession?.(ticketId);
+        if (wasCurrent) this.onDidCloseSession?.(ticketId);
+        this.onDidCloseTerminal?.(ticketId, hookChannel.launchId);
       }
     });
     this.terminals.set(ticketId, terminal);
     if (options.reveal !== false) terminal.show();
+  }
+
+  /**
+   * Reconcile only restored terminals owned by this window's project. Ignored
+   * handles are left alone: another project (or a window without a project)
+   * must never dispose a terminal it cannot safely own. Recovered terminals
+   * are deliberately not entered into the live map; their visible terminal is
+   * being replaced by a fresh launch or an idle state.
+   */
+  reconcileRestoredSessions(
+    classify: (ticketId: number) => RestoredSessionDisposition,
+  ): RestoredRecoveryResult {
+    const result: RestoredRecoveryResult = { resume: [], idle: [] };
+    const recovered = new Set<number>();
+
+    for (const { ticketId, terminal } of this.host.restoredSessions?.() ?? []) {
+      const disposition = classify(ticketId);
+      if (disposition === 'ignore') continue;
+      terminal.dispose();
+      if (recovered.has(ticketId)) continue;
+      recovered.add(ticketId);
+      result[disposition].push(ticketId);
+    }
+
+    return result;
   }
 
   /**
@@ -189,5 +259,23 @@ export class SessionManager {
   /** Whether a session terminal is currently open for a ticket. */
   isOpen(ticketId: number): boolean {
     return this.terminals.has(ticketId);
+  }
+
+  /**
+   * Dispose the current terminal and release the one-per-ticket guard
+   * immediately. VS Code may report its close later; the identity check in the
+   * close handler prevents that stale event from deleting a replacement.
+   */
+  disposeSession(ticketId: number): void {
+    const terminal = this.terminals.get(ticketId);
+    if (!terminal) return;
+    try {
+      // Release this launch's assets while it still owns the ticket slot. A
+      // retry can safely reuse the same paths as soon as this method returns.
+      this.cleanupByTerminal.get(terminal)?.();
+    } finally {
+      this.terminals.delete(ticketId);
+      terminal.dispose();
+    }
   }
 }

@@ -1,11 +1,41 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Store } from '../store/db.js';
-import { dispatchHook, parseHookPayload, type NotifyTicket } from './dispatch.js';
+import {
+  dispatchHook,
+  parseHookPayload,
+  type NotifyTicket,
+  type ShouldApplyHookState,
+} from './dispatch.js';
 import { hookUrl } from '../agent/settings.js';
 import type { LogError } from '../logging/logger.js';
 
 /** Cap the accepted hook body — a local sender can't grow host memory unbounded. */
 const MAX_BODY_BYTES = 64 * 1024;
+const LAUNCH_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type HookRequestTarget =
+  | { kind: 'ok'; launchId?: string }
+  | { kind: 'bad-request' }
+  | { kind: 'not-found' };
+
+/** Parse and validate the request target before installing body listeners. */
+export function parseHookRequestTarget(raw: string | undefined): HookRequestTarget {
+  let target: URL;
+  try {
+    target = new URL(raw ?? '', 'http://127.0.0.1');
+  } catch {
+    return { kind: 'bad-request' };
+  }
+  if (target.pathname !== '/hooks') return { kind: 'not-found' };
+  const launchIds = target.searchParams.getAll('karstLaunch');
+  if (launchIds.length > 1) return { kind: 'bad-request' };
+  const launchId = launchIds[0];
+  if (launchId !== undefined && !LAUNCH_ID_RE.test(launchId)) {
+    return { kind: 'bad-request' };
+  }
+  return launchId === undefined ? { kind: 'ok' } : { kind: 'ok', launchId };
+}
 
 export interface HookEndpoint {
   port: number;
@@ -31,12 +61,19 @@ export function startHookEndpoint(
   port: number,
   notify?: NotifyTicket,
   logError: LogError = (m, e) => console.error(m, e),
+  shouldApplyState?: ShouldApplyHookState,
 ): Promise<HookEndpoint> {
   return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // Only the POST /hooks contract is served; anything else gets a fast 404.
       if (req.method !== 'POST') {
         res.writeHead(404);
+        res.end();
+        return;
+      }
+      const target = parseHookRequestTarget(req.url);
+      if (target.kind !== 'ok') {
+        res.writeHead(target.kind === 'not-found' ? 404 : 400);
         res.end();
         return;
       }
@@ -65,10 +102,19 @@ export function startHookEndpoint(
         }
 
         if (payload) {
+          const dispatchPayload =
+            target.launchId === undefined
+              ? payload
+              : { ...payload, launchId: target.launchId };
           // Dispatch failures are real bugs (bad SQL, store error), not a
           // malformed body — surface them instead of silently swallowing.
           try {
-            dispatchHook(store, payload, notify);
+            dispatchHook(
+              store,
+              dispatchPayload,
+              notify,
+              shouldApplyState,
+            );
           } catch (err) {
             logError('karst: hook dispatch failed', err);
           }
