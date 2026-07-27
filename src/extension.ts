@@ -113,6 +113,7 @@ import {
   listTickets,
   listArchivedTickets,
   setAgentState,
+  setSessionId,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
@@ -318,6 +319,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       recoveryLifecycle.sessionClosed(ticketId, launchId),
     (ticketId, launchId) =>
       recoveryLifecycle.adoptLaunch(ticketId, launchId),
+    // The captured session id no longer resolves (agent CLI rejected `--resume`
+    // and exited before starting) — clear it so the NEXT open re-seeds a fresh
+    // session instead of repeating the same crash forever, and tell the user
+    // why the terminal they just saw close did nothing.
+    (ticketId) => {
+      setSessionId(localStore, ticketId, null);
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      const t = getTicket(localStore, ticketId);
+      void vscode.window.showWarningMessage(
+        `Karst: couldn't resume the previous session for "${t.key ?? `#${ticketId}`}" ` +
+          `(it may have expired or the worktree was recreated). Starting a fresh session next time.`,
+      );
+    },
   );
 
   // The live manifest. Loaded on first read rather than assigned by whichever
@@ -1918,7 +1933,7 @@ function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
       const sub = vscode.window.onDidCloseTerminal((closed) => {
         if (closed === terminal) {
           sub.dispose();
-          handler();
+          handler(closed.exitStatus?.code);
         }
       });
     },
