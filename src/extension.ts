@@ -12,6 +12,7 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
   continueSessionInBackground,
+  KARST_LAUNCH_ENV,
   KARST_TICKET_ENV,
   SessionManager,
   type TerminalHost,
@@ -312,6 +313,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     undefined,
     (ticketId, launchId) =>
       recoveryLifecycle.sessionClosed(ticketId, launchId),
+    (ticketId, launchId) =>
+      recoveryLifecycle.adoptLaunch(ticketId, launchId),
   );
 
   // The live manifest. Loaded on first read rather than assigned by whichever
@@ -1924,8 +1927,15 @@ function makeTerminalHost(): TerminalHost {
         const creationOptions = terminal.creationOptions;
         const env = 'env' in creationOptions ? creationOptions.env : undefined;
         const raw = env?.[KARST_TICKET_ENV];
+        const launchId = env?.[KARST_LAUNCH_ENV];
         return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
-          ? [{ ticketId: Number(raw), terminal: wrapTerminal(terminal) }]
+          ? [{
+              ticketId: Number(raw),
+              ...(typeof launchId === 'string' && launchId.length > 0
+                ? { launchId }
+                : {}),
+              terminal: wrapTerminal(terminal),
+            }]
           : [];
       }),
   };

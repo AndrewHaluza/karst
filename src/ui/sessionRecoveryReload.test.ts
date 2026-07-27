@@ -6,11 +6,114 @@ import {
   resumeRestoredSession,
   SerializedStateWriter,
   SessionRecoveryLifecycle,
+  shouldApplySessionHookState,
 } from './sessionRecovery.js';
-import { SessionManager, type FakeTerminal } from './session.js';
+import {
+  SessionManager,
+  type FakeTerminal,
+  type RestoredSession,
+} from './session.js';
 import type { AgentAdapter } from '../agent/adapter.js';
+import { dispatchHook } from '../hooks/dispatch.js';
+import { openStore } from '../store/db.js';
+import {
+  createTicket,
+  getTicket,
+  setAgentState,
+} from '../store/tickets.js';
 
 describe('recovery interrupted by another window reload', () => {
+  it('rejects late hooks from a disposed duplicate and the closed adopted generation', () => {
+    const store = openStore(':memory:');
+    const ticket = createTicket(store, { key: 'A', title: 'adopted' });
+    const worktree = '/repo/.karst/worktrees/adopted';
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, 'app', ?, 'karst/adopted', 'main', 'inherited')`,
+      )
+      .run(ticket.id, worktree);
+    const launchA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const launchB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const restored = [launchA, launchB].map((launchId) => {
+      const terminal: FakeTerminal = {
+        name: `Karst: #${ticket.id}`,
+        cwd: worktree,
+        shellPath: 'agent',
+        shellArgs: [],
+        env: {},
+        shown: 0,
+        sent: [],
+        disposed: false,
+        show: () => {},
+        sendText: () => {},
+        dispose: () => {
+          terminal.disposed = true;
+          terminal.disposeHandler?.();
+        },
+        onDidClose: (handler) => {
+          terminal.disposeHandler = handler;
+        },
+      };
+      return { ticketId: ticket.id, launchId, terminal } satisfies RestoredSession;
+    });
+    const lifecycle = new SessionRecoveryLifecycle();
+    const sessions = new SessionManager(
+      {
+        createTerminal: () => {
+          throw new Error('restored adoption must not relaunch');
+        },
+        restoredSessions: () => restored,
+      },
+      () => {
+        throw new Error('restored adoption must not allocate a launch');
+      },
+      (ticketId) => setAgentState(store, ticketId, 'idle'),
+      undefined,
+      (ticketId, launchId) => lifecycle.sessionClosed(ticketId, launchId),
+      (ticketId, launchId) => lifecycle.adoptLaunch(ticketId, launchId),
+    );
+    const applyHook = (
+      hook_event_name: string,
+      launchId: string,
+      session_id?: string,
+    ): void => {
+      dispatchHook(
+        store,
+        { hook_event_name, launchId, session_id, cwd: worktree },
+        undefined,
+        (ticketId, payload) =>
+          shouldApplySessionHookState(
+            sessions,
+            lifecycle,
+            ticketId,
+            payload,
+          ),
+      );
+    };
+
+    try {
+      expect(sessions.reconcileRestoredSessions(() => 'resume')).toEqual({
+        resume: [ticket.id],
+        idle: [],
+      });
+      applyHook('SessionStart', launchA, 'session-A');
+      expect(getTicket(store, ticket.id).sessionId).toBe('session-A');
+
+      expect(restored[1]!.terminal.disposed).toBe(true);
+      applyHook('SessionStart', launchB, 'session-B');
+      expect(getTicket(store, ticket.id).sessionId).toBe('session-A');
+
+      restored[0]!.terminal.dispose();
+      expect(sessions.isOpen(ticket.id)).toBe(false);
+      expect(getTicket(store, ticket.id).agentState).toBe('idle');
+      applyHook('PostToolUse', launchA);
+      expect(getTicket(store, ticket.id).agentState).toBe('idle');
+    } finally {
+      store.close();
+    }
+  });
+
   it('keeps the interruption result while the open command is still settling', async () => {
     let finishOpen!: () => void;
     const lifecycle = new SessionRecoveryLifecycle(100);

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   continueSessionInBackground,
+  KARST_LAUNCH_ENV,
   KARST_TICKET_ENV,
   SessionManager,
   type TerminalHost,
@@ -117,13 +118,15 @@ function fakeRestored(
 }
 
 describe('SessionManager', () => {
+  const launchId = '123e4567-e89b-42d3-a456-426614174000';
   const channel = {
     endpointUrl: 'http://127.0.0.1:4567/hooks',
     configDir: '/runtime',
+    launchId,
   };
   const channelFor = () => channel;
 
-  it('tags a new terminal with only its ticket id', () => {
+  it('tags a new terminal with provider-neutral ticket and launch identity', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const mgr = new SessionManager(host, channelFor);
@@ -139,7 +142,10 @@ describe('SessionManager', () => {
       'secret-session',
     );
 
-    expect(terminals[0]!.env).toEqual({ [KARST_TICKET_ENV]: '7' });
+    expect(terminals[0]!.env).toEqual({
+      [KARST_TICKET_ENV]: '7',
+      [KARST_LAUNCH_ENV]: launchId,
+    });
     expect(JSON.stringify(terminals[0]!.env)).not.toContain('secret');
   });
 

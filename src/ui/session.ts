@@ -16,10 +16,14 @@ export interface SessionTerminal {
 
 /** Environment key that binds a restored terminal to its ticket. */
 export const KARST_TICKET_ENV = 'KARST_TICKET_ID';
+/** Environment key that preserves the terminal's provider-neutral generation. */
+export const KARST_LAUNCH_ENV = 'KARST_LAUNCH_ID';
 
 /** A host-discovered terminal previously created for a Karst ticket. */
 export interface RestoredSession {
   ticketId: number;
+  /** Opaque hook generation captured when this terminal was launched. */
+  launchId?: string;
   terminal: SessionTerminal;
 }
 
@@ -127,6 +131,11 @@ export class SessionManager {
       ticketId: number,
       launchId: string | undefined,
     ) => void,
+    /** Registers a restored handle as the authoritative live generation. */
+    private readonly onDidAdoptTerminal?: (
+      ticketId: number,
+      launchId: string | undefined,
+    ) => void,
   ) {}
 
   private trackTerminal(
@@ -202,7 +211,13 @@ export class SessionManager {
       cwd: worktreePath,
       shellPath: cmd.command,
       shellArgs: cmd.args,
-      env: { ...cmd.env, [KARST_TICKET_ENV]: String(ticketId) },
+      env: {
+        ...cmd.env,
+        [KARST_TICKET_ENV]: String(ticketId),
+        ...(hookChannel.launchId
+          ? { [KARST_LAUNCH_ENV]: hookChannel.launchId }
+          : {}),
+      },
       ...(options.reveal === false ? { hideFromUser: true } : {}),
       ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
       ...(naming?.color ? { color: naming.color } : {}),
@@ -230,15 +245,23 @@ export class SessionManager {
     const result: RestoredRecoveryResult = { resume: [], idle: [] };
     const recovered = new Set<number>();
 
-    for (const { ticketId, terminal } of this.host.restoredSessions?.() ?? []) {
+    for (const {
+      ticketId,
+      launchId,
+      terminal,
+    } of this.host.restoredSessions?.() ?? []) {
       const disposition = classify(ticketId);
       if (disposition === 'ignore') continue;
       if (recovered.has(ticketId)) {
+        // The duplicate never enters the managed map, so it has no close
+        // listener through which its generation could otherwise be retired.
+        this.onDidCloseTerminal?.(ticketId, launchId);
         terminal.dispose();
         continue;
       }
       recovered.add(ticketId);
-      this.trackTerminal(ticketId, terminal);
+      this.trackTerminal(ticketId, terminal, launchId);
+      this.onDidAdoptTerminal?.(ticketId, launchId);
       result[disposition].push(ticketId);
     }
 
