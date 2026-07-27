@@ -8,6 +8,7 @@ import type {
   WorktreePathDisplay,
   TicketingConfig,
   AgentProvider,
+  ArtifactConventions,
 } from './types.js';
 import { ManifestError } from './error.js';
 import {
@@ -19,6 +20,10 @@ import {
 import { validateRepository } from './validate/repository.js';
 import { assertSharedRepoBaselineBranches } from './baselineBranch.js';
 import { validateGraph } from './validate/graph.js';
+import {
+  validateArtifactTemplate,
+  type ArtifactConventionName,
+} from '../workflow/artifactConventions.js';
 
 // Re-exported so the many existing `from './schema.js'` importers keep working.
 export { ManifestError } from './error.js';
@@ -281,6 +286,35 @@ function validateTerminalNameTemplate(raw: unknown): string | undefined {
   return raw.trim() === '' ? undefined : raw;
 }
 
+/** Parse and strictly validate independently optional artifact conventions. */
+function validateArtifactConventions(raw: unknown): ArtifactConventions | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) throw new ManifestError('conventions must be a mapping');
+
+  const fields: ArtifactConventionName[] = [
+    'commitMessage',
+    'pullRequestTitle',
+    'pullRequestDescription',
+  ];
+  const conventions: ArtifactConventions = {};
+  for (const field of fields) {
+    const value = raw[field];
+    if (value === undefined) continue;
+    const path = `conventions.${field}`;
+    if (typeof value !== 'string') {
+      throw new ManifestError(`${path} must be a string`);
+    }
+    try {
+      validateArtifactTemplate(field, value);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new ManifestError(`${path}${detail.slice(field.length)}`);
+    }
+    conventions[field] = value;
+  }
+  return conventions;
+}
+
 /** Validate a parsed YAML value into a typed Manifest, or throw ManifestError. */
 export function validateManifest(raw: unknown): Manifest {
   if (!isObject(raw)) throw new ManifestError('top level must be a mapping');
@@ -328,6 +362,7 @@ export function validateManifest(raw: unknown): Manifest {
     worktreePathDisplay: validateWorktreePathDisplay(raw.worktreePathDisplay),
     ticketLabelTemplate: validateTicketLabelTemplate(raw.ticketLabelTemplate),
     terminalNameTemplate: validateTerminalNameTemplate(raw.terminalNameTemplate),
+    conventions: validateArtifactConventions(raw.conventions),
     ticketing: validateTicketing(raw.ticketing),
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),

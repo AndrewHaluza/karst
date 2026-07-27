@@ -378,6 +378,225 @@ describe('shipTicket', () => {
     expect(res.prs[0]!.url).toBe('https://github.com/o/r/pull/9');
   });
 
+  describe('artifact conventions', () => {
+    function recordingGh(): { gh: GhRunner; creates: string[][] } {
+      const creates: string[][] = [];
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'view') {
+          return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        }
+        creates.push(args);
+        return {
+          stdout: `https://github.com/o/r/pull/${creates.length}`,
+          stderr: '',
+          exitCode: 0,
+        };
+      };
+      return { gh, creates };
+    }
+
+    function dirtyGit(calls: string[][]): GitRunner {
+      return async (args) => {
+        calls.push(args);
+        return {
+          stdout: args[0] === 'status' ? ' M src/a.ts\n' : '',
+          stderr: '',
+          // Upstream's baseline-aware ship path reads `git diff --quiet`;
+          // exit 1 means this branch has changes and therefore needs a PR.
+          exitCode: args[0] === 'diff' ? 1 : 0,
+        };
+      };
+    }
+
+    it('applies all three configured templates to the exact git and gh arguments', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const gitCalls: string[][] = [];
+      const { gh, creates } = recordingGh();
+      let headless = 0;
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          headless++;
+          return { sessionId: 's', verdict: null, raw: 'Generated summary.' };
+        },
+      };
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          conventions: {
+            commitMessage: 'feat({repo}): {title} [{key}]',
+            pullRequestTitle: '[{key}] {title} ({repo})',
+            pullRequestDescription: '# {title}\n\n{description}\n\nTicket {id}',
+          },
+        },
+        gh,
+        adapter,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual([
+        'commit',
+        '-m',
+        'feat(frontend): add search [PROJ-1]',
+      ]);
+      expect(creates).toEqual([[
+        'pr',
+        'create',
+        '--title',
+        '[PROJ-1] add search (frontend)',
+        '--body',
+        '# add search\n\nGenerated summary.\n\nTicket 1',
+        '--base',
+        'develop',
+      ]]);
+      expect(headless).toBe(1);
+    });
+
+    it('keeps absent commit and body behavior when only the PR title is configured', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const gitCalls: string[][] = [];
+      const { gh, creates } = recordingGh();
+      const prompts: string[] = [];
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async (opts) => {
+          prompts.push(opts.prompt);
+          return { sessionId: 's', verdict: null, raw: 'Legacy generated body.' };
+        },
+      };
+
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { pullRequestTitle: '[{key}] {title}' } },
+        gh,
+        adapter,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual(['commit', '-m', 'add search']);
+      expect(prompts).toEqual([
+        'Write a concise pull-request description for the changes in this worktree. Title: [PROJ-1] add search',
+      ]);
+      expect(creates[0]).toEqual([
+        'pr',
+        'create',
+        '--title',
+        '[PROJ-1] add search',
+        '--body',
+        'Legacy generated body.',
+        '--base',
+        'develop',
+      ]);
+    });
+
+    it('uses a deterministic configured body without calling the adapter', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+      let headless = 0;
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          headless++;
+          return { sessionId: 's', verdict: null, raw: 'unused' };
+        },
+      };
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          conventions: { pullRequestDescription: 'Ticket {key}\nRepo {repo}' },
+        },
+        gh,
+        adapter,
+        fakeGit().git,
+      );
+
+      expect(headless).toBe(0);
+      expect(creates[0]!.slice(2)).toEqual([
+        '--title',
+        'add search',
+        '--body',
+        'Ticket PROJ-1\nRepo frontend',
+        '--base',
+        'develop',
+      ]);
+    });
+
+    it('uses the final PR title for description fallback when no adapter exists', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          conventions: {
+            pullRequestTitle: '[{key}] {title}',
+            pullRequestDescription: '## Summary\n{description}',
+          },
+        },
+        gh,
+        undefined,
+        fakeGit().git,
+      );
+
+      expect(creates[0]!.slice(2)).toEqual([
+        '--title',
+        '[PROJ-1] add search',
+        '--body',
+        '## Summary\n[PROJ-1] add search',
+        '--base',
+        'develop',
+      ]);
+    });
+
+    it('renders repository-specific metadata independently for every worktree', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      seedWorktree(store, id, 'backend', join(dir, 'be'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          conventions: {
+            pullRequestTitle: '{repo}: {title}',
+            pullRequestDescription: 'Repository {repo}',
+          },
+        },
+        gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(creates.map((args) => [args[3], args[5]]).sort()).toEqual([
+        ['backend: add search', 'Repository backend'],
+        ['frontend: add search', 'Repository frontend'],
+      ]);
+    });
+
+    it('preserves exact unconfigured title and no-adapter body behavior', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(store, { ticketId: id }, gh, undefined, fakeGit().git);
+
+      expect(creates[0]).toEqual([
+        'pr',
+        'create',
+        '--title',
+        'add search',
+        '--body',
+        'add search',
+        '--base',
+        'develop',
+      ]);
+    });
+  });
+
   it('records why a failed ship failed, on the stage the dashboard reads', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const gh: GhRunner = async () => ({ stdout: '', stderr: 'gh: not authenticated', exitCode: 1 });
@@ -451,14 +670,33 @@ describe('shipTicket', () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       const { gh } = ghWithExistingPr(URL);
       let headless = 0;
+      const events: ShipStepEvent[] = [];
       const adapter: AgentAdapter = { ...fakeAdapter(), runHeadless: async () => {
         headless++;
         return { sessionId: 's', verdict: null, raw: 'x' };
       } };
 
-      await shipTicket(store, { ticketId: id }, gh, adapter, fakeGit().git);
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          conventions: {
+            pullRequestDescription: '## Summary\n{description}',
+          },
+        },
+        gh,
+        adapter,
+        fakeGit().git,
+        (event) => events.push(event),
+      );
 
       expect(headless).toBe(0);
+      expect(events).toContainEqual({
+        repo: '/repo/frontend',
+        step: 'describe',
+        status: 'note',
+        detail: 'existing PR already open — description not regenerated',
+      });
     });
   });
 

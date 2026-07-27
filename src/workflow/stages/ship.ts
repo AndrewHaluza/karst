@@ -17,8 +17,13 @@ import { checkMergeable } from '../mergeCheck.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { mergeOpStatus } from '../../model/mergeCheckView.js';
 import type { WorktreeView } from '../../store/dashboard.js';
-import type { Manifest } from '../../manifest/types.js';
+import type { ArtifactConventions, Manifest } from '../../manifest/types.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
+import {
+  renderArtifactTemplate,
+  usesDescription,
+  type ArtifactTemplateContext,
+} from '../artifactConventions.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -34,6 +39,8 @@ export interface ShipOpts {
   ticketId: number;
   /** Current manifest, read when ship starts rather than captured at ticket creation. */
   manifest?: Manifest;
+  /** Direct injection retained for host-agnostic callers and focused tests. */
+  conventions?: ArtifactConventions;
 }
 
 export interface ShippedPr {
@@ -145,6 +152,8 @@ export async function shipTicket(
   const ticket = getTicket(store, opts.ticketId);
   const worktrees = listWorktreesByTicket(store, opts.ticketId);
   const title = ticket.title ?? ticket.key ?? `Ticket ${opts.ticketId}`;
+  const key = ticket.key ?? String(opts.ticketId);
+  const conventions = opts.conventions ?? opts.manifest?.conventions;
 
   const insert = store.db.prepare(
     "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, 'open')",
@@ -170,7 +179,13 @@ export async function shipTicket(
         // Nothing ran this time — say so for every step this repo skips,
         // rather than leaving commit/push looking like they are still "to
         // come" (the old free-text channel simply skipped this repo entirely).
-        const skipped: ShipStep[] = adapter ? ['commit', 'push', 'describe', 'pr'] : ['commit', 'push', 'pr'];
+        const descriptionTemplate = conventions?.pullRequestDescription;
+        const wouldDescribe = Boolean(
+          adapter && (!descriptionTemplate || usesDescription(descriptionTemplate)),
+        );
+        const skipped: ShipStep[] = wouldDescribe
+          ? ['commit', 'push', 'describe', 'pr']
+          : ['commit', 'push', 'pr'];
         for (const step of skipped) {
           onProgress({
             repo: wt.repo,
@@ -190,8 +205,29 @@ export async function shipTicket(
       // Commit before push: a stage marker means the agent thinks it is done, not
       // that it committed. Work left in the worktree would push an empty branch and
       // `gh pr create` would fail with "No commits between main and karst/…".
+      const templateContext: ArtifactTemplateContext = {
+        id: opts.ticketId,
+        key,
+        title,
+        repo: wt.repo,
+      };
+      const commitMessage = conventions?.commitMessage
+        ? renderArtifactTemplate(
+            'commitMessage',
+            conventions.commitMessage,
+            templateContext,
+          )
+        : title;
+      const prTitle = conventions?.pullRequestTitle
+        ? renderArtifactTemplate(
+            'pullRequestTitle',
+            conventions.pullRequestTitle,
+            templateContext,
+          )
+        : title;
+
       onProgress({ repo: wt.repo, step: 'commit', status: 'run' });
-      await commitAllIfDirty(git, wt.path, title);
+      await commitAllIfDirty(git, wt.path, commitMessage);
       onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
 
       const base = opts.manifest
@@ -237,15 +273,42 @@ export async function shipTicket(
       // `describePr` from paying for prose describing a PR that already exists.
       onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
       const existing = await findOpenPr(gh, wt.path);
+      const descriptionTemplate = conventions?.pullRequestDescription;
+      if (
+        existing &&
+        adapter &&
+        (!descriptionTemplate || usesDescription(descriptionTemplate))
+      ) {
+        onProgress({
+          repo: wt.repo,
+          step: 'describe',
+          status: 'note',
+          detail: 'existing PR already open — description not regenerated',
+        });
+      }
       let opened = existing;
       if (!opened) {
-        let body = title;
-        if (adapter) {
+        let body: string;
+        if (descriptionTemplate) {
+          let description = prTitle;
+          if (usesDescription(descriptionTemplate) && adapter) {
+            onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
+            description = await describePr(adapter, wt.path, prTitle);
+            onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
+          }
+          body = renderArtifactTemplate(
+            'pullRequestDescription',
+            descriptionTemplate,
+            { ...templateContext, description },
+          );
+        } else if (adapter) {
           onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-          body = await describePr(adapter, wt.path, title);
+          body = await describePr(adapter, wt.path, prTitle);
           onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
+        } else {
+          body = prTitle;
         }
-        opened = await openPr(gh, { cwd: wt.path, title, body, base });
+        opened = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
       }
       onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);

@@ -82,7 +82,10 @@ import {
 } from './extension/manifestResolve.js';
 import { installApproach, type RunCommand } from './approaches/fetch.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
-import type { ApproachDef, TicketingConfig } from './manifest/types.js';
+import type {
+  ApproachDef,
+  TicketingConfig,
+} from './manifest/types.js';
 import {
   listInstalled,
   readApproachPackage,
@@ -1956,7 +1959,7 @@ function makeDashboardActions(
   logError: LogError,
   guardCapability: CapabilityGuard,
   // Read fresh when the user confirms ship so a mid-session branch edit
-  // controls the PR target.
+  // controls the PR target and convention edits apply without a window reload.
   manifest: () => Manifest | undefined,
   // Read fresh at call time so a status saved in settings applies without a
   // window reload — same getter pattern as the onboarding provider.

@@ -27,8 +27,9 @@ Given a ticket and a manifest describing your stack, Karst:
    exit 0. Never an agent self-report.
 5. **Loops fixes** — a UAT/review failure routes to `fix`, which re-gates through
    `review` until it passes.
-6. **Ships** — opens one PR per hot repo via `gh`, each with an agent-written
-   description, then marks the ticket done.
+6. **Ships** — creates a fallback commit when needed, opens one PR per hot repo
+   via `gh`, and marks the ticket done. Project conventions can template the
+   Karst-created commit, PR title, and PR description.
 
 SQLite is the source of truth; on reopen the board is re-derived from it, so a
 crash never loses a ticket's stage.
@@ -147,6 +148,65 @@ Preconditions (enforced downstream, surfaced as errors, not crashes): each hot
 `repoPath` is a real git repo on `baselineBranch`; a declared `service.start` is
 runnable; the
 `health` URL becomes reachable.
+
+### Commit and pull request conventions
+
+Karst can apply project-wide templates when it creates shipping artifacts. Add
+any subset of these fields to `karst.yml` (or edit them under **Settings →
+General → Commit & pull request conventions**):
+
+```yaml
+conventions:
+  commitMessage: "feat({repo}): {title} [{key}]"
+  pullRequestTitle: "[{key}] {title}"
+  pullRequestDescription: |
+    ## Summary
+    {description}
+
+    Ticket: {key}
+    Repository: {repo}
+```
+
+`commitMessage` and `pullRequestTitle` support `{title}`, `{key}`, `{id}`, and
+`{repo}`. `pullRequestDescription` supports those variables plus
+`{description}`:
+
+- `{title}` is the resolved title: ticket title, then ticket key, then
+  `Ticket <database id>`.
+- `{key}` is the ticket key, or the decimal database id if the ticket has no key.
+- `{id}` is the decimal Karst database id.
+- `{repo}` is the current repository name from the manifest.
+- `{description}` is the agent-generated PR summary, falling back to the final
+  rendered PR title when no adapter is available or the model returns blank.
+
+Use YAML's `|` block scalar for multiline PR descriptions; Karst preserves its
+newlines and whitespace. Templates are validated when the manifest loads.
+Blank values, malformed braces, and unsupported variables are rejected with the
+specific field named in the error.
+
+Every field is independently optional. For example, this changes only PR titles:
+
+```yaml
+conventions:
+  pullRequestTitle: "[{key}] {title}"
+```
+
+Omitted fields keep the existing behavior exactly:
+
+- fallback commit message: resolved ticket title;
+- PR title: resolved ticket title;
+- PR description: an agent-generated summary when an adapter is available,
+  otherwise the final PR title.
+
+`{description}` intentionally controls model use and cost. A configured PR body
+containing it requests generated prose; a configured PR body without it is
+deterministic and makes no description-generation call. The legacy unconfigured
+PR-body path still generates prose when an adapter is available.
+
+The scope is intentionally narrow: `commitMessage` affects only the fallback
+commit Karst creates for a dirty worktree. Karst does not rewrite commits made
+by an agent or user. PR templates affect only PRs Karst creates; an already-open
+PR adopted during ship is not retitled or given a new description.
 
 ### The agent adapter seam
 

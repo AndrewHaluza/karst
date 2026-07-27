@@ -87,6 +87,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
   const migratedRaw = migrateLegacyManifest(root).raw;
   const migrated = isRecord(migratedRaw) ? migratedRaw : {};
   const rawRepos = isRecord(migrated.repositories) ? migrated.repositories : {};
+  const rawConventions = isRecord(migrated.conventions) ? migrated.conventions : {};
 
   // Overlay each edited repository onto its raw counterpart so unmodeled
   // sub-keys (author comments-as-values, future fields) survive.
@@ -132,6 +133,19 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Optional: written when set, dropped (→ omitted by the dumper) when cleared,
     // so it falls back to "no default".
     defaultModel: manifest.defaultModel,
+    // Merge modeled convention fields over the raw block so future/unmodeled
+    // nested keys survive Settings saves. Each modeled child is assigned even
+    // when absent so clearing one field drops its stale raw value. Clearing the
+    // parent removes the entire block, including unknown nested keys, because
+    // that is the user's explicit "no conventions" state.
+    conventions: manifest.conventions
+      ? {
+          ...rawConventions,
+          commitMessage: manifest.conventions.commitMessage,
+          pullRequestTitle: manifest.conventions.pullRequestTitle,
+          pullRequestDescription: manifest.conventions.pullRequestDescription,
+        }
+      : undefined,
     repositories: nextRepos,
     approaches: manifest.approaches ?? [],
     agents: manifest.agents ?? {},
