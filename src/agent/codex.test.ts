@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import {
   existsSync,
   chmodSync,
@@ -55,6 +56,93 @@ function makeWorktree(): string {
   const root = mkdtempSync(join(tmpdir(), 'karst-codex-worktree-'));
   temporaryRoots.push(root);
   return root;
+}
+
+function materializeBridge(configDir: string): string {
+  new CodexAdapter().buildInteractiveCommand({
+    cwd: makeWorktree(),
+    hookChannel: {
+      endpointUrl: 'http://127.0.0.1:4567/hooks',
+      configDir,
+    },
+  });
+  return join(configDir, 'codex', 'bridge.cjs');
+}
+
+function runBridge(
+  bridgePath: string,
+  endpointUrl: string | undefined,
+  diagnosticsPath: string,
+  input: string,
+): Promise<{ exitCode: number; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const args = [bridgePath, endpointUrl ?? '', diagnosticsPath];
+    const child = spawn(resolveNodeExecutable(), args, {
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      resolve({ exitCode: code ?? 1, stderr });
+    });
+    child.stdin.end(input);
+  });
+}
+
+function receiveOneHook(
+  respond: 'success' | 'reject' | 'abort' = 'success',
+): Promise<{
+  endpointUrl: string;
+  received: Promise<unknown>;
+  close(): Promise<void>;
+}> {
+  let resolveBody!: (body: unknown) => void;
+  const received = new Promise<unknown>((resolve) => {
+    resolveBody = resolve;
+  });
+  const server = createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => {
+      body += chunk;
+    });
+    request.on('end', () => {
+      resolveBody(JSON.parse(body));
+      if (respond === 'abort') {
+        response.writeHead(200, { 'content-length': '10' });
+        response.write('x');
+        response.socket?.destroy();
+      } else {
+        response.writeHead(respond === 'reject' ? 400 : 204);
+        response.end();
+      }
+    });
+  });
+  return new Promise((resolve, reject) => {
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (typeof address !== 'object' || address === null) {
+        reject(new Error('hook receiver did not bind a TCP port'));
+        return;
+      }
+      resolve({
+        endpointUrl: `http://127.0.0.1:${address.port}/hooks`,
+        received,
+        close: () =>
+          new Promise<void>((closeResolve, closeReject) => {
+            server.close((error) => {
+              if (error) closeReject(error);
+              else closeResolve();
+            });
+          }),
+      });
+    });
+  });
 }
 
 function makeBasePackage(
@@ -191,6 +279,180 @@ describe('CodexAdapter interactive commands', () => {
     adapter.buildInteractiveCommand(opts);
 
     expect(statSync(bridgePath).mtimeMs).toBe(old.getTime());
+  });
+
+  it.each([
+    {
+      event: 'SessionStart',
+      input: {
+        hook_event_name: 'SessionStart',
+        session_id: 'thread-1',
+        cwd: '/wt',
+        transcript_path: '/tmp/rollout.jsonl',
+        model: 'gpt-5.6-sol',
+        permission_mode: 'bypassPermissions',
+        source: 'startup',
+      },
+    },
+    {
+      event: 'PostToolUse',
+      input: {
+        hook_event_name: 'PostToolUse',
+        session_id: 'thread-1',
+        cwd: '/wt',
+        transcript_path: '/tmp/rollout.jsonl',
+        model: 'gpt-5.6-sol',
+        permission_mode: 'bypassPermissions',
+        turn_id: 'turn-1',
+        tool_name: 'Bash',
+        tool_use_id: 'call-1',
+        tool_input: { command: 'git status --short' },
+        tool_response: { output: '' },
+      },
+    },
+  ])('delivers a Codex $event hook and exits successfully', async ({ event, input }) => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify(input),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(body).toEqual({
+        hook_event_name: event,
+        cwd: '/wt',
+        session_id: 'thread-1',
+      });
+      expect(existsSync(diagnosticsPath)).toBe(false);
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it.each([
+    {
+      name: 'malformed JSON',
+      input: '{',
+      outcome: 'invalid-json',
+    },
+    {
+      name: 'missing required fields',
+      input: JSON.stringify({
+        hook_event_name: 'SessionStart',
+        cwd: '/wt',
+      }),
+      outcome: 'invalid-input',
+    },
+  ])('rejects $name as a genuine hook error', async ({ input, outcome }) => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+
+    const result = await runBridge(
+      bridgePath,
+      'http://127.0.0.1:4567/hooks',
+      diagnosticsPath,
+      input,
+    );
+
+    expect(result).toEqual({ exitCode: 1, stderr: '' });
+    const diagnostics = readFileSync(diagnosticsPath, 'utf8');
+    expect(diagnostics).toContain(`"outcome":"${outcome}"`);
+    expect(diagnostics).not.toContain('/wt');
+    expect(diagnostics).not.toContain('thread-1');
+  });
+
+  it('fails open with diagnostics when the endpoint aborts its response', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook('abort');
+
+    try {
+      const [result] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'PostToolUse',
+            session_id: 'thread-1',
+            cwd: '/wt',
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(readFileSync(diagnosticsPath, 'utf8')).toContain(
+        '"outcome":"request-error"',
+      );
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('reports an endpoint rejection as a genuine hook error', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook('reject');
+
+    try {
+      const [result] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'SessionStart',
+            session_id: 'thread-1',
+            cwd: '/wt',
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 1, stderr: '' });
+      expect(readFileSync(diagnosticsPath, 'utf8')).toContain(
+        '"outcome":"http-error"',
+      );
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('rejects a missing required endpoint as a genuine hook error', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+
+    const result = await runBridge(
+      bridgePath,
+      undefined,
+      diagnosticsPath,
+      JSON.stringify({
+        hook_event_name: 'SessionStart',
+        session_id: 'thread-1',
+        cwd: '/wt',
+      }),
+    );
+
+    expect(result).toEqual({ exitCode: 1, stderr: '' });
+    const diagnostics = readFileSync(diagnosticsPath, 'utf8');
+    expect(diagnostics).toContain('"outcome":"invalid-endpoint"');
+    expect(diagnostics).not.toContain('/wt');
+    expect(diagnostics).not.toContain('thread-1');
   });
 
   it('records a sanitized diagnostic when a hook cannot reach the endpoint', () => {

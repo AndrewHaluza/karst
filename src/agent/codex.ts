@@ -79,29 +79,32 @@ function logFailure(outcome) {
   } catch {}
 }
 
-// A liveness hook is best-effort. It must never turn a missing/stale endpoint
-// (or malformed invocation) into a user-facing Codex hook failure.
-process.on('uncaughtException', () => {
-  logFailure('uncaught-exception');
-  process.exit(0);
-});
-process.on('unhandledRejection', () => {
-  logFailure('unhandled-rejection');
-  process.exit(0);
-});
+let finished = false;
+function finish(exitCode, outcome) {
+  if (finished) return;
+  finished = true;
+  if (outcome) logFailure(outcome);
+  process.exit(exitCode);
+}
+
+// A stale endpoint is an expected IDE/session lifecycle race and fails open.
+// Malformed invocations and bridge defects remain visible as genuine failures.
+process.on('uncaughtException', () => finish(1, 'uncaught-exception'));
+process.on('unhandledRejection', () => finish(1, 'unhandled-rejection'));
 
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
   input += chunk;
-  if (input.length > 64 * 1024) process.exit(0);
+  if (input.length > 64 * 1024) finish(1, 'input-too-large');
 });
 process.stdin.on('end', () => {
   let raw;
   try {
     raw = JSON.parse(input);
   } catch {
-    process.exit(0);
+    finish(1, 'invalid-json');
+    return;
   }
   const event = raw.hook_event_name;
   if (typeof event === 'string') eventName = event.slice(0, 64);
@@ -110,7 +113,8 @@ process.stdin.on('end', () => {
     typeof raw.cwd !== 'string' ||
     typeof raw.session_id !== 'string'
   ) {
-    process.exit(0);
+    finish(1, 'invalid-input');
+    return;
   }
   const mapped =
     event === 'PermissionRequest'
@@ -118,7 +122,10 @@ process.stdin.on('end', () => {
       : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd'].includes(event)
         ? { hook_event_name: event }
         : null;
-  if (!mapped) process.exit(0);
+  if (!mapped) {
+    finish(0);
+    return;
+  }
   const payload = JSON.stringify({
     ...mapped,
     cwd: raw.cwd,
@@ -128,7 +135,8 @@ process.stdin.on('end', () => {
   try {
     target = new URL(process.argv[2]);
   } catch {
-    process.exit(0);
+    finish(1, 'invalid-endpoint');
+    return;
   }
   const req = http.request({
     hostname: target.hostname,
@@ -141,11 +149,17 @@ process.stdin.on('end', () => {
     },
     timeout: 2000,
   });
-  req.on('response', (res) => res.resume());
-  req.on('error', () => {
-    logFailure('request-error');
-    process.exit(0);
+  req.on('response', (res) => {
+    res.resume();
+    res.on('end', () => {
+      const status = res.statusCode ?? 0;
+      const successful = status >= 200 && status < 300;
+      finish(successful ? 0 : 1, successful ? undefined : 'http-error');
+    });
+    res.on('aborted', () => finish(0, 'request-error'));
+    res.on('error', () => finish(0, 'request-error'));
   });
+  req.on('error', () => finish(0, 'request-error'));
   req.on('timeout', () => req.destroy());
   req.end(payload);
 });
