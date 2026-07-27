@@ -316,6 +316,13 @@ describe('ticket + stage persistence', () => {
     expect(getTicket(store, t.id).sessionId).toBe('sess-abc');
   });
 
+  it('clears session_id when set to null (stale resume recovery)', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    setSessionId(store, t.id, 'sess-abc');
+    setSessionId(store, t.id, null);
+    expect(getTicket(store, t.id).sessionId).toBeNull();
+  });
+
   it('lists tickets ordered by created_at descending (newest first)', () => {
     const a = createTicket(store, { key: 'A-1', title: 'first' });
     const b = createTicket(store, { key: 'B-1', title: 'second' });

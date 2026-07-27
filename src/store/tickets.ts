@@ -246,11 +246,14 @@ export function setAgentState(
 }
 
 /**
- * Set a ticket's `session_id` — the agent session to `--resume` (§5.3). Captured
- * from the SessionStart hook. Single-writer discipline: all session_id mutation
- * goes through here.
+ * Set (or, with `null`, clear) a ticket's `session_id` — the agent session to
+ * `--resume` (§5.3). Captured from the SessionStart hook; cleared when a resume
+ * launch dies before starting (the captured id no longer resolves — e.g. the
+ * agent's session store was pruned or the worktree was recreated) so the next
+ * launch falls back to a fresh, seeded session instead of repeating the same
+ * crash. Single-writer discipline: all session_id mutation goes through here.
  */
-export function setSessionId(store: Store, ticketId: number, sessionId: string): void {
+export function setSessionId(store: Store, ticketId: number, sessionId: string | null): void {
   store.db
     .prepare('UPDATE tickets SET session_id = ? WHERE id = ?')
     .run(sessionId, ticketId);

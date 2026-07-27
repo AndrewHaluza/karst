@@ -11,7 +11,13 @@ export interface SessionTerminal {
   /** Type a line into the running shell (real: `Terminal.sendText(text, true)`). */
   sendText(text: string): void;
   dispose(): void;
-  onDidClose(handler: () => void): void;
+  /**
+   * `exitCode` is the child process's exit code when known (real:
+   * `Terminal.exitStatus?.code`) — undefined for a disposal karst itself
+   * initiated. Lets a resume launch that dies before starting be told apart
+   * from an ordinary close.
+   */
+  onDidClose(handler: (exitCode?: number) => void): void;
 }
 
 /** Environment key that binds a restored terminal to its ticket. */
@@ -73,7 +79,7 @@ export interface FakeTerminal extends SessionTerminal {
   shown: number;
   sent: string[];
   disposed: boolean;
-  disposeHandler?: () => void;
+  disposeHandler?: (exitCode?: number) => void;
 }
 
 /** Resolve the provider-neutral lifecycle channel for a session. */
@@ -136,6 +142,15 @@ export class SessionManager {
       ticketId: number,
       launchId: string | undefined,
     ) => void,
+    /**
+     * Fired when a `--resume` launch's terminal dies before ever becoming
+     * usable (nonzero exit right after spawn — e.g. the agent CLI rejects a
+     * captured session id it can no longer find). Distinct from
+     * `onDidCloseSession`: an ordinary session end also closes the terminal,
+     * but with a clean exit, so a nonzero code specifically flags a resume
+     * that never actually started.
+     */
+    private readonly onResumeFailed?: (ticketId: number) => void,
   ) {}
 
   private trackTerminal(
@@ -143,10 +158,11 @@ export class SessionManager {
     terminal: SessionTerminal,
     launchId?: string,
     cleanupOwned?: () => void,
+    wasResume = false,
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
     this.terminals.set(ticketId, terminal);
-    terminal.onDidClose(() => {
+    terminal.onDidClose((exitCode) => {
       // A recovery timeout can dispose one terminal and immediately create its
       // retry before VS Code delivers the old close event. Only the handle that
       // is still current may clear the ticket or announce that its session ended.
@@ -158,6 +174,9 @@ export class SessionManager {
         // by its replacement.
         if (wasCurrent) cleanupOwned?.();
       } finally {
+        if (wasCurrent && wasResume && exitCode !== undefined && exitCode !== 0) {
+          this.onResumeFailed?.(ticketId);
+        }
         if (wasCurrent) this.onDidCloseSession?.(ticketId);
         this.onDidCloseTerminal?.(ticketId, launchId);
       }
@@ -228,7 +247,7 @@ export class SessionManager {
       cleanupStarted = true;
       this.cleanup(worktreePath, cleanupPaths);
     };
-    this.trackTerminal(ticketId, terminal, hookChannel.launchId, cleanupOwned);
+    this.trackTerminal(ticketId, terminal, hookChannel.launchId, cleanupOwned, Boolean(resume));
     if (options.reveal !== false) terminal.show();
   }
 

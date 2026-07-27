@@ -91,6 +91,12 @@ function fakeHost(
   return { host, terminals };
 }
 
+/** Close a fake terminal as if the underlying process exited with `exitCode`. */
+function closeWithExitCode(terminal: FakeTerminal, exitCode: number | undefined): void {
+  terminal.disposed = true;
+  terminal.disposeHandler?.(exitCode);
+}
+
 function fakeRestored(
   ticketId: number,
 ): RestoredSession & {
@@ -98,21 +104,21 @@ function fakeRestored(
     shown: number;
     sent: string[];
     disposed: boolean;
-    disposeHandler?: () => void;
+    disposeHandler?: (exitCode?: number) => void;
   };
 } {
   const terminal = {
     shown: 0,
     sent: [] as string[],
     disposed: false,
-    disposeHandler: undefined as (() => void) | undefined,
+    disposeHandler: undefined as ((exitCode?: number) => void) | undefined,
     show: () => terminal.shown++,
     sendText: (text: string) => terminal.sent.push(text),
     dispose: () => {
       terminal.disposed = true;
       terminal.disposeHandler?.();
     },
-    onDidClose: (handler: () => void) => (terminal.disposeHandler = handler),
+    onDidClose: (handler: (exitCode?: number) => void) => (terminal.disposeHandler = handler),
   };
   return { ticketId, terminal };
 }
@@ -723,6 +729,86 @@ describe('SessionManager', () => {
     expect(cleanup).toHaveBeenCalledWith('/wt/a', [
       '/wt/a/.agents/skills/karst-rpi',
     ]);
+  });
+
+  it('reports a resume launch that dies before starting (e.g. `--resume` on a stale session id)', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const failedResumes: number[] = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (ticketId) => failedResumes.push(ticketId),
+    );
+
+    mgr.openSession(adapter, 1, '/wt/a', undefined, 'seed', undefined, undefined, 'sess-stale');
+    closeWithExitCode(terminals[0]!, 1);
+
+    expect(failedResumes).toEqual([1]);
+  });
+
+  it('does not report a resume failure when the resumed session exits cleanly', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const failedResumes: number[] = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (ticketId) => failedResumes.push(ticketId),
+    );
+
+    mgr.openSession(adapter, 1, '/wt/a', undefined, 'seed', undefined, undefined, 'sess-ok');
+    closeWithExitCode(terminals[0]!, 0);
+
+    expect(failedResumes).toEqual([]);
+  });
+
+  it('does not report a resume failure for a fresh (non-resume) launch', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const failedResumes: number[] = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (ticketId) => failedResumes.push(ticketId),
+    );
+
+    mgr.openSession(adapter, 1, '/wt/a', undefined, 'seed');
+    closeWithExitCode(terminals[0]!, 1);
+
+    expect(failedResumes).toEqual([]);
+  });
+
+  it('does not report a resume failure for an adopted restored terminal', () => {
+    const restored = fakeRestored(7);
+    const { host } = fakeHost([restored]);
+    const failedResumes: number[] = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (ticketId) => failedResumes.push(ticketId),
+    );
+
+    mgr.reconcileRestoredSessions(() => 'resume');
+    restored.terminal.disposeHandler?.(1);
+
+    expect(failedResumes).toEqual([]);
   });
 
   it('also cleans paths generated while building the interactive command', () => {
