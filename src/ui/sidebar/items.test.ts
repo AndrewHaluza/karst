@@ -20,6 +20,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     selectedRepos: [],
     archivedAt: null,
     model: null,
+    agentProvider: null,
     projectId: null,
     stages: [
       { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null },
