@@ -21,6 +21,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     archivedAt: null,
     model: null,
     agentProvider: null,
+    sessionProvider: null,
     projectId: null,
     stages: [
       { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null },
@@ -118,8 +119,16 @@ describe('buildTicketNodes', () => {
   it('sessionAction reads Continue for a captured interactive session, Start otherwise', () => {
     // Interrupted impl/fix with a captured id → the button continues in place.
     expect(
-      buildTicketNodes([ticket({ sessionId: 'sid', stageCurrent: 'impl' })])[0]!.sessionAction,
+      buildTicketNodes([
+        ticket({ sessionId: 'sid', sessionProvider: 'claude', stageCurrent: 'impl' }),
+      ], undefined, 'claude')[0]!.sessionAction,
     ).toEqual({ kind: 'continue', label: 'Continue', detail: 'resume impl' });
+    // Captured under a different core → resuming it would die, so re-seed.
+    expect(
+      buildTicketNodes([
+        ticket({ sessionId: 'sid', sessionProvider: 'codex', stageCurrent: 'impl' }),
+      ], undefined, 'claude')[0]!.sessionAction,
+    ).toEqual({ kind: 'start', label: 'Start', detail: 're-seed from context' });
     // Drafted, never run (no id) → the button starts a fresh session.
     expect(
       buildTicketNodes([ticket({ sessionId: null, stageCurrent: 'scope' })])[0]!.sessionAction,
