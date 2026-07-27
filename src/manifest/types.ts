@@ -77,6 +77,17 @@ export interface RepositoryDef {
    * directly, so the narrowing is done in one place.
    */
   service?: ServiceDef;
+  /**
+   * Whether this repository is used by the system. `false` is the DRAFT state:
+   * the settings UI lets an author save an incomplete repository as long as it
+   * is disabled, and a saved-valid repository can be toggled off the same way.
+   * `validateRepository` relaxes required-field checks when this is `false` —
+   * an enabled repository still has to be complete. Always concretely set by
+   * `validateRepository` (default `true`, matching `ApproachDef.enabled` /
+   * `AgentDef.enabled`); optional on the type only so hand-built fixtures need
+   * not supply it.
+   */
+  enabled?: boolean;
 }
 
 /**

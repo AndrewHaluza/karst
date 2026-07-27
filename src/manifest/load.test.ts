@@ -363,6 +363,80 @@ repositories:
   });
 });
 
+describe('repository enabled / draft', () => {
+  const DRAFT = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  scratch:
+    repoPath: ""
+    enabled: false
+`;
+
+  it('accepts a disabled repository with a blank repoPath (draft)', () => {
+    const { path, cleanup } = fixture(DRAFT);
+    try {
+      const repo = loadManifest(path).repositories.scratch!;
+      expect(repo.repoPath).toBe('');
+      expect(repo.enabled).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('defaults enabled to true when absent (back-compat)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).repositories.backend!.enabled).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('still requires repoPath when enabled is true (or absent)', () => {
+    const yaml = DRAFT.replace('enabled: false', 'enabled: true');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/repoPath must be a non-empty string/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('accepts a disabled repository whose service is half-filled', () => {
+    const yaml = `${DRAFT}    service:\n      start: ""\n      health: ""\n      ports: []\n      dependsOn: []\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const repo = loadManifest(path).repositories.scratch!;
+      expect(repo.service!.start).toBe('');
+      expect(repo.service!.ports).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a half-filled service once enabled is true', () => {
+    const yaml = `${DRAFT.replace('enabled: false', 'enabled: true').replace('repoPath: ""', 'repoPath: "."')}    service:\n      start: ""\n      ports: []\n      dependsOn: []\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.start must be a non-empty string/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('still rejects a non-string repoPath even when disabled', () => {
+    const yaml = DRAFT.replace('repoPath: ""', 'repoPath: 42');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/repoPath must be a string/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('legacy `services:` manifests', () => {
   const LEGACY = `
 host: localhost
