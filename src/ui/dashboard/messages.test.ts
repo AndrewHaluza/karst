@@ -8,6 +8,8 @@ function actions(): DashboardActions {
     openServer: vi.fn(),
     copyServerUrl: vi.fn(),
     spinServers: vi.fn(),
+    restartServers: vi.fn(),
+    stopServers: vi.fn(),
     diffWorktree: vi.fn(),
     openWorktreeFolder: vi.fn(),
     openPr: vi.fn(),
@@ -59,6 +61,33 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'spin-servers' }, a);
     expect(a.spinServers).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses the panel-level server actions (no payload)', () => {
+    expect(parseWebviewMessage({ type: 'restart-servers' })).toEqual({ type: 'restart-servers' });
+    expect(parseWebviewMessage({ type: 'stop-servers' })).toEqual({ type: 'stop-servers' });
+  });
+
+  it('dispatches restart-servers / stop-servers, which act on the whole ticket', () => {
+    const a = actions();
+    routeAction({ type: 'restart-servers' }, a);
+    routeAction({ type: 'stop-servers' }, a);
+    expect(a.restartServers).toHaveBeenCalledTimes(1);
+    expect(a.stopServers).toHaveBeenCalledTimes(1);
+    // They are NOT the per-row actions — a panel control that silently fell
+    // through to the single-server handler would stop one server and look like
+    // it had stopped them all.
+    expect(a.stopServer).not.toHaveBeenCalled();
+    expect(a.restartServer).not.toHaveBeenCalled();
+  });
+
+  it('ignores a stray serverId on a panel-level server action', () => {
+    // The webview never sends one (the header buttons carry no data-id), so a
+    // message that does is malformed — it must not be reshaped into a per-row
+    // action by the parser.
+    expect(parseWebviewMessage({ type: 'stop-servers', serverId: 4 })).toEqual({
+      type: 'stop-servers',
+    });
   });
 
   it('dispatches open-ticket-link only for http(s) urls', () => {
