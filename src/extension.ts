@@ -12,6 +12,7 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
   continueSessionInBackground,
+  KARST_LAUNCH_ENV,
   KARST_TICKET_ENV,
   SessionManager,
   type TerminalHost,
@@ -315,6 +316,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     undefined,
     (ticketId, launchId) =>
       recoveryLifecycle.sessionClosed(ticketId, launchId),
+    (ticketId, launchId) =>
+      recoveryLifecycle.adoptLaunch(ticketId, launchId),
   );
 
   // The live manifest. Loaded on first read rather than assigned by whichever
@@ -1659,10 +1662,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
-  // host's SessionManager cannot be restored with them. Discard those stale UI
-  // handles and reopen only the current project's resumable sessions through
-  // the registered command, so its usual scoping/seed/materialization path is
-  // preserved.
+  // host's SessionManager cannot be restored with them. Adopt visible current-
+  // project terminals into the new manager, then recover only owned sessions
+  // that remain hidden in the background through the registered command so its
+  // usual scoping/seed/materialization path is preserved.
   const projectId = currentProject()?.id;
   const currentTickets =
     projectId === undefined ? [] : listTickets(localStore, { projectId });
@@ -1676,20 +1679,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
   }));
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-  const restored = sessions.reconcileRestoredSessions((ticketId) => {
+  const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));
   });
-  const recoveryPlan = planSessionRecovery(
+  const backgroundRecoveryPlan = planSessionRecovery(
     candidates,
     [...ownedSessionTickets],
-    restored,
+    adoptedVisibleSessions,
   );
   let ownershipChanged = false;
-  for (const ticketId of recoveryPlan.discard) {
+  for (const ticketId of backgroundRecoveryPlan.discard) {
     ownershipChanged = ownedSessionTickets.delete(ticketId) || ownershipChanged;
   }
 
-  for (const ticketId of recoveryPlan.idle) {
+  for (const ticketId of backgroundRecoveryPlan.idle) {
     setAgentState(localStore, ticketId, 'idle');
     ownershipChanged =
       ownedSessionTickets.delete(ticketId) || ownershipChanged;
@@ -1698,11 +1701,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   }
   if (ownershipChanged) await persistOwnedSessionTickets();
-  if (recoveryPlan.idle.length > 0) {
+  if (backgroundRecoveryPlan.idle.length > 0) {
     provider.refresh();
     dashboard.pushAll();
   }
-  for (const ticketId of recoveryPlan.resume) {
+  for (const ticketId of backgroundRecoveryPlan.resume) {
     const recoveryTask = recoverSession(
       sessions,
       recoveryLifecycle,
@@ -1948,8 +1951,15 @@ function makeTerminalHost(): TerminalHost {
         const creationOptions = terminal.creationOptions;
         const env = 'env' in creationOptions ? creationOptions.env : undefined;
         const raw = env?.[KARST_TICKET_ENV];
+        const launchId = env?.[KARST_LAUNCH_ENV];
         return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
-          ? [{ ticketId: Number(raw), terminal: wrapTerminal(terminal) }]
+          ? [{
+              ticketId: Number(raw),
+              ...(typeof launchId === 'string' && launchId.length > 0
+                ? { launchId }
+                : {}),
+              terminal: wrapTerminal(terminal),
+            }]
           : [];
       }),
   };

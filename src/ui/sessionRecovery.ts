@@ -70,6 +70,8 @@ export class SessionRecoveryLifecycle {
   private readonly activeLaunches = new Map<number, string>();
   private readonly retiredLaunches = new Set<string>();
   private readonly blockUnidentified = new Set<number>();
+  /** Legacy adoption has no generation with which to distinguish safe hooks. */
+  private readonly blockAll = new Set<number>();
 
   constructor(
     private readonly timeoutMs = 15_000,
@@ -81,6 +83,7 @@ export class SessionRecoveryLifecycle {
     const launchId = randomUUID();
     this.activeLaunches.set(ticketId, launchId);
     this.blockUnidentified.delete(ticketId);
+    this.blockAll.delete(ticketId);
 
     let resolve!: (result: ReadinessResult) => void;
     const promise = new Promise<ReadinessResult>((done) => {
@@ -114,6 +117,30 @@ export class SessionRecoveryLifecycle {
     return this.activeLaunches.get(ticketId);
   }
 
+  /**
+   * Restore the generation baked into an adopted terminal's hook URL. Legacy
+   * terminals have no persisted identity, so their hooks remain quarantined:
+   * accepting an unknown generation could let a disposed duplicate take over.
+   */
+  adoptLaunch(ticketId: number, launchId: string | undefined): void {
+    this.cancel(ticketId);
+    const previous = this.activeLaunches.get(ticketId);
+    if (previous !== undefined && previous !== launchId) {
+      this.rememberRetired(previous);
+    }
+
+    if (launchId === undefined || launchId.length === 0) {
+      this.activeLaunches.delete(ticketId);
+      this.blockUnidentified.add(ticketId);
+      this.blockAll.add(ticketId);
+      return;
+    }
+
+    this.activeLaunches.set(ticketId, launchId);
+    this.blockUnidentified.delete(ticketId);
+    this.blockAll.delete(ticketId);
+  }
+
   /** Allocate a generation for an ordinary (non-recovery) session launch. */
   startLaunch(ticketId: number): string {
     const pending = this.pending.get(ticketId);
@@ -121,6 +148,7 @@ export class SessionRecoveryLifecycle {
     const launchId = randomUUID();
     this.activeLaunches.set(ticketId, launchId);
     this.blockUnidentified.delete(ticketId);
+    this.blockAll.delete(ticketId);
     return launchId;
   }
 
@@ -168,6 +196,7 @@ export class SessionRecoveryLifecycle {
   }
 
   isCurrentHook(ticketId: number, launchId: string | undefined): boolean {
+    if (this.blockAll.has(ticketId)) return false;
     if (launchId !== undefined && this.retiredLaunches.has(launchId)) {
       return false;
     }
@@ -383,10 +412,11 @@ export function planSessionRecovery(
   restored: RestoredRecoveryResult,
 ): BackgroundRecoveryResult {
   const background = planBackgroundSessionRecovery(tickets, ownedTicketIds);
+  const adopted = new Set([...restored.resume, ...restored.idle]);
   return {
-    resume: [...new Set([...restored.resume, ...background.resume])],
-    idle: [...new Set([...restored.idle, ...background.idle])],
-    discard: background.discard,
+    resume: background.resume.filter((id) => !adopted.has(id)),
+    idle: background.idle.filter((id) => !adopted.has(id)),
+    discard: background.discard.filter((id) => !adopted.has(id)),
   };
 }
 

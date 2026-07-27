@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   classifyRestoredSession,
   planBackgroundSessionRecovery,
+  planSessionRecovery,
   recoverSession,
   resumeRestoredSession,
   sessionOwnershipAction,
@@ -135,6 +136,33 @@ describe('recovery candidate planning', () => {
     expect(afterOtherWindowStarts.resume).toEqual([]);
   });
 
+  it('does not relaunch active or inactive tickets with adopted visible terminals', () => {
+    expect(
+      planSessionRecovery(
+        [
+          { id: 7, agentState: 'running', canResume: true, hasWorktree: true },
+          { id: 8, agentState: 'idle', canResume: true, hasWorktree: true },
+        ],
+        [7, 8],
+        { resume: [7], idle: [8] },
+      ),
+    ).toEqual({
+      resume: [],
+      idle: [],
+      discard: [],
+    });
+  });
+
+  it('relaunches an owned active ticket without an adopted visible terminal', () => {
+    expect(
+      planSessionRecovery(
+        [{ id: 9, agentState: 'running', canResume: true, hasWorktree: true }],
+        [9],
+        { resume: [], idle: [] },
+      ),
+    ).toEqual({ resume: [9], idle: [], discard: [] });
+  });
+
   it('drops local ownership as soon as the local session reports Stop', () => {
     expect(sessionOwnershipAction('Stop', true)).toBe('remove');
     expect(sessionOwnershipAction('SessionEnd', false)).toBe('remove');
@@ -143,6 +171,23 @@ describe('recovery candidate planning', () => {
 });
 
 describe('recovery lifecycle ordering', () => {
+  it('quarantines all hooks for an adopted legacy terminal without launch metadata', () => {
+    const lifecycle = new SessionRecoveryLifecycle();
+
+    lifecycle.adoptLaunch(7, undefined);
+
+    expect(lifecycle.isCurrentHook(7, undefined)).toBe(false);
+    expect(
+      lifecycle.isCurrentHook(
+        7,
+        '123e4567-e89b-42d3-a456-426614174000',
+      ),
+    ).toBe(false);
+
+    const replacement = lifecycle.startLaunch(7);
+    expect(lifecycle.isCurrentHook(7, replacement)).toBe(true);
+  });
+
   it('rejects a late SessionEnd while the replacement terminal is live', () => {
     expect(
       shouldApplySessionHookState(
