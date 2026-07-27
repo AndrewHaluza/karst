@@ -1,9 +1,10 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
-import type { Manifest, ApproachDef, TicketProvider } from '../../manifest/types.js';
+import type { Manifest, ApproachDef, TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { modelsForProvider, type ModelOption } from '../../agent/models.js';
+import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/registry.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { isRunnable } from '../../manifest/runnable.js';
@@ -69,6 +70,12 @@ export interface OnboardingState {
   selectedModel: string | null;
   /** Manifest default model, for the "Inherit (settings: …)" label; null = none. */
   defaultModel: string | null;
+  /** Implemented agent-core providers offered in the picker. */
+  agentProviders: AgentProvider[];
+  /** Per-ticket agent-core override; null = inherit the manifest default. */
+  selectedAgentProvider: AgentProvider | null;
+  /** Manifest's resolved default provider, for the "Inherit (settings: …)" label. */
+  defaultAgentProvider: AgentProvider;
   /**
    * True when an interactive session terminal is already open for this ticket.
    * The model (and effort) picker locks while a session runs — the launch flag
@@ -136,6 +143,7 @@ export function buildOnboardingState(
   const agents = listAgents();
   const unclassified = unclassifiedRepos(manifest);
   const provider: TicketProvider = manifest.ticketing?.provider ?? 'manual';
+  const defaultAgentProvider = manifest.agentProvider ?? 'claude';
 
   const repoEntries = Object.entries(manifest.repositories);
   /**
@@ -179,9 +187,12 @@ export function buildOnboardingState(
       selectedApproach: defaultApproach(approaches),
       agents,
       selectedAgent: null,
-      models: [...modelsForProvider(manifest.agentProvider ?? 'claude')],
+      models: [...modelsForProvider(defaultAgentProvider)],
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
+      agentProviders: [...IMPLEMENTED_PROVIDERS],
+      selectedAgentProvider: null,
+      defaultAgentProvider,
       sessionOpen: false, // create mode has no ticket → nothing to lock
       stepper: [], // no ticket yet → no workflow to show
     };
@@ -214,9 +225,12 @@ export function buildOnboardingState(
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
     agents,
     selectedAgent: ticket.agent ?? null,
-    models: [...modelsForProvider(manifest.agentProvider ?? 'claude')],
+    models: [...modelsForProvider(resolveProvider(ticket.agentProvider, manifest.agentProvider))],
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
+    agentProviders: [...IMPLEMENTED_PROVIDERS],
+    selectedAgentProvider: ticket.agentProvider ?? null,
+    defaultAgentProvider,
     sessionOpen: isSessionOpen(ticketId),
     stepper: buildStepper(ticket.stages),
   };
