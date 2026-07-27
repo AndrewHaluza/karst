@@ -81,8 +81,20 @@ export class SettingsManager {
     });
     panel.onDidDispose(() => (this.panel = undefined));
 
+    await this.pushState(panel);
+  }
+
+  /** Push the current catalog to the settings panel when it is still live. */
+  async refreshModels(): Promise<void> {
+    const panel = this.panel;
+    if (!panel) return;
+    await this.pushState(panel);
+  }
+
+  private async pushState(panel: SettingsPanel): Promise<void> {
     const { manifest, error } = this.loadState();
     const tokenConfigured = await this.hasToken();
+    if (this.panel !== panel) return;
     panel.postMessage({
       type: 'state',
       state: buildSettingsState(

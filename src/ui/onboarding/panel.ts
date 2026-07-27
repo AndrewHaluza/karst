@@ -77,6 +77,7 @@ export type OnboardingActionsFactory = (ctx: OnboardingActionsCtx) => Onboarding
  */
 export class OnboardingManager {
   private readonly panels = new Map<number, OnboardingPanel>();
+  private readonly modelRefreshers = new Set<() => void>();
   /** Next unbound-create sentinel; decrements so create panels never collide. */
   private nextCreateKey = -1;
 
@@ -207,6 +208,7 @@ export class OnboardingManager {
         panel.dispose();
       },
     };
+    this.modelRefreshers.add(pushState);
     const actions = this.actionsFactory(ctx);
 
     panel.onDidReceiveMessage((raw) => {
@@ -220,9 +222,15 @@ export class OnboardingManager {
     panel.onDidDispose(() => {
       disposed = true;
       this.panels.delete(panelKey);
+      this.modelRefreshers.delete(pushState);
     });
 
     pushState();
+  }
+
+  /** Push the current catalog to every onboarding panel that is still live. */
+  refreshModels(): void {
+    for (const refresh of this.modelRefreshers) refresh();
   }
 
   /**

@@ -3,7 +3,10 @@ import { SettingsManager, type SettingsPanel, type LoadedManifest } from './pane
 import type { SettingsHostMessage } from './messages.js';
 import type { Manifest } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
-import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import {
+  bundledModelCatalog,
+  type ModelCatalog,
+} from '../../agent/modelCatalog.js';
 
 const M: Manifest = buildManifest(
   {
@@ -33,7 +36,11 @@ class FakePanel implements SettingsPanel {
   emit(m: unknown) { this.handlers.forEach((h) => h(m)); }
 }
 
-function make(loaded: LoadedManifest, hasToken: () => Promise<boolean> = async () => false) {
+function make(
+  loaded: LoadedManifest,
+  hasToken: () => Promise<boolean> = async () => false,
+  modelCatalog: () => ModelCatalog = () => REMOTE_MODELS,
+) {
   let panel!: FakePanel;
   const host = { createPanel: () => (panel = new FakePanel()) };
   const mgr = new SettingsManager(
@@ -62,7 +69,7 @@ function make(loaded: LoadedManifest, hasToken: () => Promise<boolean> = async (
     undefined,
     undefined,
     undefined,
-    () => REMOTE_MODELS,
+    modelCatalog,
   );
   return { mgr, panel: () => panel };
 }
@@ -96,6 +103,32 @@ describe('SettingsManager', () => {
     await mgr.open();
     const state = panel().posted.find((m) => m.type === 'state') as any;
     expect(state.state.models).toEqual(REMOTE_MODELS);
+  });
+
+  it('refreshes the live panel from the current catalog', async () => {
+    let catalog = bundledModelCatalog();
+    const { mgr, panel } = make({ manifest: M, error: null }, undefined, () => catalog);
+    await mgr.open();
+    panel().posted.length = 0;
+    catalog = REMOTE_MODELS;
+
+    await mgr.refreshModels();
+
+    const state = panel().posted.find((m) => m.type === 'state') as any;
+    expect(state.state.models).toEqual(REMOTE_MODELS);
+  });
+
+  it('does not refresh a disposed panel', async () => {
+    let catalog = bundledModelCatalog();
+    const { mgr, panel } = make({ manifest: M, error: null }, undefined, () => catalog);
+    await mgr.open();
+    panel().disposeHandler?.();
+    panel().posted.length = 0;
+    catalog = REMOTE_MODELS;
+
+    await mgr.refreshModels();
+
+    expect(panel().posted).toEqual([]);
   });
 
   it('reveals instead of duplicating when already open', async () => {
