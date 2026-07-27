@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAdapter, IMPLEMENTED_PROVIDERS } from './registry.js';
+import { resolveAdapter, resolveProvider, IMPLEMENTED_PROVIDERS } from './registry.js';
 import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
@@ -25,5 +25,21 @@ describe('IMPLEMENTED_PROVIDERS', () => {
       'codex',
       'antigravity',
     ]);
+  });
+});
+
+describe('resolveProvider', () => {
+  it('prefers the ticket provider over the manifest default', () => {
+    expect(resolveProvider('codex', 'claude')).toBe('codex');
+  });
+
+  it('falls back to the manifest default when the ticket has no override', () => {
+    expect(resolveProvider(null, 'antigravity')).toBe('antigravity');
+    expect(resolveProvider(undefined, 'antigravity')).toBe('antigravity');
+  });
+
+  it('falls back to claude when neither the ticket nor the manifest specify a provider', () => {
+    expect(resolveProvider(null, null)).toBe('claude');
+    expect(resolveProvider(undefined, undefined)).toBe('claude');
   });
 });
