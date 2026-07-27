@@ -1,5 +1,9 @@
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { sortAgentRowsByProvenance } from './agentGrouping.js';
+import {
+  bundledModelCatalog,
+  type ModelCatalog,
+} from '../../agent/modelCatalog.js';
 
 /**
  * A row for the Agents tab: one selectable single-subagent (local file or
@@ -28,6 +32,7 @@ export interface SettingsAgentRow {
  * agent can still be re-enabled from the Agents tab); `approachCommands` maps
  * each INSTALLED approach id to the command names it exposes (a `karst-<id>`
  * command when it has a workflow, plus any `command`-kind artifact basenames).
+ * `models` is the host's current model catalog for all agent providers.
  *
  * `state.ts` stays pure/host-agnostic (no fs) — `agents` and `approachCommands`
  * are computed by the host (extension.ts) and injected here, mirroring how
@@ -41,6 +46,7 @@ export interface SettingsState {
   implementedProviders: AgentProvider[];
   agents: SettingsAgentRow[];
   approachCommands: Record<string, string[]>;
+  models: ModelCatalog;
 }
 
 /** Build the initial settings state from a manifest (valid or last-known). */
@@ -52,6 +58,7 @@ export function buildSettingsState(
   implementedProviders: AgentProvider[] = ['claude', 'codex', 'antigravity'],
   agents: SettingsAgentRow[] = [],
   approachCommands: Record<string, string[]> = {},
+  models: ModelCatalog = bundledModelCatalog(),
 ): SettingsState {
   return {
     manifest,
@@ -61,5 +68,6 @@ export function buildSettingsState(
     implementedProviders,
     agents: sortAgentRowsByProvenance(agents),
     approachCommands,
+    models,
   };
 }

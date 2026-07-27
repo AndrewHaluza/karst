@@ -703,30 +703,13 @@
   // implementedProviders: disk state pushed alongside `state` (agent/registry.ts's
   // IMPLEMENTED_PROVIDERS) — gates which agentProvider options render enabled.
   let implementedProviders = ['claude'];
+  // Host-supplied launch models. Each state refresh may carry newer discovery
+  // results; empty lists are the safe fallback for an older restored state.
+  let modelCatalog = { claude: [], codex: [], antigravity: [] };
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
   const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity'];
-
-  // Curated launch models (mirrors src/agent/models.ts KNOWN_MODELS — a webview
-  // can't import TS). The empty option means "no default" (the agent CLI picks).
-  const KNOWN_MODELS = [
-    { id: 'claude-opus-4-8', label: 'Opus 4.8', provider: 'claude' },
-    { id: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'claude' },
-    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', provider: 'claude' },
-    { id: 'claude-fable-5', label: 'Fable 5', provider: 'claude' },
-    { id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)', provider: 'antigravity' },
-    { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', provider: 'antigravity' },
-    { id: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)', provider: 'antigravity' },
-    { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash (High)', provider: 'antigravity' },
-    { id: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', provider: 'antigravity' },
-    { id: 'gemini-3.5-flash-low', label: 'Gemini 3.5 Flash (Low)', provider: 'antigravity' },
-    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', provider: 'antigravity' },
-    { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', provider: 'antigravity' },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'antigravity' },
-    { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 Thinking', provider: 'antigravity' },
-    { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', provider: 'antigravity' },
-  ];
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
   function manifestsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -765,6 +748,34 @@
   });
 
   // ---- General ----
+  function renderModelOptions(provider, savedModel) {
+    const list = modelCatalog[provider] || [];
+    const saved = typeof savedModel === 'string' && savedModel.trim() ? savedModel : '';
+    const opts = [
+      `<option value=""${saved ? '' : ' selected'}>No default (agent picks)</option>`,
+    ];
+    for (const model of list) {
+      opts.push(
+        `<option value="${esc(model.id)}"${model.id === saved ? ' selected' : ''}>`
+        + `${esc(model.label)}</option>`,
+      );
+    }
+    if (saved && !list.some((model) => model.id === saved)) {
+      opts.push(
+        `<option value="${esc(saved)}" selected>Saved model: ${esc(saved)}</option>`,
+      );
+    }
+    return opts.join('');
+  }
+
+  function isModelCompatibleWithProvider(provider, id) {
+    const known = Object.values(modelCatalog)
+      .flat()
+      .filter((model) => model.id === id);
+    return known.length === 0
+      || known.some((model) => (model.providers || []).includes(provider));
+  }
+
   function renderGeneral() {
     el('f-host').value = draft.host || '';
     el('f-portMin').value = draft.portRange && draft.portRange[0] != null ? draft.portRange[0] : '';
@@ -777,13 +788,10 @@
       return `<option value="${esc(p)}"${disabled ? ' disabled' : ''}>${label}</option>`;
     }).join('');
     el('f-agentProvider').value = draft.agentProvider || 'claude';
-    const modelOpts = ['<option value="">No default (agent picks)</option>'];
     const provider = draft.agentProvider || 'claude';
-    for (const m of KNOWN_MODELS.filter((model) => model.provider === provider)) {
-      modelOpts.push(`<option value="${esc(m.id)}">${esc(m.label)}</option>`);
-    }
-    el('f-defaultModel').innerHTML = modelOpts.join('');
-    el('f-defaultModel').value = draft.defaultModel || '';
+    const modelSelect = el('f-defaultModel');
+    modelSelect.innerHTML = renderModelOptions(provider, draft.defaultModel);
+    modelSelect.value = draft.defaultModel || '';
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     renderLabelPreview();
@@ -824,7 +832,10 @@
   });
   el('f-agentProvider').addEventListener('change', () => {
     draft.agentProvider = el('f-agentProvider').value;
-    if (!KNOWN_MODELS.some((m) => m.id === draft.defaultModel && m.provider === draft.agentProvider)) {
+    if (
+      draft.defaultModel
+      && !isModelCompatibleWithProvider(draft.agentProvider, draft.defaultModel)
+    ) {
       draft.defaultModel = undefined;
     }
     renderGeneral();
@@ -2135,6 +2146,7 @@
         installedIds = msg.state.installedIds || [];
         tokenConfigured = !!msg.state.tokenConfigured;
         implementedProviders = msg.state.implementedProviders || ['claude'];
+        modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [] };
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
         confirmInstallId = null;
@@ -2215,6 +2227,7 @@
     installedIds = prev.installedIds || [];
     tokenConfigured = !!prev.tokenConfigured;
     implementedProviders = prev.implementedProviders || ['claude'];
+    modelCatalog = prev.models || { claude: [], codex: [], antigravity: [] };
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};
     valid = !prev.error;

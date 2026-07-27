@@ -5,6 +5,7 @@ import type { Manifest, ApproachDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 const APPROACH_A: ApproachDef = { id: 'a', label: 'Approach A' };
 /** A sourced (git) approach: enabling it requires an installed package. */
@@ -42,6 +43,12 @@ const VALID: Manifest = buildManifest(
 );
 
 const NPM_MANIFEST: Manifest = { ...VALID, approaches: [APPROACH_NPM] };
+
+const REMOTE_MODELS: ModelCatalog = {
+  claude: [{ id: 'claude-remote', label: 'Claude Remote', providers: ['claude'] }],
+  codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
+  antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
+};
 
 function harness(overrides: Partial<SettingsActionsDeps> = {}) {
   const posted: SettingsHostMessage[] = [];
@@ -131,6 +138,13 @@ describe('settings actions — requestState', () => {
     await actions.requestState();
     const s = posted.find((m) => m.type === 'state');
     expect((s as any).state.tokenConfigured).toBe(true);
+  });
+
+  it('carries the current host model catalog', async () => {
+    const { actions, posted } = harness({ modelCatalog: () => REMOTE_MODELS });
+    await actions.requestState();
+    const s = posted.find((m) => m.type === 'state');
+    expect((s as any).state.models).toEqual(REMOTE_MODELS);
   });
 });
 

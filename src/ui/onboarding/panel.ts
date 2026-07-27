@@ -9,6 +9,10 @@ import {
   type OnboardingActions,
   type OnboardingHostMessage,
 } from './messages.js';
+import {
+  bundledModelCatalog,
+  type ModelCatalog,
+} from '../../agent/modelCatalog.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the onboarding manager touches. Modeled
@@ -115,6 +119,8 @@ export class OnboardingManager {
      * unbound create panel has no ticket yet → no icon.
      */
     private readonly iconFor?: (ticketId: number) => string | undefined,
+    /** Current launch-model catalog, refreshed independently of the manifest. */
+    private readonly modelCatalog: () => ModelCatalog = bundledModelCatalog,
   ) {}
 
   /**
@@ -166,6 +172,7 @@ export class OnboardingManager {
         this.listAgents,
         boundId,
         this.isSessionOpen,
+        this.modelCatalog(),
       );
       panel.postMessage({ type: 'state', state });
       // Re-point the tab icon at the bound ticket's live glyph. A create panel

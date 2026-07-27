@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildSettingsState } from './state.js';
 import type { Manifest } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 const M: Manifest = buildManifest(
   {
@@ -17,6 +18,12 @@ const M: Manifest = buildManifest(
     worktreePathDisplay: 'relative',
   },
 );
+
+const REMOTE_MODELS: ModelCatalog = {
+  claude: [{ id: 'claude-remote', label: 'Claude Remote', providers: ['claude'] }],
+  codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
+  antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
+};
 
 describe('buildSettingsState', () => {
   it('carries the whole manifest and a null error by default', () => {
@@ -97,5 +104,10 @@ describe('buildSettingsState', () => {
     const approachCommands = { tdd: ['karst-tdd', 'review'] };
     const s = buildSettingsState(M, null, [], false, ['claude'], [], approachCommands);
     expect(s.approachCommands).toEqual(approachCommands);
+  });
+
+  it('serializes the injected model lists for every provider', () => {
+    const s = buildSettingsState(M, null, [], false, undefined, [], {}, REMOTE_MODELS);
+    expect(s.models).toEqual(REMOTE_MODELS);
   });
 });

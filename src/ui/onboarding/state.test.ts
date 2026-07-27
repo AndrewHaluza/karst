@@ -11,8 +11,14 @@ import {
   slot,
 } from '../../manifest/fixtures.js';
 import type { PoolAgent } from '../../agents/pool.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 const AGENTS: PoolAgent[] = [{ name: 'reviewer', source: 'file' }];
+const REMOTE_MODELS: ModelCatalog = {
+  claude: [{ id: 'claude-remote', label: 'Claude Remote', providers: ['claude'] }],
+  codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
+  antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
+};
 
 function svc(over: Partial<RepositoryDef> = {}): RepositoryDef {
   return runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, over);
@@ -68,6 +74,22 @@ describe('buildOnboardingState — create mode', () => {
     const withClickup: Manifest = { ...MANIFEST, ticketing: { provider: 'clickup' } };
     const s = buildOnboardingState(store, withClickup, () => [], () => []);
     expect(s.provider).toBe('clickup');
+  });
+
+  it('offers the current provider models from an injected catalog', () => {
+    const withCodex: Manifest = { ...MANIFEST, agentProvider: 'codex' };
+    const s = buildOnboardingState(
+      store,
+      withCodex,
+      () => [],
+      () => [],
+      undefined,
+      undefined,
+      REMOTE_MODELS,
+    );
+    expect(s.models).toEqual([
+      { id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] },
+    ]);
   });
 
   it('offers installed sourced approaches plus built-in (sourceless) ones', () => {

@@ -7,6 +7,10 @@ import { modelsForProvider, type ModelOption } from '../../agent/models.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { isRunnable } from '../../manifest/runnable.js';
+import {
+  bundledModelCatalog,
+  type ModelCatalog,
+} from '../../agent/modelCatalog.js';
 
 /**
  * Serializable state for the onboarding page (§ onboarding). One surface serves
@@ -131,6 +135,7 @@ export function buildOnboardingState(
   listAgents: () => PoolAgent[],
   ticketId?: number,
   isSessionOpen: (ticketId: number) => boolean = () => false,
+  modelCatalog: ModelCatalog = bundledModelCatalog(),
 ): OnboardingState {
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
@@ -179,7 +184,7 @@ export function buildOnboardingState(
       selectedApproach: defaultApproach(approaches),
       agents,
       selectedAgent: null,
-      models: [...modelsForProvider(manifest.agentProvider ?? 'claude')],
+      models: [...modelsForProvider(manifest.agentProvider ?? 'claude', modelCatalog)],
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
       sessionOpen: false, // create mode has no ticket → nothing to lock
@@ -214,7 +219,7 @@ export function buildOnboardingState(
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
     agents,
     selectedAgent: ticket.agent ?? null,
-    models: [...modelsForProvider(manifest.agentProvider ?? 'claude')],
+    models: [...modelsForProvider(manifest.agentProvider ?? 'claude', modelCatalog)],
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
     sessionOpen: isSessionOpen(ticketId),

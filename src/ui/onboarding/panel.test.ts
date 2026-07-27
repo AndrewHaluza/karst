@@ -6,6 +6,7 @@ import type { OnboardingPanel, OnboardingPanelHost, OnboardingActionsCtx } from 
 import type { OnboardingActions } from './messages.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 function svc(over: Partial<RepositoryDef> = {}): RepositoryDef {
   return runnableRepo({ start: 'x', ports: [slot('port', 'PORT', 3000)] }, over);
@@ -20,6 +21,12 @@ const MANIFEST: Manifest = buildManifest(
     worktreePathDisplay: 'absolute',
   },
 );
+
+const REMOTE_MODELS: ModelCatalog = {
+  claude: [{ id: 'claude-remote', label: 'Claude Remote', providers: ['claude'] }],
+  codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
+  antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
+};
 
 interface FakePanel extends OnboardingPanel {
   title: string;
@@ -93,6 +100,27 @@ describe('OnboardingManager', () => {
     const first = panels[0]!.posted[0] as { type: string; state: { mode: string } };
     expect(first.type).toBe('state');
     expect(first.state.mode).toBe('create');
+  });
+
+  it('pushes models from the current host catalog', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new OnboardingManager(
+      store,
+      () => ({ ...MANIFEST, agentProvider: 'codex' }),
+      host,
+      factory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => REMOTE_MODELS,
+    );
+
+    mgr.openCreate();
+    const first = panels[0]!.posted[0] as { state: { models: unknown[] } };
+    expect(first.state.models).toEqual(REMOTE_MODELS.codex);
   });
 
   it('opens an edit-mode panel seeded from the ticket', () => {

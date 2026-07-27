@@ -3,6 +3,7 @@ import { SettingsManager, type SettingsPanel, type LoadedManifest } from './pane
 import type { SettingsHostMessage } from './messages.js';
 import type { Manifest } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 const M: Manifest = buildManifest(
   {
@@ -13,6 +14,12 @@ const M: Manifest = buildManifest(
   },
   { portRange: [4000, 4999], approaches: [], agents: {}, worktreePathDisplay: 'relative' },
 );
+
+const REMOTE_MODELS: ModelCatalog = {
+  claude: [{ id: 'claude-remote', label: 'Claude Remote', providers: ['claude'] }],
+  codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
+  antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
+};
 
 class FakePanel implements SettingsPanel {
   posted: SettingsHostMessage[] = [];
@@ -52,6 +59,10 @@ function make(loaded: LoadedManifest, hasToken: () => Promise<boolean> = async (
     }),
     () => [],
     hasToken,
+    undefined,
+    undefined,
+    undefined,
+    () => REMOTE_MODELS,
   );
   return { mgr, panel: () => panel };
 }
@@ -78,6 +89,13 @@ describe('SettingsManager', () => {
     await mgr.open();
     const state = panel().posted.find((m) => m.type === 'state') as any;
     expect(state.state.tokenConfigured).toBe(true);
+  });
+
+  it('pushes the current host model catalog', async () => {
+    const { mgr, panel } = make({ manifest: M, error: null });
+    await mgr.open();
+    const state = panel().posted.find((m) => m.type === 'state') as any;
+    expect(state.state.models).toEqual(REMOTE_MODELS);
   });
 
   it('reveals instead of duplicating when already open', async () => {
