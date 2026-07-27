@@ -41,6 +41,7 @@ describe('ticketLabel', () => {
     archivedAt: null,
     model: null,
     agentProvider: null,
+    sessionProvider: null,
     projectId: null,
   };
 
@@ -310,17 +311,47 @@ describe('ticket + stage persistence', () => {
     expect(stageRows).toHaveLength(0);
   });
 
-  it('persists session_id and leaves it readable via getTicket', () => {
+  it('persists session_id with the provider that minted it, both readable via getTicket', () => {
     const t = createTicket(store, { key: 'K-1', title: 'demo' });
-    setSessionId(store, t.id, 'sess-abc');
-    expect(getTicket(store, t.id).sessionId).toBe('sess-abc');
+    setSessionId(store, t.id, 'sess-abc', 'claude');
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBe('sess-abc');
+    expect(read.sessionProvider).toBe('claude');
   });
 
-  it('clears session_id when set to null (stale resume recovery)', () => {
+  it('clears session_id and its provider together (stale resume recovery)', () => {
     const t = createTicket(store, { key: 'K-1', title: 'demo' });
-    setSessionId(store, t.id, 'sess-abc');
-    setSessionId(store, t.id, null);
-    expect(getTicket(store, t.id).sessionId).toBeNull();
+    setSessionId(store, t.id, 'sess-abc', 'claude');
+    setSessionId(store, t.id, null, null);
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBeNull();
+    expect(read.sessionProvider).toBeNull();
+  });
+
+  it('overwrites the provider when a new session is captured under a different core', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    setSessionId(store, t.id, 'codex-sess', 'codex');
+    setSessionId(store, t.id, 'claude-sess', 'claude');
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBe('claude-sess');
+    expect(read.sessionProvider).toBe('claude');
+  });
+
+  it('a legacy row whose session predates session_provider reads back a null provider', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    // Simulates a row migrated from v12: session_id survives, provider unknown.
+    store.db.prepare('UPDATE tickets SET session_id = ? WHERE id = ?').run('old-sess', t.id);
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBe('old-sess');
+    expect(read.sessionProvider).toBeNull();
+  });
+
+  it('reads back null for a session_provider value not in the known provider set', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    store.db
+      .prepare('UPDATE tickets SET session_id = ?, session_provider = ? WHERE id = ?')
+      .run('sess', 'evil', t.id);
+    expect(getTicket(store, t.id).sessionProvider).toBeNull();
   });
 
   it('lists tickets ordered by created_at descending (newest first)', () => {

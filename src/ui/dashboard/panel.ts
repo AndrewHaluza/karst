@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { AgentProvider } from '../../manifest/types.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
@@ -85,6 +86,8 @@ export class DashboardManager {
      * a window with no resolved manifest behaves as it did before.
      */
     private readonly isRepoRunnable?: (repo: string) => boolean,
+    /** Live manifest agent core, so the session verb previews the real launch. */
+    private readonly defaultProvider?: () => AgentProvider | undefined,
   ) {}
 
   /** Open (or reveal) the dashboard for a ticket and push its initial state. */
@@ -128,6 +131,7 @@ export class DashboardManager {
       this.ticketing?.(),
       this.approachPhases,
       this.isRepoRunnable,
+      this.defaultProvider?.(),
     );
     panel.postMessage({ type: 'state', state });
     this.refreshIcon(ticketId, panel);
