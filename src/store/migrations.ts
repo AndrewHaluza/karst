@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -238,6 +238,17 @@ export function migrate(db: Database): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_worktree_archives_ticket ON worktree_archives(ticket_id, path)',
     );
+  }
+
+  if (current < 12) {
+    // v12 adds the per-ticket agent-provider override (§ agent core selection).
+    // Fresh DBs already carry it (schema.sql); guard so the ALTER only runs for
+    // a legacy DB being upgraded. NULL = inherit manifest.agentProvider, same
+    // "inherit" convention as the v5 model column.
+    const cols = ticketColumns(db);
+    if (cols.size > 0 && !cols.has('agent_provider')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN agent_provider TEXT');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
