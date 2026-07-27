@@ -37,9 +37,12 @@ CREATE TABLE IF NOT EXISTS tickets (
   project_id        INTEGER,              -- -> projects.id; NULL = unassigned (pre-v6 ticket)
   -- v12 agent_provider column (kept in sync with migrations.ts v12 ALTER):
   agent_provider    TEXT,                 -- per-ticket agent core override; NULL = inherit manifest default
+  -- v13 parent_ticket_id column (kept in sync with migrations.ts v13 ALTER):
+  parent_ticket_id  INTEGER,              -- -> tickets.id; links a follow-up ticket to the parent it continues
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_tickets_parent ON tickets(parent_ticket_id);
 
 CREATE TABLE IF NOT EXISTS stages (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
