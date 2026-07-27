@@ -13,7 +13,7 @@ import {
 type FakeChild = EventEmitter & {
   stdout: EventEmitter;
   stderr: EventEmitter;
-  stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+  stdin: EventEmitter & { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
   kill: ReturnType<typeof vi.fn>;
 };
 
@@ -21,7 +21,7 @@ function fakeChild(): FakeChild {
   const child = new EventEmitter() as FakeChild;
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
-  child.stdin = { write: vi.fn(), end: vi.fn() };
+  child.stdin = Object.assign(new EventEmitter(), { write: vi.fn(), end: vi.fn() });
   child.kill = vi.fn();
   return child;
 }
@@ -111,6 +111,20 @@ describe('makeCommandRunner', () => {
 
     const result = await makeCommandRunner(spawnImpl, { maxOutputBytes: 4 })('agy', ['models']);
     expect(result).toMatchObject({ exitCode: 1, failure: 'output exceeded' });
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+  });
+
+  it('turns an asynchronous stdin EPIPE into an isolated command failure', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => {
+        child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+      });
+      return child;
+    }) as unknown as SpawnImpl;
+
+    const result = await makeCommandRunner(spawnImpl)('codex', ['app-server'], '{"id":1}\n');
+    expect(result).toMatchObject({ exitCode: 1, failure: 'command failed' });
     expect(child.kill).toHaveBeenCalledWith('SIGKILL');
   });
 

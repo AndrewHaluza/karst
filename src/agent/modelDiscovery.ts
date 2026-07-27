@@ -86,6 +86,9 @@ export function makeCommandRunner(
       child = spawnImpl(command, [...args], { shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       child.stdout?.on('data', (chunk: unknown) => append('stdout', chunk));
       child.stderr?.on('data', (chunk: unknown) => append('stderr', chunk));
+      child.stdin?.once('error', (error: Error) => {
+        fail('command failed', error.message);
+      });
       child.once('error', (error: Error & { code?: string }) => {
         const failure = error.code === 'ENOENT' ? 'command unavailable' : 'command failed';
         settle({ stdout, stderr: `${stderr}${error.message}`, exitCode: 1, failure });
