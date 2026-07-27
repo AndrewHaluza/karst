@@ -1048,8 +1048,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Scoped to this window's project: driving a ticket opens terminals and runs
   // gates against *this* window's manifest, so sweeping another project's
   // tickets would resolve their services against the wrong repo paths.
-  for (const id of ticketsToSweep(listTickets(localStore, { projectId: currentProject()?.id }))) {
-    maybeDrive(id, 'activation-sweep');
+  const startupProject = currentProject();
+  if (startupProject) {
+    for (const id of ticketsToSweep(
+      listTickets(localStore, { projectId: startupProject.id }),
+    )) {
+      maybeDrive(id, 'activation-sweep');
+    }
   }
 
   // PR status sync: `ship` writes every PR as 'open' and nothing ever revised it,
@@ -1061,11 +1066,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // while a slow sweep is still going, so a dead remote can never pile up sweeps.
   let prSyncRunning = false;
   const runPrSync = async (): Promise<void> => {
+    const project = currentProject();
+    if (!project) return;
     if (prSyncRunning) return;
     prSyncRunning = true;
     try {
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
-        projectId: currentProject()?.id,
+        projectId: project.id,
       });
       if (changed > 0) {
         provider.refresh();
