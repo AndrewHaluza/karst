@@ -11,6 +11,7 @@ import {
   bundledModelCatalog,
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
+import { compatibilityModelCatalog } from '../../agent/models.js';
 
 /** The subset of a `vscode.WebviewPanel` the manager touches (host-agnostic). */
 export interface SettingsPanel {
@@ -88,7 +89,12 @@ export class SettingsManager {
   async refreshModels(): Promise<void> {
     const panel = this.panel;
     if (!panel) return;
-    await this.pushState(panel);
+    const models = this.modelCatalog();
+    panel.postMessage({
+      type: 'models',
+      models,
+      modelCompatibility: compatibilityModelCatalog(models),
+    });
   }
 
   private async pushState(panel: SettingsPanel): Promise<void> {

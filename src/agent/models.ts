@@ -24,6 +24,29 @@ export function modelsForProvider(
   return catalog[provider];
 }
 
+/**
+ * Build the provider knowledge used for compatibility decisions. The live
+ * catalog can narrow temporarily, so bundled ids remain known while newly
+ * discovered ids are added immediately.
+ */
+export function compatibilityModelCatalog(
+  catalog: ModelCatalog = bundledModelCatalog(),
+): ModelCatalog {
+  const bundled = bundledModelCatalog();
+  const merge = (provider: AgentProvider): readonly ModelOption[] => {
+    const byId = new Map<string, ModelOption>();
+    for (const model of [...bundled[provider], ...catalog[provider]]) {
+      byId.set(model.id, model);
+    }
+    return [...byId.values()];
+  };
+  return {
+    claude: merge('claude'),
+    codex: merge('codex'),
+    antigravity: merge('antigravity'),
+  };
+}
+
 /** A blank/whitespace string counts as "unset" (inherit / CLI default). */
 function firstNonBlank(...vals: (string | null | undefined)[]): string | undefined {
   for (const v of vals) {
@@ -49,7 +72,9 @@ export function isModelCompatibleWithProvider(
   id: string,
   catalog: ModelCatalog = bundledModelCatalog(),
 ): boolean {
-  const known = Object.values(catalog).flat().filter((model) => model.id === id);
+  const known = Object.values(compatibilityModelCatalog(catalog))
+    .flat()
+    .filter((model) => model.id === id);
   return known.length === 0 || known.some((model) => model.providers.includes(provider));
 }
 
@@ -62,10 +87,11 @@ export function resolveModelForProvider(
   provider: AgentProvider,
   ticketModel: string | null | undefined,
   defaultModel: string | null | undefined,
+  catalog: ModelCatalog = bundledModelCatalog(),
 ): string | undefined {
   for (const candidate of [ticketModel, defaultModel]) {
     const id = firstNonBlank(candidate);
-    if (id && isModelCompatibleWithProvider(provider, id)) return id;
+    if (id && isModelCompatibleWithProvider(provider, id, catalog)) return id;
   }
   return undefined;
 }

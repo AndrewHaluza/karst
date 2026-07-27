@@ -114,8 +114,13 @@ describe('SettingsManager', () => {
 
     await mgr.refreshModels();
 
-    const state = panel().posted.find((m) => m.type === 'state') as any;
-    expect(state.state.models).toEqual(REMOTE_MODELS);
+    const refresh = panel().posted[0] as any;
+    expect(refresh.type).toBe('models');
+    expect(refresh.models).toEqual(REMOTE_MODELS);
+    expect(refresh.modelCompatibility.codex.map((model: { id: string }) => model.id))
+      .toContain('codex-remote');
+    expect(refresh.modelCompatibility.codex.map((model: { id: string }) => model.id))
+      .toContain('gpt-5.6-sol');
   });
 
   it('does not refresh a disposed panel', async () => {

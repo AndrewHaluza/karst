@@ -4,6 +4,7 @@ import {
   bundledModelCatalog,
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
+import { compatibilityModelCatalog } from '../../agent/models.js';
 
 /**
  * A row for the Agents tab: one selectable single-subagent (local file or
@@ -47,6 +48,7 @@ export interface SettingsState {
   agents: SettingsAgentRow[];
   approachCommands: Record<string, string[]>;
   models: ModelCatalog;
+  modelCompatibility: ModelCatalog;
 }
 
 /** Build the initial settings state from a manifest (valid or last-known). */
@@ -69,5 +71,6 @@ export function buildSettingsState(
     agents: sortAgentRowsByProvenance(agents),
     approachCommands,
     models,
+    modelCompatibility: compatibilityModelCatalog(models),
   };
 }

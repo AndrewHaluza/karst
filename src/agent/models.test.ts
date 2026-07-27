@@ -6,6 +6,13 @@ import {
   resolveModel,
   resolveModelForProvider,
 } from './models.js';
+import type { ModelCatalog } from './modelCatalog.js';
+
+const LIVE_MODELS: ModelCatalog = {
+  claude: [{ id: 'claude-live', label: 'Claude Live', providers: ['claude'] }],
+  codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
+  antigravity: [],
+};
 
 describe('KNOWN_MODELS', () => {
   it('offers the curated launch models with stable ids', () => {
@@ -72,6 +79,15 @@ describe('KNOWN_MODELS', () => {
     expect(isModelCompatibleWithProvider('codex', 'claude-sonnet-5')).toBe(false);
     expect(isModelCompatibleWithProvider('codex', 'team-codex-model')).toBe(true);
   });
+
+  it('treats a dynamically discovered cross-provider model as incompatible', () => {
+    expect(isModelCompatibleWithProvider('claude', 'codex-live', LIVE_MODELS)).toBe(false);
+  });
+
+  it('retains bundled provider knowledge when a model is absent from the live catalog', () => {
+    expect(isModelCompatibleWithProvider('codex', 'gpt-5.6-sol', LIVE_MODELS)).toBe(true);
+    expect(isModelCompatibleWithProvider('claude', 'gpt-5.6-sol', LIVE_MODELS)).toBe(false);
+  });
 });
 
 describe('resolveModel', () => {
@@ -125,5 +141,17 @@ describe('resolveModelForProvider', () => {
     expect(resolveModelForProvider('antigravity', 'custom-preview-model', undefined)).toBe(
       'custom-preview-model',
     );
+  });
+
+  it('drops a dynamically known cross-provider ticket model at launch', () => {
+    expect(
+      resolveModelForProvider('claude', 'codex-live', undefined, LIVE_MODELS),
+    ).toBeUndefined();
+  });
+
+  it('launches a bundled-known model that is currently absent from discovery', () => {
+    expect(
+      resolveModelForProvider('codex', 'gpt-5.6-sol', undefined, LIVE_MODELS),
+    ).toBe('gpt-5.6-sol');
   });
 });

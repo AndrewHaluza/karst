@@ -706,6 +706,9 @@
   // Host-supplied launch models. Each state refresh may carry newer discovery
   // results; empty lists are the safe fallback for an older restored state.
   let modelCatalog = { claude: [], codex: [], antigravity: [] };
+  // Compatibility knowledge is deliberately broader than the picker catalog:
+  // bundled ids remain known while newly discovered ids are added.
+  let modelCompatibility = { claude: [], codex: [], antigravity: [] };
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
@@ -769,11 +772,18 @@
   }
 
   function isModelCompatibleWithProvider(provider, id) {
-    const known = Object.values(modelCatalog)
+    const known = Object.values(modelCompatibility)
       .flat()
       .filter((model) => model.id === id);
     return known.length === 0
       || known.some((model) => (model.providers || []).includes(provider));
+  }
+
+  function renderModelPicker() {
+    const provider = draft.agentProvider || 'claude';
+    const modelSelect = el('f-defaultModel');
+    modelSelect.innerHTML = renderModelOptions(provider, draft.defaultModel);
+    modelSelect.value = draft.defaultModel || '';
   }
 
   function renderGeneral() {
@@ -788,10 +798,7 @@
       return `<option value="${esc(p)}"${disabled ? ' disabled' : ''}>${label}</option>`;
     }).join('');
     el('f-agentProvider').value = draft.agentProvider || 'claude';
-    const provider = draft.agentProvider || 'claude';
-    const modelSelect = el('f-defaultModel');
-    modelSelect.innerHTML = renderModelOptions(provider, draft.defaultModel);
-    modelSelect.value = draft.defaultModel || '';
+    renderModelPicker();
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     renderLabelPreview();
@@ -2128,6 +2135,20 @@
     renderTicketing();
   }
 
+  function refreshModelCatalog(models, compatibility) {
+    modelCatalog = models || { claude: [], codex: [], antigravity: [] };
+    modelCompatibility = compatibility || modelCatalog;
+    renderModelPicker();
+    const prev = vscode.getState();
+    if (prev) {
+      vscode.setState({
+        ...prev,
+        models: modelCatalog,
+        modelCompatibility,
+      });
+    }
+  }
+
   function showError(msg) {
     const banner = el('errBanner');
     if (!msg) { banner.classList.add('hidden'); return; }
@@ -2147,6 +2168,7 @@
         tokenConfigured = !!msg.state.tokenConfigured;
         implementedProviders = msg.state.implementedProviders || ['claude'];
         modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [] };
+        modelCompatibility = msg.state.modelCompatibility || modelCatalog;
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
         confirmInstallId = null;
@@ -2156,6 +2178,10 @@
         showError(msg.state.error);
         renderAll();
         vscode.setState(msg.state);
+        break;
+      }
+      case 'models': {
+        refreshModelCatalog(msg.models, msg.modelCompatibility);
         break;
       }
       case 'validation': {
@@ -2228,6 +2254,7 @@
     tokenConfigured = !!prev.tokenConfigured;
     implementedProviders = prev.implementedProviders || ['claude'];
     modelCatalog = prev.models || { claude: [], codex: [], antigravity: [] };
+    modelCompatibility = prev.modelCompatibility || modelCatalog;
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};
     valid = !prev.error;

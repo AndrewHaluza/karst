@@ -1,9 +1,16 @@
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import type { ModelOption } from './modelCatalog.js';
 import { validateModelList } from './modelCatalog.js';
 
 const COMMAND_TIMEOUT_MS = 3_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
+
+function truncateUtf8(text: string, maxBytes: number): string {
+  const encoded = Buffer.from(text);
+  if (encoded.byteLength <= maxBytes) return text;
+  return new StringDecoder('utf8').write(encoded.subarray(0, Math.max(0, maxBytes)));
+}
 
 export type DiscoveryResult =
   | { status: 'available'; models: ModelOption[] }
@@ -16,10 +23,15 @@ export interface CommandResult {
   failure?: 'command unavailable' | 'command failed' | 'timed out' | 'output exceeded';
 }
 
+export interface CommandInteraction {
+  initialInput: string;
+  onStdoutLine: (line: string) => { write?: string; end?: boolean } | undefined;
+}
+
 export type CommandRunner = (
   command: string,
   args: readonly string[],
-  input?: string,
+  input?: string | CommandInteraction,
 ) => Promise<CommandResult>;
 
 export type SpawnImpl = typeof spawn;
@@ -45,14 +57,25 @@ export function makeCommandRunner(
     let stdout = '';
     let stderr = '';
     let outputBytes = 0;
+    let stdoutLines = '';
+    let stdinEnded = false;
     let settled = false;
     let child: ReturnType<typeof spawn> | undefined;
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+    const interaction = typeof input === 'string' ? undefined : input;
 
     const settle = (result: CommandResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(result);
+      const boundedStdout = truncateUtf8(result.stdout, maxOutputBytes);
+      const stderrBytes = maxOutputBytes - Buffer.byteLength(boundedStdout);
+      resolve({
+        ...result,
+        stdout: boundedStdout,
+        stderr: truncateUtf8(result.stderr, stderrBytes),
+      });
     };
 
     const fail = (failure: NonNullable<CommandResult['failure']>, message: string): void => {
@@ -64,21 +87,53 @@ export function makeCommandRunner(
       fail('timed out', `${command} timed out after ${timeoutMs}ms`);
     }, timeoutMs);
 
+    const endInput = (): void => {
+      if (stdinEnded) return;
+      stdinEnded = true;
+      child?.stdin?.end();
+    };
+
+    const writeInput = (value: string): void => {
+      child?.stdin?.write(value);
+    };
+
+    const processStdoutLines = (text: string): void => {
+      if (!interaction) return;
+      stdoutLines += text;
+      let newline = stdoutLines.indexOf('\n');
+      while (newline >= 0) {
+        const rawLine = stdoutLines.slice(0, newline);
+        stdoutLines = stdoutLines.slice(newline + 1);
+        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+        const action = interaction.onStdoutLine(line);
+        if (action?.write !== undefined) writeInput(action.write);
+        if (action?.end) endInput();
+        newline = stdoutLines.indexOf('\n');
+      }
+    };
+
     const append = (stream: 'stdout' | 'stderr', value: unknown): void => {
       if (settled) return;
-      const text = String(value);
-      const bytes = Buffer.byteLength(text);
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(String(value));
+      const bytes = chunk.byteLength;
       const remaining = maxOutputBytes - outputBytes;
-      if (remaining > 0) {
-        const captured = bytes <= remaining
-          ? text
-          : Buffer.from(text).subarray(0, remaining).toString();
-        if (stream === 'stdout') stdout += captured;
-        else stderr += captured;
-      }
+      const captured = remaining > 0 ? chunk.subarray(0, remaining) : Buffer.alloc(0);
       outputBytes += bytes;
       if (outputBytes > maxOutputBytes) {
+        if (stream === 'stdout') stdout += stdoutDecoder.write(captured);
+        else stderr += stderrDecoder.write(captured);
         fail('output exceeded', `${command} output exceeded ${maxOutputBytes} bytes`);
+        return;
+      }
+
+      const text = stream === 'stdout'
+        ? stdoutDecoder.write(captured)
+        : stderrDecoder.write(captured);
+      if (stream === 'stdout') {
+        stdout += text;
+        processStdoutLines(text);
+      } else {
+        stderr += text;
       }
     };
 
@@ -102,8 +157,11 @@ export function makeCommandRunner(
           ...(exitCode === 0 ? {} : { failure: 'command failed' as const }),
         });
       });
-      if (input !== undefined) child.stdin?.write(input);
-      child.stdin?.end();
+      if (interaction) writeInput(interaction.initialInput);
+      else {
+        if (typeof input === 'string') writeInput(input);
+        endInput();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       settle({ stdout, stderr: `${stderr}${message}`, exitCode: 1, failure: 'command failed' });
@@ -187,14 +245,41 @@ export function parseAntigravityModels(stdout: string): ModelOption[] | undefine
   return validateModelList('antigravity', models);
 }
 
-const CODEX_PROTOCOL_INPUT = [
-  { id: 1, method: 'initialize', params: { clientInfo: { name: 'karst', version: '1.0.0' }, capabilities: {} } },
+const CODEX_INITIALIZE_INPUT = `${JSON.stringify({
+  id: 1,
+  method: 'initialize',
+  params: { clientInfo: { name: 'karst', version: '1.0.0' }, capabilities: {} },
+})}\n`;
+
+const CODEX_MODEL_LIST_INPUT = [
   { method: 'initialized', params: {} },
   { id: 2, method: 'model/list', params: {} },
 ].map((request) => JSON.stringify(request)).join('\n') + '\n';
 
+function codexInteraction(): CommandInteraction {
+  let initialized = false;
+  return {
+    initialInput: CODEX_INITIALIZE_INPUT,
+    onStdoutLine: (line) => {
+      let message: unknown;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        return undefined;
+      }
+      if (!isRecord(message)) return undefined;
+      if (!initialized && message.id === 1) {
+        initialized = true;
+        return { write: CODEX_MODEL_LIST_INPUT };
+      }
+      if (initialized && message.id === 2) return { end: true };
+      return undefined;
+    },
+  };
+}
+
 export async function discoverCodexModels(run: CommandRunner = defaultCommandRunner): Promise<DiscoveryResult> {
-  const result = await run('codex', ['app-server', '--stdio'], CODEX_PROTOCOL_INPUT);
+  const result = await run('codex', ['app-server', '--stdio'], codexInteraction());
   const failure = commandFailure(result);
   if (failure) return failure;
 

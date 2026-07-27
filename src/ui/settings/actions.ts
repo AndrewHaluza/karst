@@ -73,7 +73,7 @@ export interface SettingsActionsDeps {
    */
   makeProvider(config: TicketingConfig): TicketingProvider;
   /** Current launch-model catalog for state refreshes after the panel opens. */
-  modelCatalog?(): ModelCatalog;
+  modelCatalog(): ModelCatalog;
 }
 
 export type SettingsActionsFactory = (ctx: SettingsActionsCtx) => SettingsActions;
@@ -102,7 +102,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           undefined,
           deps.listAgentRows(),
           deps.listApproachCommands(),
-          deps.modelCatalog?.(),
+          deps.modelCatalog(),
         ),
       });
     }

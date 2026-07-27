@@ -1,6 +1,7 @@
 import type { Manifest } from '../../manifest/types.js';
 import type { SettingsState } from './state.js';
 import type { TicketList } from '../../integrations/ticketing.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 /** Webview → host messages. The webview is untrusted; parse before use. */
 export type SettingsWebviewMessage =
@@ -23,6 +24,7 @@ export type SettingsWebviewMessage =
 /** Host → webview messages. */
 export type SettingsHostMessage =
   | { type: 'state'; state: SettingsState }
+  | { type: 'models'; models: ModelCatalog; modelCompatibility: ModelCatalog }
   | { type: 'validation'; ok: boolean; error: string | null }
   | { type: 'error'; message: string }
   | { type: 'saved' }

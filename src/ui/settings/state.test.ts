@@ -110,4 +110,12 @@ describe('buildSettingsState', () => {
     const s = buildSettingsState(M, null, [], false, undefined, [], {}, REMOTE_MODELS);
     expect(s.models).toEqual(REMOTE_MODELS);
   });
+
+  it('serializes bundled and live provider knowledge separately from picker models', () => {
+    const s = buildSettingsState(M, null, [], false, undefined, [], {}, REMOTE_MODELS);
+    expect(s.models.codex.map((model) => model.id)).toEqual(['codex-remote']);
+    expect(s.modelCompatibility.codex.map((model) => model.id)).toContain('codex-remote');
+    expect(s.modelCompatibility.codex.map((model) => model.id)).toContain('gpt-5.6-sol');
+    expect(s.modelCompatibility.claude.map((model) => model.id)).toContain('claude-opus-4-8');
+  });
 });

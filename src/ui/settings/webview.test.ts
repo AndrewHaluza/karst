@@ -22,9 +22,11 @@ function functionSource(name: string): string {
 function loadFunction(
   name: string,
   modelCatalog: Record<string, unknown[]>,
+  modelCompatibility: Record<string, unknown[]> = modelCatalog,
 ): (...args: unknown[]) => unknown {
   return runInNewContext(`(${functionSource(name)})`, {
     modelCatalog,
+    modelCompatibility,
     esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c),
   }) as (...args: unknown[]) => unknown;
@@ -67,5 +69,77 @@ describe('settings model picker', () => {
   it('still rejects a model known only for another provider', () => {
     const isCompatible = loadFunction('isModelCompatibleWithProvider', MODELS);
     expect(isCompatible('codex', 'claude-only')).toBe(false);
+  });
+
+  it('uses bundled-plus-live compatibility knowledge when the picker list is narrower', () => {
+    const current = {
+      claude: [],
+      codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
+      antigravity: [],
+    };
+    const compatibility = {
+      claude: [{ id: 'claude-bundled', label: 'Claude Bundled', providers: ['claude'] }],
+      codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
+      antigravity: [],
+    };
+    const isCompatible = loadFunction(
+      'isModelCompatibleWithProvider',
+      current,
+      compatibility,
+    );
+
+    expect(isCompatible('codex', 'claude-bundled')).toBe(false);
+    expect(isCompatible('claude', 'codex-live')).toBe(false);
+  });
+
+  it('merges a catalog refresh without replacing a dirty draft or its saved baseline', () => {
+    let renderCount = 0;
+    let persisted: unknown;
+    const currentState = {
+      manifest: { host: 'saved-host' },
+      models: MODELS,
+      modelCompatibility: MODELS,
+    };
+    const nextModels = {
+      ...MODELS,
+      codex: [{ id: 'codex-later', label: 'Codex Later', providers: ['codex'] }],
+    };
+    const context = {
+      modelCatalog: MODELS,
+      modelCompatibility: MODELS,
+      draft: { host: 'dirty-host' },
+      lastSaved: { host: 'saved-host' },
+      dirty: true,
+      nextModels,
+      nextCompatibility: nextModels,
+      renderModelPicker: () => { renderCount += 1; },
+      vscode: {
+        getState: () => currentState,
+        setState: (value: unknown) => { persisted = value; },
+      },
+    };
+
+    const result = runInNewContext(`
+      (${functionSource('refreshModelCatalog')})(nextModels, nextCompatibility);
+      ({ modelCatalog, modelCompatibility, draft, lastSaved, dirty });
+    `, context) as {
+      modelCatalog: typeof nextModels;
+      modelCompatibility: typeof nextModels;
+      draft: { host: string };
+      lastSaved: { host: string };
+      dirty: boolean;
+    };
+
+    expect(result.modelCatalog.codex[0]?.id).toBe('codex-later');
+    expect(result.modelCompatibility.codex[0]?.id).toBe('codex-later');
+    expect(result.draft.host).toBe('dirty-host');
+    expect(result.lastSaved.host).toBe('saved-host');
+    expect(result.dirty).toBe(true);
+    expect(renderCount).toBe(1);
+    expect(persisted).toEqual({
+      ...currentState,
+      models: nextModels,
+      modelCompatibility: nextModels,
+    });
   });
 });

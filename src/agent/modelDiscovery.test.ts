@@ -60,6 +60,75 @@ describe('provider discovery', () => {
     });
   });
 
+  it('initializes Codex before requesting models and closes stdin only after response id 2', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => child) as unknown as SpawnImpl;
+    const discovery = discoverCodexModels(makeCommandRunner(spawnImpl, { timeoutMs: 100 }));
+
+    const writesBeforeInitialize = child.stdin.write.mock.calls.map(([value]) => String(value));
+    const endsBeforeInitialize = child.stdin.end.mock.calls.length;
+
+    child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      id: 1,
+      result: { serverInfo: { name: 'codex' } },
+    })}\n`));
+    const writesBeforeModelList = child.stdin.write.mock.calls.map(([value]) => String(value));
+    const endsBeforeModelList = child.stdin.end.mock.calls.length;
+
+    child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      id: 2,
+      result: {
+        data: [{ model: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', availability: 'available' }],
+      },
+    })}\n`));
+    const endsAfterModelList = child.stdin.end.mock.calls.length;
+    child.emit('close', 0);
+
+    await expect(discovery).resolves.toMatchObject({ status: 'available' });
+    expect(writesBeforeInitialize).toEqual([
+      `${JSON.stringify({
+        id: 1,
+        method: 'initialize',
+        params: { clientInfo: { name: 'karst', version: '1.0.0' }, capabilities: {} },
+      })}\n`,
+    ]);
+    expect(endsBeforeInitialize).toBe(0);
+    expect(writesBeforeModelList).toEqual([
+      writesBeforeInitialize[0],
+      [
+        JSON.stringify({ method: 'initialized', params: {} }),
+        JSON.stringify({ id: 2, method: 'model/list', params: {} }),
+        '',
+      ].join('\n'),
+    ]);
+    expect(endsBeforeModelList).toBe(0);
+    expect(endsAfterModelList).toBe(1);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('preserves a Codex model label split across UTF-8 stdout chunks', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => child) as unknown as SpawnImpl;
+    const discovery = discoverCodexModels(makeCommandRunner(spawnImpl, { timeoutMs: 100 }));
+
+    child.stdout.emit('data', Buffer.from(`${JSON.stringify({ id: 1, result: {} })}\n`));
+    const response = Buffer.from(`${JSON.stringify({
+      id: 2,
+      result: {
+        data: [{ model: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sól', availability: 'available' }],
+      },
+    })}\n`);
+    const multibyteStart = response.indexOf(Buffer.from('ó'));
+    child.stdout.emit('data', response.subarray(0, multibyteStart + 1));
+    child.stdout.emit('data', response.subarray(multibyteStart + 1));
+    child.emit('close', 0);
+
+    await expect(discovery).resolves.toEqual({
+      status: 'available',
+      models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sól', providers: ['codex'] }],
+    });
+  });
+
   it.each([
     ['a non-zero exit', completed('', 1, 'not installed')],
     ['a malformed Codex protocol response', completed('{not json}')],
@@ -114,6 +183,18 @@ describe('makeCommandRunner', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGKILL');
   });
 
+  it('retains no more decoded output than the combined raw-byte bound', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => child.stdout.emit('data', Buffer.from('éé')));
+      return child;
+    }) as unknown as SpawnImpl;
+
+    const result = await makeCommandRunner(spawnImpl, { maxOutputBytes: 3 })('agy', ['models']);
+    expect(result).toMatchObject({ exitCode: 1, failure: 'output exceeded', stdout: 'é' });
+    expect(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr)).toBeLessThanOrEqual(3);
+  });
+
   it('turns an asynchronous stdin EPIPE into an isolated command failure', async () => {
     const child = fakeChild();
     const spawnImpl = vi.fn(() => {
@@ -128,7 +209,7 @@ describe('makeCommandRunner', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGKILL');
   });
 
-  it('uses a shell-free, piped process and sends Codex protocol input', async () => {
+  it('uses a shell-free, piped process for non-interactive commands', async () => {
     const child = fakeChild();
     let options: unknown;
     const spawnImpl = vi.fn((_command: string, _args: readonly string[], receivedOptions: unknown) => {
@@ -138,10 +219,10 @@ describe('makeCommandRunner', () => {
     }) as unknown as SpawnImpl;
 
     const run = makeCommandRunner(spawnImpl);
-    await run('codex', ['app-server', '--stdio'], '{"id":2}\n');
+    await run('agy', ['models']);
 
     expect(options).toMatchObject({ shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
-    expect(child.stdin.write).toHaveBeenCalledWith('{"id":2}\n');
+    expect(child.stdin.write).not.toHaveBeenCalled();
     expect(child.stdin.end).toHaveBeenCalledOnce();
   });
 });

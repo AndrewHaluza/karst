@@ -4,9 +4,11 @@ import type { ModelCatalog, ModelOption } from './modelCatalog.js';
 import type { DiscoveryResult } from './modelDiscovery.js';
 import {
   fetchModelFeed,
+  formatCatalogDiagnostic,
   loadModelCatalog,
   type CatalogCache,
   type CatalogCacheEntry,
+  type CatalogDiagnostic,
   type CatalogLoaderDeps,
 } from './modelCatalogLoader.js';
 
@@ -50,6 +52,14 @@ function feedResponse(providers: Record<string, unknown>): Response {
 
 function feed(modelsByProvider: Record<string, unknown>): typeof fetch {
   return (async () => feedResponse(modelsByProvider)) as typeof fetch;
+}
+
+function completeFeed(): typeof fetch {
+  return feed({
+    claude: [{ id: 'feed-claude', label: 'feed-claude label' }],
+    codex: [{ id: 'feed-codex', label: 'feed-codex label' }],
+    antigravity: [{ id: 'feed-antigravity', label: 'feed-antigravity label' }],
+  });
 }
 
 function baseDeps(cache: CatalogCache, fetchImpl: typeof fetch): CatalogLoaderDeps {
@@ -105,17 +115,168 @@ describe('loadModelCatalog', () => {
     expect(cache.writes).toEqual(['claude']);
   });
 
-  it('rejects when persisting a resolved provider catalog fails', async () => {
-    const updateFailure = Promise.reject(new Error('global state unavailable'));
-    void updateFailure.catch(() => {});
+  it('keeps every resolved provider usable when one cache persistence write rejects', async () => {
+    const entries = new Map<AgentProvider, CatalogCacheEntry>();
     const cache: CatalogCache = {
-      get: () => undefined,
-      set: () => updateFailure,
+      get: (provider) => entries.get(provider),
+      set: async (provider, entry) => {
+        if (provider === 'claude') {
+          throw new Error('SECRET_GLOBAL_STATE_PATH=/private/catalog');
+        }
+        entries.set(provider, entry);
+      },
     };
 
-    await expect(loadModelCatalog(baseDeps(cache, feed({
-      claude: [{ id: 'feed-claude', label: 'Feed Claude' }],
-    })))).rejects.toThrow('global state unavailable');
+    const result = await loadModelCatalog(baseDeps(cache, completeFeed()));
+
+    expect(result.sources).toEqual({
+      claude: 'feed',
+      codex: 'feed',
+      antigravity: 'feed',
+    });
+    expect(result.catalog).toEqual({
+      claude: models('claude', 'feed-claude'),
+      codex: models('codex', 'feed-codex'),
+      antigravity: models('antigravity', 'feed-antigravity'),
+    });
+    expect(entries.get('codex')).toMatchObject({
+      source: 'feed',
+      models: models('codex', 'feed-codex'),
+    });
+    expect(entries.get('antigravity')).toMatchObject({
+      source: 'feed',
+      models: models('antigravity', 'feed-antigravity'),
+    });
+    expect(result.diagnostics).toContainEqual({
+      provider: 'claude',
+      tier: 'cache',
+      category: 'persistence-failed',
+    });
+    expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_GLOBAL_STATE_PATH');
+  });
+
+  it('starts every provider cache write before waiting for a deferred first write', async () => {
+    const started: AgentProvider[] = [];
+    let releaseClaude!: () => void;
+    const claudeWrite = new Promise<void>((resolve) => {
+      releaseClaude = resolve;
+    });
+    let markClaudeStarted!: () => void;
+    const claudeStarted = new Promise<void>((resolve) => {
+      markClaudeStarted = resolve;
+    });
+    const cache: CatalogCache = {
+      get: () => undefined,
+      set: (provider) => {
+        started.push(provider);
+        if (provider !== 'claude') return;
+        markClaudeStarted();
+        return claudeWrite;
+      },
+    };
+
+    const loading = loadModelCatalog(baseDeps(cache, completeFeed()));
+    await claudeStarted;
+    try {
+      expect(started).toEqual(['claude', 'codex', 'antigravity']);
+    } finally {
+      releaseClaude();
+    }
+
+    await expect(loading).resolves.toMatchObject({
+      sources: { claude: 'feed', codex: 'feed', antigravity: 'feed' },
+    });
+  });
+});
+
+describe('loadModelCatalog diagnostics', () => {
+  it.each([
+    ['a missing command', 'command unavailable: SECRET_BINARY_PATH', 'command-unavailable'],
+    ['a timeout', 'timed out after SECRET_TIMEOUT_VALUE', 'timeout'],
+    ['a non-zero exit', 'command failed: SECRET_STDERR', 'nonzero-exit'],
+    ['protocol or invalid output', 'Codex returned SECRET_OUTPUT as an invalid model list', 'invalid-output'],
+  ])('classifies %s without retaining its raw CLI reason', async (_case, reason, category) => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: available('claude', 'cli-claude'),
+        codex: async () => ({ status: 'unavailable', reason }),
+        antigravity: available('antigravity', 'cli-antigravity'),
+      },
+    });
+
+    expect(result.sources.codex).toBe('feed');
+    expect(result.diagnostics).toEqual([{
+      provider: 'codex',
+      tier: 'cli',
+      category,
+    }]);
+    expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
+  });
+
+  it.each([
+    ['an HTTP error', (async () => new Response('SECRET_BODY', { status: 503 })) as typeof fetch, undefined, 'http-error'],
+    [
+      'a timeout',
+      ((_: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('SECRET_ABORT_ERROR')));
+      })) as typeof fetch,
+      { timeoutMs: 1 },
+      'timeout',
+    ],
+    ['an invalid response', (async () => new Response('{SECRET_RESPONSE')) as typeof fetch, undefined, 'invalid-response'],
+  ] as const)('reports %s without exposing the response failure', async (_case, fetchImpl, feedLimits, category) => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), fetchImpl),
+      feedLimits,
+    });
+
+    expect(result.diagnostics).toContainEqual({ tier: 'feed', category });
+    expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
+  });
+
+  it('reports a provider-scoped empty feed section', async () => {
+    const result = await loadModelCatalog(baseDeps(new MemoryCache(), feed({
+      claude: [],
+      codex: [{ id: 'feed-codex', label: 'Feed Codex' }],
+      antigravity: [{ id: 'feed-antigravity', label: 'Feed Antigravity' }],
+    })));
+
+    expect(result.sources.claude).toBe('bundled');
+    expect(result.diagnostics).toContainEqual({
+      provider: 'claude',
+      tier: 'feed',
+      category: 'empty',
+    });
+  });
+});
+
+describe('formatCatalogDiagnostic', () => {
+  it.each([
+    [
+      {
+        provider: 'codex',
+        tier: 'cli',
+        category: 'invalid-output',
+        reason: 'SECRET_STDERR',
+        environment: 'SECRET_TOKEN',
+      },
+      'codex:cli:invalid-output',
+    ],
+    [
+      {
+        tier: 'feed',
+        category: 'http-error',
+        body: 'SECRET_RESPONSE_BODY',
+        error: new Error('SECRET_FETCH_ERROR'),
+      },
+      'all:feed:http-error',
+    ],
+  ] as const)('formats only the bounded structured fields', (value, expected) => {
+    const diagnostic = value as unknown as CatalogDiagnostic;
+
+    expect(formatCatalogDiagnostic(diagnostic)).toBe(expected);
+    expect(formatCatalogDiagnostic(diagnostic)).not.toContain('SECRET_');
   });
 });
 

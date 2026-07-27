@@ -31,7 +31,10 @@ import {
 import { resolveAdapter } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
-import { loadModelCatalog } from './agent/modelCatalogLoader.js';
+import {
+  formatCatalogDiagnostic,
+  loadModelCatalog,
+} from './agent/modelCatalogLoader.js';
 import { makeMementoCatalogCache } from './agent/modelCatalogCache.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
@@ -786,6 +789,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return readFileSync(join(dir, approachId, art.relPath), 'utf8');
       },
       makeProvider: (config) => makeTicketingProvider(config, fetch, makeTokenProvider(context)),
+      modelCatalog: () => modelCatalog,
     }),
     listInstalledApproachIds,
     () => hasToken(context),
@@ -801,6 +805,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // rejection reaches this top-level catch.
   void loadModelCatalog({ cache: modelCatalogCache })
     .then(async (loaded) => {
+      for (const diagnostic of loaded.diagnostics) {
+        logger.warn(`karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`);
+      }
       modelCatalog = loaded.catalog;
       onboarding.refreshModels();
       await settings.refreshModels();
@@ -1385,6 +1392,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         currentManifest()?.agentProvider ?? 'claude',
         t.model,
         currentManifest()?.defaultModel,
+        modelCatalog,
       );
 
       // Terminal name/icon/color are frozen at creation, so resolve the ticket's
