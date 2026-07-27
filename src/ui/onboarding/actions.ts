@@ -142,6 +142,7 @@ function persistDraft(
     ...(input.agent !== null ? { agent: input.agent } : {}),
     // null = "Inherit"; persist '' so the store clears any prior pick to NULL.
     model: input.model ?? '',
+    agentProvider: input.agentProvider ?? '',
   });
   deps.onChange();
   return ticketId;
@@ -256,6 +257,18 @@ export function buildOnboardingActions(
       // the store maps to NULL (inherit the manifest default at launch).
       if (ctx.ticketId !== undefined) {
         updateTicketOnboarding(deps.store, ctx.ticketId, { model: id });
+      }
+    },
+
+    setProvider(id: string): void {
+      // An empty id is the "Inherit (settings)" choice — persisted as '' which
+      // the store maps to NULL (inherit manifest.agentProvider at launch).
+      // Unlike setModel, this re-pushes state: a provider change also
+      // re-filters the model picker (§ model/provider compatibility), and the
+      // next state push is what carries the re-filtered `models` list down.
+      if (ctx.ticketId !== undefined) {
+        updateTicketOnboarding(deps.store, ctx.ticketId, { agentProvider: id });
+        ctx.pushState();
       }
     },
 
