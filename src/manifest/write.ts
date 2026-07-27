@@ -97,6 +97,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
     nextRepos[name] = {
       ...rawRepo,
       repoPath: repo.repoPath,
+      baselineBranch: repo.baselineBranch,
       hasMigrations: repo.hasMigrations,
       signals: repo.signals ?? [],
       // Undefined (not omitted) so the dumper DROPS a `service:` block the user

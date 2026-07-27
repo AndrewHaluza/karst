@@ -16,6 +16,8 @@ import { checkMergeable } from '../mergeCheck.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { mergeOpStatus } from '../../model/mergeCheckView.js';
 import type { WorktreeView } from '../../store/dashboard.js';
+import type { Manifest } from '../../manifest/types.js';
+import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -29,6 +31,8 @@ import type { WorktreeView } from '../../store/dashboard.js';
 
 export interface ShipOpts {
   ticketId: number;
+  /** Current manifest, read when ship starts rather than captured at ticket creation. */
+  manifest?: Manifest;
 }
 
 export interface ShippedPr {
@@ -80,16 +84,20 @@ async function recordMergeChecks(
   worktrees: readonly WorktreeView[],
   git: GitRunner,
   onProgress: ShipProgress,
+  manifest?: Manifest,
 ): Promise<void> {
   for (const wt of worktrees) {
     onProgress({ repo: wt.repo, step: 'merge', status: 'run' });
     try {
-      const check = await checkMergeable(git, wt.path, wt.baseRef);
+      const baseRef = manifest
+        ? resolveBaselineBranchForPath(manifest, wt.repo)
+        : wt.baseRef;
+      const check = await checkMergeable(git, wt.path, baseRef);
       setMergeCheck(store, {
         ...check,
         ticketId,
         repo: wt.repo,
-        baseRef: wt.baseRef,
+        baseRef,
         checkedAt: nowIso(),
       });
       // Matches the status `shipInside` will read back from the persisted row,
@@ -209,7 +217,10 @@ export async function shipTicket(
           body = await describePr(adapter, wt.path, title);
           onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
         }
-        opened = await openPr(gh, { cwd: wt.path, title, body });
+        const base = opts.manifest
+          ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
+          : wt.baseRef ?? undefined;
+        opened = await openPr(gh, { cwd: wt.path, title, body, base });
       }
       onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
@@ -234,7 +245,7 @@ export async function shipTicket(
   // Every branch is now pushed, so the merge probe measures what a reviewer would
   // actually see on the PR. Deliberately outside the try above: a failure here is
   // not a ship failure, and this must not reach the catch that parks the ticket.
-  await recordMergeChecks(store, opts.ticketId, worktrees, git, onProgress);
+  await recordMergeChecks(store, opts.ticketId, worktrees, git, onProgress, opts.manifest);
 
   // PRs opened → ship passes → done. Unaffected by merge state, by design.
   transition(store, opts.ticketId, 'ship', { kind: 'passed' });

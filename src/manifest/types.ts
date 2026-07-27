@@ -48,6 +48,8 @@ export interface ServiceDef {
  */
 export interface RepositoryDef {
   repoPath: string;
+  /** Overrides the manifest-level default branch for this repository. */
+  baselineBranch?: string;
   /**
    * [M2] Author-declared: does this repository carry DB migrations? Drives
    * T4.2's "not first-class under shared-DB" warning. Deterministic (not a

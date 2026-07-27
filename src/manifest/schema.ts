@@ -17,6 +17,7 @@ import {
   requireStringArrayAllowEmpty,
 } from './validate/primitives.js';
 import { validateRepository } from './validate/repository.js';
+import { assertSharedRepoBaselineBranches } from './baselineBranch.js';
 import { validateGraph } from './validate/graph.js';
 
 // Re-exported so the many existing `from './schema.js'` importers keep working.
@@ -314,6 +315,7 @@ export function validateManifest(raw: unknown): Manifest {
   }
 
   validateGraph(repositories);
+  assertSharedRepoBaselineBranches(repositories, baselineBranch);
 
   return {
     id: validateProjectId(raw.id),

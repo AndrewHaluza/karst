@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
+import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { createWorktree, type WorktreeRecord } from '../../runtime/worktree.js';
 import { getTicket } from '../../store/tickets.js';
 import { worktreeSlug } from '../../runtime/slug.js';
@@ -70,7 +71,7 @@ export function confirmScope(
         ticketId,
         repoPath: repo.repoPath,
         slug,
-        baseRef: manifest.baselineBranch,
+        baseRef: resolveBaselineBranch(manifest, repo),
       }),
     );
   }

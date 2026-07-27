@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { Manifest } from '../manifest/types.js';
+import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
 import { worktreePaths, canonicalPath } from './worktree.js';
 
 /**
@@ -76,7 +77,7 @@ export function preflightSpin(manifest: Manifest, slug: string, hot: string[]): 
     }
 
     // `<branch>^{commit}` verifies the ref resolves to a commit in this repo.
-    const branch = manifest.baselineBranch;
+    const branch = resolveBaselineBranch(manifest, repo);
     if (!gitOk(repoPath, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`])) {
       problems.push(`branch '${branch}' not found in ${repoPath}`);
     }
