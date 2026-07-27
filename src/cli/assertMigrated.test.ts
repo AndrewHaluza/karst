@@ -16,8 +16,11 @@ import { SCHEMA_VERSION } from '../store/migrations.js';
  */
 describe('CLI schema guard', () => {
   const cleanups: Array<() => void> = [];
+  // LIFO, like any cleanup stack: the store handles were pushed after the temp
+  // dir that holds them, and Windows refuses to unlink a file that is still open,
+  // so deleting first (FIFO) fails with EBUSY.
   afterEach(() => {
-    for (const c of cleanups.splice(0)) c();
+    for (const c of cleanups.splice(0).reverse()) c();
   });
 
   function dbAt(version: number): string {

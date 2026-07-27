@@ -21,11 +21,49 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # name | app Electron binary (ABI detection) | extension-install CLI
-TARGETS=(
-  "vscode|/Applications/Visual Studio Code.app/Contents/MacOS/Electron|/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
-  "cursor|/Applications/Cursor.app/Contents/MacOS/Cursor|/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
-  "antigravity|/Applications/Antigravity IDE.app/Contents/MacOS/Electron|/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide"
-)
+#
+# macOS puts every app at a fixed /Applications bundle path, so those rows are
+# literals. Windows has no such prefix — an install lands wherever the installer
+# was pointed (per-user, system-wide, or another drive), so those rows are
+# discovered: ask the IDE's own CLI on PATH where it lives, then fall back to
+# the two standard prefixes.
+add_win_target() {
+  local name="$1" cmd="$2" exe="$3"
+  shift 3
+  local dirs=() dir on_path
+  on_path="$(command -v "$cmd" 2>/dev/null || true)"
+  if [ -n "$on_path" ]; then
+    # <install dir>/bin/<cmd> -> <install dir>
+    dirs+=("$(cd "$(dirname "$on_path")/.." && pwd)")
+  fi
+  dirs+=("$@")
+  for dir in "${dirs[@]}"; do
+    if [ -e "$dir/$exe" ]; then
+      TARGETS+=("$name|$dir/$exe|$dir/bin/$cmd")
+      break
+    fi
+  done
+  return 0
+}
+
+TARGETS=()
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    add_win_target vscode code Code.exe \
+      "$HOME/AppData/Local/Programs/Microsoft VS Code" "/c/Program Files/Microsoft VS Code"
+    add_win_target cursor cursor Cursor.exe \
+      "$HOME/AppData/Local/Programs/cursor" "/c/Program Files/cursor"
+    add_win_target antigravity antigravity-ide Antigravity.exe \
+      "$HOME/AppData/Local/Programs/Antigravity" "/c/Program Files/Antigravity"
+    ;;
+  *)
+    TARGETS=(
+      "vscode|/Applications/Visual Studio Code.app/Contents/MacOS/Electron|/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+      "cursor|/Applications/Cursor.app/Contents/MacOS/Cursor|/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
+      "antigravity|/Applications/Antigravity IDE.app/Contents/MacOS/Electron|/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide"
+    )
+    ;;
+esac
 
 entry_for() {
   # echo the TARGETS row whose name == $1, or nothing
@@ -102,7 +140,12 @@ for name in "${selected[@]}"; do
   # --skip-license / --allow-missing-repository stop vsce from raising the
   # packaging warnings that otherwise trigger an interactive
   # "Do you want to continue? [y/N]" confirm and stall a non-interactive run.
-  npx vsce package --skip-license --allow-missing-repository
+  # vsce runs `vscode:prepublish`, which runs rebuild:electron AGAIN — pass the
+  # target through or that second run detects no app and rebuilds for the wrong
+  # (or no) ABI, undoing the rebuild above.
+  # @vscode/vsce, not the legacy `vsce` package — that one is frozen at 2.15.0
+  # and rejects --skip-license with "unknown option".
+  KARST_TARGET_APP_BINARY="$app_bin" npx @vscode/vsce package --skip-license --allow-missing-repository
   VSIX="$(ls -t *.vsix | head -1)"
 
   if [ ! -e "$cli_bin" ]; then

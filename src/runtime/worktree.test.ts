@@ -225,7 +225,11 @@ describe('ticketIdForWorktreePath (symlink-invariant)', () => {
     const link = join(realBase, 'link');
     const target = join(realBase, 'target');
     mkdirSync(target);
-    symlinkSync(target, link);
+    // A directory junction on Windows, a symlink elsewhere. Windows reserves
+    // real symlinks for elevated/developer-mode processes (EPERM otherwise), and
+    // what this test needs is only that realpath resolves the parent away — which
+    // a junction does identically.
+    symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
     const storedPath = join(link, 'wt'); // raw, symlinked — how createWorktree stores it
     mkdirSync(storedPath);
     store.db.prepare(

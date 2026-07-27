@@ -89,6 +89,32 @@ function detectElectronRuntime() {
   return null;
 }
 
+/**
+ * Fetch better-sqlite3's PUBLISHED prebuild for a runtime + version.
+ *
+ * better-sqlite3 uploads one artifact per (runtime, ABI, platform, arch) to its
+ * GitHub releases, so an ABI it ships no vendored `bin/` folder for is usually
+ * still one download away. Try that before a source rebuild: compiling needs a
+ * full C++ toolchain (on Windows, MSVC plus a python3 node-gyp can find), which
+ * a machine that only wants to RUN the extension has no reason to have.
+ */
+function tryPrebuildDownload(runtime, version) {
+  const require = createRequire(join(moduleDir, 'package.json'));
+  let binPath;
+  try {
+    binPath = require.resolve('prebuild-install/bin.js');
+  } catch {
+    return false;
+  }
+
+  const result = spawnSync(
+    process.execPath,
+    [binPath, '--runtime', runtime, '--target', version, '--platform', platform, '--arch', arch],
+    { cwd: moduleDir, stdio: 'inherit' },
+  );
+  return result.status === 0;
+}
+
 function tryPrebuild(abi) {
   const releaseDir = join(moduleDir, 'build', 'Release');
   const releaseFile = join(releaseDir, 'better_sqlite3.node');
@@ -124,6 +150,11 @@ if (mode === 'electron') {
   if (!electronVersion) {
     console.error(`No prebuild found for ABI ${abi} and unable to detect an Electron version for source rebuild.`);
     process.exit(1);
+  }
+
+  if (tryPrebuildDownload('electron', electronVersion)) {
+    console.log(`Downloaded better-sqlite3 prebuild for Electron ${electronVersion} (ABI ${abi}, ${platform}-${arch})`);
+    process.exit(0);
   }
 
   console.log(`No prebuild for ABI ${abi}; rebuilding better-sqlite3 for Electron ${electronVersion} (${arch})...`);
@@ -165,6 +196,15 @@ if (mode === 'node') {
   }
 
   if (tryPrebuild(abi)) {
+    assertLoadableUnderNode();
+    process.exit(0);
+  }
+
+  // Same reasoning as the electron branch: the published Node prebuild is what
+  // `npm install` itself fetched, so ask for it by version before demanding a
+  // toolchain this machine may not have.
+  if (tryPrebuildDownload('node', process.versions.node)) {
+    console.log(`Downloaded better-sqlite3 prebuild for Node ${process.versions.node} (ABI ${abi}, ${platform}-${arch})`);
     assertLoadableUnderNode();
     process.exit(0);
   }

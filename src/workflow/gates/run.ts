@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { prepareCommand } from '../../runtime/command.js';
 
 /** A finished gate command: its exit code and its combined stdout+stderr. */
 export interface CommandResult {
@@ -28,7 +29,14 @@ export function runCommand(
   cwd: string,
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
-    const child = spawn(command, [...args], { cwd });
+    // `npm test` is the default gate and npm is a batch shim on Windows, which
+    // Node cannot spawn directly — unresolved, every gate would exit nonzero and
+    // the driver would read that as a code verdict (see prepareCommand).
+    const p = prepareCommand(command, args);
+    const child = spawn(p.command, p.args, {
+      cwd,
+      windowsVerbatimArguments: p.windowsVerbatimArguments,
+    });
 
     let output = '';
     child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));

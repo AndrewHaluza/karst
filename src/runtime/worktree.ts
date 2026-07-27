@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, rmSync, realpathSync } from 'n
 import { join, dirname, basename } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { PortAllocator } from '../resolver/allocator.js';
+import { prepareCommand } from './command.js';
 
 export interface WorktreeRecord {
   ticketId: number;
@@ -213,9 +214,11 @@ export function removeWorktree(
  * local install and flips deps_mode to `local`.
  */
 export function reinstallDeps(store: Store, record: WorktreeRecord): WorktreeRecord {
-  const r = spawnSync('npm', ['install', '--no-audit', '--no-fund'], {
+  const p = prepareCommand('npm', ['install', '--no-audit', '--no-fund']);
+  const r = spawnSync(p.command, p.args, {
     cwd: record.path,
     encoding: 'utf8',
+    windowsVerbatimArguments: p.windowsVerbatimArguments,
   });
   if (r.error) {
     throw new Error(`npm install could not run in ${record.path}: ${r.error.message}`);

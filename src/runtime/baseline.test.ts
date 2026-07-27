@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
+import { freePortWindow, removeTempDir } from './fixtures.js';
 import { stopServer } from './supervisor.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
 import type { Manifest } from '../manifest/types.js';
@@ -73,6 +74,9 @@ describe('baseline pool', () => {
   let repo: string;
   const started: number[] = [];
 
+  beforeAll(async () => {
+    portCounter = await freePortWindow(20, portCounter);
+  });
   beforeEach(() => {
     store = openStore(':memory:');
     repo = makeRepo();
@@ -80,7 +84,9 @@ describe('baseline pool', () => {
   afterEach(() => {
     for (const id of started.splice(0)) stopServer(store, id);
     store.close();
-    rmSync(repo, { recursive: true, force: true });
+    // Retried: the baseline servers stopped just above ran with the baseline
+    // worktree as cwd, which Windows keeps pinned briefly after they die.
+    removeTempDir(repo);
   });
 
   it('starts the baseline from baselineBranch (develop), not the current checkout [H4]', async () => {

@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { startHot, stopServer, stopTicketServers, tailLog } from './supervisor.js';
+import { freePortWindow, removeTempDir } from './fixtures.js';
 
 /**
  * A fixture dev server: comes up on PORT, serves /health 200 only after a delay
@@ -46,6 +48,20 @@ writeFileSync(process.env.GRANDCHILD_PID_FILE, String(grand.pid));
 setInterval(() => {}, 1e9);
 `;
 
+/** Poll `url` until it answers 200, so a fixture is provably up before the test acts. */
+async function waitUntilServing(url: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if ((await fetch(url)).ok) return;
+    } catch {
+      // not listening yet
+    }
+    if (Date.now() > deadline) throw new Error(`fixture never served ${url}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 /** True if pid is alive (signal 0 probes without killing). */
 function alive(pid: number): boolean {
   try {
@@ -65,6 +81,9 @@ describe('server supervisor', () => {
   let store: Store;
   let dir: string;
 
+  beforeAll(async () => {
+    portCounter = await freePortWindow(40, portCounter);
+  });
   beforeEach(() => {
     store = openStore(':memory:');
     dir = mkdtempSync(join(tmpdir(), 'karst-sup-'));
@@ -73,8 +92,16 @@ describe('server supervisor', () => {
     writeFileSync(join(dir, 'launcher.mjs'), LAUNCHER_SRC);
   });
   afterEach(() => {
+    // Any server a case left running is a detached process that OUTLIVES vitest and
+    // keeps its port — the next run then finds a foreign listener on a fixture port
+    // and fails somewhere unrelated. Sweep, don't rely on each case to kill.
+    for (const s of store.db.prepare("SELECT id FROM servers WHERE status='running'").all()) {
+      stopServer(store, (s as { id: number }).id);
+    }
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    // Retried: every server here is spawned with `cwd: dir`, and on Windows that
+    // pins the directory for a few tens of milliseconds after the process dies.
+    removeTempDir(dir);
   });
 
   // A manifest naming a tool the machine doesn't have (`docker compose up` with
@@ -254,6 +281,43 @@ describe('server supervisor', () => {
         healthTimeoutMs: 1200,
       }),
     ).rejects.toThrow(/health|timeout/i);
+  });
+
+  // A foreign process on the port answers /health, so health alone cannot tell
+  // "my service is up" from "somebody else's is". Our own child meanwhile dies of
+  // EADDRINUSE, and startHot used to record its dead pid as status='running' —
+  // the dashboard then showed a healthy server nothing could stop or restart.
+  it('rejects when its own process dies of a port conflict instead of adopting the foreign listener', async () => {
+    const port = nextPort();
+    const foreign = spawn(process.execPath, [join(dir, 'server.mjs')], {
+      cwd: dir,
+      env: { ...process.env, PORT: String(port) },
+      stdio: 'ignore',
+    });
+    try {
+      await waitUntilServing(`http://127.0.0.1:${port}/health`);
+
+      await expect(
+        startHot(store, {
+          ticketId: 1,
+          service: 'backend',
+          command: process.execPath,
+          args: [join(dir, 'server.mjs')],
+          cwd: dir,
+          env: { PORT: String(port) },
+          host: '127.0.0.1',
+          port,
+          healthUrl: `http://127.0.0.1:${port}/health`,
+          logPath: join(dir, 'svc.log'),
+          healthTimeoutMs: 5_000,
+        }),
+      ).rejects.toThrow(/backend/);
+
+      const rows = store.db.prepare('SELECT COUNT(*) AS n FROM servers').get() as { n: number };
+      expect(rows.n).toBe(0); // nothing recorded as running
+    } finally {
+      foreign.kill('SIGKILL');
+    }
   });
 
   it('kills the grandchild when a launcher fails health (no orphan)', async () => {

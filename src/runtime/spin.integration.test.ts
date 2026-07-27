@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,7 @@ import { stopServer } from './supervisor.js';
 import { spinTicket, SpinCancelledError } from './spin.js';
 import { worktreeSlug } from './slug.js';
 import { createWorktree } from './worktree.js';
+import { freePortWindow, removeTempDir } from './fixtures.js';
 import type { DependsOn, Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
   dependsOn,
@@ -89,6 +90,8 @@ function makeRepo(root: string, name: string, files: Record<string, string>): st
   return repo;
 }
 
+// Rebased onto a window this machine has proven free (see freePortWindow): each
+// case draws default ports AND a 20-30 port allocator range from it.
 let portBase = 48600;
 function port(): number {
   return portBase++;
@@ -149,6 +152,9 @@ describe('spinTicket integration', () => {
   let root: string;
   const started: number[] = [];
 
+  beforeAll(async () => {
+    portBase = await freePortWindow(140, portBase);
+  });
   beforeEach(() => {
     store = openStore(':memory:');
     root = mkdtempSync(join(tmpdir(), 'karst-spin-'));
@@ -159,7 +165,9 @@ describe('spinTicket integration', () => {
     }
     started.length = 0;
     store.close();
-    rmSync(root, { recursive: true, force: true });
+    // Retried: the servers stopped just above ran with their worktree as cwd, and
+    // Windows keeps that directory pinned for a moment after the process dies.
+    removeTempDir(root);
   });
 
   it('(a) frontend-only hot → worktree + baseline backend, request through FE reaches BE', async () => {
