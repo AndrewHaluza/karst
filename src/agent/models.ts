@@ -6,41 +6,22 @@
  */
 
 import type { AgentProvider } from '../manifest/types.js';
+import { bundledModelCatalog, type ModelCatalog, type ModelOption } from './modelCatalog.js';
 
-export interface ModelOption {
-  /** The `--model` value passed to the agent CLI. */
-  id: string;
-  /** Human label for the picker. */
-  label: string;
-  /** Agent CLIs that accept this exact model id. */
-  providers: readonly AgentProvider[];
-}
+export type { ModelOption } from './modelCatalog.js';
 
 /**
  * Offered models, newest/most-capable first. Ids are the exact CLI `--model`
  * values. Keep in sync with the mirrored lists in the onboarding + settings
  * webview HTML (they can't import this module).
  */
-export const KNOWN_MODELS: readonly ModelOption[] = [
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', providers: ['claude'] },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'] },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', providers: ['claude'] },
-  { id: 'claude-fable-5', label: 'Fable 5', providers: ['claude'] },
-  { id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)', providers: ['antigravity'] },
-  { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', providers: ['antigravity'] },
-  { id: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)', providers: ['antigravity'] },
-  { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash (High)', providers: ['antigravity'] },
-  { id: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', providers: ['antigravity'] },
-  { id: 'gemini-3.5-flash-low', label: 'Gemini 3.5 Flash (Low)', providers: ['antigravity'] },
-  { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', providers: ['antigravity'] },
-  { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', providers: ['antigravity'] },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', providers: ['antigravity'] },
-  { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 Thinking', providers: ['antigravity'] },
-  { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', providers: ['antigravity'] },
-] as const;
+export const KNOWN_MODELS = Object.values(bundledModelCatalog()).flat();
 
-export function modelsForProvider(provider: AgentProvider): readonly ModelOption[] {
-  return KNOWN_MODELS.filter((model) => model.providers.includes(provider));
+export function modelsForProvider(
+  provider: AgentProvider,
+  catalog: ModelCatalog = bundledModelCatalog(),
+): readonly ModelOption[] {
+  return catalog[provider];
 }
 
 /** A blank/whitespace string counts as "unset" (inherit / CLI default). */
@@ -63,9 +44,13 @@ export function resolveModel(
   return firstNonBlank(ticketModel, defaultModel);
 }
 
-function isCompatibleKnownModel(provider: AgentProvider, id: string): boolean {
-  const known = KNOWN_MODELS.find((model) => model.id === id);
-  return known === undefined || known.providers.includes(provider);
+export function isModelCompatibleWithProvider(
+  provider: AgentProvider,
+  id: string,
+  catalog: ModelCatalog = bundledModelCatalog(),
+): boolean {
+  const known = Object.values(catalog).flat().filter((model) => model.id === id);
+  return known.length === 0 || known.some((model) => model.providers.includes(provider));
 }
 
 /**
@@ -80,7 +65,7 @@ export function resolveModelForProvider(
 ): string | undefined {
   for (const candidate of [ticketModel, defaultModel]) {
     const id = firstNonBlank(candidate);
-    if (id && isCompatibleKnownModel(provider, id)) return id;
+    if (id && isModelCompatibleWithProvider(provider, id)) return id;
   }
   return undefined;
 }

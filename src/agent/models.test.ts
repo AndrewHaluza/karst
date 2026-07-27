@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   KNOWN_MODELS,
+  isModelCompatibleWithProvider,
   modelsForProvider,
   resolveModel,
   resolveModelForProvider,
@@ -14,6 +15,7 @@ describe('KNOWN_MODELS', () => {
       'claude-sonnet-5',
       'claude-haiku-4-5',
       'claude-fable-5',
+      'gpt-5.6-sol',
       'gemini-3.6-flash-high',
       'gemini-3.6-flash-medium',
       'gemini-3.6-flash-low',
@@ -47,8 +49,21 @@ describe('KNOWN_MODELS', () => {
     expect(modelsForProvider('antigravity').map((m) => m.id)).not.toContain('claude-opus-4-8');
   });
 
-  it('offers no speculative curated Codex models', () => {
-    expect(modelsForProvider('codex')).toEqual([]);
+  it('offers curated Codex models', () => {
+    expect(modelsForProvider('codex').map((m) => m.id)).toEqual(['gpt-5.6-sol']);
+  });
+
+  it('uses a supplied catalog for the selected provider', () => {
+    expect(modelsForProvider('codex', {
+      claude: [],
+      codex: [{ id: 'team-codex-model', label: 'Team Codex', providers: ['codex'] }],
+      antigravity: [],
+    })).toEqual([{ id: 'team-codex-model', label: 'Team Codex', providers: ['codex'] }]);
+  });
+
+  it('treats only known models from another provider as incompatible', () => {
+    expect(isModelCompatibleWithProvider('codex', 'claude-sonnet-5')).toBe(false);
+    expect(isModelCompatibleWithProvider('codex', 'team-codex-model')).toBe(true);
   });
 });
 
