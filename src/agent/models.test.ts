@@ -53,6 +53,13 @@ describe('KNOWN_MODELS', () => {
     expect(modelsForProvider('codex').map((m) => m.id)).toEqual(['gpt-5.6-sol']);
   });
 
+  it.each(['claude', 'codex', 'antigravity'] as const)(
+    'keeps a usable bundled fallback for %s',
+    (provider) => {
+      expect(modelsForProvider(provider)).not.toHaveLength(0);
+    },
+  );
+
   it('uses a supplied catalog for the selected provider', () => {
     expect(modelsForProvider('codex', {
       claude: [],
@@ -90,6 +97,12 @@ describe('resolveModel', () => {
 });
 
 describe('resolveModelForProvider', () => {
+  it('launches a saved model supported by the selected provider', () => {
+    expect(
+      resolveModelForProvider('codex', 'gpt-5.6-sol', undefined),
+    ).toBe('gpt-5.6-sol');
+  });
+
   it('preserves an explicit custom Codex model id', () => {
     expect(
       resolveModelForProvider('codex', 'team-codex-model', undefined),

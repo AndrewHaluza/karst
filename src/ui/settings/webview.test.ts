@@ -50,6 +50,15 @@ describe('settings model picker', () => {
     expect(html).toContain('Saved model: preview-&lt;next&gt;');
   });
 
+  it('keeps a saved supported default selected without duplicating it', () => {
+    const renderModelOptions = loadFunction('renderModelOptions', MODELS);
+    const html = renderModelOptions('codex', 'codex-current') as string;
+
+    expect(html).toContain('value="codex-current" selected');
+    expect(html.match(/value="codex-current"/g)).toHaveLength(1);
+    expect(html).not.toContain('Saved model: Codex Current');
+  });
+
   it('does not clear a saved model merely because it is absent from the catalog', () => {
     const isCompatible = loadFunction('isModelCompatibleWithProvider', MODELS);
     expect(isCompatible('codex', 'preview-model')).toBe(true);

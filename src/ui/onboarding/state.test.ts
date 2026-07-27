@@ -249,6 +249,25 @@ describe('buildOnboardingState — edit mode', () => {
     expect(s.selectedApproach).toBe('tdd');
   });
 
+  it('retains an absent saved ticket model for the model picker', () => {
+    const t = createTicket(store, { key: 'P-MODEL', title: 'keep saved model' });
+    updateTicketOnboarding(store, t.id, { model: 'codex-preview-removed' });
+    const withCodex: Manifest = { ...MANIFEST, agentProvider: 'codex' };
+
+    const s = buildOnboardingState(
+      store,
+      withCodex,
+      () => [],
+      () => [],
+      t.id,
+      undefined,
+      REMOTE_MODELS,
+    );
+
+    expect(s.selectedModel).toBe('codex-preview-removed');
+    expect(s.models.map((model) => model.id)).toEqual(['codex-remote']);
+  });
+
   it('marks previously selected repos as selected', () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
     updateTicketOnboarding(store, t.id, { selectedRepos: ['fe'] });
