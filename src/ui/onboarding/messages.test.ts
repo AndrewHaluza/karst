@@ -122,6 +122,30 @@ describe('parseOnboardingMessage', () => {
     });
   });
 
+  // The webview is a trust boundary: an unrecognized provider id must never
+  // reach resolveAdapter's FACTORIES lookup (a TypeError there would crash
+  // the openSession command handler before its own guards run).
+  it('rejects a set-provider message with an unrecognized provider id', () => {
+    expect(parseOnboardingMessage({ type: 'set-provider', id: 'evil' })).toBeNull();
+  });
+
+  it('degrades an unrecognized agentProvider on submit/save to null rather than rejecting the whole message', () => {
+    expect(
+      parseOnboardingMessage({
+        type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil',
+      }),
+    ).toEqual({
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+    });
+    expect(
+      parseOnboardingMessage({
+        type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil',
+      }),
+    ).toEqual({
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+    });
+  });
+
   // open-ticket-link drives vscode.env.openExternal, so the scheme allowlist is
   // the trust boundary — not the non-empty-string check this used to carry. The
   // dashboard guarded this and onboarding didn't; both now share isHttpUrl.

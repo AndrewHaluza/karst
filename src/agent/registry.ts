@@ -11,6 +11,11 @@ export const IMPLEMENTED_PROVIDERS: readonly AgentProvider[] = [
   'antigravity',
 ];
 
+/** Type guard for a value that is a known, implemented agent provider. */
+export function isKnownProvider(value: unknown): value is AgentProvider {
+  return typeof value === 'string' && (IMPLEMENTED_PROVIDERS as readonly string[]).includes(value);
+}
+
 const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
   claude: () => new ClaudeAdapter(),
   codex: () => new CodexAdapter(),

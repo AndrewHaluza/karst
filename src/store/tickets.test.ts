@@ -248,6 +248,14 @@ describe('ticket + stage persistence', () => {
     expect(getTicket(store, t.id).agentProvider).toBeNull();
   });
 
+  it('reads back null for a row with an invalid agent_provider written outside updateTicketOnboarding (defense-in-depth)', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    // Bypass updateTicketOnboarding entirely — simulates a hand-edited DB row
+    // or a value left over from a provider later removed from IMPLEMENTED_PROVIDERS.
+    store.db.prepare('UPDATE tickets SET agent_provider = ? WHERE id = ?').run('evil', t.id);
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
+  });
+
   it('updateTicketOnboarding patches only the supplied fields', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
     updateTicketOnboarding(store, t.id, { approach: 'tdd' });

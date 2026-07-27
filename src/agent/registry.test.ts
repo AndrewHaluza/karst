@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAdapter, resolveProvider, IMPLEMENTED_PROVIDERS } from './registry.js';
+import { resolveAdapter, resolveProvider, IMPLEMENTED_PROVIDERS, isKnownProvider } from './registry.js';
 import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
@@ -41,5 +41,22 @@ describe('resolveProvider', () => {
   it('falls back to claude when neither the ticket nor the manifest specify a provider', () => {
     expect(resolveProvider(null, null)).toBe('claude');
     expect(resolveProvider(undefined, undefined)).toBe('claude');
+  });
+});
+
+describe('isKnownProvider', () => {
+  it('accepts every implemented provider', () => {
+    expect(isKnownProvider('claude')).toBe(true);
+    expect(isKnownProvider('codex')).toBe(true);
+    expect(isKnownProvider('antigravity')).toBe(true);
+  });
+
+  it('rejects an unrecognized string', () => {
+    expect(isKnownProvider('evil')).toBe(false);
+  });
+
+  it('rejects non-string values', () => {
+    expect(isKnownProvider(42)).toBe(false);
+    expect(isKnownProvider(undefined)).toBe(false);
   });
 });

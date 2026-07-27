@@ -1,6 +1,7 @@
 import type { OnboardingState } from './state.js';
 import type { ContextBrief } from '../../integrations/ticketing.js';
 import { isHttpUrl } from '../shared/url.js';
+import { isKnownProvider } from '../../agent/registry.js';
 
 /**
  * Onboarding webview ↔ host message protocol (§ onboarding). The webview is a
@@ -92,8 +93,10 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
   const approach = typeof m.approach === 'string' && m.approach.length > 0 ? m.approach : null;
   const agent = typeof m.agent === 'string' && m.agent.length > 0 ? m.agent : null;
   const model = typeof m.model === 'string' && m.model.length > 0 ? m.model : null;
+  // Blank/invalid both degrade to null (inherit), same as an absent field — a
+  // crafted or stale value must never reach resolveAdapter's provider lookup.
   const agentProvider =
-    typeof m.agentProvider === 'string' && m.agentProvider.length > 0 ? m.agentProvider : null;
+    typeof m.agentProvider === 'string' && isKnownProvider(m.agentProvider) ? m.agentProvider : null;
   return {
     key: m.key as string,
     title: m.title as string,
@@ -135,8 +138,11 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       // id may be '' ("Inherit"); require the field to be a string, not non-empty.
       return typeof m.id === 'string' ? { type: 'set-model', id: m.id } : null;
     case 'set-provider':
-      // id may be '' ("Inherit"); require the field to be a string, not non-empty.
-      return typeof m.id === 'string' ? { type: 'set-provider', id: m.id } : null;
+      // '' means "Inherit"; otherwise the id must be a known implemented provider —
+      // this is a trust boundary, an unrecognized value must never reach resolveAdapter.
+      return typeof m.id === 'string' && (m.id === '' || isKnownProvider(m.id))
+        ? { type: 'set-provider', id: m.id }
+        : null;
     case 'analyze':
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.

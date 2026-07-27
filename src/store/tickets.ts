@@ -4,6 +4,7 @@ import { STAGE_KEYS } from '../model/types.js';
 import { rowToStage, type Stage } from './stages.js';
 import { renderTicketLabel } from './ticketLabelTemplate.js';
 import type { AgentProvider } from '../manifest/types.js';
+import { isKnownProvider } from '../agent/registry.js';
 
 export interface Ticket {
   id: number;
@@ -100,7 +101,7 @@ function rowToTicket(r: TicketRow): Ticket {
     selectedRepos: parseSelectedRepos(r.selected_repos),
     archivedAt: r.archived_at,
     model: r.model,
-    agentProvider: r.agent_provider as AgentProvider | null,
+    agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
     projectId: r.project_id,
   };
 }
