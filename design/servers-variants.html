@@ -1,0 +1,706 @@
+<!doctype html>
+<!--
+  Servers panel redesign — APPROVED DESIGN (ticket 869e9x98z).
+
+  Variants B (card grid) and C (compact status list) were dropped after review;
+  what remains is variant A, the dense one-line-per-service table, and this file
+  is now the spec for it rather than a comparison.
+
+  Standalone, no external assets (same constraint as the real webview: CSP
+  forbids them). The VS Code palette is emulated in :root so the design can be
+  judged in both themes outside the extension host; every color used is a
+  --vscode-* token that already exists in src/ui/dashboard/webview.html, so this
+  ports across by copy, not by re-theming.
+
+  Nothing here is production code. It renders from the same shape the dashboard
+  pushes (ServerView[] + hasRunnableRepos) and emits the same action names
+  (open-server / copy-server-url / restart-server / stop-server / spin-servers),
+  plus two that do NOT exist host-side yet — see "Needs from the host" below.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Servers panel — approved design</title>
+<style>
+  /* ---------------------------------------------------------------------
+     VS Code palette emulation. In the real webview these come from the host;
+     here they are pinned to Dark+ / Light+ so the mockup is faithful offline.
+     --------------------------------------------------------------------- */
+  :root[data-theme="dark"]{
+    --vscode-editor-background:#1f1f1f;
+    --vscode-editorWidget-background:#252526;
+    --vscode-panel-border:#3c3c3c;
+    --vscode-foreground:#cccccc;
+    --vscode-descriptionForeground:#9d9d9d;
+    --vscode-disabledForeground:#7f7f7f;
+    --vscode-list-hoverBackground:#2a2d2e;
+    --vscode-button-background:#0078d4;
+    --vscode-button-hoverBackground:#026ec1;
+    --vscode-button-foreground:#ffffff;
+    --vscode-button-secondaryBackground:#313131;
+    --vscode-button-secondaryForeground:#cccccc;
+    --vscode-button-secondaryHoverBackground:#3c3c3c;
+    --vscode-textLink-foreground:#4daafc;
+    --vscode-focusBorder:#0078d4;
+    --vscode-input-background:#313131;
+    --vscode-input-foreground:#cccccc;
+    --vscode-input-border:#3c3c3c;
+    --vscode-charts-green:#89d185;
+    --vscode-charts-blue:#3794ff;
+    --vscode-charts-lines:#6e7681;
+    --vscode-charts-yellow:#cca700;
+    --vscode-charts-red:#f14c4c;
+    --vscode-charts-purple:#b180d7;
+    --skel:#3a3a3a;
+    --skel-hi:#4a4a4a;
+  }
+  :root[data-theme="light"]{
+    --vscode-editor-background:#ffffff;
+    --vscode-editorWidget-background:#f3f3f3;
+    --vscode-panel-border:#d4d4d4;
+    --vscode-foreground:#3b3b3b;
+    --vscode-descriptionForeground:#5f5f5f;
+    --vscode-disabledForeground:#8a8a8a;
+    --vscode-list-hoverBackground:#e8e8e8;
+    --vscode-button-background:#005fb8;
+    --vscode-button-hoverBackground:#0258a8;
+    --vscode-button-foreground:#ffffff;
+    --vscode-button-secondaryBackground:#e5e5e5;
+    --vscode-button-secondaryForeground:#3b3b3b;
+    --vscode-button-secondaryHoverBackground:#d8d8d8;
+    --vscode-textLink-foreground:#005fb8;
+    --vscode-focusBorder:#005fb8;
+    --vscode-input-background:#ffffff;
+    --vscode-input-foreground:#3b3b3b;
+    --vscode-input-border:#cecece;
+    --vscode-charts-green:#2d7d2d;
+    --vscode-charts-blue:#1a85ff;
+    --vscode-charts-lines:#61616e;
+    --vscode-charts-yellow:#8a6d00;
+    --vscode-charts-red:#c72e2e;
+    --vscode-charts-purple:#652d90;
+    --skel:#e2e2e2;
+    --skel-hi:#efefef;
+  }
+
+  /* ---------------------------------------------------------------------
+     Tokens — copied verbatim from src/ui/dashboard/webview.html :root.
+     The design must not introduce new raw colors; everything derives here.
+     --------------------------------------------------------------------- */
+  :root{
+    --border:var(--vscode-panel-border);
+    --hover:var(--vscode-list-hoverBackground);
+    --text:var(--vscode-foreground);
+    --text-dim:var(--vscode-descriptionForeground,var(--vscode-foreground));
+    --text-faint:var(--vscode-disabledForeground,var(--vscode-descriptionForeground));
+    --link:var(--vscode-textLink-foreground);
+    --panel-bg:var(--vscode-editorWidget-background,var(--vscode-editor-background));
+    --st-done:var(--vscode-charts-green,#4bb64b);
+    --st-running:var(--vscode-charts-blue,#3794ff);
+    --st-pending:var(--vscode-charts-lines,#6e7681);
+    --st-input:var(--vscode-charts-yellow,#cca700);
+    --st-failed:var(--vscode-charts-red,#f14c4c);
+    --st-sel:var(--vscode-charts-purple,#8a63d2);
+    --mono:var(--vscode-editor-font-family,"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace);
+    --ui:var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--vscode-editor-background);color:var(--text);
+    font-family:var(--ui);font-size:13px;padding:22px 26px 60px}
+
+  button{font-family:inherit;cursor:pointer;color:var(--vscode-button-foreground);
+    background:var(--vscode-button-background);border:1px solid transparent;
+    border-radius:5px;padding:3px 9px;font-size:11px;line-height:1.6;
+    display:inline-flex;align-items:center;justify-content:center}
+  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+  button:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
+  button.sec{background:var(--vscode-button-secondaryBackground);
+    color:var(--vscode-button-secondaryForeground);border-color:var(--border)}
+  button.sec:hover{background:var(--vscode-button-secondaryHoverBackground)}
+  a{color:var(--link);text-decoration:none}
+  .sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+  /* Icon buttons — codicon-shaped inline SVG (no font, no external asset: the
+     webview CSP forbids both). Icon-only is what lets four actions per row fit
+     without the action column outgrowing the data. The label is not lost, it
+     moves to aria-label + title, so screen-reader and hover names stay verbatim. */
+  .ib{display:inline-flex;align-items:center;justify-content:center;
+    width:23px;height:23px;padding:0;border-radius:5px;flex:none;
+    background:transparent;border:1px solid transparent;color:var(--text-dim);
+    transition:background .12s ease,border-color .12s ease}
+  .ib:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
+  .ib svg{width:14px;height:14px;display:block;transition:transform .12s ease}
+  /* Each action carries its OWN resting color, off the same status ramp the
+     stepper uses — hue is the fastest way to tell Stop from Start before any
+     label is read. The word is still on every button, so hue is an accelerant,
+     never the carrier. */
+  .ib.t-open{color:var(--st-running)}
+  .ib.t-copy{color:var(--st-sel)}
+  .ib.t-restart{color:var(--st-input)}
+  .ib.t-stop{color:var(--st-failed)}
+  .ib.t-start{color:var(--st-done)}
+  /* Hover is therefore a SEPARATE channel from color: a surface and a border
+     appear under the icon and the glyph grows. Deliberately not a brightness
+     shift — on Light+ every hue is already dark, so brightening would move the
+     icon toward the background and cost contrast on the element under the
+     pointer. Scale and surface read the same in both themes. */
+  .ib:hover:not(:disabled){background:var(--hover);border-color:var(--border)}
+  .ib:hover:not(:disabled) svg{transform:scale(1.14)}
+  .ib:active:not(:disabled) svg{transform:scale(.94)}
+  .ib:disabled{color:var(--text-faint);opacity:.45;cursor:default}
+  button .lead{width:13px;height:13px;margin-right:5px}
+  @media (prefers-reduced-motion:reduce){
+    .ib,.ib svg{transition:none}
+    .ib:hover svg,.ib:active svg{transform:none}
+  }
+
+  /* ------------------------------ page chrome ------------------------- */
+  h1{font-size:19px;margin:0 0 4px}
+  .lede{color:var(--text-dim);font-size:12.5px;margin:0 0 18px;max-width:78ch;line-height:1.55}
+  .controls{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;
+    padding:12px 14px;border:1px solid var(--border);border-radius:10px;
+    background:var(--panel-bg);margin-bottom:20px;position:sticky;top:0;z-index:5}
+  .ctl{display:flex;flex-direction:column;gap:6px}
+  .ctl > .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-faint)}
+  .seg{display:flex;gap:4px;flex-wrap:wrap}
+  .seg button{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
+  .seg button:hover{background:var(--hover);color:var(--text)}
+  .seg button[aria-pressed="true"]{background:var(--vscode-button-background);
+    color:var(--vscode-button-foreground);border-color:transparent}
+
+  /* The width control simulates a dashboard column without resizing the
+     browser; the container query inside the panel reacts to it for real. */
+  .stage{max-width:720px}
+  body[data-w="narrow"] .stage{max-width:300px}
+  body[data-w="mid"] .stage{max-width:430px}
+
+  /* ------------------------------ the panel ---------------------------- */
+  .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);
+    overflow:hidden;container-type:inline-size}
+  .phead{display:flex;align-items:center;gap:8px;padding:8px 10px 8px 14px;
+    border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600}
+  .phead .count{font-family:var(--mono);font-size:11px;
+    color:var(--text-faint);font-weight:400}
+  /* Panel-level controls live in the header, not in the body: they act on ALL
+     services, so they must be reachable in every state — including the one
+     where the body has no rows to hang a button off. */
+  .phead .pops{margin-left:auto;display:flex;gap:2px}
+  .pbody{padding:0}
+
+  /* Status semantics. Color is never the only carrier: each state has a
+     distinct GLYPH (filled disc vs hollow ring), the address column reads "—"
+     when offline, and the dot carries its word to pointer and screen reader. */
+  .glyph{flex:0 0 auto;display:inline-block;border-radius:50%}
+  .glyph.on{width:8px;height:8px;background:var(--st-done)}
+  .glyph.off{width:9px;height:9px;background:transparent;border:2px solid var(--st-pending)}
+
+  /* ------------------------------ the table ---------------------------- */
+  .filter{display:flex;align-items:center;gap:8px;padding:8px 10px;
+    border-bottom:1px solid var(--border)}
+  .filter input{flex:1;min-width:0;font-family:var(--ui);font-size:11.5px;
+    padding:3px 8px;border-radius:5px;background:var(--vscode-input-background);
+    color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}
+  .filter input:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:0}
+  .scroll{max-height:288px;overflow-y:auto;overflow-x:hidden}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  thead th{position:sticky;top:0;z-index:1;background:var(--panel-bg);
+    text-align:left;font-weight:600;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.6px;color:var(--text-faint);padding:7px 10px;
+    border-bottom:1px solid var(--border);white-space:nowrap}
+  tbody tr:hover{background:var(--hover)}
+  tbody tr:focus-within{background:var(--hover)}
+  td{padding:4px 10px;vertical-align:middle}
+  /* Status is the DOT only — no word. A "Status" label over a 9px dot only
+     crowded the header, so the header is screen-reader-only. */
+  td.c-dot{width:1%;padding-right:0;line-height:0}
+  /* The NAME column absorbs all the slack, so the address and its two ops are
+     pushed into one right-hand group. The address is right-aligned inside a
+     shrink-wrapped column, which is what makes Open/Copy sit flush against the
+     value on EVERY row instead of after a ragged gap. */
+  td.c-name{font-size:12.5px;max-width:0;width:100%;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  td.c-addr{font-family:var(--mono);font-size:11.5px;color:var(--text-dim);
+    white-space:nowrap;width:1%;text-align:right;padding-right:5px}
+  td.c-addr.off{font-style:italic;color:var(--text-faint)}
+  td.c-addr .short{display:none}
+  td.c-addrops{width:1%;padding-left:0;padding-right:0}
+  /* The gap between the address group and the lifecycle group is the only
+     thing separating them — keep it wider than the 2px inside each group. */
+  td.c-acts{text-align:right;white-space:nowrap;width:1%;padding-left:12px}
+  td .g{display:inline-flex;gap:2px;justify-content:flex-end}
+
+  /* Narrow COMPACTS, it does not restack: one service is one line at every
+     width, which is the whole point of this design. */
+  @container (max-width: 400px){
+    thead th{padding:6px 6px;font-size:10px}
+    td{padding:4px 6px}
+    td.c-dot{padding-right:0}
+    /* At this width "localhost:5173" ellipsises to "localhost…", showing the
+       part that never varies and hiding the part that does. Both strings are in
+       the DOM so the swap is CSS, not a JS width probe; the full address stays
+       on the cell's title either way. */
+    td.c-addr{font-size:11px}
+    td.c-addr .full{display:none}
+    td.c-addr .short{display:inline}
+  }
+
+  /* ------------------------------ empty -------------------------------- */
+  /* Dense: one row of mark + headline, the reason underneath it, no button —
+     Start lives in the panel header where it works in every state. Sized so
+     the panel reads as a panel without becoming a poster. */
+  .estate{display:flex;align-items:flex-start;gap:10px;padding:14px 14px 15px}
+  .estate .emark{display:flex;align-items:center;justify-content:center;
+    width:22px;height:22px;border-radius:50%;flex:none;margin-top:-1px;
+    background:var(--hover);color:var(--text-faint)}
+  .estate .emark svg{width:13px;height:13px;display:block}
+  .estate .ehead{font-size:12.5px;font-weight:600;color:var(--text)}
+  .estate .esub{font-size:11.5px;color:var(--text-dim);line-height:1.45;margin-top:2px}
+  /* The dead end gets no action anywhere, so it also gets no emphasis — the
+     block stays at description weight to read as a statement, not a prompt. */
+  .estate.dead .ehead{color:var(--text-dim);font-weight:500}
+  .nomatch{padding:14px;color:var(--text-faint);font-size:12px}
+
+  /* ------------------------------ error -------------------------------- */
+  /* A panel-level condition, not an alarm. A filled red card shouted louder
+     than the failure warrants and fought every other panel for attention, so
+     the weight is a red rule + a red mark on a neutral surface. The raw message
+     earns its own inset block — it is machine text, and running it as prose
+     made it look like copy. */
+  .errbox{display:flex;gap:10px;margin:8px;padding:11px 12px;
+    border-radius:8px;font-size:12px;color:var(--text);
+    background:var(--vscode-editor-background);
+    border:1px solid var(--border);border-left:2px solid var(--st-failed)}
+  .errbox .mark{color:var(--st-failed);display:flex;flex:none;padding-top:1px}
+  .errbox .mark svg{width:15px;height:15px;display:block}
+  .errbox .ebody{min-width:0;flex:1}
+  .errbox .etitle{font-weight:600;margin-bottom:2px}
+  .errbox .ewhat{font-size:11.5px;color:var(--text-dim);line-height:1.45}
+  .errbox .edetail{font-family:var(--mono);font-size:11px;color:var(--text-dim);
+    margin:8px 0 9px;padding:6px 8px;border-radius:5px;
+    background:var(--panel-bg);border:1px solid var(--border);
+    overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+
+  /* ------------------------------ loading ------------------------------ */
+  .skel{background:linear-gradient(90deg,var(--skel) 25%,var(--skel-hi) 37%,var(--skel) 63%);
+    background-size:400% 100%;border-radius:4px;animation:sh 1.3s ease-in-out infinite}
+  @keyframes sh{0%{background-position:100% 0}100%{background-position:0 0}}
+  @media (prefers-reduced-motion:reduce){.skel{animation:none}}
+  .skelrow{display:flex;align-items:center;gap:10px;padding:7px 10px}
+
+  /* ------------------------------ notes -------------------------------- */
+  .notes{margin-top:34px;border-top:1px solid var(--border);padding-top:22px;max-width:100ch}
+  .notes h2{font-size:15px;margin:0 0 10px}
+  .notes ul{margin:6px 0 18px;padding-left:20px;line-height:1.65;color:var(--text-dim)}
+  .notes ul b{color:var(--text)}
+  .notes code{font-family:var(--mono);font-size:11.5px}
+  .log{font-family:var(--mono);font-size:11px;color:var(--text-dim);
+    border:1px solid var(--border);border-radius:8px;padding:8px 10px;
+    background:var(--panel-bg);max-height:110px;overflow:auto}
+</style>
+</head>
+<body data-w="wide">
+
+<!-- Icon sprite. Stroked 16px glyphs on currentColor, sized to sit next to the
+     12.5px row text at codicon weight. Defined once, referenced with <use>. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="i-open" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7.5 3.5H4A1.5 1.5 0 0 0 2.5 5v7A1.5 1.5 0 0 0 4 13.5h7a1.5 1.5 0 0 0 1.5-1.5V8.5"/>
+      <path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 7.5 8.5"/>
+    </g>
+    <g id="i-copy" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5.5" y="2.5" width="8" height="8" rx="1.5"/>
+      <path d="M10.5 10.5V12A1.5 1.5 0 0 1 9 13.5H4A1.5 1.5 0 0 1 2.5 12V7A1.5 1.5 0 0 1 4 5.5h1.5"/>
+    </g>
+    <g id="i-restart" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.6v3.2H10"/>
+    </g>
+    <g id="i-stop" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linejoin="round">
+      <rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.3" fill="currentColor"/>
+    </g>
+    <g id="i-start" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linejoin="round">
+      <path d="M5.2 3.4 12 8l-6.8 4.6z" fill="currentColor"/>
+    </g>
+    <g id="i-alert" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 2.6 14.4 13.4H1.6z"/><path d="M8 6.6v3"/><path d="M8 11.6h.01"/>
+    </g>
+    <!-- Empty-state marks: a rack of services, and a struck-through circle for
+         the case where nothing in scope can ever run. -->
+    <g id="i-rack" fill="none" stroke="currentColor" stroke-width="1.3"
+       stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2"/>
+      <rect x="2.5" y="9" width="11" height="4.5" rx="1.2"/>
+      <path d="M5 4.75h.01"/><path d="M5 11.25h.01"/>
+    </g>
+    <g id="i-ban" fill="none" stroke="currentColor" stroke-width="1.3"
+       stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="8" cy="8" r="5.6"/><path d="M4.2 4.2 11.8 11.8"/>
+    </g>
+  </defs>
+</svg>
+
+<h1>Servers panel — approved design</h1>
+<p class="lede">
+  One line per service: status dot, name, address, and the actions that belong to
+  each. Panel-level Start / Restart / Stop live in the header so they work in
+  every state, including the ones with no rows. Switch state, theme and column
+  width below — the panel reacts through a container query, so "narrow" is the
+  real narrow behaviour, not a screenshot.
+</p>
+
+<div class="controls">
+  <div class="ctl">
+    <span class="lbl" id="lbl-state">State</span>
+    <div class="seg" id="segState" role="group" aria-labelledby="lbl-state"></div>
+  </div>
+  <div class="ctl">
+    <span class="lbl" id="lbl-width">Column width</span>
+    <div class="seg" id="segWidth" role="group" aria-labelledby="lbl-width"></div>
+  </div>
+  <div class="ctl">
+    <span class="lbl" id="lbl-theme">Theme</span>
+    <div class="seg" id="segTheme" role="group" aria-labelledby="lbl-theme"></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="panel" id="panel"></div>
+</div>
+
+<div class="notes">
+  <h2>What this design commits to</h2>
+  <ul>
+    <li><b>One line per service, at every width.</b> Narrow compacts (padding, font, and the address collapsing to <code>:5173</code>) instead of restacking into blocks — measured at 300px with zero horizontal overflow.</li>
+    <li><b>Status is the dot.</b> No repeated word in the row. Filled disc = running, hollow ring = offline; the dot is <code>role="img"</code> with <code>aria-label</code> + <code>title</code>, and the address column reads <code>—</code> when offline. Never color alone.</li>
+    <li><b>Actions are two groups.</b> Open and Copy act on the <i>address</i> and are dead without it, so they ride with the value. Restart and Stop act on the <i>process</i> and stay right, after a wider gap. Offline rows get <b>Start</b>, not Restart — a stopped process has nothing to cycle.</li>
+    <li><b>Panel-level Start / Restart / Stop in the header.</b> They act on every service at once and stay reachable when the body has no rows to hang a button off. Each disables itself when it would be a no-op, and says why on hover.</li>
+    <li><b>Icons, not labels, in rows.</b> Inline SVG — no icon font, no external asset, because the webview CSP forbids both. Resting color off the status ramp: Open blue, Copy purple, Restart yellow, Stop red, Start green. Hover is a separate channel (surface + border + the glyph scaling), so color means <i>which action</i> and hover means <i>you are on it</i>. Every button keeps its word in <code>aria-label</code> + <code>title</code>.</li>
+    <li><b>Keyboard.</b> Every action is a real <code>&lt;button&gt;</code> in DOM order with the theme's focus ring at a 23px target; the row highlights on <code>:focus-within</code>.</li>
+    <li><b>No new framework.</b> Plain template strings, the existing <code>--vscode-*</code>/<code>--st-*</code> tokens, and the existing <code>.panel/.phead/.pbody</code> shell — exactly like <code>src/ui/dashboard/webview.html</code> today.</li>
+  </ul>
+
+  <h2>Needs from the host before this can ship</h2>
+  <ul>
+    <li><code>DashboardState.serversPhase</code> (<code>'ready' | 'loading' | 'error'</code>) and <code>serversError?: string</code> — the loading and error states have no source today; they are mocked here.</li>
+    <li>Two new webview messages beside the existing <code>spin-servers</code>: <code>restart-servers</code> and <code>stop-servers</code> (panel-level Restart / Stop), plus <code>retry-servers</code> for the error state. Row-level <code>open-server</code> / <code>copy-server-url</code> / <code>restart-server</code> / <code>stop-server</code> are unchanged.</li>
+    <li>Everything else already ships in <code>ServerView[]</code> + <code>hasRunnableRepos</code>.</li>
+  </ul>
+
+  <h2>Known costs</h2>
+  <ul>
+    <li>Four unlabeled icons per row lean on tooltips — learnable, but not self-describing on first visit. At 14 rows the repeated blue/purple/yellow/red column is the loudest thing in the panel.</li>
+    <li>Dropping the status word buys the density but spends the one label that never needed a hover.</li>
+    <li>At 300px the service name ellipsises; the full name stays in its <code>title</code>.</li>
+  </ul>
+
+  <h2>Action log <span style="font-weight:400;color:var(--text-faint);font-size:11px">— what each click would post to the host</span></h2>
+  <div class="log" id="log" aria-live="polite">(click any action)</div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+  const el = (id) => document.getElementById(id);
+
+  // ---------------------------------------------------------------------
+  // Fixtures. Shape matches store/dashboard.ts ServerView exactly.
+  // ---------------------------------------------------------------------
+  const srv = (id, service, port, status, host) => Object.freeze({
+    id, ticketId: 1, service, host: host ?? 'localhost', port, status,
+  });
+
+  const TYPICAL = Object.freeze([
+    srv(1, 'web', 5173, 'running'),
+    srv(2, 'api', 8787, 'running'),
+    srv(3, 'worker', null, 'stopped'),
+  ]);
+
+  const MANY = Object.freeze([
+    srv(1, 'web', 5173, 'running'),
+    srv(2, 'api', 8787, 'running'),
+    srv(3, 'auth-service', 8801, 'running'),
+    srv(4, 'billing-service', 8802, 'running'),
+    srv(5, 'notifications', 8803, 'running'),
+    srv(6, 'search-indexer', 8804, 'running'),
+    srv(7, 'admin-console', 5174, 'running'),
+    srv(8, 'gateway', 8080, 'running', '0.0.0.0'),
+    srv(9, 'docs-site', 4321, 'running'),
+    srv(10, 'realtime-hub', 8805, 'running'),
+    srv(11, 'worker', null, 'stopped'),
+    srv(12, 'media-transcoder', null, 'stopped'),
+    srv(13, 'legacy-reports', null, 'stopped'),
+    srv(14, 'analytics-etl', null, 'stopped'),
+  ]);
+
+  const ALL_STOPPED = Object.freeze([
+    srv(1, 'web', null, 'stopped'),
+    srv(2, 'api', null, 'stopped'),
+  ]);
+
+  const STATES = Object.freeze({
+    typical: { label: 'Typical (3)', phase: 'ready', servers: TYPICAL, hasRunnableRepos: true },
+    many: { label: 'Many (14)', phase: 'ready', servers: MANY, hasRunnableRepos: true },
+    stopped: { label: 'All stopped', phase: 'ready', servers: ALL_STOPPED, hasRunnableRepos: true },
+    empty: { label: 'Empty', phase: 'ready', servers: [], hasRunnableRepos: true },
+    unrunnable: { label: 'No runnable repos', phase: 'ready', servers: [], hasRunnableRepos: false },
+    loading: { label: 'Loading', phase: 'loading', servers: [], hasRunnableRepos: true },
+    error: {
+      label: 'Error', phase: 'error', servers: [], hasRunnableRepos: true,
+      error: "spin failed for 'api': EADDRINUSE 127.0.0.1:8787",
+    },
+  });
+
+  let stateKey = 'typical';
+  let filter = '';
+
+  const isOnline = (s) => s.status === 'running';
+  const addrOf = (s) => `${s.host || 'localhost'}:${s.port}`;
+
+  const icon = (name, cls) => (
+    `<svg class="${cls || ''}" viewBox="0 0 16 16" aria-hidden="true" focusable="false">`
+    + `<use href="#i-${name}"/></svg>`
+  );
+
+  /**
+   * An icon action. The visible label is the icon; the WORD survives as both
+   * aria-label (screen readers) and title (hover), so nothing is conveyed by
+   * shape alone. A disabled button keeps a title saying WHY, since a greyed
+   * icon with no explanation is just a dead end.
+   */
+  const iact = (action, id, label, name, disabledWhy) => (
+    `<button class="ib t-${name}" data-act="${action}"`
+    + `${id != null ? ` data-id="${id}"` : ''}`
+    + `${disabledWhy ? ' disabled' : ''}`
+    + ` aria-label="${esc(label)}" title="${esc(disabledWhy || label)}">`
+    + `${icon(name)}</button>`
+  );
+
+  // --- row actions, in two groups --------------------------------------
+  // Open and Copy operate on the ADDRESS; Restart and Stop on the PROCESS.
+  function addrActions(s) {
+    if (!isOnline(s)) return '';
+    return iact('open-server', s.id, 'Open in browser', 'open')
+      + iact('copy-server-url', s.id, 'Copy URL', 'copy');
+  }
+
+  function lifeActions(s) {
+    if (!isOnline(s)) return iact('spin-servers', null, 'Start service', 'start');
+    return iact('restart-server', s.id, 'Restart', 'restart')
+      + iact('stop-server', s.id, 'Stop', 'stop');
+  }
+
+  /**
+   * Panel-level controls. They live in the HEADER because they act on every
+   * service and must survive the states where the body has no rows — the empty
+   * body is exactly when "Start" matters most. Each disables itself when it
+   * would be a no-op and explains that in its title.
+   */
+  function panelOps(st) {
+    // Nothing in scope can ever run: the controls would be permanent dead
+    // affordances, so they are absent rather than disabled.
+    if (st.hasRunnableRepos === false) return '';
+
+    const busy = st.phase === 'loading';
+    const list = st.servers;
+    const anyOffline = list.some((s) => !isOnline(s));
+    const anyRunning = list.some(isOnline);
+    const none = list.length === 0;
+
+    const startWhy = busy ? 'Reading server state…'
+      : (!none && !anyOffline) ? 'Every service is already running'
+        : null;
+    const restartWhy = busy ? 'Reading server state…'
+      : none ? 'No services to restart' : null;
+    const stopWhy = busy ? 'Reading server state…'
+      : !anyRunning ? 'No service is running' : null;
+
+    return `<span class="pops">`
+      + iact('spin-servers', null, 'Start all services', 'start', startWhy)
+      + iact('restart-servers', null, 'Restart all services', 'restart', restartWhy)
+      + iact('stop-servers', null, 'Stop all services', 'stop', stopWhy)
+      + `</span>`;
+  }
+
+  /**
+   * The two empty states stay distinct, and the distinction is the design: one
+   * is a PROMPT (nothing is running — the header's Start will fix that), the
+   * other is a STATEMENT of fact (nothing here can run, and the header controls
+   * are gone with it).
+   */
+  function emptyHtml(st) {
+    if (st.hasRunnableRepos === false) {
+      return `<div class="estate dead">`
+        + `<span class="emark">${icon('ban')}</span>`
+        + `<div><div class="ehead">No runnable services in scope</div>`
+        + `<div class="esub">This ticket scopes only repositories without a`
+        + ` service block, so there is nothing here to run.</div></div></div>`;
+    }
+    return `<div class="estate">`
+      + `<span class="emark">${icon('rack')}</span>`
+      + `<div><div class="ehead">No servers running</div>`
+      + `<div class="esub">Start the services in scope to get their local`
+      + ` addresses here.</div></div></div>`;
+  }
+
+  function errorHtml(st) {
+    return `<div class="errbox" role="alert">`
+      + `<span class="mark">${icon('alert')}</span>`
+      + `<div class="ebody">`
+      + `<div class="etitle">Couldn't read server state</div>`
+      + `<div class="ewhat">The panel is showing nothing rather than something`
+      + ` stale. Services already running are unaffected.</div>`
+      + `<div class="edetail">${esc(st.error || '')}</div>`
+      + `<button data-act="retry-servers">${icon('restart', 'lead')}Retry</button>`
+      + `</div></div>`;
+  }
+
+  const skelRow = (w) => `<div class="skel" style="height:10px;width:${w}"></div>`;
+
+  const visible = (st) => (
+    filter && st.servers.length > 6
+      ? st.servers.filter((s) => s.service.toLowerCase().includes(filter.toLowerCase()))
+      : st.servers
+  );
+
+  // ---------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------
+  function head(st) {
+    return `<div class="phead">Servers`
+      + `<span class="count">${st.servers.length ? st.servers.length : ''}</span>`
+      + panelOps(st)
+      + `</div>`;
+  }
+
+  function body(st) {
+    if (st.phase === 'loading') {
+      return `<div class="pbody" aria-busy="true">`
+        + `<span class="sr">Loading servers…</span>`
+        + [1, 2, 3].map(() => (
+          `<div class="skelrow">`
+          + skelRow('9px') + skelRow('86px')
+          + `<span style="margin-left:auto;display:flex;gap:10px">`
+          + skelRow('78px') + skelRow('98px') + `</span></div>`
+        )).join('') + `</div>`;
+    }
+    if (st.phase === 'error') return `<div class="pbody">${errorHtml(st)}</div>`;
+    if (!st.servers.length) return `<div class="pbody">${emptyHtml(st)}</div>`;
+
+    // The filter earns its row only once scanning is actually hard.
+    const bar = st.servers.length > 6
+      ? `<div class="filter"><label class="sr" for="fA">Filter services</label>`
+        + `<input id="fA" type="search" placeholder="Filter ${st.servers.length} services…"`
+        + ` value="${esc(filter)}" data-filter></div>`
+      : '';
+
+    const rows = visible(st).map((s) => {
+      const on = isOnline(s);
+      const state = on ? 'running' : 'offline';
+      // role=img + aria-label is what keeps a bare dot from being invisible to
+      // a screen reader once the word is gone; title gives the pointer the
+      // same word. Never color alone: filled disc vs hollow ring still differ.
+      const dot = `<span class="glyph ${on ? 'on' : 'off'}" role="img"`
+        + ` aria-label="${state}" title="${state}"></span>`;
+      const addr = on
+        ? `<span class="full">${esc(addrOf(s))}</span>`
+          + `<span class="short">:${esc(String(s.port))}</span>`
+        : '—';
+      return `<tr>`
+        + `<td class="c-dot">${dot}</td>`
+        + `<td class="c-name" title="${esc(s.service)}">${esc(s.service)}</td>`
+        + `<td class="c-addr${on ? '' : ' off'}"`
+        + ` title="${on ? esc(addrOf(s)) : 'offline — no address'}">${addr}</td>`
+        + `<td class="c-addrops"><span class="g">${addrActions(s)}</span></td>`
+        + `<td class="c-acts"><span class="g">${lifeActions(s)}</span></td>`
+        + `</tr>`;
+    }).join('')
+      || `<tr><td colspan="5"><div class="nomatch">No service matches`
+        + ` “${esc(filter)}”.</div></td></tr>`;
+
+    // The address-ops column sits UNDER the Address header (colspan 2): Open
+    // and Copy are part of the address, so the header says so.
+    return `<div class="pbody">${bar}<div class="scroll"><table>`
+      + `<thead><tr><th scope="col"><span class="sr">Status</span></th>`
+      + `<th scope="col">Service</th>`
+      + `<th scope="col" colspan="2">Address</th>`
+      + `<th scope="col" style="text-align:right">Actions</th></tr></thead>`
+      + `<tbody>${rows}</tbody></table></div></div>`;
+  }
+
+  function render() {
+    const st = STATES[stateKey];
+    el('panel').innerHTML = head(st) + body(st);
+  }
+
+  // ---------------------------------------------------------------------
+  // Wiring
+  // ---------------------------------------------------------------------
+  function segment(host, items, current, onPick) {
+    host.innerHTML = items.map(([key, label]) => (
+      `<button data-key="${esc(key)}" aria-pressed="${key === current()}">${esc(label)}</button>`
+    )).join('');
+    host.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-key]');
+      if (!b) return;
+      onPick(b.dataset.key);
+      [...host.querySelectorAll('button')].forEach((x) => {
+        x.setAttribute('aria-pressed', String(x.dataset.key === current()));
+      });
+    });
+  }
+
+  segment(el('segState'), Object.entries(STATES).map(([k, v]) => [k, v.label]),
+    () => stateKey, (k) => { stateKey = k; filter = ''; render(); });
+
+  let width = 'wide';
+  segment(el('segWidth'), [['narrow', 'Narrow 300px'], ['mid', 'Medium 430px'], ['wide', 'Wide']],
+    () => width, (k) => { width = k; document.body.dataset.w = k; });
+
+  // Seeded from the markup, not a literal — a browser extension that manages
+  // data-theme would otherwise leave the toggle disagreeing with the page.
+  let theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = theme;
+  segment(el('segTheme'), [['dark', 'Dark+'], ['light', 'Light+']],
+    () => theme, (k) => { theme = k; document.documentElement.dataset.theme = k; });
+
+  // Live filter. Re-render loses focus, so it is restored after.
+  document.addEventListener('input', (e) => {
+    const f = e.target.closest('[data-filter]');
+    if (!f) return;
+    filter = f.value;
+    render();
+    const next = document.querySelector('[data-filter]');
+    if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); }
+  });
+
+  // Every action reports what it WOULD post to the host — same message names as
+  // src/ui/dashboard/messages.ts, so parity is checkable by clicking.
+  const lines = [];
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b || b.disabled) return;
+    const payload = b.dataset.id
+      ? `{ type: '${b.dataset.act}', serverId: ${b.dataset.id} }`
+      : `{ type: '${b.dataset.act}' }`;
+    lines.unshift(`post(${payload})`);
+    el('log').textContent = lines.slice(0, 12).join('\n');
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

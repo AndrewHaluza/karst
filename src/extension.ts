@@ -49,7 +49,7 @@ import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
-import { stopServer } from './runtime/supervisor.js';
+import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
@@ -1792,6 +1792,19 @@ function makeDashboardActions(
     // No servers yet → let the user spin them from the dashboard (the command
     // owns the service picker + progress; it refreshes the dashboard on success).
     spinServers: () => void vscode.commands.executeCommand('karst.spinTicket', ticketId),
+    // Restart-all IS a re-spin: `spinTicket` already calls `stopTicketServers`
+    // before starting, so this deliberately shares a command with `spinServers`
+    // rather than adding a second path that would drift from it. The two stay
+    // distinct by AVAILABILITY, not by implementation — the dashboard disables
+    // Start when nothing is offline and disables Restart when there is nothing
+    // to restart. Do not "deduplicate" these by deleting one button.
+    restartServers: () => void vscode.commands.executeCommand('karst.spinTicket', ticketId),
+    // Stop-all is the one genuinely new effect: kill every running server on the
+    // ticket, retaining the rows so they come back as offline and restartable.
+    stopServers: () => {
+      stopTicketServers(store, ticketId);
+      afterServerChange();
+    },
     // Diff → register the worktree with Git, then open the Source Control view
     // so its changes (vs the branch point) are shown. The SCM view is the right
     // whole-worktree affordance (per-file `git.openChange` needs a file target).

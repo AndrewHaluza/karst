@@ -171,6 +171,71 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/\.st:focus-within[^{]*\{[^}]*z-index/);
   });
 
+  /**
+   * Servers panel. Every rule below was written after reproducing the defect it
+   * prevents in a browser against `design/servers-variants.html`; each is here
+   * so the fix cannot be quietly deleted by someone tidying the file. As with
+   * the rail guards: text assertions catch DELETION, not visual regression.
+   */
+  it('puts the whole-ticket server controls in the panel header, not the body', () => {
+    // They act on every service, so they must survive the states where the body
+    // has no rows to hang a button off — the empty body is exactly when Start
+    // matters most. Rendering into a header slot is what makes that possible.
+    expect(HTML).toContain('id="srvOps"');
+    expect(HTML).toMatch(/panelOps/);
+  });
+
+  it('drops the panel controls entirely when nothing in scope can run', () => {
+    // Not disabled — absent. A control that can never become available is a
+    // permanent dead affordance, and greying it only asks the user to keep
+    // re-checking it.
+    expect(HTML).toMatch(/hasRunnableRepos === false\) return ''/);
+  });
+
+  it('gives every disabled icon button a title saying why', () => {
+    // A greyed icon with no explanation is a dead end: the user cannot tell a
+    // broken button from an inapplicable one.
+    expect(HTML).toMatch(/disabledWhy \? ' disabled' : ''/);
+    expect(HTML).toMatch(/title="\$\{esc\(disabledWhy \|\| label\)\}"/);
+  });
+
+  it('keeps the status word on the bare dot, for pointer and screen reader', () => {
+    // The row shows a 9px dot and no text, so aria-label + title are the ONLY
+    // things still carrying "running"/"offline". Shape (filled disc vs hollow
+    // ring) plus the "—" address keep it off colour alone.
+    expect(HTML).toMatch(/class="glyph \$\{on \? 'on' : 'off'\}" role="img"/);
+    expect(HTML).toMatch(/aria-label="\$\{status\}" title="\$\{status\}"/);
+    expect(HTML).toMatch(/\.glyph\.off\{[^}]*border:2px solid/);
+  });
+
+  it('names every icon-only action, since the icon is the whole label', () => {
+    expect(HTML).toMatch(/aria-label="\$\{esc\(label\)\}"/);
+  });
+
+  it('restacks nothing at narrow width — one service is one line at every size', () => {
+    // The specificity trap this encodes: `td.c-acts` (0,2,1) out-specifies a
+    // bare `td` (0,1,1) REGARDLESS of source order, so the container query's
+    // reset must re-qualify the class or the 1% action column survives into
+    // narrow and wraps every icon onto its own line.
+    expect(HTML).toMatch(/@container \(max-width: ?400px\)/);
+    expect(HTML).toMatch(/td\.c-acts\{[^}]*width:auto/);
+  });
+
+  it('scopes the container query to the servers panel, not every panel', () => {
+    // .panel is shared with Worktrees and Pull requests; containment belongs to
+    // the one panel that reacts to its own column width.
+    expect(HTML).toMatch(/\.svpanel\{[^}]*container-type:inline-size/);
+    expect(HTML).not.toMatch(/\.panel\{[^}]*container-type/);
+  });
+
+  it('keeps the server filter beside the host state, like the selection', () => {
+    // A state push arrives on every server change; if the filter lived in
+    // DashboardState (or nowhere) the text would be wiped mid-typing.
+    expect(HTML).toMatch(/srvFilter/);
+    expect(HTML).not.toMatch(/state\.srvFilter/);
+    expect(HTML).toMatch(/srvFilter:\s*srvFilter/);
+  });
+
   it('no longer carries the removed impl-phase strip', () => {
     expect(HTML).not.toContain('renderSubsteps');
     expect(HTML).not.toContain('implPhases');

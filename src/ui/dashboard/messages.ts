@@ -11,6 +11,8 @@ export type WebviewMessage =
   | { type: 'open-server'; serverId: number }
   | { type: 'copy-server-url'; serverId: number }
   | { type: 'spin-servers' }
+  | { type: 'restart-servers' }
+  | { type: 'stop-servers' }
   | { type: 'diff-worktree'; path: string }
   | { type: 'open-worktree-folder'; path: string }
   | { type: 'open-pr'; url: string }
@@ -31,6 +33,14 @@ export interface DashboardActions {
   openServer: (serverId: number) => void;
   copyServerUrl: (serverId: number) => void;
   spinServers: () => void;
+  /**
+   * Whole-ticket controls, distinct from their per-row namesakes: these take no
+   * server id because the dashboard header acts on every service in scope, and
+   * the two zero-row states (nothing started yet / everything stopped) have no
+   * row to carry an id at all.
+   */
+  restartServers: () => void;
+  stopServers: () => void;
   diffWorktree: (path: string) => void;
   openWorktreeFolder: (path: string) => void;
   openPr: (url: string) => void;
@@ -67,6 +77,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return num ? { type: 'copy-server-url', serverId: m.serverId as number } : null;
     case 'spin-servers':
       return { type: 'spin-servers' };
+    // Panel-level: no payload is read, so a stray `serverId` is dropped rather
+    // than reshaped — these must never degrade into their per-row namesakes.
+    case 'restart-servers':
+      return { type: 'restart-servers' };
+    case 'stop-servers':
+      return { type: 'stop-servers' };
     case 'diff-worktree':
       return path ? { type: 'diff-worktree', path: m.path as string } : null;
     case 'open-worktree-folder':
@@ -113,6 +129,12 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'spin-servers':
       actions.spinServers();
+      return;
+    case 'restart-servers':
+      actions.restartServers();
+      return;
+    case 'stop-servers':
+      actions.stopServers();
       return;
     case 'diff-worktree':
       actions.diffWorktree(msg.path);
