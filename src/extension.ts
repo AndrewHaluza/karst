@@ -437,6 +437,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * usable. The guard lives here, in the host layer, because the workflow modules
    * it protects are host-agnostic by invariant — a PATH probe wired inside them
    * would fail their own unit tests on a machine without gh.
+   *
+   * `ticketId` only changes the outcome for capabilities gated by
+   * `AGENT_CLI_DEPENDENCIES` (currently only `'sessions'`) — pass it there;
+   * omit it for `'worktrees'`/`'gates'`/`'ship'` since git/npm/gh availability
+   * doesn't vary by agent provider, and passing it needlessly risks a
+   * `getTicket` throw on a since-deleted ticket.
    */
   const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
     const ticketProvider =
@@ -996,7 +1002,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // nonzero, the driver reads that as a code verdict, and the ticket parks at
     // fix in a loop no agent can win. Warn once — the activation sweep drives
     // every parked ticket, and N toasts say nothing the first one didn't.
-    if (!guardCapability('gates', ticketId, gateToolsWarned)) {
+    if (!guardCapability('gates', undefined, gateToolsWarned)) {
       gateToolsWarned = true;
       logger.warn(`stage driver: ${trigger} → ticket ${ticketId} not driven, gate tools missing`);
       return;
@@ -1425,7 +1431,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       // A spin creates worktrees and installs deps into them; both tools fail
       // deep inside that, long after the user stopped watching.
-      if (!guardCapability('worktrees', ticketId) || !guardCapability('gates', ticketId)) return;
+      if (!guardCapability('worktrees') || !guardCapability('gates')) return;
 
       const manifest = await resolveManifest();
       if (!manifest) return; // no folder / scaffolded / invalid — message already shown
@@ -2048,7 +2054,7 @@ function makeDashboardActions(
       // Before the model call, not after: `runShipTicket` asks a model to write
       // the PR description first, so an unguarded click burns a call per repo and
       // then dies at `gh pr create`.
-      if (!guardCapability('ship', ticketId)) return;
+      if (!guardCapability('ship')) return;
       void runShipTicket(
         store,
         { ticketId, manifest: manifest() },
