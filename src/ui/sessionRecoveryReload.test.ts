@@ -138,7 +138,7 @@ describe('recovery interrupted by another window reload', () => {
       const nextActivation = planSessionRecovery(
         [{ ...ticket, agentState }],
         persistedOwnership,
-        { resume: [ticket.id], idle: [] },
+        { resume: [], idle: [] },
       );
       expect(nextActivation).toEqual({
         resume: [7],
@@ -261,7 +261,7 @@ describe('recovery interrupted by another window reload', () => {
       const nextActivation = planSessionRecovery(
         [{ ...ticket, agentState }],
         [...owned],
-        { resume: [ticket.id], idle: [] },
+        { resume: [], idle: [] },
       );
       expect(nextActivation.resume).toEqual([7]);
 

@@ -383,10 +383,11 @@ export function planSessionRecovery(
   restored: RestoredRecoveryResult,
 ): BackgroundRecoveryResult {
   const background = planBackgroundSessionRecovery(tickets, ownedTicketIds);
+  const adopted = new Set([...restored.resume, ...restored.idle]);
   return {
-    resume: [...new Set([...restored.resume, ...background.resume])],
-    idle: [...new Set([...restored.idle, ...background.idle])],
-    discard: background.discard,
+    resume: background.resume.filter((id) => !adopted.has(id)),
+    idle: background.idle.filter((id) => !adopted.has(id)),
+    discard: background.discard.filter((id) => !adopted.has(id)),
   };
 }
 

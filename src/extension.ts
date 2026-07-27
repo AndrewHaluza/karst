@@ -1635,10 +1635,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
-  // host's SessionManager cannot be restored with them. Discard those stale UI
-  // handles and reopen only the current project's resumable sessions through
-  // the registered command, so its usual scoping/seed/materialization path is
-  // preserved.
+  // host's SessionManager cannot be restored with them. Adopt visible current-
+  // project terminals into the new manager, then recover only owned sessions
+  // that remain hidden in the background through the registered command so its
+  // usual scoping/seed/materialization path is preserved.
   const projectId = currentProject()?.id;
   const currentTickets =
     projectId === undefined ? [] : listTickets(localStore, { projectId });
@@ -1652,20 +1652,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
   }));
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-  const restored = sessions.reconcileRestoredSessions((ticketId) => {
+  const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));
   });
-  const recoveryPlan = planSessionRecovery(
+  const backgroundRecoveryPlan = planSessionRecovery(
     candidates,
     [...ownedSessionTickets],
-    restored,
+    adoptedVisibleSessions,
   );
   let ownershipChanged = false;
-  for (const ticketId of recoveryPlan.discard) {
+  for (const ticketId of backgroundRecoveryPlan.discard) {
     ownershipChanged = ownedSessionTickets.delete(ticketId) || ownershipChanged;
   }
 
-  for (const ticketId of recoveryPlan.idle) {
+  for (const ticketId of backgroundRecoveryPlan.idle) {
     setAgentState(localStore, ticketId, 'idle');
     ownershipChanged =
       ownedSessionTickets.delete(ticketId) || ownershipChanged;
@@ -1674,11 +1674,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   }
   if (ownershipChanged) await persistOwnedSessionTickets();
-  if (recoveryPlan.idle.length > 0) {
+  if (backgroundRecoveryPlan.idle.length > 0) {
     provider.refresh();
     dashboard.pushAll();
   }
-  for (const ticketId of recoveryPlan.resume) {
+  for (const ticketId of backgroundRecoveryPlan.resume) {
     const recoveryTask = recoverSession(
       sessions,
       recoveryLifecycle,
