@@ -40,6 +40,7 @@ describe('ticketLabel', () => {
     selectedRepos: [],
     archivedAt: null,
     model: null,
+    agentProvider: null,
     projectId: null,
   };
 
@@ -227,6 +228,32 @@ describe('ticket + stage persistence', () => {
     updateTicketOnboarding(store, t.id, { model: 'claude-sonnet-5' });
     updateTicketOnboarding(store, t.id, { model: '' });
     expect(getTicket(store, t.id).model).toBeNull();
+  });
+
+  it('a new ticket has a null agentProvider (inherit) until one is chosen', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
+  });
+
+  it('updateTicketOnboarding round-trips the per-ticket agentProvider', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'codex' });
+    expect(getTicket(store, t.id).agentProvider).toBe('codex');
+  });
+
+  it('an empty-string agentProvider clears the selection back to inherit (null)', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'antigravity' });
+    updateTicketOnboarding(store, t.id, { agentProvider: '' });
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
+  });
+
+  it('reads back null for a row with an invalid agent_provider written outside updateTicketOnboarding (defense-in-depth)', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    // Bypass updateTicketOnboarding entirely — simulates a hand-edited DB row
+    // or a value left over from a provider later removed from IMPLEMENTED_PROVIDERS.
+    store.db.prepare('UPDATE tickets SET agent_provider = ? WHERE id = ?').run('evil', t.id);
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
   });
 
   it('updateTicketOnboarding patches only the supplied fields', () => {

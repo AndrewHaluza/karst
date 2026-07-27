@@ -294,6 +294,11 @@
         <select id="agentSelect"></select>
         <div class="empty hidden" id="agentEmpty">No agents available — add them in Settings.</div>
       </div>
+      <div id="providerPicker">
+        <label for="providerSelect">Agent core</label>
+        <select id="providerSelect"></select>
+        <div class="sub hidden" id="providerLockHint">Locked while the session runs — close the terminal to change it.</div>
+      </div>
       <div id="modelPicker">
         <label for="modelSelect">Model</label>
         <select id="modelSelect"></select>
@@ -331,7 +336,10 @@
   // The working draft: create mode has no ticket, so the webview owns state that
   // only lands in the DB on submit. Repos/approach/agent selections are
   // mirrored here.
-  let draft = { mode: 'create', repos: {}, approach: null, selectedAgent: null, selectedModel: null };
+  let draft = {
+    mode: 'create', repos: {}, approach: null, selectedAgent: null, selectedModel: null,
+    selectedAgentProvider: null,
+  };
   // Current ticketing provider, kept in sync by renderProvider() on every state
   // push. `manual` is the only provider where the key is optional (§ manual
   // ticket creation) — a non-manual ticket still needs its key/fetch-id to
@@ -394,6 +402,7 @@
     renderApproaches(state.approaches, state.selectedApproach);
     lastSelectedAgent = state.selectedAgent ?? null;
     renderAgentPicker(state.agents, state.selectedAgent);
+    renderProviderPicker(state.agentProviders, state.selectedAgentProvider, state.defaultAgentProvider, state.sessionOpen);
     renderModelPicker(state.models, state.selectedModel, state.defaultModel, state.sessionOpen);
     // Reveal Phase 2 iff the ticket is identified (edit mode: already true).
     syncPhase2();
@@ -587,6 +596,23 @@
       + (a.source === 'approach' ? ` (${esc(a.approachId || 'approach')})` : '')
       + `</option>`
     )).join('');
+  }
+
+  // Agent-core (provider) picker: an "Inherit (settings)" option (empty value)
+  // plus the implemented providers pushed in `state.agentProviders`. Mirrors
+  // renderModelPicker exactly, including the session-open lock — the adapter is
+  // baked into the terminal at spawn, same as the model.
+  function renderProviderPicker(providers, selectedProvider, defaultProvider, sessionOpen) {
+    const list = providers || [];
+    const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
+    const defLabel = `Inherit (settings: ${esc(defaultProvider)})`;
+    const opts = [`<option value=""${sel ? '' : ' selected'}>${defLabel}</option>`];
+    for (const p of list) {
+      opts.push(`<option value="${esc(p)}"${p === sel ? ' selected' : ''}>${esc(p)}</option>`);
+    }
+    el('providerSelect').innerHTML = opts.join('');
+    el('providerSelect').disabled = !!sessionOpen;
+    el('providerLockHint').classList.toggle('hidden', !sessionOpen);
   }
 
   // Model picker: an "Inherit (settings)" option (empty value) plus the curated
@@ -787,7 +813,8 @@
     // Read the live <select> so the shown model is persisted even in create mode
     // (draft.selectedModel stays null until an explicit change). Empty = inherit.
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model });
+    const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -799,6 +826,7 @@
       return;
     }
     clearErr();
+    const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
     // Same field-gathering as submit — save persists the identical draft, it
     // just never calls startTicket.
     const repos = lastRepos.filter(repoSelected).map((r) => r.service);
@@ -808,7 +836,7 @@
         ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
         : null;
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model });
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live.
@@ -891,6 +919,14 @@
     const id = e.target.value;
     draft.selectedModel = id || null;
     post({ type: 'set-model', id });
+  });
+
+  // Pick a provider (or "Inherit", value ''): record + post. In create mode the
+  // host no-ops the persist; submit carries the final value.
+  el('providerSelect').addEventListener('change', (e) => {
+    const id = e.target.value;
+    draft.selectedAgentProvider = id || null;
+    post({ type: 'set-provider', id });
   });
 
   document.addEventListener('click', (e) => {

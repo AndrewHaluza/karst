@@ -3,6 +3,8 @@ import type { Store } from './db.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { rowToStage, type Stage } from './stages.js';
 import { renderTicketLabel } from './ticketLabelTemplate.js';
+import type { AgentProvider } from '../manifest/types.js';
+import { isKnownProvider } from '../agent/registry.js';
 
 export interface Ticket {
   id: number;
@@ -26,6 +28,8 @@ export interface Ticket {
   archivedAt: string | null;
   /** Per-ticket launch model id (§ model selection); `null` = inherit the manifest default. */
   model: string | null;
+  /** Per-ticket agent-core override (§ agent core selection); `null` = inherit `manifest.agentProvider`. */
+  agentProvider: AgentProvider | null;
   /**
    * Owning project (§ projects / multi-window); `null` for a ticket created
    * before v6, until the first window to bind adopts it.
@@ -54,6 +58,7 @@ interface TicketRow {
   selected_repos: string | null;
   archived_at: string | null;
   model: string | null;
+  agent_provider: string | null;
   project_id: number | null;
 }
 
@@ -96,6 +101,7 @@ function rowToTicket(r: TicketRow): Ticket {
     selectedRepos: parseSelectedRepos(r.selected_repos),
     archivedAt: r.archived_at,
     model: r.model,
+    agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
     projectId: r.project_id,
   };
 }
@@ -286,6 +292,8 @@ export interface OnboardingPatch {
   selectedRepos?: string[];
   /** Per-ticket launch model id; empty string clears it back to inherit. */
   model?: string;
+  /** Per-ticket agent-core override; empty string clears it back to inherit. */
+  agentProvider?: string;
 }
 
 /**
@@ -310,6 +318,10 @@ export function updateTicketOnboarding(
   }
   // An explicit empty string clears the per-ticket model back to "inherit" (NULL).
   if (patch.model !== undefined) columns.model = patch.model === '' ? null : patch.model;
+  // Same "inherit" convention for the per-ticket agent-core override.
+  if (patch.agentProvider !== undefined) {
+    columns.agent_provider = patch.agentProvider === '' ? null : patch.agentProvider;
+  }
 
   const entries = Object.entries(columns);
   if (entries.length === 0) return; // empty patch: no-op

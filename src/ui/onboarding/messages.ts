@@ -1,6 +1,7 @@
 import type { OnboardingState } from './state.js';
 import type { ContextBrief } from '../../integrations/ticketing.js';
 import { isHttpUrl } from '../shared/url.js';
+import { isKnownProvider } from '../../agent/registry.js';
 
 /**
  * Onboarding webview ↔ host message protocol (§ onboarding). The webview is a
@@ -17,6 +18,8 @@ export interface TicketDraftFields {
   approach: string | null;
   agent: string | null;
   model: string | null;
+  /** Per-ticket agent-core override; null = inherit the manifest default. */
+  agentProvider?: string | null;
 }
 
 export type OnboardingMessage =
@@ -28,6 +31,8 @@ export type OnboardingMessage =
   | { type: 'set-agent'; id: string }
   // id may be '' — the "Inherit (settings)" choice, which clears the model.
   | { type: 'set-model'; id: string }
+  // id may be '' — the "Inherit (settings)" choice, which clears the provider.
+  | { type: 'set-provider'; id: string }
   | { type: 'analyze'; prompt: string }
   | { type: 'open-ticket-link'; url: string }
   | ({ type: 'submit' } & TicketDraftFields)
@@ -60,6 +65,7 @@ export interface OnboardingActions {
   setApproach: (id: string) => void;
   setAgent: (id: string) => void;
   setModel: (id: string) => void;
+  setProvider: (id: string) => void;
   analyze: (prompt: string) => void;
   openTicketLink: (url: string) => void;
   submit: (input: TicketDraftFields) => void | Promise<void>;
@@ -87,6 +93,10 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
   const approach = typeof m.approach === 'string' && m.approach.length > 0 ? m.approach : null;
   const agent = typeof m.agent === 'string' && m.agent.length > 0 ? m.agent : null;
   const model = typeof m.model === 'string' && m.model.length > 0 ? m.model : null;
+  // Blank/invalid both degrade to null (inherit), same as an absent field — a
+  // crafted or stale value must never reach resolveAdapter's provider lookup.
+  const agentProvider =
+    typeof m.agentProvider === 'string' && isKnownProvider(m.agentProvider) ? m.agentProvider : null;
   return {
     key: m.key as string,
     title: m.title as string,
@@ -95,6 +105,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     approach,
     agent,
     model,
+    agentProvider,
   };
 }
 
@@ -126,6 +137,12 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
     case 'set-model':
       // id may be '' ("Inherit"); require the field to be a string, not non-empty.
       return typeof m.id === 'string' ? { type: 'set-model', id: m.id } : null;
+    case 'set-provider':
+      // '' means "Inherit"; otherwise the id must be a known implemented provider —
+      // this is a trust boundary, an unrecognized value must never reach resolveAdapter.
+      return typeof m.id === 'string' && (m.id === '' || isKnownProvider(m.id))
+        ? { type: 'set-provider', id: m.id }
+        : null;
     case 'analyze':
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.
@@ -180,6 +197,9 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
     case 'set-model':
       actions.setModel(msg.id);
       return;
+    case 'set-provider':
+      actions.setProvider(msg.id);
+      return;
     case 'analyze':
       actions.analyze(msg.prompt);
       return;
@@ -197,6 +217,7 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
         approach: msg.approach,
         agent: msg.agent,
         model: msg.model,
+        agentProvider: msg.agentProvider,
       });
       return;
     case 'save':
@@ -210,6 +231,7 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
         approach: msg.approach,
         agent: msg.agent,
         model: msg.model,
+        agentProvider: msg.agentProvider,
       });
       return;
     case 'request-state':

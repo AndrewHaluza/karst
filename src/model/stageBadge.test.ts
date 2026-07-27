@@ -25,6 +25,7 @@ function ticket(
     selectedRepos: [],
     archivedAt: null,
     model: null,
+    agentProvider: null,
     projectId: null,
     stages: stageCurrent
       ? [{ ticketId: 1, stageKey: stageCurrent, status, attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null }]

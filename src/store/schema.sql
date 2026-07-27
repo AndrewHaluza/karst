@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   model             TEXT,                 -- per-ticket launch model id; NULL = inherit default
   -- v6 project column (kept in sync with migrations.ts v6 ALTER):
   project_id        INTEGER,              -- -> projects.id; NULL = unassigned (pre-v6 ticket)
+  -- v12 agent_provider column (kept in sync with migrations.ts v12 ALTER):
+  agent_provider    TEXT,                 -- per-ticket agent core override; NULL = inherit manifest default
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
