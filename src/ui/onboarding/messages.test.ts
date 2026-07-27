@@ -46,15 +46,15 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
     });
-    // repos + approach + agent + model carried through when present
+    // repos + approach + agent + model + agentProvider carried through when present
     expect(
       parseOnboardingMessage({
-        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
     });
   });
 
@@ -62,14 +62,14 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
     });
     expect(
       parseOnboardingMessage({
-        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
     });
     expect(parseOnboardingMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
     expect(parseOnboardingMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
@@ -84,12 +84,12 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null,
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
     });
     expect(
       parseOnboardingMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null,
+      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
     });
   });
 
@@ -107,6 +107,17 @@ describe('parseOnboardingMessage', () => {
     });
     expect(parseOnboardingMessage({ type: 'set-model', id: '' })).toEqual({
       type: 'set-model',
+      id: '',
+    });
+  });
+
+  it('accepts set-provider, including the empty "inherit" choice', () => {
+    expect(parseOnboardingMessage({ type: 'set-provider', id: 'codex' })).toEqual({
+      type: 'set-provider',
+      id: 'codex',
+    });
+    expect(parseOnboardingMessage({ type: 'set-provider', id: '' })).toEqual({
+      type: 'set-provider',
       id: '',
     });
   });
@@ -147,6 +158,7 @@ describe('routeOnboardingAction', () => {
       setApproach: vi.fn(),
       setAgent: vi.fn(),
       setModel: vi.fn(),
+      setProvider: vi.fn(),
       analyze: vi.fn(),
       openTicketLink: vi.fn(),
       submit: vi.fn(),
@@ -160,32 +172,34 @@ describe('routeOnboardingAction', () => {
     routeOnboardingAction({ type: 'fetch-source', ref: 'CU-1' }, actions);
     routeOnboardingAction({ type: 'save-signals', service: 'be', signals: ['api'] }, actions);
     routeOnboardingAction(
-      { type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8' },
+      { type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex' },
       actions,
     );
     routeOnboardingAction({ type: 'analyze', prompt: 'go' }, actions);
     routeOnboardingAction({ type: 'set-agent', id: 'reviewer' }, actions);
     routeOnboardingAction({ type: 'set-model', id: 'claude-sonnet-5' }, actions);
+    routeOnboardingAction({ type: 'set-provider', id: 'antigravity' }, actions);
     routeOnboardingAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
+    expect(actions.setProvider).toHaveBeenCalledWith('antigravity');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
   });
 
   it('routes a valid save message to the save action', () => {
     const actions = spyActions();
     routeOnboardingAction(
-      { type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8' },
+      { type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex' },
       actions,
     );
     expect(actions.save).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
     });
   });
 
