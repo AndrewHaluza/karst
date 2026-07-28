@@ -71,6 +71,11 @@ export interface SettingsActionsDeps {
    * module free of `fetch` and of `vscode`.
    */
   makeProvider(config: TicketingConfig): TicketingProvider;
+  /**
+   * Open a native folder picker (host-side) for a repository's repoPath.
+   * Resolves the chosen absolute path, or undefined if the user cancelled.
+   */
+  browseForFolder(): Promise<string | undefined>;
 }
 
 export type SettingsActionsFactory = (ctx: SettingsActionsCtx) => SettingsActions;
@@ -177,6 +182,21 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         try {
           await deps.clearToken();
           await pushStateWithInstalled();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      /**
+       * The typed-path field's second input method. The picked path is just text
+       * in the field, exactly as if it had been typed — `validateManifest` stays
+       * the only authority on whether it is acceptable.
+       */
+      async browseRepoPath(name: string): Promise<void> {
+        try {
+          const path = await deps.browseForFolder();
+          if (path === undefined) return; // cancelled — leave the field as-is
+          ctx.post({ type: 'repo-path-picked', name, path });
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

@@ -49,6 +49,7 @@ function make(loaded: LoadedManifest, hasToken: () => Promise<boolean> = async (
       getApproachCommandBody: () => {},
       fetchTicketStatuses: () => {},
       fetchTicketLists: () => {},
+      browseRepoPath: () => {},
     }),
     () => [],
     hasToken,

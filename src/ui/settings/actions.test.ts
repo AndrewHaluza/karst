@@ -66,12 +66,35 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     listApproachCommands: () => ({}),
     readApproachCommandBody: () => '',
     makeProvider: () => ({ async updateStatus() {}, async listStatuses() { return []; } }),
+    browseForFolder: async () => undefined,
     ...overrides,
   };
   const factory = buildSettingsActions(deps);
   const actions = factory({ post: (m) => posted.push(m), manifestPath: '/tmp/karst.yml' });
   return { actions, posted, order };
 }
+
+describe('settings actions — browseRepoPath', () => {
+  it('posts repo-path-picked when a folder is chosen', async () => {
+    const { actions, posted } = harness({
+      browseForFolder: async () => '/Users/nd/code/backend',
+    });
+    await actions.browseRepoPath('backend');
+    expect(posted).toContainEqual({
+      type: 'repo-path-picked',
+      name: 'backend',
+      path: '/Users/nd/code/backend',
+    });
+  });
+
+  it('posts nothing when the dialog is cancelled', async () => {
+    const { actions, posted } = harness({
+      browseForFolder: async () => undefined,
+    });
+    await actions.browseRepoPath('backend');
+    expect(posted).toEqual([]);
+  });
+});
 
 describe('settings actions — validate', () => {
   it('posts ok:true for a valid draft', () => {

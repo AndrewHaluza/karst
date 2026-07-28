@@ -57,6 +57,11 @@ export function svc(over: Partial<ServiceDef> = {}): ServiceDef {
  * runnable. That default is deliberate: it makes the non-runnable case the easy
  * one to write, so tests reach for it rather than defaulting every fixture to a
  * process that has to exist.
+ *
+ * `enabled` is deliberately left unset — every runtime check reads
+ * `repo.enabled !== false` (the convention `validateRepository` defaults to), so
+ * an unset fixture reads as enabled and pre-existing tests keep their meaning.
+ * Pass `{ enabled: false }` to build a DRAFT repository.
  */
 export function repo(over: Partial<RepositoryDef> = {}): RepositoryDef {
   return {
