@@ -751,6 +751,63 @@ describe('SessionManager', () => {
     expect(failedResumes).toEqual([1]);
   });
 
+  it('reports a failed resume only after retiring the failed launch', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const events: string[] = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      () => events.push('session-closed'),
+      undefined,
+      () => events.push('terminal-closed'),
+      undefined,
+      () => {
+        events.push('resume-failed');
+        mgr.openSession(adapter, 1, '/wt/a', undefined, 'fresh seed');
+      },
+    );
+
+    mgr.openSession(adapter, 1, '/wt/a', undefined, 'resume seed', undefined, undefined, 'sess-stale');
+    closeWithExitCode(terminals[0]!, 1);
+
+    expect(events).toEqual(['session-closed', 'terminal-closed', 'resume-failed']);
+    expect(terminals).toHaveLength(2);
+    expect(mgr.isOpen(1)).toBe(true);
+  });
+
+  it('preserves hidden recovery options when reporting a failed resume', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const failures: unknown[] = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (_ticketId, options) => failures.push(options),
+    );
+
+    mgr.openSession(
+      adapter,
+      1,
+      '/wt/a',
+      undefined,
+      'seed',
+      undefined,
+      undefined,
+      'sess-stale',
+      undefined,
+      [],
+      { reveal: false, recovery: true },
+    );
+    closeWithExitCode(terminals[0]!, 1);
+
+    expect(failures).toEqual([{ reveal: false, recovery: true }]);
+  });
+
   it('does not report a resume failure when the resumed session exits cleanly', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();

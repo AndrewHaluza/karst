@@ -12,6 +12,7 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
   continueSessionInBackground,
+  deferSessionRetry,
   KARST_LAUNCH_ENV,
   KARST_TICKET_ENV,
   SessionManager,
@@ -330,18 +331,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (ticketId, launchId) =>
       recoveryLifecycle.adoptLaunch(ticketId, launchId),
     // The captured session id no longer resolves (agent CLI rejected `--resume`
-    // and exited before starting) — clear it so the NEXT open re-seeds a fresh
-    // session instead of repeating the same crash forever, and tell the user
-    // why the terminal they just saw close did nothing.
-    (ticketId) => {
+    // and exited before starting) — clear it and immediately re-run the normal
+    // open path. That path rebuilds the full live seed, rather than reusing the
+    // terse resume prompt, so one click still produces a usable session.
+    (ticketId, options) => {
       setSessionId(localStore, ticketId, null, null);
       provider.refresh();
       dashboard.pushState(ticketId);
       const t = getTicket(localStore, ticketId);
       void vscode.window.showWarningMessage(
         `Karst: couldn't resume the previous session for "${t.key ?? `#${ticketId}`}" ` +
-          `(it may have expired or the worktree was recreated). Starting a fresh session next time.`,
+          `(it may have expired or the worktree was recreated). Retrying with a fresh session.`,
       );
+      // A background `recoverSession` observes the same close and may dispose
+      // the failed generation. Defer to the next event-loop turn so its awaited
+      // cleanup chain cannot mistake the fresh replacement for that terminal.
+      deferSessionRetry(() => {
+        void vscode.commands.executeCommand('karst.openSession', ticketId, options).then(
+          undefined,
+          (error) => logError(`fresh session retry failed for ticket ${ticketId}`, error),
+        );
+      });
     },
   );
 

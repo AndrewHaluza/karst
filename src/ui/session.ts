@@ -42,6 +42,21 @@ export interface RestoredRecoveryResult {
 /** The current window's recovery decision for a restored terminal. */
 export type RestoredSessionDisposition = 'resume' | 'idle' | 'ignore';
 
+/** Host command context that must survive a failed-resume retry. */
+export interface OpenSessionOptions {
+  reveal?: boolean;
+  recovery?: boolean;
+}
+
+/**
+ * Run a failed-resume replacement on the next event-loop turn. A microtask is
+ * too early: background recovery crosses two awaited promises before it retires
+ * the failed generation, so the replacement must wait until that chain drains.
+ */
+export function deferSessionRetry(retry: () => void): void {
+  setTimeout(retry, 0);
+}
+
 export interface CreateTerminalOpts {
   name: string;
   /** Dimmed text beside the name (real: `vscode.TerminalOptions.description`). */
@@ -150,7 +165,10 @@ export class SessionManager {
      * but with a clean exit, so a nonzero code specifically flags a resume
      * that never actually started.
      */
-    private readonly onResumeFailed?: (ticketId: number) => void,
+    private readonly onResumeFailed?: (
+      ticketId: number,
+      options: OpenSessionOptions,
+    ) => void,
   ) {}
 
   private trackTerminal(
@@ -159,6 +177,7 @@ export class SessionManager {
     launchId?: string,
     cleanupOwned?: () => void,
     wasResume = false,
+    options: OpenSessionOptions = {},
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
     this.terminals.set(ticketId, terminal);
@@ -174,11 +193,15 @@ export class SessionManager {
         // by its replacement.
         if (wasCurrent) cleanupOwned?.();
       } finally {
-        if (wasCurrent && wasResume && exitCode !== undefined && exitCode !== 0) {
-          this.onResumeFailed?.(ticketId);
-        }
         if (wasCurrent) this.onDidCloseSession?.(ticketId);
         this.onDidCloseTerminal?.(ticketId, launchId);
+        // Retire the failed generation completely before asking the host to
+        // recover it. The callback may immediately open a fresh replacement;
+        // running either close observer afterwards would then apply the old
+        // launch's lifecycle to the new terminal.
+        if (wasCurrent && wasResume && exitCode !== undefined && exitCode !== 0) {
+          this.onResumeFailed?.(ticketId, options);
+        }
       }
     });
   }
@@ -205,7 +228,7 @@ export class SessionManager {
     resume?: string,
     naming?: { name: string; iconPath?: string; color?: string },
     ownedPaths: string[] = [],
-    options: { reveal?: boolean } = {},
+    options: OpenSessionOptions = {},
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
@@ -247,7 +270,14 @@ export class SessionManager {
       cleanupStarted = true;
       this.cleanup(worktreePath, cleanupPaths);
     };
-    this.trackTerminal(ticketId, terminal, hookChannel.launchId, cleanupOwned, Boolean(resume));
+    this.trackTerminal(
+      ticketId,
+      terminal,
+      hookChannel.launchId,
+      cleanupOwned,
+      Boolean(resume),
+      options,
+    );
     if (options.reveal !== false) terminal.show();
   }
 
