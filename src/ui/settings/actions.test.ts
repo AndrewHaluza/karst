@@ -5,6 +5,7 @@ import type { Manifest, ApproachDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 const APPROACH_A: ApproachDef = { id: 'a', label: 'Approach A' };
 /** A sourced (git) approach: enabling it requires an installed package. */
@@ -43,6 +44,16 @@ const VALID: Manifest = buildManifest(
 
 const NPM_MANIFEST: Manifest = { ...VALID, approaches: [APPROACH_NPM] };
 
+const REMOTE_MODELS: ModelCatalog = {
+  claude: [{ id: 'claude-remote', label: 'Claude Remote', providers: ['claude'] }],
+  codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
+  antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
+};
+
+type ModelCatalogDependencyIsRequired =
+  {} extends Pick<SettingsActionsDeps, 'modelCatalog'> ? false : true;
+const MODEL_CATALOG_DEPENDENCY_IS_REQUIRED: ModelCatalogDependencyIsRequired = true;
+
 function harness(overrides: Partial<SettingsActionsDeps> = {}) {
   const posted: SettingsHostMessage[] = [];
   const order: string[] = [];
@@ -66,6 +77,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     listApproachCommands: () => ({}),
     readApproachCommandBody: () => '',
     makeProvider: () => ({ async updateStatus() {}, async listStatuses() { return []; } }),
+    modelCatalog: () => REMOTE_MODELS,
     browseForFolder: async () => undefined,
     ...overrides,
   };
@@ -131,6 +143,10 @@ describe('settings actions — save', () => {
 });
 
 describe('settings actions — requestState', () => {
+  it('requires the live model catalog dependency', () => {
+    expect(MODEL_CATALOG_DEPENDENCY_IS_REQUIRED).toBe(true);
+  });
+
   it('pushes state from loadState (the file), carrying its error', async () => {
     const { actions, posted } = harness({
       loadState: () => ({ manifest: VALID, error: 'portRange min > max' }),
@@ -154,6 +170,31 @@ describe('settings actions — requestState', () => {
     await actions.requestState();
     const s = posted.find((m) => m.type === 'state');
     expect((s as any).state.tokenConfigured).toBe(true);
+  });
+
+  it('carries the current host model catalog', async () => {
+    const { actions, posted } = harness({ modelCatalog: () => REMOTE_MODELS });
+    await actions.requestState();
+    const s = posted.find((m) => m.type === 'state');
+    expect((s as any).state.models).toEqual(REMOTE_MODELS);
+  });
+
+  it('reads the live catalog again for later action-driven state pushes', async () => {
+    let catalog = REMOTE_MODELS;
+    const { actions, posted } = harness({ modelCatalog: () => catalog });
+    await actions.requestState();
+    catalog = {
+      ...REMOTE_MODELS,
+      codex: [{ id: 'codex-later', label: 'Codex Later', providers: ['codex'] }],
+    };
+
+    await actions.setToken();
+
+    const states = posted.filter((m) => m.type === 'state');
+    expect(states).toHaveLength(2);
+    expect((states[1] as any).state.models.codex).toEqual([
+      { id: 'codex-later', label: 'Codex Later', providers: ['codex'] },
+    ]);
   });
 });
 

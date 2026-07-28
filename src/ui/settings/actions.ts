@@ -6,6 +6,7 @@ import { buildSettingsState, type SettingsState } from './state.js';
 import type { LoadedManifest } from './panel.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
 export interface SettingsActionsCtx {
@@ -71,6 +72,8 @@ export interface SettingsActionsDeps {
    * module free of `fetch` and of `vscode`.
    */
   makeProvider(config: TicketingConfig): TicketingProvider;
+  /** Current launch-model catalog for state refreshes after the panel opens. */
+  modelCatalog(): ModelCatalog;
   /**
    * Open a native folder picker (host-side) for a repository's repoPath.
    * Resolves the chosen absolute path, or undefined if the user cancelled.
@@ -104,6 +107,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           undefined,
           deps.listAgentRows(),
           deps.listApproachCommands(),
+          deps.modelCatalog(),
         ),
       });
     }

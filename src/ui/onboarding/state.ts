@@ -8,6 +8,10 @@ import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/registry.js'
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { isRunnable } from '../../manifest/runnable.js';
+import {
+  bundledModelCatalog,
+  type ModelCatalog,
+} from '../../agent/modelCatalog.js';
 
 /**
  * Serializable state for the onboarding page (§ onboarding). One surface serves
@@ -138,6 +142,7 @@ export function buildOnboardingState(
   listAgents: () => PoolAgent[],
   ticketId?: number,
   isSessionOpen: (ticketId: number) => boolean = () => false,
+  modelCatalog: ModelCatalog = bundledModelCatalog(),
 ): OnboardingState {
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
@@ -187,7 +192,7 @@ export function buildOnboardingState(
       selectedApproach: defaultApproach(approaches),
       agents,
       selectedAgent: null,
-      models: [...modelsForProvider(defaultAgentProvider)],
+      models: [...modelsForProvider(defaultAgentProvider, modelCatalog)],
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
       agentProviders: [...IMPLEMENTED_PROVIDERS],
@@ -225,7 +230,9 @@ export function buildOnboardingState(
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
     agents,
     selectedAgent: ticket.agent ?? null,
-    models: [...modelsForProvider(resolveProvider(ticket.agentProvider, manifest.agentProvider))],
+    models: [
+      ...modelsForProvider(resolveProvider(ticket.agentProvider, manifest.agentProvider), modelCatalog),
+    ],
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
     agentProviders: [...IMPLEMENTED_PROVIDERS],

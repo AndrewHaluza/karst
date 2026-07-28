@@ -2,8 +2,29 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
+
+function functionSource(name: string): string {
+  const start = HTML.indexOf(`function ${name}(`);
+  if (start < 0) throw new Error(`${name}() not found`);
+  const bodyStart = HTML.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < HTML.length; i += 1) {
+    if (HTML[i] === '{') depth += 1;
+    if (HTML[i] === '}') depth -= 1;
+    if (depth === 0) return HTML.slice(start, i + 1);
+  }
+  throw new Error(`${name}() is incomplete`);
+}
+
+function loadFunction(name: string): (...args: unknown[]) => unknown {
+  return runInNewContext(`(${functionSource(name)})`, {
+    esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c),
+  }) as (...args: unknown[]) => unknown;
+}
 
 /**
  * Text-level guards on the onboarding webview (§ manual ticket creation, §
@@ -64,6 +85,17 @@ describe('onboarding webview.html', () => {
     const body = fnMatch![1]!;
     expect(body).toContain("classList.contains('hidden')");
     expect(body).toContain('disabled');
+  });
+
+  it('keeps an absent saved ticket model visible as an escaped saved option', () => {
+    const renderModelOptions = loadFunction('renderModelOptions');
+    const html = renderModelOptions(
+      [{ id: 'current', label: 'Current', providers: ['codex'] }],
+      'preview-<next>',
+      null,
+    ) as string;
+    expect(html).toContain('value="preview-&lt;next&gt;" selected');
+    expect(html).toContain('Saved model: preview-&lt;next&gt;');
   });
 
   it('renders an agent-core (provider) picker next to the model picker', () => {

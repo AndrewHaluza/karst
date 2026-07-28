@@ -31,6 +31,12 @@ import {
 } from './ui/sessionRecovery.js';
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
+import { bundledModelCatalog } from './agent/modelCatalog.js';
+import {
+  formatCatalogDiagnostic,
+  loadModelCatalog,
+} from './agent/modelCatalogLoader.js';
+import { makeMementoCatalogCache } from './agent/modelCatalogCache.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
@@ -231,6 +237,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = makeLogger(channel);
   const logError: LogError = (m, e) => logger.error(m, e);
   logger.info('Karst activated');
+  let modelCatalog = bundledModelCatalog();
+  const modelCatalogCache = makeMementoCatalogCache(context.globalState);
 
   // Sidebar ticket list — an HTML webview view (replaces the native tree). The
   // manager holds facet/filter + re-pushes state; its action factory maps webview
@@ -679,6 +687,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (ticketId) => sessions.isOpen(ticketId),
     logError,
     tabIconFor,
+    () => modelCatalog,
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -826,13 +835,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return readFileSync(join(dir, approachId, art.relPath), 'utf8');
       },
       makeProvider: (config) => makeTicketingProvider(config, fetch, makeTokenProvider(context)),
+      modelCatalog: () => modelCatalog,
     }),
     listInstalledApproachIds,
     () => hasToken(context),
     listAgentRows,
     listApproachCommands,
     logError,
+    () => modelCatalog,
   );
+
+  // Discovery is deliberately detached from activation: bundled models render
+  // immediately, while successful CLI/feed/cache results repaint live panels.
+  // Provider-level failures are normal loader values; only an unexpected
+  // rejection reaches this top-level catch.
+  void loadModelCatalog({ cache: modelCatalogCache })
+    .then(async (loaded) => {
+      for (const diagnostic of loaded.diagnostics) {
+        logger.warn(`karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`);
+      }
+      modelCatalog = loaded.catalog;
+      onboarding.refreshModels();
+      await settings.refreshModels();
+    })
+    .catch((error) => logError('karst: model catalog load failed', error));
 
   const dashboard = new DashboardManager(
     localStore,
@@ -1444,6 +1470,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         launchProvider,
         t.model,
         currentManifest()?.defaultModel,
+        modelCatalog,
       );
 
       // Terminal name/icon/color are frozen at creation, so resolve the ticket's
