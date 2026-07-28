@@ -78,6 +78,11 @@
         "icon": "$(edit)"
       },
       {
+        "command": "karst.createFollowUpTicket",
+        "title": "Karst: Create Follow-up Ticket",
+        "icon": "$(reply)"
+      },
+      {
         "command": "karst.spinTicket",
         "title": "Karst: Spin Ticket (scope + start servers)",
         "icon": "$(play)"

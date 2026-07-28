@@ -39,9 +39,12 @@ CREATE TABLE IF NOT EXISTS tickets (
   agent_provider    TEXT,                 -- per-ticket agent core override; NULL = inherit manifest default
   -- v13 session_provider column (kept in sync with migrations.ts v13 ALTER):
   session_provider  TEXT,                 -- agent core that minted session_id; NULL = unknown, never resume
+  -- v14 parent_ticket_id column (kept in sync with migrations.ts v14 ALTER):
+  parent_ticket_id  INTEGER,              -- -> tickets.id; links a follow-up ticket to the parent it continues
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_tickets_parent ON tickets(parent_ticket_id);
 
 CREATE TABLE IF NOT EXISTS stages (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id

@@ -94,6 +94,11 @@ describe('sidebar webview.html', () => {
     expect(HTML).not.toContain("type:'set-facet'");
   });
 
+  it('renders a follow-up annotation beside the row label when parentKey is set', () => {
+    expect(HTML).toContain('row.parentKey');
+    expect(HTML).toContain('class="parentref"');
+  });
+
   it('keeps the injection markers — each fails silently when lost', () => {
     for (const marker of ['<!--KARST_CSP-->', '/*KARST_PALETTE*/']) {
       expect(HTML).toContain(marker);

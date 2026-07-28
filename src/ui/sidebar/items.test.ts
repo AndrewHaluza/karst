@@ -23,6 +23,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     agentProvider: null,
     sessionProvider: null,
     projectId: null,
+    parentTicketId: null,
     stages: [
       { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null },
       { ticketId: 1, stageKey: 'impl', status: 'running', attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null },
@@ -41,6 +42,32 @@ describe('buildTicketNodes', () => {
     expect(n.label).toContain('PROJ-1');
     expect(n.label).toContain('a thing');
     expect(n.collapsible).toBe(true);
+  });
+
+  it('carries no parentKey for an ordinary ticket', () => {
+    const [node] = buildTicketNodes([ticket({ parentTicketId: null })]);
+    expect(node!.parentKey).toBeNull();
+  });
+
+  it('resolves parentKey from the supplied lookup map when parentTicketId is set', () => {
+    const parentKeys = new Map([[1, 'PROJ-1']]);
+    const [node] = buildTicketNodes(
+      [ticket({ id: 2, parentTicketId: 1 })],
+      undefined,
+      undefined,
+      parentKeys,
+    );
+    expect(node!.parentKey).toBe('PROJ-1');
+  });
+
+  it('falls back to null when parentTicketId points outside the supplied map', () => {
+    const [node] = buildTicketNodes(
+      [ticket({ id: 2, parentTicketId: 999 })],
+      undefined,
+      undefined,
+      new Map(),
+    );
+    expect(node!.parentKey).toBeNull();
   });
 
   it('carries the current stage as the node description (visible when folded)', () => {

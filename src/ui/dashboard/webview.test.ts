@@ -284,6 +284,17 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/shipLabel/);
   });
 
+  it('shows the follow-up button only once the ticket is done', () => {
+    expect(HTML).toContain('id="followUpBtn"');
+    expect(HTML).toContain(
+      "el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done')",
+    );
+  });
+
+  it('wires the follow-up button to create-follow-up-ticket', () => {
+    expect(HTML).toContain("post({ type: 'create-follow-up-ticket' })");
+  });
+
   it('resolves the ship to an explicit success flash', () => {
     // On completion the indicator settles to a clear success beat, distinct from
     // the idle and processing states.

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -261,6 +261,20 @@ export function migrate(db: Database): void {
     const cols = ticketColumns(db);
     if (cols.size > 0 && !cols.has('session_provider')) {
       db.exec('ALTER TABLE tickets ADD COLUMN session_provider TEXT');
+    }
+  }
+
+  if (current < 14) {
+    // v14 adds parent_ticket_id, linking a follow-up ticket to the completed
+    // ticket it continues work from (§ continue work on a ticket). Fresh DBs
+    // already carry it (schema.sql); guard so the ALTER only runs for a legacy
+    // DB being upgraded. NULL = not a follow-up.
+    const cols = ticketColumns(db);
+    if (cols.size > 0 && !cols.has('parent_ticket_id')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN parent_ticket_id INTEGER');
+    }
+    if (cols.size > 0) {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_parent ON tickets(parent_ticket_id)');
     }
   }
 

@@ -137,4 +137,15 @@ describe('buildSidebarState', () => {
     // repo IS the workspace root → `./<name>` (the bug's single-repo case).
     expect(state.rows[0]!.worktrees[0]!.repoDisplay).toBe('./tatto-timer');
   });
+
+  it("resolves a follow-up row's parentKey even when the parent sits in a different facet", () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(parent.id);
+    archiveTicket(store, parent.id); // parent is archived; child is not
+    createTicket(store, { key: 'PROJ-1-fu1', title: 'follow-up', parentTicketId: parent.id });
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
+    const child = state.rows.find((r) => r.label.startsWith('PROJ-1-fu1'));
+    expect(child?.parentKey).toBe('PROJ-1');
+  });
 });

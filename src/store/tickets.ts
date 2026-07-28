@@ -41,6 +41,11 @@ export interface Ticket {
    * before v6, until the first window to bind adopts it.
    */
   projectId: number | null;
+  /**
+   * The completed ticket this one continues work from (§ continue work on a
+   * ticket); `null` for an ordinary ticket. Set once, at creation.
+   */
+  parentTicketId: number | null;
 }
 
 export interface TicketWithStages extends Ticket {
@@ -67,6 +72,7 @@ interface TicketRow {
   agent_provider: string | null;
   session_provider: string | null;
   project_id: number | null;
+  parent_ticket_id: number | null;
 }
 
 /**
@@ -111,6 +117,7 @@ function rowToTicket(r: TicketRow): Ticket {
     agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
     sessionProvider: isKnownProvider(r.session_provider) ? r.session_provider : null,
     projectId: r.project_id,
+    parentTicketId: r.parent_ticket_id,
   };
 }
 
@@ -128,13 +135,15 @@ export function createTicket(
     description?: string;
     /** Owning project; omitted only by legacy/test callers that predate scoping. */
     projectId?: number;
+    /** Links a follow-up ticket to the completed parent it continues work from. */
+    parentTicketId?: number;
   },
 ): Ticket {
   const create = store.db.transaction((): Ticket => {
     const info = store.db
       .prepare(
-        `INSERT INTO tickets (key, title, source, description, project_id, stage_current, agent_state)
-         VALUES (?, ?, ?, ?, ?, 'scope', 'none')`,
+        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, stage_current, agent_state)
+         VALUES (?, ?, ?, ?, ?, ?, 'scope', 'none')`,
       )
       .run(
         input.key,
@@ -142,6 +151,7 @@ export function createTicket(
         input.source ?? 'manual',
         input.description ?? null,
         input.projectId ?? null,
+        input.parentTicketId ?? null,
       );
     const id = Number(info.lastInsertRowid);
 
