@@ -650,6 +650,46 @@ describe('CodexAdapter headless execution', () => {
 });
 
 describe('CodexAdapter approach materialization', () => {
+  it('never claims or overwrites pre-existing repository skills', () => {
+    const worktree = makeWorktree();
+    const artifactDir = join(
+      worktree,
+      '.agents/skills/karst-rpi-planning',
+    );
+    const workflowDir = join(worktree, '.agents/skills/karst-rpi');
+    mkdirSync(artifactDir, { recursive: true });
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(join(artifactDir, 'SKILL.md'), 'repository artifact');
+    writeFileSync(join(workflowDir, 'SKILL.md'), 'repository workflow');
+
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', [
+        [
+          'skills/planning/SKILL.md',
+          '---\nname: planning\ndescription: Plan.\n---\nGenerated.',
+        ],
+      ]),
+      sessionDir: worktree,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [
+          { kind: 'skill', relPath: 'skills/planning/SKILL.md' },
+        ],
+        workflow: [{ name: 'plan' }],
+      },
+    });
+
+    expect(readFileSync(join(artifactDir, 'SKILL.md'), 'utf8')).toBe(
+      'repository artifact',
+    );
+    expect(readFileSync(join(workflowDir, 'SKILL.md'), 'utf8')).toBe(
+      'repository workflow',
+    );
+    expect(result.ownedPaths).not.toContain(artifactDir);
+    expect(result.ownedPaths).not.toContain(workflowDir);
+  });
+
   it('preserves skills and converts commands and agents to Codex skills', () => {
     const baseDir = makeBasePackage('rpi', [
       [
