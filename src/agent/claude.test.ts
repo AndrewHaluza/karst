@@ -271,6 +271,53 @@ describe('ClaudeAdapter.materializeApproach', () => {
     expect(result.extraArgs).toEqual([]);
   });
 
+  it('never claims or overwrites pre-existing repository plugin dirs', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+    writeNeutral(baseDir, 'rpi', [
+      { relPath: 'agents/research.md', body: '# generated research' },
+    ]);
+
+    // The repository checks in its own `.karst-plugin/rpi` and
+    // `.karst-plugin/karst` trees — exactly the paths this adapter builds.
+    const idPluginDir = join(sessionDir, '.karst-plugin', 'rpi');
+    const karstDir = join(sessionDir, '.karst-plugin', 'karst');
+    for (const [dir, relPath, body] of [
+      [idPluginDir, join('agents', 'research.md'), 'repository research'],
+      [idPluginDir, join('.claude-plugin', 'plugin.json'), '{"name":"repo"}'],
+      [karstDir, join('commands', 'rpi.md'), 'repository command'],
+    ] as const) {
+      const dest = join(dir, relPath);
+      mkdirSync(join(dest, '..'), { recursive: true });
+      writeFileSync(dest, body);
+    }
+
+    const result = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [{ kind: 'agent', relPath: 'agents/research.md' }],
+        workflow: [{ name: 'plan' }],
+      },
+    });
+
+    expect(readFileSync(join(idPluginDir, 'agents', 'research.md'), 'utf8')).toBe(
+      'repository research',
+    );
+    expect(
+      readFileSync(join(idPluginDir, '.claude-plugin', 'plugin.json'), 'utf8'),
+    ).toBe('{"name":"repo"}');
+    expect(readFileSync(join(karstDir, 'commands', 'rpi.md'), 'utf8')).toBe(
+      'repository command',
+    );
+    expect(result.ownedPaths).toEqual([]);
+    // Still launched against the repository's own plugins.
+    expect(result.extraArgs).toContain(idPluginDir);
+    expect(result.extraArgs).toContain(karstDir);
+  });
+
   it('materializes the generated /karst:<id> command into the sibling karst plugin for a workflow-only package (zero artifacts)', () => {
     const baseDir = makeDir();
     const sessionDir = makeDir();

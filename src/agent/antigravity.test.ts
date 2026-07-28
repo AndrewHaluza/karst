@@ -156,6 +156,47 @@ describe('AntigravityAdapter', () => {
       expect(existsSync(join(pluginDir, 'commands', 'plan.md'))).toBe(false);
     });
 
+    it('never claims or overwrites pre-existing repository plugin dirs', () => {
+      const sessionDir = getTmp();
+      const baseDir = mkdtempSync(join(tmpdir(), 'karst-agy-base-'));
+      extraTmpDirs.push(baseDir);
+      const source = join(baseDir, 'rpi', 'agents', 'research.md');
+      mkdirSync(join(source, '..'), { recursive: true });
+      writeFileSync(source, '# generated research');
+
+      const pluginDir = join(sessionDir, '.agents', 'plugins', 'rpi');
+      const karstDir = join(sessionDir, '.agents', 'plugins', 'karst');
+      for (const [dir, relPath, body] of [
+        [pluginDir, join('agents', 'research.md'), 'repository research'],
+        [pluginDir, 'plugin.json', '{"name":"repo"}'],
+        [karstDir, join('skills', 'rpi', 'SKILL.md'), 'repository skill'],
+      ] as const) {
+        const dest = join(dir, relPath);
+        mkdirSync(join(dest, '..'), { recursive: true });
+        writeFileSync(dest, body);
+      }
+
+      const res = new AntigravityAdapter().materializeApproach({
+        pkg: {
+          id: 'rpi',
+          label: 'RPI',
+          artifacts: [{ kind: 'agent', relPath: 'agents/research.md' }],
+          workflow: [{ name: 'plan' }],
+        },
+        baseDir,
+        sessionDir,
+      });
+
+      expect(readFileSync(join(pluginDir, 'agents', 'research.md'), 'utf8')).toBe(
+        'repository research',
+      );
+      expect(readFileSync(join(pluginDir, 'plugin.json'), 'utf8')).toBe('{"name":"repo"}');
+      expect(readFileSync(join(karstDir, 'skills', 'rpi', 'SKILL.md'), 'utf8')).toBe(
+        'repository skill',
+      );
+      expect(res.ownedPaths).toEqual([]);
+    });
+
     it('returns empty extraArgs for an empty package', () => {
       const adapter = new AntigravityAdapter();
       const res = adapter.materializeApproach({
