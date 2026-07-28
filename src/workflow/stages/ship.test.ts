@@ -13,6 +13,7 @@ import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { manifest, repo } from '../../manifest/fixtures.js';
+import { buildPrDescriptionPrompt } from '../prDescription.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string, path: string): void {
   store.db
@@ -476,9 +477,7 @@ describe('shipTicket', () => {
       );
 
       expect(gitCalls).toContainEqual(['commit', '-m', 'add search']);
-      expect(prompts).toEqual([
-        'Write a concise pull-request description for the changes in this worktree. Title: [PROJ-1] add search',
-      ]);
+      expect(prompts).toEqual([buildPrDescriptionPrompt('[PROJ-1] add search')]);
       expect(creates[0]).toEqual([
         'pr',
         'create',
@@ -594,6 +593,92 @@ describe('shipTicket', () => {
         '--base',
         'develop',
       ]);
+    });
+  });
+
+  // The reported bug: the PR body carried the session's own chatter ("No PR open
+  // yet for this branch. Description below (copy-paste ready).") and the whole
+  // description sat inside a code fence, so GitHub rendered one monospace block
+  // with no markdown at all. The agent's answer is now sanitized before it
+  // reaches `--body`; these feed a representative session answer end to end.
+  describe('PR body hygiene', () => {
+    /** What an agent answering a chat-shaped question actually hands back. */
+    const SESSION_ANSWER = [
+      'No PR open yet for this branch. Description below (copy-paste ready).',
+      '',
+      '```markdown',
+      '## Summary',
+      '',
+      'Sanitize `describePr` output before it reaches `gh pr create --body`.',
+      '',
+      '```bash',
+      'npm test',
+      '```',
+      '```',
+      '',
+      'Let me know if you want any changes.',
+    ].join('\n');
+
+    function chattyAdapter(): AgentAdapter {
+      return {
+        ...fakeAdapter(),
+        runHeadless: async () => ({ sessionId: 's', verdict: null, raw: SESSION_ANSWER }),
+      };
+    }
+
+    function bodyOf(creates: string[][]): string {
+      const args = creates[0]!;
+      return args[args.indexOf('--body') + 1]!;
+    }
+
+    function recordingGh(): { gh: GhRunner; creates: string[][] } {
+      const creates: string[][] = [];
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        creates.push(args);
+        return { stdout: 'https://github.com/o/r/pull/7', exitCode: 0 };
+      };
+      return { gh, creates };
+    }
+
+    it('strips session chatter and the whole-body fence from the created PR body', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(store, { ticketId: id }, gh, chattyAdapter(), fakeGit().git);
+
+      const body = bodyOf(creates);
+      expect(body).not.toMatch(/copy-paste ready/i);
+      expect(body).not.toMatch(/no pr open yet/i);
+      expect(body).not.toMatch(/let me know/i);
+      // No wrapper fence: the body starts with the description itself.
+      expect(body.startsWith('```')).toBe(false);
+      expect(body.startsWith('## Summary')).toBe(true);
+      // The real code block survives, language tag intact.
+      expect(body).toContain('```bash\nnpm test\n```');
+      expect(body).toContain('`describePr`');
+    });
+
+    it('sanitizes the description before it is interpolated into a body template', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          conventions: { pullRequestDescription: '{description}\n\nTicket {key}' },
+        },
+        gh,
+        chattyAdapter(),
+        fakeGit().git,
+      );
+
+      const body = bodyOf(creates);
+      expect(body).not.toMatch(/copy-paste ready/i);
+      expect(body).not.toMatch(/no pr open yet/i);
+      expect(body.startsWith('## Summary')).toBe(true);
+      expect(body).toContain('Ticket PROJ-1');
     });
   });
 
