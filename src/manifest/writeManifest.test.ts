@@ -110,6 +110,9 @@ describe('writeManifest', () => {
           backend: {
             repoPath: '../backend',
             baselineBranch: 'release',
+            // `validateRepository` always sets this concretely, so a round-trip
+            // reload carries it whether or not the file does.
+            enabled: true,
             hasMigrations: true,
             signals: ['api', 'endpoint'],
             service: {
@@ -123,6 +126,7 @@ describe('writeManifest', () => {
           // overlay wrote an empty `service: {}` here, reload would reject it.
           docs: {
             repoPath: '../docs',
+            enabled: true,
             hasMigrations: false,
             signals: ['readme'],
           },
@@ -292,6 +296,37 @@ conventions:
       expect(loadManifest(path).repositories.backend!.service).toBeUndefined();
       // The unmodeled sub-key still survives.
       expect(raw.repositories.backend.customField).toBe('also-keep');
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Draft state is the ONE repository field whose default is not what a reload
+  // produces from silence: `enabled: true` is omitted from the file, so only
+  // `false` has to survive as a written key. A round-trip that lost it would
+  // quietly promote a half-filled draft into a repository the resolver uses.
+  it('round-trips a draft repository, writing `enabled` only when false', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const backend = m.repositories.backend!;
+      writeManifest(path, {
+        ...m,
+        repositories: { backend: { ...backend, enabled: false } },
+      });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.repositories.backend.enabled).toBe(false);
+      expect(loadManifest(path).repositories.backend!.enabled).toBe(false);
+
+      // Back to enabled: the key is dropped, not written as `true`.
+      writeManifest(path, {
+        ...m,
+        repositories: { backend: { ...backend, enabled: true } },
+      });
+      const back = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(back.repositories.backend.enabled).toBeUndefined();
+      expect(loadManifest(path).repositories.backend!.enabled).toBe(true);
     } finally {
       cleanup();
     }
