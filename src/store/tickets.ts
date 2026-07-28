@@ -4,7 +4,7 @@ import { STAGE_KEYS } from '../model/types.js';
 import { rowToStage, type Stage } from './stages.js';
 import { renderTicketLabel } from './ticketLabelTemplate.js';
 import type { AgentProvider } from '../manifest/types.js';
-import { isKnownProvider } from '../agent/registry.js';
+import { isKnownProvider } from '../agent/provider.js';
 
 export interface Ticket {
   id: number;
@@ -26,6 +26,9 @@ export interface Ticket {
   selectedRepos: string[];
   /** Soft-delete timestamp; `null` = active. Archived tickets hide by default. */
   archivedAt: string | null;
+  /** Last mutation timestamp; bumped by every writer here. Read-only surfaces
+   * (ticket pickers, diagnostics) order/label by it instead of re-querying. */
+  updatedAt: string | null;
   /** Per-ticket launch model id (§ model selection); `null` = inherit the manifest default. */
   model: string | null;
   /** Per-ticket agent-core override (§ agent core selection); `null` = inherit `manifest.agentProvider`. */
@@ -63,6 +66,7 @@ interface TicketRow {
   agent: string | null;
   selected_repos: string | null;
   archived_at: string | null;
+  updated_at: string | null;
   model: string | null;
   agent_provider: string | null;
   session_provider: string | null;
@@ -107,6 +111,7 @@ function rowToTicket(r: TicketRow): Ticket {
     agent: r.agent,
     selectedRepos: parseSelectedRepos(r.selected_repos),
     archivedAt: r.archived_at,
+    updatedAt: r.updated_at,
     model: r.model,
     agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
     sessionProvider: isKnownProvider(r.session_provider) ? r.session_provider : null,

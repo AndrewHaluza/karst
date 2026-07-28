@@ -4,17 +4,13 @@ import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
 
-/** Providers with a working adapter today. Used to gate the settings UI. */
-export const IMPLEMENTED_PROVIDERS: readonly AgentProvider[] = [
-  'claude',
-  'codex',
-  'antigravity',
-];
-
-/** Type guard for a value that is a known, implemented agent provider. */
-export function isKnownProvider(value: unknown): value is AgentProvider {
-  return typeof value === 'string' && (IMPLEMENTED_PROVIDERS as readonly string[]).includes(value);
-}
+// Pure provider facts live in `provider.ts` so read-only consumers can use the
+// precedence rule without importing the adapters (and their process spawns).
+export {
+  IMPLEMENTED_PROVIDERS,
+  isKnownProvider,
+  resolveProvider,
+} from './provider.js';
 
 const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
   claude: () => new ClaudeAdapter(),
@@ -27,16 +23,4 @@ const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
  */
 export function resolveAdapter(provider: AgentProvider): AgentAdapter {
   return FACTORIES[provider]();
-}
-
-/**
- * Resolve the effective agent provider (§ agent core selection): the
- * ticket's own override wins, else the manifest default, else `'claude'`.
- * Mirrors `resolveModel`'s precedence in `agent/models.ts`.
- */
-export function resolveProvider(
-  ticketProvider: AgentProvider | null | undefined,
-  manifestProvider: AgentProvider | null | undefined,
-): AgentProvider {
-  return ticketProvider ?? manifestProvider ?? 'claude';
 }
