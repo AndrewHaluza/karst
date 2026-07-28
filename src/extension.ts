@@ -983,7 +983,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               () => getTicket(localStore, id).stageCurrent as StageKey,
             ),
           runReview: (id, cwd) =>
-            runReview(localStore, { ticketId: id, cwd, artifactDir: artifactDirFor(id) }).then(
+            runReview(localStore, {
+              ticketId: id,
+              cwd,
+              artifactDir: artifactDirFor(id),
+              manifest: currentManifest(),
+            }).then(
               () => getTicket(localStore, id).stageCurrent as StageKey,
             ),
         },

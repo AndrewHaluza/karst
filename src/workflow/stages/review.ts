@@ -8,6 +8,10 @@ import { transition } from '../machine.js';
 import { nowIso } from '../../model/time.js';
 import { REVIEW_GATES, readPackageScripts } from '../gates/scripts.js';
 import { runCommand } from '../gates/run.js';
+import { listWorktreesByTicket } from '../../store/dashboard.js';
+import type { Manifest } from '../../manifest/types.js';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
+import { selectReviewTargets } from '../gates/targets.js';
 
 /**
  * Review stage (§T4.4, §11). MVP gates on the **deterministic signal** — every
@@ -45,6 +49,12 @@ export interface RunReviewOpts {
   ticketId: number;
   cwd: string;
   artifactDir: string;
+  /**
+   * When present, review is repository-aware: only directly changed worktrees
+   * and worktrees affected through dependsOn relations are checked.
+   * Absent preserves the single-worktree API used by callers without a manifest.
+   */
+  manifest?: Manifest;
 }
 
 export interface ReviewOutcome {
@@ -101,11 +111,41 @@ export async function runReview(
   opts: RunReviewOpts,
   runner: GateRunner = makeGateRunner(),
   openDiff: OpenDiff = () => {},
+  git: GitRunner = defaultGitRunner,
 ): Promise<ReviewOutcome> {
-  const gates = await runner(opts.cwd);
+  const targets = opts.manifest
+    ? await selectReviewTargets(opts.manifest, listWorktreesByTicket(store, opts.ticketId), git)
+    : [{ repo: opts.cwd, path: opts.cwd, baseRef: null, names: [] }];
+  const targetRuns: { label: string; gates: GateResult[] }[] = [];
+  for (const target of targets) {
+    targetRuns.push({
+      label: target.names.join(', ') || target.repo,
+      gates: await runner(target.path),
+    });
+    // A human diff is useful for exactly the same affected target set.
+    openDiff(opts.ticketId, target.path);
+  }
 
-  // Always show the human the diff — review is a human gate too.
-  openDiff(opts.ticketId, opts.cwd);
+  // Evidence remains one row per conventional gate name. When several affected
+  // repositories answer the same gate, any failure fails that gate and their
+  // outputs are grouped in its artifact section.
+  const gates = REVIEW_GATES.flatMap(({ name }) => {
+    const answers = targetRuns.flatMap((run) =>
+      run.gates
+        .filter((gate) => gate.name === name)
+        .map((gate) => ({ label: run.label, gate })),
+    );
+    if (answers.length === 0) return [];
+    const ran = answers.filter(({ gate }) => gate.exitCode !== null);
+    const failure = ran.find(({ gate }) => gate.exitCode !== 0);
+    return [{
+      name,
+      exitCode: failure?.gate.exitCode ?? (ran.length > 0 ? 0 : null),
+      output: answers.map(({ label, gate }) => `## ${label}\n${gate.output}`).join('\n\n'),
+      startedAt: ran.map(({ gate }) => gate.startedAt).find((value) => value !== undefined),
+      endedAt: [...ran].reverse().map(({ gate }) => gate.endedAt).find((value) => value !== undefined),
+    }];
+  });
 
   mkdirSync(opts.artifactDir, { recursive: true });
   const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
