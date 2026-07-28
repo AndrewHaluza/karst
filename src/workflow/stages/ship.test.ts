@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -123,6 +123,41 @@ describe('shipTicket', () => {
   afterEach(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('uses the asynchronous gh runner by default and leaves the event loop responsive', async () => {
+    const worktree = join(dir, 'fe');
+    mkdirSync(worktree);
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    const binDir = join(dir, 'bin');
+    const executable = join(binDir, 'gh');
+    const originalPath = process.env.PATH;
+    mkdirSync(binDir);
+    writeFileSync(
+      executable,
+      `#!/usr/bin/env node
+setTimeout(() => {
+  if (process.argv.includes('view')) process.exitCode = 1;
+  else process.stdout.write('https://github.com/o/r/pull/7');
+}, 30);
+`,
+    );
+    chmodSync(executable, 0o755);
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`;
+    let responsive = false;
+    setTimeout(() => {
+      responsive = true;
+    }, 0);
+
+    try {
+      const result = await shipTicket(store, { ticketId: id }, undefined, undefined, fakeGit().git);
+      expect(responsive).toBe(true);
+      expect(result.prs).toEqual([
+        { repo: '/repo/frontend', number: 7, url: 'https://github.com/o/r/pull/7' },
+      ]);
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   // `gh pr create` refuses a branch that exists only locally: "you must first push

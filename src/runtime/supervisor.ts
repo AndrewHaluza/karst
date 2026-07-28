@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { openSync, closeSync, readFileSync, existsSync } from 'node:fs';
 import type { Store } from '../store/db.js';
 import { isServing, waitForHealth } from './health.js';
+import { killTree } from './processTree.js';
+export { killTree } from './processTree.js';
 
 /**
  * SIGKILL a process AND its descendants. Children are spawned `detached`, making
@@ -11,18 +13,6 @@ import { isServing, waitForHealth } from './health.js';
  * Falls back to a direct kill if the group signal fails, and swallows ESRCH
  * (already gone). Never throws.
  */
-export function killTree(pid: number): void {
-  try {
-    process.kill(-pid, 'SIGKILL'); // negative pid = the whole process group
-  } catch {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // already gone
-    }
-  }
-}
-
 export interface ServerRecord {
   id: number;
   ticketId: number | null;

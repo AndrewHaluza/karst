@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
@@ -81,7 +80,11 @@ import {
   emptyManifest,
   scaffoldManifest,
 } from './extension/manifestResolve.js';
-import { installApproach, type RunCommand } from './approaches/fetch.js';
+import { installApproach } from './approaches/fetch.js';
+import {
+  cancelAllNpmCommands,
+  runNpmCommand,
+} from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
   ApproachDef,
@@ -202,6 +205,7 @@ const PR_SYNC_INTERVAL_MS = 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
 const pendingSessionRecoveryTasks = new Set<Promise<void>>();
@@ -513,23 +517,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  // Real shell-out for npm-source approach installs: run the source's command
-  // via a shell (it's a full command string like "npx get-shit-done init"),
-  // mirroring the spawnSync shape in src/runtime/worktree.ts:202-213.
-  const realRunCommand: RunCommand = (cmd, cwd) => {
-    const r = spawnSync(cmd, { cwd, encoding: 'utf8', shell: true });
-    return { code: r.status ?? 1, out: (r.stdout ?? '') + (r.stderr ?? '') };
-  };
-
   // Bound installer for the approaches picker (Phase E). `approachesDirOrThrow`
   // is resolved at call time, not here, so it reflects the current
   // workspace/setting and doesn't throw at activation when there's no folder.
-  const installApproachHere = (def: ApproachDef): Promise<ApproachPackage> =>
-    installApproach(def, {
+  const installApproachHere = (def: ApproachDef): Promise<ApproachPackage> => {
+    const install = installApproach(def, {
       fetchFn: fetch,
       baseDir: approachesDirOrThrow(),
-      runCommand: realRunCommand,
+      runCommand: runNpmCommand,
     });
+    if (def.source?.type === 'npm') {
+      pendingApproachInstalls.add(install);
+      void install.then(
+        () => pendingApproachInstalls.delete(install),
+        () => pendingApproachInstalls.delete(install),
+      );
+    }
+    return install;
+  };
   // Ids of approach packages already installed on disk, for the onboarding
   // state (Task E1). `approachesDirOrThrow` throws with no workspace folder;
   // guarded to "nothing installed" so onboarding still opens in that case.
@@ -1800,16 +1805,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
-  endpoint?.close();
+  const cleanupErrors: unknown[] = [];
+  try {
+    await cancelAllNpmCommands();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  await Promise.allSettled([...pendingApproachInstalls]);
+  pendingApproachInstalls.clear();
+  try {
+    await endpoint?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   endpoint = undefined;
-  shutdownSessionRecovery?.();
+  try {
+    shutdownSessionRecovery?.();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   await Promise.allSettled([...pendingSessionRecoveryTasks]);
-  await flushSessionOwnership?.();
+  try {
+    await flushSessionOwnership?.();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   pendingSessionRecoveryTasks.clear();
   shutdownSessionRecovery = undefined;
   flushSessionOwnership = undefined;
-  store?.close();
+  try {
+    store?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   store = undefined;
+  if (cleanupErrors.length === 1) throw cleanupErrors[0];
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, 'karst: extension deactivation cleanup failed');
+  }
 }
 
 /**

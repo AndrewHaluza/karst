@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
+  defaultGhRunnerAsync,
   openPr,
   findOpenPr,
   toGhResult,
@@ -8,6 +12,149 @@ import {
   type GhRunner,
 } from './github.js';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
+
+const originalPath = process.env.PATH;
+const tempDirs: string[] = [];
+
+async function expectProcessDead(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(() => process.kill(pid, 0)).toThrow();
+}
+
+function installFakeGh(body: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-gh-'));
+  tempDirs.push(dir);
+  const executable = join(dir, 'gh');
+  writeFileSync(executable, `#!/usr/bin/env node\n${body}\n`);
+  chmodSync(executable, 0o755);
+  process.env.PATH = `${dir}:${originalPath ?? ''}`;
+  return dir;
+}
+
+afterEach(() => {
+  process.env.PATH = originalPath;
+  vi.restoreAllMocks();
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe.runIf(process.platform !== 'win32')('defaultGhRunnerAsync (POSIX fixture)', () => {
+  it('maps a missing gh to the dependency instruction', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-no-gh-'));
+    tempDirs.push(dir);
+    process.env.PATH = dir;
+
+    const result = await defaultGhRunnerAsync(['status'], dir, { timeoutMs: 1_000 });
+
+    expect(result).toEqual({
+      stdout: '',
+      stderr: renderMissingDependency(GH_DEPENDENCY),
+      exitCode: 1,
+    });
+  });
+
+  it('maps a normal exit without blocking the event loop', async () => {
+    const cwd = installFakeGh(
+      `setTimeout(() => { process.stdout.write('ok'); process.stderr.write('note'); }, 30);`,
+    );
+    let responsive = false;
+    setTimeout(() => {
+      responsive = true;
+    }, 0);
+
+    const result = await defaultGhRunnerAsync(['status'], cwd, { timeoutMs: 1_000 });
+
+    expect(responsive).toBe(true);
+    expect(result).toEqual({ stdout: 'ok', stderr: 'note', exitCode: 0 });
+  });
+
+  it('times out a hung gh process and reports a nonzero result', async () => {
+    const cwd = installFakeGh(`setInterval(() => {}, 1_000);`);
+
+    const result = await defaultGhRunnerAsync(['status'], cwd, {
+      timeoutMs: 20,
+      terminationGraceMs: 200,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('gh timed out after 20ms');
+  });
+
+  it('terminates a timed-out gh process and its descendants', async () => {
+    const readiness = new Int32Array(new SharedArrayBuffer(4));
+    const handshakeDir = mkdtempSync(join(tmpdir(), 'karst-gh-ready-'));
+    tempDirs.push(handshakeDir);
+    const pidFile = join(handshakeDir, 'grandchild.pid');
+    const cwd = installFakeGh(`
+      const { writeFileSync } = require('node:fs');
+      const { spawn } = require('node:child_process');
+      const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+      writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid));
+      process.stdout.write(String(grandchild.pid) + '\\n');
+      setInterval(() => {}, 1000);
+    `);
+    vi.useFakeTimers();
+    const result = await (async () => {
+      try {
+        const pending = defaultGhRunnerAsync(['status'], cwd, {
+          timeoutMs: 10_000,
+          terminationGraceMs: 500,
+        });
+
+        const readinessDeadline = process.hrtime.bigint() + 5_000_000_000n;
+        while (!existsSync(pidFile) && process.hrtime.bigint() < readinessDeadline) {
+          Atomics.wait(readiness, 0, 0, 10);
+        }
+        expect(existsSync(pidFile)).toBe(true);
+        await vi.advanceTimersByTimeAsync(10_000);
+        return await pending;
+      } finally {
+        vi.useRealTimers();
+      }
+    })();
+    const grandchildPid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
+
+    expect(result.exitCode).toBe(1);
+    expect(Number.isInteger(grandchildPid)).toBe(true);
+    await expectProcessDead(grandchildPid);
+  });
+
+  it('bounds both output streams and marks truncation once per stream', async () => {
+    const cwd = installFakeGh(
+      `process.stdout.write('s'.repeat(200)); process.stderr.write('e'.repeat(200));`,
+    );
+    const marker = '\n[output truncated]\n';
+
+    const result = await defaultGhRunnerAsync(['status'], cwd, {
+      maxOutputBytes: 24,
+      timeoutMs: 1_000,
+    });
+
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(24 + Buffer.byteLength(marker));
+    expect(Buffer.byteLength(result.stderr!)).toBeLessThanOrEqual(
+      24 + Buffer.byteLength(marker) + 100,
+    );
+    expect(result.stdout.split(marker)).toHaveLength(2);
+    expect(result.stderr!.split(marker)).toHaveLength(2);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('refusing truncated gh output');
+  });
+
+  it('clears its deadline after ordinary completion', async () => {
+    const cwd = installFakeGh(`process.stdout.write('ok');`);
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    await defaultGhRunnerAsync(['status'], cwd, { timeoutMs: 10_000 });
+
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+});
 
 describe('toGhResult', () => {
   it('carries gh’s own stderr through', () => {

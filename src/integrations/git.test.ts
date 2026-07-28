@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { commitAllIfDirty, pushBranch, defaultGitRunner, runGit, type GitRunner } from './git.js';
 
+async function expectProcessDead(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(() => process.kill(pid, 0)).toThrow();
+}
+
 /** Runner whose reply is keyed by the git subcommand; succeeds silently otherwise. */
 function scriptedGit(
   replies: Record<string, { stdout?: string; stderr?: string; exitCode?: number }>,
@@ -15,14 +27,9 @@ function scriptedGit(
 }
 
 describe('commitAllIfDirty', () => {
-  // The ship bug: impl finished, the work sat in the worktree uncommitted, so the
-  // branch had no commits and `gh pr create` died with "No commits between main
-  // and karst/…". Ship owns getting the work onto the branch.
   it('stages and commits everything when the worktree is dirty', async () => {
     const { git, seen } = scriptedGit({ status: { stdout: ' M src/a.ts\n?? src/b.ts\n' } });
-
     const committed = await commitAllIfDirty(git, '/wt/fe', 'chore: add search');
-
     expect(committed).toBe(true);
     expect(seen.map((s) => s.args)).toEqual([
       ['status', '--porcelain'],
@@ -32,14 +39,9 @@ describe('commitAllIfDirty', () => {
     for (const s of seen) expect(s.cwd).toBe('/wt/fe');
   });
 
-  // The normal path — the agent committed its own work. An empty commit here would
-  // be noise on every ship.
   it('does nothing when the worktree is clean', async () => {
     const { git, seen } = scriptedGit({ status: { stdout: '' } });
-
-    const committed = await commitAllIfDirty(git, '/wt/fe', 'chore: add search');
-
-    expect(committed).toBe(false);
+    expect(await commitAllIfDirty(git, '/wt/fe', 'chore: add search')).toBe(false);
     expect(seen.map((s) => s.args)).toEqual([['status', '--porcelain']]);
   });
 
@@ -76,9 +78,7 @@ describe('pushBranch', () => {
       seen.push({ args, cwd });
       return { stdout: '', stderr: '', exitCode: 0 };
     };
-
     await pushBranch(git, '/wt/fe');
-
     expect(seen).toEqual([{ args: ['push', '-u', 'origin', 'HEAD'], cwd: '/wt/fe' }]);
   });
 
@@ -88,14 +88,11 @@ describe('pushBranch', () => {
       stderr: "fatal: 'origin' does not appear to be a git repository",
       exitCode: 128,
     });
-
     await expect(pushBranch(git, '/wt/fe')).rejects.toThrow(
       /git push failed in \/wt\/fe: fatal: 'origin' does not appear to be a git repository/,
     );
   });
 
-  // A runner can hand back nothing (a custom one, or git writing only to a tty);
-  // the message must never end in a bare colon — that was the original ship bug.
   it('falls back to the exit code when git said nothing at all', async () => {
     const git: GitRunner = async () => ({ stdout: '', stderr: '', exitCode: 1 });
     await expect(pushBranch(git, '/wt/fe')).rejects.toThrow(/git exit 1/);
@@ -105,43 +102,77 @@ describe('pushBranch', () => {
 describe('defaultGitRunner', () => {
   it('returns git’s stdout and a zero exit for a command that succeeds', async () => {
     const r = await defaultGitRunner(['--version'], process.cwd());
-
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toMatch(/^git version /);
   });
 
   it('reports the exit code and stderr rather than throwing, so the caller decides', async () => {
     const r = await defaultGitRunner(['rev-parse', 'definitely-not-a-ref'], process.cwd());
-
     expect(r.exitCode).not.toBe(0);
     expect(r.stderr.trim()).not.toBe('');
   });
 
-  // Same invariant as `gates/run.ts`, and now for a stronger reason: the ship path
-  // fetches from a remote, so a synchronous spawn would freeze the extension host —
-  // hook endpoint, every webview, every other session — for a network round trip.
   it('leaves the event loop free while git runs', async () => {
     let ticks = 0;
     const timer = setInterval(() => (ticks += 1), 10);
-    // `git help -a` is pure-local and reliably slow enough to observe.
     await runGit(['log', '--oneline', '-n', '200'], process.cwd());
     clearInterval(timer);
     expect(ticks).toBeGreaterThan(0);
   });
 
-  // A hung git (an unreachable remote, a credential prompt) must not hold ship
-  // open forever. The timeout is an answer, not an exception.
   it('kills a hung git and answers with a nonzero exit and a timeout reason', async () => {
     const r = await runGit(['-c', 'alias.hang=!sleep 5', 'hang'], process.cwd(), 150);
-
     expect(r.exitCode).not.toBe(0);
     expect(r.stderr).toMatch(/timed out/i);
   });
 
+  it.runIf(process.platform !== 'win32')(
+    'waits for close and terminates descendants after timeout',
+    async () => {
+    const script =
+      `const{spawn}=require('node:child_process');` +
+      `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
+      `process.stdout.write(String(c.pid)+'\\\\n');setInterval(()=>{},1000)`;
+    const r = await runGit(
+      ['-c', `alias.hangtree=!${process.execPath} -e "${script}"`, 'hangtree'],
+      process.cwd(),
+      100,
+      1024,
+      500,
+    );
+    const grandchildPid = Number.parseInt(r.stdout, 10);
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('timed out after 100ms');
+    expect(Number.isInteger(grandchildPid)).toBe(true);
+    await expectProcessDead(grandchildPid);
+    },
+  );
+
   it('answers with a reason when git itself cannot be spawned', async () => {
     const r = await runGit(['--version'], '/nonexistent-directory-for-karst-test');
-
     expect(r.exitCode).not.toBe(0);
     expect(r.stderr.trim()).not.toBe('');
   });
+
+  it.runIf(process.platform !== 'win32')(
+    'bounds stdout and stderr while preserving a successful exit',
+    async () => {
+    const marker = '\n[output truncated]\n';
+    const script =
+      `process.stdout.write('s'.repeat(200));` +
+      `process.stderr.write('e'.repeat(200));`;
+    const result = await runGit(
+      ['-c', `alias.noisy=!${process.execPath} -e "${script}"`, 'noisy'],
+      process.cwd(),
+      2_000,
+      24,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(24 + Buffer.byteLength(marker));
+    expect(Buffer.byteLength(result.stderr)).toBeLessThanOrEqual(24 + Buffer.byteLength(marker));
+    expect(result.stdout.split(marker)).toHaveLength(2);
+    expect(result.stderr.split(marker)).toHaveLength(2);
+    },
+  );
 });

@@ -5,7 +5,7 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
-import { openPr, findOpenPr, defaultGhRunner, type GhRunner } from '../../integrations/github.js';
+import { openPr, findOpenPr, defaultGhRunnerAsync, type GhRunner } from '../../integrations/github.js';
 import {
   commitAllIfDirty,
   hasChangesFrom,
@@ -144,7 +144,7 @@ export type ShipProgress = (event: ShipStepEvent) => void;
 export async function shipTicket(
   store: Store,
   opts: ShipOpts,
-  gh: GhRunner = defaultGhRunner,
+  gh: GhRunner = defaultGhRunnerAsync,
   adapter?: AgentAdapter,
   git: GitRunner = defaultGitRunner,
   onProgress: ShipProgress = () => {},

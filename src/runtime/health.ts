@@ -66,21 +66,37 @@ export async function isServing(url: string, timeoutMs = 1_000): Promise<boolean
  * promptly with HealthAbortedError instead of waiting out the timeout.
  */
 export async function waitForHealth(url: string, opts: HealthOptions = {}): Promise<void> {
-  const { timeoutMs, intervalMs, maxIntervalMs } = { ...DEFAULTS, ...opts };
+  const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
+  const intervalMs = opts.intervalMs ?? DEFAULTS.intervalMs;
+  const maxIntervalMs = opts.maxIntervalMs ?? DEFAULTS.maxIntervalMs;
   const { signal } = opts;
   const deadline = Date.now() + timeoutMs;
   let interval = intervalMs;
 
   for (;;) {
     if (signal?.aborted) throw new HealthAbortedError(url);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw new HealthTimeoutError(url, timeoutMs);
+    const probe = new AbortController();
+    const onCallerAbort = (): void => probe.abort(signal?.reason);
+    signal?.addEventListener('abort', onCallerAbort, { once: true });
+    if (signal?.aborted) onCallerAbort();
+    const probeDeadline = setTimeout(
+      () => probe.abort(new HealthTimeoutError(url, timeoutMs)),
+      remainingMs,
+    );
     try {
-      const res = await fetch(url, signal ? { signal } : {});
+      const res = await fetch(url, { signal: probe.signal });
       if (res.ok) return;
     } catch (err) {
       // An abort surfaces here as a DOMException; distinguish it from a
       // connection-refused (server not up yet), which we retry.
       if (signal?.aborted) throw new HealthAbortedError(url);
+      if (probe.signal.aborted) throw new HealthTimeoutError(url, timeoutMs);
       void err; // not listening yet — fall through to retry
+    } finally {
+      clearTimeout(probeDeadline);
+      signal?.removeEventListener('abort', onCallerAbort);
     }
     if (signal?.aborted) throw new HealthAbortedError(url);
     if (Date.now() >= deadline) throw new HealthTimeoutError(url, timeoutMs);
