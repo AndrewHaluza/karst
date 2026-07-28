@@ -9,7 +9,7 @@ import type { AgentProvider } from '../manifest/types.js';
  * (= worktree path), `hook_event_name`, plus event-specific fields.
  *
  * The Notification kind lives in `notification_type` (`permission_prompt`,
- * `idle_prompt`, `agent_needs_input`, …) — a SYMBOLIC field. `message` is the
+ * `agent_needs_input`, …) — a SYMBOLIC field. `message` is the
  * human-readable string Claude renders ("Claude needs your permission to use
  * Bash") and is NOT a stable identifier. Keying the amber signal off `message`
  * was the "Needs you" bug: a real permission prompt never matched, so it never
@@ -69,13 +69,14 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
 
 /**
  * The Notification kinds that mean "blocked on the user" — the amber signal.
- * A permission dialog, a 60s idle prompt, an agent/MCP input request. Kinds that
- * report a completed action (`auth_success`, `agent_completed`,
- * `elicitation_complete`) are deliberately absent: they need no answer.
+ * A permission dialog or an agent/MCP input request. An `idle_prompt` is
+ * deliberately absent: it can follow ordinary conversational output such as
+ * "Proceed to plan phase?" without presenting an actionable input control.
+ * Completed-action kinds (`auth_success`, `agent_completed`,
+ * `elicitation_complete`) are also absent because they need no answer.
  */
 const WAITING_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
   'permission_prompt',
-  'idle_prompt',
   'agent_needs_input',
   'elicitation_dialog',
 ]);

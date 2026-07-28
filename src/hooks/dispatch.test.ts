@@ -70,14 +70,15 @@ describe('dispatchHook', () => {
     expect(ticket.agentState).toBe('running');
   });
 
-  it('Notification (idle_prompt) flips agent_state to waiting (amber)', () => {
+  it('Notification (idle_prompt) does not mark a conversational question as waiting', () => {
     const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
     dispatchHook(store, {
       hook_event_name: 'Notification',
       cwd: WT,
       message: 'idle_prompt',
     });
-    expect(getTicket(store, id).agentState).toBe('waiting');
+    expect(getTicket(store, id).agentState).toBe('running');
   });
 
   it('Notification (permission_prompt) also flips to waiting', () => {
@@ -105,15 +106,16 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('waiting');
   });
 
-  it('Notification with notification_type idle_prompt → waiting', () => {
+  it('Notification with notification_type idle_prompt preserves running state', () => {
     const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
     dispatchHook(store, {
       hook_event_name: 'Notification',
       cwd: WT,
       notification_type: 'idle_prompt',
       message: 'Claude is waiting for your input',
     });
-    expect(getTicket(store, id).agentState).toBe('waiting');
+    expect(getTicket(store, id).agentState).toBe('running');
   });
 
   it('Notification with notification_type agent_needs_input → waiting', () => {
@@ -141,14 +143,22 @@ describe('dispatchHook', () => {
 
   it('UserPromptSubmit flips a waiting agent back to running', () => {
     const id = ticketAt();
-    dispatchHook(store, { hook_event_name: 'Notification', cwd: WT, message: 'idle_prompt' });
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      message: 'permission_prompt',
+    });
     dispatchHook(store, { hook_event_name: 'UserPromptSubmit', cwd: WT });
     expect(getTicket(store, id).agentState).toBe('running');
   });
 
   it('PostToolUse flips a waiting agent back to running', () => {
     const id = ticketAt();
-    dispatchHook(store, { hook_event_name: 'Notification', cwd: WT, message: 'idle_prompt' });
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      message: 'permission_prompt',
+    });
     dispatchHook(store, { hook_event_name: 'PostToolUse', cwd: WT });
     expect(getTicket(store, id).agentState).toBe('running');
   });
