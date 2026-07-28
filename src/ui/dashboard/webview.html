@@ -219,6 +219,13 @@
     background:var(--stg-color);color:var(--vscode-editor-background);
     animation:node-pulse 1.7s ease-in-out infinite}
   .loop.armed .fixnode .cap{color:var(--st-input)}
+  /* A fix pass is a resolved/healthy attempt even though review runs next to
+     revalidate it. Paint that stored success green instead of leaving the
+     branch looking like an unresolved red retry. */
+  .loop .fixnode.done .node{--stg-color:var(--st-done);border-style:solid;
+    border-color:var(--stg-color);background:var(--stg-color);
+    color:var(--vscode-editor-background)}
+  .loop .fixnode.done .lbl{color:var(--st-done)}
   .loop .fixnode.sel .node{box-shadow:0 0 0 2px var(--panel-bg),0 0 0 4px var(--st-sel)}
   .loop .fixnode.sel .lbl{color:var(--text)}
 
@@ -720,6 +727,7 @@
     }).join('');
 
     const fixSel = sel === 'fix';
+    const fixClass = STEP_CLASS[rail.branch.status] || '';
     const implRunning = rail.main.some((c) => c.stageKey === 'impl' && c.status === 'running');
 
     // fix is a RETURN CHANNEL reached only on a failed gate, so it stays hidden
@@ -727,7 +735,10 @@
     // the band's height. `armed` (fix running, or a gate sitting failed) forces it
     // open, and so does selecting it: hiding a live loop, or the stage whose Inside
     // strip is showing, would hide the very state the user is looking at.
-    const showFix = fixExpanded || rail.armed || fixSel;
+    // Keep a resolved fix visible after fix→review disarms the loop. Otherwise
+    // the branch collapses in the same state push that turns it green, making a
+    // successful resolution technically stored but impossible to see.
+    const showFix = fixExpanded || rail.armed || rail.branch.status === 'passed' || fixSel;
     // No toggle while armed: there is nothing optional to collapse when the loop is
     // actually running.
     const toggle = rail.armed
@@ -740,7 +751,7 @@
     const branch = showFix
       ? `<div class="drop"></div><div class="ret"></div>`
         + `<div class="retlbl">pass → review</div><div class="faillbl">fail</div>`
-        + `<div class="fixnode stg-fix ${fixSel ? 'sel' : ''}"`
+        + `<div class="fixnode ${fixClass} stg-fix ${fixSel ? 'sel' : ''}"`
         + ` title="Entered only when the uat or review gate fails; on pass it returns to review.">`
         + `<button class="node" data-stage="fix" aria-pressed="${fixSel}">↺</button>`
         + `<div class="cl"><span class="lbl">fix</span>`
