@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
+import { CONVENTION_PRESETS } from '../../workflow/conventionPresets.js';
+import { TICKET_TYPES } from '../../store/ticketTypes.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -145,15 +147,29 @@ describe('settings model picker', () => {
 });
 
 describe('settings artifact conventions', () => {
-  it('provides the three project-level controls with a multiline PR description', () => {
-    expect(HTML).toContain('Commit &amp; pull request conventions');
+  it('lives in its own Git section, not in General', () => {
+    expect(HTML).toContain('<button class="nav-btn" data-section="git">Git</button>');
+    expect(HTML).toContain('<div class="section hidden" id="section-git">');
+    // The card must sit INSIDE the Git section, after the General section closes.
+    const git = HTML.indexOf('id="section-git"');
+    const card = HTML.indexOf('Branch, commit &amp; pull request conventions');
+    const repos = HTML.indexOf('id="section-services"');
+    expect(git).toBeGreaterThan(-1);
+    expect(card).toBeGreaterThan(git);
+    expect(card).toBeLessThan(repos);
+  });
+
+  it('provides the four project-level controls with a multiline PR description', () => {
+    expect(HTML).toContain('id="f-branchNameTemplate"');
     expect(HTML).toContain('id="f-commitMessageTemplate"');
     expect(HTML).toContain('id="f-prTitleTemplate"');
     expect(HTML).toMatch(/<textarea[^>]*id="f-prDescriptionTemplate"[^>]*rows="6"/);
+    expect(HTML).toContain('id="f-defaultType"');
   });
 
   it('hydrates only configured values and preserves raw multiline content', () => {
     expect(HTML).toContain("const conventions = draft.conventions || {};");
+    expect(HTML).toContain("el('f-branchNameTemplate').value = conventions.branchName || '';");
     expect(HTML).toContain(
       "el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';",
     );
@@ -172,26 +188,57 @@ describe('settings artifact conventions', () => {
 
   it('shows the exact artifact-specific token vocabulary', () => {
     expect(HTML).toContain(
-      "const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo'];",
+      "const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo', 'type', 'scope'];",
     );
     expect(HTML).toContain(
       "const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description'];",
     );
+    // The branch vocabulary is NOT the artifact one: {repo}/{scope} are absent
+    // because entries sharing a repoPath resolve to a single worktree.
     expect(HTML).toContain(
-      "renderConventionVars('commitMessageVars', COMMON_CONVENTION_VARS)",
+      "const BRANCH_CONVENTION_VARS = ['type', 'slug', 'key', 'id', 'title'];",
     );
-    expect(HTML).toContain(
-      "renderConventionVars('prTitleVars', COMMON_CONVENTION_VARS)",
-    );
+    expect(HTML).toContain("renderConventionVars('branchNameVars', BRANCH_CONVENTION_VARS)");
+    expect(HTML).toContain("renderConventionVars('commitMessageVars', COMMON_CONVENTION_VARS)");
+    expect(HTML).toContain("renderConventionVars('prTitleVars', COMMON_CONVENTION_VARS)");
     expect(HTML).toContain(
       "renderConventionVars('prDescriptionVars', DESCRIPTION_CONVENTION_VARS)",
     );
   });
 
+  // The webview cannot import TypeScript, so it carries copies. Pin them against
+  // the modules, or a preset that no longer validates ships to the user.
+  it('mirrors the host preset and ticket-type vocabularies exactly', () => {
+    expect(HTML).toContain(
+      `const TICKET_TYPES = [${TICKET_TYPES.map((t) => `'${t}'`).join(', ')}];`,
+    );
+    for (const preset of CONVENTION_PRESETS) {
+      expect(HTML, `preset id ${preset.id}`).toContain(`id: '${preset.id}'`);
+      expect(HTML, `preset label ${preset.id}`).toContain(`label: '${preset.label}'`);
+      for (const [field, value] of Object.entries(preset.conventions)) {
+        // Newlines are escaped in the HTML's JS string literals.
+        const literal = value.replace(/\n/g, '\\n');
+        expect(HTML, `${preset.id}.${field}`).toContain(`${field}: '${literal}'`);
+      }
+    }
+  });
+
+  it('applies a preset into the draft only — never straight to disk', () => {
+    const fn = HTML.match(
+      /el\('applyPresetBtn'\)\.addEventListener\('click', \(\) => {([\s\S]*?)\n {2}}\);/,
+    );
+    expect(fn, 'applyPresetBtn handler not found').toBeTruthy();
+    expect(fn![1]).toContain('updateConvention(field, value)');
+    expect(fn![1]).toContain('markDirty()');
+    expect(fn![1]).not.toContain("type: 'save'");
+  });
+
   it('keeps host manifest validation authoritative', () => {
     expect(HTML).toContain("post({ type: 'validate', manifest: draft })");
     expect(HTML).not.toContain('function validateArtifactTemplate');
+    expect(HTML).not.toContain('function validateBranchTemplate');
     expect(HTML).toContain('function showConventionValidation(error)');
+    expect(HTML).toContain("['branchName', 'f-branchNameTemplate', 'branchNameError']");
     const validationCase = HTML.match(
       /case 'validation': {([\s\S]*?)\n {8}break;/,
     );

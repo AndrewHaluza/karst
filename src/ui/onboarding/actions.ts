@@ -143,6 +143,7 @@ function persistDraft(
     // null = "Inherit"; persist '' so the store clears any prior pick to NULL.
     model: input.model ?? '',
     agentProvider: input.agentProvider ?? '',
+    type: input.ticketType ?? '',
   });
   deps.onChange();
   return ticketId;
@@ -272,6 +273,14 @@ export function buildOnboardingActions(
       }
     },
 
+    setType(id: string): void {
+      // Empty id = "Inherit (settings)": '' clears the column to NULL, so the
+      // manifest's `conventions.defaultType` applies again.
+      if (ctx.ticketId !== undefined) {
+        updateTicketOnboarding(deps.store, ctx.ticketId, { type: id });
+      }
+    },
+
     async analyze(livePrompt: string): Promise<void> {
       // Match the onboarding picker: offer built-in (sourceless) approaches
       // always, sourced ones only when installed. Otherwise the analyzer could
@@ -321,6 +330,10 @@ export function buildOnboardingActions(
           updateTicketOnboarding(deps.store, ctx.ticketId, {
             description: analysis.prompt,
             selectedRepos: analysis.repos,
+            // Prefill the type only while the ticket has none: like the approach,
+            // an explicit pick is the user's, and a re-run of the analyzer must
+            // not quietly overwrite it. Absent one, the suggestion IS the value.
+            ...(bound?.type ? {} : { type: analysis.type }),
           });
           ctx.pushState();
         }
@@ -330,6 +343,7 @@ export function buildOnboardingActions(
           approachId: analysis.approachId,
           repos: analysis.repos,
           reason: analysis.reason,
+          ticketType: bound?.type ?? analysis.type,
         });
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
-import { getTicket } from '../../store/tickets.js';
+import { getTicket, updateTicketOnboarding } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { transition } from '../machine.js';
@@ -453,6 +453,69 @@ describe('shipTicket', () => {
         'develop',
       ]]);
       expect(headless).toBe(1);
+    });
+
+    it('renders {type} from the ticket and {scope} from the repository', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      updateTicketOnboarding(store, id, { type: 'fix' });
+      const gitCalls: string[][] = [];
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({
+            frontend: repo({ repoPath: '/repo/frontend', scope: 'web' }),
+          }),
+          conventions: {
+            commitMessage: '{type}({scope}): {title} [{key}]',
+            pullRequestTitle: '{type}({scope}): {title}',
+          },
+        },
+        gh,
+        undefined,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual(['commit', '-m', 'fix(web): add search [PROJ-1]']);
+      expect(creates[0]).toContain('fix(web): add search');
+    });
+
+    it('falls back to the manifest default type and the repository name as scope', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const gitCalls: string[][] = [];
+      const { gh } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({ frontend: repo({ repoPath: '/repo/frontend' }) }),
+          conventions: { commitMessage: '{type}({scope}): {title}', defaultType: 'chore' },
+        },
+        gh,
+        undefined,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual(['commit', '-m', 'chore(frontend): add search']);
+    });
+
+    it('falls back to feat when neither the ticket nor the manifest sets a type', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const gitCalls: string[][] = [];
+      const { gh } = recordingGh();
+
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { commitMessage: '{type}: {title}' } },
+        gh,
+        undefined,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual(['commit', '-m', 'feat: add search']);
     });
 
     it('keeps absent commit and body behavior when only the PR title is configured', async () => {

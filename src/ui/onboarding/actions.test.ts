@@ -315,7 +315,7 @@ describe('buildOnboardingActions', () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null });
+    await actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null });
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(tickets[0]!.key).toBe('NEW-1');
@@ -329,7 +329,7 @@ describe('buildOnboardingActions', () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.submit({ key: '', title: 'no key please', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.submit({ key: '', title: 'no key please', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(tickets[0]!.key).toBeTruthy(); // never persists an empty string
@@ -343,8 +343,8 @@ describe('buildOnboardingActions', () => {
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
     });
 
-    await actionsA.submit({ key: '', title: 'first', description: '', repos: [], approach: null, agent: null, model: null });
-    await actionsB.submit({ key: '', title: 'second', description: '', repos: [], approach: null, agent: null, model: null });
+    await actionsA.submit({ key: '', title: 'first', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actionsB.submit({ key: '', title: 'second', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const [a, b] = listTickets(store);
     expect(a!.key).not.toBe(b!.key);
   });
@@ -353,7 +353,7 @@ describe('buildOnboardingActions', () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null });
+    await actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null, ticketType: null });
     const t = getTicket(store, listTickets(store)[0]!.id);
     expect(t.selectedRepos).toEqual(['fe', 'be']);
     expect(t.approach).toBe('rpi');
@@ -363,7 +363,7 @@ describe('buildOnboardingActions', () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8' });
+    await actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8', ticketType: null });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBe('claude-opus-4-8');
   });
 
@@ -373,7 +373,7 @@ describe('buildOnboardingActions', () => {
 
     await actions.submit({
       key: 'NEW-P', title: 't', description: '', repos: [], approach: null, agent: null,
-      model: null, agentProvider: 'antigravity',
+      model: null, agentProvider: 'antigravity', ticketType: null,
     });
     expect(getTicket(store, listTickets(store)[0]!.id).agentProvider).toBe('antigravity');
   });
@@ -382,7 +382,7 @@ describe('buildOnboardingActions', () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBeNull();
   });
 
@@ -391,7 +391,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.submit({
-      key: 'NEW-A', title: 't', description: '', repos: [], approach: null, agent: 'reviewer', model: null,
+      key: 'NEW-A', title: 't', description: '', repos: [], approach: null, agent: 'reviewer', model: null, ticketType: null,
     });
     const t = getTicket(store, listTickets(store)[0]!.id);
     expect(t.agent).toBe('reviewer');
@@ -406,7 +406,7 @@ describe('buildOnboardingActions', () => {
     };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const id = listTickets(store)[0]!.id;
     expect(bound).toBe(id);
     expect(startTicket).toHaveBeenCalledWith(id);
@@ -417,7 +417,7 @@ describe('buildOnboardingActions', () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const reloaded = getTicket(store, t.id);
     expect(reloaded.key).toBe('NEW');
     expect(reloaded.title).toBe('new');
@@ -430,7 +430,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.submit({
-      key: 'NEW-D', title: 't', description: '', repos: ['fe'], approach: 'rpi', agent: null, model: null,
+      key: 'NEW-D', title: 't', description: '', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null,
     });
 
     const id = listTickets(store)[0]!.id;
@@ -455,7 +455,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     const done = actions.submit({
-      key: 'NEW-O', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null,
+      key: 'NEW-O', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
     });
     expect(order).toEqual(['start']); // still launching — panel stays put
     expect(ctx.closes).toBe(0);
@@ -470,7 +470,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.submit({
-      key: 'NEW-F', title: 't', description: '', repos: [], approach: null, agent: null, model: null,
+      key: 'NEW-F', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
     });
 
     expect(ctx.posted.find((m) => m.type === 'error')).toEqual({
@@ -490,7 +490,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.submit({
-      key: 'NEW-T', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null,
+      key: 'NEW-T', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
     });
 
     expect((ctx.posted.find((m) => m.type === 'error') as { message: string }).message).toMatch(
@@ -506,7 +506,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.submit({
-      key: 'OLD-D', title: 'new', description: '', repos: ['fe'], approach: null, agent: null, model: null,
+      key: 'OLD-D', title: 'new', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
     });
 
     expect(openDashboard).toHaveBeenCalledWith(t.id);
@@ -518,7 +518,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.save({
-      key: 'DRAFT-1', title: 'a draft', description: 'no run yet', repos: [], approach: null, agent: null, model: null,
+      key: 'DRAFT-1', title: 'a draft', description: 'no run yet', repos: [], approach: null, agent: null, model: null, ticketType: null,
     });
 
     const tickets = listTickets(store);
@@ -541,7 +541,7 @@ describe('buildOnboardingActions', () => {
     const ctx = mkCtx();
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.save({ key: '', title: 'a draft', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.save({ key: '', title: 'a draft', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
@@ -553,7 +553,7 @@ describe('buildOnboardingActions', () => {
     const actions = buildOnboardingActions(deps)(ctx);
 
     await actions.save({
-      key: 'DRAFT-2', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8',
+      key: 'DRAFT-2', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', ticketType: null,
     });
 
     const t = getTicket(store, listTickets(store)[0]!.id);
@@ -567,7 +567,7 @@ describe('buildOnboardingActions', () => {
     const ctx = mkCtx();
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.save({ key: 'DRAFT-3', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.save({ key: 'DRAFT-3', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
     const id = listTickets(store)[0]!.id;
     expect(ctx.ticketId).toBe(id);
@@ -579,7 +579,7 @@ describe('buildOnboardingActions', () => {
     const ctx = mkCtx(t.id);
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.save({ key: 'NEW-S', title: 'new title', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.save({ key: 'NEW-S', title: 'new title', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
     const reloaded = getTicket(store, t.id);
     expect(reloaded.key).toBe('NEW-S');
@@ -593,7 +593,7 @@ describe('buildOnboardingActions', () => {
     const ctx = mkCtx(t.id);
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.save({ key: '', title: 'old', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.save({ key: '', title: 'old', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
     const reloaded = getTicket(store, t.id);
     expect(reloaded.key).toBeTruthy();
@@ -604,7 +604,7 @@ describe('buildOnboardingActions', () => {
     const ctx = mkCtx();
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.save({ key: 'DRAFT-4', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.save({ key: 'DRAFT-4', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
     expect(ctx.posted[0]).toEqual({ type: 'busy', what: 'save', on: true });
     expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'save', on: false });
@@ -616,7 +616,7 @@ describe('buildOnboardingActions', () => {
     const ctx = mkCtx();
     const actions = buildOnboardingActions(deps)(ctx);
 
-    await actions.save({ key: 'DRAFT-5', title: 't', description: '', repos: [], approach: null, agent: null, model: null });
+    await actions.save({ key: 'DRAFT-5', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
     expect(ctx.posted.find((m) => m.type === 'error')).toBeTruthy();
     expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'save', on: false });
@@ -653,12 +653,15 @@ describe('buildOnboardingActions', () => {
       approachId: 'rpi',
       repos: ['fe'],
       reason: 'UI-only change',
+      ticketType: 'feat',
     });
     expect(posted[posted.length - 1]).toEqual({ type: 'busy', what: 'analyze', on: false });
     // prompt + repos are prefilled onto the ticket + re-pushed state…
     const reloaded = getTicket(store, t.id);
     expect(reloaded.description).toBe('Add an X button');
     expect(reloaded.selectedRepos).toEqual(['fe']);
+    // …as is the conventional type, which the ticket did not have yet.
+    expect(reloaded.type).toBe('feat');
     // …but the approach is a SUGGESTION only (surfaced via the analysis post),
     // never auto-persisted — the user's explicit selection is authoritative.
     expect(reloaded.approach).toBeNull();
@@ -686,6 +689,25 @@ describe('buildOnboardingActions', () => {
     expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ approachId: 'rpi' });
     // …but the ticket's stored approach is untouched — no silent clobber.
     expect(getTicket(store, t.id).approach).toBe('superpowers:writing-plans');
+  });
+
+  it('analyze never overwrites the ticket type the user already picked', async () => {
+    const t = createTicket(store, { key: 'P-T', title: 't' });
+    updateTicketOnboarding(store, t.id, { brief: 'the brief text', type: 'chore' });
+    deps.adapter = analyzerAdapter(
+      '{"prompt":"p","approach":"rpi","repos":[],"reason":"r","type":"feat"}',
+    );
+    const posted: OnboardingHostMessage[] = [];
+    const ctx: OnboardingActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    expect(getTicket(store, t.id).type).toBe('chore');
+    // The page is told what the ticket actually carries, not the model's guess.
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ ticketType: 'chore' });
   });
 
   it('analyze posts an error and busy off when the adapter rejects', async () => {

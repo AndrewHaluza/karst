@@ -22,6 +22,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     model: null,
     agentProvider: null,
     sessionProvider: null,
+    type: null,
     projectId: null,
     parentTicketId: null,
     stages: [

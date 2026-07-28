@@ -3,7 +3,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { createWorktree, type WorktreeRecord } from '../../runtime/worktree.js';
 import { getTicket } from '../../store/tickets.js';
-import { worktreeSlug } from '../../runtime/slug.js';
+import { ticketWorktreeNames } from '../../runtime/ticketBranch.js';
 
 /**
  * Scope stage (§T4.2, §17.1). The user selects which repos go *hot* for a
@@ -56,7 +56,7 @@ export function confirmScope(
 ): WorktreeRecord[] {
   const seen = new Set<string>();
   const records: WorktreeRecord[] = [];
-  const slug = worktreeSlug(getTicket(store, ticketId));
+  const { slug, branch } = ticketWorktreeNames(getTicket(store, ticketId), manifest);
 
   for (const name of hot) {
     const repo = manifest.repositories[name];
@@ -71,6 +71,7 @@ export function confirmScope(
         ticketId,
         repoPath: repo.repoPath,
         slug,
+        branch,
         baseRef: resolveBaselineBranch(manifest, repo),
       }),
     );

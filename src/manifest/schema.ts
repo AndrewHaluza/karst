@@ -24,6 +24,8 @@ import {
   validateArtifactTemplate,
   type ArtifactConventionName,
 } from '../workflow/artifactConventions.js';
+import { validateBranchTemplate } from '../runtime/branchName.js';
+import { isTicketType, TICKET_TYPES } from '../store/ticketTypes.js';
 
 // Re-exported so the many existing `from './schema.js'` importers keep working.
 export { ManifestError } from './error.js';
@@ -312,6 +314,37 @@ function validateArtifactConventions(raw: unknown): ArtifactConventions | undefi
     }
     conventions[field] = value;
   }
+
+  // The branch template has its own vocabulary and its own extra rule (it must
+  // vary per ticket), so it validates through `validateBranchTemplate` rather
+  // than the artifact validator — same dotted-path error prefix either way.
+  const branchName = raw.branchName;
+  if (branchName !== undefined) {
+    if (typeof branchName !== 'string') {
+      throw new ManifestError('conventions.branchName must be a string');
+    }
+    try {
+      validateBranchTemplate(branchName);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new ManifestError(`conventions.${detail}`);
+    }
+    conventions.branchName = branchName;
+  }
+
+  const defaultType = raw.defaultType;
+  if (defaultType !== undefined) {
+    if (typeof defaultType !== 'string') {
+      throw new ManifestError('conventions.defaultType must be a string');
+    }
+    if (!isTicketType(defaultType)) {
+      throw new ManifestError(
+        `conventions.defaultType must be one of: ${TICKET_TYPES.join(', ')}`,
+      );
+    }
+    conventions.defaultType = defaultType;
+  }
+
   return conventions;
 }
 

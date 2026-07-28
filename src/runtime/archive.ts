@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { PortAllocator } from '../resolver/allocator.js';
@@ -28,8 +29,16 @@ export interface RestoreResult {
   reason?: string;
 }
 
-function slugOf(branch: string): string {
-  return branch.replace(/^karst\//, '');
+/**
+ * The ticket's worktree slug, taken from the worktree PATH — never by stripping a
+ * `karst/` prefix off the branch. The branch name is templated
+ * (`conventions.branchName`) and may carry slashes of its own, which would turn
+ * the flat archive ref into a nested one; the path's leaf is the slug by
+ * construction (`worktreePaths`). For a legacy `karst/<slug>` branch this yields
+ * exactly the old value, so existing archive refs keep resolving.
+ */
+function slugOf(worktreePath: string): string {
+  return basename(worktreePath);
 }
 
 /** Run a git command through the injected runner; throw on nonzero exit. Returns trimmed stdout. */
@@ -75,7 +84,7 @@ export async function archiveWorktree(
     return { outcome: 'skipped', reason: 'orphan folder (not a registered worktree)', archiveRef: '' };
   }
 
-  const slug = slugOf(branch);
+  const slug = slugOf(path);
   const ref = `refs/karst/archive/${slug}`;
 
   await run(runner, path, ['add', '-A']);
@@ -151,11 +160,13 @@ export async function restoreWorktree(
     };
   }
 
-  const slug = slugOf(row.branch);
+  // Recreate on the STORED branch, not one re-derived from a template that may
+  // have changed since: the committed work lives on that exact branch.
   createWorktree(store, {
     ticketId: row.ticketId,
     repoPath: row.repo,
-    slug,
+    slug: slugOf(row.path),
+    branch: row.branch,
     baseRef: row.baseRef ?? row.branch,
   });
 

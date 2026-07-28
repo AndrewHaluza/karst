@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   session_provider  TEXT,                 -- agent core that minted session_id; NULL = unknown, never resume
   -- v14 parent_ticket_id column (kept in sync with migrations.ts v14 ALTER):
   parent_ticket_id  INTEGER,              -- -> tickets.id; links a follow-up ticket to the parent it continues
+  -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
+  type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );

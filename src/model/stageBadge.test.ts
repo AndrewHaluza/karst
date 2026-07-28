@@ -27,6 +27,7 @@ function ticket(
     model: null,
     agentProvider: null,
     sessionProvider: null,
+    type: null,
     projectId: null,
     parentTicketId: null,
     stages: stageCurrent

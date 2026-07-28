@@ -388,6 +388,7 @@
 
 <nav class="nav">
   <button class="nav-btn active" data-section="general">General</button>
+  <button class="nav-btn" data-section="git">Git</button>
   <button class="nav-btn" data-section="services">Repositories</button>
   <button class="nav-btn" data-section="approaches">Approaches</button>
   <button class="nav-btn" data-section="agents">Agents</button>
@@ -445,13 +446,47 @@
           <select id="f-defaultModel"></select>
         </div>
       </div>
+    </div>
+
+    <!-- Git -->
+    <div class="section hidden" id="section-git">
       <div class="card open">
         <div class="card-body" style="display:block;padding-top:14px">
-          <h2>Commit &amp; pull request conventions</h2>
+          <h2>Branch, commit &amp; pull request conventions</h2>
           <p class="convention-intro">
-            Optional templates for artifacts Karst creates while shipping.
-            Leave a field empty to keep Karst's current behavior.
+            Templates for the git artifacts Karst creates itself: the ticket branch,
+            the fallback commit, and new pull requests. Leave a field empty to keep
+            Karst's current behavior, or start from a preset and edit it.
           </p>
+
+          <div class="row" style="align-items:flex-end">
+            <div style="flex:1 1 auto">
+              <label for="f-conventionPreset">Preset</label>
+              <select id="f-conventionPreset"></select>
+            </div>
+            <button class="secondary fixed" id="applyPresetBtn" type="button">Apply preset</button>
+          </div>
+          <div class="convention-hint" id="presetHint">
+            Fills the fields below for review — nothing is written until you press Save.
+          </div>
+
+          <label for="f-branchNameTemplate">Branch name template</label>
+          <input class="convention-control" type="text" id="f-branchNameTemplate"
+            placeholder="karst/{type}/{slug}"
+            aria-describedby="branchNameHint branchNameVars branchNamePreview branchNameError" />
+          <div class="convention-hint" id="branchNameHint">
+            Rendered once, when a ticket's worktree is created; existing worktrees keep their branch.
+            Must include {slug}, {key} or {id} so two tickets cannot share a branch.
+          </div>
+          <div class="convention-vars" id="branchNameVars"></div>
+          <div class="convention-preview" id="branchNamePreview"></div>
+          <div class="convention-error hidden" id="branchNameError"></div>
+
+          <label for="f-defaultType">Default ticket type</label>
+          <select id="f-defaultType" aria-describedby="defaultTypeHint"></select>
+          <div class="convention-hint" id="defaultTypeHint">
+            Used for {type} when a ticket carries none of its own.
+          </div>
 
           <label for="f-commitMessageTemplate">Commit message template</label>
           <input class="convention-control" type="text" id="f-commitMessageTemplate"
@@ -787,15 +822,56 @@
 
   // Mirrors the strict host-side vocabulary for display only. The host's
   // validateManifest call remains authoritative for syntax and token errors.
-  const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo'];
+  const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo', 'type', 'scope'];
   const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description'];
+  // The branch renderer has its own vocabulary: no {repo}/{scope}, because two
+  // repository entries sharing a repoPath resolve to ONE worktree.
+  const BRANCH_CONVENTION_VARS = ['type', 'slug', 'key', 'id', 'title'];
   const CONVENTION_SAMPLE = {
     title: 'add login',
     key: 'PROJ-142',
     id: '142',
     repo: 'frontend',
+    type: 'feat',
+    scope: 'web',
+    slug: 'proj-142-add-login',
     description: 'Adds the requested login flow.',
   };
+  // Mirrors src/store/ticketTypes.ts and src/workflow/conventionPresets.ts —
+  // the webview cannot import TypeScript. webview.test.ts pins both mirrors.
+  const TICKET_TYPES = ['feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'ci', 'build', 'style', 'revert'];
+  const CONVENTION_PRESETS = [
+    {
+      id: 'conventional',
+      label: 'Conventional Commits',
+      conventions: {
+        branchName: 'karst/{type}/{slug}',
+        commitMessage: '{type}({scope}): {title} [{key}]',
+        pullRequestTitle: '{type}({scope}): {title}',
+        pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}',
+      },
+    },
+    {
+      id: 'ticket-prefixed',
+      label: 'Ticket-prefixed',
+      conventions: {
+        branchName: '{key}-{slug}',
+        commitMessage: '[{key}] {title}',
+        pullRequestTitle: '[{key}] {title}',
+        pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}',
+      },
+    },
+    {
+      id: 'plain',
+      label: 'Plain',
+      conventions: {
+        branchName: 'karst/{slug}',
+        commitMessage: '{title}',
+        pullRequestTitle: '{title}',
+        pullRequestDescription: '{description}',
+      },
+    },
+  ];
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
   function manifestsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -943,9 +1019,12 @@
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     const conventions = draft.conventions || {};
+    el('f-branchNameTemplate').value = conventions.branchName || '';
     el('f-commitMessageTemplate').value = conventions.commitMessage || '';
     el('f-prTitleTemplate').value = conventions.pullRequestTitle || '';
     el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';
+    renderPresetOptions();
+    renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
   }
@@ -988,10 +1067,33 @@
     el(previewId).innerHTML = 'Preview: <span class="lp-val">' + esc(rendered) + '</span>';
   }
 
+  // Preset + default-type option lists (static vocabularies, re-rendered with
+  // the rest of the General/Git form so a state push can't leave them empty).
+  function renderPresetOptions() {
+    if (el('f-conventionPreset').options.length) return;
+    el('f-conventionPreset').innerHTML = CONVENTION_PRESETS.map(
+      (p) => '<option value="' + esc(p.id) + '">' + esc(p.label) + '</option>',
+    ).join('');
+  }
+
+  function renderDefaultTypeOptions(selected) {
+    el('f-defaultType').innerHTML =
+      '<option value=""' + (selected ? '' : ' selected') + '>feat (default)</option>' +
+      TICKET_TYPES.map(
+        (t) => '<option value="' + esc(t) + '"' + (t === selected ? ' selected' : '') + '>' + esc(t) + '</option>',
+      ).join('');
+  }
+
   function renderConventions() {
+    renderConventionVars('branchNameVars', BRANCH_CONVENTION_VARS);
     renderConventionVars('commitMessageVars', COMMON_CONVENTION_VARS);
     renderConventionVars('prTitleVars', COMMON_CONVENTION_VARS);
     renderConventionVars('prDescriptionVars', DESCRIPTION_CONVENTION_VARS);
+    renderConventionPreview(
+      'f-branchNameTemplate',
+      'branchNamePreview',
+      'Default: karst/{type}/{slug} → karst/feat/proj-142-add-login',
+    );
     renderConventionPreview(
       'f-commitMessageTemplate',
       'commitMessagePreview',
@@ -1066,6 +1168,32 @@
     if (v.trim() === '') delete draft.terminalNameTemplate;
     else draft.terminalNameTemplate = v;
     renderTerminalPreview();
+    markDirty();
+  });
+  el('f-branchNameTemplate').addEventListener('input', () => {
+    updateConvention('branchName', el('f-branchNameTemplate').value);
+    renderConventions();
+    markDirty();
+  });
+  el('f-defaultType').addEventListener('change', () => {
+    // '' clears it → the renderer falls back to `feat`.
+    updateConvention('defaultType', el('f-defaultType').value);
+    markDirty();
+  });
+  // Applying a preset only fills the DRAFT: the user reviews the previews and
+  // presses Save (or Discard). Nothing here writes karst.yml.
+  el('applyPresetBtn').addEventListener('click', () => {
+    const preset = CONVENTION_PRESETS.find((p) => p.id === el('f-conventionPreset').value);
+    if (!preset) return;
+    for (const [field, value] of Object.entries(preset.conventions)) {
+      updateConvention(field, value);
+    }
+    const conventions = draft.conventions || {};
+    el('f-branchNameTemplate').value = conventions.branchName || '';
+    el('f-commitMessageTemplate').value = conventions.commitMessage || '';
+    el('f-prTitleTemplate').value = conventions.pullRequestTitle || '';
+    el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';
+    renderConventions();
     markDirty();
   });
   el('f-commitMessageTemplate').addEventListener('input', () => {
@@ -2419,6 +2547,7 @@
 
   function showConventionValidation(error) {
     const fields = [
+      ['branchName', 'f-branchNameTemplate', 'branchNameError'],
       ['commitMessage', 'f-commitMessageTemplate', 'commitMessageError'],
       ['pullRequestTitle', 'f-prTitleTemplate', 'prTitleError'],
       ['pullRequestDescription', 'f-prDescriptionTemplate', 'prDescriptionError'],

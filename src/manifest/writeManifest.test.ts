@@ -114,8 +114,8 @@ describe('writeManifest', () => {
             // reload carries it whether or not the file does.
             enabled: true,
             hasMigrations: true,
-            enabled: true,
             signals: ['api', 'endpoint'],
+            scope: 'api',
             service: {
               start: 'npm run dev',
               health: 'http://{host}:{port}/health',
@@ -129,7 +129,6 @@ describe('writeManifest', () => {
             repoPath: '../docs',
             enabled: true,
             hasMigrations: false,
-            enabled: true,
             signals: ['readme'],
           },
         },
@@ -154,7 +153,9 @@ describe('writeManifest', () => {
         ticketLabelTemplate: '{key} · {stage} · {status}',
         terminalNameTemplate: 'Karst: {key} · {stage}',
         conventions: {
-          commitMessage: 'feat({repo}): {title} [{key}]',
+          branchName: 'karst/{type}/{slug}',
+          defaultType: 'fix',
+          commitMessage: '{type}({scope}): {title} [{key}]',
           pullRequestTitle: '[{key}] {title}',
           pullRequestDescription: '## Summary\n\n{description}\n\nRepository: {repo}\n',
         },

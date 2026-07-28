@@ -1398,6 +1398,37 @@ conventions:
     }
   });
 
+  it('loads a branch template and a default type', () => {
+    const { path, cleanup } = fixture(
+      `${VALID}\nconventions:\n  branchName: "{type}/{key}-{title}"\n  defaultType: fix\n`,
+    );
+    try {
+      expect(loadManifest(path).conventions).toEqual({
+        branchName: '{type}/{key}-{title}',
+        defaultType: 'fix',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['branchName: 42', /conventions\.branchName must be a string/],
+    ['branchName: "   "', /conventions\.branchName.*blank/],
+    ['branchName: "{repo}/{slug}"', /conventions\.branchName.*\{repo\}/],
+    ['branchName: "karst/{slug"', /conventions\.branchName.*malformed/],
+    ['branchName: "karst/{type}"', /conventions\.branchName.*\{slug\}/],
+    ['defaultType: 7', /conventions\.defaultType must be a string/],
+    ['defaultType: feature', /conventions\.defaultType must be one of/],
+  ])('rejects %s', (line, error) => {
+    const { path, cleanup } = fixture(`${VALID}\nconventions:\n  ${line}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(error);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('rejects description outside the pull-request description', () => {
     const { path, cleanup } = fixture(
       `${VALID}\nconventions:\n  commitMessage: "{description}"\n`,
