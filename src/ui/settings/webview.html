@@ -76,8 +76,12 @@
   .convention-preview .lp-val{font-family:var(--mono);color:var(--vscode-foreground)}
   textarea.convention-description{min-height:110px}
   .convention-error{color:var(--vscode-errorForeground);font-size:11px;margin-top:5px}
-  .convention-control[aria-invalid="true"]{
+  .convention-control[aria-invalid="true"],
+  input[aria-invalid="true"],select[aria-invalid="true"]{
     border-color:var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground))}
+  /* Inline per-field validation message on repository cards — see
+     applyFieldValidationUI; only ever shown for a field the user has touched. */
+  .field-error{color:var(--vscode-errorForeground);font-size:11px;margin-top:5px}
 
   .content{flex:1 1 auto;overflow:auto;padding:20px 26px}
   .section{max-width:760px}
@@ -152,7 +156,13 @@
     user-select:none;
   }
   .card .card-head:hover{background:var(--vscode-list-hoverBackground)}
-  .card .card-head .chevron{font-size:10px;opacity:.6;transition:transform .1s}
+  /* Bigger than the old 10px — a chevron that small was hard to see and hard to
+     hit as the open/close affordance for a whole card. */
+  .card .card-head .chevron{
+    font-size:16px;opacity:.7;transition:transform .1s;
+    display:inline-flex;align-items:center;justify-content:center;
+    width:20px;height:20px;flex:none;
+  }
   .card.open .card-head .chevron{transform:rotate(90deg)}
   .card .card-title{font-weight:600;font-size:13px;flex:1}
   .card .card-body{padding:0 14px 14px;display:none}
@@ -742,6 +752,12 @@
   let valid = false;
   let validateTimer = null;
   let openCards = new Set(); // repository names currently expanded
+  // Fields the user has focused and left, keyed "<repo>.<field>". A validation
+  // error is only SHOWN for a field in here — that is what keeps a freshly
+  // added repository (blank repoPath, therefore invalid) from shouting at
+  // someone who has not typed anything yet.
+  const touchedFields = new Set();
+  let lastValidationError = null;
 
   // installedIds: disk state pushed alongside `state` — independent of the
   // dirty `draft` manifest. confirmInstallId: id currently showing the
@@ -817,6 +833,64 @@
     el('saveBtn').disabled = !valid || !dirty;
     el('discardBtn').disabled = !dirty;
   }
+
+  // Maps a single ManifestError string to the one repository field it names, if
+  // any. validateManifest throws on the FIRST fault, so only one field is ever
+  // mappable at a time — this is a display concern layered on top of that
+  // existing single-error architecture, not a change to it.
+  function parseRepoFieldError(msg) {
+    if (!msg) return null;
+    let m = msg.match(/^repository "([^"]+)"\.(repoPath|baselineBranch)\b/);
+    if (m) return { key: m[1] + '.' + m[2] };
+    m = msg.match(/^repository "([^"]+)" service\.(start|health)\b/);
+    if (m) return { key: m[1] + '.' + m[2] };
+    m = msg.match(/^repository "([^"]+)" service\.ports\[(\d+)\]\.(name|env|default)\b/);
+    if (m) return { key: m[1] + '.ports.' + m[2] + '.' + m[3] };
+    return null;
+  }
+
+  // A mapped error stays silent (no banner, no highlight) until the user has
+  // touched that exact field — this is what stops a freshly added repository
+  // from showing an error before anyone has typed anything. An error that does
+  // not map to one field always shows the banner (no better place for it).
+  function shouldShowBanner(msg) {
+    const parsed = parseRepoFieldError(msg);
+    if (!parsed) return Boolean(msg);
+    return touchedFields.has(parsed.key);
+  }
+
+  function clearFieldErrorUI() {
+    document.querySelectorAll('[data-field-error]').forEach((line) => {
+      line.textContent = '';
+      line.classList.add('hidden');
+    });
+    document.querySelectorAll('[data-touch-key]').forEach((input) => {
+      input.removeAttribute('aria-invalid');
+    });
+  }
+
+  // Re-applies the current single validation error as an inline field message,
+  // if it maps to a field AND that field has been touched. Safe to call after
+  // any renderServices() rebuild, since it re-queries the DOM by data attribute
+  // rather than holding element references across a re-render.
+  function applyFieldValidationUI(msg) {
+    clearFieldErrorUI();
+    const parsed = parseRepoFieldError(msg);
+    if (!parsed || !touchedFields.has(parsed.key)) return;
+    const input = document.querySelector('[data-touch-key="' + CSS.escape(parsed.key) + '"]');
+    if (input) input.setAttribute('aria-invalid', 'true');
+    const line = document.querySelector('[data-field-error="' + CSS.escape(parsed.key) + '"]');
+    if (line) { line.textContent = msg; line.classList.remove('hidden'); }
+  }
+
+  // Blur does not bubble, so this listener MUST run in the capture phase.
+  document.addEventListener('blur', (e) => {
+    const t = e.target;
+    if (!t || !t.dataset || !t.dataset.touchKey) return;
+    touchedFields.add(t.dataset.touchKey);
+    applyFieldValidationUI(lastValidationError);
+    showError(shouldShowBanner(lastValidationError) ? lastValidationError : null);
+  }, true);
 
   // ---- nav ----
   document.querySelectorAll('.nav-btn').forEach((btn) => {
@@ -1006,6 +1080,9 @@
       return;
     }
     el('serviceCards').innerHTML = names.map((name) => renderServiceCard(name)).join('');
+    // The rebuild threw away the previous inline error nodes; re-apply against
+    // the fresh DOM so a touched field keeps its message across a re-render.
+    applyFieldValidationUI(lastValidationError);
   }
 
   function renderServiceCard(name) {
@@ -1016,20 +1093,32 @@
     // and an empty "Start command" box is what used to invite a fake value.
     const svc = repo.service;
     const otherNames = runnableNames().filter((n) => n !== name);
+    // A DRAFT repository is simply one that is disabled: the system ignores it,
+    // so validation lets it stay incomplete until the author flips it on.
+    const isEnabled = repo.enabled !== false;
     return `<div class="card ${isOpen ? 'open' : ''}" data-card="${esc(name)}">`
       + `<div class="card-head" data-toggle="${esc(name)}">`
       + `<span class="chevron">&#9656;</span>`
       + `<span class="card-title">${esc(name)}</span>`
+      + (repo.enabled === false ? `<span class="chip">Draft</span>` : '')
       + (svc ? '' : `<span class="field-hint" style="margin:0 0 0 8px">no service</span>`)
+      + `<label class="approach-toggle" title="${isEnabled ? 'Disable this repository' : 'Enable this repository'}">`
+      + `<input type="checkbox" data-repo-enabled="${esc(name)}" ${isEnabled ? 'checked' : ''}/>`
+      + `<span class="dot"></span>`
+      + `</label>`
       + `<button class="secondary icon" data-remove-service="${esc(name)}">Remove</button>`
       + `</div>`
       + `<div class="card-body">`
       + `<label>Name</label>`
-      + `<input type="text" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
+      + `<input type="text" placeholder="my-repo" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
       + `<label>Repo path</label>`
-      + `<input type="text" data-svc-field="repoPath" data-svc="${esc(name)}" value="${esc(repo.repoPath)}"/>`
+      + `<div class="row">`
+      + `<input type="text" placeholder="/Users/you/code/${esc(name)}" data-svc-field="repoPath" data-svc="${esc(name)}" data-touch-key="${esc(name)}.repoPath" value="${esc(repo.repoPath)}"/>`
+      + `<button type="button" class="secondary icon fixed" data-browse-repo-path="${esc(name)}" title="Browse for a folder">Browse&hellip;</button>`
+      + `</div>`
+      + `<div class="field-error hidden" data-field-error="${esc(name)}.repoPath"></div>`
       + `<label>Baseline branch override <span class="field-hint">(blank inherits ${esc(draft.baselineBranch)})</span></label>`
-      + `<input type="text" data-svc-field="baselineBranch" data-svc="${esc(name)}" value="${esc(repo.baselineBranch || '')}"/>`
+      + `<input type="text" placeholder="main" data-svc-field="baselineBranch" data-svc="${esc(name)}" value="${esc(repo.baselineBranch || '')}"/>`
       + `<div class="toggle" style="margin-top:10px">`
       + `<input type="checkbox" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${repo.hasMigrations ? 'checked' : ''}/>`
       + `<label style="margin:0">Has migrations</label>`
@@ -1043,9 +1132,11 @@
 
       + (svc
         ? `<label>Start command</label>`
-          + `<input type="text" data-svc-field="start" data-svc="${esc(name)}" value="${esc(svc.start || '')}"/>`
+          + `<input type="text" placeholder="npm run dev" data-svc-field="start" data-svc="${esc(name)}" data-touch-key="${esc(name)}.start" value="${esc(svc.start || '')}"/>`
+          + `<div class="field-error hidden" data-field-error="${esc(name)}.start"></div>`
           + `<label>Health check</label>`
-          + `<input type="text" data-svc-field="health" data-svc="${esc(name)}" value="${esc(svc.health || '')}"/>`
+          + `<input type="text" placeholder="http://{host}:{port}/health" data-svc-field="health" data-svc="${esc(name)}" data-touch-key="${esc(name)}.health" value="${esc(svc.health || '')}"/>`
+          + `<div class="field-error hidden" data-field-error="${esc(name)}.health"></div>`
           + `<h2 style="margin-top:16px">Ports</h2>`
           + renderPortsTable(name, svc.ports || [])
           + `<h2 style="margin-top:16px">Depends on</h2>`
@@ -1061,9 +1152,9 @@
   function renderPortsTable(svcName, ports) {
     const rows = ports.map((p, i) => (
       `<tr>`
-      + `<td><input type="text" data-port-field="name" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.name)}"/></td>`
-      + `<td><input type="text" data-port-field="env" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.env)}"/></td>`
-      + `<td><input type="number" data-port-field="default" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.default)}"/></td>`
+      + `<td><input type="text" placeholder="http" data-port-field="name" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.name)}"/></td>`
+      + `<td><input type="text" placeholder="PORT" data-port-field="env" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.env)}"/></td>`
+      + `<td><input type="number" placeholder="3000" data-port-field="default" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.default)}"/></td>`
       + `<td><button class="secondary icon" data-remove-port="${esc(svcName)}" data-idx="${i}">&times;</button></td>`
       + `</tr>`
     )).join('');
@@ -1123,8 +1214,11 @@
     // No `service` key: a new repository is not runnable until the user says so.
     // The old default built an empty start/ports shape, which is what made a
     // placeholder command the path of least resistance.
+    // Draft: disabled by default. The author fills in required fields at their
+    // own pace and flips it on when ready — the system never uses a disabled
+    // repository, so an incomplete one is a valid manifest.
     draft.repositories = { ...draft.repositories, [name]: {
-      repoPath: '', hasMigrations: false, signals: [],
+      repoPath: '', hasMigrations: false, signals: [], enabled: false,
     } };
     openCards.add(name);
     markDirty();
@@ -1171,6 +1265,22 @@
       const { [t.dataset.removeService]: _drop, ...rest } = draft.repositories;
       draft.repositories = rest;
       openCards.delete(t.dataset.removeService);
+      markDirty(); renderServices();
+      return;
+    }
+    if (t.dataset.browseRepoPath) {
+      post({ type: 'browse-repo-path', name: t.dataset.browseRepoPath });
+      return;
+    }
+    // Placed before the accordion fallback at the bottom: without the early
+    // return, a click on this checkbox would ALSO expand/collapse the card it
+    // sits in, since it lives inside `.card-head[data-toggle]`.
+    if (t.dataset.repoEnabled) {
+      const name = t.dataset.repoEnabled;
+      draft.repositories = {
+        ...draft.repositories,
+        [name]: { ...draft.repositories[name], enabled: t.checked },
+      };
       markDirty(); renderServices();
       return;
     }
@@ -1313,7 +1423,14 @@
     // up from the clicked element to the `.card-head[data-toggle]` — clicking
     // the label text or chevron (children without the attr) must still expand.
     // The name input (below) carries data-svc-name so we skip it here.
-    if (t.dataset.svcName === undefined) {
+    //
+    // The enabled toggle needs the same exemption, but by ANCESTOR rather than
+    // by attribute: its checkbox is visually hidden and the click usually lands
+    // on the `.dot` span, which carries no data-repo-enabled of its own and
+    // would otherwise fall through and expand/collapse the card as a side
+    // effect of flipping the switch.
+    const inEnabledToggle = t.closest && t.closest('.approach-toggle');
+    if (t.dataset.svcName === undefined && !inEnabledToggle) {
       const head = t.closest && t.closest('[data-toggle]');
       if (head) {
         const name = head.dataset.toggle;
@@ -2306,8 +2423,9 @@
         el('dirtyDot').classList.add('hidden');
         valid = !msg.state.error;
         updateSaveEnabled();
-        showError(msg.state.error);
-        renderAll();
+        lastValidationError = msg.state.error;
+        showError(shouldShowBanner(msg.state.error) ? msg.state.error : null);
+        renderAll(); // → renderServices() re-applies the inline field message
         showConventionValidation(msg.state.error);
         vscode.setState(msg.state);
         break;
@@ -2315,8 +2433,26 @@
       case 'validation': {
         valid = msg.ok;
         updateSaveEnabled();
-        showError(msg.ok ? null : msg.error);
+        lastValidationError = msg.ok ? null : msg.error;
+        showError(shouldShowBanner(lastValidationError) ? lastValidationError : null);
         showConventionValidation(msg.ok ? null : msg.error);
+        applyFieldValidationUI(lastValidationError);
+        break;
+      }
+      // The folder picker's answer. Treated exactly as if the path had been
+      // typed — including marking the field touched, since choosing a folder is
+      // as deliberate an interaction as typing one.
+      case 'repo-path-picked': {
+        const repo = draft.repositories[msg.name];
+        if (repo) {
+          draft.repositories = { ...draft.repositories, [msg.name]: { ...repo, repoPath: msg.path } };
+          const input = document.querySelector(
+            'input[data-svc-field="repoPath"][data-svc="' + CSS.escape(msg.name) + '"]',
+          );
+          if (input) input.value = msg.path;
+          touchedFields.add(msg.name + '.repoPath');
+          markDirty();
+        }
         break;
       }
       case 'ticket-statuses': {
@@ -2386,7 +2522,10 @@
     approachCommands = prev.approachCommands || {};
     valid = !prev.error;
     updateSaveEnabled();
-    showError(prev.error);
+    lastValidationError = prev.error;
+    // Restored state has no touched fields yet, so a field-mapped error stays
+    // silent here for the same reason it does on a fresh add.
+    showError(shouldShowBanner(prev.error) ? prev.error : null);
     renderAll();
     showConventionValidation(prev.error);
   }

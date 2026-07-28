@@ -111,6 +111,7 @@ describe('writeManifest', () => {
             repoPath: '../backend',
             baselineBranch: 'release',
             hasMigrations: true,
+            enabled: true,
             signals: ['api', 'endpoint'],
             service: {
               start: 'npm run dev',
@@ -124,6 +125,7 @@ describe('writeManifest', () => {
           docs: {
             repoPath: '../docs',
             hasMigrations: false,
+            enabled: true,
             signals: ['readme'],
           },
         },
@@ -168,6 +170,26 @@ describe('writeManifest', () => {
       writeManifest(path, full);
       const reloaded = loadManifest(path);
       expect(reloaded).toEqual(full);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('round-trips a disabled draft repository with a blank repoPath', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const edited: Manifest = {
+        ...m,
+        repositories: {
+          ...m.repositories,
+          scratch: { repoPath: '', hasMigrations: false, signals: [], enabled: false },
+        },
+      };
+      writeManifest(path, edited);
+      const after = loadManifest(path);
+      expect(after.repositories.scratch!.repoPath).toBe('');
+      expect(after.repositories.scratch!.enabled).toBe(false);
     } finally {
       cleanup();
     }
