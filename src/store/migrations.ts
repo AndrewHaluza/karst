@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -252,7 +252,20 @@ export function migrate(db: Database): void {
   }
 
   if (current < 13) {
-    // v13 adds parent_ticket_id, linking a follow-up ticket to the completed
+    // v13 tags a captured session with the agent core that minted it. A session
+    // id only resolves inside the CLI that created it, so an untagged id handed
+    // to another core makes `--resume` fail on launch. Nothing is backfilled:
+    // the provider of an already-captured session cannot be derived, and a
+    // guess would reintroduce exactly the crash this column prevents — a NULL
+    // simply means "never resume this one" (see resumeDecision.ts).
+    const cols = ticketColumns(db);
+    if (cols.size > 0 && !cols.has('session_provider')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN session_provider TEXT');
+    }
+  }
+
+  if (current < 14) {
+    // v14 adds parent_ticket_id, linking a follow-up ticket to the completed
     // ticket it continues work from (§ continue work on a ticket). Fresh DBs
     // already carry it (schema.sql); guard so the ALTER only runs for a legacy
     // DB being upgraded. NULL = not a follow-up.

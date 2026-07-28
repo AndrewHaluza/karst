@@ -197,6 +197,29 @@ describe('dispatchHook', () => {
     dispatchHook(store, { hook_event_name: 'Stop', cwd: WT, session_id: 'sess-DIFFERENT' });
     expect(getTicket(store, id).sessionId).toBe('sess-1');
   });
+
+  // A session id only resolves for the agent CLI that minted it, so the capture
+  // must record which core was running — otherwise a later provider switch
+  // hands the new CLI a foreign id and `--resume` dies on launch.
+  it('tags a captured session with the provider resolved for that ticket', () => {
+    const id = ticketAt();
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-xyz' },
+      undefined,
+      undefined,
+      () => 'codex',
+    );
+    const t = getTicket(store, id);
+    expect(t.sessionId).toBe('sess-xyz');
+    expect(t.sessionProvider).toBe('codex');
+  });
+
+  it('leaves a capture untagged when no provider resolver is supplied', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-xyz' });
+    expect(getTicket(store, id).sessionProvider).toBeNull();
+  });
 });
 
 describe('parseHookPayload', () => {

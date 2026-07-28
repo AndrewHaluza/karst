@@ -8,11 +8,12 @@ import {
   type WorktreeView,
   type PrView,
 } from '../../store/dashboard.js';
-import type { TicketProvider } from '../../manifest/types.js';
+import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { buildNowLine, type NowLine } from '../../model/nowLine.js';
 import { sessionAction } from '../../agent/sessionAction.js';
+import { resolveProvider } from '../../agent/registry.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { buildStageInside, type StageInside } from '../../model/inside/index.js';
 import { listGateRuns } from '../../store/gateRuns.js';
@@ -100,6 +101,13 @@ export function buildDashboardState(
    * rather than hiding a working button.
    */
   isRepoRunnable: (repo: string) => boolean = () => true,
+  /**
+   * Manifest-level agent core, so the entry-point verb resolves the same
+   * provider `openSession` will launch with. Omitted → a captured session
+   * cannot be verified and the verb degrades to "Start" (never a false
+   * "Continue" that would die on a foreign `--resume`).
+   */
+  defaultProvider?: AgentProvider,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const stepper = buildStepper(ticket.stages);
@@ -124,7 +132,10 @@ export function buildDashboardState(
     currentStage,
     now: buildNowLine(currentStage, {
       fixAttempts,
-      sessionAction: sessionAction(ticket),
+      sessionAction: sessionAction(
+        ticket,
+        resolveProvider(ticket.agentProvider, defaultProvider),
+      ),
     }),
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only

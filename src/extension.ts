@@ -114,6 +114,7 @@ import {
   listTickets,
   listArchivedTickets,
   setAgentState,
+  setSessionId,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
@@ -250,7 +251,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
   }), () => worktreePathContext(currentManifest(), logger.warn), () => currentManifest()?.ticketLabelTemplate, logError,
-    () => currentProject()?.id);
+    () => currentProject()?.id,
+    () => currentManifest()?.agentProvider);
   const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
   provider.bind(sidebarHost);
   context.subscriptions.push(
@@ -319,6 +321,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       recoveryLifecycle.sessionClosed(ticketId, launchId),
     (ticketId, launchId) =>
       recoveryLifecycle.adoptLaunch(ticketId, launchId),
+    // The captured session id no longer resolves (agent CLI rejected `--resume`
+    // and exited before starting) — clear it so the NEXT open re-seeds a fresh
+    // session instead of repeating the same crash forever, and tell the user
+    // why the terminal they just saw close did nothing.
+    (ticketId) => {
+      setSessionId(localStore, ticketId, null, null);
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      const t = getTicket(localStore, ticketId);
+      void vscode.window.showWarningMessage(
+        `Karst: couldn't resume the previous session for "${t.key ?? `#${ticketId}`}" ` +
+          `(it may have expired or the worktree was recreated). Starting a fresh session next time.`,
+      );
+    },
   );
 
   // The live manifest. Loaded on first read rather than assigned by whichever
@@ -859,6 +875,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const def = currentManifest()?.repositories[repo];
       return def === undefined || isRunnable(def);
     },
+    // Live manifest agent core, so the Now line's verb resolves the same
+    // provider openSession will launch with (a Continue it can't honor would
+    // just flash a terminal that exits on a foreign `--resume`).
+    () => currentManifest()?.agentProvider,
   );
 
   // The live verbose channel (§ naming/status): whatever a tab or terminal
@@ -1052,6 +1072,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         recoveryLifecycle,
         ticketId,
         payload,
+      ),
+    // Tag each captured session with the core that minted it, so a later switch
+    // (this ticket's override OR the manifest default) is detectable instead of
+    // surfacing as a failed `--resume` on the next Continue.
+    (ticketId) =>
+      resolveProvider(
+        getTicket(localStore, ticketId).agentProvider,
+        currentManifest()?.agentProvider,
       ),
   );
   if (endpoint.port !== rememberedPort) {
@@ -1317,7 +1345,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // (like `stages.ts`'s `stage_key as StageKey`); it is always one of
       // STAGE_KEYS in practice. The marker rides the resume nudge too — a
       // resumed impl/fix session still has to fire it when work is done.
-      const resumeId = shouldResumeSession({ sessionId: t.sessionId, stageCurrent: t.stageCurrent as StageKey })
+      // One resolution for the whole launch: the resume check below and the
+      // model pick further down must agree on which core is actually starting,
+      // or a ticket could be handed a session id the launching CLI cannot find.
+      const launchProvider = resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+      const resumeId = shouldResumeSession({
+        sessionId: t.sessionId,
+        sessionProvider: t.sessionProvider,
+        stageCurrent: t.stageCurrent as StageKey,
+        provider: launchProvider,
+      })
         ? (t.sessionId ?? undefined)
         : undefined;
       // At `fix` the resume has a specific job — the gate that just failed wrote
@@ -1392,7 +1429,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // agent core (§ agent core selection) — a ticket overridden to a different
       // provider must not carry an incompatible model pick across the switch.
       const model = resolveModelForProvider(
-        resolveProvider(t.agentProvider, currentManifest()?.agentProvider),
+        launchProvider,
         t.model,
         currentManifest()?.defaultModel,
       );
@@ -1699,7 +1736,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     agentState: ticket.agentState,
     canResume: shouldResumeSession({
       sessionId: ticket.sessionId,
+      sessionProvider: ticket.sessionProvider,
       stageCurrent: ticket.stageCurrent as StageKey,
+      provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
     }),
     hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
   }));
@@ -1943,7 +1982,7 @@ function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
       const sub = vscode.window.onDidCloseTerminal((closed) => {
         if (closed === terminal) {
           sub.dispose();
-          handler();
+          handler(closed.exitStatus?.code);
         }
       });
     },

@@ -21,6 +21,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     archivedAt: null,
     model: null,
     agentProvider: null,
+    sessionProvider: null,
     projectId: null,
     parentTicketId: null,
     stages: [
@@ -50,12 +51,22 @@ describe('buildTicketNodes', () => {
 
   it('resolves parentKey from the supplied lookup map when parentTicketId is set', () => {
     const parentKeys = new Map([[1, 'PROJ-1']]);
-    const [node] = buildTicketNodes([ticket({ id: 2, parentTicketId: 1 })], undefined, parentKeys);
+    const [node] = buildTicketNodes(
+      [ticket({ id: 2, parentTicketId: 1 })],
+      undefined,
+      undefined,
+      parentKeys,
+    );
     expect(node!.parentKey).toBe('PROJ-1');
   });
 
   it('falls back to null when parentTicketId points outside the supplied map', () => {
-    const [node] = buildTicketNodes([ticket({ id: 2, parentTicketId: 999 })], undefined, new Map());
+    const [node] = buildTicketNodes(
+      [ticket({ id: 2, parentTicketId: 999 })],
+      undefined,
+      undefined,
+      new Map(),
+    );
     expect(node!.parentKey).toBeNull();
   });
 
@@ -135,8 +146,16 @@ describe('buildTicketNodes', () => {
   it('sessionAction reads Continue for a captured interactive session, Start otherwise', () => {
     // Interrupted impl/fix with a captured id → the button continues in place.
     expect(
-      buildTicketNodes([ticket({ sessionId: 'sid', stageCurrent: 'impl' })])[0]!.sessionAction,
+      buildTicketNodes([
+        ticket({ sessionId: 'sid', sessionProvider: 'claude', stageCurrent: 'impl' }),
+      ], undefined, 'claude')[0]!.sessionAction,
     ).toEqual({ kind: 'continue', label: 'Continue', detail: 'resume impl' });
+    // Captured under a different core → resuming it would die, so re-seed.
+    expect(
+      buildTicketNodes([
+        ticket({ sessionId: 'sid', sessionProvider: 'codex', stageCurrent: 'impl' }),
+      ], undefined, 'claude')[0]!.sessionAction,
+    ).toEqual({ kind: 'start', label: 'Start', detail: 're-seed from context' });
     // Drafted, never run (no id) → the button starts a fresh session.
     expect(
       buildTicketNodes([ticket({ sessionId: null, stageCurrent: 'scope' })])[0]!.sessionAction,

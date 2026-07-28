@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { AgentProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildSidebarState } from './state.js';
 import {
@@ -61,6 +62,8 @@ export class SidebarViewManager {
      * the manifest reloads — the sidebar must never cache a stale project id.
      */
     private readonly projectId?: () => number | undefined,
+    /** Live manifest agent core, so the session verb previews the real launch. */
+    private readonly defaultProvider?: () => AgentProvider | undefined,
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -89,6 +92,7 @@ export class SidebarViewManager {
         facets: this.facets,
         filter: this.filter,
         labelTemplate: this.labelTemplate?.(),
+        defaultProvider: this.defaultProvider?.(),
         projectId: this.projectId?.(),
       },
       this.pathContext?.(),

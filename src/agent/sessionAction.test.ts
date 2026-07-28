@@ -7,11 +7,31 @@ describe('sessionAction', () => {
       .toEqual({ kind: 'open', label: 'Open', detail: 'session is live · jump to terminal' });
   });
 
-  it('CONTINUE an interrupted impl/fix with a captured id', () => {
-    expect(sessionAction({ sessionId: 'a', stageCurrent: 'impl', agentState: 'idle' }))
-      .toEqual({ kind: 'continue', label: 'Continue', detail: 'resume impl' });
-    expect(sessionAction({ sessionId: 'a', stageCurrent: 'fix', agentState: 'idle' }))
-      .toEqual({ kind: 'continue', label: 'Continue', detail: 'resume fix' });
+  it('CONTINUE an interrupted impl/fix with a captured id from the same core', () => {
+    expect(sessionAction(
+      { sessionId: 'a', sessionProvider: 'claude', stageCurrent: 'impl', agentState: 'idle' },
+      'claude',
+    )).toEqual({ kind: 'continue', label: 'Continue', detail: 'resume impl' });
+    expect(sessionAction(
+      { sessionId: 'a', sessionProvider: 'codex', stageCurrent: 'fix', agentState: 'idle' },
+      'codex',
+    )).toEqual({ kind: 'continue', label: 'Continue', detail: 'resume fix' });
+  });
+
+  // The verb is a preview of openSession's `--resume` decision, so a session
+  // the launching core cannot resolve must not advertise "Continue".
+  it('START (re-seed) at impl/fix when the captured session belongs to another core', () => {
+    expect(sessionAction(
+      { sessionId: 'a', sessionProvider: 'codex', stageCurrent: 'impl', agentState: 'idle' },
+      'claude',
+    )).toEqual({ kind: 'start', label: 'Start', detail: 're-seed from context' });
+  });
+
+  it('START (re-seed) at impl/fix for an untagged legacy session', () => {
+    expect(sessionAction(
+      { sessionId: 'a', sessionProvider: null, stageCurrent: 'impl', agentState: 'idle' },
+      'claude',
+    )).toEqual({ kind: 'start', label: 'Start', detail: 're-seed from context' });
   });
 
   it('START (re-seed) at impl/fix when no id was captured', () => {

@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { AgentProvider } from '../../manifest/types.js';
 import { listTickets, listArchivedTickets } from '../../store/tickets.js';
 import {
   listServersByTicket,
@@ -69,6 +70,8 @@ export function buildSidebarState(
     facets: FacetSelection;
     filter: string;
     labelTemplate?: string;
+    /** Manifest-level agent core; decides whether a captured session is resumable. */
+    defaultProvider?: AgentProvider;
     /**
      * The window's project (§ projects / multi-window). Both lists are scoped to
      * it — including the counts, or the chip badges would advertise tickets the
@@ -95,7 +98,12 @@ export function buildSidebarState(
     if (t.key !== null) parentKeys.set(t.id, t.key);
   }
 
-  const rows: TicketRow[] = buildTicketNodes(visible, opts.labelTemplate, parentKeys).map((node) => ({
+  const rows: TicketRow[] = buildTicketNodes(
+    visible,
+    opts.labelTemplate,
+    opts.defaultProvider,
+    parentKeys,
+  ).map((node) => ({
     ...node,
     servers: listServersByTicket(store, node.ticketId),
     worktrees: listWorktreesByTicket(store, node.ticketId).map((w) => ({

@@ -28,49 +28,75 @@ import {
 /** Runtime fields that belong under `service:` and nowhere else. */
 const RUNTIME_FIELDS = ['start', 'health', 'ports', 'dependsOn'] as const;
 
-function validatePortSlot(raw: unknown, where: string): PortSlot {
+/**
+ * A string that is required when `strict` (the repository is enabled), and
+ * merely type-checked otherwise — absent/blank normalizes to `''` so a DRAFT
+ * repository can leave the field empty without failing validation.
+ */
+function strictString(v: unknown, where: string, strict: boolean): string {
+  if (strict) return requireString(v, where);
+  if (v === undefined) return '';
+  if (typeof v !== 'string') throw new ManifestError(`${where} must be a string`);
+  return v;
+}
+
+/** A TCP port when `strict`; merely a well-typed number otherwise (0 = unset). */
+function strictPort(v: unknown, where: string, strict: boolean): number {
+  if (strict) return requirePort(v, where);
+  if (v === undefined) return 0;
+  if (typeof v !== 'number' || Number.isNaN(v)) throw new ManifestError(`${where} must be a number`);
+  return v;
+}
+
+/** An array, non-empty when `strict`; merely array-typed otherwise. */
+function strictArray(raw: unknown, where: string, strict: boolean): unknown[] {
+  if (!Array.isArray(raw)) throw new ManifestError(`${where} must be an array`);
+  return raw;
+}
+
+function validatePortSlot(raw: unknown, where: string, strict: boolean): PortSlot {
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
   return {
-    name: requireString(raw.name, `${where}.name`),
-    env: requireString(raw.env, `${where}.env`),
-    default: requirePort(raw.default, `${where}.default`),
+    name: strictString(raw.name, `${where}.name`, strict),
+    env: strictString(raw.env, `${where}.env`, strict),
+    default: strictPort(raw.default, `${where}.default`, strict),
   };
 }
 
-function validateBind(raw: unknown, where: string): BindVar {
+function validateBind(raw: unknown, where: string, strict: boolean): BindVar {
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
   return {
-    env: requireString(raw.env, `${where}.env`),
-    template: requireString(raw.template, `${where}.template`),
+    env: strictString(raw.env, `${where}.env`, strict),
+    template: strictString(raw.template, `${where}.template`, strict),
   };
 }
 
-function validateDependsOn(raw: unknown, repo: string, i: number): DependsOn {
+function validateDependsOn(raw: unknown, repo: string, i: number, strict: boolean): DependsOn {
   const where = `repository "${repo}" service.dependsOn[${i}]`;
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
 
-  const bindRaw = raw.bind;
-  if (!Array.isArray(bindRaw) || bindRaw.length === 0) {
+  const bindRaw = strictArray(raw.bind, `${where}.bind`, strict);
+  if (strict && bindRaw.length === 0) {
     throw new ManifestError(`${where}.bind must be a non-empty array`);
   }
-  const bind = bindRaw.map((b, bi) => validateBind(b, `${where}.bind[${bi}]`));
+  const bind = bindRaw.map((b, bi) => validateBind(b, `${where}.bind[${bi}]`, strict));
 
-  // Two binds writing the same env var: one silently wins at spawn, and which
-  // one depends on iteration order. Never useful, always a mistake.
-  assertUnique(
-    bind.map((b) => b.env),
-    (bi) => `${where}.bind[${bi}]`,
-    'env',
-  );
+  if (strict) {
+    assertUnique(
+      bind.map((b) => b.env),
+      (bi) => `${where}.bind[${bi}]`,
+      'env',
+    );
+  }
 
-  const target = requireString(raw.target, `${where}.target`);
-  if (target === repo) {
+  const target = strictString(raw.target, `${where}.target`, strict);
+  if (target !== '' && target === repo) {
     throw new ManifestError(
       `${where} targets its own repository "${repo}" — a service cannot depend on itself`,
     );
   }
 
-  return { target, port: requireString(raw.port, `${where}.port`), bind };
+  return { target, port: strictString(raw.port, `${where}.port`, strict), bind };
 }
 
 /**
@@ -79,23 +105,31 @@ function validateDependsOn(raw: unknown, repo: string, i: number): DependsOn {
  * omitting `service:` is valid; a repository declaring one must say how to run
  * it and on which port, or it cannot be started or addressed.
  */
-function validateService(raw: unknown, repo: string): ServiceDef {
+function validateService(raw: unknown, repo: string, strict: boolean): ServiceDef {
   const where = `repository "${repo}" service`;
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
 
-  const portsRaw = raw.ports;
-  if (!Array.isArray(portsRaw) || portsRaw.length === 0) {
+  const start = strictString(raw.start, `${where}.start`, strict);
+  // `health` is OPTIONAL, so blank means "not set" — the same normalization
+  // every other optional string in this manifest uses (defaultModel,
+  // ticketLabelTemplate, shipStatus). The settings UI seeds an empty input for
+  // it, and reporting "must be a non-empty string" for a field that is not
+  // required would send the author looking for a value they never owed.
+  const health = optionalString(raw.health, `${where}.health`);
+
+  const portsRaw = strictArray(raw.ports, `${where}.ports`, strict);
+  if (strict && portsRaw.length === 0) {
     throw new ManifestError(
       `${where}.ports must be a non-empty array — a declared service needs at least ` +
         `one port. If "${repo}" is not runnable, omit the whole \`service:\` block.`,
     );
   }
-  const ports = portsRaw.map((p, i) => validatePortSlot(p, `${where}.ports[${i}]`));
+  const ports = portsRaw.map((p, i) => validatePortSlot(p, `${where}.ports[${i}]`, strict));
 
-  // Slot names are referenced by dependsOn.port; env vars are injected at spawn.
-  // A duplicate in either silently shadows the earlier entry.
-  assertUnique(ports.map((p) => p.name), (i) => `${where}.ports[${i}]`, 'name');
-  assertUnique(ports.map((p) => p.env), (i) => `${where}.ports[${i}]`, 'env');
+  if (strict) {
+    assertUnique(ports.map((p) => p.name), (i) => `${where}.ports[${i}]`, 'name');
+    assertUnique(ports.map((p) => p.env), (i) => `${where}.ports[${i}]`, 'env');
+  }
 
   const dependsOnRaw = raw.dependsOn ?? [];
   if (!Array.isArray(dependsOnRaw)) {
@@ -103,15 +137,10 @@ function validateService(raw: unknown, repo: string): ServiceDef {
   }
 
   return {
-    start: requireString(raw.start, `${where}.start`),
-    // `health` is OPTIONAL, so blank means "not set" — the same normalization
-    // every other optional string in this manifest uses (defaultModel,
-    // ticketLabelTemplate, shipStatus). The settings UI seeds an empty input for
-    // it, and reporting "must be a non-empty string" for a field that is not
-    // required would send the author looking for a value they never owed.
-    health: optionalString(raw.health, `${where}.health`),
+    start,
+    health,
     ports,
-    dependsOn: dependsOnRaw.map((d, i) => validateDependsOn(d, repo, i)),
+    dependsOn: dependsOnRaw.map((d, i) => validateDependsOn(d, repo, i, strict)),
   };
 }
 
@@ -158,16 +187,20 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
 
   assertNoStrayRuntimeFields(raw, name);
 
+  // Draft state: `enabled: false` relaxes required-field checks below so an
+  // incomplete repository can still be saved. Absent/anything-but-`false` is
+  // enabled — same convention as ApproachDef.enabled / AgentDef.enabled.
+  const enabled = raw.enabled !== false;
+
   const repo: RepositoryDef = {
-    repoPath: requireString(raw.repoPath, `${where}.repoPath`),
+    repoPath: strictString(raw.repoPath, `${where}.repoPath`, enabled),
     baselineBranch: optionalString(raw.baselineBranch, `${where}.baselineBranch`),
     hasMigrations: raw.hasMigrations === true, // default false
     signals: validateSignals(raw.signals, name),
+    enabled,
   };
 
-  // Absent `service:` is the non-runnable case and entirely valid. Only build
-  // the relation when the author actually declared one.
   return raw.service === undefined
     ? repo
-    : { ...repo, service: validateService(raw.service, name) };
+    : { ...repo, service: validateService(raw.service, name, enabled) };
 }

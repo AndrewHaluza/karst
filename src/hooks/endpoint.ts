@@ -4,6 +4,7 @@ import {
   dispatchHook,
   parseHookPayload,
   type NotifyTicket,
+  type SessionProviderFor,
   type ShouldApplyHookState,
 } from './dispatch.js';
 import { hookUrl } from '../agent/settings.js';
@@ -62,6 +63,7 @@ export function startHookEndpoint(
   notify?: NotifyTicket,
   logError: LogError = (m, e) => console.error(m, e),
   shouldApplyState?: ShouldApplyHookState,
+  sessionProviderFor?: SessionProviderFor,
 ): Promise<HookEndpoint> {
   return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -114,6 +116,7 @@ export function startHookEndpoint(
               dispatchPayload,
               notify,
               shouldApplyState,
+              sessionProviderFor,
             );
           } catch (err) {
             logError('karst: hook dispatch failed', err);
