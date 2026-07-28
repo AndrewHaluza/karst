@@ -4,7 +4,11 @@ import { STAGE_KEYS } from '../model/types.js';
 import { rowToStage, type Stage } from './stages.js';
 import { renderTicketLabel } from './ticketLabelTemplate.js';
 import type { AgentProvider } from '../manifest/types.js';
+// `provider.js`, not `registry.js`: the re-export still works, but importing the
+// registry pulls the launch adapters (and `node:child_process`) into every
+// consumer of this module — the edge `diagnostics/nonInterference.test.ts` bans.
 import { isKnownProvider } from '../agent/provider.js';
+import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
 
 export interface Ticket {
   id: number;
@@ -41,10 +45,20 @@ export interface Ticket {
    */
   sessionProvider: AgentProvider | null;
   /**
+   * Conventional-commit type feeding the `{type}` token of the branch/commit/PR
+   * templates; `null` = inherit `conventions.defaultType` (else `feat`).
+   */
+  type: TicketType | null;
+  /**
    * Owning project (§ projects / multi-window); `null` for a ticket created
    * before v6, until the first window to bind adopts it.
    */
   projectId: number | null;
+  /**
+   * The completed ticket this one continues work from (§ continue work on a
+   * ticket); `null` for an ordinary ticket. Set once, at creation.
+   */
+  parentTicketId: number | null;
 }
 
 export interface TicketWithStages extends Ticket {
@@ -71,7 +85,9 @@ interface TicketRow {
   model: string | null;
   agent_provider: string | null;
   session_provider: string | null;
+  type: string | null;
   project_id: number | null;
+  parent_ticket_id: number | null;
 }
 
 /**
@@ -116,7 +132,11 @@ function rowToTicket(r: TicketRow): Ticket {
     model: r.model,
     agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
     sessionProvider: isKnownProvider(r.session_provider) ? r.session_provider : null,
+    // Narrow on read too: the column is plain TEXT, and a value that predates a
+    // vocabulary change must degrade to "inherit the default", never render.
+    type: isTicketType(r.type) ? r.type : null,
     projectId: r.project_id,
+    parentTicketId: r.parent_ticket_id,
   };
 }
 
@@ -134,13 +154,15 @@ export function createTicket(
     description?: string;
     /** Owning project; omitted only by legacy/test callers that predate scoping. */
     projectId?: number;
+    /** Links a follow-up ticket to the completed parent it continues work from. */
+    parentTicketId?: number;
   },
 ): Ticket {
   const create = store.db.transaction((): Ticket => {
     const info = store.db
       .prepare(
-        `INSERT INTO tickets (key, title, source, description, project_id, stage_current, agent_state)
-         VALUES (?, ?, ?, ?, ?, 'scope', 'none')`,
+        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, stage_current, agent_state)
+         VALUES (?, ?, ?, ?, ?, ?, 'scope', 'none')`,
       )
       .run(
         input.key,
@@ -148,6 +170,7 @@ export function createTicket(
         input.source ?? 'manual',
         input.description ?? null,
         input.projectId ?? null,
+        input.parentTicketId ?? null,
       );
     const id = Number(info.lastInsertRowid);
 
@@ -321,6 +344,12 @@ export interface OnboardingPatch {
   model?: string;
   /** Per-ticket agent-core override; empty string clears it back to inherit. */
   agentProvider?: string;
+  /**
+   * Conventional-commit type; empty string clears it back to inherit. Validated
+   * against `TICKET_TYPES` here — the value reaches branch names and PR titles,
+   * and the analyzer that suggests it is an untrusted (model) source.
+   */
+  type?: string;
 }
 
 /**
@@ -353,6 +382,14 @@ export function updateTicketOnboarding(
   // ticket at a different core without any ticket row being written.
   if (patch.agentProvider !== undefined) {
     columns.agent_provider = patch.agentProvider === '' ? null : patch.agentProvider;
+  }
+  if (patch.type !== undefined) {
+    if (patch.type !== '' && !isTicketType(patch.type)) {
+      throw new Error(
+        `unknown ticket type "${patch.type}" (expected one of: ${TICKET_TYPES.join(', ')})`,
+      );
+    }
+    columns.type = patch.type === '' ? null : patch.type;
   }
 
   const entries = Object.entries(columns);

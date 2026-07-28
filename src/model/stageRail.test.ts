@@ -31,6 +31,13 @@ describe('buildStageRail', () => {
     expect(r.branch.status).toBe('running');
   });
 
+  it('carries a successful fix as passed so the branch can render healthy', () => {
+    expect(rail({ fix: 'passed' }).branch).toMatchObject({
+      stageKey: 'fix',
+      status: 'passed',
+    });
+  });
+
   it('gives every stage a place — main and branch together cover the stepper', () => {
     const r = rail({});
     const placed = [...r.main.map((c) => c.stageKey), r.branch.stageKey];

@@ -57,6 +57,13 @@ describe('dashboard webview.html', () => {
     expect(fixAt).toBeGreaterThan(showFixAt);
   });
 
+  it('renders the fix branch status and paints a successful fix green', () => {
+    expect(HTML).toContain('const fixClass = STEP_CLASS[rail.branch.status]');
+    expect(HTML).toContain('fixnode ${fixClass}');
+    expect(HTML).toContain("rail.branch.status === 'passed'");
+    expect(HTML).toMatch(/\.loop \.fixnode\.done \.node\{[^}]*--stg-color:var\(--st-done\)/);
+  });
+
   it('hides the fix branch by default, behind an expand/collapse toggle', () => {
     // fix is a RETURN CHANNEL reached only on a failed gate, so it must not eat
     // graph space on a ticket that never looped. It rides behind a toggle and a
@@ -282,6 +289,17 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/renderInside\(shippingView\(state, sel\), sel\)/);
     expect(HTML).not.toContain('renderShipProgress');
     expect(HTML).not.toMatch(/shipLabel/);
+  });
+
+  it('shows the follow-up button only once the ticket is done', () => {
+    expect(HTML).toContain('id="followUpBtn"');
+    expect(HTML).toContain(
+      "el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done')",
+    );
+  });
+
+  it('wires the follow-up button to create-follow-up-ticket', () => {
+    expect(HTML).toContain("post({ type: 'create-follow-up-ticket' })");
   });
 
   it('resolves the ship to an explicit success flash', () => {

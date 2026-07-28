@@ -8,6 +8,8 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { runReview, type GateRunner } from './review.js';
 import { listGateRuns } from '../../store/gateRuns.js';
+import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
+import type { GitRunner } from '../../integrations/git.js';
 
 function walkToReview(store: Store, id: number): void {
   transition(store, id, 'scope', { kind: 'passed' });
@@ -165,5 +167,71 @@ describe('runReview', () => {
 
     expect(listGateRuns(store, id)).toEqual([]);
     expect(getTicket(store, id).stageCurrent).toBe('review'); // no advance either
+  });
+
+  describe('repository-aware triggers', () => {
+    const project = manifest({
+      api: runnableRepo({}, { repoPath: '/repos/api' }),
+      web: runnableRepo(
+        { dependsOn: [dependsOn('api', 'http', [{ env: 'API', template: '{port}' }])] },
+        { repoPath: '/repos/web' },
+      ),
+      docs: runnableRepo({}, { repoPath: '/repos/docs' }),
+    });
+
+    function seed(repo: string, path: string): void {
+      store.db
+        .prepare(
+          `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+           VALUES (?, ?, ?, 'karst/x', 'develop', 'inherited')`,
+        )
+        .run(id, repo, path);
+    }
+
+    function changed(...paths: string[]): GitRunner {
+      return async (args, cwd) => ({
+        stdout: '',
+        stderr: '',
+        exitCode: args[0] === 'diff' && paths.includes(cwd) ? 1 : 0,
+      });
+    }
+
+    it('runs no checks when no repo changed and no relation is affected', async () => {
+      seed('/repos/api', '/wt/api');
+      seed('/repos/web', '/wt/web');
+      const runner = vi.fn(PASS_GATES);
+
+      const result = await runReview(
+        store,
+        { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
+        runner,
+        openDiff as never,
+        changed(),
+      );
+
+      expect(runner).not.toHaveBeenCalled();
+      expect(openDiff).not.toHaveBeenCalled();
+      expect(result.gates).toEqual([]);
+      expect(result.verdict).toEqual({ kind: 'passed' });
+    });
+
+    it('checks a directly changed repo and each relation-impacted dependent only', async () => {
+      seed('/repos/api', '/wt/api');
+      seed('/repos/web', '/wt/web');
+      seed('/repos/docs', '/wt/docs');
+      const runner = vi.fn(PASS_GATES);
+
+      await runReview(
+        store,
+        { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
+        runner,
+        openDiff as never,
+        changed('/wt/api'),
+      );
+
+      expect(runner.mock.calls.map(([cwd]) => cwd)).toEqual(['/wt/api', '/wt/web']);
+      expect(runner).not.toHaveBeenCalledWith('/wt/docs');
+      expect(openDiff.mock.calls.map((call) => call[1])).toEqual(['/wt/api', '/wt/web']);
+    });
   });
 });

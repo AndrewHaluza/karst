@@ -7,6 +7,11 @@ import {
 import { buildSettingsState, type SettingsState } from './state.js';
 import type { SettingsActionsFactory } from './actions.js';
 import type { LogError } from '../../logging/logger.js';
+import {
+  bundledModelCatalog,
+  type ModelCatalog,
+} from '../../agent/modelCatalog.js';
+import { compatibilityModelCatalog } from '../../agent/models.js';
 
 /** The subset of a `vscode.WebviewPanel` the manager touches (host-agnostic). */
 export interface SettingsPanel {
@@ -50,6 +55,8 @@ export class SettingsManager {
     private readonly listApproachCommands: () => Record<string, string[]> = () => ({}),
     /** Report a caught pump error to the Karst output channel (§ todo-5). */
     private readonly logError: LogError = (m, e) => console.error(m, e),
+    /** Current launch-model catalog, refreshed independently of the manifest. */
+    private readonly modelCatalog: () => ModelCatalog = bundledModelCatalog,
   ) {}
 
   async open(): Promise<void> {
@@ -75,8 +82,25 @@ export class SettingsManager {
     });
     panel.onDidDispose(() => (this.panel = undefined));
 
+    await this.pushState(panel);
+  }
+
+  /** Push the current catalog to the settings panel when it is still live. */
+  async refreshModels(): Promise<void> {
+    const panel = this.panel;
+    if (!panel) return;
+    const models = this.modelCatalog();
+    panel.postMessage({
+      type: 'models',
+      models,
+      modelCompatibility: compatibilityModelCatalog(models),
+    });
+  }
+
+  private async pushState(panel: SettingsPanel): Promise<void> {
     const { manifest, error } = this.loadState();
     const tokenConfigured = await this.hasToken();
+    if (this.panel !== panel) return;
     panel.postMessage({
       type: 'state',
       state: buildSettingsState(
@@ -87,6 +111,7 @@ export class SettingsManager {
         undefined,
         this.listAgentRows(),
         this.listApproachCommands(),
+        this.modelCatalog(),
       ),
     });
   }

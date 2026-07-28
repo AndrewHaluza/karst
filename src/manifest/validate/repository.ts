@@ -198,6 +198,9 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
     hasMigrations: raw.hasMigrations === true, // default false
     signals: validateSignals(raw.signals, name),
     enabled,
+    // Conventional-commit scope for `{scope}`; blank normalizes to undefined so
+    // the renderer falls back to the repository name rather than emitting "()".
+    scope: optionalString(raw.scope, `${where}.scope`),
   };
 
   return raw.service === undefined

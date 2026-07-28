@@ -96,6 +96,42 @@ describe('archive/restore worktree', () => {
     expect(listArchives(store, 1)).toHaveLength(0);
   });
 
+  // A templated branch may carry slashes of its own (`karst/feat/<slug>`). The
+  // archive slug comes from the worktree PATH, not from stripping a `karst/`
+  // prefix off the branch, so the ref stays flat and restore reuses the stored
+  // branch verbatim instead of re-deriving it.
+  it('round-trips a templated branch whose name carries extra slashes', async () => {
+    const rec = createWorktree(store, {
+      ticketId: 2,
+      repoPath: repo.path,
+      slug: 'K-7',
+      branch: 'karst/feat/k-7-add-search',
+      baseRef: 'develop',
+    });
+    expect(rec.branch).toBe('karst/feat/k-7-add-search');
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    writeFileSync(join(rec.path, 'index.js'), 'console.log(3);\n');
+
+    const res = await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 2,
+      repoPath: repo.path,
+      path: rec.path,
+      branch: rec.branch,
+      baseRef: 'develop',
+    });
+    expect(res.outcome).toBe('archived');
+    expect(res.archiveRef).toBe('refs/karst/archive/K-7');
+
+    const rr = await restoreWorktree(defaultGitRunner, store, { ticketId: 2, path: rec.path });
+    expect(rr.outcome).toBe('restored');
+    expect(readFileSync(join(rec.path, 'index.js'), 'utf8')).toBe('console.log(3);\n');
+    // Restored onto the SAME branch — no second branch was invented.
+    expect(git(rec.path, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe(
+      'karst/feat/k-7-add-search',
+    );
+    expect(listArchives(store, 2)).toHaveLength(0);
+  });
+
   it('with no uncommitted changes, records an empty ref and restore recreates a clean worktree', async () => {
     const rec = spinWorktree();
     const alloc = makePortAllocator(store, [4000, 4100]);

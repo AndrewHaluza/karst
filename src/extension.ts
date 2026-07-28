@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
@@ -12,6 +11,7 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
   continueSessionInBackground,
+  deferSessionRetry,
   KARST_LAUNCH_ENV,
   KARST_TICKET_ENV,
   SessionManager,
@@ -31,6 +31,12 @@ import {
 } from './ui/sessionRecovery.js';
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
+import { bundledModelCatalog } from './agent/modelCatalog.js';
+import {
+  formatCatalogDiagnostic,
+  loadModelCatalog,
+} from './agent/modelCatalogLoader.js';
+import { makeMementoCatalogCache } from './agent/modelCatalogCache.js';
 import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
@@ -86,7 +92,11 @@ import {
   emptyManifest,
   scaffoldManifest,
 } from './extension/manifestResolve.js';
-import { installApproach, type RunCommand } from './approaches/fetch.js';
+import { installApproach } from './approaches/fetch.js';
+import {
+  cancelAllNpmCommands,
+  runNpmCommand,
+} from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
   ApproachDef,
@@ -112,6 +122,7 @@ import { runReview } from './workflow/stages/review.js';
 import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
+import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
 import {
   getTicket,
   ticketLabel,
@@ -211,6 +222,7 @@ const PR_SYNC_INTERVAL_MS = 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
 const pendingSessionRecoveryTasks = new Set<Promise<void>>();
@@ -240,6 +252,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
   logger.info('Karst activated');
+  let modelCatalog = bundledModelCatalog();
+  const modelCatalogCache = makeMementoCatalogCache(context.globalState);
 
   // Sidebar ticket list — an HTML webview view (replaces the native tree). The
   // manager holds facet/filter + re-pushes state; its action factory maps webview
@@ -331,18 +345,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (ticketId, launchId) =>
       recoveryLifecycle.adoptLaunch(ticketId, launchId),
     // The captured session id no longer resolves (agent CLI rejected `--resume`
-    // and exited before starting) — clear it so the NEXT open re-seeds a fresh
-    // session instead of repeating the same crash forever, and tell the user
-    // why the terminal they just saw close did nothing.
-    (ticketId) => {
+    // and exited before starting) — clear it and immediately re-run the normal
+    // open path. That path rebuilds the full live seed, rather than reusing the
+    // terse resume prompt, so one click still produces a usable session.
+    (ticketId, options) => {
       setSessionId(localStore, ticketId, null, null);
       provider.refresh();
       dashboard.pushState(ticketId);
       const t = getTicket(localStore, ticketId);
       void vscode.window.showWarningMessage(
         `Karst: couldn't resume the previous session for "${t.key ?? `#${ticketId}`}" ` +
-          `(it may have expired or the worktree was recreated). Starting a fresh session next time.`,
+          `(it may have expired or the worktree was recreated). Retrying with a fresh session.`,
       );
+      // A background `recoverSession` observes the same close and may dispose
+      // the failed generation. Defer to the next event-loop turn so its awaited
+      // cleanup chain cannot mistake the fresh replacement for that terminal.
+      deferSessionRetry(() => {
+        void vscode.commands.executeCommand('karst.openSession', ticketId, options).then(
+          undefined,
+          (error) => logError(`fresh session retry failed for ticket ${ticketId}`, error),
+        );
+      });
     },
   );
 
@@ -539,23 +562,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  // Real shell-out for npm-source approach installs: run the source's command
-  // via a shell (it's a full command string like "npx get-shit-done init"),
-  // mirroring the spawnSync shape in src/runtime/worktree.ts:202-213.
-  const realRunCommand: RunCommand = (cmd, cwd) => {
-    const r = spawnSync(cmd, { cwd, encoding: 'utf8', shell: true });
-    return { code: r.status ?? 1, out: (r.stdout ?? '') + (r.stderr ?? '') };
-  };
-
   // Bound installer for the approaches picker (Phase E). `approachesDirOrThrow`
   // is resolved at call time, not here, so it reflects the current
   // workspace/setting and doesn't throw at activation when there's no folder.
-  const installApproachHere = (def: ApproachDef): Promise<ApproachPackage> =>
-    installApproach(def, {
+  const installApproachHere = (def: ApproachDef): Promise<ApproachPackage> => {
+    const install = installApproach(def, {
       fetchFn: fetch,
       baseDir: approachesDirOrThrow(),
-      runCommand: realRunCommand,
+      runCommand: runNpmCommand,
     });
+    if (def.source?.type === 'npm') {
+      pendingApproachInstalls.add(install);
+      void install.then(
+        () => pendingApproachInstalls.delete(install),
+        () => pendingApproachInstalls.delete(install),
+      );
+    }
+    return install;
+  };
   // Ids of approach packages already installed on disk, for the onboarding
   // state (Task E1). `approachesDirOrThrow` throws with no workspace folder;
   // guarded to "nothing installed" so onboarding still opens in that case.
@@ -704,6 +728,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (ticketId) => sessions.isOpen(ticketId),
     logError,
     tabIconFor,
+    () => modelCatalog,
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -851,13 +876,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return readFileSync(join(dir, approachId, art.relPath), 'utf8');
       },
       makeProvider: (config) => makeTicketingProvider(config, fetch, makeTokenProvider(context)),
+      modelCatalog: () => modelCatalog,
     }),
     listInstalledApproachIds,
     () => hasToken(context),
     listAgentRows,
     listApproachCommands,
     logError,
+    () => modelCatalog,
   );
+
+  // Discovery is deliberately detached from activation: bundled models render
+  // immediately, while successful CLI/feed/cache results repaint live panels.
+  // Provider-level failures are normal loader values; only an unexpected
+  // rejection reaches this top-level catch.
+  void loadModelCatalog({ cache: modelCatalogCache })
+    .then(async (loaded) => {
+      for (const diagnostic of loaded.diagnostics) {
+        logger.warn(`karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`);
+      }
+      modelCatalog = loaded.catalog;
+      onboarding.refreshModels();
+      await settings.refreshModels();
+    })
+    .catch((error) => logError('karst: model catalog load failed', error));
 
   const dashboard = new DashboardManager(
     localStore,
@@ -982,7 +1024,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               () => getTicket(localStore, id).stageCurrent as StageKey,
             ),
           runReview: (id, cwd) =>
-            runReview(localStore, { ticketId: id, cwd, artifactDir: artifactDirFor(id) }).then(
+            runReview(localStore, {
+              ticketId: id,
+              cwd,
+              artifactDir: artifactDirFor(id),
+              manifest: currentManifest(),
+            }).then(
               () => getTicket(localStore, id).stageCurrent as StageKey,
             ),
         },
@@ -1469,6 +1516,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         launchProvider,
         t.model,
         currentManifest()?.defaultModel,
+        modelCatalog,
       );
 
       // Terminal name/icon/color are frozen at creation, so resolve the ticket's
@@ -1597,6 +1645,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!manifest) return;
       manifests.set(manifest, manifestPathOrThrow());
       onboarding.openEdit(ticketId);
+    }),
+    // Follow-up: a done ticket spawns a linked child that inherits its
+    // repos/approach/agent/model and carries its brief+PRs into the new
+    // session's context (§ continue work on a ticket). Opens onboarding-edit so
+    // the user types the actual follow-up ask straight away.
+    vscode.commands.registerCommand('karst.createFollowUpTicket', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg);
+      if (ticketId === undefined) return;
+      let child;
+      try {
+        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id });
+      } catch (err) {
+        const message =
+          err instanceof TicketNotDoneError
+            ? err.message
+            : `Couldn't create a follow-up ticket: ${err instanceof Error ? err.message : String(err)}`;
+        void vscode.window.showErrorMessage(message);
+        return;
+      }
+      provider.refresh();
+      const manifest = await resolveManifest();
+      if (manifest) manifests.set(manifest, manifestPathOrThrow());
+      onboarding.openEdit(child.id);
+      void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
     }),
     vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
@@ -1826,16 +1898,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
-  endpoint?.close();
+  const cleanupErrors: unknown[] = [];
+  try {
+    await cancelAllNpmCommands();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  await Promise.allSettled([...pendingApproachInstalls]);
+  pendingApproachInstalls.clear();
+  try {
+    await endpoint?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   endpoint = undefined;
-  shutdownSessionRecovery?.();
+  try {
+    shutdownSessionRecovery?.();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   await Promise.allSettled([...pendingSessionRecoveryTasks]);
-  await flushSessionOwnership?.();
+  try {
+    await flushSessionOwnership?.();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   pendingSessionRecoveryTasks.clear();
   shutdownSessionRecovery = undefined;
   flushSessionOwnership = undefined;
-  store?.close();
+  try {
+    store?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   store = undefined;
+  if (cleanupErrors.length === 1) throw cleanupErrors[0];
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, 'karst: extension deactivation cleanup failed');
+  }
 }
 
 /**
@@ -2196,6 +2296,11 @@ function makeDashboardActions(
     // action already uses; `SessionManager.openSession` resolves --resume vs.
     // a fresh launch on its own.
     resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
+    // Opens the onboarding edit page on the new ticket so the user can type
+    // the actual follow-up ask straight away — the command itself copies
+    // repos/approach/agent/model from this ticket.
+    createFollowUpTicket: () =>
+      void vscode.commands.executeCommand('karst.createFollowUpTicket', ticketId),
     // A failed gate's log, opened read-only in an editor — the "why" behind a red
     // node, without sending the user to the dev-only output channel.
     openStageLog: (path) => {

@@ -51,6 +51,14 @@ export interface TicketContextPr {
   mergeCheck?: MergeCheckView;
 }
 
+/** The completed ticket this one continues work from, or null for an ordinary ticket. */
+export interface TicketContextParent {
+  key: string | null;
+  title: string | null;
+  brief: string | null;
+  prs: { repo: string; number: number | null; url: string | null }[];
+}
+
 /**
  * One repository in the ticket's scope, as the agent sees it.
  *
@@ -84,6 +92,8 @@ export interface TicketContext {
   worktrees: TicketContextWorktree[];
   servers: TicketContextServer[];
   prs: TicketContextPr[];
+  /** Set when this ticket was created via "create follow-up" from a completed parent. */
+  parent: TicketContextParent | null;
   repos: TicketContextRepo[];
 }
 
@@ -114,6 +124,29 @@ export function buildTicketContext(
       ...(service?.health !== undefined ? { health: service.health } : {}),
     };
   });
+
+  // A follow-up carries its parent's brief and shipped PRs so the new session
+  // starts from what was already learned instead of re-researching it
+  // (§ continue work on a ticket).
+  const parent: TicketContextParent | null = (() => {
+    if (t.parentTicketId === null) return null;
+    let p;
+    try {
+      p = getTicket(store, t.parentTicketId);
+    } catch {
+      return null; // parent was hard-deleted; degrade rather than fail context building
+    }
+    return {
+      key: p.key,
+      title: p.title,
+      brief: p.brief,
+      prs: listPrsByTicket(store, p.id).map((pr) => ({
+        repo: pr.repo,
+        number: pr.number,
+        url: pr.url,
+      })),
+    };
+  })();
 
   return {
     key: t.key,
@@ -150,6 +183,7 @@ export function buildTicketContext(
           : {}),
       };
     }),
+    parent,
     repos,
   };
 }
@@ -216,6 +250,22 @@ export function renderTicketContext(ctx: TicketContext): string {
       return `- ${p.repo} ${num}${status}${url}${merge}`;
     });
     parts.push(`## Pull requests\n${rows.join('\n')}`);
+  }
+
+  if (ctx.parent) {
+    const heading =
+      ctx.parent.key && ctx.parent.title
+        ? `${ctx.parent.key}: ${ctx.parent.title}`
+        : ctx.parent.key || ctx.parent.title || 'parent ticket';
+    const lines: string[] = [];
+    const parentBrief = ctx.parent.brief?.trim();
+    if (parentBrief) lines.push(parentBrief);
+    for (const pr of ctx.parent.prs) {
+      const num = pr.number !== null ? `#${pr.number}` : '(no number)';
+      const url = pr.url ? ` — ${pr.url}` : '';
+      lines.push(`- ${pr.repo} ${num}${url}`);
+    }
+    parts.push(`## Continuing from ${heading}\n${lines.join('\n')}`);
   }
 
   return parts.join('\n\n');

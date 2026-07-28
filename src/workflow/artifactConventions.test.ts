@@ -11,12 +11,14 @@ const context: ArtifactTemplateContext = {
   key: 'PROJ-42',
   title: 'Add search',
   repo: 'frontend',
+  type: 'feat',
+  scope: 'web',
   description: 'Adds indexed search.',
 };
 
 describe('artifact convention validation', () => {
   it('allows the common variables for every artifact', () => {
-    const template = '{title} {key} {id} {repo}';
+    const template = '{title} {key} {id} {repo} {type} {scope}';
     expect(() => validateArtifactTemplate('commitMessage', template)).not.toThrow();
     expect(() => validateArtifactTemplate('pullRequestTitle', template)).not.toThrow();
     expect(() => validateArtifactTemplate('pullRequestDescription', template)).not.toThrow();
@@ -78,6 +80,12 @@ describe('artifact convention rendering', () => {
         { ...context, description: '' },
       ),
     ).toThrow(/pullRequestDescription.*blank/);
+  });
+
+  it('renders a conventional-commit subject from type and scope', () => {
+    expect(
+      renderArtifactTemplate('commitMessage', '{type}({scope}): {title} [{key}]', context),
+    ).toBe('feat(web): Add search [PROJ-42]');
   });
 
   it('detects whether generated description prose is required', () => {

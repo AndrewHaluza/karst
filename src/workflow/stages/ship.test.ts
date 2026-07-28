@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
-import { getTicket } from '../../store/tickets.js';
+import { getTicket, updateTicketOnboarding } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { transition } from '../machine.js';
@@ -13,6 +13,7 @@ import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { manifest, repo } from '../../manifest/fixtures.js';
+import { buildPrDescriptionPrompt } from '../prDescription.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string, path: string): void {
   store.db
@@ -123,6 +124,41 @@ describe('shipTicket', () => {
   afterEach(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('uses the asynchronous gh runner by default and leaves the event loop responsive', async () => {
+    const worktree = join(dir, 'fe');
+    mkdirSync(worktree);
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    const binDir = join(dir, 'bin');
+    const executable = join(binDir, 'gh');
+    const originalPath = process.env.PATH;
+    mkdirSync(binDir);
+    writeFileSync(
+      executable,
+      `#!/usr/bin/env node
+setTimeout(() => {
+  if (process.argv.includes('view')) process.exitCode = 1;
+  else process.stdout.write('https://github.com/o/r/pull/7');
+}, 30);
+`,
+    );
+    chmodSync(executable, 0o755);
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`;
+    let responsive = false;
+    setTimeout(() => {
+      responsive = true;
+    }, 0);
+
+    try {
+      const result = await shipTicket(store, { ticketId: id }, undefined, undefined, fakeGit().git);
+      expect(responsive).toBe(true);
+      expect(result.prs).toEqual([
+        { repo: '/repo/frontend', number: 7, url: 'https://github.com/o/r/pull/7' },
+      ]);
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   // `gh pr create` refuses a branch that exists only locally: "you must first push
@@ -454,6 +490,69 @@ describe('shipTicket', () => {
       expect(headless).toBe(1);
     });
 
+    it('renders {type} from the ticket and {scope} from the repository', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      updateTicketOnboarding(store, id, { type: 'fix' });
+      const gitCalls: string[][] = [];
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({
+            frontend: repo({ repoPath: '/repo/frontend', scope: 'web' }),
+          }),
+          conventions: {
+            commitMessage: '{type}({scope}): {title} [{key}]',
+            pullRequestTitle: '{type}({scope}): {title}',
+          },
+        },
+        gh,
+        undefined,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual(['commit', '-m', 'fix(web): add search [PROJ-1]']);
+      expect(creates[0]).toContain('fix(web): add search');
+    });
+
+    it('falls back to the manifest default type and the repository name as scope', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const gitCalls: string[][] = [];
+      const { gh } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({ frontend: repo({ repoPath: '/repo/frontend' }) }),
+          conventions: { commitMessage: '{type}({scope}): {title}', defaultType: 'chore' },
+        },
+        gh,
+        undefined,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual(['commit', '-m', 'chore(frontend): add search']);
+    });
+
+    it('falls back to feat when neither the ticket nor the manifest sets a type', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const gitCalls: string[][] = [];
+      const { gh } = recordingGh();
+
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { commitMessage: '{type}: {title}' } },
+        gh,
+        undefined,
+        dirtyGit(gitCalls),
+      );
+
+      expect(gitCalls).toContainEqual(['commit', '-m', 'feat: add search']);
+    });
+
     it('keeps absent commit and body behavior when only the PR title is configured', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const gitCalls: string[][] = [];
@@ -476,9 +575,7 @@ describe('shipTicket', () => {
       );
 
       expect(gitCalls).toContainEqual(['commit', '-m', 'add search']);
-      expect(prompts).toEqual([
-        'Write a concise pull-request description for the changes in this worktree. Title: [PROJ-1] add search',
-      ]);
+      expect(prompts).toEqual([buildPrDescriptionPrompt('[PROJ-1] add search')]);
       expect(creates[0]).toEqual([
         'pr',
         'create',
@@ -594,6 +691,92 @@ describe('shipTicket', () => {
         '--base',
         'develop',
       ]);
+    });
+  });
+
+  // The reported bug: the PR body carried the session's own chatter ("No PR open
+  // yet for this branch. Description below (copy-paste ready).") and the whole
+  // description sat inside a code fence, so GitHub rendered one monospace block
+  // with no markdown at all. The agent's answer is now sanitized before it
+  // reaches `--body`; these feed a representative session answer end to end.
+  describe('PR body hygiene', () => {
+    /** What an agent answering a chat-shaped question actually hands back. */
+    const SESSION_ANSWER = [
+      'No PR open yet for this branch. Description below (copy-paste ready).',
+      '',
+      '```markdown',
+      '## Summary',
+      '',
+      'Sanitize `describePr` output before it reaches `gh pr create --body`.',
+      '',
+      '```bash',
+      'npm test',
+      '```',
+      '```',
+      '',
+      'Let me know if you want any changes.',
+    ].join('\n');
+
+    function chattyAdapter(): AgentAdapter {
+      return {
+        ...fakeAdapter(),
+        runHeadless: async () => ({ sessionId: 's', verdict: null, raw: SESSION_ANSWER }),
+      };
+    }
+
+    function bodyOf(creates: string[][]): string {
+      const args = creates[0]!;
+      return args[args.indexOf('--body') + 1]!;
+    }
+
+    function recordingGh(): { gh: GhRunner; creates: string[][] } {
+      const creates: string[][] = [];
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        creates.push(args);
+        return { stdout: 'https://github.com/o/r/pull/7', exitCode: 0 };
+      };
+      return { gh, creates };
+    }
+
+    it('strips session chatter and the whole-body fence from the created PR body', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(store, { ticketId: id }, gh, chattyAdapter(), fakeGit().git);
+
+      const body = bodyOf(creates);
+      expect(body).not.toMatch(/copy-paste ready/i);
+      expect(body).not.toMatch(/no pr open yet/i);
+      expect(body).not.toMatch(/let me know/i);
+      // No wrapper fence: the body starts with the description itself.
+      expect(body.startsWith('```')).toBe(false);
+      expect(body.startsWith('## Summary')).toBe(true);
+      // The real code block survives, language tag intact.
+      expect(body).toContain('```bash\nnpm test\n```');
+      expect(body).toContain('`describePr`');
+    });
+
+    it('sanitizes the description before it is interpolated into a body template', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          conventions: { pullRequestDescription: '{description}\n\nTicket {key}' },
+        },
+        gh,
+        chattyAdapter(),
+        fakeGit().git,
+      );
+
+      const body = bodyOf(creates);
+      expect(body).not.toMatch(/copy-paste ready/i);
+      expect(body).not.toMatch(/no pr open yet/i);
+      expect(body.startsWith('## Summary')).toBe(true);
+      expect(body).toContain('Ticket PROJ-1');
     });
   });
 

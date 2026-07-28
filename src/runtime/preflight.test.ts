@@ -180,6 +180,26 @@ describe('preflightSpin', () => {
     ).not.toThrow();
   });
 
+  // Changing `conventions.branchName` must not orphan a ticket that is already
+  // spun: its worktree path is per-TICKET, so the folder standing there on the
+  // OLD branch is ours and `createWorktree` adopts it by path.
+  it('passes when our worktree sits at the target path on a pre-template branch', () => {
+    const r = repo('develop');
+    const ownWt = join(r, '.karst', 'worktrees', '1-frontend');
+    git(r, 'worktree', 'add', '-q', '-b', 'karst/1-frontend', ownWt, 'develop');
+    expect(() =>
+      preflightSpin(manifest('develop', { frontend: svc(r) }), '1-frontend', ['frontend'], 'karst/feat/1-frontend'),
+    ).not.toThrow();
+  });
+
+  it('still rejects a non-worktree folder squatting the target path', () => {
+    const r = repo('develop');
+    mkdirSync(join(r, '.karst', 'worktrees', '1-frontend'), { recursive: true });
+    expect(() =>
+      preflightSpin(manifest('develop', { frontend: svc(r) }), '1-frontend', ['frontend'], 'karst/feat/1-frontend'),
+    ).toThrow(SpinError);
+  });
+
   it('throws SpinError when the target branch is checked out by another worktree', () => {
     const r = repo('develop');
     const otherWt = join(r, '.karst', 'worktrees', 'elsewhere');

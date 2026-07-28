@@ -388,6 +388,7 @@
 
 <nav class="nav">
   <button class="nav-btn active" data-section="general">General</button>
+  <button class="nav-btn" data-section="git">Git</button>
   <button class="nav-btn" data-section="services">Repositories</button>
   <button class="nav-btn" data-section="approaches">Approaches</button>
   <button class="nav-btn" data-section="agents">Agents</button>
@@ -445,13 +446,47 @@
           <select id="f-defaultModel"></select>
         </div>
       </div>
+    </div>
+
+    <!-- Git -->
+    <div class="section hidden" id="section-git">
       <div class="card open">
         <div class="card-body" style="display:block;padding-top:14px">
-          <h2>Commit &amp; pull request conventions</h2>
+          <h2>Branch, commit &amp; pull request conventions</h2>
           <p class="convention-intro">
-            Optional templates for artifacts Karst creates while shipping.
-            Leave a field empty to keep Karst's current behavior.
+            Templates for the git artifacts Karst creates itself: the ticket branch,
+            the fallback commit, and new pull requests. Leave a field empty to keep
+            Karst's current behavior, or start from a preset and edit it.
           </p>
+
+          <div class="row" style="align-items:flex-end">
+            <div style="flex:1 1 auto">
+              <label for="f-conventionPreset">Preset</label>
+              <select id="f-conventionPreset"></select>
+            </div>
+            <button class="secondary fixed" id="applyPresetBtn" type="button">Apply preset</button>
+          </div>
+          <div class="convention-hint" id="presetHint">
+            Fills the fields below for review — nothing is written until you press Save.
+          </div>
+
+          <label for="f-branchNameTemplate">Branch name template</label>
+          <input class="convention-control" type="text" id="f-branchNameTemplate"
+            placeholder="karst/{type}/{slug}"
+            aria-describedby="branchNameHint branchNameVars branchNamePreview branchNameError" />
+          <div class="convention-hint" id="branchNameHint">
+            Rendered once, when a ticket's worktree is created; existing worktrees keep their branch.
+            Must include {slug}, {key} or {id} so two tickets cannot share a branch.
+          </div>
+          <div class="convention-vars" id="branchNameVars"></div>
+          <div class="convention-preview" id="branchNamePreview"></div>
+          <div class="convention-error hidden" id="branchNameError"></div>
+
+          <label for="f-defaultType">Default ticket type</label>
+          <select id="f-defaultType" aria-describedby="defaultTypeHint"></select>
+          <div class="convention-hint" id="defaultTypeHint">
+            Used for {type} when a ticket carries none of its own.
+          </div>
 
           <label for="f-commitMessageTemplate">Commit message template</label>
           <input class="convention-control" type="text" id="f-commitMessageTemplate"
@@ -774,41 +809,69 @@
   // implementedProviders: disk state pushed alongside `state` (agent/registry.ts's
   // IMPLEMENTED_PROVIDERS) — gates which agentProvider options render enabled.
   let implementedProviders = ['claude'];
+  // Host-supplied launch models. Each state refresh may carry newer discovery
+  // results; empty lists are the safe fallback for an older restored state.
+  let modelCatalog = { claude: [], codex: [], antigravity: [] };
+  // Compatibility knowledge is deliberately broader than the picker catalog:
+  // bundled ids remain known while newly discovered ids are added.
+  let modelCompatibility = { claude: [], codex: [], antigravity: [] };
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
   const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity'];
 
-  // Curated launch models (mirrors src/agent/models.ts KNOWN_MODELS — a webview
-  // can't import TS). The empty option means "no default" (the agent CLI picks).
-  const KNOWN_MODELS = [
-    { id: 'claude-opus-4-8', label: 'Opus 4.8', provider: 'claude' },
-    { id: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'claude' },
-    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', provider: 'claude' },
-    { id: 'claude-fable-5', label: 'Fable 5', provider: 'claude' },
-    { id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)', provider: 'antigravity' },
-    { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', provider: 'antigravity' },
-    { id: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)', provider: 'antigravity' },
-    { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash (High)', provider: 'antigravity' },
-    { id: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', provider: 'antigravity' },
-    { id: 'gemini-3.5-flash-low', label: 'Gemini 3.5 Flash (Low)', provider: 'antigravity' },
-    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', provider: 'antigravity' },
-    { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', provider: 'antigravity' },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'antigravity' },
-    { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 Thinking', provider: 'antigravity' },
-    { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', provider: 'antigravity' },
-  ];
   // Mirrors the strict host-side vocabulary for display only. The host's
   // validateManifest call remains authoritative for syntax and token errors.
-  const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo'];
+  const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo', 'type', 'scope'];
   const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description'];
+  // The branch renderer has its own vocabulary: no {repo}/{scope}, because two
+  // repository entries sharing a repoPath resolve to ONE worktree.
+  const BRANCH_CONVENTION_VARS = ['type', 'slug', 'key', 'id', 'title'];
   const CONVENTION_SAMPLE = {
     title: 'add login',
     key: 'PROJ-142',
     id: '142',
     repo: 'frontend',
+    type: 'feat',
+    scope: 'web',
+    slug: 'proj-142-add-login',
     description: 'Adds the requested login flow.',
   };
+  // Mirrors src/store/ticketTypes.ts and src/workflow/conventionPresets.ts —
+  // the webview cannot import TypeScript. webview.test.ts pins both mirrors.
+  const TICKET_TYPES = ['feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'ci', 'build', 'style', 'revert'];
+  const CONVENTION_PRESETS = [
+    {
+      id: 'conventional',
+      label: 'Conventional Commits',
+      conventions: {
+        branchName: 'karst/{type}/{slug}',
+        commitMessage: '{type}({scope}): {title} [{key}]',
+        pullRequestTitle: '{type}({scope}): {title}',
+        pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}',
+      },
+    },
+    {
+      id: 'ticket-prefixed',
+      label: 'Ticket-prefixed',
+      conventions: {
+        branchName: '{key}-{slug}',
+        commitMessage: '[{key}] {title}',
+        pullRequestTitle: '[{key}] {title}',
+        pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}',
+      },
+    },
+    {
+      id: 'plain',
+      label: 'Plain',
+      conventions: {
+        branchName: 'karst/{slug}',
+        commitMessage: '{title}',
+        pullRequestTitle: '{title}',
+        pullRequestDescription: '{description}',
+      },
+    },
+  ];
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
   function manifestsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -905,6 +968,41 @@
   });
 
   // ---- General ----
+  function renderModelOptions(provider, savedModel) {
+    const list = modelCatalog[provider] || [];
+    const saved = typeof savedModel === 'string' && savedModel.trim() ? savedModel : '';
+    const opts = [
+      `<option value=""${saved ? '' : ' selected'}>No default (agent picks)</option>`,
+    ];
+    for (const model of list) {
+      opts.push(
+        `<option value="${esc(model.id)}"${model.id === saved ? ' selected' : ''}>`
+        + `${esc(model.label)}</option>`,
+      );
+    }
+    if (saved && !list.some((model) => model.id === saved)) {
+      opts.push(
+        `<option value="${esc(saved)}" selected>Saved model: ${esc(saved)}</option>`,
+      );
+    }
+    return opts.join('');
+  }
+
+  function isModelCompatibleWithProvider(provider, id) {
+    const known = Object.values(modelCompatibility)
+      .flat()
+      .filter((model) => model.id === id);
+    return known.length === 0
+      || known.some((model) => (model.providers || []).includes(provider));
+  }
+
+  function renderModelPicker() {
+    const provider = draft.agentProvider || 'claude';
+    const modelSelect = el('f-defaultModel');
+    modelSelect.innerHTML = renderModelOptions(provider, draft.defaultModel);
+    modelSelect.value = draft.defaultModel || '';
+  }
+
   function renderGeneral() {
     el('f-host').value = draft.host || '';
     el('f-portMin').value = draft.portRange && draft.portRange[0] != null ? draft.portRange[0] : '';
@@ -917,19 +1015,16 @@
       return `<option value="${esc(p)}"${disabled ? ' disabled' : ''}>${label}</option>`;
     }).join('');
     el('f-agentProvider').value = draft.agentProvider || 'claude';
-    const modelOpts = ['<option value="">No default (agent picks)</option>'];
-    const provider = draft.agentProvider || 'claude';
-    for (const m of KNOWN_MODELS.filter((model) => model.provider === provider)) {
-      modelOpts.push(`<option value="${esc(m.id)}">${esc(m.label)}</option>`);
-    }
-    el('f-defaultModel').innerHTML = modelOpts.join('');
-    el('f-defaultModel').value = draft.defaultModel || '';
+    renderModelPicker();
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     const conventions = draft.conventions || {};
+    el('f-branchNameTemplate').value = conventions.branchName || '';
     el('f-commitMessageTemplate').value = conventions.commitMessage || '';
     el('f-prTitleTemplate').value = conventions.pullRequestTitle || '';
     el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';
+    renderPresetOptions();
+    renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
   }
@@ -972,10 +1067,33 @@
     el(previewId).innerHTML = 'Preview: <span class="lp-val">' + esc(rendered) + '</span>';
   }
 
+  // Preset + default-type option lists (static vocabularies, re-rendered with
+  // the rest of the General/Git form so a state push can't leave them empty).
+  function renderPresetOptions() {
+    if (el('f-conventionPreset').options.length) return;
+    el('f-conventionPreset').innerHTML = CONVENTION_PRESETS.map(
+      (p) => '<option value="' + esc(p.id) + '">' + esc(p.label) + '</option>',
+    ).join('');
+  }
+
+  function renderDefaultTypeOptions(selected) {
+    el('f-defaultType').innerHTML =
+      '<option value=""' + (selected ? '' : ' selected') + '>feat (default)</option>' +
+      TICKET_TYPES.map(
+        (t) => '<option value="' + esc(t) + '"' + (t === selected ? ' selected' : '') + '>' + esc(t) + '</option>',
+      ).join('');
+  }
+
   function renderConventions() {
+    renderConventionVars('branchNameVars', BRANCH_CONVENTION_VARS);
     renderConventionVars('commitMessageVars', COMMON_CONVENTION_VARS);
     renderConventionVars('prTitleVars', COMMON_CONVENTION_VARS);
     renderConventionVars('prDescriptionVars', DESCRIPTION_CONVENTION_VARS);
+    renderConventionPreview(
+      'f-branchNameTemplate',
+      'branchNamePreview',
+      'Default: karst/{type}/{slug} → karst/feat/proj-142-add-login',
+    );
     renderConventionPreview(
       'f-commitMessageTemplate',
       'commitMessagePreview',
@@ -1020,7 +1138,10 @@
   });
   el('f-agentProvider').addEventListener('change', () => {
     draft.agentProvider = el('f-agentProvider').value;
-    if (!KNOWN_MODELS.some((m) => m.id === draft.defaultModel && m.provider === draft.agentProvider)) {
+    if (
+      draft.defaultModel
+      && !isModelCompatibleWithProvider(draft.agentProvider, draft.defaultModel)
+    ) {
       draft.defaultModel = undefined;
     }
     renderGeneral();
@@ -1047,6 +1168,32 @@
     if (v.trim() === '') delete draft.terminalNameTemplate;
     else draft.terminalNameTemplate = v;
     renderTerminalPreview();
+    markDirty();
+  });
+  el('f-branchNameTemplate').addEventListener('input', () => {
+    updateConvention('branchName', el('f-branchNameTemplate').value);
+    renderConventions();
+    markDirty();
+  });
+  el('f-defaultType').addEventListener('change', () => {
+    // '' clears it → the renderer falls back to `feat`.
+    updateConvention('defaultType', el('f-defaultType').value);
+    markDirty();
+  });
+  // Applying a preset only fills the DRAFT: the user reviews the previews and
+  // presses Save (or Discard). Nothing here writes karst.yml.
+  el('applyPresetBtn').addEventListener('click', () => {
+    const preset = CONVENTION_PRESETS.find((p) => p.id === el('f-conventionPreset').value);
+    if (!preset) return;
+    for (const [field, value] of Object.entries(preset.conventions)) {
+      updateConvention(field, value);
+    }
+    const conventions = draft.conventions || {};
+    el('f-branchNameTemplate').value = conventions.branchName || '';
+    el('f-commitMessageTemplate').value = conventions.commitMessage || '';
+    el('f-prTitleTemplate').value = conventions.pullRequestTitle || '';
+    el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';
+    renderConventions();
     markDirty();
   });
   el('f-commitMessageTemplate').addEventListener('input', () => {
@@ -2377,6 +2524,20 @@
     renderTicketing();
   }
 
+  function refreshModelCatalog(models, compatibility) {
+    modelCatalog = models || { claude: [], codex: [], antigravity: [] };
+    modelCompatibility = compatibility || modelCatalog;
+    renderModelPicker();
+    const prev = vscode.getState();
+    if (prev) {
+      vscode.setState({
+        ...prev,
+        models: modelCatalog,
+        modelCompatibility,
+      });
+    }
+  }
+
   function showError(msg) {
     const banner = el('errBanner');
     if (!msg) { banner.classList.add('hidden'); return; }
@@ -2386,6 +2547,7 @@
 
   function showConventionValidation(error) {
     const fields = [
+      ['branchName', 'f-branchNameTemplate', 'branchNameError'],
       ['commitMessage', 'f-commitMessageTemplate', 'commitMessageError'],
       ['pullRequestTitle', 'f-prTitleTemplate', 'prTitleError'],
       ['pullRequestDescription', 'f-prDescriptionTemplate', 'prDescriptionError'],
@@ -2417,6 +2579,8 @@
         installedIds = msg.state.installedIds || [];
         tokenConfigured = !!msg.state.tokenConfigured;
         implementedProviders = msg.state.implementedProviders || ['claude'];
+        modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [] };
+        modelCompatibility = msg.state.modelCompatibility || modelCatalog;
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
         confirmInstallId = null;
@@ -2428,6 +2592,10 @@
         renderAll(); // → renderServices() re-applies the inline field message
         showConventionValidation(msg.state.error);
         vscode.setState(msg.state);
+        break;
+      }
+      case 'models': {
+        refreshModelCatalog(msg.models, msg.modelCompatibility);
         break;
       }
       case 'validation': {
@@ -2518,6 +2686,8 @@
     installedIds = prev.installedIds || [];
     tokenConfigured = !!prev.tokenConfigured;
     implementedProviders = prev.implementedProviders || ['claude'];
+    modelCatalog = prev.models || { claude: [], codex: [], antigravity: [] };
+    modelCompatibility = prev.modelCompatibility || modelCatalog;
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};
     valid = !prev.error;

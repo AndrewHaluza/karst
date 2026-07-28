@@ -1,23 +1,175 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { runInNewContext } from 'node:vm';
+import { CONVENTION_PRESETS } from '../../workflow/conventionPresets.js';
+import { TICKET_TYPES } from '../../store/ticketTypes.js';
 
-const HTML = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'webview.html'),
-  'utf8',
-);
+const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
+
+function functionSource(name: string): string {
+  const start = HTML.indexOf(`function ${name}(`);
+  if (start < 0) throw new Error(`${name}() not found`);
+  const bodyStart = HTML.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < HTML.length; i += 1) {
+    if (HTML[i] === '{') depth += 1;
+    if (HTML[i] === '}') depth -= 1;
+    if (depth === 0) return HTML.slice(start, i + 1);
+  }
+  throw new Error(`${name}() is incomplete`);
+}
+
+function loadFunction(
+  name: string,
+  modelCatalog: Record<string, unknown[]>,
+  modelCompatibility: Record<string, unknown[]> = modelCatalog,
+): (...args: unknown[]) => unknown {
+  return runInNewContext(`(${functionSource(name)})`, {
+    modelCatalog,
+    modelCompatibility,
+    esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c),
+  }) as (...args: unknown[]) => unknown;
+}
+
+const MODELS = {
+  claude: [{ id: 'claude-only', label: 'Claude Only', providers: ['claude'] }],
+  codex: [{ id: 'codex-current', label: 'Codex Current', providers: ['codex'] }],
+  antigravity: [{ id: 'agy-current', label: 'Antigravity Current', providers: ['antigravity'] }],
+};
+
+describe('settings model picker', () => {
+  it('has no hard-coded model mirror', () => {
+    expect(HTML).not.toContain('const KNOWN_MODELS');
+  });
+
+  it('filters the host catalog by provider and keeps an absent saved default visible', () => {
+    const renderModelOptions = loadFunction('renderModelOptions', MODELS);
+    const html = renderModelOptions('codex', 'preview-<next>') as string;
+    expect(html).toContain('Codex Current');
+    expect(html).not.toContain('Claude Only');
+    expect(html).toContain('value="preview-&lt;next&gt;" selected');
+    expect(html).toContain('Saved model: preview-&lt;next&gt;');
+  });
+
+  it('keeps a saved supported default selected without duplicating it', () => {
+    const renderModelOptions = loadFunction('renderModelOptions', MODELS);
+    const html = renderModelOptions('codex', 'codex-current') as string;
+
+    expect(html).toContain('value="codex-current" selected');
+    expect(html.match(/value="codex-current"/g)).toHaveLength(1);
+    expect(html).not.toContain('Saved model: Codex Current');
+  });
+
+  it('does not clear a saved model merely because it is absent from the catalog', () => {
+    const isCompatible = loadFunction('isModelCompatibleWithProvider', MODELS);
+    expect(isCompatible('codex', 'preview-model')).toBe(true);
+  });
+
+  it('still rejects a model known only for another provider', () => {
+    const isCompatible = loadFunction('isModelCompatibleWithProvider', MODELS);
+    expect(isCompatible('codex', 'claude-only')).toBe(false);
+  });
+
+  it('uses bundled-plus-live compatibility knowledge when the picker list is narrower', () => {
+    const current = {
+      claude: [],
+      codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
+      antigravity: [],
+    };
+    const compatibility = {
+      claude: [{ id: 'claude-bundled', label: 'Claude Bundled', providers: ['claude'] }],
+      codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
+      antigravity: [],
+    };
+    const isCompatible = loadFunction(
+      'isModelCompatibleWithProvider',
+      current,
+      compatibility,
+    );
+
+    expect(isCompatible('codex', 'claude-bundled')).toBe(false);
+    expect(isCompatible('claude', 'codex-live')).toBe(false);
+  });
+
+  it('merges a catalog refresh without replacing a dirty draft or its saved baseline', () => {
+    let renderCount = 0;
+    let persisted: unknown;
+    const currentState = {
+      manifest: { host: 'saved-host' },
+      models: MODELS,
+      modelCompatibility: MODELS,
+    };
+    const nextModels = {
+      ...MODELS,
+      codex: [{ id: 'codex-later', label: 'Codex Later', providers: ['codex'] }],
+    };
+    const context = {
+      modelCatalog: MODELS,
+      modelCompatibility: MODELS,
+      draft: { host: 'dirty-host' },
+      lastSaved: { host: 'saved-host' },
+      dirty: true,
+      nextModels,
+      nextCompatibility: nextModels,
+      renderModelPicker: () => { renderCount += 1; },
+      vscode: {
+        getState: () => currentState,
+        setState: (value: unknown) => { persisted = value; },
+      },
+    };
+
+    const result = runInNewContext(`
+      (${functionSource('refreshModelCatalog')})(nextModels, nextCompatibility);
+      ({ modelCatalog, modelCompatibility, draft, lastSaved, dirty });
+    `, context) as {
+      modelCatalog: typeof nextModels;
+      modelCompatibility: typeof nextModels;
+      draft: { host: string };
+      lastSaved: { host: string };
+      dirty: boolean;
+    };
+
+    expect(result.modelCatalog.codex[0]?.id).toBe('codex-later');
+    expect(result.modelCompatibility.codex[0]?.id).toBe('codex-later');
+    expect(result.draft.host).toBe('dirty-host');
+    expect(result.lastSaved.host).toBe('saved-host');
+    expect(result.dirty).toBe(true);
+    expect(renderCount).toBe(1);
+    expect(persisted).toEqual({
+      ...currentState,
+      models: nextModels,
+      modelCompatibility: nextModels,
+    });
+  });
+});
 
 describe('settings artifact conventions', () => {
-  it('provides the three project-level controls with a multiline PR description', () => {
-    expect(HTML).toContain('Commit &amp; pull request conventions');
+  it('lives in its own Git section, not in General', () => {
+    expect(HTML).toContain('<button class="nav-btn" data-section="git">Git</button>');
+    expect(HTML).toContain('<div class="section hidden" id="section-git">');
+    // The card must sit INSIDE the Git section, after the General section closes.
+    const git = HTML.indexOf('id="section-git"');
+    const card = HTML.indexOf('Branch, commit &amp; pull request conventions');
+    const repos = HTML.indexOf('id="section-services"');
+    expect(git).toBeGreaterThan(-1);
+    expect(card).toBeGreaterThan(git);
+    expect(card).toBeLessThan(repos);
+  });
+
+  it('provides the four project-level controls with a multiline PR description', () => {
+    expect(HTML).toContain('id="f-branchNameTemplate"');
     expect(HTML).toContain('id="f-commitMessageTemplate"');
     expect(HTML).toContain('id="f-prTitleTemplate"');
     expect(HTML).toMatch(/<textarea[^>]*id="f-prDescriptionTemplate"[^>]*rows="6"/);
+    expect(HTML).toContain('id="f-defaultType"');
   });
 
   it('hydrates only configured values and preserves raw multiline content', () => {
     expect(HTML).toContain("const conventions = draft.conventions || {};");
+    expect(HTML).toContain("el('f-branchNameTemplate').value = conventions.branchName || '';");
     expect(HTML).toContain(
       "el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';",
     );
@@ -36,26 +188,57 @@ describe('settings artifact conventions', () => {
 
   it('shows the exact artifact-specific token vocabulary', () => {
     expect(HTML).toContain(
-      "const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo'];",
+      "const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo', 'type', 'scope'];",
     );
     expect(HTML).toContain(
       "const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description'];",
     );
+    // The branch vocabulary is NOT the artifact one: {repo}/{scope} are absent
+    // because entries sharing a repoPath resolve to a single worktree.
     expect(HTML).toContain(
-      "renderConventionVars('commitMessageVars', COMMON_CONVENTION_VARS)",
+      "const BRANCH_CONVENTION_VARS = ['type', 'slug', 'key', 'id', 'title'];",
     );
-    expect(HTML).toContain(
-      "renderConventionVars('prTitleVars', COMMON_CONVENTION_VARS)",
-    );
+    expect(HTML).toContain("renderConventionVars('branchNameVars', BRANCH_CONVENTION_VARS)");
+    expect(HTML).toContain("renderConventionVars('commitMessageVars', COMMON_CONVENTION_VARS)");
+    expect(HTML).toContain("renderConventionVars('prTitleVars', COMMON_CONVENTION_VARS)");
     expect(HTML).toContain(
       "renderConventionVars('prDescriptionVars', DESCRIPTION_CONVENTION_VARS)",
     );
   });
 
+  // The webview cannot import TypeScript, so it carries copies. Pin them against
+  // the modules, or a preset that no longer validates ships to the user.
+  it('mirrors the host preset and ticket-type vocabularies exactly', () => {
+    expect(HTML).toContain(
+      `const TICKET_TYPES = [${TICKET_TYPES.map((t) => `'${t}'`).join(', ')}];`,
+    );
+    for (const preset of CONVENTION_PRESETS) {
+      expect(HTML, `preset id ${preset.id}`).toContain(`id: '${preset.id}'`);
+      expect(HTML, `preset label ${preset.id}`).toContain(`label: '${preset.label}'`);
+      for (const [field, value] of Object.entries(preset.conventions)) {
+        // Newlines are escaped in the HTML's JS string literals.
+        const literal = value.replace(/\n/g, '\\n');
+        expect(HTML, `${preset.id}.${field}`).toContain(`${field}: '${literal}'`);
+      }
+    }
+  });
+
+  it('applies a preset into the draft only — never straight to disk', () => {
+    const fn = HTML.match(
+      /el\('applyPresetBtn'\)\.addEventListener\('click', \(\) => {([\s\S]*?)\n {2}}\);/,
+    );
+    expect(fn, 'applyPresetBtn handler not found').toBeTruthy();
+    expect(fn![1]).toContain('updateConvention(field, value)');
+    expect(fn![1]).toContain('markDirty()');
+    expect(fn![1]).not.toContain("type: 'save'");
+  });
+
   it('keeps host manifest validation authoritative', () => {
     expect(HTML).toContain("post({ type: 'validate', manifest: draft })");
     expect(HTML).not.toContain('function validateArtifactTemplate');
+    expect(HTML).not.toContain('function validateBranchTemplate');
     expect(HTML).toContain('function showConventionValidation(error)');
+    expect(HTML).toContain("['branchName', 'f-branchNameTemplate', 'branchNameError']");
     const validationCase = HTML.match(
       /case 'validation': {([\s\S]*?)\n {8}break;/,
     );

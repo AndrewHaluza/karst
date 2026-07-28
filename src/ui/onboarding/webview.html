@@ -304,6 +304,11 @@
         <select id="modelSelect"></select>
         <div class="sub hidden" id="modelLockHint">Locked while the session runs — close the terminal to change it.</div>
       </div>
+      <div id="typePicker">
+        <label for="typeSelect">Type</label>
+        <select id="typeSelect"></select>
+        <div class="sub">Feeds {type} in the branch, commit and PR conventions (Settings → Git).</div>
+      </div>
     </div>
 
     <!-- Step 3: Create -->
@@ -404,6 +409,9 @@
     renderAgentPicker(state.agents, state.selectedAgent);
     renderProviderPicker(state.agentProviders, state.selectedAgentProvider, state.defaultAgentProvider, state.sessionOpen);
     renderModelPicker(state.models, state.selectedModel, state.defaultModel, state.sessionOpen);
+    lastTicketTypes = state.ticketTypes || [];
+    lastDefaultType = state.defaultType || 'feat';
+    renderTypePicker(state.ticketTypes, state.selectedType, state.defaultType);
     // Reveal Phase 2 iff the ticket is identified (edit mode: already true).
     syncPhase2();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
@@ -569,6 +577,10 @@
   // accepts the default never fires the select's `change` handler, so
   // draft.selectedAgent stays null; submit ORs this in.
   let lastSelectedAgent = null;
+  // Last pushed type vocabulary + resolved default, so an `analysis` message can
+  // redraw the type picker without waiting for the next state push.
+  let lastTicketTypes = [];
+  let lastDefaultType = 'feat';
 
   // The single-subagent picker only makes sense for that one approach. Uses
   // the same "effective approach" precedence submit uses: an explicit user
@@ -615,12 +627,12 @@
     el('providerLockHint').classList.toggle('hidden', !sessionOpen);
   }
 
-  // Model picker: an "Inherit (settings)" option (empty value) plus the curated
-  // models pushed in `state.models`. The persisted per-ticket model (edit mode)
-  // or an explicit draft pick pre-selects; empty = inherit the manifest default.
-  function renderModelPicker(models, selectedModel, defaultModel, sessionOpen) {
+  // Model picker: an "Inherit (settings)" option (empty value) plus the models
+  // pushed in `state.models`. A persisted custom/stale model stays selectable:
+  // catalog refreshes must never silently rewrite a saved ticket.
+  function renderModelOptions(models, selectedModel, defaultModel) {
     const list = models || [];
-    const sel = draft.selectedModel ?? selectedModel ?? '';
+    const sel = selectedModel || '';
     const defLabel = defaultModel
       ? `Inherit (settings: ${esc(defaultModel)})`
       : 'Inherit (settings default)';
@@ -630,11 +642,39 @@
         `<option value="${esc(m.id)}"${m.id === sel ? ' selected' : ''}>${esc(m.label)}</option>`,
       );
     }
-    el('modelSelect').innerHTML = opts.join('');
+    if (sel && !list.some((m) => m.id === sel)) {
+      opts.push(
+        `<option value="${esc(sel)}" selected>Saved model: ${esc(sel)}</option>`,
+      );
+    }
+    return opts.join('');
+  }
+
+  function renderModelPicker(models, selectedModel, defaultModel, sessionOpen) {
+    const sel = draft.selectedModel ?? selectedModel ?? '';
+    const select = el('modelSelect');
+    select.innerHTML = renderModelOptions(models, sel, defaultModel);
+    select.value = sel;
     // The launch model is baked into the terminal command at spawn — it can't
     // switch mid-session, so lock the picker while a session is live.
-    el('modelSelect').disabled = !!sessionOpen;
+    select.disabled = !!sessionOpen;
     el('modelLockHint').classList.toggle('hidden', !sessionOpen);
+  }
+
+  // Type picker: "Inherit" (empty value, resolves to the manifest default) plus
+  // the curated conventional-commit types. A prefill fills this like any other
+  // analyzed field; the user's own pick always wins (the host refuses to
+  // overwrite a type the ticket already carries).
+  function renderTypePicker(types, selectedType, defaultType) {
+    const list = types || [];
+    const sel = draft.ticketType ?? selectedType ?? '';
+    const opts = [
+      `<option value=""${sel ? '' : ' selected'}>Inherit (settings: ${esc(defaultType || 'feat')})</option>`,
+    ];
+    for (const t of list) {
+      opts.push(`<option value="${esc(t)}"${t === sel ? ' selected' : ''}>${esc(t)}</option>`);
+    }
+    el('typeSelect').innerHTML = opts.join('');
   }
 
   // Step rail state: repos done once ≥1 selected; approach active while
@@ -814,7 +854,8 @@
     // (draft.selectedModel stays null until an explicit change). Empty = inherit.
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
     const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider });
+    const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -836,7 +877,8 @@
         ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
         : null;
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider });
+    const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live.
@@ -929,6 +971,14 @@
     post({ type: 'set-provider', id });
   });
 
+  // Pick a conventional type (or "Inherit", value ''): record + post, same
+  // shape as the model picker. Create mode holds it in the draft until submit.
+  el('typeSelect').addEventListener('change', (e) => {
+    const id = e.target.value;
+    draft.ticketType = id || null;
+    post({ type: 'set-type', id });
+  });
+
   document.addEventListener('click', (e) => {
     const t = e.target;
     const chip = t.closest && t.closest('[data-repo]');
@@ -1018,6 +1068,13 @@
         if (Array.isArray(msg.repos)) {
           const picked = new Set(msg.repos);
           for (const r of lastRepos) draft.repos[r.service] = picked.has(r.service);
+        }
+        if (typeof msg.ticketType === 'string' && msg.ticketType) {
+          // Unlike the approach, the type IS applied: the host only sends a
+          // suggested one while the ticket has no explicit pick of its own (it
+          // echoes the stored value otherwise), so this can't clobber a choice.
+          draft.ticketType = msg.ticketType;
+          renderTypePicker(lastTicketTypes, msg.ticketType, lastDefaultType);
         }
         if (msg.approachId) {
           // Suggestion ONLY: badge the row, never move draft.approach. Moving the

@@ -119,6 +119,10 @@ process.stdin.on('end', () => {
   const mapped =
     event === 'PermissionRequest'
       ? { hook_event_name: 'Notification', message: 'permission_prompt' }
+      : event === 'Stop' &&
+          typeof raw.last_assistant_message === 'string' &&
+          /\?\s*$/.test(raw.last_assistant_message)
+        ? { hook_event_name: 'Notification', message: 'idle_prompt' }
       : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd'].includes(event)
         ? { hook_event_name: event }
         : null;
@@ -192,6 +196,13 @@ export function codexHookNormalizer(post: PostHook) {
             hook_event_name: 'Notification',
             message: 'permission_prompt',
           }
+        : event === 'Stop' &&
+            typeof input.last_assistant_message === 'string' &&
+            /\?\s*$/.test(input.last_assistant_message)
+          ? {
+              hook_event_name: 'Notification',
+              message: 'idle_prompt',
+            }
         : CODEX_HOOK_EVENTS.includes(
               event as (typeof CODEX_HOOK_EVENTS)[number],
             ) && event !== 'PermissionRequest'
@@ -380,9 +391,14 @@ function writeSkill(
   name: string,
   description: string,
   body: string,
-): string {
+): string | undefined {
   assertSafeName('skill name', name);
   const dir = join(worktree, '.agents', 'skills', name);
+  // A repository may intentionally check in a skill with the same stable name
+  // as an approach artifact. That directory belongs to the repository, not this
+  // terminal: overwriting it and later treating it as adapter-owned would make
+  // session cleanup delete tracked project files.
+  if (existsSync(dir)) return undefined;
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'SKILL.md'), skillDocument(name, description, body));
   return dir;
@@ -444,6 +460,7 @@ export class CodexAdapter implements AgentAdapter {
         'skills',
         skillName,
       );
+      if (existsSync(destination)) continue;
 
       if (artifact.kind === 'skill') {
         cpSync(dirname(source), destination, { recursive: true });
@@ -476,14 +493,13 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.soloAgent) {
       assertSafeName('solo agent name', opts.soloAgent.name);
       const name = `karst-agent-${opts.soloAgent.name}`;
-      owned.add(
-        writeSkill(
-          opts.sessionDir,
-          name,
-          `Delegate the ticket to the ${opts.soloAgent.name} role.`,
-          `Delegate this ticket to a subagent following these instructions:\n\n${opts.soloAgent.body}`,
-        ),
+      const destination = writeSkill(
+        opts.sessionDir,
+        name,
+        `Delegate the ticket to the ${opts.soloAgent.name} role.`,
+        `Delegate this ticket to a subagent following these instructions:\n\n${opts.soloAgent.body}`,
       );
+      if (destination) owned.add(destination);
     }
 
     const hasWorkflow = (opts.pkg.workflow?.length ?? 0) > 0;
@@ -502,14 +518,13 @@ export class CodexAdapter implements AgentAdapter {
           ? { phaseCommand: opts.cliPhasePrefix }
           : {}),
       });
-      owned.add(
-        writeSkill(
-          opts.sessionDir,
-          prefix,
-          `Run the ${opts.pkg.label} workflow for a Karst ticket.`,
-          body,
-        ),
+      const destination = writeSkill(
+        opts.sessionDir,
+        prefix,
+        `Run the ${opts.pkg.label} workflow for a Karst ticket.`,
+        body,
       );
+      if (destination) owned.add(destination);
     }
 
     return {

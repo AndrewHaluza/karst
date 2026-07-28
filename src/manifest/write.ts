@@ -105,6 +105,8 @@ export function writeManifest(path: string, manifest: Manifest): void {
       // omitting it keeps the file cleaner. Undefined→omitted so stale enabled:true
       // (if it existed) gets dropped.
       enabled: repo.enabled === false ? false : undefined,
+      // Optional: written when set, dropped when cleared (→ falls back to name).
+      scope: repo.scope,
       // Undefined (not omitted) so the dumper DROPS a `service:` block the user
       // just turned off — leaving the raw one would silently keep the repo
       // runnable after they said it wasn't.
@@ -145,6 +147,8 @@ export function writeManifest(path: string, manifest: Manifest): void {
     conventions: manifest.conventions
       ? {
           ...rawConventions,
+          branchName: manifest.conventions.branchName,
+          defaultType: manifest.conventions.defaultType,
           commitMessage: manifest.conventions.commitMessage,
           pullRequestTitle: manifest.conventions.pullRequestTitle,
           pullRequestDescription: manifest.conventions.pullRequestDescription,

@@ -1,5 +1,11 @@
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ApproachDef } from '../../manifest/types.js';
+import {
+  DEFAULT_TICKET_TYPE,
+  isTicketType,
+  TICKET_TYPES,
+  type TicketType,
+} from '../../store/ticketTypes.js';
 
 /**
  * The coupled ticket analyzer (§ onboarding). ONE bounded agent call turns a
@@ -47,6 +53,8 @@ export interface TicketAnalysis {
   approachId: string;
   repos: string[];
   reason: string;
+  /** Conventional-commit type for `{type}`; always one of `TICKET_TYPES`. */
+  type: TicketType;
 }
 
 function buildPrompt(input: AnalyzeInput): string {
@@ -93,10 +101,15 @@ function buildPrompt(input: AnalyzeInput): string {
     ``,
     ...(prompt ? [`Author's prompt / intent:`, prompt, ``] : []),
     ...(brief ? [`Fetched ticket brief:`, brief, ``] : []),
+    `Also classify the work as ONE conventional-commit type, from exactly this`,
+    `list: ${TICKET_TYPES.join(', ')}. It becomes the branch prefix and the commit`,
+    `/ PR subject type, so pick what the change IS, not how it is developed.`,
+    ``,
     `Respond with ONLY a single JSON object of the form:`,
     `{"prompt": "<the synthesized agent prompt>", "approach": "<one approach id`,
     `from the list>", "repos": ["<service names from the list that are in`,
-    `scope>"], "reason": "<one short sentence on the approach choice>"}`,
+    `scope>"], "reason": "<one short sentence on the approach choice>",`,
+    `"type": "<one conventional-commit type from the list>"}`,
   ].join('\n');
 }
 
@@ -134,6 +147,7 @@ interface RawAnalysis {
   approach?: unknown;
   repos?: unknown;
   reason?: unknown;
+  type?: unknown;
 }
 
 function parse(raw: string): RawAnalysis | null {
@@ -161,7 +175,8 @@ function str(v: unknown): string {
  *   none are configured — defensive; callers should pass a non-empty list);
  * - repos → the model's picks filtered to known service names, else the
  *   keyword-scored services (score > 0) — the offline fallback;
- * - reason → the model's sentence, else ''.
+ * - reason → the model's sentence, else '';
+ * - type → the model's pick when it is in `TICKET_TYPES`, else `feat`.
  */
 export async function analyzeTicket(
   adapter: AgentAdapter,
@@ -190,5 +205,6 @@ export async function analyzeTicket(
     approachId,
     repos: modelRepos.length ? modelRepos : scoredRepos,
     reason: str(parsed?.reason),
+    type: isTicketType(parsed?.type) ? parsed.type : DEFAULT_TICKET_TYPE,
   };
 }

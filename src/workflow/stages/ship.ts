@@ -5,7 +5,7 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
-import { openPr, findOpenPr, defaultGhRunner, type GhRunner } from '../../integrations/github.js';
+import { openPr, findOpenPr, defaultGhRunnerAsync, type GhRunner } from '../../integrations/github.js';
 import {
   commitAllIfDirty,
   hasChangesFrom,
@@ -24,6 +24,8 @@ import {
   usesDescription,
   type ArtifactTemplateContext,
 } from '../artifactConventions.js';
+import { buildPrDescriptionPrompt, sanitizePrDescription } from '../prDescription.js';
+import { resolveRepoScope, resolveTicketType } from '../conventionContext.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -53,17 +55,25 @@ export interface ShipResult {
   prs: ShippedPr[];
 }
 
-/** Ask the agent (cheap model) for a PR description; falls back to the title. */
+/**
+ * Ask the agent (cheap model) for a PR description; falls back to the title.
+ *
+ * The answer is sanitized, not trusted: an agent asked a chat-shaped question
+ * answers with chat-shaped scaffolding (a "no PR open yet … copy-paste ready"
+ * status line, a preamble, the whole body inside a code fence), and this text
+ * goes straight into public GitHub metadata. `prDescription.ts` owns both halves
+ * — the prompt that asks for a clean body and the filter that enforces it.
+ */
 async function describePr(
   adapter: AgentAdapter,
   cwd: string,
   title: string,
 ): Promise<string> {
   const r = await adapter.runHeadless({
-    prompt: `Write a concise pull-request description for the changes in this worktree. Title: ${title}`,
+    prompt: buildPrDescriptionPrompt(title),
     cwd,
   });
-  return r.raw.trim() || title;
+  return sanitizePrDescription(r.raw, title);
 }
 
 /**
@@ -144,7 +154,7 @@ export type ShipProgress = (event: ShipStepEvent) => void;
 export async function shipTicket(
   store: Store,
   opts: ShipOpts,
-  gh: GhRunner = defaultGhRunner,
+  gh: GhRunner = defaultGhRunnerAsync,
   adapter?: AgentAdapter,
   git: GitRunner = defaultGitRunner,
   onProgress: ShipProgress = () => {},
@@ -210,6 +220,8 @@ export async function shipTicket(
         key,
         title,
         repo: wt.repo,
+        type: resolveTicketType(ticket, conventions),
+        scope: resolveRepoScope(opts.manifest, wt.repo),
       };
       const commitMessage = conventions?.commitMessage
         ? renderArtifactTemplate(

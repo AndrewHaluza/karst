@@ -41,9 +41,11 @@ describe('ticketLabel', () => {
     archivedAt: null,
     updatedAt: null,
     model: null,
+    type: null,
     agentProvider: null,
     sessionProvider: null,
     projectId: null,
+    parentTicketId: null,
   };
 
   it('renders "key — title" when both present', () => {
@@ -177,6 +179,22 @@ describe('ticket + stage persistence', () => {
     expect(full.selectedRepos).toEqual([]);
   });
 
+  it('a new ticket has a null parentTicketId (not a follow-up) by default', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'root ticket' });
+    expect(t.parentTicketId).toBeNull();
+  });
+
+  it('createTicket persists parentTicketId, readable via getTicket', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root ticket' });
+    const child = createTicket(store, {
+      key: 'PROJ-1-fu1',
+      title: 'follow-up',
+      parentTicketId: parent.id,
+    });
+    expect(child.parentTicketId).toBe(parent.id);
+    expect(getTicket(store, child.id).parentTicketId).toBe(parent.id);
+  });
+
   it('updateTicketCore changes key and title only', () => {
     const t = createTicket(store, { key: 'OLD-1', title: 'old' });
     updateTicketCore(store, t.id, { key: 'NEW-2', title: 'new' });
@@ -256,6 +274,33 @@ describe('ticket + stage persistence', () => {
     // or a value left over from a provider later removed from IMPLEMENTED_PROVIDERS.
     store.db.prepare('UPDATE tickets SET agent_provider = ? WHERE id = ?').run('evil', t.id);
     expect(getTicket(store, t.id).agentProvider).toBeNull();
+  });
+
+  it('a new ticket has a null type (inherit the manifest default) until one is chosen', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    expect(getTicket(store, t.id).type).toBeNull();
+  });
+
+  it('updateTicketOnboarding round-trips the conventional type', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    updateTicketOnboarding(store, t.id, { type: 'fix' });
+    expect(getTicket(store, t.id).type).toBe('fix');
+  });
+
+  it('an empty-string type clears the selection back to inherit (null)', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    updateTicketOnboarding(store, t.id, { type: 'chore' });
+    updateTicketOnboarding(store, t.id, { type: '' });
+    expect(getTicket(store, t.id).type).toBeNull();
+  });
+
+  // The type is interpolated into branch names, commit messages and PR titles —
+  // public metadata. An unknown value must fail at the writer, not silently reach
+  // a template render.
+  it('rejects a type outside the curated vocabulary', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    expect(() => updateTicketOnboarding(store, t.id, { type: 'feature' })).toThrow(/type/i);
+    expect(getTicket(store, t.id).type).toBeNull();
   });
 
   it('updateTicketOnboarding patches only the supplied fields', () => {

@@ -17,7 +17,7 @@ import {
 import { renderHealthUrl } from './healthUrl.js';
 import { preflightSpin } from './preflight.js';
 import { getTicket } from '../store/tickets.js';
-import { worktreeSlug } from './slug.js';
+import { ticketWorktreeNames } from './ticketBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
 
 export interface SpinResult {
@@ -115,13 +115,14 @@ export async function spinTicket(
     if (signal?.aborted) throw new SpinCancelledError(ticketId);
   };
 
-  // One rename-invariant slug per ticket (key-or-id + title); all worktrees for
-  // this ticket share it, so the worktree loop below dedups by repo.
-  const slug = worktreeSlug(getTicket(store, ticketId));
+  // One rename-invariant slug per ticket (key-or-id + title) and one rendered
+  // branch name; all worktrees for this ticket share both, so the worktree loop
+  // below dedups by repo.
+  const { slug, branch } = ticketWorktreeNames(getTicket(store, ticketId), manifest);
 
   // Validate every hot repo (git repo + has baselineBranch) before any mutation,
   // so a bad branch/path fails fast with a friendly SpinError and nothing partial.
-  preflightSpin(manifest, slug, hot);
+  preflightSpin(manifest, slug, hot, branch);
 
   const allocator = makePortAllocator(store, manifest.portRange);
   // Stop any servers a prior spin left running for this ticket BEFORE releasing
@@ -168,6 +169,7 @@ export async function spinTicket(
           ticketId,
           repoPath: repo.repoPath,
           slug,
+          branch,
           baseRef: resolveBaselineBranch(manifest, repo),
         });
         worktreeByRepo.set(repo.repoPath, wt);

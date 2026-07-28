@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { BoundedOutput } from '../runtime/boundedOutput.js';
+import { killTree } from '../runtime/processTree.js';
 
 /**
  * Git integration for the stages that talk to a remote. The runner is injected so
@@ -23,6 +25,8 @@ export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>;
  * host, or git blocking on a credential prompt with no tty to answer it.
  */
 export const GIT_TIMEOUT_MS = 60_000;
+export const GIT_MAX_OUTPUT_BYTES = 1024 * 1024;
+export const GIT_TERMINATION_GRACE_MS = 5_000;
 
 /**
  * `git <args>` in `cwd`, asynchronously. Never throws and never rejects — the exit
@@ -37,32 +41,46 @@ export function runGit(
   args: string[],
   cwd: string,
   timeoutMs: number = GIT_TIMEOUT_MS,
+  maxOutputBytes: number = GIT_MAX_OUTPUT_BYTES,
+  terminationGraceMs: number = GIT_TERMINATION_GRACE_MS,
 ): Promise<GitResult> {
   return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
+    const stdout = new BoundedOutput(Math.max(0, maxOutputBytes));
+    const stderr = new BoundedOutput(Math.max(0, maxOutputBytes));
     let settled = false;
+    let timedOut = false;
+    let terminationDiagnostic = '';
+    let terminationTimer: ReturnType<typeof setTimeout> | undefined;
 
     const settle = (result: GitResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (terminationTimer !== undefined) clearTimeout(terminationTimer);
       resolve(result);
     };
 
     // Armed before the child exists so a spawn that never starts still settles.
     const timer = setTimeout(() => {
-      child?.kill('SIGKILL');
-      settle({
-        stdout,
-        stderr: `${stderr}git timed out after ${timeoutMs}ms: git ${args.join(' ')}`,
-        exitCode: 1,
-      });
+      timedOut = true;
+      if (child?.pid === undefined) terminationDiagnostic = '; child pid unavailable';
+      else killTree(child.pid);
+      terminationTimer = setTimeout(
+        () =>
+          settle({
+            stdout: stdout.render(),
+            stderr: stderr.render(
+              `git timed out after ${timeoutMs}ms${terminationDiagnostic}; child exit was not confirmed: git ${args.join(' ')}`,
+            ),
+            exitCode: 1,
+          }),
+        Math.max(0, terminationGraceMs),
+      );
     }, timeoutMs);
 
     let child: ReturnType<typeof spawn> | undefined;
     try {
-      child = spawn('git', args, { cwd });
+      child = spawn('git', args, { cwd, detached: true });
     } catch (err) {
       // A bad `cwd` throws synchronously on some platforms rather than emitting.
       settle({
@@ -73,18 +91,38 @@ export function runGit(
       return;
     }
 
-    child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
-    child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    child.stdout?.on('data', (chunk: Buffer) => stdout.append(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => stderr.append(chunk));
 
     child.once('error', (err: Error) => {
-      settle({ stdout, stderr: `${stderr}could not run git: ${err.message}`, exitCode: 1 });
+      if (timedOut) {
+        terminationDiagnostic += `; termination error: ${err.message}`;
+        return;
+      }
+      settle({
+        stdout: stdout.render(),
+        stderr: stderr.render(`could not run git: ${err.message}`),
+        exitCode: 1,
+      });
     });
 
     child.once('close', (code) => {
+      if (timedOut) {
+        settle({
+          stdout: stdout.render(),
+          stderr: stderr.render(
+            `git timed out after ${timeoutMs}ms${terminationDiagnostic}: git ${args.join(' ')}`,
+          ),
+          exitCode: 1,
+        });
+        return;
+      }
       const exitCode = code ?? 1;
+      const renderedStderr = stderr.render();
       settle({
-        stdout,
-        stderr: stderr || (exitCode !== 0 ? `git exited ${exitCode}` : ''),
+        stdout: stdout.render(),
+        stderr:
+          renderedStderr || (exitCode !== 0 ? `git exited ${exitCode}` : ''),
         exitCode,
       });
     });

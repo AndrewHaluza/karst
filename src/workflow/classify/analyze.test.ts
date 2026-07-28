@@ -71,7 +71,28 @@ describe('analyzeTicket', () => {
       approachId: 'gsd',
       repos: ['frontend'],
       reason: 'Small, well-understood UI fix.',
+      type: 'feat',
     });
+  });
+
+  it('returns the conventional type the model picked', async () => {
+    const adapter = fakeAdapter(
+      '{"prompt": "p", "approach": "gsd", "repos": ["frontend"], "reason": "r", "type": "fix"}',
+    );
+    const result = await analyzeTicket(adapter, { brief: 'b', services, approaches });
+    expect(result.type).toBe('fix');
+  });
+
+  // The type lands in branch names and PR titles; an off-vocabulary guess from
+  // the model degrades to the default rather than propagating.
+  it('falls back to feat for an unknown or missing type', async () => {
+    const unknown = fakeAdapter(
+      '{"prompt": "p", "approach": "gsd", "repos": [], "reason": "r", "type": "feature"}',
+    );
+    expect((await analyzeTicket(unknown, { brief: 'b', services, approaches })).type).toBe('feat');
+
+    const missing = fakeAdapter('{"prompt": "p", "approach": "gsd", "repos": [], "reason": "r"}');
+    expect((await analyzeTicket(missing, { brief: 'b', services, approaches })).type).toBe('feat');
   });
 
   it('parses an object wrapped in prose whose prompt spans newlines and braces', async () => {
@@ -144,6 +165,7 @@ describe('analyzeTicket', () => {
       approachId: 'rpi',
       repos: ['backend'],
       reason: '',
+      type: 'feat',
     });
   });
 

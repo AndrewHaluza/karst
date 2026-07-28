@@ -63,6 +63,38 @@ describe('buildNowLine', () => {
     );
   });
 
+  it('offers recovery instead of claiming an interrupted fix is still running', () => {
+    expect(
+      buildNowLine(cell({ stageKey: 'fix' }), {
+        fixAttempts: 1,
+        sessionAction: { kind: 'continue', label: 'Continue', detail: 'resume fix' },
+      }),
+    ).toEqual({
+      text: 'Now: the fix is paused after gate failure. Continue the agent to retry.',
+      action: { kind: 'session', label: 'Continue session', detail: 'resume fix' },
+    });
+  });
+
+  it('keeps a live fix actionable by opening its session', () => {
+    expect(
+      buildNowLine(cell({ stageKey: 'fix' }), {
+        fixAttempts: 1,
+        sessionAction: {
+          kind: 'open',
+          label: 'Open',
+          detail: 'session is live · jump to terminal',
+        },
+      }),
+    ).toEqual({
+      text: 'Now: fixing the failed gate — the agent is running (attempt 1 of 3).',
+      action: {
+        kind: 'session',
+        label: 'Open session',
+        detail: 'session is live · jump to terminal',
+      },
+    });
+  });
+
   it('says fix attempts ran out at the cap, and offers a manual resume', () => {
     expect(buildNowLine(cell({ stageKey: 'fix' }), { fixAttempts: 3 })).toEqual({
       text: 'Now: fix attempts ran out after 3 tries. Resume the agent to try again.',

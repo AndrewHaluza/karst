@@ -10,7 +10,11 @@ import {
   SerializedStateWriter,
   shouldApplySessionHookState,
 } from './sessionRecovery.js';
-import { SessionManager, type FakeTerminal } from './session.js';
+import {
+  deferSessionRetry,
+  SessionManager,
+  type FakeTerminal,
+} from './session.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 
 describe('resumeRestoredSession', () => {
@@ -377,6 +381,33 @@ describe('recovery lifecycle ordering', () => {
     }
 
     expect(nudges).toEqual(['responsive-1', 'responsive-2', 'responsive-3']);
+  });
+
+  it('retires a failed recovery generation before a deferred fresh retry opens', async () => {
+    let open = false;
+    let disposals = 0;
+    const sessions = {
+      isOpen: () => open,
+      disposeSession: () => {
+        disposals += 1;
+        open = false;
+      },
+    };
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    const recovery = recoverSession(sessions, lifecycle, 7, async () => {
+      open = true;
+    });
+    const failedLaunch = lifecycle.currentLaunchId(7);
+
+    lifecycle.sessionClosed(7, failedLaunch);
+    deferSessionRetry(() => {
+      open = true;
+    });
+
+    await expect(recovery).resolves.toEqual({ kind: 'closed' });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(disposals).toBe(1);
+    expect(open).toBe(true);
   });
 
   it('accepts a retry SessionStart before the old terminal’s delayed close', async () => {

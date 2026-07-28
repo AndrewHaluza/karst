@@ -6,7 +6,7 @@ import {
   startHookEndpoint,
   type HookEndpoint,
 } from './endpoint.js';
-import { connect } from 'node:net';
+import { connect, type Socket } from 'node:net';
 
 async function post(url: string, body: unknown): Promise<number> {
   const res = await fetch(url, {
@@ -49,8 +49,8 @@ describe('startHookEndpoint', () => {
     store = openStore(':memory:');
     ep = await startHookEndpoint(store, 0);
   });
-  afterEach(() => {
-    ep.close();
+  afterEach(async () => {
+    await ep?.close();
     store.close();
   });
 
@@ -77,7 +77,7 @@ describe('startHookEndpoint', () => {
   // what makes those sessions work again after a reload.
   it('rebinds the requested port so a restarted host keeps a live session’s hooks working', async () => {
     const wanted = ep.port;
-    ep.close();
+    await ep.close();
 
     ep = await startHookEndpoint(store, wanted);
 
@@ -93,9 +93,9 @@ describe('startHookEndpoint', () => {
       const fallback = await startHookEndpoint(store, other.port);
       expect(fallback.port).toBeGreaterThan(0);
       expect(fallback.port).not.toBe(other.port);
-      fallback.close();
+      await fallback.close();
     } finally {
-      other.close();
+      await other.close();
     }
   });
 
@@ -108,7 +108,7 @@ describe('startHookEndpoint', () => {
   });
 
   it('derives the launch generation from the endpoint URL, not hook JSON', async () => {
-    ep.close();
+    await ep.close();
     let observedLaunch: string | undefined;
     ep = await startHookEndpoint(store, 0, (_ticketId, payload) => {
       observedLaunch = payload.launchId;
@@ -188,5 +188,60 @@ describe('startHookEndpoint', () => {
     expect(status).toBeGreaterThanOrEqual(200);
     expect(status).toBeLessThan(300);
     expect(getTicket(store, id).agentState).toBe('none');
+  });
+
+  it('disconnects an incomplete request at its deadline without blocking the next hook', async () => {
+    await ep.close();
+    ep = await startHookEndpoint(
+      store,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { requestTimeoutMs: 40 },
+    );
+    const id = ticketAt();
+    let partial: Socket | undefined;
+    await new Promise<void>((resolve, reject) => {
+      partial = connect(ep.port, '127.0.0.1');
+      partial.on('connect', () => {
+        partial!.write(
+          'POST /hooks HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\n{',
+        );
+        resolve();
+      });
+      partial.on('error', reject);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('partial hook socket was not disconnected')),
+        1_000,
+      );
+      partial!.on('close', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    expect(getTicket(store, id).agentState).toBe('none');
+
+    expect(await post(ep.url, { hook_event_name: 'SessionStart', cwd: WT })).toBe(204);
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('close is awaitable, idempotent, and settles after the port stops accepting connections', async () => {
+    const port = ep.port;
+    const firstClose = ep.close();
+    const secondClose = ep.close();
+    await Promise.all([firstClose, secondClose]);
+
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        const socket = connect(port, '127.0.0.1');
+        socket.on('connect', () => reject(new Error('endpoint still accepted a connection')));
+        socket.on('error', () => resolve());
+      }),
+    ).resolves.toBeUndefined();
   });
 });

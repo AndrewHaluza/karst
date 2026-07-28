@@ -339,6 +339,40 @@ describe('CodexAdapter interactive commands', () => {
     }
   });
 
+  it('delivers a final assistant question as idle_prompt without its content', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            last_assistant_message: 'Proceed to plan phase?',
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(body).toEqual({
+        hook_event_name: 'Notification',
+        cwd: '/wt',
+        session_id: 'thread-1',
+        message: 'idle_prompt',
+      });
+    } finally {
+      await receiver.close();
+    }
+  });
+
   it.each([
     {
       name: 'malformed JSON',
@@ -546,6 +580,55 @@ describe('codexHookNormalizer', () => {
       },
     ]);
   });
+
+  it('maps a Stop ending in a question to idle_prompt without forwarding the message', async () => {
+    const { codexHookNormalizer } = await import('./codex.js');
+    const posted: unknown[] = [];
+    const normalize = codexHookNormalizer((payload) => {
+      posted.push(payload);
+      return Promise.resolve();
+    });
+
+    await normalize({
+      hook_event_name: 'Stop',
+      session_id: 'thread-1',
+      cwd: '/wt',
+      last_assistant_message: 'Proceed to plan phase?',
+    });
+
+    expect(posted).toEqual([
+      {
+        hook_event_name: 'Notification',
+        session_id: 'thread-1',
+        cwd: '/wt',
+        message: 'idle_prompt',
+      },
+    ]);
+  });
+
+  it('keeps a completed Stop idle', async () => {
+    const { codexHookNormalizer } = await import('./codex.js');
+    const posted: unknown[] = [];
+    const normalize = codexHookNormalizer((payload) => {
+      posted.push(payload);
+      return Promise.resolve();
+    });
+
+    await normalize({
+      hook_event_name: 'Stop',
+      session_id: 'thread-1',
+      cwd: '/wt',
+      last_assistant_message: 'Implementation complete.',
+    });
+
+    expect(posted).toEqual([
+      {
+        hook_event_name: 'Stop',
+        session_id: 'thread-1',
+        cwd: '/wt',
+      },
+    ]);
+  });
 });
 
 describe('parseCodexJsonl', () => {
@@ -650,6 +733,46 @@ describe('CodexAdapter headless execution', () => {
 });
 
 describe('CodexAdapter approach materialization', () => {
+  it('never claims or overwrites pre-existing repository skills', () => {
+    const worktree = makeWorktree();
+    const artifactDir = join(
+      worktree,
+      '.agents/skills/karst-rpi-planning',
+    );
+    const workflowDir = join(worktree, '.agents/skills/karst-rpi');
+    mkdirSync(artifactDir, { recursive: true });
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(join(artifactDir, 'SKILL.md'), 'repository artifact');
+    writeFileSync(join(workflowDir, 'SKILL.md'), 'repository workflow');
+
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', [
+        [
+          'skills/planning/SKILL.md',
+          '---\nname: planning\ndescription: Plan.\n---\nGenerated.',
+        ],
+      ]),
+      sessionDir: worktree,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [
+          { kind: 'skill', relPath: 'skills/planning/SKILL.md' },
+        ],
+        workflow: [{ name: 'plan' }],
+      },
+    });
+
+    expect(readFileSync(join(artifactDir, 'SKILL.md'), 'utf8')).toBe(
+      'repository artifact',
+    );
+    expect(readFileSync(join(workflowDir, 'SKILL.md'), 'utf8')).toBe(
+      'repository workflow',
+    );
+    expect(result.ownedPaths).not.toContain(artifactDir);
+    expect(result.ownedPaths).not.toContain(workflowDir);
+  });
+
   it('preserves skills and converts commands and agents to Codex skills', () => {
     const baseDir = makeBasePackage('rpi', [
       [
