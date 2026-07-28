@@ -63,6 +63,7 @@ function make(
       getApproachCommandBody: () => {},
       fetchTicketStatuses: () => {},
       fetchTicketLists: () => {},
+      browseRepoPath: () => {},
     }),
     () => [],
     hasToken,

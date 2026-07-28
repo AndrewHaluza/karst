@@ -201,3 +201,84 @@ describe('settings artifact conventions', () => {
     );
   });
 });
+
+describe('repository field validation UX', () => {
+  it('tracks touched fields via a blur listener', () => {
+    expect(HTML).toContain('touchedFields');
+    // Blur does not bubble: the listener has to be registered in the CAPTURE
+    // phase (the trailing `true`) or touch tracking silently never fires.
+    expect(HTML).toMatch(/addEventListener\('blur',[\s\S]{0,600}?\}, true\)/);
+  });
+
+  it('parses a repoPath error to a repo/field key', () => {
+    const fn = HTML.match(/function parseRepoFieldError\(msg\)\s*{([\s\S]*?)\n {2}}/);
+    expect(fn, 'parseRepoFieldError not found').toBeTruthy();
+    expect(fn![1]).toContain('repoPath');
+    expect(fn![1]).toContain('service\\.(start|health)');
+  });
+
+  it('suppresses the banner for an untouched mapped field error', () => {
+    expect(HTML).toContain('function shouldShowBanner(');
+    expect(HTML).toContain('touchedFields.has(parsed.key)');
+  });
+
+  it('renders an inline field-error line and a browse button next to repoPath', () => {
+    expect(HTML).toContain('data-field-error="${esc(name)}.repoPath"');
+    expect(HTML).toContain('data-browse-repo-path="${esc(name)}"');
+    expect(HTML).toContain('data-touch-key="${esc(name)}.repoPath"');
+  });
+});
+
+describe('repository enabled toggle', () => {
+  it('new repositories default to disabled (draft)', () => {
+    const fn = HTML.match(/el\('addServiceBtn'\)\.addEventListener\('click', \(\) => {([\s\S]*?)\n {2}}\);/);
+    expect(fn, 'addServiceBtn handler not found').toBeTruthy();
+    expect(fn![1]).toContain('enabled: false');
+  });
+
+  it('renders an enabled pill toggle per repository card', () => {
+    expect(HTML).toContain('data-repo-enabled="${esc(name)}"');
+    expect(HTML).toContain('approach-toggle'); // reuses the existing pill style
+  });
+
+  it('shows a Draft label when a repository is disabled', () => {
+    expect(HTML).toContain('repo.enabled === false');
+    expect(HTML).toContain('Draft');
+  });
+
+  it('does not expand the card when the toggle itself is clicked', () => {
+    // The visible part of the pill is a `.dot` span with no data attribute of
+    // its own, so the accordion fallback must exempt it by ancestor.
+    expect(HTML).toContain("t.closest('.approach-toggle')");
+    expect(HTML).toMatch(/t\.dataset\.svcName === undefined && !inEnabledToggle/);
+  });
+
+  it('flips draft.repositories[name].enabled on toggle click', () => {
+    expect(HTML).toContain('t.dataset.repoEnabled');
+    expect(HTML).toMatch(/enabled:\s*t\.checked/);
+  });
+});
+
+describe('repository field placeholders', () => {
+  it('gives every free-text repo/service field an example placeholder', () => {
+    expect(HTML).toContain('placeholder="/Users/you/code/${esc(name)}"'); // repoPath
+    expect(HTML).toContain('placeholder="npm run dev"'); // start
+    expect(HTML).toContain('placeholder="http://{host}:{port}/health"'); // health
+    expect(HTML).toContain('placeholder="http"'); // port name
+    expect(HTML).toContain('placeholder="PORT"'); // port env
+    expect(HTML).toContain('placeholder="3000"'); // port default
+    expect(HTML).toContain('placeholder="my-repo"'); // repo name field
+  });
+});
+
+describe('chevron and invalid-field styling', () => {
+  it('renders the chevron at a comfortably clickable size', () => {
+    const m = HTML.match(/\.card \.card-head \.chevron\{([^}]*)\}/);
+    expect(m, '.card .card-head .chevron rule not found').toBeTruthy();
+    expect(m![1]).toMatch(/font-size:1[4-9]px/); // at least 14px, up from 10px
+  });
+
+  it('applies the error border to any invalid field, not just convention fields', () => {
+    expect(HTML).toMatch(/input\[aria-invalid="true"\][^{]*\{[^}]*border-color/);
+  });
+});

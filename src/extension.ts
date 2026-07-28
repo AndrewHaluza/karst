@@ -799,6 +799,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       clearToken: (): Promise<void> => clearToken(context),
       hasToken: (): Promise<boolean> => hasToken(context),
+      // Native folder picker for a repository's repoPath (§ settings). No
+      // validation here — whatever the user picks is just text in the field,
+      // same as typing it; validateManifest is still the authority.
+      browseForFolder: async (): Promise<string | undefined> => {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: false,
+          openLabel: 'Select repository folder',
+        });
+        return uris?.[0]?.fsPath;
+      },
       saveAgentFile: (name: string, body: string): void =>
         writeAgentFile(agentsDirOrThrow(), name, body),
       deleteAgent: (name: string): void => removeAgentFile(agentsDirOrThrow(), name),

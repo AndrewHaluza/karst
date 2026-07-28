@@ -19,7 +19,8 @@ export type SettingsWebviewMessage =
   | { type: 'request-state' }
   | { type: 'get-approach-command-body'; approachId: string; command: string }
   | { type: 'fetch-ticket-statuses'; listId: string; teamId?: string }
-  | { type: 'fetch-ticket-lists'; teamId: string };
+  | { type: 'fetch-ticket-lists'; teamId: string }
+  | { type: 'browse-repo-path'; name: string };
 
 /** Host → webview messages. */
 export type SettingsHostMessage =
@@ -32,7 +33,8 @@ export type SettingsHostMessage =
   | { type: 'ticket-statuses'; statuses: string[] }
   | { type: 'ticket-statuses-error'; message: string }
   | { type: 'ticket-lists'; lists: TicketList[] }
-  | { type: 'ticket-lists-error'; message: string };
+  | { type: 'ticket-lists-error'; message: string }
+  | { type: 'repo-path-picked'; name: string; path: string };
 
 /** The host-side effects a settings panel can trigger. */
 export interface SettingsActions {
@@ -65,6 +67,8 @@ export interface SettingsActions {
   /** Load the workspace's lists for the settings List picker, from the draft's
    *  teamId (so Refresh works before Save). */
   fetchTicketLists(teamId: string): void;
+  /** Open a native folder picker for a repository's repoPath. */
+  browseRepoPath(name: string): void;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -127,6 +131,8 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
     }
     case 'fetch-ticket-lists':
       return str('teamId') ? { type: 'fetch-ticket-lists', teamId: raw.teamId as string } : null;
+    case 'browse-repo-path':
+      return str('name') ? { type: 'browse-repo-path', name: raw.name as string } : null;
     default:
       return null;
   }
@@ -181,6 +187,9 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return;
     case 'fetch-ticket-lists':
       actions.fetchTicketLists(msg.teamId);
+      return;
+    case 'browse-repo-path':
+      actions.browseRepoPath(msg.name);
       return;
   }
 }
