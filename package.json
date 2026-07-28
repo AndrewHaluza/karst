@@ -134,6 +134,10 @@
       {
         "command": "karst.recheckDeps",
         "title": "Karst: Re-check Required Tools"
+      },
+      {
+        "command": "karst.reportIssue",
+        "title": "Karst: Report Issue"
       }
     ],
     "configuration": {
