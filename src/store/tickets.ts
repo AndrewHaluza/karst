@@ -3,6 +3,8 @@ import type { Store } from './db.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { rowToStage, type Stage } from './stages.js';
 import { renderTicketLabel } from './ticketLabelTemplate.js';
+import type { AgentProvider } from '../manifest/types.js';
+import { isKnownProvider } from '../agent/registry.js';
 
 export interface Ticket {
   id: number;
@@ -26,6 +28,14 @@ export interface Ticket {
   archivedAt: string | null;
   /** Per-ticket launch model id (§ model selection); `null` = inherit the manifest default. */
   model: string | null;
+  /** Per-ticket agent-core override (§ agent core selection); `null` = inherit `manifest.agentProvider`. */
+  agentProvider: AgentProvider | null;
+  /**
+   * Agent core that minted `sessionId` (§5.3). A session id is private to the
+   * CLI that created it, so this is what makes a resume provably safe; `null`
+   * (legacy row, or a capture with no resolver) means "unknown — never resume".
+   */
+  sessionProvider: AgentProvider | null;
   /**
    * Owning project (§ projects / multi-window); `null` for a ticket created
    * before v6, until the first window to bind adopts it.
@@ -54,6 +64,8 @@ interface TicketRow {
   selected_repos: string | null;
   archived_at: string | null;
   model: string | null;
+  agent_provider: string | null;
+  session_provider: string | null;
   project_id: number | null;
 }
 
@@ -96,6 +108,8 @@ function rowToTicket(r: TicketRow): Ticket {
     selectedRepos: parseSelectedRepos(r.selected_repos),
     archivedAt: r.archived_at,
     model: r.model,
+    agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
+    sessionProvider: isKnownProvider(r.session_provider) ? r.session_provider : null,
     projectId: r.project_id,
   };
 }
@@ -240,14 +254,27 @@ export function setAgentState(
 }
 
 /**
- * Set a ticket's `session_id` — the agent session to `--resume` (§5.3). Captured
- * from the SessionStart hook. Single-writer discipline: all session_id mutation
- * goes through here.
+ * Set (or, with `null`, clear) a ticket's `session_id` — the agent session to
+ * `--resume` (§5.3) — together with the agent core that minted it. Captured
+ * from the SessionStart hook; cleared when a resume launch dies before starting
+ * (the captured id no longer resolves — e.g. the agent's session store was
+ * pruned or the worktree was recreated) so the next launch falls back to a
+ * fresh, seeded session instead of repeating the same crash.
+ *
+ * The two columns are written by one statement because they are one fact: an id
+ * without its provider is unusable (never resumed), and a provider without its
+ * id means nothing. Single-writer discipline: all session_id AND session_provider
+ * mutation goes through here.
  */
-export function setSessionId(store: Store, ticketId: number, sessionId: string): void {
+export function setSessionId(
+  store: Store,
+  ticketId: number,
+  sessionId: string | null,
+  sessionProvider: AgentProvider | null,
+): void {
   store.db
-    .prepare('UPDATE tickets SET session_id = ? WHERE id = ?')
-    .run(sessionId, ticketId);
+    .prepare('UPDATE tickets SET session_id = ?, session_provider = ? WHERE id = ?')
+    .run(sessionId, sessionProvider, ticketId);
 }
 
 /**
@@ -286,6 +313,8 @@ export interface OnboardingPatch {
   selectedRepos?: string[];
   /** Per-ticket launch model id; empty string clears it back to inherit. */
   model?: string;
+  /** Per-ticket agent-core override; empty string clears it back to inherit. */
+  agentProvider?: string;
 }
 
 /**
@@ -310,6 +339,15 @@ export function updateTicketOnboarding(
   }
   // An explicit empty string clears the per-ticket model back to "inherit" (NULL).
   if (patch.model !== undefined) columns.model = patch.model === '' ? null : patch.model;
+  // Same "inherit" convention for the per-ticket agent-core override. A switch
+  // deliberately does NOT touch session_id here: the session carries its own
+  // `session_provider` tag, so a now-foreign session is simply not resumed
+  // (resumeDecision.ts). That also covers the switch this function never sees —
+  // a change to the manifest-level default, which re-points every inheriting
+  // ticket at a different core without any ticket row being written.
+  if (patch.agentProvider !== undefined) {
+    columns.agent_provider = patch.agentProvider === '' ? null : patch.agentProvider;
+  }
 
   const entries = Object.entries(columns);
   if (entries.length === 0) return; // empty patch: no-op

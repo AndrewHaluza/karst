@@ -66,6 +66,18 @@
   .label-vars{margin-top:4px;font-size:11px;
     color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.7}
   .label-vars code{font-family:var(--vscode-editor-font-family,monospace)}
+  .convention-intro,.convention-hint,.convention-vars,.convention-preview{
+    color:var(--vscode-descriptionForeground,var(--vscode-foreground));font-size:11px}
+  .convention-intro{margin:0 0 8px}
+  .convention-hint{margin-top:5px}
+  .convention-vars{margin-top:4px}
+  .convention-vars code{font-family:var(--mono)}
+  .convention-preview{margin-top:6px;white-space:pre-wrap}
+  .convention-preview .lp-val{font-family:var(--mono);color:var(--vscode-foreground)}
+  textarea.convention-description{min-height:110px}
+  .convention-error{color:var(--vscode-errorForeground);font-size:11px;margin-top:5px}
+  .convention-control[aria-invalid="true"]{
+    border-color:var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground))}
 
   .content{flex:1 1 auto;overflow:auto;padding:20px 26px}
   .section{max-width:760px}
@@ -423,6 +435,49 @@
           <select id="f-defaultModel"></select>
         </div>
       </div>
+      <div class="card open">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <h2>Commit &amp; pull request conventions</h2>
+          <p class="convention-intro">
+            Optional templates for artifacts Karst creates while shipping.
+            Leave a field empty to keep Karst's current behavior.
+          </p>
+
+          <label for="f-commitMessageTemplate">Commit message template</label>
+          <input class="convention-control" type="text" id="f-commitMessageTemplate"
+            placeholder="{title}"
+            aria-describedby="commitMessageHint commitMessageVars commitMessagePreview commitMessageError" />
+          <div class="convention-hint" id="commitMessageHint">
+            Used only when Karst creates a fallback commit for a dirty worktree.
+          </div>
+          <div class="convention-vars" id="commitMessageVars"></div>
+          <div class="convention-preview" id="commitMessagePreview"></div>
+          <div class="convention-error hidden" id="commitMessageError"></div>
+
+          <label for="f-prTitleTemplate">Pull request title template</label>
+          <input class="convention-control" type="text" id="f-prTitleTemplate"
+            placeholder="{title}"
+            aria-describedby="prTitleHint prTitleVars prTitlePreview prTitleError" />
+          <div class="convention-hint" id="prTitleHint">
+            Used when Karst creates a new pull request; an existing pull request is not renamed.
+          </div>
+          <div class="convention-vars" id="prTitleVars"></div>
+          <div class="convention-preview" id="prTitlePreview"></div>
+          <div class="convention-error hidden" id="prTitleError"></div>
+
+          <label for="f-prDescriptionTemplate">Pull request description template</label>
+          <textarea class="convention-control convention-description"
+            id="f-prDescriptionTemplate" rows="6"
+            placeholder="## Summary&#10;{description}&#10;&#10;Ticket: {key}&#10;Repository: {repo}"
+            aria-describedby="prDescriptionHint prDescriptionVars prDescriptionPreview prDescriptionError"></textarea>
+          <div class="convention-hint" id="prDescriptionHint">
+            Use {description} to include Karst's generated summary. Without it, no summary is generated.
+          </div>
+          <div class="convention-vars" id="prDescriptionVars"></div>
+          <div class="convention-preview" id="prDescriptionPreview"></div>
+          <div class="convention-error hidden" id="prDescriptionError"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Repositories -->
@@ -714,6 +769,18 @@
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
   const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity'];
 
+  // Mirrors the strict host-side vocabulary for display only. The host's
+  // validateManifest call remains authoritative for syntax and token errors.
+  const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo'];
+  const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description'];
+  const CONVENTION_SAMPLE = {
+    title: 'add login',
+    key: 'PROJ-142',
+    id: '142',
+    repo: 'frontend',
+    description: 'Adds the requested login flow.',
+  };
+
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
   function manifestsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
@@ -801,7 +868,12 @@
     renderModelPicker();
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
+    const conventions = draft.conventions || {};
+    el('f-commitMessageTemplate').value = conventions.commitMessage || '';
+    el('f-prTitleTemplate').value = conventions.pullRequestTitle || '';
+    el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';
     renderLabelPreview();
+    renderConventions();
   }
 
   // Live preview of the label template against a representative sample ticket,
@@ -821,6 +893,57 @@
     const tpl = raw.trim() === '' ? DEFAULT_TERMINAL_TEMPLATE : raw;
     el('terminalPreview').innerHTML =
       'Preview: <span class="lp-val">' + esc(renderLabel(SAMPLE_TICKET, tpl)) + '</span>';
+  }
+
+  function renderConventionVars(target, names) {
+    el(target).innerHTML =
+      'Variables: ' + names.map((name) => '<code>{' + name + '}</code>').join(' ');
+  }
+
+  function renderConventionPreview(inputId, previewId, fallback) {
+    const template = el(inputId).value;
+    if (template.trim() === '') {
+      el(previewId).textContent = fallback;
+      return;
+    }
+    const rendered = template.replace(/\{(\w+)\}/g, (match, name) =>
+      Object.prototype.hasOwnProperty.call(CONVENTION_SAMPLE, name)
+        ? CONVENTION_SAMPLE[name]
+        : match
+    );
+    el(previewId).innerHTML = 'Preview: <span class="lp-val">' + esc(rendered) + '</span>';
+  }
+
+  function renderConventions() {
+    renderConventionVars('commitMessageVars', COMMON_CONVENTION_VARS);
+    renderConventionVars('prTitleVars', COMMON_CONVENTION_VARS);
+    renderConventionVars('prDescriptionVars', DESCRIPTION_CONVENTION_VARS);
+    renderConventionPreview(
+      'f-commitMessageTemplate',
+      'commitMessagePreview',
+      'Default: resolved ticket title',
+    );
+    renderConventionPreview(
+      'f-prTitleTemplate',
+      'prTitlePreview',
+      'Default: resolved ticket title',
+    );
+    renderConventionPreview(
+      'f-prDescriptionTemplate',
+      'prDescriptionPreview',
+      'Default: generated summary, falling back to the resolved ticket title',
+    );
+  }
+
+  function updateConvention(field, value) {
+    if (value.trim() === '') {
+      if (!draft.conventions) return;
+      delete draft.conventions[field];
+      if (Object.keys(draft.conventions).length === 0) delete draft.conventions;
+      return;
+    }
+    if (!draft.conventions) draft.conventions = {};
+    draft.conventions[field] = value;
   }
 
   el('f-host').addEventListener('input', () => { draft.host = el('f-host').value; markDirty(); });
@@ -871,6 +994,22 @@
     renderTerminalPreview();
     markDirty();
   });
+  el('f-commitMessageTemplate').addEventListener('input', () => {
+    updateConvention('commitMessage', el('f-commitMessageTemplate').value);
+    renderConventions();
+    markDirty();
+  });
+  el('f-prTitleTemplate').addEventListener('input', () => {
+    updateConvention('pullRequestTitle', el('f-prTitleTemplate').value);
+    renderConventions();
+    markDirty();
+  });
+  el('f-prDescriptionTemplate').addEventListener('input', () => {
+    // Preserve raw multiline content; trim is used only to recognize "clear".
+    updateConvention('pullRequestDescription', el('f-prDescriptionTemplate').value);
+    renderConventions();
+    markDirty();
+  });
 
   // ---- Repositories ----
   function serviceNames() { return Object.keys(draft.repositories || {}); }
@@ -908,6 +1047,8 @@
       + `<input type="text" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
       + `<label>Repo path</label>`
       + `<input type="text" data-svc-field="repoPath" data-svc="${esc(name)}" value="${esc(repo.repoPath)}"/>`
+      + `<label>Baseline branch override <span class="field-hint">(blank inherits ${esc(draft.baselineBranch)})</span></label>`
+      + `<input type="text" data-svc-field="baselineBranch" data-svc="${esc(name)}" value="${esc(repo.baselineBranch || '')}"/>`
       + `<div class="toggle" style="margin-top:10px">`
       + `<input type="checkbox" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${repo.hasMigrations ? 'checked' : ''}/>`
       + `<label style="margin:0">Has migrations</label>`
@@ -1210,6 +1351,9 @@
       if (field === 'hasMigrations') return; // handled by change
       if (field === 'repoPath') {
         draft.repositories[svc].repoPath = t.value; // repository-level
+      } else if (field === 'baselineBranch') {
+        if (t.value.trim() === '') delete draft.repositories[svc].baselineBranch;
+        else draft.repositories[svc].baselineBranch = t.value;
       } else {
         const svcDef = draft.repositories[svc].service; // start / health
         if (!svcDef) return;
@@ -2156,6 +2300,28 @@
     banner.classList.remove('hidden');
   }
 
+  function showConventionValidation(error) {
+    const fields = [
+      ['commitMessage', 'f-commitMessageTemplate', 'commitMessageError'],
+      ['pullRequestTitle', 'f-prTitleTemplate', 'prTitleError'],
+      ['pullRequestDescription', 'f-prDescriptionTemplate', 'prDescriptionError'],
+    ];
+    for (const [field, inputId, errorId] of fields) {
+      const input = el(inputId);
+      const line = el(errorId);
+      const applies = Boolean(error && error.includes('conventions.' + field));
+      if (applies) {
+        input.setAttribute('aria-invalid', 'true');
+        line.textContent = error;
+        line.classList.remove('hidden');
+      } else {
+        input.removeAttribute('aria-invalid');
+        line.textContent = '';
+        line.classList.add('hidden');
+      }
+    }
+  }
+
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
@@ -2177,6 +2343,7 @@
         updateSaveEnabled();
         showError(msg.state.error);
         renderAll();
+        showConventionValidation(msg.state.error);
         vscode.setState(msg.state);
         break;
       }
@@ -2188,6 +2355,7 @@
         valid = msg.ok;
         updateSaveEnabled();
         showError(msg.ok ? null : msg.error);
+        showConventionValidation(msg.ok ? null : msg.error);
         break;
       }
       case 'ticket-statuses': {
@@ -2261,6 +2429,7 @@
     updateSaveEnabled();
     showError(prev.error);
     renderAll();
+    showConventionValidation(prev.error);
   }
   post({ type: 'request-state' });
 </script>

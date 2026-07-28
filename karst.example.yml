@@ -31,7 +31,8 @@ host: 127.0.0.1
 # Inclusive [min, max] port window Karst allocates ticket-hot ports from.
 portRange: [4000, 4100]
 
-# The branch every worktree is created off, and baseline services run.
+# Default branch every worktree is created off, baseline services run from, and
+# pull requests target. A repository may override this with `baselineBranch`.
 baselineBranch: develop
 
 # How the dashboard renders worktree paths: 'relative' (default, to the
@@ -44,6 +45,8 @@ agentProvider: claude
 repositories:
   backend:
     repoPath: /absolute/path/to/backend
+    # Optional; omit to inherit the top-level baselineBranch.
+    # baselineBranch: release
     hasMigrations: false   # true → flagged "not first-class under shared-DB"
     # Repo-classifier signal words: ticket title/description/tag tokens that
     # point a ticket at this repo. Empty/absent = unclassified (onboarding
@@ -170,6 +173,50 @@ agents:
   implement-be: { role: implement }
   test: { role: test }
   review: { role: review }
+
+# Optional project-wide conventions for artifacts KARST ITSELF creates during
+# ship. Omit `conventions` (the default) to preserve the historical behavior:
+#   - fallback commit message: resolved ticket title;
+#   - PR title: resolved ticket title;
+#   - PR description: agent-generated summary when an adapter is available,
+#     otherwise the resolved PR title.
+#
+# Each field is independent. Variables supported by ALL three templates:
+#   {title}  resolved ticket title (title → key → "Ticket <database id>")
+#   {key}    ticket key, or the decimal database id when no key exists
+#   {id}     decimal Karst database id
+#   {repo}   current manifest repository name
+#
+# pullRequestDescription additionally supports:
+#   {description}  agent-generated summary, falling back to the final PR title
+#
+# `{description}` has a model-cost consequence: Karst asks the configured agent
+# for a summary only when this token is present (or when no description template
+# is configured, preserving the legacy behavior). A configured description
+# without `{description}` is deterministic and makes no summary-generation call.
+#
+# Use YAML's `|` block scalar for a readable multiline PR body. Newlines and
+# whitespace are preserved. Complete example:
+#
+# conventions:
+#   commitMessage: "feat({repo}): {title} [{key}]"
+#   pullRequestTitle: "[{key}] {title}"
+#   pullRequestDescription: |
+#     ## Summary
+#     {description}
+#
+#     Ticket: {key}
+#     Repository: {repo}
+#
+# Partial configuration is valid; omitted artifacts keep their exact defaults:
+#
+# conventions:
+#   pullRequestTitle: "[{key}] {title}"
+#
+# Scope: commitMessage applies only to Karst's fallback commit when a worktree is
+# dirty. Karst does not rename commits created by an agent or user. PR templates
+# apply only when Karst creates a new PR; an existing PR adopted during ship is
+# never retitled or rewritten.
 
 # Ticketing integration (optional; default { provider: manual }). `manual` is
 # local-only. `clickup` fetches ticket context; set `teamId` (ClickUp workspace

@@ -11,6 +11,11 @@ export const IMPLEMENTED_PROVIDERS: readonly AgentProvider[] = [
   'antigravity',
 ];
 
+/** Type guard for a value that is a known, implemented agent provider. */
+export function isKnownProvider(value: unknown): value is AgentProvider {
+  return typeof value === 'string' && (IMPLEMENTED_PROVIDERS as readonly string[]).includes(value);
+}
+
 const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
   claude: () => new ClaudeAdapter(),
   codex: () => new CodexAdapter(),
@@ -22,4 +27,16 @@ const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
  */
 export function resolveAdapter(provider: AgentProvider): AgentAdapter {
   return FACTORIES[provider]();
+}
+
+/**
+ * Resolve the effective agent provider (§ agent core selection): the
+ * ticket's own override wins, else the manifest default, else `'claude'`.
+ * Mirrors `resolveModel`'s precedence in `agent/models.ts`.
+ */
+export function resolveProvider(
+  ticketProvider: AgentProvider | null | undefined,
+  manifestProvider: AgentProvider | null | undefined,
+): AgentProvider {
+  return ticketProvider ?? manifestProvider ?? 'claude';
 }

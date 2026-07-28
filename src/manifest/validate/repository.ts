@@ -160,6 +160,7 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
 
   const repo: RepositoryDef = {
     repoPath: requireString(raw.repoPath, `${where}.repoPath`),
+    baselineBranch: optionalString(raw.baselineBranch, `${where}.baselineBranch`),
     hasMigrations: raw.hasMigrations === true, // default false
     signals: validateSignals(raw.signals, name),
   };

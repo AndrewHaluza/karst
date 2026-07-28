@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 13;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -238,6 +238,30 @@ export function migrate(db: Database): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_worktree_archives_ticket ON worktree_archives(ticket_id, path)',
     );
+  }
+
+  if (current < 12) {
+    // v12 adds the per-ticket agent-provider override (§ agent core selection).
+    // Fresh DBs already carry it (schema.sql); guard so the ALTER only runs for
+    // a legacy DB being upgraded. NULL = inherit manifest.agentProvider, same
+    // "inherit" convention as the v5 model column.
+    const cols = ticketColumns(db);
+    if (cols.size > 0 && !cols.has('agent_provider')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN agent_provider TEXT');
+    }
+  }
+
+  if (current < 13) {
+    // v13 tags a captured session with the agent core that minted it. A session
+    // id only resolves inside the CLI that created it, so an untagged id handed
+    // to another core makes `--resume` fail on launch. Nothing is backfilled:
+    // the provider of an already-captured session cannot be derived, and a
+    // guess would reintroduce exactly the crash this column prevents — a NULL
+    // simply means "never resume this one" (see resumeDecision.ts).
+    const cols = ticketColumns(db);
+    if (cols.size > 0 && !cols.has('session_provider')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN session_provider TEXT');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

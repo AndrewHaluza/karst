@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
+import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
 import { resolve } from '../resolver/resolve.js';
 import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.js';
@@ -167,7 +168,7 @@ export async function spinTicket(
           ticketId,
           repoPath: repo.repoPath,
           slug,
-          baseRef: manifest.baselineBranch,
+          baseRef: resolveBaselineBranch(manifest, repo),
         });
         worktreeByRepo.set(repo.repoPath, wt);
         created.push(wt);

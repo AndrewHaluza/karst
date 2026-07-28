@@ -12,6 +12,7 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
   continueSessionInBackground,
+  KARST_LAUNCH_ENV,
   KARST_TICKET_ENV,
   SessionManager,
   type TerminalHost,
@@ -28,7 +29,7 @@ import {
   shouldApplySessionHookState,
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
-import { resolveAdapter } from './agent/registry.js';
+import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import {
@@ -88,7 +89,10 @@ import {
 } from './extension/manifestResolve.js';
 import { installApproach, type RunCommand } from './approaches/fetch.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
-import type { ApproachDef, TicketingConfig } from './manifest/types.js';
+import type {
+  ApproachDef,
+  TicketingConfig,
+} from './manifest/types.js';
 import {
   listInstalled,
   readApproachPackage,
@@ -115,6 +119,7 @@ import {
   listTickets,
   listArchivedTickets,
   setAgentState,
+  setSessionId,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
@@ -253,7 +258,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
   }), () => worktreePathContext(currentManifest(), logger.warn), () => currentManifest()?.ticketLabelTemplate, logError,
-    () => currentProject()?.id);
+    () => currentProject()?.id,
+    () => currentManifest()?.agentProvider);
   const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
   provider.bind(sidebarHost);
   context.subscriptions.push(
@@ -320,6 +326,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     undefined,
     (ticketId, launchId) =>
       recoveryLifecycle.sessionClosed(ticketId, launchId),
+    (ticketId, launchId) =>
+      recoveryLifecycle.adoptLaunch(ticketId, launchId),
+    // The captured session id no longer resolves (agent CLI rejected `--resume`
+    // and exited before starting) — clear it so the NEXT open re-seeds a fresh
+    // session instead of repeating the same crash forever, and tell the user
+    // why the terminal they just saw close did nothing.
+    (ticketId) => {
+      setSessionId(localStore, ticketId, null, null);
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      const t = getTicket(localStore, ticketId);
+      void vscode.window.showWarningMessage(
+        `Karst: couldn't resume the previous session for "${t.key ?? `#${ticketId}`}" ` +
+          `(it may have expired or the worktree was recreated). Starting a fresh session next time.`,
+      );
+    },
   );
 
   // The live manifest. Loaded on first read rather than assigned by whichever
@@ -332,8 +354,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     load: loadManifest,
   });
   const currentManifest = (): Manifest | undefined => manifests.get();
-  const currentAgentAdapter = (): AgentAdapter =>
-    resolveAdapter(currentManifest()?.agentProvider ?? 'claude');
+  const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
+    const ticketProvider =
+      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
+    return resolveAdapter(resolveProvider(ticketProvider, currentManifest()?.agentProvider));
+  };
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // onboarding (after a signal writeback) and settings (after a save) so both
@@ -442,9 +467,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * usable. The guard lives here, in the host layer, because the workflow modules
    * it protects are host-agnostic by invariant — a PATH probe wired inside them
    * would fail their own unit tests on a machine without gh.
+   *
+   * `ticketId` only changes the outcome for capabilities gated by
+   * `AGENT_CLI_DEPENDENCIES` (currently only `'sessions'`) — pass it there;
+   * omit it for `'worktrees'`/`'gates'`/`'ship'` since git/npm/gh availability
+   * doesn't vary by agent provider, and passing it needlessly risks a
+   * `getTicket` throw on a since-deleted ticket.
    */
-  const guardCapability = (capability: Capability, silent = false): boolean => {
-    const provider = currentManifest()?.agentProvider ?? 'claude';
+  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+    const ticketProvider =
+      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
+    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
     const faults = ensureCapability(
       capability,
       dependencyRegistry(provider),
@@ -821,7 +854,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       makeDashboardActions(
         localStore,
         ticketId,
-        currentAgentAdapter,
+        () => currentAgentAdapter(ticketId),
         () => onboarding.openEdit(ticketId),
         () => {
           provider.refresh();
@@ -831,6 +864,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         logError,
         guardCapability,
+        currentManifest,
         () => currentManifest()?.ticketing,
         () =>
           makeTicketingProvider(
@@ -866,6 +900,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const def = currentManifest()?.repositories[repo];
       return def === undefined || isRunnable(def);
     },
+    // Live manifest agent core, so the Now line's verb resolves the same
+    // provider openSession will launch with (a Continue it can't honor would
+    // just flash a terminal that exits on a foreign `--resume`).
+    () => currentManifest()?.agentProvider,
   );
 
   // The live verbose channel (§ naming/status): whatever a tab or terminal
@@ -1016,7 +1054,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // nonzero, the driver reads that as a code verdict, and the ticket parks at
     // fix in a loop no agent can win. Warn once — the activation sweep drives
     // every parked ticket, and N toasts say nothing the first one didn't.
-    if (!guardCapability('gates', gateToolsWarned)) {
+    if (!guardCapability('gates', undefined, gateToolsWarned)) {
       gateToolsWarned = true;
       logger.warn(`stage driver: ${trigger} → ticket ${ticketId} not driven, gate tools missing`);
       return;
@@ -1060,6 +1098,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ticketId,
         payload,
       ),
+    // Tag each captured session with the core that minted it, so a later switch
+    // (this ticket's override OR the manifest default) is detectable instead of
+    // surfacing as a failed `--resume` on the next Continue.
+    (ticketId) =>
+      resolveProvider(
+        getTicket(localStore, ticketId).agentProvider,
+        currentManifest()?.agentProvider,
+      ),
   );
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
@@ -1073,8 +1119,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Scoped to this window's project: driving a ticket opens terminals and runs
   // gates against *this* window's manifest, so sweeping another project's
   // tickets would resolve their services against the wrong repo paths.
-  for (const id of ticketsToSweep(listTickets(localStore, { projectId: currentProject()?.id }))) {
-    maybeDrive(id, 'activation-sweep');
+  const startupProject = currentProject();
+  if (startupProject) {
+    for (const id of ticketsToSweep(
+      listTickets(localStore, { projectId: startupProject.id }),
+    )) {
+      maybeDrive(id, 'activation-sweep');
+    }
   }
 
   // PR status sync: `ship` writes every PR as 'open' and nothing ever revised it,
@@ -1086,11 +1137,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // while a slow sweep is still going, so a dead remote can never pile up sweeps.
   let prSyncRunning = false;
   const runPrSync = async (): Promise<void> => {
+    const project = currentProject();
+    if (!project) return;
     if (prSyncRunning) return;
     prSyncRunning = true;
     try {
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
-        projectId: currentProject()?.id,
+        projectId: project.id,
       });
       if (changed > 0) {
         provider.refresh();
@@ -1179,10 +1232,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (arg: unknown, options: { reveal?: boolean; recovery?: boolean } = {}) => {
         const ticketId = ticketIdArg(arg);
         if (ticketId === undefined) return;
-        const adapter = currentAgentAdapter();
+        const adapter = currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!guardCapability('sessions')) return;
+      if (!guardCapability('sessions', ticketId)) return;
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -1317,7 +1370,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // (like `stages.ts`'s `stage_key as StageKey`); it is always one of
       // STAGE_KEYS in practice. The marker rides the resume nudge too — a
       // resumed impl/fix session still has to fire it when work is done.
-      const resumeId = shouldResumeSession({ sessionId: t.sessionId, stageCurrent: t.stageCurrent as StageKey })
+      // One resolution for the whole launch: the resume check below and the
+      // model pick further down must agree on which core is actually starting,
+      // or a ticket could be handed a session id the launching CLI cannot find.
+      const launchProvider = resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+      const resumeId = shouldResumeSession({
+        sessionId: t.sessionId,
+        sessionProvider: t.sessionProvider,
+        stageCurrent: t.stageCurrent as StageKey,
+        provider: launchProvider,
+      })
         ? (t.sessionId ?? undefined)
         : undefined;
       // At `fix` the resume has a specific job — the gate that just failed wrote
@@ -1388,8 +1450,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resolve the launch model: the ticket's own model wins, else the manifest
       // default, else undefined (let the agent CLI pick). Threaded as `--model`.
+      // The provider it's resolved against is this same ticket's own resolved
+      // agent core (§ agent core selection) — a ticket overridden to a different
+      // provider must not carry an incompatible model pick across the switch.
       const model = resolveModelForProvider(
-        currentManifest()?.agentProvider ?? 'claude',
+        launchProvider,
         t.model,
         currentManifest()?.defaultModel,
         modelCatalog,
@@ -1661,10 +1726,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
-  // host's SessionManager cannot be restored with them. Discard those stale UI
-  // handles and reopen only the current project's resumable sessions through
-  // the registered command, so its usual scoping/seed/materialization path is
-  // preserved.
+  // host's SessionManager cannot be restored with them. Adopt visible current-
+  // project terminals into the new manager, then recover only owned sessions
+  // that remain hidden in the background through the registered command so its
+  // usual scoping/seed/materialization path is preserved.
   const projectId = currentProject()?.id;
   const currentTickets =
     projectId === undefined ? [] : listTickets(localStore, { projectId });
@@ -1673,25 +1738,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     agentState: ticket.agentState,
     canResume: shouldResumeSession({
       sessionId: ticket.sessionId,
+      sessionProvider: ticket.sessionProvider,
       stageCurrent: ticket.stageCurrent as StageKey,
+      provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
     }),
     hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
   }));
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-  const restored = sessions.reconcileRestoredSessions((ticketId) => {
+  const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));
   });
-  const recoveryPlan = planSessionRecovery(
+  const backgroundRecoveryPlan = planSessionRecovery(
     candidates,
     [...ownedSessionTickets],
-    restored,
+    adoptedVisibleSessions,
   );
   let ownershipChanged = false;
-  for (const ticketId of recoveryPlan.discard) {
+  for (const ticketId of backgroundRecoveryPlan.discard) {
     ownershipChanged = ownedSessionTickets.delete(ticketId) || ownershipChanged;
   }
 
-  for (const ticketId of recoveryPlan.idle) {
+  for (const ticketId of backgroundRecoveryPlan.idle) {
     setAgentState(localStore, ticketId, 'idle');
     ownershipChanged =
       ownedSessionTickets.delete(ticketId) || ownershipChanged;
@@ -1700,11 +1767,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   }
   if (ownershipChanged) await persistOwnedSessionTickets();
-  if (recoveryPlan.idle.length > 0) {
+  if (backgroundRecoveryPlan.idle.length > 0) {
     provider.refresh();
     dashboard.pushAll();
   }
-  for (const ticketId of recoveryPlan.resume) {
+  for (const ticketId of backgroundRecoveryPlan.resume) {
     const recoveryTask = recoverSession(
       sessions,
       recoveryLifecycle,
@@ -1917,7 +1984,7 @@ function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
       const sub = vscode.window.onDidCloseTerminal((closed) => {
         if (closed === terminal) {
           sub.dispose();
-          handler();
+          handler(closed.exitStatus?.code);
         }
       });
     },
@@ -1950,8 +2017,15 @@ function makeTerminalHost(): TerminalHost {
         const creationOptions = terminal.creationOptions;
         const env = 'env' in creationOptions ? creationOptions.env : undefined;
         const raw = env?.[KARST_TICKET_ENV];
+        const launchId = env?.[KARST_LAUNCH_ENV];
         return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
-          ? [{ ticketId: Number(raw), terminal: wrapTerminal(terminal) }]
+          ? [{
+              ticketId: Number(raw),
+              ...(typeof launchId === 'string' && launchId.length > 0
+                ? { launchId }
+                : {}),
+              terminal: wrapTerminal(terminal),
+            }]
           : [];
       }),
   };
@@ -1964,7 +2038,7 @@ function makeTerminalHost(): TerminalHost {
  * user to re-spin — honest rather than a fake no-op.
  */
 /** True when the capability's tools are present; otherwise tells the user why not. */
-type CapabilityGuard = (capability: Capability, silent?: boolean) => boolean;
+type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: boolean) => boolean;
 
 function makeDashboardActions(
   store: Store,
@@ -1974,6 +2048,9 @@ function makeDashboardActions(
   afterServerChange: () => void,
   logError: LogError,
   guardCapability: CapabilityGuard,
+  // Read fresh when the user confirms ship so a mid-session branch edit
+  // controls the PR target and convention edits apply without a window reload.
+  manifest: () => Manifest | undefined,
   // Read fresh at call time so a status saved in settings applies without a
   // window reload — same getter pattern as the onboarding provider.
   ticketing: () => TicketingConfig | undefined,
@@ -2059,7 +2136,7 @@ function makeDashboardActions(
       if (!guardCapability('ship')) return;
       void runShipTicket(
         store,
-        { ticketId },
+        { ticketId, manifest: manifest() },
         undefined,
         agentAdapter(),
         undefined,

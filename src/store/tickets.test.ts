@@ -40,6 +40,8 @@ describe('ticketLabel', () => {
     selectedRepos: [],
     archivedAt: null,
     model: null,
+    agentProvider: null,
+    sessionProvider: null,
     projectId: null,
   };
 
@@ -229,6 +231,32 @@ describe('ticket + stage persistence', () => {
     expect(getTicket(store, t.id).model).toBeNull();
   });
 
+  it('a new ticket has a null agentProvider (inherit) until one is chosen', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
+  });
+
+  it('updateTicketOnboarding round-trips the per-ticket agentProvider', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'codex' });
+    expect(getTicket(store, t.id).agentProvider).toBe('codex');
+  });
+
+  it('an empty-string agentProvider clears the selection back to inherit (null)', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'antigravity' });
+    updateTicketOnboarding(store, t.id, { agentProvider: '' });
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
+  });
+
+  it('reads back null for a row with an invalid agent_provider written outside updateTicketOnboarding (defense-in-depth)', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    // Bypass updateTicketOnboarding entirely — simulates a hand-edited DB row
+    // or a value left over from a provider later removed from IMPLEMENTED_PROVIDERS.
+    store.db.prepare('UPDATE tickets SET agent_provider = ? WHERE id = ?').run('evil', t.id);
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
+  });
+
   it('updateTicketOnboarding patches only the supplied fields', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
     updateTicketOnboarding(store, t.id, { approach: 'tdd' });
@@ -283,10 +311,47 @@ describe('ticket + stage persistence', () => {
     expect(stageRows).toHaveLength(0);
   });
 
-  it('persists session_id and leaves it readable via getTicket', () => {
+  it('persists session_id with the provider that minted it, both readable via getTicket', () => {
     const t = createTicket(store, { key: 'K-1', title: 'demo' });
-    setSessionId(store, t.id, 'sess-abc');
-    expect(getTicket(store, t.id).sessionId).toBe('sess-abc');
+    setSessionId(store, t.id, 'sess-abc', 'claude');
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBe('sess-abc');
+    expect(read.sessionProvider).toBe('claude');
+  });
+
+  it('clears session_id and its provider together (stale resume recovery)', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    setSessionId(store, t.id, 'sess-abc', 'claude');
+    setSessionId(store, t.id, null, null);
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBeNull();
+    expect(read.sessionProvider).toBeNull();
+  });
+
+  it('overwrites the provider when a new session is captured under a different core', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    setSessionId(store, t.id, 'codex-sess', 'codex');
+    setSessionId(store, t.id, 'claude-sess', 'claude');
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBe('claude-sess');
+    expect(read.sessionProvider).toBe('claude');
+  });
+
+  it('a legacy row whose session predates session_provider reads back a null provider', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    // Simulates a row migrated from v12: session_id survives, provider unknown.
+    store.db.prepare('UPDATE tickets SET session_id = ? WHERE id = ?').run('old-sess', t.id);
+    const read = getTicket(store, t.id);
+    expect(read.sessionId).toBe('old-sess');
+    expect(read.sessionProvider).toBeNull();
+  });
+
+  it('reads back null for a session_provider value not in the known provider set', () => {
+    const t = createTicket(store, { key: 'K-1', title: 'demo' });
+    store.db
+      .prepare('UPDATE tickets SET session_id = ?, session_provider = ? WHERE id = ?')
+      .run('sess', 'evil', t.id);
+    expect(getTicket(store, t.id).sessionProvider).toBeNull();
   });
 
   it('lists tickets ordered by created_at descending (newest first)', () => {

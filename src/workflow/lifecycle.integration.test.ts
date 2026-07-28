@@ -106,7 +106,11 @@ describe('MVP lifecycle (workflow spine)', () => {
       .run(id, join(dir, 'fe'));
     // Ship pushes the branch before opening the PR; this spine exercises the
     // workflow, not the network, so git is faked alongside gh.
-    const git: GitRunner = async () => ({ stdout: '', stderr: '', exitCode: 0 });
+    const git: GitRunner = async (args) => ({
+      stdout: '',
+      stderr: '',
+      exitCode: args[0] === 'diff' ? 1 : 0,
+    });
     const shipRes = await shipTicket(store, { ticketId: id }, gh, adapter, git);
     expect(shipRes.prs).toHaveLength(1);
     expect(getTicket(store, id).stageCurrent).toBe('done');

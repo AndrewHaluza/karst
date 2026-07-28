@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
+import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
 import { startHot, type ServerRecord } from './supervisor.js';
 import { renderHealthUrl } from './healthUrl.js';
@@ -89,7 +90,11 @@ export async function ensureBaseline(
   const httpSlot = svc.ports.find((p) => p.name === 'http') ?? svc.ports[0]!;
   const port = httpSlot.default;
 
-  const checkout = ensureBaselineCheckout(repo.repoPath, service, manifest.baselineBranch);
+  const checkout = ensureBaselineCheckout(
+    repo.repoPath,
+    service,
+    resolveBaselineBranch(manifest, repo),
+  );
   const { command, args } = splitCommand(svc.start);
 
   const healthUrl = svc.health

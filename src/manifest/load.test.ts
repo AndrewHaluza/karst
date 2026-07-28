@@ -92,6 +92,38 @@ describe('loadManifest', () => {
     }
   });
 
+  it('reads a repository baselineBranch override while leaving others inherited', () => {
+    const yaml = VALID.replace(
+      '    repoPath: ../backend',
+      '    repoPath: ../backend\n    baselineBranch: release',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const m = loadManifest(path);
+      expect(m.repositories.backend!.baselineBranch).toBe('release');
+      expect(m.repositories.frontend!.baselineBranch).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects conflicting baseline branches for entries sharing one repoPath', () => {
+    const yaml = VALID
+      .replace(
+        '    repoPath: ../backend',
+        '    repoPath: ../shared\n    baselineBranch: release',
+      )
+      .replace('    repoPath: ../frontend', '    repoPath: ../shared');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /repositories "backend" and "frontend".*repoPath.*different baseline branches/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   it('throws a clear error on an unknown dependsOn.target', () => {
     const yaml = VALID.replace('target: backend', 'target: nonexistent');
     const { path, cleanup } = fixture(yaml);
@@ -1199,6 +1231,107 @@ describe('terminalNameTemplate', () => {
     const { path, cleanup } = fixture(`${VALID}\nterminalNameTemplate: 5\n`);
     try {
       expect(() => loadManifest(path)).toThrow(/terminalNameTemplate/i);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('artifact conventions', () => {
+  it('is undefined when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).conventions).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loads a fully configured section including a multiline description', () => {
+    const { path, cleanup } = fixture(`${VALID}
+conventions:
+  commitMessage: "feat({repo}): {title} [{key}]"
+  pullRequestTitle: "[{key}] {title}"
+  pullRequestDescription: |
+    ## Summary
+    {description}
+
+    Repository: {repo}
+`);
+    try {
+      expect(loadManifest(path).conventions).toEqual({
+        commitMessage: 'feat({repo}): {title} [{key}]',
+        pullRequestTitle: '[{key}] {title}',
+        pullRequestDescription: '## Summary\n{description}\n\nRepository: {repo}\n',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['commitMessage', '"chore({repo}): {title}"'],
+    ['pullRequestTitle', '"[{key}] {title}"'],
+    ['pullRequestDescription', '"Ticket: {id}"'],
+  ])('allows %s to be configured independently', (field, value) => {
+    const { path, cleanup } = fixture(`${VALID}\nconventions:\n  ${field}: ${value}\n`);
+    try {
+      expect(loadManifest(path).conventions).toEqual({ [field]: value.slice(1, -1) });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-mapping section', () => {
+    const { path, cleanup } = fixture(`${VALID}\nconventions: configured\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/conventions must be a mapping/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['commitMessage', '42', /conventions\.commitMessage must be a string/],
+    ['pullRequestTitle', '"   "', /conventions\.pullRequestTitle.*blank/],
+    ['pullRequestDescription', 'false', /conventions\.pullRequestDescription must be a string/],
+  ])('rejects invalid %s values with the exact path', (field, value, error) => {
+    const { path, cleanup } = fixture(`${VALID}\nconventions:\n  ${field}: ${value}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(error);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects unknown and malformed variables with the exact path', () => {
+    const unknown = fixture(`${VALID}\nconventions:\n  pullRequestTitle: "{ticket}: {title}"\n`);
+    try {
+      expect(() => loadManifest(unknown.path)).toThrow(
+        /conventions\.pullRequestTitle.*\{ticket\}/,
+      );
+    } finally {
+      unknown.cleanup();
+    }
+
+    const malformed = fixture(`${VALID}\nconventions:\n  commitMessage: "fix: {title"\n`);
+    try {
+      expect(() => loadManifest(malformed.path)).toThrow(
+        /conventions\.commitMessage.*malformed/,
+      );
+    } finally {
+      malformed.cleanup();
+    }
+  });
+
+  it('rejects description outside the pull-request description', () => {
+    const { path, cleanup } = fixture(
+      `${VALID}\nconventions:\n  commitMessage: "{description}"\n`,
+    );
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /conventions\.commitMessage.*\{description\}/,
+      );
     } finally {
       cleanup();
     }

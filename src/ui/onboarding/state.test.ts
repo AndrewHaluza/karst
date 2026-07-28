@@ -353,3 +353,32 @@ describe('buildOnboardingState — sessionOpen in create mode', () => {
     expect(s.sessionOpen).toBe(false);
   });
 });
+
+describe('buildOnboardingState — agent core (provider) fields', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  it('create mode offers every implemented provider, selects none, and defaults to the manifest provider', () => {
+    const m: Manifest = { ...MANIFEST, agentProvider: 'codex' };
+    const s = buildOnboardingState(store, m, () => [], () => []);
+    expect(s.agentProviders).toEqual(['claude', 'codex', 'antigravity']);
+    expect(s.selectedAgentProvider).toBeNull();
+    expect(s.defaultAgentProvider).toBe('codex');
+  });
+
+  it("edit mode reflects the ticket's persisted agentProvider override", () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'antigravity' });
+    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    expect(s.selectedAgentProvider).toBe('antigravity');
+    expect(s.defaultAgentProvider).toBe('claude');
+  });
+
+  it("the model list is filtered by the ticket's resolved provider, not always the manifest default", () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'antigravity' });
+    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    expect(s.models.map((m) => m.id)).toContain('gemini-3.6-flash-high');
+    expect(s.models.map((m) => m.id)).not.toContain('claude-opus-4-8');
+  });
+});

@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import { setAgentState, setSessionId } from '../store/tickets.js';
 import { ticketIdForWorktreePath } from '../runtime/worktree.js';
 import type { AgentState } from '../model/types.js';
+import type { AgentProvider } from '../manifest/types.js';
 
 /**
  * Claude Code hook payload (M0/T0.2 §143): JSON with `session_id`, `cwd`
@@ -26,6 +27,12 @@ export interface HookPayload {
 
 /** Called after a mutation so views (sidebar + dashboard) can refresh (§14). */
 export type NotifyTicket = (ticketId: number, payload: HookPayload) => void;
+/**
+ * The agent core a ticket resolves to right now (per-ticket override else the
+ * manifest default). Supplied by the host because it owns the manifest; the
+ * captured session is tagged with it so a later core switch can be detected.
+ */
+export type SessionProviderFor = (ticketId: number) => AgentProvider | null;
 export type ShouldApplyHookState = (
   ticketId: number,
   payload: HookPayload,
@@ -112,6 +119,7 @@ export function dispatchHook(
   payload: HookPayload,
   notify?: NotifyTicket,
   shouldApplyState?: ShouldApplyHookState,
+  sessionProviderFor?: SessionProviderFor,
 ): void {
   if (!payload.cwd) return;
   const ticketId = ticketIdForWorktreePath(store, payload.cwd);
@@ -123,9 +131,16 @@ export function dispatchHook(
 
   // Persist the session on its first event so resume (§5.3) has a target. Only
   // SessionStart carries the authoritative id for a fresh session; later events
-  // of the same session repeat it, so first-capture-wins is enough.
+  // of the same session repeat it, so first-capture-wins is enough. The id is
+  // tagged with the core that minted it — without that tag it is unusable, so a
+  // missing resolver stores `null` and the session is simply never resumed.
   if (payload.hook_event_name === 'SessionStart' && payload.session_id) {
-    setSessionId(store, ticketId, payload.session_id);
+    setSessionId(
+      store,
+      ticketId,
+      payload.session_id,
+      sessionProviderFor?.(ticketId) ?? null,
+    );
   }
 
   const state = nextAgentState(payload);

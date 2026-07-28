@@ -16,7 +16,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "scripts": {
     "lint": "tsc --noEmit",
     "test": "vitest run",

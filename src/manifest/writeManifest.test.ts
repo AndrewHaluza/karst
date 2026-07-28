@@ -109,6 +109,7 @@ describe('writeManifest', () => {
         repositories: {
           backend: {
             repoPath: '../backend',
+            baselineBranch: 'release',
             hasMigrations: true,
             signals: ['api', 'endpoint'],
             service: {
@@ -146,6 +147,11 @@ describe('writeManifest', () => {
         worktreePathDisplay: 'absolute',
         ticketLabelTemplate: '{key} · {stage} · {status}',
         terminalNameTemplate: 'Karst: {key} · {stage}',
+        conventions: {
+          commitMessage: 'feat({repo}): {title} [{key}]',
+          pullRequestTitle: '[{key}] {title}',
+          pullRequestDescription: '## Summary\n\n{description}\n\nRepository: {repo}\n',
+        },
         ticketing: {
           provider: 'clickup',
           teamId: '9001',
@@ -162,6 +168,109 @@ describe('writeManifest', () => {
       writeManifest(path, full);
       const reloaded = loadManifest(path);
       expect(reloaded).toEqual(full);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('preserves unknown top-level data while writing multiline conventions', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const pullRequestDescription =
+        '  ## Summary\n\n{description}\n\nRepository: {repo}\n';
+      writeManifest(path, {
+        ...m,
+        conventions: {
+          commitMessage: 'feat({repo}): {title}',
+          pullRequestDescription,
+        },
+      });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.extraTopLevel).toBe('keep-me');
+      expect(raw.conventions.pullRequestDescription).toBe(pullRequestDescription);
+      expect(loadManifest(path).conventions).toEqual({
+        commitMessage: 'feat({repo}): {title}',
+        pullRequestDescription,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('removes stale raw conventions when the modeled section is cleared', () => {
+    const { path, cleanup } = fixture(`${RAW}
+conventions:
+  commitMessage: "feat({repo}): {title}"
+  pullRequestTitle: "[{key}] {title}"
+`);
+    try {
+      const m = loadManifest(path);
+      writeManifest(path, { ...m, conventions: undefined });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.conventions).toBeUndefined();
+      expect(raw.extraTopLevel).toBe('keep-me');
+      expect(loadManifest(path).conventions).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('preserves unknown nested convention keys while overlaying modeled fields', () => {
+    const { path, cleanup } = fixture(`${RAW}
+conventions:
+  organizationPolicy: keep-me
+  commitMessage: "old: {title}"
+`);
+    try {
+      const m = loadManifest(path);
+      writeManifest(path, {
+        ...m,
+        conventions: {
+          ...m.conventions,
+          commitMessage: 'feat({repo}): {title}',
+          pullRequestTitle: '[{key}] {title}',
+        },
+      });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.conventions).toEqual({
+        organizationPolicy: 'keep-me',
+        commitMessage: 'feat({repo}): {title}',
+        pullRequestTitle: '[{key}] {title}',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('clears one modeled convention while retaining unknown nested keys', () => {
+    const { path, cleanup } = fixture(`${RAW}
+conventions:
+  organizationPolicy: keep-me
+  commitMessage: "feat: {title}"
+  pullRequestTitle: "[{key}] {title}"
+`);
+    try {
+      const m = loadManifest(path);
+      writeManifest(path, {
+        ...m,
+        conventions: {
+          commitMessage: m.conventions!.commitMessage,
+          pullRequestTitle: undefined,
+        },
+      });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.conventions).toEqual({
+        organizationPolicy: 'keep-me',
+        commitMessage: 'feat: {title}',
+      });
+      expect(loadManifest(path).conventions).toEqual({
+        commitMessage: 'feat: {title}',
+      });
     } finally {
       cleanup();
     }

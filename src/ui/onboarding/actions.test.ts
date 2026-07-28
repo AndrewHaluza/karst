@@ -367,6 +367,17 @@ describe('buildOnboardingActions', () => {
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBe('claude-opus-4-8');
   });
 
+  it('submit persists the chosen agentProvider on a newly created ticket', async () => {
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({
+      key: 'NEW-P', title: 't', description: '', repos: [], approach: null, agent: null,
+      model: null, agentProvider: 'antigravity',
+    });
+    expect(getTicket(store, listTickets(store)[0]!.id).agentProvider).toBe('antigravity');
+  });
+
   it('submit with a null model leaves the ticket inheriting the default', async () => {
     const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildOnboardingActions(deps)(ctx);
@@ -828,6 +839,19 @@ describe('buildOnboardingActions', () => {
     expect(getTicket(store, t.id).model).toBe('claude-sonnet-5');
     actions.setModel('');
     expect(getTicket(store, t.id).model).toBeNull();
+  });
+
+  it('setProvider persists onto an existing ticket, re-pushes state, and empty clears it to inherit', () => {
+    const t = createTicket(store, { key: 'P-PR', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    actions.setProvider('codex');
+    expect(getTicket(store, t.id).agentProvider).toBe('codex');
+    expect(ctx.pushes).toBe(1);
+    actions.setProvider('');
+    expect(getTicket(store, t.id).agentProvider).toBeNull();
+    expect(ctx.pushes).toBe(2);
   });
 
 });

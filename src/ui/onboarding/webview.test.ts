@@ -97,4 +97,27 @@ describe('onboarding webview.html', () => {
     expect(html).toContain('value="preview-&lt;next&gt;" selected');
     expect(html).toContain('Saved model: preview-&lt;next&gt;');
   });
+
+  it('renders an agent-core (provider) picker next to the model picker', () => {
+    expect(HTML).toContain('id="providerSelect"');
+    expect(HTML).toContain('id="providerLockHint"');
+  });
+
+  it('locks the provider picker while a session is open, mirroring the model picker', () => {
+    const fnMatch = HTML.match(/function renderProviderPicker\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
+    expect(fnMatch, 'renderProviderPicker() not found').toBeTruthy();
+    const body = fnMatch![1]!;
+    expect(body).toContain("el('providerSelect').disabled = !!sessionOpen");
+  });
+
+  it('posts set-provider on change and carries agentProvider into submit/save', () => {
+    expect(HTML).toContain("post({ type: 'set-provider', id });");
+    const submitBlock = HTML.slice(
+      HTML.indexOf("el('submitBtn').addEventListener"),
+      HTML.indexOf("el('saveBtn').addEventListener"),
+    );
+    expect(submitBlock).toContain('agentProvider');
+    const saveBlock = HTML.slice(HTML.indexOf("el('saveBtn').addEventListener"));
+    expect(saveBlock.slice(0, 800)).toContain('agentProvider');
+  });
 });

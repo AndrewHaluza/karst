@@ -48,6 +48,8 @@ export interface ServiceDef {
  */
 export interface RepositoryDef {
   repoPath: string;
+  /** Overrides the manifest-level default branch for this repository. */
+  baselineBranch?: string;
   /**
    * [M2] Author-declared: does this repository carry DB migrations? Drives
    * T4.2's "not first-class under shared-DB" warning. Deterministic (not a
@@ -143,6 +145,13 @@ export type TicketProvider = 'clickup' | 'manual';
 /** Which coding-agent CLI karst launches sessions with. */
 export type AgentProvider = 'claude' | 'codex' | 'antigravity';
 
+/** Project-level templates for artifacts Karst creates during the ship stage. */
+export interface ArtifactConventions {
+  commitMessage?: string;
+  pullRequestTitle?: string;
+  pullRequestDescription?: string;
+}
+
 /**
  * Ticketing integration config (§15). `provider` selects the backend;
  * `manual` (default) is local-only. `teamId` is ClickUp's workspace id
@@ -222,6 +231,11 @@ export interface Manifest {
    * undefined at validation. Rendered once at launch (terminals are static).
    */
   terminalNameTemplate?: string;
+  /**
+   * Optional conventions for Karst-created fallback commits and new pull
+   * requests. Absent fields preserve their historical generation paths.
+   */
+  conventions?: ArtifactConventions;
   /** Ticketing integration config; always set by `validateManifest` (`{ provider: 'manual' }` default). */
   ticketing?: TicketingConfig;
   /** Selected agent provider; always set by validate (default 'claude'). */
