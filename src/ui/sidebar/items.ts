@@ -4,6 +4,8 @@ import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import type { Glyph } from '../../model/glyph.js';
 import { sessionAction, type SessionAction } from '../../agent/sessionAction.js';
+import { resolveProvider } from '../../agent/registry.js';
+import type { AgentProvider } from '../../manifest/types.js';
 
 /**
  * Human phrase for the expanded "activity" line — the runtime state of the
@@ -104,6 +106,8 @@ export interface TicketNode {
 export function buildTicketNodes(
   tickets: readonly TicketWithStages[],
   labelTemplate?: string,
+  /** Manifest-level agent core; see `sessionAction`'s `provider`. */
+  defaultProvider?: AgentProvider,
 ): TicketNode[] {
   return tickets.map((t) => {
     const badge = stageBadge(t);
@@ -123,7 +127,7 @@ export function buildTicketNodes(
       stageChip: badge.stage ?? 'none',
       blocker,
       activityLabel: activityLabel(t.agentState),
-      sessionAction: sessionAction(t),
+      sessionAction: sessionAction(t, resolveProvider(t.agentProvider, defaultProvider)),
       lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,
       archived: t.archivedAt !== null,

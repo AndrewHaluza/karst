@@ -105,9 +105,24 @@ describe('parseSettingsMessage', () => {
   });
 });
 
+describe('browse-repo-path', () => {
+  it('parses with a name', () => {
+    expect(parseSettingsMessage({ type: 'browse-repo-path', name: 'backend' })).toEqual({
+      type: 'browse-repo-path',
+      name: 'backend',
+    });
+  });
+
+  it('rejects a missing/blank name', () => {
+    expect(parseSettingsMessage({ type: 'browse-repo-path' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'browse-repo-path', name: '' })).toBeNull();
+  });
+});
+
 describe('routeSettingsAction', () => {
   function spies(): SettingsActions & { calls: Record<string, unknown[]> } {
     const calls: Record<string, unknown[]> = {
+      browseRepoPath: [],
       save: [],
       validate: [],
       requestState: [],
@@ -141,6 +156,7 @@ describe('routeSettingsAction', () => {
       getApproachCommandBody: (approachId, command) => calls['getApproachCommandBody']!.push({ approachId, command }),
       fetchTicketStatuses: (listId, teamId) => calls['fetchTicketStatuses']!.push({ listId, teamId }),
       fetchTicketLists: (teamId) => calls['fetchTicketLists']!.push(teamId),
+      browseRepoPath: (name) => calls['browseRepoPath']!.push(name),
     };
   }
 
@@ -159,6 +175,7 @@ describe('routeSettingsAction', () => {
     routeSettingsAction({ type: 'create-agent', name: 'r' }, a);
     routeSettingsAction({ type: 'delete-agent', name: 'r' }, a);
     routeSettingsAction({ type: 'get-approach-command-body', approachId: 'rpi', command: '/rpi:research' }, a);
+    routeSettingsAction({ type: 'browse-repo-path', name: 'backend' }, a);
     expect(a.calls.save).toEqual([draft]);
     expect(a.calls.validate).toEqual([draft]);
     expect(a.calls.requestState).toEqual([true]);
@@ -172,6 +189,7 @@ describe('routeSettingsAction', () => {
     expect(a.calls.createAgent).toEqual(['r']);
     expect(a.calls.deleteAgent).toEqual(['r']);
     expect(a.calls.getApproachCommandBody).toEqual([{ approachId: 'rpi', command: '/rpi:research' }]);
+    expect(a.calls.browseRepoPath).toEqual(['backend']);
   });
 
   it('ignores malformed messages (no throw, no action)', () => {

@@ -1,4 +1,5 @@
 import type { StageKey, AgentState } from '../model/types.js';
+import type { AgentProvider } from '../manifest/types.js';
 import { shouldResumeSession } from './resumeDecision.js';
 
 /**
@@ -29,16 +30,28 @@ function act(kind: SessionActionKind, label: string, detail: string): SessionAct
 }
 
 /**
- * Decide the entry-point verb + subtitle for a ticket. The `continue` branch is
- * `shouldResumeSession` verbatim so the label's promise can never drift from
- * `openSession`'s actual `--resume` decision — the verb is a preview of it.
+ * Decide the entry-point verb + subtitle for a ticket. The `continue` branch
+ * defers to `shouldResumeSession` — the same predicate `openSession` uses — so
+ * the label's promise can never drift from the actual `--resume` decision; the
+ * verb is a preview of it. That includes the provider check: a session minted by
+ * a different core reads "Start", because offering "Continue" there would flash
+ * a terminal that dies on an id the launching CLI cannot find.
  */
-export function sessionAction(t: {
-  sessionId: string | null;
-  stageCurrent: StageKey | string | null;
-  agentState?: AgentState | string | null;
-  selectedRepos?: readonly string[];
-}): SessionAction {
+export function sessionAction(
+  t: {
+    sessionId: string | null;
+    sessionProvider?: AgentProvider | null;
+    stageCurrent: StageKey | string | null;
+    agentState?: AgentState | string | null;
+    selectedRepos?: readonly string[];
+  },
+  /**
+   * The core this ticket would launch with. Omitted → the session's provider
+   * cannot be checked, so a captured session is treated as unresumable and the
+   * verb honestly reads "Start" rather than promising a Continue that dies.
+   */
+  provider?: AgentProvider,
+): SessionAction {
   const stage = t.stageCurrent;
 
   // A live agent: the move is to jump to the running terminal, not re-launch.
@@ -48,7 +61,15 @@ export function sessionAction(t: {
 
   // Interactive stages: resume the exact session, or re-seed if none was captured.
   if (stage === 'impl' || stage === 'fix') {
-    return shouldResumeSession({ sessionId: t.sessionId, stageCurrent: stage })
+    const resumable =
+      provider !== undefined &&
+      shouldResumeSession({
+        sessionId: t.sessionId,
+        sessionProvider: t.sessionProvider ?? null,
+        stageCurrent: stage,
+        provider,
+      });
+    return resumable
       ? act('continue', 'Continue', `resume ${stage}`)
       : act('start', 'Start', 're-seed from context');
   }
