@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, copyFileSync, cpSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import type {
   AgentAdapter,
@@ -174,69 +174,81 @@ export class ClaudeAdapter implements AgentAdapter {
 
     // The <id> plugin dir holds ONLY the approach's own artifacts + solo agent.
     const idPluginDir = join(opts.sessionDir, '.karst-plugin', opts.pkg.id);
-    const metaDir = join(idPluginDir, '.claude-plugin');
-    mkdirSync(metaDir, { recursive: true });
-    const manifest = {
-      name: opts.pkg.id,
-      version: '0.0.0',
-      ...(opts.pkg.description !== undefined ? { description: opts.pkg.description } : {}),
-    };
-    writeFileSync(join(metaDir, 'plugin.json'), JSON.stringify(manifest, null, 2));
+    // A repository may check in its own plugin tree at this exact path (karst's
+    // own repo does). That directory belongs to the repository, not this
+    // terminal: writing into it corrupts tracked files, and claiming it would
+    // make session cleanup delete them. Launch against it, never own it.
+    const ownsIdPlugin = !existsSync(idPluginDir);
+    if (ownsIdPlugin) {
+      const metaDir = join(idPluginDir, '.claude-plugin');
+      mkdirSync(metaDir, { recursive: true });
+      const manifest = {
+        name: opts.pkg.id,
+        version: '0.0.0',
+        ...(opts.pkg.description !== undefined ? { description: opts.pkg.description } : {}),
+      };
+      writeFileSync(join(metaDir, 'plugin.json'), JSON.stringify(manifest, null, 2));
 
-    // Copy artifacts into the plugin, structure preserved. A skill IS its folder
-    // (SKILL.md + referenced siblings), so copy the whole `skills/<name>/` dir;
-    // agents/commands are single files.
-    for (const art of artifacts) {
-      const src = join(opts.baseDir, opts.pkg.id, art.relPath);
-      const dest = join(idPluginDir, art.relPath);
-      if (art.kind === 'skill') {
-        cpSync(dirname(src), dirname(dest), { recursive: true });
-      } else {
-        mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(src, dest);
+      // Copy artifacts into the plugin, structure preserved. A skill IS its folder
+      // (SKILL.md + referenced siblings), so copy the whole `skills/<name>/` dir;
+      // agents/commands are single files.
+      for (const art of artifacts) {
+        const src = join(opts.baseDir, opts.pkg.id, art.relPath);
+        const dest = join(idPluginDir, art.relPath);
+        if (art.kind === 'skill') {
+          cpSync(dirname(src), dirname(dest), { recursive: true });
+        } else {
+          mkdirSync(dirname(dest), { recursive: true });
+          copyFileSync(src, dest);
+        }
+      }
+
+      // Materialize the chosen single-subagent (§ single-subagent launch) into
+      // the plugin's `agents/` dir. Its body was already sanitized when written
+      // to disk (agent file / approach artifact) — no second sanitize pass here
+      // keeps this seam free of the untrusted-source module.
+      if (solo) {
+        const agentsPluginDir = join(idPluginDir, 'agents');
+        mkdirSync(agentsPluginDir, { recursive: true });
+        writeFileSync(join(agentsPluginDir, `${solo.name}.md`), solo.body);
       }
     }
 
-    // Materialize the chosen single-subagent (§ single-subagent launch) into
-    // the plugin's `agents/` dir. Its body was already sanitized when written
-    // to disk (agent file / approach artifact) — no second sanitize pass here
-    // keeps this seam free of the untrusted-source module.
-    if (solo) {
-      const agentsPluginDir = join(idPluginDir, 'agents');
-      mkdirSync(agentsPluginDir, { recursive: true });
-      writeFileSync(join(agentsPluginDir, `${solo.name}.md`), solo.body);
-    }
-
     const pluginDirs: string[] = [idPluginDir];
+    const owned: string[] = ownsIdPlugin ? [idPluginDir] : [];
 
     if (hasWorkflow) {
       // Design 2: the generated orchestrator lives in a SIBLING `karst` plugin so
       // it registers as `/karst:<id>` (not `/<id>:karst`). Native commands stay
       // in the <id> plugin as `/<id>:<name>`.
       const karstDir = join(opts.sessionDir, '.karst-plugin', KARST_PLUGIN_NAME);
-      const karstMeta = join(karstDir, '.claude-plugin');
-      const karstCommands = join(karstDir, 'commands');
-      mkdirSync(karstMeta, { recursive: true });
-      mkdirSync(karstCommands, { recursive: true });
-      writeFileSync(
-        join(karstMeta, 'plugin.json'),
-        JSON.stringify({ name: KARST_PLUGIN_NAME, version: '0.0.0' }, null, 2),
-      );
-      const body = renderWorkflowCommand({
-        id: opts.pkg.id,
-        label: opts.pkg.label,
-        phases: opts.pkg.workflow!,
-        ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
-        ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
-        ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
-      });
-      writeFileSync(join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`), body);
+      const ownsKarst = !existsSync(karstDir);
+      if (ownsKarst) {
+        const karstMeta = join(karstDir, '.claude-plugin');
+        const karstCommands = join(karstDir, 'commands');
+        mkdirSync(karstMeta, { recursive: true });
+        mkdirSync(karstCommands, { recursive: true });
+        writeFileSync(
+          join(karstMeta, 'plugin.json'),
+          JSON.stringify({ name: KARST_PLUGIN_NAME, version: '0.0.0' }, null, 2),
+        );
+        const body = renderWorkflowCommand({
+          id: opts.pkg.id,
+          label: opts.pkg.label,
+          phases: opts.pkg.workflow!,
+          ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
+          ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
+          ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
+        });
+        writeFileSync(join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`), body);
+        owned.push(karstDir);
+      }
       pluginDirs.push(karstDir);
     }
 
     return {
       extraArgs: pluginDirs.flatMap((d) => ['--plugin-dir', d]),
-      ownedPaths: pluginDirs,
+      ownedPaths: owned,
       ...(hasWorkflow
         ? {
             invocation: `/${KARST_PLUGIN_NAME}:${orchestratorCommandBasename(

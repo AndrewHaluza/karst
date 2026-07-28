@@ -9,6 +9,7 @@ import {
 } from './pkg.js';
 import { classifyPath } from './classify.js';
 import { sanitizeFrontmatter } from './sanitize.js';
+import { OUTPUT_TRUNCATION_MARKER } from '../runtime/boundedOutput.js';
 
 /**
  * Git-source install driver (§ approaches). Fetches the markdown docs an
@@ -24,12 +25,15 @@ export type FetchLike = typeof fetch;
 
 /**
  * Injected shell-out for the npm-source driver: run `cmd` in `cwd` and report
- * its exit code + captured output. NEVER call a real spawn here — this file
- * stays pure so tests can fake it. The real spawnSync-backed runner is wired
- * by the caller (not this module — see `src/runtime/worktree.ts` for the
- * shape this mirrors).
+ * its exit code + captured output. The Promise boundary ensures temp collection
+ * and cleanup happen only after the command settles. The real bounded async
+ * runner is wired by the extension; this file keeps the injected seam so tests
+ * can control command completion precisely.
  */
-export type RunCommand = (cmd: string, cwd: string) => { code: number; out: string };
+export type RunCommand = (
+  cmd: string,
+  cwd: string,
+) => Promise<{ code: number; out: string }>;
 
 export interface InstallDeps {
   fetchFn: FetchLike;
@@ -383,6 +387,9 @@ function collectFromTempPath(tempDir: string, collectPath: string): CollectResul
 /** Truncate a command's captured output to a short snippet for error messages. */
 function outputSnippet(out: string): string {
   const MAX_LEN = 200;
+  if (out.includes(OUTPUT_TRUNCATION_MARKER)) {
+    return `${out.slice(0, MAX_LEN - OUTPUT_TRUNCATION_MARKER.length)}${OUTPUT_TRUNCATION_MARKER}`;
+  }
   return out.length > MAX_LEN ? `${out.slice(0, MAX_LEN)}…` : out;
 }
 
@@ -559,14 +566,14 @@ function assembleAndWrite(
  * temp dir) into the package. The temp dir is removed in a `finally` — only
  * after the package has been written to `deps.baseDir`.
  */
-function installNpmSource(
+async function installNpmSource(
   def: ApproachDef,
   source: Extract<ApproachDef['source'], { type: 'npm' }>,
   deps: InstallDeps,
-): ApproachPackage {
+): Promise<ApproachPackage> {
   const tempDir = mkdtempSync(join(tmpdir(), 'karst-approach-'));
   try {
-    const r = deps.runCommand(source.command, tempDir);
+    const r = await deps.runCommand(source.command, tempDir);
     if (r.code !== 0) {
       throw new ApproachInstallError(
         `command "${source.command}" exited with code ${r.code}: ${outputSnippet(r.out)}`,

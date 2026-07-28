@@ -1,5 +1,7 @@
-import { spawnSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
+import { BoundedOutput } from '../runtime/boundedOutput.js';
+import { killTree } from '../runtime/processTree.js';
 
 /**
  * GitHub integration (§12, §15) — shells out to `gh`. The runner is injected so
@@ -27,7 +29,7 @@ export interface OpenedPr {
   url: string;
 }
 
-/** What `spawnSync` hands back — narrowed to the fields the mapping below reads. */
+/** Process outcome narrowed to the fields the mapping below reads. */
 interface SpawnOutcome {
   stdout: string | null;
   stderr: string | null;
@@ -36,10 +38,10 @@ interface SpawnOutcome {
 }
 
 /**
- * Map a `spawnSync` outcome onto a `GhResult`, never losing the reason.
+ * Map a process outcome onto a `GhResult`, never losing the reason.
  *
- * When the spawn itself fails (gh not installed → ENOENT), `status` is null and
- * both pipes are null: gh never ran, so the ONLY account of what happened is
+ * When the spawn itself fails (gh not installed → ENOENT), `status` is null:
+ * gh never ran, so the ONLY account of what happened is
  * `error`. Dropping it produced the empty "gh pr create failed in <cwd>: " that
  * told the user nothing. A failure always carries some text out of here.
  *
@@ -61,33 +63,108 @@ export function toGhResult(r: SpawnOutcome): GhResult {
   return { stdout: r.stdout ?? '', stderr, exitCode };
 }
 
-/** Default runner: `gh <args>` in `cwd`, inheriting the user's gh auth. */
-export const defaultGhRunner: GhRunner = async (args, cwd) => {
-  return toGhResult(spawnSync('gh', args, { cwd, encoding: 'utf8' }));
-};
+export const GH_TIMEOUT_MS = 2 * 60_000;
+export const GH_MAX_OUTPUT_BYTES = 1024 * 1024;
+export const GH_TERMINATION_GRACE_MS = 5_000;
+
+export interface GhRunnerOptions {
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+  terminationGraceMs?: number;
+}
 
 /**
- * Non-blocking `gh` runner — same auth and semantics as `defaultGhRunner`, but
- * async `spawn` instead of `spawnSync`.
+ * Non-blocking default `gh` runner.
  *
  * Required for anything that runs on the extension host's event loop on a timer
  * (the PR status sync), not just in a one-off user action. `spawnSync` there
  * would freeze the host — hook endpoint, every webview, the whole UI — for the
  * length of a network `gh pr view`, once a minute (same trap the gate runner
  * avoids). The output→`GhResult` mapping (incl. the ENOENT→install-copy
- * translation) is shared with the sync runner via `toGhResult`.
+ * translation) remains centralized in `toGhResult`.
  */
-export const defaultGhRunnerAsync: GhRunner = (args, cwd) =>
+export const defaultGhRunnerAsync = (
+  args: string[],
+  cwd: string,
+  options: GhRunnerOptions = {},
+): Promise<GhResult> =>
   new Promise((resolve) => {
-    const child = spawn('gh', [...args], { cwd });
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (c: Buffer) => (stdout += c.toString()));
-    child.stderr?.on('data', (c: Buffer) => (stderr += c.toString()));
-    child.once('error', (error: Error & { code?: string }) =>
-      resolve(toGhResult({ stdout, stderr, status: null, error })),
-    );
-    child.once('close', (code) => resolve(toGhResult({ stdout, stderr, status: code })));
+    const timeoutMs = options.timeoutMs ?? GH_TIMEOUT_MS;
+    const maxOutputBytes = options.maxOutputBytes ?? GH_MAX_OUTPUT_BYTES;
+    const terminationGraceMs = options.terminationGraceMs ?? GH_TERMINATION_GRACE_MS;
+    const stdout = new BoundedOutput(Math.max(0, maxOutputBytes));
+    const stderr = new BoundedOutput(Math.max(0, maxOutputBytes));
+    let settled = false;
+    let timedOut = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let terminationDeadline: ReturnType<typeof setTimeout> | undefined;
+
+    const settle = (result: GhResult): void => {
+      if (settled) return;
+      settled = true;
+      if (deadline !== undefined) clearTimeout(deadline);
+      if (terminationDeadline !== undefined) clearTimeout(terminationDeadline);
+      resolve(result);
+    };
+    const outcome = (status: number | null, error?: Error & { code?: string }): GhResult => {
+      const truncated = stdout.truncated || stderr.truncated;
+      const truncationFailure =
+        truncated && status === 0
+          ? 'refusing truncated gh output because it may contain an incomplete protocol response'
+          : '';
+      return toGhResult({
+        stdout: stdout.render(),
+        stderr: stderr.render(truncationFailure),
+        status: truncationFailure ? 1 : status,
+        error,
+      });
+    };
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn('gh', [...args], { cwd, detached: true });
+    } catch (error) {
+      settle(outcome(null, error instanceof Error ? error : new Error(String(error))));
+      return;
+    }
+    child.stdout?.on('data', (chunk: Buffer) => stdout.append(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => stderr.append(chunk));
+    child.once('error', (error: Error & { code?: string }) => settle(outcome(null, error)));
+    child.once('close', (code) => {
+      if (timedOut) {
+        const result = outcome(1);
+        settle({
+          ...result,
+          stderr: stderr.render(`gh timed out after ${timeoutMs}ms`),
+        });
+        return;
+      }
+      settle(outcome(code));
+    });
+
+    deadline = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      let terminationDiagnostic = '';
+      try {
+        if (child.pid === undefined) terminationDiagnostic = '; child pid unavailable';
+        else killTree(child.pid);
+      } catch (error) {
+        terminationDiagnostic = `; termination error: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+      }
+      terminationDeadline = setTimeout(
+        () =>
+          settle({
+            ...outcome(1),
+            stderr: stderr.render(
+              `gh timed out after ${timeoutMs}ms${terminationDiagnostic}; child exit was not confirmed`,
+            ),
+          }),
+        Math.max(0, terminationGraceMs),
+      );
+    }, Math.max(0, timeoutMs));
   });
 
 /** Extract the trailing PR number from a `gh` PR URL (…/pull/<n>). */

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,6 +10,7 @@ import {
 } from './fetch.js';
 import { readApproachPackage, readArtifactBody } from './pkg.js';
 import type { ApproachDef } from '../manifest/types.js';
+import { OUTPUT_TRUNCATION_MARKER } from '../runtime/boundedOutput.js';
 
 const dirs: string[] = [];
 
@@ -19,7 +20,7 @@ function makeBaseDir(): string {
   return dir;
 }
 
-const noopRunCommand: RunCommand = () => ({ code: 0, out: '' });
+const noopRunCommand: RunCommand = async () => ({ code: 0, out: '' });
 
 afterEach(() => {
   while (dirs.length > 0) {
@@ -539,12 +540,53 @@ const throwingFetch: FetchLike = (async () => {
 }) as FetchLike;
 
 describe('installApproach — npm source', () => {
+  it('awaits the command before collecting and removing its temp directory', async () => {
+    const base = makeBaseDir();
+    let commandCwd = '';
+    let finishCommand: ((result: { code: number; out: string }) => void) | undefined;
+    const runCommand: RunCommand = async (_cmd, cwd) => {
+      commandCwd = cwd;
+      return new Promise((resolve) => {
+        finishCommand = resolve;
+      });
+    };
+    const def: ApproachDef = {
+      id: 'npm-deferred',
+      label: 'NPM Deferred',
+      workflow: [{ name: 'implement' }],
+      source: {
+        type: 'npm',
+        package: 'generator',
+        command: 'npx generator',
+        collect: [],
+      },
+    };
+
+    let settled = false;
+    const installing = installApproach(def, {
+      fetchFn: throwingFetch,
+      baseDir: base,
+      runCommand,
+    }).finally(() => {
+      settled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(settled).toBe(false);
+    expect(commandCwd).toMatch(/karst-approach-/);
+    expect(existsSync(commandCwd)).toBe(true);
+
+    finishCommand!({ code: 0, out: 'ok' });
+    await installing;
+    expect(existsSync(commandCwd)).toBe(false);
+  });
+
   it('runs the command in the temp cwd and collects .md files from the collect paths', async () => {
     const base = makeBaseDir();
     const seenCwds: string[] = [];
     const seenCommands: string[] = [];
 
-    const runCommand: RunCommand = (cmd, cwd) => {
+    const runCommand: RunCommand = async (cmd, cwd) => {
       seenCommands.push(cmd);
       seenCwds.push(cwd);
       const docsDir = join(cwd, 'docs');
@@ -587,7 +629,7 @@ describe('installApproach — npm source', () => {
 
   it('throws ApproachInstallError when entrypoint does not match any collected prompt', async () => {
     const base = makeBaseDir();
-    const runCommand: RunCommand = (_cmd, cwd) => {
+    const runCommand: RunCommand = async (_cmd, cwd) => {
       const docsDir = join(cwd, 'docs');
       mkdirSync(docsDir, { recursive: true });
       writeFileSync(join(docsDir, 'other.md'), '# Other');
@@ -613,7 +655,7 @@ describe('installApproach — npm source', () => {
 
   it('throws ApproachInstallError when the command exits non-zero', async () => {
     const base = makeBaseDir();
-    const runCommand: RunCommand = () => ({ code: 1, out: 'boom' });
+    const runCommand: RunCommand = async () => ({ code: 1, out: 'boom' });
 
     const def: ApproachDef = {
       id: 'npm-fail',
@@ -631,9 +673,36 @@ describe('installApproach — npm source', () => {
     ).rejects.toThrow(ApproachInstallError);
   });
 
+  it('keeps a bounded-output truncation marker in a failed install error', async () => {
+    const base = makeBaseDir();
+    const runCommand: RunCommand = async () => ({
+      code: 1,
+      out: `${'x'.repeat(1_000)}${OUTPUT_TRUNCATION_MARKER}`,
+    });
+    const def: ApproachDef = {
+      id: 'npm-noisy-fail',
+      label: 'NPM Noisy Fail',
+      source: {
+        type: 'npm',
+        package: 'noisy-pkg',
+        command: 'npx noisy-pkg',
+        collect: [],
+      },
+    };
+
+    const error = await installApproach(def, {
+      fetchFn: throwingFetch,
+      baseDir: base,
+      runCommand,
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApproachInstallError);
+    expect((error as Error).message).toContain(OUTPUT_TRUNCATION_MARKER);
+    expect((error as Error).message.length).toBeLessThan(300);
+  });
+
   it('throws ApproachInstallError when a collect path contains ".."', async () => {
     const base = makeBaseDir();
-    const runCommand: RunCommand = () => ({ code: 0, out: 'ok' });
+    const runCommand: RunCommand = async () => ({ code: 0, out: 'ok' });
 
     const def: ApproachDef = {
       id: 'npm-traversal',
@@ -653,7 +722,7 @@ describe('installApproach — npm source', () => {
 
   it('throws ApproachInstallError when a collect path is absolute', async () => {
     const base = makeBaseDir();
-    const runCommand: RunCommand = () => ({ code: 0, out: 'ok' });
+    const runCommand: RunCommand = async () => ({ code: 0, out: 'ok' });
 
     const def: ApproachDef = {
       id: 'npm-absolute',
@@ -678,7 +747,7 @@ describe('installApproach — npm source', () => {
   // install instead — the failure must surface where the input is entered.
   it('throws ApproachInstallError when the package would contribute nothing', async () => {
     const base = makeBaseDir();
-    const runCommand: RunCommand = () => ({ code: 0, out: 'ok' }); // collects nothing
+    const runCommand: RunCommand = async () => ({ code: 0, out: 'ok' }); // collects nothing
 
     const def: ApproachDef = {
       id: 'gsd',

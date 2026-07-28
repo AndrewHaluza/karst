@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { waitForHealth, HealthTimeoutError, HealthAbortedError } from './health.js';
 
 /** A port nothing listens on — every probe connection-refuses. */
 const DEAD_URL = 'http://127.0.0.1:1/health';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe('waitForHealth', () => {
   it('times out with HealthTimeoutError when nothing ever answers', async () => {
@@ -29,5 +34,103 @@ describe('waitForHealth', () => {
     await expect(
       waitForHealth(DEAD_URL, { timeoutMs: 10_000, signal: ctrl.signal }),
     ).rejects.toBeInstanceOf(HealthAbortedError);
+  });
+
+  it('aborts a never-settling probe at the overall deadline', async () => {
+    vi.stubGlobal('fetch', (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(init.signal?.reason ?? new Error('aborted')),
+          { once: true },
+        );
+      }),
+    );
+
+    await expect(
+      waitForHealth('http://never/health', { timeoutMs: 40, intervalMs: 5 }),
+    ).rejects.toBeInstanceOf(HealthTimeoutError);
+  });
+
+  it('preserves caller abort while a probe is pending', async () => {
+    vi.stubGlobal('fetch', (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(init.signal?.reason ?? new Error('aborted')),
+          { once: true },
+        );
+      }),
+    );
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 20);
+
+    await expect(
+      waitForHealth('http://never/health', { timeoutMs: 1_000, signal: ctrl.signal }),
+    ).rejects.toBeInstanceOf(HealthAbortedError);
+  });
+
+  it('releases caller abort listeners after a probe succeeds normally', async () => {
+    const ctrl = new AbortController();
+    const add = vi.spyOn(ctrl.signal, 'addEventListener');
+    const remove = vi.spyOn(ctrl.signal, 'removeEventListener');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+
+    await waitForHealth('http://healthy/health', {
+      timeoutMs: 1_000,
+      signal: ctrl.signal,
+    });
+
+    expect(add.mock.calls.filter(([type]) => type === 'abort')).toHaveLength(1);
+    expect(remove.mock.calls.filter(([type]) => type === 'abort')).toHaveLength(1);
+  });
+
+  it('releases caller abort listeners after a probe fails normally', async () => {
+    const ctrl = new AbortController();
+    const add = vi.spyOn(ctrl.signal, 'addEventListener');
+    const remove = vi.spyOn(ctrl.signal, 'removeEventListener');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockRejectedValueOnce(new Error('connection refused'))
+        .mockResolvedValueOnce({ ok: true }),
+    );
+
+    await waitForHealth('http://eventually-healthy/health', {
+      timeoutMs: 1_000,
+      intervalMs: 1,
+      signal: ctrl.signal,
+    });
+
+    const added = add.mock.calls.filter(([type]) => type === 'abort');
+    const removed = remove.mock.calls.filter(([type]) => type === 'abort');
+    expect(added.length).toBeGreaterThan(0);
+    expect(removed).toHaveLength(added.length);
+  });
+
+  it.each([
+    ['omitted options', {}],
+    [
+      'explicit undefined options',
+      { timeoutMs: undefined, intervalMs: undefined, maxIntervalMs: undefined },
+    ],
+  ])('uses defaults for %s', async (_label, options) => {
+    vi.stubGlobal('fetch', (_url: string, init?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ ok: true } as Response), 10);
+        init?.signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer);
+            reject(init.signal?.reason ?? new Error('aborted'));
+          },
+          { once: true },
+        );
+      }),
+    );
+
+    await expect(
+      waitForHealth('http://delayed-healthy/health', options),
+    ).resolves.toBeUndefined();
   });
 });

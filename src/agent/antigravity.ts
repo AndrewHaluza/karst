@@ -1,5 +1,12 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  copyFileSync,
+  cpSync,
+  readFileSync,
+} from 'node:fs';
 import { join, dirname, isAbsolute, basename, extname } from 'node:path';
 import type {
   AgentAdapter,
@@ -25,6 +32,56 @@ function assertSafeAgentName(name: string): void {
     isAbsolute(name)
   ) {
     throw new Error(`materializeApproach: unsafe soloAgent.name "${name}"`);
+  }
+}
+
+/** Writes the neutral package's artifacts + solo agent into a plugin dir this
+ *  terminal owns. Never called for a directory that already exists. */
+function writeApproachPlugin(
+  opts: MaterializeOpts,
+  pluginDir: string,
+  artifacts: NonNullable<MaterializeOpts['pkg']['artifacts']>,
+  solo: MaterializeOpts['soloAgent'],
+): void {
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ name: opts.pkg.id }, null, 2));
+
+  for (const art of artifacts) {
+    const src = join(opts.baseDir, opts.pkg.id, art.relPath);
+    if (art.kind === 'command') {
+      // Antigravity has no workspace `commands/` customization surface.
+      // Preserve the command as an on-demand skill instead of silently
+      // copying it to an undiscoverable directory.
+      const name = basename(art.relPath, extname(art.relPath));
+      const dest = join(pluginDir, 'skills', name, 'SKILL.md');
+      mkdirSync(dirname(dest), { recursive: true });
+      const body = readFileSync(src, 'utf8');
+      writeFileSync(
+        dest,
+        [
+          '---',
+          `name: ${name}`,
+          `description: Run the ${name} command from the ${opts.pkg.label} approach.`,
+          '---',
+          '',
+          body,
+        ].join('\n'),
+      );
+      continue;
+    }
+    const dest = join(pluginDir, art.relPath);
+    if (art.kind === 'skill') {
+      cpSync(dirname(src), dirname(dest), { recursive: true });
+    } else {
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(src, dest);
+    }
+  }
+
+  if (solo) {
+    const dest = join(pluginDir, 'agents', `${solo.name}.md`);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, solo.body);
   }
 }
 
@@ -101,80 +158,56 @@ export class AntigravityAdapter implements AgentAdapter {
     // each neutral package as a namespaced plugin so its agents and skills do
     // not collide with customizations already present in the worktree.
     const pluginDir = join(opts.sessionDir, '.agents', 'plugins', opts.pkg.id);
-    mkdirSync(pluginDir, { recursive: true });
-    writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ name: opts.pkg.id }, null, 2));
-
-    for (const art of artifacts) {
-      const src = join(opts.baseDir, opts.pkg.id, art.relPath);
-      if (art.kind === 'command') {
-        // Antigravity has no workspace `commands/` customization surface.
-        // Preserve the command as an on-demand skill instead of silently
-        // copying it to an undiscoverable directory.
-        const name = basename(art.relPath, extname(art.relPath));
-        const dest = join(pluginDir, 'skills', name, 'SKILL.md');
-        mkdirSync(dirname(dest), { recursive: true });
-        const body = readFileSync(src, 'utf8');
-        writeFileSync(
-          dest,
-          [
-            '---',
-            `name: ${name}`,
-            `description: Run the ${name} command from the ${opts.pkg.label} approach.`,
-            '---',
-            '',
-            body,
-          ].join('\n'),
-        );
-        continue;
-      }
-      const dest = join(pluginDir, art.relPath);
-      if (art.kind === 'skill') {
-        cpSync(dirname(src), dirname(dest), { recursive: true });
-      } else {
-        mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(src, dest);
-      }
+    // A repository may check in its own plugin tree at this exact path. That
+    // directory belongs to the repository, not this terminal: writing into it
+    // corrupts tracked files, and claiming it would make session cleanup delete
+    // them. Discover it as-is, never own it.
+    const ownsPlugin = !existsSync(pluginDir);
+    if (ownsPlugin) {
+      writeApproachPlugin(opts, pluginDir, artifacts, solo);
     }
 
-    if (solo) {
-      const dest = join(pluginDir, 'agents', `${solo.name}.md`);
-      mkdirSync(dirname(dest), { recursive: true });
-      writeFileSync(dest, solo.body);
-    }
-
-    let karstDir: string | undefined;
+    let ownedKarstDir: string | undefined;
     if (hasWorkflow) {
-      karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
-      const skillDir = join(karstDir, 'skills', opts.pkg.id);
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(
-        join(karstDir, 'plugin.json'),
-        JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2),
-      );
-      const body = renderWorkflowCommand({
-        id: opts.pkg.id,
-        label: opts.pkg.label,
-        phases: opts.pkg.workflow!,
-        ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
-        ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
-        ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
-      });
-      const skill = [
-        '---',
-        `name: ${opts.pkg.id}`,
-        `description: Run the ${opts.pkg.label} workflow for a Karst ticket.`,
-        '---',
-        '',
-        body,
-      ].join('\n');
-      writeFileSync(join(skillDir, 'SKILL.md'), skill);
+      const karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
+      // Same rule as the <id> plugin: a checked-in `karst` plugin is the
+      // repository's, so leave it alone rather than rewriting its skills.
+      if (!existsSync(karstDir)) {
+        ownedKarstDir = karstDir;
+        const skillDir = join(karstDir, 'skills', opts.pkg.id);
+        mkdirSync(skillDir, { recursive: true });
+        writeFileSync(
+          join(karstDir, 'plugin.json'),
+          JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2),
+        );
+        const body = renderWorkflowCommand({
+          id: opts.pkg.id,
+          label: opts.pkg.label,
+          phases: opts.pkg.workflow!,
+          ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
+          ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
+          ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
+        });
+        const skill = [
+          '---',
+          `name: ${opts.pkg.id}`,
+          `description: Run the ${opts.pkg.label} workflow for a Karst ticket.`,
+          '---',
+          '',
+          body,
+        ].join('\n');
+        writeFileSync(join(skillDir, 'SKILL.md'), skill);
+      }
     }
 
     // Sessions launch with `cwd === sessionDir`, so Antigravity discovers this
     // workspace plugin without an additional `--add-dir`.
     return {
       extraArgs: [],
-      ownedPaths: [pluginDir, ...(karstDir ? [karstDir] : [])],
+      ownedPaths: [
+        ...(ownsPlugin ? [pluginDir] : []),
+        ...(ownedKarstDir ? [ownedKarstDir] : []),
+      ],
       ...(hasWorkflow ? { invocation: `$${opts.pkg.id}` } : {}),
     };
   }
