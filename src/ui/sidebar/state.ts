@@ -86,7 +86,16 @@ export function buildSidebarState(
   const source = facets.includes('archived') ? archived : filterBySelection(active, facets);
   const visible = filterTickets(source, opts.filter);
 
-  const rows: TicketRow[] = buildTicketNodes(visible, opts.labelTemplate).map((node) => ({
+  // Every ticket in the project, active + archived, so a follow-up row can
+  // resolve its parent's key even when the parent sits in a facet the user
+  // isn't currently viewing (e.g. the parent was archived after the child
+  // was created).
+  const parentKeys = new Map<number, string>();
+  for (const t of [...active, ...archived]) {
+    if (t.key !== null) parentKeys.set(t.id, t.key);
+  }
+
+  const rows: TicketRow[] = buildTicketNodes(visible, opts.labelTemplate, parentKeys).map((node) => ({
     ...node,
     servers: listServersByTicket(store, node.ticketId),
     worktrees: listWorktreesByTicket(store, node.ticketId).map((w) => ({

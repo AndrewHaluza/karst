@@ -97,6 +97,8 @@ export interface TicketNode {
   model: string | null;
   /** True when soft-deleted; drives the archived row actions (unarchive/delete). */
   archived: boolean;
+  /** The parent ticket's key, when this ticket was created via "create follow-up"; else null. */
+  parentKey: string | null;
   collapsible: true;
 }
 
@@ -104,6 +106,8 @@ export interface TicketNode {
 export function buildTicketNodes(
   tickets: readonly TicketWithStages[],
   labelTemplate?: string,
+  /** id -> key, for every ticket in the project (not just the currently visible facet). */
+  parentKeys: Map<number, string> = new Map(),
 ): TicketNode[] {
   return tickets.map((t) => {
     const badge = stageBadge(t);
@@ -127,6 +131,7 @@ export function buildTicketNodes(
       lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,
       archived: t.archivedAt !== null,
+      parentKey: t.parentTicketId !== null ? (parentKeys.get(t.parentTicketId) ?? null) : null,
       collapsible: true,
     };
   });

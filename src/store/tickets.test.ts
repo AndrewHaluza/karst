@@ -42,6 +42,7 @@ describe('ticketLabel', () => {
     model: null,
     agentProvider: null,
     projectId: null,
+    parentTicketId: null,
   };
 
   it('renders "key — title" when both present', () => {
@@ -173,6 +174,22 @@ describe('ticket + stage persistence', () => {
     expect(full.approach).toBeNull();
     expect(full.agent).toBeNull();
     expect(full.selectedRepos).toEqual([]);
+  });
+
+  it('a new ticket has a null parentTicketId (not a follow-up) by default', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'root ticket' });
+    expect(t.parentTicketId).toBeNull();
+  });
+
+  it('createTicket persists parentTicketId, readable via getTicket', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root ticket' });
+    const child = createTicket(store, {
+      key: 'PROJ-1-fu1',
+      title: 'follow-up',
+      parentTicketId: parent.id,
+    });
+    expect(child.parentTicketId).toBe(parent.id);
+    expect(getTicket(store, child.id).parentTicketId).toBe(parent.id);
   });
 
   it('updateTicketCore changes key and title only', () => {

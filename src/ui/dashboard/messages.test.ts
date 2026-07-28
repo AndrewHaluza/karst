@@ -18,6 +18,7 @@ function actions(): DashboardActions {
     stopDriver: vi.fn(),
     shipTicket: vi.fn(),
     resumeTicket: vi.fn(),
+    createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
   };
 }
@@ -162,6 +163,15 @@ describe('routeAction', () => {
     expect(a.stopDriver).toHaveBeenCalledTimes(1);
     expect(a.shipTicket).toHaveBeenCalledTimes(1);
     expect(a.resumeTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses and dispatches create-follow-up-ticket', () => {
+    expect(parseWebviewMessage({ type: 'create-follow-up-ticket' })).toEqual({
+      type: 'create-follow-up-ticket',
+    });
+    const a = actions();
+    routeAction({ type: 'create-follow-up-ticket' }, a);
+    expect(a.createFollowUpTicket).toHaveBeenCalledTimes(1);
   });
 
   it('dispatches open-stage-log with the log path', () => {

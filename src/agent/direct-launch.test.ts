@@ -37,6 +37,7 @@ describe('direct approach launch path (integration)', () => {
         brief: 'Cap login attempts per IP; return 429 past the threshold.',
         approach: 'direct',
         agent: null,
+        parent: null,
         selectedRepos: ['backend'],
         worktrees: [],
         servers: [],

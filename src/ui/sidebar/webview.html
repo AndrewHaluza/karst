@@ -89,6 +89,8 @@
   .g-green{color:var(--g-done)}
   .g-gray{color:var(--g-gray)}
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
+  /* Follow-up marker: says "this is a sub-task of <key>" without stealing row width. */
+  .parentref{font-size:10px;color:var(--g-gray);flex:0 0 auto;margin-left:4px}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. Uppercase + tracking so the chip
@@ -273,6 +275,7 @@
         + `<span class="chev" data-toggle="${row.ticketId}">${chev}</span>`
         + `<span class="glyph g-${esc(row.glyph)}" title="${esc(row.description)}">${ic.mark}<span class="sdot"></span></span>`
         + `<span class="name">${esc(row.label)}</span>`
+        + (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : '')
         + `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`
         + `<span class="rowacts">${acts}</span>`
         + `</div>`

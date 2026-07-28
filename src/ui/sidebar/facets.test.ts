@@ -31,6 +31,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     model: null,
     agentProvider: null,
     projectId: null,
+    parentTicketId: null,
     stages: [
       { ticketId: 1, stageKey: 'impl', status: 'running', attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null },
     ],

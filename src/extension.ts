@@ -107,6 +107,7 @@ import { runReview } from './workflow/stages/review.js';
 import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
+import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
 import {
   getTicket,
   ticketLabel,
@@ -1523,6 +1524,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       manifests.set(manifest, manifestPathOrThrow());
       onboarding.openEdit(ticketId);
     }),
+    // Follow-up: a done ticket spawns a linked child that inherits its
+    // repos/approach/agent/model and carries its brief+PRs into the new
+    // session's context (§ continue work on a ticket). Opens onboarding-edit so
+    // the user types the actual follow-up ask straight away.
+    vscode.commands.registerCommand('karst.createFollowUpTicket', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg);
+      if (ticketId === undefined) return;
+      let child;
+      try {
+        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id });
+      } catch (err) {
+        const message =
+          err instanceof TicketNotDoneError
+            ? err.message
+            : `Couldn't create a follow-up ticket: ${err instanceof Error ? err.message : String(err)}`;
+        void vscode.window.showErrorMessage(message);
+        return;
+      }
+      provider.refresh();
+      const manifest = await resolveManifest();
+      if (manifest) manifests.set(manifest, manifestPathOrThrow());
+      onboarding.openEdit(child.id);
+      void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
+    }),
     vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
@@ -2119,6 +2144,11 @@ function makeDashboardActions(
     // action already uses; `SessionManager.openSession` resolves --resume vs.
     // a fresh launch on its own.
     resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
+    // Opens the onboarding edit page on the new ticket so the user can type
+    // the actual follow-up ask straight away — the command itself copies
+    // repos/approach/agent/model from this ticket.
+    createFollowUpTicket: () =>
+      void vscode.commands.executeCommand('karst.createFollowUpTicket', ticketId),
     // A failed gate's log, opened read-only in an editor — the "why" behind a red
     // node, without sending the user to the dev-only output channel.
     openStageLog: (path) => {

@@ -84,6 +84,57 @@ describe('buildTicketContext', () => {
     const ctx = buildTicketContext(store, undefined, id);
     expect(ctx.repos).toEqual([{ name: 'frontend', runnable: false, unknown: true }]);
   });
+
+  it('includes a parent section when the ticket links to a completed parent', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+    updateTicketOnboarding(store, parent.id, { brief: 'Built the thing.' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(parent.id);
+    store.db
+      .prepare(
+        "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'frontend', 7, 'https://x/pr/7', 'merged')",
+      )
+      .run(parent.id);
+
+    const child = createTicket(store, {
+      key: 'PROJ-1-fu1',
+      title: 'Follow-up: Root work',
+      parentTicketId: parent.id,
+    });
+
+    const ctx = buildTicketContext(store, undefined, child.id);
+    expect(ctx.parent).toEqual({
+      key: 'PROJ-1',
+      title: 'Root work',
+      brief: 'Built the thing.',
+      prs: [{ repo: 'frontend', number: 7, url: 'https://x/pr/7' }],
+    });
+
+    const md = renderTicketContext(ctx);
+    expect(md).toContain('## Continuing from PROJ-1: Root work');
+    expect(md).toContain('Built the thing.');
+    expect(md).toContain('https://x/pr/7');
+  });
+
+  it('omits the parent section for an ordinary (non-follow-up) ticket', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'root' });
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.parent).toBeNull();
+    expect(renderTicketContext(ctx)).not.toContain('## Continuing from');
+  });
+
+  it('degrades gracefully when the linked parent has been hard-deleted', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+    const child = createTicket(store, {
+      key: 'PROJ-1-fu1',
+      title: 'Follow-up',
+      parentTicketId: parent.id,
+    });
+    store.db.prepare('DELETE FROM tickets WHERE id = ?').run(parent.id);
+
+    const ctx = buildTicketContext(store, undefined, child.id);
+    expect(ctx.parent).toBeNull();
+    expect(renderTicketContext(ctx)).not.toContain('## Continuing from');
+  });
 });
 
 describe('renderTicketContext', () => {
