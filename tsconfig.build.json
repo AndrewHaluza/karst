@@ -4,5 +4,12 @@
     "noEmit": false,
     "declaration": false
   },
-  "exclude": ["node_modules", "dist", "spikes", "**/*.test.ts", "src/**/fixtures.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "spikes",
+    "**/*.test.ts",
+    "src/**/fixtures.ts",
+    "src/**/fixtures/**"
+  ]
 }
