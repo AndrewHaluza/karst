@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { validateManifest } from '../schema.js';
-import { isRepoClassified, unclassifiedRepos } from './graph.js';
-import { manifest, repo, runnableRepo } from '../fixtures.js';
+import { isRepoClassified, unclassifiedRepos, validateGraph } from './graph.js';
+import { manifest, repo, runnableRepo, svc, dependsOn } from '../fixtures.js';
 
 /**
  * Cross-repository validation. Each case here is a config that the OLD schema
@@ -256,5 +256,27 @@ describe('classification', () => {
       api: runnableRepo({}, { repoPath: '/api', signals: ['api'] }),
     });
     expect(unclassifiedRepos(m)).toEqual(['docs']);
+  });
+});
+
+describe('validateGraph — disabled repositories', () => {
+  it('does not validate a disabled repository\'s own dependsOn edges', () => {
+    const repos = {
+      draft: repo({
+        enabled: false,
+        service: svc({ dependsOn: [dependsOn('missing-target', 'http', [])] }),
+      }),
+    };
+    expect(() => validateGraph(repos)).not.toThrow();
+  });
+
+  it('rejects an enabled repository depending on a disabled target', () => {
+    const repos = {
+      api: runnableRepo({
+        dependsOn: [dependsOn('worker', 'http', [])],
+      }),
+      worker: runnableRepo({}, { enabled: false }),
+    };
+    expect(() => validateGraph(repos)).toThrow(/"worker".*disabled/);
   });
 });
