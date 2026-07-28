@@ -71,6 +71,12 @@ export interface RepositoryDef {
    */
   signals?: string[];
   /**
+   * Conventional-commit scope for artifacts touching this repository (`{scope}`).
+   * Absent = the repository's manifest name. Repository-level, like `signals`: it
+   * describes the source tree, not a running process.
+   */
+  scope?: string;
+  /**
    * The runnable relation. ABSENT means this repository is not runnable — that
    * is a valid, first-class state, never an error and never a sentinel. Gate on
    * it via `isRunnable` (`manifest/runnable.ts`) rather than testing the field
@@ -156,11 +162,23 @@ export type TicketProvider = 'clickup' | 'manual';
 /** Which coding-agent CLI karst launches sessions with. */
 export type AgentProvider = 'claude' | 'codex' | 'antigravity';
 
-/** Project-level templates for artifacts Karst creates during the ship stage. */
+/**
+ * Project-level templates for the git/GitHub artifacts Karst creates itself: the
+ * ticket's worktree branch (scope stage) and the fallback commit + new pull
+ * request (ship stage).
+ */
 export interface ArtifactConventions {
+  /**
+   * Worktree branch name. Rendered once, when the worktree is created; an
+   * existing worktree keeps the branch stored on its row, so changing this never
+   * renames anything.
+   */
+  branchName?: string;
   commitMessage?: string;
   pullRequestTitle?: string;
   pullRequestDescription?: string;
+  /** `{type}` for tickets that carry none of their own; defaults to `feat`. */
+  defaultType?: string;
 }
 
 /**

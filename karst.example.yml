@@ -53,6 +53,10 @@ repositories:
     # prompts to author these before the first ticket). Repository-level: a repo
     # with no service still has to be routable, or no ticket could reach it.
     signals: [api, endpoint, backend, database, migration, service, model, query]
+    # Optional conventional-commit scope for `{scope}` in the templates below.
+    # Absent = this repository's manifest name (`backend`). Repository-level,
+    # like `signals`: it describes the source tree, not a running process.
+    scope: api
     # Runnable. Everything under `service:` is meaningless without a process.
     service:
       start: node server.mjs
@@ -174,21 +178,39 @@ agents:
   test: { role: test }
   review: { role: review }
 
-# Optional project-wide conventions for artifacts KARST ITSELF creates during
-# ship. Omit `conventions` (the default) to preserve the historical behavior:
+# Optional project-wide conventions for the git artifacts KARST ITSELF creates:
+# the ticket's worktree BRANCH (scope stage) and the fallback commit + new pull
+# request (ship stage). Edit them in Settings → Git, which also offers presets.
+# Omit `conventions` (the default) to preserve the historical behavior:
+#   - branch name: karst/{type}/{slug};
 #   - fallback commit message: resolved ticket title;
 #   - PR title: resolved ticket title;
 #   - PR description: agent-generated summary when an adapter is available,
 #     otherwise the resolved PR title.
 #
-# Each field is independent. Variables supported by ALL three templates:
+# Each field is independent. Variables supported by ALL THREE ARTIFACT templates
+# (commitMessage, pullRequestTitle, pullRequestDescription):
 #   {title}  resolved ticket title (title → key → "Ticket <database id>")
 #   {key}    ticket key, or the decimal database id when no key exists
 #   {id}     decimal Karst database id
 #   {repo}   current manifest repository name
+#   {type}   conventional-commit type: the ticket's, else `defaultType`, else feat
+#   {scope}  the repository's `scope:`, else its manifest name
 #
 # pullRequestDescription additionally supports:
 #   {description}  agent-generated summary, falling back to the final PR title
+#
+# branchName has its OWN vocabulary — {type} {slug} {key} {id} {title} — and must
+# include one of {slug}, {key} or {id} so two tickets can never share a branch.
+# {repo}/{scope} are rejected there: two repository entries sharing a `repoPath`
+# resolve to ONE worktree, so a repo-dependent branch name has no single answer.
+# The rendered value is sanitized into a legal git ref (lowercased, illegal
+# characters folded to dashes). It is rendered ONCE, when the worktree is
+# created: changing this never renames an existing ticket's branch.
+#
+# defaultType supplies {type} for tickets that carry none of their own; a ticket's
+# type is picked (or AI-prefilled) on the onboarding page. One of:
+# feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert.
 #
 # `{description}` has a model-cost consequence: Karst asks the configured agent
 # for a summary only when this token is present (or when no description template
@@ -199,8 +221,10 @@ agents:
 # whitespace are preserved. Complete example:
 #
 # conventions:
-#   commitMessage: "feat({repo}): {title} [{key}]"
-#   pullRequestTitle: "[{key}] {title}"
+#   branchName: "karst/{type}/{slug}"
+#   defaultType: feat
+#   commitMessage: "{type}({scope}): {title} [{key}]"
+#   pullRequestTitle: "{type}({scope}): {title}"
 #   pullRequestDescription: |
 #     ## Summary
 #     {description}
@@ -216,7 +240,8 @@ agents:
 # Scope: commitMessage applies only to Karst's fallback commit when a worktree is
 # dirty. Karst does not rename commits created by an agent or user. PR templates
 # apply only when Karst creates a new PR; an existing PR adopted during ship is
-# never retitled or rewritten.
+# never retitled or rewritten. branchName applies only to worktrees created after
+# it is set — an existing worktree keeps the branch recorded on its row.
 
 # Ticketing integration (optional; default { provider: manual }). `manual` is
 # local-only. `clickup` fetches ticket context; set `teamId` (ClickUp workspace

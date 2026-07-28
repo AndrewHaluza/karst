@@ -20,6 +20,12 @@ export interface TicketDraftFields {
   model: string | null;
   /** Per-ticket agent-core override; null = inherit the manifest default. */
   agentProvider?: string | null;
+  /**
+   * Conventional-commit type for `{type}`. Named `ticketType`, not `type`,
+   * because these fields are spread into messages whose own discriminant is
+   * `type`. Null = inherit the manifest default.
+   */
+  ticketType: string | null;
 }
 
 export type OnboardingMessage =
@@ -33,6 +39,8 @@ export type OnboardingMessage =
   | { type: 'set-model'; id: string }
   // id may be '' — the "Inherit (settings)" choice, which clears the provider.
   | { type: 'set-provider'; id: string }
+  // id may be '' — "Inherit (settings)", which clears the ticket's type.
+  | { type: 'set-type'; id: string }
   | { type: 'analyze'; prompt: string }
   | { type: 'open-ticket-link'; url: string }
   | ({ type: 'submit' } & TicketDraftFields)
@@ -52,6 +60,7 @@ export type OnboardingHostMessage =
       approachId: string;
       repos: string[];
       reason: string;
+      ticketType: string;
     }
   | { type: 'error'; message: string }
   | { type: 'busy'; what: string; on: boolean };
@@ -66,6 +75,7 @@ export interface OnboardingActions {
   setAgent: (id: string) => void;
   setModel: (id: string) => void;
   setProvider: (id: string) => void;
+  setType: (id: string) => void;
   analyze: (prompt: string) => void;
   openTicketLink: (url: string) => void;
   submit: (input: TicketDraftFields) => void | Promise<void>;
@@ -97,6 +107,8 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
   // crafted or stale value must never reach resolveAdapter's provider lookup.
   const agentProvider =
     typeof m.agentProvider === 'string' && isKnownProvider(m.agentProvider) ? m.agentProvider : null;
+  const ticketType =
+    typeof m.ticketType === 'string' && m.ticketType.length > 0 ? m.ticketType : null;
   return {
     key: m.key as string,
     title: m.title as string,
@@ -106,6 +118,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     agent,
     model,
     agentProvider,
+    ticketType,
   };
 }
 
@@ -143,6 +156,10 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       return typeof m.id === 'string' && (m.id === '' || isKnownProvider(m.id))
         ? { type: 'set-provider', id: m.id }
         : null;
+    case 'set-type':
+      // id may be '' ("Inherit"); require a string, not a non-empty one. The
+      // vocabulary itself is enforced by the store writer, the single authority.
+      return typeof m.id === 'string' ? { type: 'set-type', id: m.id } : null;
     case 'analyze':
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.
@@ -199,6 +216,8 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
       return;
     case 'set-provider':
       actions.setProvider(msg.id);
+    case 'set-type':
+      actions.setType(msg.id);
       return;
     case 'analyze':
       actions.analyze(msg.prompt);
@@ -218,6 +237,7 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
         agent: msg.agent,
         model: msg.model,
         agentProvider: msg.agentProvider,
+        ticketType: msg.ticketType,
       });
       return;
     case 'save':
@@ -232,6 +252,7 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
         agent: msg.agent,
         model: msg.model,
         agentProvider: msg.agentProvider,
+        ticketType: msg.ticketType,
       });
       return;
     case 'request-state':

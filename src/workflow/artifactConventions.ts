@@ -16,10 +16,14 @@ export interface ArtifactTemplateContext {
   key: string;
   title: string;
   repo: string;
+  /** Conventional-commit type: the ticket's, else `conventions.defaultType`, else `feat`. */
+  type: string;
+  /** Conventional-commit scope: the repository's `scope:`, else its manifest name. */
+  scope: string;
   description?: string;
 }
 
-const COMMON_VARIABLES = ['title', 'key', 'id', 'repo'] as const;
+const COMMON_VARIABLES = ['title', 'key', 'id', 'repo', 'type', 'scope'] as const;
 const VARIABLES: Record<ArtifactConventionName, ReadonlySet<string>> = {
   commitMessage: new Set(COMMON_VARIABLES),
   pullRequestTitle: new Set(COMMON_VARIABLES),
@@ -74,6 +78,8 @@ export function renderArtifactTemplate(
     key: context.key,
     title: context.title,
     repo: context.repo,
+    type: context.type,
+    scope: context.scope,
     description: context.description ?? '',
   };
   const rendered = template.replace(TOKEN, (_match, token: string) => values[token]!);

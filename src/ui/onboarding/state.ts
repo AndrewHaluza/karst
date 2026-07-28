@@ -5,6 +5,8 @@ import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { modelsForProvider, type ModelOption } from '../../agent/models.js';
 import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/registry.js';
+import { TICKET_TYPES } from '../../store/ticketTypes.js';
+import { resolveTicketType } from '../../workflow/conventionContext.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { isRunnable } from '../../manifest/runnable.js';
@@ -80,6 +82,12 @@ export interface OnboardingState {
   selectedAgentProvider: AgentProvider | null;
   /** Manifest's resolved default provider, for the "Inherit (settings: …)" label. */
   defaultAgentProvider: AgentProvider;
+  /** Conventional-commit types offered by the type picker. */
+  ticketTypes: string[];
+  /** Per-ticket type; null = inherit `conventions.defaultType`. */
+  selectedType: string | null;
+  /** The type a null selection resolves to, for the "Inherit (…)" label. */
+  defaultType: string;
   /**
    * True when an interactive session terminal is already open for this ticket.
    * The model (and effort) picker locks while a session runs — the launch flag
@@ -198,6 +206,9 @@ export function buildOnboardingState(
       agentProviders: [...IMPLEMENTED_PROVIDERS],
       selectedAgentProvider: null,
       defaultAgentProvider,
+      ticketTypes: [...TICKET_TYPES],
+      selectedType: null,
+      defaultType: resolveTicketType({ type: null }, manifest.conventions),
       sessionOpen: false, // create mode has no ticket → nothing to lock
       stepper: [], // no ticket yet → no workflow to show
     };
@@ -238,6 +249,9 @@ export function buildOnboardingState(
     agentProviders: [...IMPLEMENTED_PROVIDERS],
     selectedAgentProvider: ticket.agentProvider ?? null,
     defaultAgentProvider,
+    ticketTypes: [...TICKET_TYPES],
+    selectedType: ticket.type ?? null,
+    defaultType: resolveTicketType({ type: null }, manifest.conventions),
     sessionOpen: isSessionOpen(ticketId),
     stepper: buildStepper(ticket.stages),
   };

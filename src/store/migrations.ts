@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -275,6 +275,22 @@ export function migrate(db: Database): void {
     }
     if (cols.size > 0) {
       db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_parent ON tickets(parent_ticket_id)');
+    }
+  }
+
+  if (current < 15) {
+    // v15 adds the per-ticket conventional-commit type feeding `{type}` in the
+    // branch/commit/PR templates. Purely additive and guarded on the CURRENT
+    // columns, so a fresh DB (already `type` from schema.sql) skips it. Nothing is
+    // backfilled: a pre-v15 ticket carries no type to derive, and NULL already
+    // means "inherit conventions.defaultType".
+    //
+    // `tableColumns` is empty both for "table absent" and "table without the
+    // column", so test the table first — a partial legacy DB (one that never had
+    // `tickets`) must skip the step, not fail the open.
+    const cols = ticketColumns(db);
+    if (cols.size > 0 && !cols.has('type')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN type TEXT');
     }
   }
 

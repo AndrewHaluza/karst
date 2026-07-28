@@ -39,12 +39,21 @@ function git(cwd: string, args: string[]): void {
  * Single source of truth for the derivation so `createWorktree` and
  * `preflightSpin` can never drift on where a worktree lands or what branch it
  * carries. `slug` is the ticket's worktree slug (key-or-id + title, see
- * `worktreeSlug`) — rename-invariant, one per ticket; branch is `karst/<slug>`.
+ * `worktreeSlug`) — rename-invariant, one per ticket, and the PATH is always
+ * derived from it (only the branch is configurable).
+ *
+ * `branch` is the value rendered from `conventions.branchName`
+ * (`renderBranchName`). Omitted → the historical `karst/<slug>`, so a caller that
+ * has no manifest in hand (and every pre-conventions caller) keeps its behavior.
  */
-export function worktreePaths(repoPath: string, slug: string): { path: string; branch: string } {
+export function worktreePaths(
+  repoPath: string,
+  slug: string,
+  branch?: string,
+): { path: string; branch: string } {
   return {
     path: join(repoPath, '.karst', 'worktrees', slug),
-    branch: `karst/${slug}`,
+    branch: branch && branch.trim() !== '' ? branch : `karst/${slug}`,
   };
 }
 
@@ -79,7 +88,7 @@ function branchExists(repoPath: string, branch: string): boolean {
 }
 
 /** True if git already has a linked worktree registered at exactly `path`. */
-function worktreeRegisteredAt(repoPath: string, path: string): boolean {
+export function worktreeRegisteredAt(repoPath: string, path: string): boolean {
   const r = spawnSync('git', ['worktree', 'list', '--porcelain'], {
     cwd: repoPath,
     encoding: 'utf8',
@@ -115,10 +124,17 @@ function ensureKarstExcluded(repoPath: string): void {
  */
 export function createWorktree(
   store: Store,
-  opts: { ticketId: number; repoPath: string; slug: string; baseRef: string },
+  opts: {
+    ticketId: number;
+    repoPath: string;
+    slug: string;
+    baseRef: string;
+    /** Rendered branch name; omitted → `karst/<slug>` (see `worktreePaths`). */
+    branch?: string;
+  },
 ): WorktreeRecord {
   const { ticketId, repoPath, slug, baseRef } = opts;
-  const { path, branch } = worktreePaths(repoPath, slug);
+  const { path, branch } = worktreePaths(repoPath, slug, opts.branch);
 
   // Adopt on retry: a prior spin that died after this step left the git worktree
   // behind. Re-running must not `git worktree add` over it (fails). If a DB row
@@ -130,8 +146,10 @@ export function createWorktree(
   // reports "no worktree yet"). In that case INSERT the missing row.
   if (worktreeRegisteredAt(repoPath, path)) {
     const existing = store.db
-      .prepare('SELECT base_ref, deps_mode FROM worktrees WHERE ticket_id = ? AND path = ?')
-      .get(ticketId, path) as { base_ref: string; deps_mode: string } | undefined;
+      .prepare('SELECT branch, base_ref, deps_mode FROM worktrees WHERE ticket_id = ? AND path = ?')
+      .get(ticketId, path) as
+      | { branch: string | null; base_ref: string; deps_mode: string }
+      | undefined;
     if (!existing) {
       store.db
         .prepare(
@@ -145,7 +163,9 @@ export function createWorktree(
       repoPath,
       slug,
       path,
-      branch,
+      // The STORED branch wins for an adopted worktree: the checkout is on it,
+      // and a `conventions.branchName` change since then renames nothing.
+      branch: existing?.branch ?? branch,
       baseRef: existing?.base_ref ?? baseRef,
       depsMode: (existing?.deps_mode as 'inherited' | 'local') ?? 'inherited',
       adopted: true,

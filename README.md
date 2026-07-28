@@ -29,7 +29,8 @@ Given a ticket and a manifest describing your stack, Karst:
    `review` until it passes.
 6. **Ships** — creates a fallback commit when needed, opens one PR per hot repo
    via `gh`, and marks the ticket done. Project conventions can template the
-   Karst-created commit, PR title, and PR description.
+   ticket branch, the Karst-created commit, the PR title, and the PR
+   description.
 
 SQLite is the source of truth; on reopen the board is re-derived from it, so a
 crash never loses a ticket's stage.
@@ -149,16 +150,20 @@ Preconditions (enforced downstream, surfaced as errors, not crashes): each hot
 runnable; the
 `health` URL becomes reachable.
 
-### Commit and pull request conventions
+### Branch, commit and pull request conventions
 
-Karst can apply project-wide templates when it creates shipping artifacts. Add
-any subset of these fields to `karst.yml` (or edit them under **Settings →
-General → Commit & pull request conventions**):
+Karst can apply project-wide templates to the git artifacts it creates itself:
+the ticket's worktree branch, the fallback commit, and new pull requests. Add any
+subset of these fields to `karst.yml`, or edit them under **Settings → Git**,
+which also offers presets (Conventional Commits, Ticket-prefixed, Plain) that
+fill the form for review before you save:
 
 ```yaml
 conventions:
-  commitMessage: "feat({repo}): {title} [{key}]"
-  pullRequestTitle: "[{key}] {title}"
+  branchName: "karst/{type}/{slug}"
+  defaultType: feat
+  commitMessage: "{type}({scope}): {title} [{key}]"
+  pullRequestTitle: "{type}({scope}): {title}"
   pullRequestDescription: |
     ## Summary
     {description}
@@ -167,8 +172,8 @@ conventions:
     Repository: {repo}
 ```
 
-`commitMessage` and `pullRequestTitle` support `{title}`, `{key}`, `{id}`, and
-`{repo}`. `pullRequestDescription` supports those variables plus
+`commitMessage` and `pullRequestTitle` support `{title}`, `{key}`, `{id}`,
+`{repo}`, `{type}`, and `{scope}`. `pullRequestDescription` supports those plus
 `{description}`:
 
 - `{title}` is the resolved title: ticket title, then ticket key, then
@@ -176,8 +181,21 @@ conventions:
 - `{key}` is the ticket key, or the decimal database id if the ticket has no key.
 - `{id}` is the decimal Karst database id.
 - `{repo}` is the current repository name from the manifest.
+- `{type}` is the conventional-commit type: the ticket's own, else
+  `conventions.defaultType`, else `feat`. A ticket's type is picked on the
+  onboarding page, and the AI prefill fills it in like any other analyzed field.
+- `{scope}` is the repository's optional `scope:` field, falling back to its
+  manifest name.
 - `{description}` is the agent-generated PR summary, falling back to the final
   rendered PR title when no adapter is available or the model returns blank.
+
+`branchName` has its own vocabulary — `{type}`, `{slug}`, `{key}`, `{id}`,
+`{title}` — and must include one of `{slug}`, `{key}` or `{id}` so two tickets
+can never resolve to the same branch. `{repo}` and `{scope}` are rejected there:
+two repository entries sharing a `repoPath` resolve to a single worktree, so a
+repo-dependent branch name would have no single answer. The rendered value is
+sanitized into a legal git ref. It is rendered once, when the worktree is
+created — changing it never renames an existing ticket's branch.
 
 Use YAML's `|` block scalar for multiline PR descriptions; Karst preserves its
 newlines and whitespace. Templates are validated when the manifest loads.
@@ -193,6 +211,7 @@ conventions:
 
 Omitted fields keep the existing behavior exactly:
 
+- branch name: `karst/{type}/{slug}`;
 - fallback commit message: resolved ticket title;
 - PR title: resolved ticket title;
 - PR description: an agent-generated summary when an adapter is available,

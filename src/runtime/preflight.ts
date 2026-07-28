@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { Manifest } from '../manifest/types.js';
 import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
-import { worktreePaths, canonicalPath } from './worktree.js';
+import { worktreePaths, canonicalPath, worktreeRegisteredAt } from './worktree.js';
 
 /**
  * A user-facing spin failure. Its `message` is safe to show verbatim (no command
@@ -55,7 +55,13 @@ function checkedOutPath(repoPath: string, branch: string): string | null {
  * repoPath: a repo backing several hot entries is checked once, not once per
  * entry.
  */
-export function preflightSpin(manifest: Manifest, slug: string, hot: string[]): void {
+export function preflightSpin(
+  manifest: Manifest,
+  slug: string,
+  hot: string[],
+  /** Rendered branch for this ticket; omitted → the historical `karst/<slug>`. */
+  ticketBranch?: string,
+): void {
   const problems: string[] = [];
   const seen = new Set<string>();
 
@@ -98,7 +104,7 @@ export function preflightSpin(manifest: Manifest, slug: string, hot: string[]): 
     if (!repo) continue; // already reported above
     if (seenTargets.has(repo.repoPath)) continue;
     seenTargets.add(repo.repoPath);
-    const { path, branch } = worktreePaths(repo.repoPath, slug);
+    const { path, branch } = worktreePaths(repo.repoPath, slug, ticketBranch);
 
     const boundTo = checkedOutPath(repo.repoPath, branch);
     if (boundTo !== null && canonicalPath(boundTo) === canonicalPath(path)) {
@@ -110,9 +116,16 @@ export function preflightSpin(manifest: Manifest, slug: string, hot: string[]): 
         `branch '${branch}' is already checked out by another worktree in ${repo.repoPath} — tear that ticket down first`,
       );
     } else if (existsSync(path)) {
-      problems.push(
-        `worktree path ${path} already exists — tear the ticket down or remove it`,
-      );
+      // The path is this ticket's by construction (one slug per ticket), so a git
+      // worktree registered there is OURS on a different branch — a spin that
+      // predates a `conventions.branchName` change. `createWorktree` adopts by
+      // path and keeps the stored branch, so that is resumable, not a collision.
+      // An unregistered folder is still a genuine obstruction.
+      if (!worktreeRegisteredAt(repo.repoPath, path)) {
+        problems.push(
+          `worktree path ${path} already exists — tear the ticket down or remove it`,
+        );
+      }
     }
   }
 

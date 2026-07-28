@@ -46,15 +46,15 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
     // repos + approach + agent + model + agentProvider carried through when present
     expect(
       parseOnboardingMessage({
-        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
+        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
     });
   });
 
@@ -62,14 +62,14 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
     expect(
       parseOnboardingMessage({
-        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
+        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
     });
     expect(parseOnboardingMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
     expect(parseOnboardingMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
@@ -84,12 +84,12 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
     expect(
       parseOnboardingMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
   });
 
@@ -98,6 +98,18 @@ describe('parseOnboardingMessage', () => {
       type: 'set-agent',
       id: 'reviewer',
     });
+  });
+
+  it('accepts set-type, including the empty "inherit" choice', () => {
+    expect(parseOnboardingMessage({ type: 'set-type', id: 'fix' })).toEqual({
+      type: 'set-type',
+      id: 'fix',
+    });
+    expect(parseOnboardingMessage({ type: 'set-type', id: '' })).toEqual({
+      type: 'set-type',
+      id: '',
+    });
+    expect(parseOnboardingMessage({ type: 'set-type', id: 7 })).toBeNull();
   });
 
   it('accepts set-model, including the empty "inherit" choice', () => {
@@ -132,17 +144,17 @@ describe('parseOnboardingMessage', () => {
   it('degrades an unrecognized agentProvider on submit/save to null rather than rejecting the whole message', () => {
     expect(
       parseOnboardingMessage({
-        type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil',
+        type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
     expect(
       parseOnboardingMessage({
-        type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil',
+        type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
   });
 
@@ -182,6 +194,7 @@ describe('routeOnboardingAction', () => {
       setApproach: vi.fn(),
       setAgent: vi.fn(),
       setModel: vi.fn(),
+      setType: vi.fn(),
       setProvider: vi.fn(),
       analyze: vi.fn(),
       openTicketLink: vi.fn(),
@@ -203,16 +216,18 @@ describe('routeOnboardingAction', () => {
     routeOnboardingAction({ type: 'set-agent', id: 'reviewer' }, actions);
     routeOnboardingAction({ type: 'set-model', id: 'claude-sonnet-5' }, actions);
     routeOnboardingAction({ type: 'set-provider', id: 'antigravity' }, actions);
+    routeOnboardingAction({ type: 'set-type', id: 'fix' }, actions);
     routeOnboardingAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
     expect(actions.setProvider).toHaveBeenCalledWith('antigravity');
+    expect(actions.setType).toHaveBeenCalledWith('fix');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
   });
 
@@ -223,7 +238,7 @@ describe('routeOnboardingAction', () => {
       actions,
     );
     expect(actions.save).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex',
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
     });
   });
 

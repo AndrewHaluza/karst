@@ -25,6 +25,7 @@ import {
   type ArtifactTemplateContext,
 } from '../artifactConventions.js';
 import { buildPrDescriptionPrompt, sanitizePrDescription } from '../prDescription.js';
+import { resolveRepoScope, resolveTicketType } from '../conventionContext.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -219,6 +220,8 @@ export async function shipTicket(
         key,
         title,
         repo: wt.repo,
+        type: resolveTicketType(ticket, conventions),
+        scope: resolveRepoScope(opts.manifest, wt.repo),
       };
       const commitMessage = conventions?.commitMessage
         ? renderArtifactTemplate(
