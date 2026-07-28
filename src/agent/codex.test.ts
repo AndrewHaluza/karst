@@ -339,6 +339,40 @@ describe('CodexAdapter interactive commands', () => {
     }
   });
 
+  it('delivers a final assistant question as idle_prompt without its content', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            last_assistant_message: 'Proceed to plan phase?',
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(body).toEqual({
+        hook_event_name: 'Notification',
+        cwd: '/wt',
+        session_id: 'thread-1',
+        message: 'idle_prompt',
+      });
+    } finally {
+      await receiver.close();
+    }
+  });
+
   it.each([
     {
       name: 'malformed JSON',
@@ -543,6 +577,55 @@ describe('codexHookNormalizer', () => {
         session_id: 'thread-1',
         cwd: '/wt',
         message: 'permission_prompt',
+      },
+    ]);
+  });
+
+  it('maps a Stop ending in a question to idle_prompt without forwarding the message', async () => {
+    const { codexHookNormalizer } = await import('./codex.js');
+    const posted: unknown[] = [];
+    const normalize = codexHookNormalizer((payload) => {
+      posted.push(payload);
+      return Promise.resolve();
+    });
+
+    await normalize({
+      hook_event_name: 'Stop',
+      session_id: 'thread-1',
+      cwd: '/wt',
+      last_assistant_message: 'Proceed to plan phase?',
+    });
+
+    expect(posted).toEqual([
+      {
+        hook_event_name: 'Notification',
+        session_id: 'thread-1',
+        cwd: '/wt',
+        message: 'idle_prompt',
+      },
+    ]);
+  });
+
+  it('keeps a completed Stop idle', async () => {
+    const { codexHookNormalizer } = await import('./codex.js');
+    const posted: unknown[] = [];
+    const normalize = codexHookNormalizer((payload) => {
+      posted.push(payload);
+      return Promise.resolve();
+    });
+
+    await normalize({
+      hook_event_name: 'Stop',
+      session_id: 'thread-1',
+      cwd: '/wt',
+      last_assistant_message: 'Implementation complete.',
+    });
+
+    expect(posted).toEqual([
+      {
+        hook_event_name: 'Stop',
+        session_id: 'thread-1',
+        cwd: '/wt',
       },
     ]);
   });

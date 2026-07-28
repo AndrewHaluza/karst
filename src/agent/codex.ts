@@ -119,6 +119,10 @@ process.stdin.on('end', () => {
   const mapped =
     event === 'PermissionRequest'
       ? { hook_event_name: 'Notification', message: 'permission_prompt' }
+      : event === 'Stop' &&
+          typeof raw.last_assistant_message === 'string' &&
+          /\?\s*$/.test(raw.last_assistant_message)
+        ? { hook_event_name: 'Notification', message: 'idle_prompt' }
       : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd'].includes(event)
         ? { hook_event_name: event }
         : null;
@@ -192,6 +196,13 @@ export function codexHookNormalizer(post: PostHook) {
             hook_event_name: 'Notification',
             message: 'permission_prompt',
           }
+        : event === 'Stop' &&
+            typeof input.last_assistant_message === 'string' &&
+            /\?\s*$/.test(input.last_assistant_message)
+          ? {
+              hook_event_name: 'Notification',
+              message: 'idle_prompt',
+            }
         : CODEX_HOOK_EVENTS.includes(
               event as (typeof CODEX_HOOK_EVENTS)[number],
             ) && event !== 'PermissionRequest'

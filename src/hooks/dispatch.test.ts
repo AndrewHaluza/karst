@@ -141,14 +141,22 @@ describe('dispatchHook', () => {
 
   it('UserPromptSubmit flips a waiting agent back to running', () => {
     const id = ticketAt();
-    dispatchHook(store, { hook_event_name: 'Notification', cwd: WT, message: 'idle_prompt' });
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      message: 'permission_prompt',
+    });
     dispatchHook(store, { hook_event_name: 'UserPromptSubmit', cwd: WT });
     expect(getTicket(store, id).agentState).toBe('running');
   });
 
   it('PostToolUse flips a waiting agent back to running', () => {
     const id = ticketAt();
-    dispatchHook(store, { hook_event_name: 'Notification', cwd: WT, message: 'idle_prompt' });
+    dispatchHook(store, {
+      hook_event_name: 'Notification',
+      cwd: WT,
+      message: 'permission_prompt',
+    });
     dispatchHook(store, { hook_event_name: 'PostToolUse', cwd: WT });
     expect(getTicket(store, id).agentState).toBe('running');
   });
