@@ -80,6 +80,11 @@ import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
 import {
+  createReportIssueHandler,
+  DiagnosticDocumentProvider,
+  registerDiagnosticDocumentProvider,
+} from './extension/reportIssue.js';
+import {
   resolveManifest,
   manifestPathOrThrow,
   approachesDirOrThrow,
@@ -147,7 +152,11 @@ import { buildSettingsActions } from './ui/settings/actions.js';
 import type { SettingsState } from './ui/settings/state.js';
 import { makeSettingsPanelHost } from './ui/settings/host.js';
 import { writeManifest } from './manifest/write.js';
-import { makeLogger, type LogError } from './logging/logger.js';
+import {
+  makeBoundedLogBuffer,
+  makeLogger,
+  type LogError,
+} from './logging/logger.js';
 import { injectPalette } from './model/palette.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
@@ -239,7 +248,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Managers/endpoint get `logError`; the extension itself uses `logger`.
   const channel = vscode.window.createOutputChannel('Karst');
   context.subscriptions.push(channel);
-  const logger = makeLogger(channel);
+  const diagnosticLogBuffer = makeBoundedLogBuffer();
+  const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
   logger.info('Karst activated');
   let modelCatalog = bundledModelCatalog();
@@ -418,6 +428,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return undefined;
     }
   };
+
+  const diagnosticDocuments = new DiagnosticDocumentProvider();
+  context.subscriptions.push(
+    registerDiagnosticDocumentProvider(diagnosticDocuments),
+    vscode.commands.registerCommand(
+      'karst.reportIssue',
+      createReportIssueHandler({
+        context,
+        store: localStore,
+        logs: diagnosticLogBuffer,
+        documents: diagnosticDocuments,
+        currentProject,
+        currentManifest,
+      }),
+    ),
+  );
 
   // Live setup status for the welcome page. Reads disk/PATH fresh on every call
   // (no caching) so re-check and post-scaffold pushes reflect reality. Guarded:

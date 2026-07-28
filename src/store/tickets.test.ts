@@ -39,6 +39,7 @@ describe('ticketLabel', () => {
     agent: null,
     selectedRepos: [],
     archivedAt: null,
+    updatedAt: null,
     model: null,
     type: null,
     agentProvider: null,
