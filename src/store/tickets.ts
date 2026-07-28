@@ -26,8 +26,9 @@ export interface Ticket {
   selectedRepos: string[];
   /** Soft-delete timestamp; `null` = active. Archived tickets hide by default. */
   archivedAt: string | null;
-  /** Last mutation timestamp; bumped by every writer here. Read-only surfaces
-   * (ticket pickers, diagnostics) order/label by it instead of re-querying. */
+  /** Last mutation timestamp; bumped by every writer here. Surfaced so a ticket
+   * picker can label a row by recency — listing order stays `created_at DESC`,
+   * and the diagnostic report never reads it (it would be a bare wall clock). */
   updatedAt: string | null;
   /** Per-ticket launch model id (§ model selection); `null` = inherit the manifest default. */
   model: string | null;

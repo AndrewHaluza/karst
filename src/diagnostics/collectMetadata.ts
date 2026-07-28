@@ -103,6 +103,35 @@ async function yieldToHost(isCancelled?: () => boolean): Promise<void> {
   if (isCancelled?.()) throw new CollectionCancelledError()
 }
 
+/** Stands in for a value the sanitizer refused to emit. */
+const OMITTED_VALUE = '[OMITTED:unsafe-metadata]'
+
+/**
+ * Sanitize a metadata value, accumulating what was removed into `redactions`.
+ *
+ * A dropped value renders as `OMITTED_VALUE`, never `null`: `null` is what an
+ * unset column already looks like, and the `nul` / `input-too-large` paths
+ * report no redaction category, so a silent `null` would erase every trace that
+ * something was removed. The omissions are counted under `omitted` so the
+ * review summary states them alongside the per-category counts.
+ */
+function makeSafeText(
+  redactions: Record<string, number>,
+): (value: string | null) => string | null {
+  return (value) => {
+    if (value === null) return null
+    const sanitized = sanitizeText(value)
+    for (const [category, count] of Object.entries(sanitized.counts)) {
+      if (category !== 'total') redactions[category] = (redactions[category] ?? 0) + count
+    }
+    if (sanitized.value === null) {
+      redactions.omitted = (redactions.omitted ?? 0) + 1
+      return OMITTED_VALUE
+    }
+    return sanitized.value
+  }
+}
+
 function selectedRepos(raw: string | null): string[] {
   if (!raw) return []
   try {
@@ -135,14 +164,7 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
       WHERE id = ? AND project_id = ?`,
   ).get(input.ticketId, input.project.id) as DiagnosticTicketRow
   const redactions: Record<string, number> = {}
-  const safe = (value: string | null): string | null => {
-    if (value === null) return null
-    const sanitized = sanitizeText(value)
-    for (const [category, count] of Object.entries(sanitized.counts)) {
-      if (category !== 'total') redactions[category] = (redactions[category] ?? 0) + count
-    }
-    return sanitized.value
-  }
+  const safe = makeSafeText(redactions)
   const repositoryNames = selectedRepos(ticket.selected_repos)
   const repositoryRefs = new Map<string, string>()
   const repositoryAlias = (name: string): string => {
@@ -268,14 +290,7 @@ export async function collectProjectMetadata(
 ): Promise<DiagnosticDraft> {
   await yieldToHost(input.isCancelled)
   const redactions: Record<string, number> = {}
-  const safe = (value: string | null): string | null => {
-    if (value === null) return null
-    const sanitized = sanitizeText(value)
-    for (const [category, count] of Object.entries(sanitized.counts)) {
-      if (category !== 'total') redactions[category] = (redactions[category] ?? 0) + count
-    }
-    return sanitized.value ?? '[OMITTED:unsafe-metadata]'
-  }
+  const safe = makeSafeText(redactions)
   const repositoryRefs = new Map<string, string>()
   const repositoryAlias = (name: string): string => {
     const existing = repositoryRefs.get(name)

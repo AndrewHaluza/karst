@@ -366,4 +366,46 @@ describe('collectMetadata', () => {
     })
     expect(JSON.stringify(draft)).not.toContain('PRIVATE_FAILURE')
   })
+
+  it('marks a dropped metadata value rather than rendering it as absent', async () => {
+    // A value the sanitizer refuses to emit must stay visible as a dropped
+    // field: `null` is indistinguishable from "this column was never set", and
+    // the sanitizer records no redaction category for the omitting paths, so a
+    // silent null would leave the reader no trace that anything was removed.
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    localStore.db.prepare('UPDATE tickets SET approach = ?, source = ? WHERE id = ?')
+      .run('a'.repeat(40 * 1024), 'manual', ticket.id)
+
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1',
+        editorVersion: '1',
+        platform: 'darwin',
+        arch: 'arm64',
+        remoteNamePresent: false,
+        uiKind: 'desktop',
+        developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-omitted',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(4)),
+    })
+
+    const ticketSection = draft.metadata.ticket
+    expect(ticketSection?.status).toBe('available')
+    const data = (ticketSection as { data: Record<string, unknown> }).data
+    expect(data.approach).toBe('[OMITTED:unsafe-metadata]')
+    // An unset column still reads as absent, and a clean value passes through.
+    expect(data.agentRole).toBeNull()
+    expect(data.source).toBe('manual')
+    expect(draft.redactions.omitted).toBe(1)
+  })
 })
