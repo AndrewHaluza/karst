@@ -70,15 +70,14 @@ describe('dispatchHook', () => {
     expect(ticket.agentState).toBe('running');
   });
 
-  it('Notification (idle_prompt) does not mark a conversational question as waiting', () => {
+  it('Notification (idle_prompt) flips agent_state to waiting (amber)', () => {
     const id = ticketAt();
-    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
     dispatchHook(store, {
       hook_event_name: 'Notification',
       cwd: WT,
       message: 'idle_prompt',
     });
-    expect(getTicket(store, id).agentState).toBe('running');
+    expect(getTicket(store, id).agentState).toBe('waiting');
   });
 
   it('Notification (permission_prompt) also flips to waiting', () => {
@@ -106,16 +105,15 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('waiting');
   });
 
-  it('Notification with notification_type idle_prompt preserves running state', () => {
+  it('Notification with notification_type idle_prompt → waiting', () => {
     const id = ticketAt();
-    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
     dispatchHook(store, {
       hook_event_name: 'Notification',
       cwd: WT,
       notification_type: 'idle_prompt',
       message: 'Claude is waiting for your input',
     });
-    expect(getTicket(store, id).agentState).toBe('running');
+    expect(getTicket(store, id).agentState).toBe('waiting');
   });
 
   it('Notification with notification_type agent_needs_input → waiting', () => {

@@ -15,8 +15,8 @@ export function currentStageStatus(t: TicketWithStages): StageStatus {
  *
  * TWO independent sources, because they are genuinely different situations:
  *
- *  1. A live agent presented an actionable input (`agentState='waiting'`, from
- *     permission_prompt / agent_needs_input / elicitation_dialog hooks).
+ *  1. A live agent asked a question (`agentState='waiting'`, from the
+ *     idle_prompt / permission_prompt hooks).
  *  2. The ticket is parked at a confirm stage. No agent is involved at all here
  *     — ship runs no session, so no hook can ever fire — which is why this state
  *     was unreachable before and "Needs you" had no members.
