@@ -40,19 +40,23 @@ describe('collectMetadata', () => {
        verdict = 'token=stage-secret', artifact_path = '/private/artifact'
        WHERE ticket_id = ? AND stage_key = 'impl'`,
     ).run(ticket.id)
+    // `worktrees.repo`, `prs.repo` and `merge_checks.repo` hold the repoPath —
+    // NOT the repository name `selected_repos` and `servers` use. The fixture
+    // says so, because a fixture that keyed them by name is what hid the
+    // two-namespaces-one-counter aliasing bug.
     store.db.prepare(
       `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
-       VALUES (?, 'RAW_REPOSITORY_IDENTIFIER', '/private/worktree',
+       VALUES (?, '/private/api', '/private/worktree',
                'private-branch', 'private-base', 'inherited')`,
     ).run(ticket.id)
     store.db.prepare(
       `INSERT INTO prs (ticket_id, repo, number, url, status)
-       VALUES (?, 'RAW_REPOSITORY_IDENTIFIER', 7, 'https://private.test/7', 'open')`,
+       VALUES (?, '/private/api', 7, 'https://private.test/7', 'open')`,
     ).run(ticket.id)
     store.db.prepare(
       `INSERT INTO merge_checks
        (ticket_id, repo, state, files, checked_at)
-       VALUES (?, 'RAW_REPOSITORY_IDENTIFIER', 'clean', '[]',
+       VALUES (?, '/private/api', 'clean', '[]',
                '2026-07-28T00:00:00.000Z')`,
     ).run(ticket.id)
     const logs = makeBoundedLogBuffer()
@@ -407,5 +411,132 @@ describe('collectMetadata', () => {
     expect(data.agentRole).toBeNull()
     expect(data.source).toBe('manual')
     expect(draft.redactions.omitted).toBe(1)
+  })
+
+  it('gives one repository one alias whether evidence keys it by name or by path', async () => {
+    // `tickets.selected_repos` and `servers` are keyed by repository NAME;
+    // `worktrees`, `prs` and `merge_checks` are keyed by its repoPath. Aliasing
+    // both namespaces through one counter minted a SECOND alias for the same
+    // repository, so a two-repository report listed repo_1/repo_2 under
+    // effectiveConfig and repo_3/repo_4 under topology and pullRequest — four
+    // repositories where the project has two, and no way to tell which pair was
+    // which.
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    localStore.db.prepare(
+      `UPDATE tickets SET selected_repos = '["api","web"]' WHERE id = ?`,
+    ).run(ticket.id)
+    for (const [name, repoPath] of [['api', '/src/api'], ['web', '/src/web']] as const) {
+      localStore.db.prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, ?, ?, 'feat/x', 'develop', 'inherited')`,
+      ).run(ticket.id, repoPath, `${repoPath}/.karst/worktrees/x`)
+      localStore.db.prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, status)
+         VALUES (?, ?, 'localhost', 4000, 'running')`,
+      ).run(ticket.id, name)
+    }
+    localStore.db.prepare(
+      `INSERT INTO prs (ticket_id, repo, number, url, status)
+       VALUES (?, '/src/api', 7, 'https://example.test/7', 'open')`,
+    ).run(ticket.id)
+    localStore.db.prepare(
+      `INSERT INTO merge_checks (ticket_id, repo, state, files, checked_at)
+       VALUES (?, '/src/web', 'clean', '[]', '2026-07-28T00:00:00.000Z')`,
+    ).run(ticket.id)
+
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({
+        api: repo({ repoPath: '/src/api' }),
+        web: repo({ repoPath: '/src/web' }),
+      }),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1',
+        editorVersion: '1',
+        platform: 'darwin',
+        arch: 'arm64',
+        remoteNamePresent: false,
+        uiKind: 'desktop',
+        developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-aliases',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(3)),
+    })
+
+    const data = (section: unknown): Record<string, unknown> =>
+      (section as { data: Record<string, unknown> }).data
+    const ticketRepos = data(draft.metadata.ticket).repositories as string[]
+    const configRepos = (data(draft.metadata.effectiveConfig).repositories as { name: string }[])
+      .map((entry) => entry.name)
+    const topology = data(draft.metadata.topology)
+    const worktrees = topology.worktrees as { repositories: string[] }[]
+    const servers = topology.servers as { repository: string }[]
+    const prs = data(draft.metadata.pullRequest).pullRequests as { repositories: string[] }[]
+    const merges = data(draft.metadata.pullRequest).mergeChecks as { repositories: string[] }[]
+
+    expect(ticketRepos).toEqual(['repo_1', 'repo_2'])
+    expect(configRepos).toEqual(['repo_1', 'repo_2'])
+    expect(worktrees.flatMap((row) => row.repositories).sort()).toEqual(['repo_1', 'repo_2'])
+    expect(servers.map((row) => row.repository).sort()).toEqual(['repo_1', 'repo_2'])
+    expect(prs.map((row) => row.repositories)).toEqual([['repo_1']])
+    expect(merges.map((row) => row.repositories)).toEqual([['repo_2']])
+    expect(topology.repositoryOrder).toEqual(['repo_1', 'repo_2'])
+    // Only two repositories exist, so a third alias would be one of them counted twice.
+    expect(JSON.stringify(draft)).not.toContain('repo_3')
+  })
+
+  it('keeps path-keyed evidence correlatable when its manifest entry is gone', async () => {
+    // A repository dropped from the manifest still has rows in `worktrees` and
+    // `prs`. There is no name left to alias, so `repositories` is honestly
+    // empty — but the aliased repoPath still joins those rows to each other,
+    // which is what a reader needs to see one repository rather than two.
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    localStore.db.prepare(
+      `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+       VALUES (?, '/src/removed', '/src/removed/.karst/worktrees/x', 'feat/x', 'develop', 'inherited')`,
+    ).run(ticket.id)
+    localStore.db.prepare(
+      `INSERT INTO prs (ticket_id, repo, number, url, status)
+       VALUES (?, '/src/removed', 9, 'https://example.test/9', 'open')`,
+    ).run(ticket.id)
+
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1',
+        editorVersion: '1',
+        platform: 'darwin',
+        arch: 'arm64',
+        remoteNamePresent: false,
+        uiKind: 'desktop',
+        developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-orphan',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(2)),
+    })
+
+    const topology = (draft.metadata.topology as { data: Record<string, unknown> }).data
+    const prs = (draft.metadata.pullRequest as { data: Record<string, unknown> }).data
+      .pullRequests as { repositories: string[]; repoPathRef: string }[]
+    const worktrees = topology.worktrees as { repositories: string[]; repoPathRef: string }[]
+    expect(worktrees[0]?.repositories).toEqual([])
+    expect(prs[0]?.repositories).toEqual([])
+    expect(prs[0]?.repoPathRef).toBe(worktrees[0]?.repoPathRef)
+    expect(JSON.stringify(draft)).not.toContain('/src/removed')
   })
 })

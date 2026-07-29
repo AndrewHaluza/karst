@@ -19,11 +19,20 @@ import { nowIso } from '../model/time.js';
  *   `endedAt ?? startedAt`, so a stale one makes the parked stage look older than
  *   the stage it just came from.
  * - Everything else: entering it starts it.
+ *
+ * Every entry clears `verdict`. `stages` is keyed (ticket_id, stage_key), so a
+ * re-entry OVERWRITES the row rather than appending to it: the column says what
+ * this stage reports NOW, and the history of why an earlier attempt failed lives
+ * in `gate_runs`. Kept, the reason outlives the attempt it belonged to — a
+ * review re-entered after a fix reads `status: running` beside
+ * `verdict: "gates failed: lint"`.
  */
 function entryPatch(next: StageKey, at: string): StagePatch {
-  if (isTerminal(next)) return { status: 'passed', startedAt: at, endedAt: at };
-  if (needsConfirm(next)) return { status: 'pending', startedAt: at, endedAt: null };
-  return { status: 'running', startedAt: at };
+  if (isTerminal(next)) return { status: 'passed', verdict: null, startedAt: at, endedAt: at };
+  if (needsConfirm(next)) {
+    return { status: 'pending', verdict: null, startedAt: at, endedAt: null };
+  }
+  return { status: 'running', verdict: null, startedAt: at };
 }
 
 /**
@@ -73,7 +82,11 @@ export function transition(
     if (!current) throw new Error(`ticket ${ticketId} has no stage '${from}'`);
 
     if (verdict.kind === 'passed') {
-      setStage(store, ticketId, from, { status: 'passed', endedAt: nowIso() });
+      // `verdict` is cleared for the same reason `entryPatch` clears it: a pass
+      // is this row's current answer, and a stale failure reason beside it is
+      // read as a contradiction. A stage that never entered through the machine
+      // (a first attempt driven straight to a pass) is covered here too.
+      setStage(store, ticketId, from, { status: 'passed', verdict: null, endedAt: nowIso() });
     } else {
       setStage(store, ticketId, from, {
         status: 'failed',
