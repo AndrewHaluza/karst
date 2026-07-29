@@ -309,10 +309,39 @@ SMTP and real payment keys regardless of which low-privilege account is logged i
 structurally blind to it. Options: a `uat.serviceEnv` second credential set (real, costs the user a
 full service env to author), or restate and accept.
 
-**OPEN (B8):** `runCommand` spawns with no `env`, so children inherit the extension host's — `AWS_*`,
-`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, direnv exports. A bare replacement drops `PATH` and `npm` stops
-resolving, so this needs an explicit allowlist. `startHot` merges `{...process.env}` at
-`supervisor.ts:94` and needs the same treatment.
+### Process environment (B8, resolved)
+
+`runCommand` spawns with no `env`, so gate children inherit the extension host's — `AWS_*`,
+`GITHUB_TOKEN`, direnv exports. `startHot` merges `{...process.env}` at `supervisor.ts:94`. Both
+become an **allowlist replacement**:
+
+```
+PATH HOME SHELL LANG LC_* TZ TMPDIR USER LOGNAME
+NODE_ENV CI
+HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
+```
+
+plus a manifest `env.passthrough: [...]` escape hatch, plus the UAT overlay. Proxy vars are
+load-bearing: without them `npm test` behind a corporate proxy cannot reach the registry, and the
+failure looks like a broken repo.
+
+**This applies to review gates too, not only UAT.** The leak is on `main` today; fixing it on one
+stage and not its neighbour is harder to justify than the one-time behaviour change. The risk is a
+repo whose test script needs an inherited variable — that is what `env.passthrough` is for.
+
+**Allowlist, not denylist, because karst is multi-provider.** A denylist needs a new entry per
+provider (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …) and fails silently on the one
+nobody added. An allowlist covers providers that do not exist yet.
+
+**The gate artifact records that filtering occurred and which keys survived.** Otherwise "green in my
+shell, red in karst" is unbrowsable and nobody discovers `env.passthrough`.
+
+**Scope boundary:** this covers children that run *repository* code. The **agent terminal is
+excluded** — the agent is an authenticated actor and holding credentials is its job. All three
+adapters return `env: {}` and rely on the inherited environment plus a credentials file under `HOME`;
+nulling that would break subscription auth per-adapter. See B9 for the one real issue at that seam
+(an exported provider API key possibly switching the agent to metered billing), which is a standing
+karst issue, not a UAT one.
 
 **OPEN (B6) — redaction seam.** `BoundedOutput` writes nothing; the seam is `writeFileSync` in the
 stage. Server logs (`startHot` → `<name>.log` in the worktree, surfaced by `tailLog`) are **never

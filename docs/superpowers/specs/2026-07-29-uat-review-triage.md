@@ -298,13 +298,73 @@ Verified: `schema.ts` hand-picks known fields. The spec's test "a value in the b
 needs a deliberate strict check departing from house style. **Fix:** strict check on the `secrets`
 block only.
 
-### B8 `MED` — `runCommand` inherits the developer's shell
+### B8 `RESOLVED` — `runCommand` inherits the developer's shell
 
 `gates/run.ts` spawns with no `env`, so children get the extension host's environment — `AWS_*`,
-`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, direnv exports. True today, unchanged by the spec. A bare
-replacement drops `PATH` and `npm` stops resolving. **Fix:** explicit allowlist (`PATH`, `HOME`,
-`SHELL`, `LANG`) + UAT vars. `startHot` merges `{...process.env}` at `supervisor.ts:94` and needs the
-same treatment.
+`GITHUB_TOKEN`, direnv exports. True today, unchanged by the spec. A bare replacement drops `PATH`
+and `npm` stops resolving. `startHot` merges `{...process.env}` at `supervisor.ts:94`.
+
+**Decision — allowlist, applied at every seam that runs repository code.**
+
+**Scope is the point.** B8 governs children karst spawns *to run code from the repository*: gates
+(`runCommand`) and services (`startHot`). It does **not** govern the agent terminal — see B9, which
+is a different seam with an inverted threat model. Conflating them was an error in the first pass at
+this item.
+
+| seam | today | after |
+| --- | --- | --- |
+| `runCommand` — gates (uat **and** review) | no `env` → full inherit | allowlist, replacement |
+| `startHot` — services under test | `{...process.env, ...opts.env}` | allowlist + explicit overlay |
+| agent terminal | full inherit (`env: {}` from every adapter) | unchanged — B9 |
+
+Review gates are included deliberately. The leak is not caused by this feature — it is on `main`
+today — and a UAT-only fix would leave the identical hole one stage later, which is harder to
+explain than a one-time behaviour change.
+
+**Allowlist:**
+
+```
+PATH HOME SHELL LANG LC_* TZ TMPDIR USER LOGNAME
+NODE_ENV CI
+HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
+```
+
+Proxy vars are not optional. Drop them and `npm test` behind a corporate proxy cannot reach the
+registry — a failure that looks like a broken repo and is nearly unbrowsable.
+
+Plus a manifest escape hatch, `env.passthrough: [...]`, for what karst cannot predict (`ASDF_DIR`,
+`DOCKER_HOST`, `AWS_PROFILE`, a private-registry `npm_config_*`).
+
+**Allowlist, not denylist — and the multi-adapter reality is the argument.** karst drives Claude,
+Codex, and Antigravity today and will add more. A denylist would need a new entry per provider
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …) and would fail *silently* on the one
+nobody remembered. An allowlist covers every provider that does not exist yet, at no cost.
+
+**Legibility requirement.** A filtered environment turns "green in my shell, red in karst" into a
+mystery. The gate artifact records which keys were passed and notes that filtering occurred, so the
+diagnosis is one look rather than an afternoon. Without this the escape hatch is undiscoverable —
+nobody reaches for `env.passthrough` when the symptom is a test failure.
+
+### B9 `NEW` `MED` — an exported provider API key may silently switch the agent off subscription
+
+Not a UAT finding — a standing one, surfaced while scoping B8, and orthogonal to this feature.
+
+karst is built around **subscription** auth (Claude, Codex, Antigravity), where credentials live in a
+file under `HOME` and no environment variable is involved. All three adapters return `env: {}`
+(`claude.ts:135`, `codex.ts:440`, `antigravity.ts:142`), so the agent inherits the extension host's
+environment whole.
+
+If a provider's API-key variable happens to be exported there — for an unrelated project, by direnv,
+by a shell profile — the provider CLI may prefer **metered API billing** over the subscription. The
+user is charged per token for work they believe their subscription covers, and nothing in karst says
+so. The same environment also reaches every karst-launched agent, so the effect is not one session.
+
+**Unverified.** Each CLI's precedence rule needs checking per adapter before acting; I have not
+confirmed any of them. Cheap to test: export a dummy key, launch, observe.
+
+**If confirmed:** karst detects the variable at launch and warns, naming the provider and the
+variable, rather than stripping it. Stripping would break a user who *is* deliberately on API
+billing, and would break them invisibly — the failure mode this finding is about.
 
 ---
 
