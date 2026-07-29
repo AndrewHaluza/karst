@@ -228,16 +228,58 @@ breaks silently six months later if it is not stated now.
 
 ## B. Security
 
-### B1 `HIGH` — the `.env` boundary is scoped to the wrong thing
+### B1 `RESOLVED` — the `.env` boundary is scoped to the wrong thing
 
 `boot` reuses `spinTicket` → `spin.ts:204` `buildSpawnEnv(join(repo.repoPath, '.env'), …)`. The
-guarantee covers gates and agents; **the service under test still boots with real secrets**. A
-ticket exercising "send email" or "charge card" uses real SMTP and real payment keys regardless of
-which low-privilege account is logged in. Redaction is structurally blind to it.
+guarantee covers gates and agents; **the service under test still boots with real secrets**.
 
-**Fixes:** (a) `uat.serviceEnv` — a second credential set `boot` uses instead of the repo `.env`;
-real, and costs the user a full service env to author. (b) Restate the claim as *"UAT-owned processes
-never read `.env`"* and add the risk row. **Minimum: (b). (a) as an opt-in.**
+**The harm is not exposure — it is a real-world side effect.** UAT drives the app for real, so a
+criterion like *"user receives a confirmation email"* sends mail and *"checkout completes"* charges a
+card, up to `maxFixAttempts` times per ticket. Neither the low-privilege UAT account (which governs
+who is signed in, not which Stripe account the backend talks to) nor redaction (the charge already
+happened) touches this.
+
+**Decision — explicit overlay. karst never guesses; the user names the keys.**
+
+Rationale, user's: *"user responsible to override if he want to make automated testing from another
+env."* karst substituting values by pattern-matching key names would be karst deciding what is
+dangerous in someone else's stack.
+
+```yaml
+uat:
+  env:                       # literals — committed, must be non-secret
+    SMTP_HOST: "127.0.0.1"
+    PAYMENTS_MODE: "test"
+  secrets:                   # names only; values live in karst's secret store
+    - STRIPE_SECRET_KEY
+    - SENDGRID_API_KEY
+```
+
+Values never appear in `karst.yml` — it is committed. The `secrets:` block lists key *names*; values
+come from the store (UI-entered now, Infisical later). Per-project, with a per-repository override
+block, mirroring the `tickets.model` → `defaultModel` precedence already in the codebase.
+
+**Applies at BOTH seams, and this is not optional.** `runCommand` passes no env, so gates never
+receive `.env` from karst — but a repo's `test:integration` typically calls `dotenv.config()` and
+reads the file off disk itself, which karst cannot prevent. dotenv does **not** overwrite a variable
+already present in the environment, so placing the override in the gate child's env is what stops the
+self-loaded `.env` from winning. Overlay at `boot` only and integration gates keep hitting real
+Stripe. (A repo using `dotenv.config({override: true})` defeats this — documented limit.)
+
+**Precedence:** `.env` → UAT overlay → resolved vars **last**. Resolved ports and peer URLs must win
+or the alt-port worktree scheme breaks. A `uat.env` key colliding with a resolved var name is
+**refused at validation**, never silently dropped — same rule as the both-keys manifest refusal.
+
+**A listed secret with no stored value refuses to boot**, naming the key and pointing at settings.
+Passing the real `.env` value through instead would silently defeat the entire feature. Not
+agent-fixable → parks at needs-you (C15 path).
+
+**Fail-open is accepted, and made legible.** A key nobody listed passes through real, and a key added
+to `.env` later is not covered until someone lists it. To keep responsibility informed rather than
+blind, each run records in the artifact which keys were overridden and which passed through, and
+**warns** on any unoverridden key whose name matches a known side-effect provider pattern
+(`STRIPE_*`, `SENDGRID_*`, `SMTP_*`, `TWILIO_*`, `*_WEBHOOK_URL`). A warning, never a block — the
+pattern list informs the user's decision, it does not make it.
 
 ### B2 `HIGH` — the guard proxy does not work for the archetypal stack
 

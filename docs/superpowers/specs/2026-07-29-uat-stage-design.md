@@ -298,16 +298,63 @@ vacuously**; empty must be `null`.
 ## Credentials
 
 `spin.ts:204` builds a service's env with `buildSpawnEnv(join(repo.repoPath, '.env'), …)`, commented
-*"main `.env` keys first (secrets)"*.
+*"main `.env` keys first (secrets)"*. That function (`runtime/env.ts:38`, 12 lines) is the single
+place `.env` enters a service, so it is the only seam this section touches.
 
-**The honest property is: UAT-owned processes never read `.env`.** Gates and the agent get UAT
-credentials plus resolved port/peer vars.
+A service's environment has **three** layers, and the two findings below are different layers:
 
-**OPEN (B1) — the boundary is narrower than rev 1 claimed.** `boot` spins the stack, so **the services
-under test still boot with real secrets**. A ticket exercising "send email" or "charge card" uses real
-SMTP and real payment keys regardless of which low-privilege account is logged in, and redaction is
-structurally blind to it. Options: a `uat.serviceEnv` second credential set (real, costs the user a
-full service env to author), or restate and accept.
+| layer | source | governed by |
+| --- | --- | --- |
+| inherited | extension host `process.env` | **B8** — allowlist replacement |
+| file | the repository's `.env` | **B1** — explicit overlay |
+| resolved | karst's port/peer vars | unchanged, and must stay last |
+
+Rev 1 claimed *"UAT-owned processes never read `.env`"*. That was never true of the services under
+test, and it is not the property being built — see B1.
+
+### Service credentials (B1, resolved)
+
+`boot` spins the stack, so without this the **services under test boot with real secrets**. The harm
+is not exposure — UAT drives the app for real, so *"user receives a confirmation email"* sends mail
+and *"checkout completes"* charges a card, up to `maxFixAttempts` times per ticket. The low-privilege
+UAT account governs who is signed in, not which Stripe account the backend talks to; redaction runs
+after the charge.
+
+**Explicit overlay. karst never guesses; the user names the keys.** Pattern-matching key names to
+decide what is dangerous in someone else's stack is not karst's call to make.
+
+```yaml
+uat:
+  env:                       # literals — committed, must be non-secret
+    SMTP_HOST: "127.0.0.1"
+    PAYMENTS_MODE: "test"
+  secrets:                   # names only; values live in karst's secret store
+    - STRIPE_SECRET_KEY
+    - SENDGRID_API_KEY
+```
+
+Values never appear in `karst.yml` — it is committed. `secrets:` lists key *names*; values come from
+the store (UI now, Infisical later). Project-level with a per-repository override block, mirroring
+`tickets.model` → `defaultModel`.
+
+**Applied at both seams — gates and boot.** `runCommand` passes no env, so gates never receive `.env`
+*from karst*, but a repo's `test:integration` usually calls `dotenv.config()` and reads the file
+itself. dotenv does not overwrite a variable already set in the environment, so putting the override
+in the gate child's env is what stops the self-loaded file from winning. Overlay at boot alone and
+integration gates keep hitting real Stripe. `dotenv.config({override: true})` defeats this — a
+documented limit.
+
+**Precedence:** `.env` → UAT overlay → resolved vars **last**, or resolved ports lose and the alt-port
+worktree scheme breaks. A `uat.env` key colliding with a resolved var name is refused at validation.
+
+**A listed secret with no stored value refuses to boot**, naming the key. Falling back to the real
+`.env` value would silently defeat the feature. Not agent-fixable → needs-you (C15).
+
+**Fail-open, accepted and made legible.** An unlisted key passes through real, and a key added to
+`.env` later stays uncovered until someone lists it. So each run records which keys were overridden
+and which passed through, and **warns** on an unoverridden key whose name matches a known
+side-effect pattern (`STRIPE_*`, `SENDGRID_*`, `SMTP_*`, `TWILIO_*`, `*_WEBHOOK_URL`). Warning, never
+a block: the list informs the decision, it does not make it.
 
 ### Process environment (B8, resolved)
 
