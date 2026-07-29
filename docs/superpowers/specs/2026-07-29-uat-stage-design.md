@@ -110,9 +110,11 @@ Order matters, and the ordering is a correctness argument, not just a cost one.
 2. boot              spin + health
 3. author            agent writes e2e steps against the LIVE app
 4. run steps         karst executes them under karst's Playwright config
-5. coverage          every criterion has a passing tagged step
      ↓ any FAILED → fixUat
      ↓ passed → review
+
+   coverage          advisory only — recorded, surfaced in the review diff,
+                     never a verdict (B3)
 ```
 
 **Why static first.** Red unit/integration/e2e is an obvious push back to fix; spending an agent to
@@ -135,7 +137,7 @@ Not a `GateSpec` — it runs no script.
 
 | Situation | `boot` | Downstream |
 |---|---|---|
-| No runnable repository in scope | `null` | steps/coverage record `null` (nothing to drive) |
+| No runnable repository in scope | `null` | steps record `null` (nothing to drive) |
 | All services healthy | `0` | proceed |
 | A service failed to come up | `null` + surfaced warning · **OPEN (C15)** | — |
 
@@ -202,7 +204,13 @@ because Playwright already is one.
 
 **Trust property: under-exploration remains possible; fabrication does not.** An agent can visit fewer
 pages than it should, but it cannot make a 500 it *did* hit disappear from a trace it is not writing.
-Under-exploration is bounded by the coverage gate.
+
+**Under-exploration is not mechanically bounded.** Rev 2 claimed the coverage gate bounded it; B3 made
+coverage advisory, so that claim is withdrawn rather than quietly retained. An agent that authors two
+shallow steps for a five-criterion ticket gets a green UAT. What catches it is the same thing that
+catches a vacuous test: the authored steps are committed to the branch and read as code in the review
+diff, with coverage shown alongside as advisory evidence. This is a known limit, accepted
+deliberately — see "No mechanical vacuous-green guard".
 
 Rev 1 had the agent emit an `ExplorationRecord` that a "pure" `reduceExploration` consumed — which
 faithfully reduced whatever the agent claimed. That was agent self-report with a JSON hop, and it is
@@ -277,44 +285,59 @@ three competing homes (approach artifact, `agents:` block, `uat.author.agent`); 
 
 ---
 
-## Acceptance criteria and coverage
+## Acceptance criteria — advisory, never a gate (B3, resolved)
 
-Without this, UAT is e2e testing wearing a UAT label: green when the steps the agent *chose to write*
-pass, with nothing proving criterion 3 was exercised.
+**Criteria coverage produces no verdict.** The agent extracts criteria, karst records them, and the
+coverage result lands in the review diff as evidence a human reads. Nothing in the machine depends on
+it.
 
-```sql
-CREATE TABLE IF NOT EXISTS ticket_criteria (
-  id         INTEGER PRIMARY KEY,
-  ticket_id  INTEGER NOT NULL REFERENCES tickets(id),
-  ordinal    INTEGER NOT NULL,          -- the stable AC-<n> tag
-  text       TEXT NOT NULL,
-  frozen_at  TEXT,
-  UNIQUE(ticket_id, ordinal)
-);
-```
+**Why, in one line: an LLM reading prose is not a deterministic signal, and §5.4 says verdicts come
+only from deterministic signals.** Letting extracted criteria gate would break the invariant the whole
+machine rests on. Rev 1 refused agent-reported pass/fail and then accepted an agent-extracted *bar*
+from the same untrusted text — the contradiction was in the design, not in the threat.
 
-Migration: `schema.sql` + guarded ALTER + `SCHEMA_VERSION` 15 → 16 + **29** hardcoded `user_version`
-literals in `db.test.ts` (rev 1 said nine, from a stale `CLAUDE.md` line — a 3× underestimate).
+The threat framing also mattered less than it looked. Injection via `ticketContext.ts:154` (ticket
+descriptions render verbatim, and anyone with tracker access writes them) is the dramatic case but the
+rare one. The common case needs no attacker: extraction reads a five-requirement ticket as one vague
+criterion, coverage passes, the ticket ships under-tested. Same effect, weekly rather than never — and
+a fix aimed only at malice misses it entirely.
 
-**OPEN (B3) — criteria poisoning.** Ticket descriptions are attacker-controllable in a shared tracker
-and render verbatim (`ticketContext.ts:154`). Rev 1 fed them to AI extraction whose output became the
-frozen acceptance bar — refusing agent-reported pass/fail while accepting **agent-extracted criteria
-from adversarial text** as ground truth. Proposed fix: **a human freezes the criteria** from a
-dashboard list, replacing rev 1's AI-review second pass. That answers three open questions at once —
-what freezes it, who reviews it, and how injection is stopped.
+**UAT still gates, on what is actually deterministic:** static gates, then authored steps passing
+under karst's Playwright config. The authored steps *are* the criteria made executable; nothing is
+lost by declining to also derive the bar from prose.
 
-**OPEN (B3b):** the criteria write path needs a CLI verb with its own parse path (charset, length,
-count limits, no delete), per the argv threat model in `CLAUDE.md`. Rev 1 claimed "no CLI changes".
+**This is the same call already taken in A3/A4** — the human review diff is the sole control against
+vacuous tests. Advisory coverage applies that decision to the same problem instead of contradicting it.
 
-**OPEN (C17):** `[AC-n]` parsing is named and not solved — five incompatible report formats, N gates
-each with a `report:` but one `coverage` exit code, "passing" undefined per format (a `test.skip`
-would parse as present), `report:` path base unspecified, and free-matching `[AC-3]` collides with any
-test merely *mentioning* it. **No XML parser in the tree** (runtime deps are `better-sqlite3` and
-`js-yaml`).
+### What this deletes
 
-**OPEN (C18, C19):** freezing must be whole-set, not per-row, or a later extraction can INSERT beside
-frozen rows and move the goalposts. And zero criteria rows → coverage over an empty set **passes
-vacuously**; empty must be `null`.
+| was | now |
+| --- | --- |
+| `ticket_criteria` table + migration, `SCHEMA_VERSION` 15 → 16, **29** `user_version` literals in `db.test.ts` | not needed |
+| `frozen_at`, the freeze UI, "what freezes it / who reviews it" | not needed |
+| **C18** whole-set freeze (a later extraction INSERTing beside frozen rows) | dissolved — nothing to freeze |
+| **C19** zero rows → coverage passes **vacuously** | dissolved — no pass to be vacuous |
+| **C17** `[AC-n]` parsing across five report formats with no XML parser in the tree | advisory display only; a wrong parse misleads a reader, it does not green a ticket |
+
+Phase 3 shrinks to advisory display.
+
+**Rejected — a second agent reviewing the first agent's extraction** (the original instinct). Two
+passes over the same adversarial text share the same misreading, so it addresses neither injection nor
+extraction quality. It reads as a control without being one.
+
+**Later rung, not now:** a user who wants the bar enforced freezes the set and coverage becomes a gate
+for that ticket. Deliberately deferred — two code paths for one property, and the advisory rung has to
+prove it is insufficient first.
+
+### B3b — the write path (resolved, still required)
+
+Untrusted ticket text still reaches argv, so the criteria write verb still gets **its own parse path**
+(charset, length, count limits, no delete), separate from `parseStageArgs`, per the argv threat model
+in `CLAUDE.md`. Rev 1's "no CLI changes" was wrong.
+
+What changes is the blast radius, not the requirement: the worst outcome of a fully-injected call drops
+from *"moved the acceptance bar"* to *"appended a row to an advisory list"* — exactly the `stage`
+versus `phase` split that already exists.
 
 ---
 
@@ -538,8 +561,10 @@ four missing teardown call sites. Resolves A1 and the C-series lifecycle items. 
 **Phase 2 — authored steps.** The `uat-author` agent and its distribution path, Playwright-as-harness
 config and trace reading, steps into `testDir`, replay-on-re-entry, modification flagging.
 
-**Phase 3 — criteria and coverage.** `ticket_criteria` migration, human freeze, the CLI write verb,
-`[AC-n]` parsing for one chosen format. Additive: without it `coverage` is `null`.
+**Phase 3 — advisory coverage.** `[AC-n]` parsing for one chosen format, surfaced in the review diff,
+plus the CLI write verb with its own parse path (B3b). No migration, no freeze, no verdict — B3 made
+coverage advisory, so this phase is display and evidence only. Purely additive: without it the review
+diff simply carries no coverage line.
 
 ## Deferred / cut
 

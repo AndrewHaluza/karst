@@ -294,19 +294,55 @@ through one path so `DELETE /api/**` never fires.
 documented. Keeping it would require allowlist-default, path normalization, a provenance field, and
 `onDenied: record` — a lot of machinery for something blind to SPA traffic.
 
-### B3 `HIGH` — criteria poisoning
+### B3 `RESOLVED` — criteria poisoning
 
 Ticket descriptions are attacker-controllable in a shared tracker and render verbatim
 (`ticketContext.ts:154`). They feed criteria extraction, whose output becomes the frozen acceptance
 bar, and the explorer's instructions. The spec refuses agent-reported pass/fail but accepts
 **agent-extracted criteria from adversarial text** as ground truth.
 
-**Fix — a human freezes the criteria.** Replace the AI-review second pass with a dashboard list and
-one click. This answers three open questions at once: *what freezes it*, *who reviews it*, and *how
-injection is stopped* — a human reads the list before it gates anything.
+**Decision — coverage is advisory. Criteria never gate.**
 
-**Also:** the criteria write path needs a CLI verb with its own parse path (charset, length, count
-limits, no delete), per the argv threat model in `CLAUDE.md`. The spec claimed "no CLI changes".
+**The framing in this finding was too narrow.** Injection is the dramatic case and the rare one. The
+common case needs no attacker: extraction reads a five-requirement ticket as one vague criterion,
+coverage passes, the ticket ships under-tested. Same effect, weekly rather than never. Both reduce to
+one fact — **an LLM reading prose is not a deterministic signal** — and §5.4 admits only deterministic
+signals as verdicts. A fix aimed only at malice would have left the frequent failure untouched.
+
+So the agent still extracts, karst still records, and coverage lands in the review diff as evidence a
+human reads. No verdict depends on it. The injection surface stops mattering — not because it is
+defended, but because nothing mechanical hangs off the extracted text.
+
+UAT still gates on what *is* deterministic: static gates, then authored steps passing under karst's
+config. The authored steps are the criteria made executable.
+
+**Consistent with a decision already taken:** A3/A4 accepted the human review diff as the sole control
+against vacuous tests. This applies the same call to the same problem.
+
+**Deletes:** the `ticket_criteria` migration (`SCHEMA_VERSION` 15 → 16, 29 `user_version` literals),
+`frozen_at`, the freeze UI, and the "what freezes it / who reviews it" questions. **Dissolves C18**
+(whole-set freeze — nothing to freeze) and **C19** (empty set passing vacuously — no pass to be
+vacuous). **Defuses C17**: `[AC-n]` parsing across five formats with no XML parser in the tree becomes
+advisory display, where a wrong parse misleads a reader instead of greening a ticket.
+
+**Costs, stated rather than buried:** under-exploration is no longer mechanically bounded. Rev 2
+claimed the coverage gate bounded it; that claim is withdrawn. An agent authoring two shallow steps for
+a five-criterion ticket gets a green UAT, caught only by the review diff.
+
+**Rejected — a second agent reviewing the extraction.** Two passes over the same adversarial text share
+the same misreading. Neither injection nor extraction quality improves; it reads as a control without
+being one.
+
+**Later rung:** freeze-to-gate, per ticket, opt-in. Deferred — two code paths for one property, and the
+advisory rung should prove insufficient first.
+
+### B3b `RESOLVED` — the criteria write path
+
+Still required, smaller blast radius. Untrusted ticket text still reaches argv, so the write verb gets
+**its own parse path** (charset, length, count limits, no delete), separate from `parseStageArgs`, per
+the argv threat model in `CLAUDE.md` — the spec's "no CLI changes" was wrong. But the worst outcome of
+a fully-injected call drops from *"moved the acceptance bar"* to *"appended a row to an advisory
+list"*, which is the existing `stage`-versus-`phase` split exactly.
 
 ### B4 `RESOLVED` — live app content reaching a cloud agent
 
