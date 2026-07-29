@@ -389,6 +389,17 @@
   .pr .pst-draft,.pr .pst-unknown{background:var(--vscode-descriptionForeground,#8b949e);color:var(--vscode-editor-background,#0d1117)}
   .pr .pnum{font-family:var(--mono);color:var(--link)}
   .pr .ptitle{flex:1;font-size:12.5px}
+  /* Merge verdict, indented under its PR so it reads as a fact ABOUT that PR and
+     never as a second pull request. Shape (filled/hollow/ring) carries the state
+     alongside colour, matching the servers panel's dot. */
+  .mg{display:flex;align-items:center;gap:8px;margin:-2px 0 6px 12px;padding:2px 6px;font-size:11.5px;color:var(--vscode-descriptionForeground)}
+  .mg .mgdot{width:8px;height:8px;border-radius:50%;flex:none}
+  .mg-clean .mgdot{background:var(--vscode-testing-iconPassed,#2ea043)}
+  .mg-conflicted .mgdot{background:var(--vscode-testing-iconFailed,#cf222e)}
+  .mg-unknown .mgdot{border:2px solid var(--vscode-descriptionForeground,#8b949e);width:6px;height:6px}
+  .mg-conflicted .mgtext{color:var(--vscode-testing-iconFailed,#cf222e)}
+  .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mg .mgbtn{flex:none}
 
   /* agent pill (colored by state) */
   .agent-pill{display:inline-flex;align-items:center;gap:6px}
@@ -1067,14 +1078,31 @@
     )).join('') : '<div class="empty">No worktrees.</div>';
   }
 
-  function renderPrs(prs) {
+  // Mergeability under a PR row. The verdict and its sentence are the host's
+  // (summarizeMergeCheck) — the webview only places them. A repo with no check
+  // renders NOTHING: never asked is not the same as clean, and the one thing
+  // this panel must not do is reassure about a question nobody put.
+  function mergeLine(m) {
+    if (!m) return '';
+    const act = m.state === 'conflicted'
+      ? `<button class="mgbtn" data-act="resolve-conflicts" data-repo="${esc(m.repo)}">Resolve conflicts</button>`
+      : '';
+    return `<div class="mg mg-${esc(m.state)}"><span class="mgdot" aria-hidden="true"></span>`
+      + `<span class="mgtext">${esc(m.summary)}</span>${act}</div>`;
+  }
+
+  function renderPrs(prs, mergeChecks) {
+    const byRepo = {};
+    for (const m of (mergeChecks || [])) byRepo[m.repo] = m;
     el('prCount').textContent = prs.length ? `${prs.length}` : '';
     el('prs').innerHTML = prs.length ? prs.map((p) => (
-      `<div class="pr"><span class="pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
+      `<div class="prrow"><div class="pr"><span class="pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
       + `<span class="prepo">${esc(p.repo)}</span>`
       + `<span class="ptitle">${esc(p.url || '')}</span>`
       + `<span class="pnum">#${esc(p.number)}</span>`
       + `<span class="pacts"><button data-act="open-pr" data-url="${esc(p.url)}">Open</button></span></div>`
+      + mergeLine(byRepo[p.repo])
+      + `</div>`
     )).join('') : '<div class="empty">No pull requests.</div>';
   }
 
@@ -1135,7 +1163,7 @@
     renderNow(state.now);
     renderServers(state);
     renderWorktrees(state.worktrees);
-    renderPrs(state.prs);
+    renderPrs(state.prs, state.mergeChecks);
   }
 
   // The toggle's label stays "Bind terminal" in both states — a button that
@@ -1245,6 +1273,8 @@
     if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
     else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
     else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
+    // The repo NAMES the conflict; the host resolves it to a worktree itself.
+    else if (btn.dataset.repo) post({ type: act, repo: btn.dataset.repo });
     else post({ type: act });
     if (btn.hasAttribute('data-copy')) flashCopied(btn);
   });

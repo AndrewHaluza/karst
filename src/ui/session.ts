@@ -66,6 +66,14 @@ export type RestoredSessionDisposition = 'resume' | 'idle' | 'ignore';
 export interface OpenSessionOptions {
   reveal?: boolean;
   recovery?: boolean;
+  /**
+   * Replaces the seed the host would compose for this launch. Set only by a
+   * caller that already knows the ONE thing the session is for — the merge
+   * brief behind "Resolve conflicts" — where a generic ticket seed would open
+   * a session that has to rediscover the conflict for itself. Host-internal:
+   * no webview message can reach it.
+   */
+  seedPrompt?: string;
 }
 
 /**

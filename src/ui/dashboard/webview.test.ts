@@ -320,6 +320,34 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain("post({ type: 'create-follow-up-ticket' })");
   });
 
+  /**
+   * Mergeability on the PR panel. The bug: ship probed once, said "clean", and
+   * nothing ever re-asked — a PR that stopped being mergeable an hour later read
+   * as fine until a human hit the merge button.
+   */
+  it('renders each PR’s merge verdict from the host-rendered summary', () => {
+    // The wording is `summarizeMergeCheck`'s, host-side and shared with the ship
+    // strip and the CLI context. A verdict phrased in the webview would be a
+    // fourth voice describing the same three-valued fact.
+    expect(HTML).toMatch(/renderPrs\(state\.prs,\s*state\.mergeChecks/);
+    expect(HTML).toMatch(/\bm\.summary\b/);
+  });
+
+  it('offers Resolve conflicts only on a repo the host called conflicted', () => {
+    // Not disabled-when-clean: a button that can never apply is a dead
+    // affordance. It exists only for the conflicted row, and carries the repo —
+    // never a path, which would let the webview name a directory to open a
+    // session in.
+    expect(HTML).toMatch(/m\.state === 'conflicted'/);
+    expect(HTML).toContain('data-act="resolve-conflicts"');
+    expect(HTML).toContain('data-repo=');
+    expect(HTML).not.toMatch(/data-act="resolve-conflicts"[^>]*data-path=/);
+  });
+
+  it('sends the repo along with the click, so the host can resolve the worktree', () => {
+    expect(HTML).toMatch(/post\(\{ type: act, repo: btn\.dataset\.repo \}\)/);
+  });
+
   it('resolves the ship to an explicit success flash', () => {
     // On completion the indicator settles to a clear success beat, distinct from
     // the idle and processing states.
