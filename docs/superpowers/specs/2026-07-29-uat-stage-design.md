@@ -390,11 +390,36 @@ nulling that would break subscription auth per-adapter. See B9 for the one real 
 (an exported provider API key possibly switching the agent to metered billing), which is a standing
 karst issue, not a UAT one.
 
-**OPEN (B6) — redaction seam.** `BoundedOutput` writes nothing; the seam is `writeFileSync` in the
-stage. Server logs (`startHot` → `<name>.log` in the worktree, surfaced by `tailLog`) are **never
-redacted at all**. Value-based scrubbing also misses base64 Basic Auth, percent-encoding,
-JSON-escaping, secrets straddling the 1 MiB truncation, and derived tokens (a JWT signed *with* a
-secret contains none of its bytes).
+### Logs and redaction (B6, resolved)
+
+**Service logs move out of the worktree.** `spin.ts:224` writes `join(cwd, '<name>.log')` where `cwd`
+is the git worktree, so a file holding everything a server booted with the real `.env` printed sits in
+the repo working tree — and `git check-ignore api.log` says it is **not ignored**, in karst's own repo.
+One `git add -A` puts real secrets in a commit and then a PR. Live on `main`; UAT makes it likely,
+because UAT boots the stack and hands it hot to review and ship, where commits happen.
+
+New home: `globalStorage/artifacts/<ticketId>/<service>.log`, beside gate artifacts, outside every
+repo. `spinTicket` takes the directory as a **required** parameter, so a missed call site is a compile
+error rather than a silent fallback to `cwd`. Pre-upgrade leftovers are not deleted — karst does not
+remove files from a user's worktree — but the service log names are added to the service repo's
+`.git/info/exclude`, the mechanism `worktree.ts` already uses for `.karst/`. Exact names, not `*.log`,
+which could mask a log the repo legitimately tracks.
+
+**Redaction covers what karst writes, and nothing more.** A pure `redact(text, secrets)` applied at
+`writeFileSync` in the stage and at panel render — not inside `BoundedOutput`, which only accumulates
+and renders. Service logs stay unredacted: `stdio: ['ignore', logFd, logFd]` hands the fd straight to
+the child, so karst never sees those bytes, and piping through the host would relay every byte of
+every dev server for hours *and* EPIPE the detached server when the host exits, destroying the
+survives-VS-Code-exit property (cf. C7). Once the file is outside the repo, that is an acceptable gap.
+
+**A length floor is mandatory.** Scrubbing every known value destroys the artifact —
+`PAYMENTS_MODE=test` would turn every "test" in the output into `[redacted]`. Only values at or above
+a threshold are scrubbed, common tokens skipped. Undiagnosable failures cost more than this saves.
+
+**It is a convenience, not a boundary.** Catches a secret printed verbatim — a boot-time config dump,
+a stack trace carrying a connection string — which is how secrets reach logs in practice. Does not
+survive base64 Basic Auth, percent-encoding, JSON-escaping, a value straddling the 1 MiB truncation
+boundary, or a derived token (a JWT signed *with* a secret contains none of its bytes).
 
 **OPEN (B7):** manifest validators hand-pick known fields and never reject unknown keys, so "a secret
 value in the block is rejected" needs a deliberate strict check departing from house style.

@@ -325,14 +325,50 @@ committed-diff check misses uncommitted edits, which gates read off disk anyway.
 (`git status --porcelain`), not just history; document the config bypass as a known limit. Combined
 with A3's add-only rule.
 
-### B6 `MED` — redaction gaps and the wrong seam
+### B6 `RESOLVED` — redaction gaps, and a worse finding underneath
 
-`BoundedOutput` writes nothing — the seam is `writeFileSync` in the stage. Server logs
-(`startHot` → `<name>.log` in the worktree, surfaced by `tailLog`) are never redacted at all. Misses
-base64 Basic Auth, percent-encoding, JSON-escaping, secrets straddling the 1 MiB truncation, and
-derived tokens (a JWT signed *with* a secret contains none of its bytes).
+Filed as "redaction is at the wrong seam." True, and secondary. Verification found the real issue.
 
-**Fix:** apply at the real write seam; cover server logs; document the encoded/derived limits.
+**`spin.ts:224` writes each service log to `join(cwd, '<name>.log')`, and `cwd` is the git worktree.**
+A file containing everything a server booted with the real `.env` printed sits in the repo working
+tree. `git check-ignore api.log` in karst's own repo: **not ignored**; an arbitrary user's repo is
+less likely to ignore it. One `git add -A` puts real secrets in a commit, then a PR. Live on `main`
+today, and UAT is what makes it likely — UAT boots the stack and hands it hot to review and ship,
+where commits happen.
+
+**Redacting those logs is structurally impossible as plumbed.** `stdio: ['ignore', logFd, logFd]`
+(`supervisor.ts:92`) hands the fd to the child; karst never sees the bytes. Piping through the host
+would relay every byte of every dev server for hours *and* close the pipe on host exit, giving the
+detached server an EPIPE — destroying the "server survives VS Code exit" property (cf. C7).
+
+**Decision — relocate, then redact what karst actually writes.**
+
+1. **Relocate service logs** to `globalStorage/artifacts/<ticketId>/<service>.log`, beside gate
+   artifacts, outside every repo. `spinTicket` takes the directory as a **required** parameter — no
+   default, so a missed call site is a compile error rather than a silent regression to `cwd`.
+   Fixes every stage, not just UAT.
+2. **Leftovers from before the upgrade** are not deleted (karst does not remove files from a user's
+   worktree). Instead the service log names go into the service repo's `.git/info/exclude` — the
+   mechanism `worktree.ts` already uses for `.karst/`. Local-only, never touches the user's committed
+   `.gitignore`. Exact names, **not** `*.log`, which could mask a log the repo legitimately tracks.
+3. **Redact gate artifacts** at the true egress: a pure `redact(text, secrets)` applied at
+   `writeFileSync` in the stage **and** at panel render. Not inside `BoundedOutput`, which only
+   accumulates and renders.
+4. **Server logs stay unredacted**, which is acceptable once they are outside the repo.
+
+**Practical constraint on value-scrubbing: a length floor is mandatory.** Naive substitution of every
+known value destroys the artifact — `PAYMENTS_MODE=test` would replace every occurrence of "test" in
+the output with `[redacted]`. Scrub only values at or above a length threshold, skipping common
+tokens. Without this, redaction makes failures undiagnosable, which costs more than it saves.
+
+**Documented as a convenience, not a boundary.** It catches a secret printed verbatim — a boot-time
+config dump, a stack trace carrying a connection string — which is how secrets actually reach logs in
+practice. It does **not** survive base64 Basic Auth, percent-encoding, JSON-escaping, a value
+straddling the 1 MiB truncation boundary, or a derived token (a JWT signed *with* a secret contains
+none of its bytes).
+
+**Not on the commit path either way:** gate artifacts already live in `globalStorage`. The relocation
+concerns service logs only.
 
 ### B7 `LOW` — manifest validators never reject unknown keys
 
