@@ -65,7 +65,7 @@ nothing was asked. (`boot` null still means no server, so `explore` records null
 The cap is **driver policy, not a graph edge** — `Verdict` is only `passed｜failed｜null`, and
 "attempts exhausted" is not a verdict.
 
-### A2 `BLOCK` — Lane 3's evidence is written by the agent it is meant to check
+### A2 `RESOLVED` — Lane 3's evidence is written by the agent it is meant to check
 
 `reduceExploration` is pure, but its input is a document the explorer authors. An explorer that emits
 `consoleErrors: []` is indistinguishable from one that saw a clean run. **This is agent self-report
@@ -83,8 +83,38 @@ chooses actions. The spec inverted it.
 | Demote to non-gating artifact evidence | Honest about trust level; cheap | A 500 the explorer walked into does not stop the ticket |
 | Defer Lane 3 | — | Loses the lane |
 
-**Recommendation:** defer. The gap between "agent writes evidence" and "karst collects evidence" is a
-different component, not a refinement.
+#### Resolution (decided) — Playwright *is* the harness
+
+No `ExplorationRecord`. The agent never authors evidence. It drives a Playwright session **karst
+configures**, and karst reads Playwright's own artifacts:
+
+| Machine fact | Source |
+|---|---|
+| Console errors | `page.on('console')` / trace |
+| Unhandled rejections | `page.on('pageerror')` |
+| Failed network requests | `page.on('requestfailed')` |
+| HTTP statuses | `page.on('response')` / trace |
+
+This is the vadim.blog split — harness drives, agent chooses actions — without building a CDP layer,
+because Playwright already is one.
+
+| Decision | Value |
+|---|---|
+| Playwright source | The repo under test (`npx playwright` in the worktree, repo's own install and browsers). Karst ships nothing. Absent → `explore` records `null`, like any unavailable gate. |
+| Action channel | The agent writes a **throwaway** Playwright script; karst runs it **with karst's config** (reporter, trace, console/network capture, base URL). The script cannot disable capture because it does not own the config. The script is itself a readable artifact. |
+| API side | Playwright's `APIRequestContext` — same trace, same evidence stream, one dependency, and UI/API findings correlate in one artifact. |
+
+**Trust property:** under-exploration remains possible; **fabrication does not**. An agent can visit
+fewer pages than it should, but it cannot make a 500 it *did* hit disappear from a trace it is not
+writing. Under-exploration is bounded by the coverage gate.
+
+**Consequence — B2 is deleted.** The standalone guard proxy is unnecessary: karst is already in-path
+through Playwright's network interception, so denies and mutation budgets are enforced on traffic
+karst genuinely sees — *including SPA XHR*, which the proxy was structurally blind to because the API
+base URL is baked into the bundle at build time.
+
+The throwaway exploration script lives outside `uat.testDir`, so it never collides with the fix guard
+(A3).
 
 ### A3 `BLOCK` — the coverage gate deadlocks
 
