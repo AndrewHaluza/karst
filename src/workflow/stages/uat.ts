@@ -14,6 +14,9 @@ import { runCommand } from '../gates/run.js';
  * worktree and reduces to a verdict on the **exit code** — never an agent
  * self-report. Output is captured to an artifact file for the record, then the
  * verdict drives the machine (pass → review, fail → fix).
+ *
+ * Phase 0: Remove UAT_GATE duplication; Phase 1: Static gates + boot stack;
+ * Phase 2: Agent-authored steps with Playwright; Phase 3: Advisory coverage display.
  */
 
 export interface TestResult {
