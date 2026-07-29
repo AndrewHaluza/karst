@@ -273,10 +273,51 @@ Stated plainly rather than implied to be covered. Rev 1 claimed an add-only rule
 **The human review diff is the sole control**, with karst flagging agent modifications to draw the
 eye. `runReview` already opens the diff regardless of verdict. This is a deliberate trade.
 
-**OPEN (B5):** the diff base for flagging. Capture HEAD when `autoResumeFix` fires and compare the
-**working tree** (staged + unstaged + untracked) — gates read files off disk, so a committed-history
-check is trivially dodged. Config-level edits (`playwright.config.ts` `testPathIgnorePatterns`,
-global fixtures) sit outside `testDir` and are a documented limit.
+### How modification is detected (B5, resolved)
+
+karst hashes each step file as it writes it, storing path+hash in
+`globalStorage/artifacts/<ticketId>/authored-steps.json`; at review it re-hashes and compares. No git
+history involved, so `--amend`, rebase and squash cannot erase the baseline, and no migration is
+needed — artifacts already live per-ticket in `globalStorage`.
+
+Rejected: a karst-authored baseline commit (agents rewrite history routinely, and the flag would stop
+working *silently*), and a provenance marker alone (cannot tell "the fix agent edited the failing test"
+from "an agent wrote these" — the first is the whole signal).
+
+**Fails closed, deliberately:**
+
+| case | behaviour |
+| --- | --- |
+| baseline missing — globalStorage wiped, DB reset, archive→restore | **every authored file flagged unverifiable** |
+| path absent at review | flagged deleted |
+| unknown file under `testDir` | flagged new |
+
+**Known weakness:** a hash cannot distinguish a comment change from a gutted assertion. Flag everything
+and the flags get skimmed, which is worse than no flags because it manufactures a feeling of coverage.
+The diff is attached to each flag so severity is visible at a glance.
+
+**Config edits are narrowed, not closed.** karst owns the config for the run it judges, so
+`testPathIgnorePatterns` bypasses nothing here — but karst's config must spread the repo's to inherit
+fixtures (authored steps need the repo's auth setup), so karst's overrides (reporter, trace,
+`outputDir`, capture) are applied **after** the spread, and `playwright.config.ts` is hashed alongside
+the steps.
+
+### Named risk — four controls, one human, one moment
+
+Nobody chose this; it emerged from the resolutions and is recorded so it is not discovered later.
+
+| control | resolves to |
+| --- | --- |
+| vacuous tests (above) | human reads the diff |
+| coverage (B3) | human reads the diff |
+| step modification (B5) | human reads the diff |
+| unlisted `.env` key (B1) | human reads a warning |
+
+**These are not four independent controls — they are one control with four labels.** An inattentive
+review fails all four at once rather than independently, which is the opposite of what defence in depth
+buys. Accepted as a risk; the lever, if review quality proves to be the weak link, is making exactly
+one of them blocking — B5 being the best candidate, since a false positive there costs a reviewer
+thirty seconds instead of parking a ticket.
 
 **OPEN (C11, C12, C13):** how the agent actually ships. `soloAgent` is for `single-subagent`-approach
 tickets and cannot double as this. Approach artifacts are *fetched from a declared external source* —

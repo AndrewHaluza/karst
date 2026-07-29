@@ -385,15 +385,65 @@ does not happen by itself.
 **Not recommended:** a local-only model for the author agent — cuts against the subscription premise
 (Claude/Codex/Antigravity) and adds a config surface for less than the DOM-stripping gets.
 
-### B5 `MED` — `testDir` guard diff semantics
+### B5 `RESOLVED` — authored-step modification detection
 
-`testDir` is populated during impl, so diffing against baseline rejects **every** fix cycle. And a
-committed-diff check misses uncommitted edits, which gates read off disk anyway. Config-level bypass
-(`playwright.config.ts` `testPathIgnorePatterns`, global fixtures) sits entirely outside `testDir`.
+The original framing died with A3's add-only rule: A4 lets the fix agent **modify** authored steps,
+flagging every modification. So `testDir` being populated during impl no longer "rejects every fix
+cycle" — nothing rejects. What remains is the mechanics of *flagged*.
 
-**Fix:** capture HEAD before the fix resume and diff the incremental delta; include the working tree
-(`git status --porcelain`), not just history; document the config bypass as a known limit. Combined
-with A3's add-only rule.
+**Decision — content hashes in a sidecar artifact.**
+
+karst hashes each step file as it writes it, storing path+hash in
+`globalStorage/artifacts/<ticketId>/authored-steps.json`. At review, re-hash and compare. Survives
+`--amend`, rebase and squash because it never touches git history, and needs **no migration** —
+artifacts already live per-ticket in `globalStorage`.
+
+Rejected: a **karst-authored baseline commit** (agents amend, rebase and squash routinely; the baseline
+vanishes and the flag silently stops working — the worst property available), and a **provenance
+marker** alone (cannot distinguish "the fix agent edited the failing test" from "an agent wrote these",
+and the first is the entire signal).
+
+**Required properties, because the naive version fails open:**
+
+| case | behaviour |
+| --- | --- |
+| baseline missing (globalStorage wiped, DB reset, archive→restore) | **flag every authored file as unverifiable** — never flag none |
+| path absent at review | flag as deleted |
+| unknown file under `testDir` | flag as new |
+| identical content after delete+recreate | no flag (content is identical) |
+
+**Known weakness, not solvable inside B5:** a hash cannot distinguish a comment change from a gutted
+assertion — both flag identically. Flag everything and the flags get skimmed within a week, which is
+worse than no flags because it manufactures a feeling of coverage. Mitigation is to attach the diff to
+the flag so severity is visible at a glance.
+
+**Config bypass — narrowed by A2, not closed.** karst owns the Playwright config for the run karst
+judges, so `testPathIgnorePatterns` bypasses nothing on this ticket. But karst's config must spread the
+repo's to inherit fixtures (authored steps typically need the repo's auth setup), so an agent editing
+`playwright.config.ts` could influence capture. Therefore: karst's overrides (reporter, trace,
+`outputDir`, console/network capture) are applied **after** the spread, and `playwright.config.ts` is
+hashed alongside the authored steps so edits to it are flagged identically.
+
+### B5b `RISK` — four controls, one human, one moment
+
+Not a finding in any review; an emergent property of the resolutions above, recorded because it was
+never chosen by anyone.
+
+| control | resolves to |
+| --- | --- |
+| A3/A4 vacuous tests | human reads the diff |
+| B3 coverage | human reads the diff |
+| B5 step modification | human reads the diff |
+| B1 unlisted `.env` key | human reads a warning |
+
+**These are not four independent controls — they are one control with four labels.** An inattentive
+review fails all four simultaneously rather than independently, which is the opposite of what defence
+in depth buys.
+
+**Accepted as a named risk.** The available lever is making exactly one of the four blocking to break
+the correlation; B5 is the best candidate (narrowest, most mechanical signal, and a false positive
+costs a reviewer thirty seconds rather than parking a ticket). Deferred — consistent with the advisory
+call in B3 — but it should be revisited if review quality proves to be the weak link in practice.
 
 ### B6 `RESOLVED` — redaction gaps, and a worse finding underneath
 
