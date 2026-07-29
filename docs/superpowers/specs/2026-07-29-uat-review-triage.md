@@ -613,28 +613,83 @@ billing, and would break them invisibly — the failure mode this finding is abo
 
 | # | Claim | Reality | Fix |
 |---|---|---|---|
-| C1 `BLOCK` | "`boot` returns `CommandResult`" | `CommandResult.exitCode` is `number` — cannot express `null`, which `boot`/`coverage`/`explore` all need | Use `GateResult` (`review.ts:24-40`); move it to a shared module |
-| C2 `HIGH` | "the `servers` row is inserted **before** the health wait, so a crash leaves a reapable row" | **Backwards.** `supervisor.ts` awaits health ~153, inserts ~176. A crash mid-boot leaves an **untracked pid** | Insert with pid before the wait, update status after. Fixes an existing latent bug |
-| C3 `BLOCK` | "adopt-or-spin, extracted from `spin.ts`" | `allocator.allocate` unconditionally INSERTs — a second resolve returns **different ports** while servers keep the old set, so every injected base URL points at nothing | Read-existing-allocations path |
-| C4 `BLOCK` | "UAT must not bypass `startHot`" | `startHot` **throws by design** when the health URL already answers (`supervisor.ts:80-86`) | Adopt reads the `servers` table, verifies pid alive + health, bypasses `startHot` |
-| C5 `MED` | "copy `spin.ts`'s created-vs-adopted discipline verbatim" | `adopted` exists only on `WorktreeRecord`. `ServerRecord` and the `servers` table have no such concept | Add it, or derive from "row predates this run" |
-| C6 `HIGH` | "teardown moves to boundaries that already exist: ship, done, archive, session close, dashboard Stop" | Only the dashboard Stop exists. `ship.ts`, `done.ts`, `archive.ts` contain zero server code. Archive also has an ordering bug **today**: worktree removed and ports released under a live pid | Four new call sites; fix the archive ordering |
-| C7 `HIGH` | implied: stacks die with the window | Children are `detached: true` and survive VS Code exit; `reconcileOnStart` only marks *dead* rows, so a survivor stays `running` forever | Reap on `deactivate`, or reconcile kills live orphans |
-| C8 `HIGH` | Stop works | `shouldContinue` is polled only *between* stages. One UAT stage is now boot (N × 30 s) + 5 gates × 15 min + a browser session — **Stop is inert for up to an hour** | `AbortSignal` through `RunCommandOptions` into the driver |
+| C1 `RESOLVED` | "`boot` returns `CommandResult`" | `CommandResult.exitCode` is `number` — cannot express `null`, which `boot`/`coverage`/`explore` all need | Use `GateResult` (`review.ts:24-40`); move it to a shared module |
+| C2 `DEFERRED` | "the `servers` row is inserted **before** the health wait, so a crash leaves a reapable row" | **Backwards.** `supervisor.ts` awaits health ~153, inserts ~176. A crash mid-boot leaves an **untracked pid** | Insert with pid before the wait, update status after. Fixes an existing latent bug |
+| C3 `RESOLVED` | "adopt-or-spin, extracted from `spin.ts`" | `allocator.allocate` unconditionally INSERTs — a second resolve returns **different ports** while servers keep the old set, so every injected base URL points at nothing | Read-existing-allocations path |
+| C4 `RESOLVED` | "UAT must not bypass `startHot`" | `startHot` **throws by design** when the health URL already answers (`supervisor.ts:80-86`) | Adopt reads the `servers` table, verifies pid alive + health, bypasses `startHot` |
+| C5 `RESOLVED` | "copy `spin.ts`'s created-vs-adopted discipline verbatim" | `adopted` exists only on `WorktreeRecord`. `ServerRecord` and the `servers` table have no such concept | Add it, or derive from "row predates this run" |
+| C6 `RESOLVED` | "teardown moves to boundaries that already exist: ship, done, archive, session close, dashboard Stop" | Only the dashboard Stop exists. `ship.ts`, `done.ts`, `archive.ts` contain zero server code. Archive also has an ordering bug **today**: worktree removed and ports released under a live pid | Four new call sites; fix the archive ordering |
+| C7 `RESOLVED` | implied: stacks die with the window | Children are `detached: true` and survive VS Code exit; `reconcileOnStart` only marks *dead* rows, so a survivor stays `running` forever | Reap on `deactivate`, or reconcile kills live orphans |
+| C8 `RESOLVED` | Stop works | `shouldContinue` is polled only *between* stages. One UAT stage is now boot (N × 30 s) + 5 gates × 15 min + a browser session — **Stop is inert for up to an hour** | `AbortSignal` through `RunCommandOptions` into the driver |
 | C9 `RESOLVED` | "no other files change" | `model/inside/gates.ts:1,113` imports and renders `UAT_GATE`; removing it breaks the build. The new gate list is dynamic and includes gates with no script, so `GateSpec` no longer models it | Model a dynamic gate list; update the dashboard stepper |
-| C10 `LOW` | "nine hardcoded `user_version` literals" | **29** in `db.test.ts` (from a stale `CLAUDE.md` line) | Correct the estimate — 3× |
+| C10 `RESOLVED` | "nine hardcoded `user_version` literals" | **29** in `db.test.ts` (from a stale `CLAUDE.md` line) | Correct the estimate — 3× |
 | C11 `RESOLVED` | `soloAgent` ships `uat-author` | It is the agent for a **`single-subagent`-approach ticket**, mutually exclusive with a real approach package | New distribution path needed |
 | C12 `RESOLVED` | "an approach artifact — the existing vocabulary" | Approach artifacts are *fetched from a declared external source*; karst authors no packages. Lane 2 would only work if the chosen approach happens to ship `uat-author` | Karst synthesizes/merges a package (new code in `assembleAndWrite`, which also runs `assertPackageContributes` + `sanitizeFrontmatter`) |
 | C13 `RESOLVED` | — | Three competing homes for one agent identity: approach artifact, `agents:` block, `uat.author.agent` | Pick `agents:` |
 | C14 `RESOLVED` | "Phase 1 fixes the duplication bug" | A zero-config repo yields **all nulls → always green**, and `test` has been removed. For karst's own repo UAT goes from "runs the suite" to "runs nothing and passes" — *more* vacuous than today | Keep `test` in UAT until a non-null UAT gate exists, **or** make all-null a distinct non-pass |
 | C15 `RESOLVED` | `boot` failure → `fix` | Contradicts the null rule three paragraphs above. Real boot failures are "another process owns that port", 30 s health timeout on a 45 s boot, `ENOENT` on the start command — **none fixable by the agent**, all park the ticket at `fix` forever | Boot failure = `null` + a surfaced warning, never routes to `fix`. Or fail only when the service booted at baseline (comparative) |
-| C16 `MED` | "explore skipped whenever gates 1–6 are non-green" | Ambiguous: is `null` non-green? If yes, explore never runs anywhere. If no, it runs with no server | Define: explore runs iff every gate is `0` or `null` **and** `boot` is `0` |
-| C17 `MED` | "parses the runner's report" | Five incompatible formats (JUnit/vitest/jest/playwright/mocha); N gates each with a `report:` but one `coverage` exit code; "passing" undefined per format (`test.skip` would parse as present); `report:` path base unspecified; `[AC-3]` free-match collides with any test *mentioning* it | Pick JUnit XML first; one report per project initially; define pass explicitly; resolve relative to the gate's repo; exact tag-prefix match. **No XML parser in the tree** — new dep or hand-rolled |
-| C18 `MED` | `frozen_at` prevents drift | No FK, no `UNIQUE(ticket_id, ordinal)`, and freezing is **per row** — a later extraction can INSERT a new unfrozen row beside frozen ones and move the goalposts | FK + unique constraint + freeze the whole set, not rows |
-| C19 `MED` | — | Zero criteria rows (sub-agent never dispatched) → coverage over an empty set **passes vacuously** | Empty set = `null`, not pass; surface "no criteria" in the UI |
-| C20 `HIGH` | "adopt a hot stack" | `spinTicket` normally runs at *scope*, before implementation. A compiled service (Go, Java, built Next.js) adopted at UAT serves **pre-implementation code** — UAT declares criteria met by a binary predating the ticket | Freshness predicate: restart if HEAD moved since the server started. Needs `head_sha`/`started_at` on `servers` |
-| C21 `MED` | — | `testDir` is project-level but repos are many; `e2e/karst/` resolves against nothing in a multi-repo ticket | Per-repo, or relative to each gate's `repo:` |
-| C22 `LOW` | "review inherits a hot stack" | Review's `npm test` then runs against **bound ports**, breaking any suite that starts its own server | Decide explicitly; document |
+| C16 `RESOLVED` | "explore skipped whenever gates 1–6 are non-green" | Ambiguous: is `null` non-green? If yes, explore never runs anywhere. If no, it runs with no server | Define: explore runs iff every gate is `0` or `null` **and** `boot` is `0` |
+| C17 `RESOLVED` (defused by B3) | "parses the runner's report" | Five incompatible formats (JUnit/vitest/jest/playwright/mocha); N gates each with a `report:` but one `coverage` exit code; "passing" undefined per format (`test.skip` would parse as present); `report:` path base unspecified; `[AC-3]` free-match collides with any test *mentioning* it | Pick JUnit XML first; one report per project initially; define pass explicitly; resolve relative to the gate's repo; exact tag-prefix match. **No XML parser in the tree** — new dep or hand-rolled |
+| C18 `DISSOLVED` (B3) | `frozen_at` prevents drift | No FK, no `UNIQUE(ticket_id, ordinal)`, and freezing is **per row** — a later extraction can INSERT a new unfrozen row beside frozen ones and move the goalposts | FK + unique constraint + freeze the whole set, not rows |
+| C19 `DISSOLVED` (B3) | — | Zero criteria rows (sub-agent never dispatched) → coverage over an empty set **passes vacuously** | Empty set = `null`, not pass; surface "no criteria" in the UI |
+| C20 `DEFERRED` | "adopt a hot stack" | `spinTicket` normally runs at *scope*, before implementation. A compiled service (Go, Java, built Next.js) adopted at UAT serves **pre-implementation code** — UAT declares criteria met by a binary predating the ticket | Freshness predicate: restart if HEAD moved since the server started. Needs `head_sha`/`started_at` on `servers` |
+| C21 `RESOLVED` | — | `testDir` is project-level but repos are many; `e2e/karst/` resolves against nothing in a multi-repo ticket | Per-repo, or relative to each gate's `repo:` |
+| C22 `RESOLVED` | "review inherits a hot stack" | Review's `npm test` then runs against **bound ports**, breaking any suite that starts its own server | Decide explicitly; document |
+
+### C1–C8, C10, C16, C21, C22 — resolutions
+
+**C1** — `CommandResult.exitCode` is `number`; `boot`, the step runner and advisory coverage all need
+`null`. Use `GateResult` (`review.ts:24-40`), moved out of `stages/review.ts` into a shared module now
+that three stages depend on it.
+
+**C3, C4, C5 — adopt-or-spin is new code plus schema, not an extraction.** `allocate` unconditionally
+INSERTs (a second resolve returns different ports while servers keep the old set, so every injected base
+URL points at nothing) → needs a read-existing path. `startHot` **throws by design** when the health URL
+already answers (`supervisor.ts:80-86`, whose comment says reuse is decided from the `servers` table and
+never by adopting a health 200) → adopt reads `servers`, checks pid alive **and** health, and bypasses
+`startHot`, honouring that comment instead of defeating it. `adopted` exists only on `WorktreeRecord` →
+add it to `ServerRecord`, or derive from "row predates this run". **Split into Phase 1b**; until it lands
+UAT always spins fresh — correct, just slower.
+
+**C6 — four new teardown call sites, and an existing archive bug.** Verified: `stopTicketServers`/
+`stopServer` are called only from `spin.ts:75,133` and `extension.ts:2176,2180,2216`; `ship.ts`, `done.ts`
+and `archive.ts` have **zero** server code. Separately, `archive.ts:122` → `removeWorktree` runs
+`git worktree remove --force`, `rmSync`s the directory and releases ports in a `finally`, with **no server
+stop first** — a live server loses its cwd and its ports are freed while it still holds them. Stop servers
+before `removeWorktree`. Live bug on `main`.
+
+**C7 — detached children survive the window.** `detached: true` is deliberate (so `killTree` reaps
+grandchildren like `npm run dev` → Vite) and means children outlive VS Code. `reconcileOnStart` only
+touches rows whose pid is *dead* (`reconcile.ts:141`), so a survivor stays `running` forever. Reap on
+`deactivate` — the smaller change, since UAT never needs a stack to outlive the window — but it must be a
+decision, not an accident.
+
+**C8 — Stop must interrupt mid-stage.** `shouldContinue` is polled only between stages; one UAT stage is
+boot + N gates at up to 15 min + an agent session, so Stop is inert for up to an hour and reads as a broken
+button. Thread an `AbortSignal` through `RunCommandOptions` (it has `timeoutMs`, `maxOutputBytes`,
+`terminationGraceMs` — no `signal`) into the driver, killing through the existing process-group path.
+
+**C10 — moot.** The 29 `user_version` literals mattered because of the `ticket_criteria` migration; B3
+deleted that migration. Recorded because the underlying `CLAUDE.md` line still says nine and will mislead
+the next schema change.
+
+**C16 — stated exactly.** Authoring and step-running proceed iff **no static gate FAILED** and `boot` is
+`0`. `null` static gates do not block (nothing was asked). A `null` boot blocks by C15's rule, not a
+special case.
+
+**C21 — `testDir` resolves per-repository**, relative to the repo the steps target (the gate's `repo:`,
+defaulting to the single scoped repo). Not cosmetic: B5 hashes files under `testDir`, and a path resolving
+against nothing would hash nothing and flag nothing — failing open, which B5 forbids.
+
+**C22 — accepted and documented.** Review inheriting a hot stack is deliberate (no respin for manual
+testing; the human pokes the stack UAT judged). Cost: review's suites run against bound ports, breaking any
+that start their own server. The alternative discards the property that motivated keeping the stack up.
+Interacts with the separate review rework — if review keeps a `test` gate, this is the conflict to design
+around.
+
+**C2 and C20 deferred**, not resolved: C2 is a pre-existing `main` bug (row written after the health wait →
+untracked pid on a mid-boot crash) worth landing on its own; C20 needs a freshness predicate and new
+`servers` columns so an adopted stack cannot serve pre-implementation code.
 
 ### C9, C11–C15 — resolutions
 

@@ -1,13 +1,20 @@
 # UAT stage — design
 
 **Ticket:** 869ea5xpu — [FEAT] Implement UAT stage to run actual testing
-**Date:** 2026-07-29 (rev 2, post-review)
-**Status:** structural design settled; security + correctness items tracked in
-`2026-07-29-uat-review-triage.md`
+**Date:** 2026-07-29 (rev 3)
+**Status:** design settled. Every review finding resolved except **C2** and **C20**, both deferred with
+reasons. Full reasoning trail in `2026-07-29-uat-review-triage.md`.
 
-> **Rev 2** rewrites rev 1 after three reviews (architecture, security, skeptical feasibility).
-> Rev 1's four structural claims were wrong; they are resolved here. Items still open carry an
-> `OPEN (id)` marker pointing at the triage.
+> **Rev 3** closes the A, B and C series. Rev 2 rewrote rev 1 after three reviews (architecture,
+> security, skeptical feasibility) and left 18 items marked `OPEN`; none remain.
+>
+> **Three findings turned out to be live bugs on `main`, unrelated to UAT** — service logs written into
+> the git worktree unignored (B6), `archive.ts` removing a worktree and releasing ports under a live pid
+> (C6), and the `servers` row written after the health wait so a mid-boot crash leaks an untracked pid
+> (C2). Each is small and independently shippable.
+>
+> **Deferred:** C2 (above — worth landing on its own) and C20 (an adopted stack can serve
+> pre-implementation code; needs a freshness predicate and new `servers` columns → Phase 1b).
 
 ---
 
@@ -135,6 +142,15 @@ re-enters and *then* hits the integration failure has spent two of three attempt
 could have told it. Known cost: when `test` is red, e2e failures are usually cascades and add noise.
 Revisit if that noise proves worse than the extra attempt.
 
+**When authoring runs, stated exactly (C16).** Rev 1 said "skipped whenever gates 1–6 are non-green",
+which is ambiguous about `null`: read one way authoring never runs anywhere, read the other it runs with
+no server. The rule is:
+
+> Authoring and step-running proceed iff **no static gate FAILED** *and* `boot` is `0`.
+
+`null` static gates do not block — nothing was asked. A `null` boot does block, but not by a special case:
+per C15 the stage verdict is already `null`, so the ticket never advances that far.
+
 **Why static first.** Red unit/integration/e2e is an obvious push back to fix; spending an agent to
 confirm what a failing suite already reported is waste. A red unit test never pays for booting a
 multi-repo stack.
@@ -186,16 +202,26 @@ behaves this way; rev 2's error was aggregating `null` into `passed`. Same rule 
 Rejected: a comparative predicate (fail only when the service booted at baseline) — needs baseline state
 and does not help the common case.
 
-**OPEN (C3, C4, C5, C20):** adopt-or-spin is not extractable from `spin.ts` as rev 1 assumed.
-`allocator.allocate` unconditionally INSERTs, so a second resolve returns *different* ports while
-running servers keep the old set; `startHot` **throws by design** when the health URL already answers;
-there is no `adopted` concept for servers; and a stack spun at scope serves **pre-implementation
-code** for any compiled service, so adoption needs a freshness predicate.
+### Adopt-or-spin is new code, not an extraction (C3, C4, C5 — resolved)
 
-### Types
+Rev 1 assumed adopt-or-spin could be lifted out of `spin.ts`. Three things in the existing code say
+otherwise, and each needs building:
 
-**OPEN (C1):** `CommandResult.exitCode` is `number` and cannot express `null`, which `boot`, the step
-runner, and `coverage` all need. Use `GateResult` (`review.ts:24-40`), moved to a shared module.
+| # | Reality | What UAT needs |
+|---|---|---|
+| C3 | `allocator.allocate` unconditionally INSERTs, so a second resolve returns **different ports** while running servers keep the old set — every injected base URL would point at nothing | a read-existing-allocations path, so resolving twice is idempotent |
+| C4 | `startHot` **throws by design** when the health URL already answers (`supervisor.ts:80-86`), with the comment that reuse is decided from the `servers` table and never by adopting a health 200 | adopt reads `servers`, verifies pid alive **and** health, and bypasses `startHot` entirely — honouring that comment rather than defeating it |
+| C5 | `adopted` exists only on `WorktreeRecord`; `ServerRecord` and the `servers` table have no such concept | add it, or derive it from "the row predates this run" |
+
+**C20 is deferred, not resolved** — a stack spun at *scope* serves pre-implementation code for any
+compiled service, so adoption needs a freshness predicate and new `servers` columns. Schema work; taken
+separately.
+
+### Types (C1, resolved)
+
+`CommandResult.exitCode` is `number` and cannot express `null` — which `boot`, the step runner, and
+advisory coverage all need. Use `GateResult` (`review.ts:24-40`) and move it out of `stages/review.ts`
+into a shared module, since three stages now depend on it.
 
 ---
 
@@ -207,18 +233,14 @@ inside `transition`'s `premutate`, with `attempt` read *before* the machine bump
 
 `gate_name` is free text in `schema.sql`, so new gate names need no migration of their own.
 
-**OPEN (C8):** `shouldContinue` is polled only *between* stages. One UAT stage is now boot + N gates
-at 15 min each + an agent session — **Stop is inert for up to an hour.** Needs an `AbortSignal`
-through `RunCommandOptions` and into the driver.
+**Stop must interrupt mid-stage (C8, resolved).** `shouldContinue` is polled only *between* stages, and
+one UAT stage is now boot + N gates at up to 15 min each + an agent session — **Stop is inert for up to
+an hour**, which reads as a broken button. An `AbortSignal` threads through `RunCommandOptions` (which
+has `timeoutMs`, `maxOutputBytes` and `terminationGraceMs` but no `signal`) and into the driver, so a
+cancel kills the running child through the existing process-group path rather than waiting for it.
 
-**OPEN (C9):** `model/inside/gates.ts:1,113` imports and renders `UAT_GATE`; removing it breaks the
-build. The new gate list is dynamic and includes gates with no script, so `GateSpec` no longer models
-it.
-
-**OPEN (C14):** a zero-config repo yields all nulls → **always green**, and `test` has been removed —
-*more* vacuous than today. For karst's own repo UAT would go from "runs the suite" to "runs nothing
-and passes". Either keep `test` until a non-null UAT gate exists, or make all-null a distinct
-non-pass.
+**Gate names stay free text.** `gate_name` is free text in `schema.sql`, so new gate names need no
+migration of their own — that part of rev 2 was right.
 
 ---
 
@@ -622,9 +644,8 @@ baked into the bundle at build time.
 `uat.isolation` (`none｜reset｜ephemeral`) stays as a declared, agnostic ladder with **`none` the
 default and the only rung wired**. **Cut candidate** — see Deferred.
 
-**OPEN (B4):** the agent's session transcript carries typed credentials, shared-dev-DB PII, and
-debug-page contents into an agent context, possibly cloud. Stated in rev 1, unsolved. Playwright as
-harness reduces but does not remove it.
+Agent exposure is bounded by the feedback contract above (B4) — the agent does not browse, and karst
+chooses what a failed run shows it.
 
 ---
 
@@ -633,22 +654,51 @@ harness reduces but does not remove it.
 **UAT adopts-or-spins and leaves the stack up.** Review inherits a hot stack, so manual acceptance
 testing needs no respin and the stack a human pokes is the one UAT judged.
 
-**OPEN (C6) — rev 1 claimed teardown "moves to boundaries that already exist". Four of five do not.**
-Verified: `stopTicketServers`/`stopServer` are called only from `spin.ts:75,133` (cancel/respin) and
-`extension.ts:2176,2180,2216` (dashboard buttons). `ship.ts`, `done.ts`, `archive.ts` contain **zero**
-server code. Archive also has an ordering bug **today**: the worktree is removed and ports released
-under a live pid — the exact hazard `spin.ts:128-133` documents elsewhere.
+### Teardown boundaries must be built (C6, resolved)
 
-**OPEN (C7):** children spawn `detached: true` and **survive VS Code exit**; `reconcileOnStart` only
-marks *dead* rows, so a survivor stays `running` forever.
+Rev 1 claimed teardown "moves to boundaries that already exist". **Four of five do not.** Verified:
+`stopTicketServers`/`stopServer` are called only from `spin.ts:75,133` (cancel/respin) and
+`extension.ts:2176,2180,2216` (dashboard buttons). `ship.ts`, `done.ts` and `archive.ts` contain **zero**
+server code. So UAT leaving the stack up means four new call sites, not a rewiring.
 
-**OPEN (C2) — rev 1 stated a safety property backwards.** `startHot` awaits health at ~153 and INSERTs
-the `servers` row at ~176. A crash mid-boot leaves an **untracked pid**, not a reapable row. Fix:
-insert with the pid before the wait, update status after. This is a latent bug today; UAT makes it
-matter more.
+**Archive has an ordering bug today, independent of UAT.** `archive.ts:122` calls `removeWorktree`, which
+runs `git worktree remove --force`, `rmSync`s the directory, and releases the ticket's ports in a
+`finally` — with **no server stop first**. A live server loses its working directory out from under it and
+its ports are freed for reallocation while the process still holds them. Stop servers before
+`removeWorktree`; this is the exact hazard `spin.ts:128-133` documents elsewhere.
 
-**OPEN (C22):** review inheriting a hot stack breaks any suite that starts its own server — the same
-port conflict the pipeline ordering avoids inside UAT.
+### Detached children survive the window (C7, resolved)
+
+Children spawn `detached: true` — deliberately, so `killTree` can reap grandchildren like `npm run dev` →
+Vite — which also means they **survive VS Code exit**. And `reconcileOnStart` only touches rows whose pid
+is *dead* (`reconcile.ts:141`: `if (!alive) markDead.run(...)`), so a survivor from a previous session
+stays `running` forever and is never reaped.
+
+Fix: reap on `deactivate`, **or** have reconcile kill live orphans on boot. Both are defensible; the
+tradeoff is whether a stack should outlive the window on purpose. UAT does not need it to, so reaping on
+`deactivate` is the smaller change — but it must be a decision, not an accident.
+
+### The servers row is written too late (C2, resolved in shape)
+
+Rev 1 stated this property **backwards**: it claimed the row is inserted before the health wait so a crash
+leaves something reapable. Verified the opposite — `startHot` awaits health at ~153 and INSERTs at ~176, so
+a crash mid-boot leaves an **untracked pid**. Insert with the pid *before* the wait and update status
+after.
+
+**A latent bug on `main` today**, unrelated to UAT and cheap to fix independently. UAT only makes it matter
+more often, since UAT boots stacks far more than scope does.
+
+### Review inherits a hot stack (C22, resolved)
+
+Deliberate: manual acceptance testing needs no respin, and the stack a human pokes is the one UAT judged.
+The cost is that review's own suites then run against **bound ports**, breaking any suite that starts its
+own server — the same conflict the pipeline ordering avoids *inside* UAT by running static gates before
+boot.
+
+Accepted and documented rather than fixed, because the alternative (tear down before review, respin for
+manual testing) throws away the property that motivated keeping the stack up. Note this interacts with the
+review stage being rethought separately: if review keeps a `test` gate, this is the conflict to design
+around.
 
 ---
 
@@ -689,8 +739,14 @@ looked for, so the fix is one line of config rather than a mystery.
 An absent `uat:` block yields the default pipeline. Per the new-`Manifest`-field checklist:
 `types.ts`, `validateManifest`, the `writeManifest` overlay, and `manifest/fixtures.ts`.
 
-**OPEN (C21):** `testDir` is project-level but repos are many; it must resolve per-repo or relative to
-each gate's `repo:`.
+**`testDir` resolves per-repository (C21, resolved).** As written it is project-level, but a ticket scopes
+many repos, so `e2e/karst/` resolves against nothing in a multi-repo ticket. It resolves **relative to the
+repository the authored steps target** — the one named by the step's gate `repo:`, defaulting to the single
+scoped repo when there is only one. `uat.testDir` supplies the relative path; the repository supplies the
+base.
+
+This matters beyond tidiness: B5 hashes files under `testDir`, and a path that resolves against nothing
+would hash nothing and flag nothing — failing open, which B5 explicitly forbids.
 
 ---
 
@@ -702,9 +758,25 @@ outright breaks the build), and add the guard test asserting **UAT's gate set is
 review's**. That is the literal stated bug: UAT had exactly one gate and another stage asked the same
 question.
 
-**Phase 1 — make UAT gate.** The `fixUat`/`fixReview` split + migration, the attempt cap, static gates,
-`boot` with adopt-or-spin, `env` threading with the allowlist, the `AbortSignal` cancel path, and the
-four missing teardown call sites. Resolves A1 and the C-series lifecycle items. **No AI.**
+**Phase 1 — make UAT gate. No AI.** The `fixUat`/`fixReview` split + migration, the attempt cap, static
+gates with `package.json` probing, aggregate-`null`-is-not-a-pass, `boot`, the `env` allowlist and the
+`uat.env`/`uat.secrets` overlay, the `AbortSignal` cancel path, `GateResult` moved to a shared module, and
+the four missing teardown call sites. Resolves A1, B1, B7, B8, C1, C6, C8, C14, C15, C16, C21.
+
+Three items in Phase 1 are **pre-existing bugs on `main`**, fixable and shippable independently of UAT —
+worth landing first, since each is small and each is a live hazard:
+
+| item | bug |
+|---|---|
+| C2 | `servers` row written *after* the health wait → a crash mid-boot leaves an untracked pid |
+| C6 | `archive.ts:122` removes the worktree and releases ports with **no server stop first** |
+| B6 | service logs written into the git worktree, unignored — one `git add -A` from a PR |
+
+**Phase 1b — adopt-or-spin.** C3 (idempotent allocation), C4 (adopt via the `servers` table, bypassing
+`startHot`), C5 (an `adopted` concept for servers), C20 (a freshness predicate so a stack spun at scope
+cannot serve pre-implementation code — needs new `servers` columns). Split out because it is new code plus
+schema, not the extraction rev 1 assumed. **Until it lands, UAT always spins fresh** — correct, just
+slower.
 
 **Phase 2 — authored steps.** The `uat-author` agent and its distribution path, Playwright-as-harness
 config and trace reading, steps into `testDir`, replay-on-re-entry, modification flagging.
@@ -718,9 +790,10 @@ diff simply carries no coverage line.
 
 Speculative surface with no user waiting on it, each carrying real validation and test cost:
 
-`UatSecretSource` union + `infisical` arm + settings UI · the standalone guard proxy (deleted by
-Playwright interception) · the isolation ladder's `reset`/`ephemeral` rungs · `scaffold: author` ·
-the AI-review second pass on criteria (replaced by a human freeze) · `kind: command`
+`UatSecretSource` union + `infisical` arm (the keychain seam ships first; B7) · the standalone guard proxy
+(deleted by Playwright interception) · the isolation ladder's `reset`/`ephemeral` rungs · `scaffold: author`
+· the AI-review second pass on criteria (**rejected**, not deferred — two passes over the same adversarial
+text share the same misreading; B3) · criteria freeze-to-gate (B3's later rung) · `kind: command`
 
 ## Cost
 
@@ -731,6 +804,21 @@ the most expensive token class in the pipeline.
 
 The bound is the ordering (static gates fail before any agent runs) plus `maxFixAttempts`.
 
-**OPEN:** `"failed network request (non-optional)"` — **"non-optional" is nowhere defined**, and that
-one adjective carries the determinism claim for the most expensive gate. Real dev stacks fire it
-constantly: source-map 404s, HMR reconnects, blocked analytics, `AbortError` on navigation.
+### "Non-optional" network requests — defined (resolved)
+
+Rev 2 wrote `"failed network request (non-optional)"` and never defined the adjective, which quietly
+carried the determinism claim for the most expensive signal in the pipeline. Real dev stacks fire failed
+requests constantly: source-map 404s, HMR reconnect churn, blocked analytics, `AbortError` on navigation.
+Left undefined, this gate is either noise or a judgement call — and a judgement call is exactly what §5.4
+forbids.
+
+**Definition: a failed request counts only if the authored step awaited it.** Playwright already draws this
+line — a request a step asserts on, navigates to, or waits for is one the step declared it depends on;
+everything else is ambient traffic the page happened to make. So the signal is not "did anything fail" but
+"did something the test was waiting for fail", which is deterministic and needs no allowlist of URL
+patterns to maintain.
+
+Two consequences worth stating. Console errors are **evidence, not verdict** — a dev stack logs warnings
+constantly, so they land in the artifact and are read by a human, never reduced to pass/fail. And an
+ambient 500 nobody awaited will not fail the gate; that is a deliberate under-detection, chosen because the
+alternative is a per-project noise allowlist that rots.
