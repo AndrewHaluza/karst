@@ -281,7 +281,7 @@ blind, each run records in the artifact which keys were overridden and which pas
 (`STRIPE_*`, `SENDGRID_*`, `SMTP_*`, `TWILIO_*`, `*_WEBHOOK_URL`). A warning, never a block — the
 pattern list informs the user's decision, it does not make it.
 
-### B2 `HIGH` — the guard proxy does not work for the archetypal stack
+### B2 `RESOLVED` (cut) — the guard proxy does not work for the archetypal stack
 
 Four independent problems: an SPA's XHR goes to the API URL **baked into the bundle at build time**,
 so the proxy sees navigation only; enforcement is a base URL string an agent may ignore; a karst 403
