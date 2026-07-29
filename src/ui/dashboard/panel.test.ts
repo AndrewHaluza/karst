@@ -8,25 +8,34 @@ import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
   const panels: FakePanel[] = [];
   const host: PanelHost = {
-    createPanel: (title) => {
+    createPanel: (title, _ticketId, preserveFocus) => {
       const messageHandlers: Array<(m: unknown) => void> = [];
+      const viewStateHandlers: Array<(active: boolean) => void> = [];
       const panel: FakePanel = {
         title,
         revealed: 0,
+        createdPreserveFocus: preserveFocus,
+        revealedPreserveFocus: [],
         disposed: false,
         posted: [],
         icons: [],
         messageHandlers,
-        reveal: () => panel.revealed++,
+        viewStateHandlers,
+        reveal: (keepFocus) => {
+          panel.revealed++;
+          panel.revealedPreserveFocus.push(keepFocus);
+        },
         setIcon: (p) => panel.icons.push(p),
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => messageHandlers.push(h),
+        onDidChangeViewState: (h) => viewStateHandlers.push(h),
         onDidDispose: (h) => (panel.disposeHandler = h),
         dispose: () => {
           panel.disposed = true;
           panel.disposeHandler?.();
         },
         emit: (m) => messageHandlers.forEach((h) => h(m)),
+        emitViewState: (active) => viewStateHandlers.forEach((h) => h(active)),
       };
       panels.push(panel);
       return panel;
@@ -169,5 +178,102 @@ describe('DashboardManager', () => {
     panels[0]!.dispose();
     mgr.openDashboard(t.id);
     expect(panels).toHaveLength(2);
+  });
+
+  describe('terminal binding', () => {
+    const bind = (
+      enabled: boolean,
+      onDidActivate: (ticketId: number, active: boolean) => void = () => {},
+    ) => ({ enabled: () => enabled, onDidActivate });
+
+    it('tells a new panel where the binding currently sits', () => {
+      // The preference is host-owned and window-wide, so the webview renders
+      // what it is pushed rather than remembering its own copy.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        bind(true),
+      );
+
+      mgr.openDashboard(t.id);
+      expect(panels[0]!.posted).toContainEqual({ type: 'bind', enabled: true });
+    });
+
+    it('reports unbound when the host declares no binding at all', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      expect(panels[0]!.posted).toContainEqual({ type: 'bind', enabled: false });
+    });
+
+    it('pushBind reaches every open panel, not just the one that toggled', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      const b = createTicket(store, { key: 'B', title: 'b' });
+      const { host, panels } = fakeHost();
+      let on = false;
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { enabled: () => on, onDidActivate: () => {} },
+      );
+
+      mgr.openDashboard(a.id);
+      mgr.openDashboard(b.id);
+      on = true;
+      mgr.pushBind();
+
+      for (const panel of panels) {
+        expect(panel.posted).toContainEqual({ type: 'bind', enabled: true });
+      }
+    });
+
+    it('forwards panel activation, both gaining and losing it', () => {
+      // Losing activation is forwarded rather than filtered here: the panel
+      // reports what happened, the binder decides what it means.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        bind(true, (ticketId, active) => seen.push([ticketId, active])),
+      );
+
+      mgr.openDashboard(t.id);
+      panels[0]!.emitViewState(true);
+      panels[0]!.emitViewState(false);
+
+      expect(seen).toEqual([[t.id, true], [t.id, false]]);
+    });
+
+    it('creates and reveals without focus when the binding asked for it', () => {
+      // A bound reveal happens because the user clicked the TERMINAL. Taking
+      // focus would yank the caret out of the shell they are typing into.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(panels[0]!.createdPreserveFocus).toBe(true);
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(panels[0]!.revealedPreserveFocus).toEqual([true]);
+    });
+
+    it('takes focus on an ordinary open, as it always did', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      mgr.openDashboard(t.id);
+
+      expect(panels[0]!.createdPreserveFocus).toBeUndefined();
+      expect(panels[0]!.revealedPreserveFocus).toEqual([undefined]);
+    });
   });
 });

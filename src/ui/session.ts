@@ -7,7 +7,12 @@ import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
  * `vscode` module; the activation adapter supplies a real terminal.
  */
 export interface SessionTerminal {
-  show(): void;
+  /**
+   * Reveal the terminal. `preserveFocus` leaves the keyboard where it is (real:
+   * `Terminal.show(preserveFocus)`) — what the dashboard binding needs, since it
+   * reveals this terminal beside a panel the user just clicked.
+   */
+  show(preserveFocus?: boolean): void;
   /** Type a line into the running shell (real: `Terminal.sendText(text, true)`). */
   sendText(text: string): void;
   dispose(): void;
@@ -24,6 +29,21 @@ export interface SessionTerminal {
 export const KARST_TICKET_ENV = 'KARST_TICKET_ID';
 /** Environment key that preserves the terminal's provider-neutral generation. */
 export const KARST_LAUNCH_ENV = 'KARST_LAUNCH_ID';
+
+/**
+ * The ticket a terminal was launched for, read back out of its environment —
+ * the one and only terminal→ticket lookup. A terminal's env is the sole durable
+ * link (`SessionManager`'s map is ticket→terminal and does not survive a reload),
+ * and both consumers — session recovery and the dashboard binding — reach every
+ * terminal in the window, karst's or not. Anything but a positive integer id
+ * resolves to undefined rather than a coerced number.
+ */
+export function ticketIdFromTerminalEnv(
+  env: Readonly<Record<string, string | undefined>> | undefined,
+): number | undefined {
+  const raw = env?.[KARST_TICKET_ENV];
+  return typeof raw === 'string' && /^[1-9]\d*$/.test(raw) ? Number(raw) : undefined;
+}
 
 /** A host-discovered terminal previously created for a Karst ticket. */
 export interface RestoredSession {
@@ -92,6 +112,8 @@ export interface FakeTerminal extends SessionTerminal {
   iconPath?: string;
   color?: string;
   shown: number;
+  /** The `preserveFocus` argument of every `show`, in order. */
+  shownPreserveFocus: Array<boolean | undefined>;
   sent: string[];
   disposed: boolean;
   disposeHandler?: (exitCode?: number) => void;
@@ -335,9 +357,13 @@ export class SessionManager {
     return true;
   }
 
-  /** Reveal an already-open session; no-op if the ticket has none. */
-  focusSession(ticketId: number): void {
-    this.terminals.get(ticketId)?.show();
+  /**
+   * Reveal an already-open session; no-op if the ticket has none. Never creates
+   * one: the dashboard binding calls this on an ordinary panel activation, and
+   * launching an agent must stay an explicit act.
+   */
+  focusSession(ticketId: number, preserveFocus?: boolean): void {
+    this.terminals.get(ticketId)?.show(preserveFocus);
   }
 
   /** Whether a session terminal is currently open for a ticket. */

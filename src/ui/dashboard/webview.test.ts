@@ -243,6 +243,24 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/srvFilter:\s*srvFilter/);
   });
 
+  it('offers the terminal binding as a real pressed-state toggle', () => {
+    // Icon-free text button, but still a toggle: screen readers need the pressed
+    // state, since "Bind" alone does not say whether it is currently on.
+    expect(HTML).toContain('data-act="toggle-bind"');
+    expect(HTML).toMatch(/id="bindBtn"[^>]*aria-pressed/);
+  });
+
+  it('renders the binding from the host push, never from its own memory', () => {
+    // The binding is window-wide and host-owned: two dashboards are open at
+    // once, so a webview that remembered its own value would drift from the
+    // other panel and from the host after a toggle.
+    expect(HTML).toMatch(/'bind'|"bind"/);
+    expect(HTML).toMatch(/bindEnabled\s*=\s*[^;]*\bmsg\b/);
+    // Not persisted beside the snapshot, unlike sel/fixExpanded/srvFilter —
+    // the host re-pushes it on every open, so a stored copy could only be stale.
+    expect(HTML).not.toMatch(/setState\(\{ state:[^}]*bindEnabled/);
+  });
+
   it('no longer carries the removed impl-phase strip', () => {
     expect(HTML).not.toContain('renderSubsteps');
     expect(HTML).not.toContain('implPhases');

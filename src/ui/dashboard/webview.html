@@ -65,6 +65,18 @@
   .dhead a.keypill:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
   .dhead .keypill.local{border-style:dashed;color:var(--text-dim);
     background:transparent;cursor:default}
+  /* The terminal binding. Off is the default, so the resting look is quiet —
+     an outline, like every other non-primary control here. On is not a hover
+     shade but a filled chip: the button reports a mode that changes what
+     clicking a TAB does, and a state that subtle reads as "nothing happened". */
+  .dhead .bindtoggle{flex:none;background:transparent;color:var(--text-dim);
+    border:1px solid var(--border);display:inline-flex;align-items:center;gap:5px}
+  .dhead .bindtoggle:hover{background:var(--hover);color:var(--text)}
+  .dhead .bindtoggle .dot{width:6px;height:6px;border-radius:50%;
+    background:currentColor;opacity:.45}
+  .dhead .bindtoggle[aria-pressed="true"]{color:var(--vscode-button-foreground);
+    background:var(--vscode-button-background);border-color:transparent}
+  .dhead .bindtoggle[aria-pressed="true"] .dot{opacity:1}
   @media (prefers-reduced-motion:reduce){.dhead a.keypill:hover .arw{transform:none}}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
@@ -560,6 +572,8 @@
   <span id="keyPill"></span>
   <h1 id="title"></h1>
   <span class="agent" id="agent"></span>
+  <button id="bindBtn" class="bindtoggle" data-act="toggle-bind" aria-pressed="false"
+    title="Bind is off — this dashboard and the agent terminal move independently"><span class="dot" aria-hidden="true"></span>Bind terminal</button>
   <button id="followUpBtn" class="hidden" title="Create a new ticket linked to this one, pre-filled with its repos/approach/agent">Create follow-up</button>
   <button id="editBtn" title="Edit ticket">Edit</button>
 </div>
@@ -624,6 +638,11 @@
   let shipping = false;
   let shipOps = null;
   let shipDone = null;
+  // The window's terminal binding. UNLIKE the view state above, this is NOT a
+  // webview concern: it is one host-owned preference shared by every open
+  // dashboard, so it is never persisted here — a stored copy could only go
+  // stale against another panel's toggle. The host pushes it on every open.
+  let bindEnabled = false;
 
   // The steps a ship COULD show, in the order they happen. `describe` is
   // omitted unless it's actually touched (a ticket with no agent adapter never
@@ -1119,6 +1138,19 @@
     renderPrs(state.prs);
   }
 
+  // The toggle's label stays "Bind terminal" in both states — a button that
+  // renamed itself to the ACTION ("Unbind") reads, at a glance, as the state.
+  // aria-pressed and the fill carry the state; the tooltip spells out what the
+  // binding does, since the consequence lands on tabs elsewhere in the IDE.
+  function renderBind() {
+    const btn = el('bindBtn');
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', String(bindEnabled));
+    btn.title = bindEnabled
+      ? 'Bind is on — opening this dashboard reveals the agent terminal, and opening the terminal reveals this dashboard. Click to unbind.'
+      : 'Bind is off — this dashboard and the agent terminal move independently. Click to bind them.';
+  }
+
   // Selection is view state: persisted BESIDE the host's snapshot, never inside
   // it. Inside `state` it would be dropped by the next push (the host builds
   // that from the DB) and would put a webview concern in a host-owned type.
@@ -1230,6 +1262,14 @@
         shipOps[e.repo][e.step] = { status: e.status, detail: e.detail };
         render(lastState);
       }
+      return;
+    }
+    // The window's terminal binding. Host-owned: it is one preference shared by
+    // every open dashboard, so the webview renders what it is told and never
+    // decides — the click posts `toggle-bind` and waits for this message back.
+    if (msg.type === 'bind') {
+      bindEnabled = msg.enabled === true;
+      renderBind();
       return;
     }
     if (msg.type === 'state') {

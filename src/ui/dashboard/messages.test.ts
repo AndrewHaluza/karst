@@ -20,6 +20,7 @@ function actions(): DashboardActions {
     resumeTicket: vi.fn(),
     createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
+    toggleBind: vi.fn(),
   };
 }
 
@@ -186,5 +187,17 @@ describe('routeAction', () => {
     routeAction({ type: 'open-stage-log', path: 42 }, a);
     routeAction({ type: 'open-stage-log', path: '' }, a);
     expect(a.openStageLog).not.toHaveBeenCalled();
+  });
+
+  it('dispatches toggle-bind, carrying no state of its own', () => {
+    // The host owns the binding and flips it. A message that carried the desired
+    // value could disagree with the host — two panels racing, or a stale webview
+    // after a reload — and the pref is window-wide, so the two must not desync.
+    expect(parseWebviewMessage({ type: 'toggle-bind', enabled: false })).toEqual({
+      type: 'toggle-bind',
+    });
+    const a = actions();
+    routeAction({ type: 'toggle-bind' }, a);
+    expect(a.toggleBind).toHaveBeenCalledTimes(1);
   });
 });
