@@ -3,6 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
+import { setMergeCheck } from '../../store/mergeChecks.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import { buildDashboardState } from './state.js';
 
@@ -35,6 +36,36 @@ describe('buildDashboardState', () => {
     expect(state.servers[0]!.port).toBe(5173);
     expect(state.worktrees).toEqual([]);
     expect(state.prs).toEqual([]);
+  });
+
+  // The merge verdicts already feed the ship strip; the PR panel needs them at
+  // the top level too, because that is where the conflict is acted on and the
+  // webview cannot query the store.
+  it('exposes each repo’s current merge verdict alongside the PRs', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    setMergeCheck(store, {
+      ticketId: t.id,
+      repo: 'api',
+      state: 'conflicted',
+      files: ['src/a.ts'],
+      reason: null,
+      headSha: 'h',
+      baseSha: 'b',
+      baseRef: 'main',
+      checkedAt: '2026-07-28T12:00:00.000Z',
+    });
+
+    const state = buildDashboardState(store, t.id);
+
+    expect(state.mergeChecks).toEqual([
+      {
+        repo: 'api',
+        state: 'conflicted',
+        // Rendered host-side: the webview must never phrase a verdict of its own.
+        summary: 'conflicted (1 file: src/a.ts)',
+        checkedAt: '2026-07-28T12:00:00.000Z',
+      },
+    ]);
   });
 
   it('throws for an unknown ticket', () => {

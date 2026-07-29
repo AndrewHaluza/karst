@@ -17,6 +17,7 @@ import {
   SessionManager,
   type TerminalHost,
   type SessionTerminal,
+  type OpenSessionOptions,
 } from './ui/session.js';
 import {
   classifyRestoredSession,
@@ -68,12 +69,15 @@ import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
+import { syncMergeChecks } from './workflow/mergeSync.js';
+import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
 import { makePortAllocator } from './resolver/allocator.js';
 import { defaultGitRunner } from './integrations/git.js';
+import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import type { PathContext } from './ui/dashboard/state.js';
 import { writeRepoSignals } from './manifest/write.js';
@@ -219,6 +223,14 @@ const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
  * stacks.
  */
 const PR_SYNC_INTERVAL_MS = 60_000;
+
+/**
+ * How stale a stored merge verdict may get before the sweep re-probes it. Unlike
+ * a `gh` status call, every probe costs a `git fetch` per repo, so this rides the
+ * same one-minute tick but only spends a fetch every five — recent enough that a
+ * base moving under an open PR surfaces while the ticket is still on screen.
+ */
+const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
@@ -927,6 +939,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             makeTokenProvider(context),
           ),
         (event) => dashboard.postShipProgress(ticketId, event),
+        // A live session already owns the worktrees: nudge it and reveal the
+        // terminal so the user sees the agent take the job. With none open,
+        // launch one seeded with the brief instead of the ticket's own context.
+        (prompt) => {
+          if (sessions.nudge(ticketId, prompt)) {
+            sessions.focusSession(ticketId);
+            return;
+          }
+          void vscode.commands.executeCommand('karst.openSession', ticketId, {
+            seedPrompt: prompt,
+          });
+        },
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
@@ -1204,7 +1228,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
         projectId: project.id,
       });
-      if (changed > 0) {
+      // Mergeability rides the same tick: ship's verdict describes the base as
+      // it stood that minute, and the base keeps moving under an open PR. Same
+      // baseline the ship itself measured against, so the two can't disagree
+      // about which branch a repo merges into. The age floor keeps a multi-repo
+      // project from fetching once per repo per minute forever.
+      let mergeChanged = 0;
+      try {
+        mergeChanged = await syncMergeChecks(localStore, defaultGitRunner, {
+          scope: { projectId: project.id },
+          minAgeMs: MERGE_SYNC_MIN_AGE_MS,
+          baseRefFor: (repo) => {
+            const m = currentManifest();
+            return m ? resolveBaselineBranchForPath(m, repo) : null;
+          },
+        });
+      } catch (e) {
+        // The PR statuses above already landed; a failed merge sweep must not
+        // discard them or stop the next tick.
+        logError('karst: merge check sync failed', e);
+      }
+      if (changed > 0 || mergeChanged > 0) {
         provider.refresh();
         dashboard.pushAll();
       }
@@ -1288,7 +1332,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand(
       'karst.openSession',
-      async (arg: unknown, options: { reveal?: boolean; recovery?: boolean } = {}) => {
+      async (arg: unknown, options: OpenSessionOptions = {}) => {
         const ticketId = ticketIdArg(arg);
         if (ticketId === undefined) return;
         const adapter = currentAgentAdapter(ticketId);
@@ -1487,6 +1531,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           markerInstruction,
         );
       }
+      // A caller with one specific job for this session (the merge brief behind
+      // "Resolve conflicts") wins over every composed seed above, resume line
+      // included: the ticket's own context would bury the one instruction the
+      // click was about. Set host-side only — never from a webview message.
+      if (options.seedPrompt) seedPrompt = options.seedPrompt;
       const extraArgs =
         materialized.extraArgs.length > 0
           ? materialized.extraArgs
@@ -2170,6 +2219,11 @@ function makeDashboardActions(
   // `shipTicket` runs, so the confirm-ship click has visible progress instead
   // of a frozen button.
   onShipProgress: (event: ShipStepEvent) => void,
+  // Deliver a prompt to this ticket's session, live or not: nudge the open
+  // terminal, else launch one seeded with it. A conflict brief handed to
+  // `openSession` alone would be dropped whenever a session is already up —
+  // openSession only focuses an existing terminal.
+  handOffToSession: (prompt: string) => void,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {
@@ -2314,6 +2368,23 @@ function makeDashboardActions(
           logError('open stage log failed', e);
         }
       })();
+    },
+    // Hand one repo's conflict to an agent, briefed with where, against what,
+    // and which paths the probe named. karst runs no git itself here: the
+    // worktree may still have a session sitting in it, and a half-applied merge
+    // left by a button click is a state nobody asked for.
+    resolveConflicts: (repo) => {
+      if (!guardCapability('sessions', ticketId)) return;
+      // The store decides whether there is a conflict — the repo arrived in a
+      // webview message, and a stale panel can name one that has since gone.
+      const brief = buildConflictBrief(store, ticketId, repo);
+      if (!brief) {
+        void vscode.window.showInformationMessage(
+          `No merge conflict is recorded for "${repo}" on this ticket — nothing to resolve.`,
+        );
+        return;
+      }
+      handOffToSession(brief);
     },
   };
 }
