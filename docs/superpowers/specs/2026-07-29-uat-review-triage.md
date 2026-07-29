@@ -490,11 +490,48 @@ none of its bytes).
 **Not on the commit path either way:** gate artifacts already live in `globalStorage`. The relocation
 concerns service logs only.
 
-### B7 `LOW` — manifest validators never reject unknown keys
+### B7 `RESOLVED` — secret storage, and rejecting a value in the `secrets` block
 
-Verified: `schema.ts` hand-picks known fields. The spec's test "a value in the block is rejected"
-needs a deliberate strict check departing from house style. **Fix:** strict check on the `secrets`
-block only.
+Verified: `schema.ts` hand-picks known fields and silently ignores the rest, by house style. Everywhere
+else an ignored unknown key is inert. In `uat.secrets` it means **a live credential committed to git**
+via `karst.yml`, because the block exists precisely to hold names and never values.
+
+**Storage — reuse the seam that already exists.** `src/extension/secretStore.ts` is the
+CLAUDE.md-sanctioned split: a `SecretStore` interface (`get`/`store`/`delete` over `PromiseLike`) with
+no `vscode` import, bound to the real `context.secrets` in `secrets.ts`. OS-keychain backed. No new
+infrastructure; UAT secrets are additional keys through the same door.
+
+**Project-scoped keys — `karst.uat.<projectSlug>.<KEY>`.** `CLICKUP_TOKEN_KEY` is a flat global key,
+correct for one tracker token and wrong here: two projects have different sandbox credentials, and
+global storage is shared by every window — the trap `CLAUDE.md` documents for hook ports.
+
+**`karst.yml` holds names only.** A key *name* is not a secret, and the declarative list is what makes
+B1's fail-open reviewable: an added override shows in the PR diff, and a fresh clone shows which keys
+need values. Keeping the name list in the store instead would make the override set invisible to
+review, non-portable, and unvalidatable at load — a net loss.
+
+**The strict check:**
+
+| block | shape | on violation |
+| --- | --- | --- |
+| `uat.secrets` | list of strings (names) | **reject at load**, naming the field |
+| `uat.env` | mapping name→value (non-secret literals) | accepted |
+
+A mapping under `secrets:`, or any entry carrying a value, is refused. This deliberately departs from
+house style for one block, justified by it being the only block where the failure mode is a committed
+credential.
+
+**Plus a heuristic warning on `uat.env` values** matching known credential shapes (`sk_live_`,
+`sk_test_`, `ghp_`, `AKIA`, `SG.`) or high entropy. A warning, never a block — it cannot be reliable,
+and the mistake it catches (pasting a value into the wrong block) is the likely one.
+
+**Missing values surface at load and in settings**, not only as a boot failure — "3 declared, 1
+missing" is actionable where a failed spin three stages later is not.
+
+**Boundary: secrets are extension-host-only.** The `karst` CLI runs under plain `node` with
+`node:sqlite` and cannot read SecretStorage — and never needs to, since no CLI verb spawns a service.
+Secrets reach neither `karst.yml`, the DB, gate artifacts (B6's redaction seam), nor the agent's context
+(B4).
 
 ### B8 `RESOLVED` — `runCommand` inherits the developer's shell
 

@@ -508,8 +508,37 @@ a stack trace carrying a connection string — which is how secrets reach logs i
 survive base64 Basic Auth, percent-encoding, JSON-escaping, a value straddling the 1 MiB truncation
 boundary, or a derived token (a JWT signed *with* a secret contains none of its bytes).
 
-**OPEN (B7):** manifest validators hand-pick known fields and never reject unknown keys, so "a secret
-value in the block is rejected" needs a deliberate strict check departing from house style.
+### Where secrets live (B7, resolved)
+
+**Secrets are never plain text.** Values live in OS-keychain-backed storage through the seam that
+already exists — `src/extension/secretStore.ts` defines a `SecretStore` interface with no `vscode`
+import, bound to `context.secrets` in `secrets.ts`. UAT secrets are more keys through the same door, no
+new infrastructure.
+
+**Keys are project-scoped: `karst.uat.<projectSlug>.<KEY>`.** `CLICKUP_TOKEN_KEY` is flat and global,
+right for one tracker token and wrong here — two projects have different sandbox credentials, and
+global storage is shared by every window (the trap `CLAUDE.md` records for hook ports).
+
+**`karst.yml` holds names only**, and that is deliberate rather than a compromise: a key name is not a
+secret, and the declarative list is what makes B1's fail-open reviewable — an added override appears in
+the PR diff, and a fresh clone shows which keys need values. Names in the store instead would make the
+override set invisible to review, non-portable, and unvalidatable at load.
+
+**Strict validation on `uat.secrets` only.** `schema.ts` hand-picks known fields and ignores the rest by
+house style; everywhere else an ignored key is inert, but here it means a **live credential committed to
+git**. So `uat.secrets` must be a list of strings — a mapping, or any entry carrying a value, is
+**refused at load** with the field named. `uat.env` stays a normal mapping of non-secret literals.
+
+Plus a **warning** (never a block) when a `uat.env` value looks like a credential — `sk_live_`,
+`sk_test_`, `ghp_`, `AKIA`, `SG.`, or high entropy. It cannot be reliable, and the mistake it catches is
+the likely one: pasting a value into the wrong block.
+
+**Missing values surface at load and in settings** — "3 declared, 1 missing" — not only as a failed spin
+three steps later.
+
+**Secrets are extension-host-only.** The `karst` CLI runs under plain `node` with `node:sqlite` and
+cannot read SecretStorage; no CLI verb spawns a service, so it never needs to. Secrets reach neither
+`karst.yml`, the DB, gate artifacts, nor the agent's context.
 
 ---
 
