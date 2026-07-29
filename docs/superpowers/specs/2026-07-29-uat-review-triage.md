@@ -106,7 +106,8 @@ because Playwright already is one.
 
 **Trust property:** under-exploration remains possible; **fabrication does not**. An agent can visit
 fewer pages than it should, but it cannot make a 500 it *did* hit disappear from a trace it is not
-writing. Under-exploration is bounded by the coverage gate.
+writing. ~~Under-exploration is bounded by the coverage gate.~~ **Superseded by B3** — coverage is
+advisory and gates nothing, so under-exploration is bounded only by the review diff. See B5b.
 
 **Consequence — B2 is deleted.** The standalone guard proxy is unnecessary: karst is already in-path
 through Playwright's network interception, so denies and mutation budgets are enforced on traffic
@@ -116,7 +117,12 @@ base URL is baked into the bundle at build time.
 The throwaway exploration script lives outside `uat.testDir`, so it never collides with the fix guard
 (A3).
 
-### A3 `RESOLVED` — the coverage gate deadlocks
+### A3 `RESOLVED` (later superseded) — the coverage gate deadlocks
+
+> **Superseded twice, kept as the reasoning trail.** A4 removed the add-only rule (steps live in the
+> repo and must be repairable). B3 then made coverage advisory, so the deadlock this item describes
+> cannot occur at all — there is no coverage gate to fail. Current behaviour: B5's modification
+> flagging.
 
 `coverage` fails when a criterion has no passing test → the remedy is to write a test → tests live in
 `uat.testDir` → `fix` may not touch `testDir`. Unwinnable, which is exactly what the null rule exists
