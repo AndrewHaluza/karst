@@ -621,13 +621,13 @@ billing, and would break them invisibly — the failure mode this finding is abo
 | C6 `HIGH` | "teardown moves to boundaries that already exist: ship, done, archive, session close, dashboard Stop" | Only the dashboard Stop exists. `ship.ts`, `done.ts`, `archive.ts` contain zero server code. Archive also has an ordering bug **today**: worktree removed and ports released under a live pid | Four new call sites; fix the archive ordering |
 | C7 `HIGH` | implied: stacks die with the window | Children are `detached: true` and survive VS Code exit; `reconcileOnStart` only marks *dead* rows, so a survivor stays `running` forever | Reap on `deactivate`, or reconcile kills live orphans |
 | C8 `HIGH` | Stop works | `shouldContinue` is polled only *between* stages. One UAT stage is now boot (N × 30 s) + 5 gates × 15 min + a browser session — **Stop is inert for up to an hour** | `AbortSignal` through `RunCommandOptions` into the driver |
-| C9 `MED` | "no other files change" | `model/inside/gates.ts:1,113` imports and renders `UAT_GATE`; removing it breaks the build. The new gate list is dynamic and includes gates with no script, so `GateSpec` no longer models it | Model a dynamic gate list; update the dashboard stepper |
+| C9 `RESOLVED` | "no other files change" | `model/inside/gates.ts:1,113` imports and renders `UAT_GATE`; removing it breaks the build. The new gate list is dynamic and includes gates with no script, so `GateSpec` no longer models it | Model a dynamic gate list; update the dashboard stepper |
 | C10 `LOW` | "nine hardcoded `user_version` literals" | **29** in `db.test.ts` (from a stale `CLAUDE.md` line) | Correct the estimate — 3× |
-| C11 `MED` | `soloAgent` ships `uat-author` | It is the agent for a **`single-subagent`-approach ticket**, mutually exclusive with a real approach package | New distribution path needed |
-| C12 `MED` | "an approach artifact — the existing vocabulary" | Approach artifacts are *fetched from a declared external source*; karst authors no packages. Lane 2 would only work if the chosen approach happens to ship `uat-author` | Karst synthesizes/merges a package (new code in `assembleAndWrite`, which also runs `assertPackageContributes` + `sanitizeFrontmatter`) |
-| C13 `LOW` | — | Three competing homes for one agent identity: approach artifact, `agents:` block, `uat.author.agent` | Pick `agents:` |
-| C14 `HIGH` | "Phase 1 fixes the duplication bug" | A zero-config repo yields **all nulls → always green**, and `test` has been removed. For karst's own repo UAT goes from "runs the suite" to "runs nothing and passes" — *more* vacuous than today | Keep `test` in UAT until a non-null UAT gate exists, **or** make all-null a distinct non-pass |
-| C15 `HIGH` | `boot` failure → `fix` | Contradicts the null rule three paragraphs above. Real boot failures are "another process owns that port", 30 s health timeout on a 45 s boot, `ENOENT` on the start command — **none fixable by the agent**, all park the ticket at `fix` forever | Boot failure = `null` + a surfaced warning, never routes to `fix`. Or fail only when the service booted at baseline (comparative) |
+| C11 `RESOLVED` | `soloAgent` ships `uat-author` | It is the agent for a **`single-subagent`-approach ticket**, mutually exclusive with a real approach package | New distribution path needed |
+| C12 `RESOLVED` | "an approach artifact — the existing vocabulary" | Approach artifacts are *fetched from a declared external source*; karst authors no packages. Lane 2 would only work if the chosen approach happens to ship `uat-author` | Karst synthesizes/merges a package (new code in `assembleAndWrite`, which also runs `assertPackageContributes` + `sanitizeFrontmatter`) |
+| C13 `RESOLVED` | — | Three competing homes for one agent identity: approach artifact, `agents:` block, `uat.author.agent` | Pick `agents:` |
+| C14 `RESOLVED` | "Phase 1 fixes the duplication bug" | A zero-config repo yields **all nulls → always green**, and `test` has been removed. For karst's own repo UAT goes from "runs the suite" to "runs nothing and passes" — *more* vacuous than today | Keep `test` in UAT until a non-null UAT gate exists, **or** make all-null a distinct non-pass |
+| C15 `RESOLVED` | `boot` failure → `fix` | Contradicts the null rule three paragraphs above. Real boot failures are "another process owns that port", 30 s health timeout on a 45 s boot, `ENOENT` on the start command — **none fixable by the agent**, all park the ticket at `fix` forever | Boot failure = `null` + a surfaced warning, never routes to `fix`. Or fail only when the service booted at baseline (comparative) |
 | C16 `MED` | "explore skipped whenever gates 1–6 are non-green" | Ambiguous: is `null` non-green? If yes, explore never runs anywhere. If no, it runs with no server | Define: explore runs iff every gate is `0` or `null` **and** `boot` is `0` |
 | C17 `MED` | "parses the runner's report" | Five incompatible formats (JUnit/vitest/jest/playwright/mocha); N gates each with a `report:` but one `coverage` exit code; "passing" undefined per format (`test.skip` would parse as present); `report:` path base unspecified; `[AC-3]` free-match collides with any test *mentioning* it | Pick JUnit XML first; one report per project initially; define pass explicitly; resolve relative to the gate's repo; exact tag-prefix match. **No XML parser in the tree** — new dep or hand-rolled |
 | C18 `MED` | `frozen_at` prevents drift | No FK, no `UNIQUE(ticket_id, ordinal)`, and freezing is **per row** — a later extraction can INSERT a new unfrozen row beside frozen ones and move the goalposts | FK + unique constraint + freeze the whole set, not rows |
@@ -635,6 +635,49 @@ billing, and would break them invisibly — the failure mode this finding is abo
 | C20 `HIGH` | "adopt a hot stack" | `spinTicket` normally runs at *scope*, before implementation. A compiled service (Go, Java, built Next.js) adopted at UAT serves **pre-implementation code** — UAT declares criteria met by a binary predating the ticket | Freshness predicate: restart if HEAD moved since the server started. Needs `head_sha`/`started_at` on `servers` |
 | C21 `MED` | — | `testDir` is project-level but repos are many; `e2e/karst/` resolves against nothing in a multi-repo ticket | Per-repo, or relative to each gate's `repo:` |
 | C22 `LOW` | "review inherits a hot stack" | Review's `npm test` then runs against **bound ports**, breaking any suite that starts its own server | Decide explicitly; document |
+
+### C9, C11–C15 — resolutions
+
+**C14 + C15 are one bug.** Rev 2 wrote the per-gate null rule correctly, then let the *aggregate*
+convert "nothing ran" into `passed`. One rule closes both: **`null` is not a pass at the aggregate
+level either.** Every gate `null` → stage verdict `null` → `machine.ts` does not transition → the
+driver parks needs-you. No new concept; that is what `Verdict = null` already means.
+
+**C14 — and the premise was wrong.** The fix is not to remove `test` from UAT. The bug is that `test`
+was UAT's **only** gate: `UAT_GATE` is singular, so UAT asked one question and another stage asked it
+too. `npm test` is the conventional entry point and usually the cheapest suite, so it **stays in UAT,
+first** — cheap-fails-fast is the entire argument for static-before-boot. Whether *review* keeps its
+`test` gate is out of scope; the review stage is being rethought separately and `test` may leave from
+that end.
+
+Also: probe `package.json` when `uat.gates` is absent (`test`, `test:integration`, `e2e`, `test:e2e`,
+`cypress`, `playwright`), so most repos need no config; an explicit list always wins. Genuinely nothing
+to run → `null` → park, with a message naming the scripts karst looked for.
+
+**C9 — the guard test's invariant changes.** "UAT never names `test`" was wrong, since `test` belongs in
+UAT. The checkable property is **UAT's gate set is not a subset of review's** — UAT must ask at least one
+question review does not. That survives review being rethought; a name ban would not. `UAT_GATE` becomes
+a gate *list*, and `model/inside/gates.ts:1,113` is updated rather than left to break the build.
+
+**C15 — a failed boot does not transition.** Port owned by another process (`startHot` throws by design),
+30 s health timeout on a 45 s boot, `ENOENT` on the start command, a crash on a missing UAT secret (B1):
+**none agent-fixable.** Rev 1 routed to `fix` (three wasted attempts, then a park); rev 2's `null` +
+warning was worse, since nothing blocked and UAT reported **green on a stack that never came up**. Stage
+verdict is `null`, no transition, no attempt consumed. Rejected: a comparative baseline predicate — needs
+baseline state, does not help the common case.
+
+**C11, C12, C13 — the `agents:` block, with a built-in default.** `manifest.agents?:
+Record<string, AgentDef>` already exists (role-keyed), bodies are markdown under `agentsDir` (VS Code
+setting `karst.agentsDir`, default `./.karst/agents`), and `readAgentFile`/`writeAgentFile`/
+`agentStarterTemplate` plus the settings UI are already built. `uat-author` is one more role. No
+configured agent → a shipped default prompt, so zero-config works and the role stays swappable.
+
+Rejected: **approach artifact** (packages are *fetched from a declared external source*; karst authors
+none, and synthesizing one means new code inside `assembleAndWrite` beside `assertPackageContributes`
+and `sanitizeFrontmatter`); **`soloAgent`** (it is the agent for a `single-subagent`-approach ticket,
+mutually exclusive with a real approach package); **a third `uat.author.agent` identity** (rev 1 cited
+all three at once). C11 concerns *identity* only — the launch mechanism may share code with `soloAgent`.
+
 
 ---
 

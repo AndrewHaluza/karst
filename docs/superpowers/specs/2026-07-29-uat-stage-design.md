@@ -23,6 +23,15 @@ export const REVIEW_GATES = [lint, typecheck, { name: 'test', script: 'test', ar
 Same script, same worktree, minutes apart. A ticket passing UAT passes review's `test` gate for
 identical reasons. **The stage carries no independent signal.**
 
+**Precisely: the bug is not the overlap — it is that `test` is UAT's *only* gate.** `UAT_GATE` is
+singular; UAT asks exactly one question, and another stage asks it too. Give UAT a real gate list and
+the shared entry stops mattering. `npm test` is the conventional entry point and usually the cheapest
+suite in the repo, so it **stays in UAT, first**, where cheap-fails-fast is the whole argument for
+running static gates before booting anything.
+
+Whether review keeps its `test` gate is **out of scope here** — the review stage is being rethought
+separately, and `test` may well leave from that end instead.
+
 And there is a second, worse bug underneath it. `graph.ts:33`:
 
 ```ts
@@ -105,7 +114,7 @@ and exhaustion lands somewhere a human can act.
 Order matters, and the ordering is a correctness argument, not just a cost one.
 
 ```
-1. static gates      unit → integration → e2e          NO karst stack
+1. static gates      test → integration → e2e          NO karst stack
      ↓ any FAILED → fixUat  (a spin was never paid for)
 2. boot              spin + health
 3. author            agent writes e2e steps against the LIVE app
@@ -117,6 +126,15 @@ Order matters, and the ordering is a correctness argument, not just a cost one.
                      never a verdict (B3)
 ```
 
+**Cheapest first.** `test` (seconds) → integration (tens of seconds) → e2e (minutes). Ordering is by
+cost, so the cheapest signal fails fastest.
+
+**All static gates run; no short-circuit on first failure.** The attempt cap makes complete information
+per attempt worth more than saved minutes — an agent that learns about the unit failure only, fixes it,
+re-enters and *then* hits the integration failure has spent two of three attempts to learn what one
+could have told it. Known cost: when `test` is red, e2e failures are usually cascades and add noise.
+Revisit if that noise proves worse than the extra attempt.
+
 **Why static first.** Red unit/integration/e2e is an obvious push back to fix; spending an agent to
 confirm what a failing suite already reported is waste. A red unit test never pays for booting a
 multi-repo stack.
@@ -125,27 +143,48 @@ multi-repo stack.
 `webServer`. If karst's boot already holds those ports, the repo's e2e fails to start for a reason
 unrelated to the ticket. Running repo suites first lets each manage its own lifecycle.
 
-**Verdict:** passed iff every gate that RAN exits 0. A gate whose script the repo does not define
-records `null` and says nothing — `npm run e2e` in a repo with no e2e script exits 1 with "Missing
-script", a fact about configuration, not about the ticket's code.
+**Verdict:** passed iff every gate that RAN exits 0 **and at least one gate ran**. A gate whose script
+the repo does not define records `null` and says nothing — `npm run e2e` in a repo with no e2e script
+exits 1 with "Missing script", a fact about configuration, not about the ticket's code.
 
-`test` is **removed** from UAT; `scripts.test.ts` gets a guard asserting UAT never names it.
+**`null` is not a pass at the aggregate level either (C14, C15).** Rev 2 wrote the per-gate null rule
+correctly and then let the aggregate convert "nothing ran" into "passed". Every gate `null` → the stage
+verdict is `null` → `machine.ts` does not transition → the driver parks needs-you. No new concept: that
+is what `Verdict = null` already means.
+
+**The guard test is an invariant, not a name ban.** Rev 2 said "`scripts.test.ts` asserts UAT never
+names `test`", which was the wrong invariant — `test` belongs in UAT. The checkable property is that
+**UAT's gate set is not a subset of review's**: UAT must ask at least one question review does not. That
+survives review being rethought later, which a name ban would not.
 
 ### boot
 
 Not a `GateSpec` — it runs no script.
 
-| Situation | `boot` | Downstream |
-|---|---|---|
-| No runnable repository in scope | `null` | steps record `null` (nothing to drive) |
-| All services healthy | `0` | proceed |
-| A service failed to come up | `null` + surfaced warning · **OPEN (C15)** | — |
+| Situation | `boot` | Stage verdict | Outcome |
+|---|---|---|---|
+| No runnable repository in scope | `null` | from the static gates alone | proceed on those |
+| All services healthy | `0` | continues to steps | proceed |
+| A service failed to come up | `null` + warning | **`null`** | **park, needs-you** |
 
-**OPEN (C15):** rev 1 routed a failed boot to `fix`, contradicting the null rule three paragraphs
-above it. Real boot failures are "another process owns that port", a 30 s health timeout on a 45 s
-boot, `ENOENT` on the start command — **none agent-fixable**, all would park the ticket forever.
-Current position: record `null` and surface a warning. Alternative under consideration: fail only
-when the service booted successfully at baseline (comparative).
+### A failed boot does not transition (C15, resolved)
+
+Boot fails when another process owns the port (`startHot` throws by design), when health times out at
+30 s on a service that needs 45 s, when the start command is `ENOENT`, or when the service crashes on
+startup — including on a missing UAT secret (B1). **None of these are agent-fixable.** The agent cannot
+free a port owned by another app, speed up a slow boot, or install a missing binary.
+
+Rev 1 routed boot failure to `fix` — three wasted agent attempts before parking. Rev 2 changed it to
+`null` + a warning, which is worse: under the null rule nothing blocks, the steps also record `null`, and
+**UAT reports green on a stack that never came up.** That is not "karst had no question to ask", it is
+the question failing to be asked.
+
+**Resolution: the stage verdict is `null`, and `null` never transitions.** The ticket does not advance,
+the driver halts, needs-you, and no attempt is consumed. Nothing new is required — `machine.ts` already
+behaves this way; rev 2's error was aggregating `null` into `passed`. Same rule as C14.
+
+Rejected: a comparative predicate (fail only when the service booted at baseline) — needs baseline state
+and does not help the common case.
 
 **OPEN (C3, C4, C5, C20):** adopt-or-spin is not extractable from `spin.ts` as rev 1 assumed.
 `allocator.allocate` unconditionally INSERTs, so a second resolve returns *different* ports while
@@ -319,10 +358,28 @@ buys. Accepted as a risk; the lever, if review quality proves to be the weak lin
 one of them blocking — B5 being the best candidate, since a false positive there costs a reviewer
 thirty seconds instead of parking a ticket.
 
-**OPEN (C11, C12, C13):** how the agent actually ships. `soloAgent` is for `single-subagent`-approach
-tickets and cannot double as this. Approach artifacts are *fetched from a declared external source* —
-karst authors no packages, so rev 1's "the existing vocabulary" was wrong. And rev 1 gave the agent
-three competing homes (approach artifact, `agents:` block, `uat.author.agent`); pick `agents:`.
+### Where the agent lives (C11, C12, C13 — resolved)
+
+**The `agents:` block, with a built-in default.** `manifest.agents?: Record<string, AgentDef>` already
+exists — role-keyed, `{ role, command?, promptPath?, enabled? }`. Bodies are markdown files under
+`agentsDir` (a VS Code setting, `karst.agentsDir`, default `./.karst/agents`), and
+`readAgentFile`/`writeAgentFile`/`removeAgentFile` plus `agentStarterTemplate` and the settings UI that
+creates and edits them are all already built. `uat-author` is one more role through that door.
+
+**No configured `uat-author` → karst uses a shipped default prompt.** Without the fallback, UAT needs
+both a gate and an agent configured before it does anything, and C14's config friction spreads. With it,
+zero-config works and the role stays swappable — which was the requirement.
+
+Rejected:
+
+| home | why not |
+| --- | --- |
+| approach artifact | approach packages are **fetched from a declared external source**; karst authors none. Lane 2 would work only if the user's chosen approach happens to ship a `uat-author`, and making karst synthesize one means new code inside `assembleAndWrite`, alongside `assertPackageContributes` and `sanitizeFrontmatter`. Rev 1's "the existing vocabulary" was wrong. |
+| `soloAgent` | it is the agent for a **`single-subagent`-approach ticket**, mutually exclusive with a real approach package |
+| `uat.author.agent` as a third name | rev 1 cited all three homes at once; identity needs exactly one |
+
+**Scope:** C11 is about *identity*, not plumbing. Declaration must live in `agents:`; the mechanism that
+launches a configured role agent with a body may share code with the `soloAgent` path, which is fine.
 
 ---
 
@@ -602,14 +659,32 @@ uat:
   testDir: e2e/karst          # authored steps; fix modifications flagged in review
   maxFixAttempts: 3
   isolation: none             # cut candidate
-  gates:
+  gates:                      # omitted entirely → karst probes package.json (below)
+    - { name: test,        kind: script, script: test }
     - { name: integration, kind: script, script: "test:integration" }
     - { name: e2e,         kind: script, script: e2e, repo: web,
         report: "reports/junit.xml" }
+  env:                        # B1 — non-secret literals, committed
+    SMTP_HOST: "127.0.0.1"
+  secrets:                    # B1 — names only; values in OS keychain
+    - STRIPE_SECRET_KEY
   author:
-    agent: uat-author         # → the `agents:` block (C13)
+    agent: uat-author         # → the `agents:` block; omit for the built-in default
     enabled: true
 ```
+
+### Zero-config repos (C14, resolved)
+
+Removing `test` from UAT would have left the **median repo — including karst's own** — with every gate
+`null` and therefore a vacuous green: UAT going from "runs the whole suite" to "runs nothing and passes",
+strictly worse than the bug being fixed. `test` staying in UAT is most of the answer. Two more parts:
+
+**Probe when `uat.gates` is absent.** karst reads `package.json` and uses whichever of `test`,
+`test:integration`, `e2e`, `test:e2e`, `cypress`, `playwright` exist. Most repos need no configuration at
+all; an explicit `gates:` list always wins.
+
+**Genuinely nothing to run → `null` → park.** Not a pass. The needs-you message names the scripts karst
+looked for, so the fix is one line of config rather than a mystery.
 
 An absent `uat:` block yields the default pipeline. Per the new-`Manifest`-field checklist:
 `types.ts`, `validateManifest`, the `writeManifest` overlay, and `manifest/fixtures.ts`.
@@ -621,8 +696,11 @@ each gate's `repo:`.
 
 ## Phasing
 
-**Phase 0 — one commit, ships immediately.** Delete `UAT_GATE`, update its `inside/gates.ts` consumer,
-add the anti-duplication guard test. This is the literal stated bug.
+**Phase 0 — one commit, ships immediately.** Replace the singular `UAT_GATE` constant with a UAT gate
+**list** whose first entry is `test`, update its `inside/gates.ts` consumer (C9 — deleting the constant
+outright breaks the build), and add the guard test asserting **UAT's gate set is not a subset of
+review's**. That is the literal stated bug: UAT had exactly one gate and another stage asked the same
+question.
 
 **Phase 1 — make UAT gate.** The `fixUat`/`fixReview` split + migration, the attempt cap, static gates,
 `boot` with adopt-or-spin, `env` threading with the allowlist, the `AbortSignal` cancel path, and the
