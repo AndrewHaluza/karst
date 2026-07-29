@@ -1,638 +1,439 @@
 # UAT stage — design
 
 **Ticket:** 869ea5xpu — [FEAT] Implement UAT stage to run actual testing
-**Date:** 2026-07-29
-**Status:** approved design, pending implementation plan
+**Date:** 2026-07-29 (rev 2, post-review)
+**Status:** structural design settled; security + correctness items tracked in
+`2026-07-29-uat-review-triage.md`
+
+> **Rev 2** rewrites rev 1 after three reviews (architecture, security, skeptical feasibility).
+> Rev 1's four structural claims were wrong; they are resolved here. Items still open carry an
+> `OPEN (id)` marker pointing at the triage.
 
 ---
 
 ## Problem
 
-`src/workflow/stages/uat.ts` runs `npm test` in the ticket's worktree. `src/workflow/gates/scripts.ts`:
+`src/workflow/stages/uat.ts` runs `npm test` in the ticket's worktree. `gates/scripts.ts`:
 
 ```ts
 export const UAT_GATE: GateSpec = { name: 'test', script: 'test', args: ['test'] };
 export const REVIEW_GATES = [lint, typecheck, { name: 'test', script: 'test', args: ['test'] }];
 ```
 
-UAT runs the same script, in the same worktree, minutes before review runs it again. A ticket that
-passes UAT passes review's `test` gate for identical reasons. **The stage carries no independent
-signal.** It occupies a node in the graph, consumes an attempt, writes a `gate_runs` row, and
-answers a question review already answers.
+Same script, same worktree, minutes apart. A ticket passing UAT passes review's `test` gate for
+identical reasons. **The stage carries no independent signal.**
 
-Meanwhile karst owns machinery nothing in the pipeline uses at gate time:
+And there is a second, worse bug underneath it. `graph.ts:33`:
 
-- `runtime/spin.ts` — spins the full multi-repo stack with allocated ports and `dependsOn` env binding
-- `runtime/health.ts` — `waitForHealth` / `isServing`, backoff, abort
-- `manifest` `service.health` + `service.ports` — every runnable repo already declares its proof-of-boot
-- `context/ticketContext.ts` — the ticket's acceptance criteria, already assembled
+```ts
+uat: { passed: 'review', failed: 'fix' },
+fix: { passed: 'review' },   // ← re-enters review, never uat
+```
 
-The stage that should exercise the *running system* is the only stage that never starts it.
+**A ticket that fails UAT ships without ever passing UAT.** Today the duplicate `test` gate masks
+this — review re-runs the same suite. Make UAT ask a different question and the hole opens: boot,
+e2e, and coverage results would be discarded and never re-checked.
 
-And "some suites are green" is not acceptance. UAT must answer a narrower question: **were this
-ticket's acceptance criteria demonstrably met by the running system?**
+Meanwhile karst owns machinery nothing uses at gate time: `runtime/spin.ts` (multi-repo stack,
+allocated ports, `dependsOn` binding), `runtime/health.ts`, every runnable repo's declared
+`service.health`, and the ticket's acceptance criteria in `context/ticketContext.ts`.
+
+The stage that should exercise the running system is the only one that never starts it.
 
 ## Research
 
-Three sources, converging:
-
 - [Computer-Use Agents for UI Verification](https://vadim.blog/computer-use-agents-ui-verification/) —
-  "the agent explores, a deterministic verifier judges." Browser dependencies are lazy-imported so
-  the pure verdict function provably cannot touch browser state; a self-test asserts `playwright`
-  never entered `sys.modules`. This is karst's "verdict is the exit code, output is evidence" rule
-  one layer up, and it is the direct model for Lane 3 below.
+  "the agent explores, a deterministic verifier judges", with browser deps lazy-imported so the
+  verdict function provably cannot touch browser state. Rev 1 cited this and then inverted it; rev 2
+  applies it properly (see Lane 2).
 - [AAID acceptance testing workflow](https://github.com/dawid-dahl-umain/augmented-ai-development/blob/main/appendices/appendix-a/docs/aaid-acceptance-testing-workflow.md) —
-  acceptance tests are "an automated, objective Definition of Done", run against a production-like
-  running system with real services. Unit tests catch regressions; acceptance tests prevent building
-  the wrong thing. Different questions, different gates.
-- [Codacy — why coding agents need independent quality gates](https://blog.codacy.com/why-coding-agents-need-independent-quality-gates) —
-  verification must be independent of the generator; at scale it is governance, not a reviewer's job.
+  acceptance tests are "an automated, objective Definition of Done" against a production-like running
+  system. Unit tests catch regressions; acceptance tests prevent building the wrong thing.
+- [Codacy — independent quality gates](https://blog.codacy.com/why-coding-agents-need-independent-quality-gates) —
+  verification must be independent of the generator.
 
 Consensus: binary verdicts, outcome verification against real end state, **the generator never grades
 itself**.
 
 ---
 
-## Architecture — three lanes
+## The stage graph
 
-The load-bearing decision: **testing is programmatic; AI produces inputs to it and never judges it.**
-Two different agents with two different products, and neither one's opinion reaches the machine.
+`fix` must return to the stage that failed. A single `fix` with a remembered origin would make the
+return edge dynamic — and `STAGE_GRAPH` being a static verdict-keyed table where a missing edge
+**throws** is the property `graph.ts` exists to have. So the stage splits:
 
-| Lane | Actor | Produces | Judges? |
-|---|---|---|---|
-| **1** | karst code | boot / script / coverage gates | **the verdict** |
-| **2** | `uat-author` | test *files* | never |
-| **3** | `uat-explorer` | *observations* — browses, clicks, calls APIs | facts only, via a pure reducer |
-
-Lane 2 writes scripts. Lane 3 does not — it exercises the running implementation the way a person
-would and writes down what it saw. They are separate roles because they are separate jobs.
-
-### Where the invariant holds
-
-Lane 1 has no agent on it, so §5.4 holds trivially.
-
-Lane 3 is the delicate one. An exploratory agent's *conclusion* is a self-report and is refused. Its
-*observations* are not:
-
-```
-explorer collects  →  { httpStatuses, consoleErrors, unhandledRejections,
-                        networkFailures, criterion → observed | not-observed }
-                          ↓
-karst reduces (pure fn)  →  fails ONLY on machine facts:
-                               5xx response, console error, unhandled rejection,
-                               failed network request
-                            never on "the feature works"
-                            an uncovered criterion is reported, not failed
+```ts
+uat:       { passed: 'review', failed: 'fixUat' },
+review:    { passed: 'ship',   failed: 'fixReview' },
+fixUat:    { passed: 'uat' },
+fixReview: { passed: 'review' },
 ```
 
-Everything softer — "this looks wrong", a severity rating, a suggested fix — is written to the
-ticket's artifact for the human at review, and touches no verdict. Karst's judge only ever reads
-status codes and error streams, which the explorer *collected* but did not *evaluate*.
+```
+scope → impl → uat → review → ship → done
+                ↑ ↓fail        ↑ ↓fail
+            fixUat ┘       fixReview ┘
+```
+
+`isBranch()` derives both automatically — no list to maintain.
+
+**Cost:** one new stage key, a migration mapping existing `fix` rows, `MARKER_STAGES` gains an entry,
+sidebar/dashboard stage classes, and CLI marker vocabulary. Nothing else in this document gates
+anything until this lands.
+
+### The attempt cap
+
+`fixUat → uat` means every fix re-boots the stack and re-runs the gates. That is the real cost driver,
+and the cap is what bounds it. It is **driver policy, not a graph edge** — `Verdict` is only
+`passed｜failed｜null`, and "attempts exhausted" is not a verdict.
+
+| | |
+|---|---|
+| Counted | Per gate stage, independent. Needs no new state — `stages` is keyed `(ticket_id, stage_key)` and already carries `attempt`. |
+| Exhausted | Park at `fixUat`, needs-you, **no auto-resume**. Driver halts with reason `attempts-exhausted`; `autoResumeFix` does not fire. |
+| Explorer | Same cap. An authored-step failure consumes an attempt like any other. |
+| Configured | `uat.maxFixAttempts`, default 3. |
+
+This is the answer to every "parks the ticket at fix forever" objection: nothing loops indefinitely,
+and exhaustion lands somewhere a human can act.
 
 ---
 
-## Lane 1 — the gate pipeline
+## The UAT pipeline
 
-One stage, N named gates in one `gate_runs` batch — the idiom `runReview` already uses, with a
-different list.
+Order matters, and the ordering is a correctness argument, not just a cost one.
 
 ```
-1. boot          pure code — adopt-or-spin the stack, waitForHealth every service.health
-2. smoke         npm run smoke
-3. integration   npm run test:integration
-4. e2e           npm run e2e
-5. custom…       manifest-declared commands
-6. coverage      pure code — every frozen criterion has ≥1 passing tagged test
-7. explore       Lane 3, reduced to facts. Runs ONLY if 1–6 are all green.
-
-verdict = passed iff every gate that RAN exits 0
+1. static gates      unit → integration → e2e          NO karst stack
+     ↓ any FAILED → fixUat  (a spin was never paid for)
+2. boot              spin + health
+3. author            agent writes e2e steps against the LIVE app
+4. run steps         karst executes them under karst's Playwright config
+5. coverage          every criterion has a passing tagged step
+     ↓ any FAILED → fixUat
+     ↓ passed → review
 ```
 
-Unit tests stay in `review`. `test` is **removed** from UAT — that removal is the fix for the
-duplication above, and `scripts.test.ts` gets a guard asserting UAT never names it.
+**Why static first.** Red unit/integration/e2e is an obvious push back to fix; spending an agent to
+confirm what a failing suite already reported is waste. A red unit test never pays for booting a
+multi-repo stack.
 
-### Null is not a verdict
+**Why boot after the repo's own suites.** A standard Playwright suite starts its own server via
+`webServer`. If karst's boot already holds those ports, the repo's e2e fails to start for a reason
+unrelated to the ticket. Running repo suites first lets each manage its own lifecycle.
 
-Unchanged, and it is the rule the pipeline rests on: a gate whose script the repo does not define
-records `exitCode: null` and says nothing. `npm run e2e` in a repo with no e2e script exits 1 with
-"Missing script" — a fact about configuration, not about the ticket's code — and reading it as a
-failure parks the ticket at `fix` forever, where the agent cannot fix code that is not broken.
+**Verdict:** passed iff every gate that RAN exits 0. A gate whose script the repo does not define
+records `null` and says nothing — `npm run e2e` in a repo with no e2e script exits 1 with "Missing
+script", a fact about configuration, not about the ticket's code.
 
-### boot, and fail-fast
+`test` is **removed** from UAT; `scripts.test.ts` gets a guard asserting UAT never names it.
 
-`boot` is not a `GateSpec` — it runs no script. It resolves the ticket's runnable repositories,
-adopts already-live servers, spins the cold ones, and waits on each `service.health`.
+### boot
 
-| Situation | `boot` exit | Downstream |
+Not a `GateSpec` — it runs no script.
+
+| Situation | `boot` | Downstream |
 |---|---|---|
-| No runnable repository in scope | `null` | **gates 2–6 run normally**; `explore` records `null` |
-| All services healthy | `0` | run normally |
-| A service failed to come up | `1` | gates 2–7 record `null` — "boot failed, nothing to probe" |
+| No runnable repository in scope | `null` | steps/coverage record `null` (nothing to drive) |
+| All services healthy | `0` | proceed |
+| A service failed to come up | `null` + surfaced warning · **OPEN (C15)** | — |
 
-Row 1 versus row 3 is the important distinction. `null` means karst had no question to ask, so a
-non-runnable repository (karst's own extension repo) still gets its script gates — those may not need
-a server. A *failed* boot is different: probing a dead server tells you nothing about the ticket, so
-everything downstream records `null` rather than a cascade of misleading failures, and the verdict
-fails on `boot` alone.
+**OPEN (C15):** rev 1 routed a failed boot to `fix`, contradicting the null rule three paragraphs
+above it. Real boot failures are "another process owns that port", a 30 s health timeout on a 45 s
+boot, `ENOENT` on the start command — **none agent-fixable**, all would park the ticket forever.
+Current position: record `null` and surface a warning. Alternative under consideration: fail only
+when the service booted successfully at baseline (comparative).
 
-### Environment
+**OPEN (C3, C4, C5, C20):** adopt-or-spin is not extractable from `spin.ts` as rev 1 assumed.
+`allocator.allocate` unconditionally INSERTs, so a second resolve returns *different* ports while
+running servers keep the old set; `startHot` **throws by design** when the health URL already answers;
+there is no `adopted` concept for servers; and a stack spun at scope serves **pre-implementation
+code** for any compiled service, so adoption needs a freshness predicate.
 
-Gates receive the environment a service would: `buildSpawnEnv`'s output — allocated ports and
-rendered `dependsOn` binds — so an e2e suite discovers its base URLs exactly as a dependent service
-discovers its peers, with no per-ticket config.
+### Types
 
-One additive change: `RunCommandOptions` (`gates/run.ts`) gains an optional `env`, threaded into the
-existing `spawn`. Nothing else about `runCommand` changes — the async spawn stays, and its "leaves
-the event loop free while the child runs" guard still holds.
-
-### Evidence
-
-One `gate_runs` batch per invocation, one row per gate, written inside `transition`'s `premutate` so
-evidence and verdict commit atomically, with `attempt` read *before* the machine bumps it.
-`gate_name` is free text in `schema.sql`, so the new gate names need no migration of their own.
+**OPEN (C1):** `CommandResult.exitCode` is `number` and cannot express `null`, which `boot`, the step
+runner, and `coverage` all need. Use `GateResult` (`review.ts:24-40`), moved to a shared module.
 
 ---
 
-## Acceptance criteria — the coverage gate
+## Lane 1 — programmatic gates
 
-Without this, UAT is e2e testing wearing a UAT label: the gate goes green when the tests the agent
-*chose to write* pass, and nothing proves criterion 3 was tested at all.
+No agent on this path, so §5.4 holds trivially. Gates go through `runCommand` (async spawn, so the
+extension host keeps serving hooks and webviews) and record one `gate_runs` batch per invocation
+inside `transition`'s `premutate`, with `attempt` read *before* the machine bumps it.
 
-### Pipeline
+`gate_name` is free text in `schema.sql`, so new gate names need no migration of their own.
 
-```
-ClickUp free text
-   → AI extract   (uat-author, at impl)  → numbered list, AC-1 … AC-n
-   → AI review    (second pass)          → coherence check: does each one make sense,
-                                            is it verifiable, does it duplicate another
-   → frozen                              → stable for the ticket's whole life
-   → coverage gate (pure code)           → deterministic
-```
+**OPEN (C8):** `shouldContinue` is polled only *between* stages. One UAT stage is now boot + N gates
+at 15 min each + an agent session — **Stop is inert for up to an hour.** Needs an `AbortSignal`
+through `RunCommandOptions` and into the driver.
 
-Both AI passes produce a *list*, which is data. The gate over that list is pure code.
+**OPEN (C9):** `model/inside/gates.ts:1,113` imports and renders `UAT_GATE`; removing it breaks the
+build. The new gate list is dynamic and includes gates with no script, so `GateSpec` no longer models
+it.
 
-### Storage
+**OPEN (C14):** a zero-config repo yields all nulls → **always green**, and `test` has been removed —
+*more* vacuous than today. For karst's own repo UAT would go from "runs the suite" to "runs nothing
+and passes". Either keep `test` until a non-null UAT gate exists, or make all-null a distinct
+non-pass.
 
-Criteria must survive every attempt identically, so they are rows, not an artifact file:
+---
+
+## Lane 2 — the agent authors steps; Playwright is the harness
+
+One agent, one artifact. "Author e2e steps" and "explore" are the same act.
+
+### The trust model
+
+The agent **never authors evidence**. It drives a Playwright session **karst configures**, and karst
+reads Playwright's own artifacts:
+
+| Machine fact | Source |
+|---|---|
+| Console errors | `page.on('console')` / trace |
+| Unhandled rejections | `page.on('pageerror')` |
+| Failed network requests | `page.on('requestfailed')` |
+| HTTP statuses | `page.on('response')` / trace |
+
+This is the vadim.blog split — harness drives, agent chooses actions — without building a CDP layer,
+because Playwright already is one.
+
+**Trust property: under-exploration remains possible; fabrication does not.** An agent can visit fewer
+pages than it should, but it cannot make a 500 it *did* hit disappear from a trace it is not writing.
+Under-exploration is bounded by the coverage gate.
+
+Rev 1 had the agent emit an `ExplorationRecord` that a "pure" `reduceExploration` consumed — which
+faithfully reduced whatever the agent claimed. That was agent self-report with a JSON hop, and it is
+deleted.
+
+### Mechanics
+
+| | |
+|---|---|
+| Playwright source | The repo under test (`npx playwright` in the worktree, repo's own install and browsers). Karst ships nothing. Absent → the step gate records `null`. |
+| Action channel | The agent writes a Playwright script; **karst runs it with karst's config** (reporter, trace, console/network capture, base URL). The script cannot disable capture because it does not own the config. |
+| API side | Playwright's `APIRequestContext` — same trace, one evidence stream, UI and API findings correlate in one artifact. |
+| Reuse | Authored once on first UAT arrival, **replayed** on re-entry. Attempts 2–3 are free and deterministic; a fix is judged against the same bar that failed it. |
+| Persistence | **Written into the repo from the start**, on the ticket's branch, into `uat.testDir`. They ride into the PR and are reviewed as code. |
+| Stale steps | The fix agent **may modify** them; every modification is flagged prominently in the review diff. |
+
+### Authored steps must be repo-runnable
+
+They become part of the repo's suite, so on the *next* ticket they run in **step 1, the static
+phase**, before karst boots anything. They must therefore target the repo's normal e2e entry point and
+`webServer` config — **never karst's injected per-ticket ports**. A step depending on a karst-spun
+stack would fail for every later ticket.
+
+This is a hard requirement on the authoring brief, and the kind of thing that breaks silently six
+months later if it is not stated now.
+
+### No mechanical vacuous-green guard
+
+Stated plainly rather than implied to be covered. Rev 1 claimed an add-only rule on `uat.testDir` was
+"the guard that actually stops it". Two things killed it:
+
+1. Add-only never stopped **adding** a vacuous test — `test('[AC-3] …', () => expect(true).toBe(true))`
+   satisfies coverage. The gate checks *existence*; "is this test meaningful" is undecidable.
+2. Steps now live in the repo as maintained code, so a legitimate UI change **must** be repairable by
+   the fix agent — which removes add-only entirely.
+
+**The human review diff is the sole control**, with karst flagging agent modifications to draw the
+eye. `runReview` already opens the diff regardless of verdict. This is a deliberate trade.
+
+**OPEN (B5):** the diff base for flagging. Capture HEAD when `autoResumeFix` fires and compare the
+**working tree** (staged + unstaged + untracked) — gates read files off disk, so a committed-history
+check is trivially dodged. Config-level edits (`playwright.config.ts` `testPathIgnorePatterns`,
+global fixtures) sit outside `testDir` and are a documented limit.
+
+**OPEN (C11, C12, C13):** how the agent actually ships. `soloAgent` is for `single-subagent`-approach
+tickets and cannot double as this. Approach artifacts are *fetched from a declared external source* —
+karst authors no packages, so rev 1's "the existing vocabulary" was wrong. And rev 1 gave the agent
+three competing homes (approach artifact, `agents:` block, `uat.author.agent`); pick `agents:`.
+
+---
+
+## Acceptance criteria and coverage
+
+Without this, UAT is e2e testing wearing a UAT label: green when the steps the agent *chose to write*
+pass, with nothing proving criterion 3 was exercised.
 
 ```sql
 CREATE TABLE IF NOT EXISTS ticket_criteria (
   id         INTEGER PRIMARY KEY,
-  ticket_id  INTEGER NOT NULL,   -- -> tickets.id
-  ordinal    INTEGER NOT NULL,   -- the stable AC-<n> tag
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id),
+  ordinal    INTEGER NOT NULL,          -- the stable AC-<n> tag
   text       TEXT NOT NULL,
-  frozen_at  TEXT                -- NULL = draft; set once, never re-extracted after
+  frozen_at  TEXT,
+  UNIQUE(ticket_id, ordinal)
 );
 ```
 
-**This is a migration.** Per the new-schema-column checklist: `schema.sql` (fresh DBs) + a guarded
-ALTER in `migrations.ts` + bump `SCHEMA_VERSION` 15 → 16 + update db.test.ts's version and
-table-count assertions (nine hardcoded `user_version` literals). Both CLI stores assert
-`user_version >= SCHEMA_VERSION` at `cli/assertMigrated.ts`, so a stale extension surfaces a named
-error rather than a raw `no such table`.
+Migration: `schema.sql` + guarded ALTER + `SCHEMA_VERSION` 15 → 16 + **29** hardcoded `user_version`
+literals in `db.test.ts` (rev 1 said nine, from a stale `CLAUDE.md` line — a 3× underestimate).
 
-`frozen_at` set once is what stops re-extraction from silently changing the goalposts mid-ticket.
+**OPEN (B3) — criteria poisoning.** Ticket descriptions are attacker-controllable in a shared tracker
+and render verbatim (`ticketContext.ts:154`). Rev 1 fed them to AI extraction whose output became the
+frozen acceptance bar — refusing agent-reported pass/fail while accepting **agent-extracted criteria
+from adversarial text** as ground truth. Proposed fix: **a human freezes the criteria** from a
+dashboard list, replacing rev 1's AI-review second pass. That answers three open questions at once —
+what freezes it, who reviews it, and how injection is stopped.
 
-### Tagging and parsing
+**OPEN (B3b):** the criteria write path needs a CLI verb with its own parse path (charset, length,
+count limits, no delete), per the argv threat model in `CLAUDE.md`. Rev 1 claimed "no CLI changes".
 
-The authoring agent names each test with the criterion it covers — `[AC-3] rejects an empty title`.
-Karst parses the runner's machine-readable report and fails any frozen criterion with zero passing
-tagged tests.
+**OPEN (C17):** `[AC-n]` parsing is named and not solved — five incompatible report formats, N gates
+each with a `report:` but one `coverage` exit code, "passing" undefined per format (a `test.skip`
+would parse as present), `report:` path base unspecified, and free-matching `[AC-3]` collides with any
+test merely *mentioning* it. **No XML parser in the tree** (runtime deps are `better-sqlite3` and
+`js-yaml`).
 
-Karst does the parsing and the deciding. The agent supplies only a label: it can mislabel, but it
-cannot fake a pass.
-
-Requires a machine-readable reporter (JUnit XML or a JSON reporter), configured per gate. **Absent a
-reporter, `coverage` records `null`** — honest silence, never a false pass, consistent with every
-other gate.
-
----
-
-## Lane 2 — the script-authoring agent
-
-### Where it runs
-
-Inside `impl`, as a **sub-agent dispatched by the implementation agent**. Karst launches no session,
-adds no stage, fires no marker. The impl agent finishes the code, delegates authoring, then fires
-`stage impl pass`.
-
-Sub-agent context is separate from the impl agent's, which is what makes it token-cheap: the
-authoring brief and test-writing transcript never enter the implementation context.
-
-**Accepted cost:** at impl the stack is cold, so scripts are authored from source — no real selector,
-no real redirect, no real error state. First-run e2e specs will false-fail more often than
-hand-written ones, burning fix loops on test bugs rather than code bugs. Lane 3 is the mitigation:
-the explorer meets the live app and catches what a blind-written script missed. Revisit if false-fail
-rate proves worse than the fix-loop budget tolerates.
-
-### How it ships
-
-As an approach artifact of `kind: 'agent'` — the existing `ApproachArtifact` vocabulary
-(`approaches/classify.ts` already maps `.claude/agents` → `agents/`). `materializeApproach` renders it
-into the worktree in the agent's native format at launch; `adapter.ts`'s `soloAgent` (line 61) is the
-existing mechanism for a single karst-provided agent file. An adapter without `materializeApproach`
-simply does not get the sub-agent and the impl agent writes tests inline — graceful degradation via
-the established optional-method pattern.
-
-Every adapter's `existsSync` guard applies unchanged: a repository that already checks in an agent at
-that path owns it, and karst neither writes into it nor claims it in `ownedPaths`.
-
-### Where authored tests live — and why it matters
-
-Agent-authored UAT tests go in a dedicated subtree, `uat.testDir` (default `e2e/karst/`), never mixed
-with hand-written suites. This buys three things at once:
-
-1. **Review signal** — you can see at a glance which tests an agent wrote.
-2. **Your tests are off-limits by construction** — the agent has no reason to touch anything outside
-   its own subtree.
-3. **The vacuous-green guard becomes mechanical.** "Fix repairs code, not tests" stops being a brief
-   instruction: at `fix`, karst rejects a resolution whose `git diff --name-only` touches anything
-   under `uat.testDir`. Deterministic, cheap, and narrowly scoped — a fix may still legitimately
-   update a unit test elsewhere.
-
-An agent that may edit its own tests while resolving a red gate can make the gate green by rewriting
-the test. That is the self-grading loop the whole design exists to prevent, and this is the guard
-that actually stops it.
-
-### RED-first
-
-The brief requires the sub-agent to demonstrate the test failing before the change and passing after.
-A brief instruction, not a mechanical guarantee — stated as an accepted risk, with the `testDir`
-guard above as the load-bearing mitigation.
-
-### Scaffolding — configurable
-
-`uat.scaffold`, default `none`:
-
-- `none` — a repo with no harness records `null` on that gate, forever. Karst does not choose your
-  test framework.
-- `author` — the sub-agent may scaffold a harness and add the npm script when absent.
-
----
-
-## Lane 3 — the exploratory testing agent
-
-A QA-analog. It drives the running system: navigates, clicks, submits forms, calls API endpoints —
-and produces **observations, not scripts and not a verdict**.
-
-### Cadence
-
-**Runs only when gates 1–6 are all green.** There is no point paying to explore a system whose own
-suites are red; the fix loop is cheaper and more precise. This bounds the most expensive thing in the
-pipeline hard: each fix iteration skips exploration entirely until the cheap gates recover.
-
-Skipped for any reason → `exitCode: null`, like every other gate.
-
-### The reducer
-
-The explorer writes a structured observation record. A pure function reduces it:
-
-```ts
-// pure. no browser, no network, no agent. lazy-imported deps stay out of this module,
-// mirroring the vadim.blog self-test that asserts the driver never entered the judge.
-export function reduceExploration(obs: ExplorationRecord): CommandResult;
-```
-
-| Observation | Effect |
-|---|---|
-| 5xx response | **fail** |
-| Uncaught console error | **fail** |
-| Unhandled promise rejection | **fail** |
-| Failed network request (non-optional) | **fail** |
-| Criterion marked not-observed | reported, **not** a fail — `coverage` owns that question |
-| Agent commentary, severity, suggestions | artifact only, never a verdict |
-
-The failure set is deliberately small and entirely machine-checkable. Growing it is how this lane
-quietly turns into agent self-report, so additions need the same scrutiny as a new CLI verb.
-
-### How it ships
-
-Same mechanism as Lane 2 — a `kind: 'agent'` approach artifact, a `uat-explorer` role in the
-manifest's `agents:` block, swappable by editing that entry. Its browser/HTTP driving is the agent's
-own capability, not karst code; karst supplies base URLs, the frozen criteria list, and the
-observation schema it must emit.
-
-Absent or disabled → `explore` records `null`. The pipeline is fully functional without Lane 3.
+**OPEN (C18, C19):** freezing must be whole-set, not per-row, or a later extraction can INSERT beside
+frozen rows and move the goalposts. And zero criteria rows → coverage over an empty set **passes
+vacuously**; empty must be `null`.
 
 ---
 
 ## Credentials
 
-`spin.ts:204` builds a service's env with `buildSpawnEnv(join(repo.repoPath, '.env'), …)`, whose own
-comment reads *"main `.env` keys first (secrets)"*. Handing that to UAT gates would leak three ways:
+`spin.ts:204` builds a service's env with `buildSpawnEnv(join(repo.repoPath, '.env'), …)`, commented
+*"main `.env` keys first (secrets)"*.
 
-1. Every gate child inherits the developer's real dev/prod secrets.
-2. Gate output is captured by `BoundedOutput` and **persisted in plaintext** to an artifact log that
-   gets attached to the ticket — one stack trace with a connection string is enough.
-3. The explorer *types credentials into a browser*, and its transcript enters an agent's context. For
-   a cloud agent, the secrets leave the machine. Lane 2 has a quieter version: an authoring agent that
-   hardcodes a credential into a test file you then commit.
+**The honest property is: UAT-owned processes never read `.env`.** Gates and the agent get UAT
+credentials plus resolved port/peer vars.
 
-### UAT credentials are a different class of thing
+**OPEN (B1) — the boundary is narrower than rev 1 claimed.** `boot` spins the stack, so **the services
+under test still boot with real secrets**. A ticket exercising "send email" or "charge card" uses real
+SMTP and real payment keys regardless of which low-privilege account is logged in, and redaction is
+structurally blind to it. Options: a `uat.serviceEnv` second credential set (real, costs the user a
+full service env to author), or restate and accept.
 
-**The UAT path never reads the repository's `.env`.** Not filtered, not allowlisted — never read.
-Gates and both agents receive UAT-specific credentials plus the resolved port/peer vars, and nothing
-else. Absent credentials, a gate that needs them fails honestly rather than silently reaching for
-production.
+**OPEN (B8):** `runCommand` spawns with no `env`, so children inherit the extension host's — `AWS_*`,
+`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, direnv exports. A bare replacement drops `PATH` and `npm` stops
+resolving, so this needs an explicit allowlist. `startHot` merges `{...process.env}` at
+`supervisor.ts:94` and needs the same treatment.
 
-### Pluggable sources
+**OPEN (B6) — redaction seam.** `BoundedOutput` writes nothing; the seam is `writeFileSync` in the
+stage. Server logs (`startHot` → `<name>.log` in the worktree, surfaced by `tailLog`) are **never
+redacted at all**. Value-based scrubbing also misses base64 Basic Auth, percent-encoding,
+JSON-escaping, secrets straddling the 1 MiB truncation, and derived tokens (a JWT signed *with* a
+secret contains none of its bytes).
 
-Credentials come from a declared source, a discriminated union in the shape of `ApproachSource`:
-
-```ts
-export type UatSecretSource =
-  | { type: 'manual' }                                  // entered in Settings, VS Code SecretStorage
-  | { type: 'infisical'; projectId: string; env: string };
-```
-
-`manual` stores values through the existing `extension/secretStore.ts` (VS Code SecretStorage —
-OS keychain, never on disk, never in the manifest) with entry in the settings webview. `infisical` is
-the first external provider. The union is the extension point; adding a provider is a new arm and an
-adapter, touching nothing else.
-
-The manifest holds the *reference*, never the value. A secret in `karst.yml` would be a secret in git.
-
-### Redaction
-
-Before `BoundedOutput` writes an artifact, every literal value from that gate's UAT env is replaced
-with `[redacted:KEY]`. Value-based, not pattern-based: deterministic, no false positives mangling a
-failing log, and it catches a connection string embedded in a stack trace.
-
-Defense in depth, explicitly not the primary control — it does nothing for leak 3, which is the one
-that leaves the machine.
+**OPEN (B7):** manifest validators hand-pick known fields and never reject unknown keys, so "a secret
+value in the block is rejected" needs a deliberate strict check departing from house style.
 
 ---
 
 ## Data safety
 
-Ports are isolated per ticket. **The datastore is not** — `scope.ts:35` already warns that MVP shares
-one database. And requiring a disposable test database is not viable: on real projects (an ArangoDB
-service here) no test DB exists, all development goes through dev, and maintaining a per-ticket one is
-more cost than the feature is worth. A design that mandates isolation simply never runs there.
+Ports are isolated per ticket; the datastore is not (`scope.ts:35` already warns). Requiring a
+disposable test DB is not viable — on real projects no test DB exists and all development goes
+through dev.
 
-Two risks, and they need different answers.
+**Determinism is largely handled by the fail set being small.** Console errors, unhandled rejections,
+failed requests and 5xx are state-independent: a 500 is a 500 regardless of what another ticket did.
+The state-sensitive question lives in `coverage` and the repo's own suites, whose state management is
+the repo's problem in CI today.
 
-### Determinism — largely already handled
+**Destruction: the UAT account's privileges are the primary control.** The agent authenticates with
+the test account and the app's own authorization decides what it can reach. Fully agnostic — karst
+learns nothing about ArangoDB, Postgres, or anything else.
 
-Lane 3 gates only on machine facts: 5xx, console errors, unhandled rejections, failed requests. Those
-are **state-independent** — a 500 is a 500 regardless of what another ticket's explorer did an hour
-ago. The state-sensitive question ("does this record exist") lives in `coverage` and the repo's own
-e2e suite, whose state management is the repo's problem in CI today and is unchanged by karst.
+**The standalone guard proxy is deleted.** Karst is already in-path through Playwright's network
+interception, so denies and mutation budgets are enforced on traffic karst genuinely sees —
+*including SPA XHR*, which a separate proxy was structurally blind to because the API base URL is
+baked into the bundle at build time.
 
-This robustness is a consequence of keeping Lane 3's failure set small. It is another reason not to
-grow it.
+`uat.isolation` (`none｜reset｜ephemeral`) stays as a declared, agnostic ladder with **`none` the
+default and the only rung wired**. **Cut candidate** — see Deferred.
 
-### Destruction — privilege first, then enforcement
-
-An explorer on a shared dev DB is not a new *class* of risk: the team already mutates it daily, and a
-human QA clicking through the dev app is the same act. The deltas are volume, absence of judgment,
-and being unattended — a human will not click "Delete all customers".
-
-**Primary control: the UAT account's privileges.** The explorer authenticates with the test account
-from the secret source above, and the app's own authorization decides what it can reach. Fully
-agnostic — karst knows nothing about ArangoDB, Postgres, or anything else.
-
-**Enforced control: the guard proxy.** Privilege alone is only as good as the app's authz, so karst
-adds interception it actually owns. Karst already injects the explorer's base URL, so it points it at
-a karst-owned proxy rather than the service:
-
-```yaml
-uat:
-  guard:
-    deny:
-      - { method: DELETE, path: "/api/**" }
-      - { method: POST,   path: "/api/admin/**" }
-    maxMutations: 50        # POST/PUT/PATCH/DELETE budget for one exploration
-    onDenied: abort         # abort | record
-```
-
-A denied request gets a 403 **from karst**, and is recorded. This is interception, not a brief
-instruction an agent may ignore.
-
-Two consequences that matter:
-
-- A denied 403 is a 4xx, and 4xx is deliberately not in the fail set — karst blocking the explorer is
-  karst working, not the ticket failing.
-- `onDenied: abort` ends exploration early, so the run is **incomplete**. `explore` records `null`,
-  not a pass: an exploration that stopped partway has not answered the question, and null-is-not-a-verdict
-  is the existing rule for exactly this.
-
-**Honest limits.** The proxy sees HTTP. UI-only side effects — localStorage, IndexedDB, a websocket
-message — escape it entirely. It is a bound on blast radius, not a sandbox. The proxy is also a port
-and a process: allocated through the same allocator, torn down under the same created-vs-adopted
-discipline, and async so it never blocks the extension host's event loop.
-
-### The isolation ladder
-
-Declared, agnostic, and karst never learns what the datastore is:
-
-| Rung | Meaning |
-|---|---|
-| `ephemeral` | You declare create/migrate/drop; karst runs them per ticket. |
-| `reset` | You declare a seed/reset command; karst runs it around the run. Shared store, restored. |
-| `none` | No commands, no infrastructure. Runs against dev; the account and guard keep it safe. |
-
-**`none` is the default and the only rung wired in Phase 3.** The field exists and validates so the
-other rungs need no migration later, but nothing is built for a stack nobody has yet.
+**OPEN (B4):** the agent's session transcript carries typed credentials, shared-dev-DB PII, and
+debug-page contents into an agent context, possibly cloud. Stated in rev 1, unsolved. Playwright as
+harness reduces but does not remove it.
 
 ---
 
 ## Stack lifecycle
 
 **UAT adopts-or-spins and leaves the stack up.** Review inherits a hot stack, so manual acceptance
-testing needs no respin and the stack a human pokes is the exact one UAT judged.
+testing needs no respin and the stack a human pokes is the one UAT judged.
 
-Teardown moves to boundaries that already exist: `ship`, `done`, archive, session close, explicit
-dashboard Stop.
+**OPEN (C6) — rev 1 claimed teardown "moves to boundaries that already exist". Four of five do not.**
+Verified: `stopTicketServers`/`stopServer` are called only from `spin.ts:75,133` (cancel/respin) and
+`extension.ts:2176,2180,2216` (dashboard buttons). `ship.ts`, `done.ts`, `archive.ts` contain **zero**
+server code. Archive also has an ordering bug **today**: the worktree is removed and ports released
+under a live pid — the exact hazard `spin.ts:128-133` documents elsewhere.
 
-### Zombie prevention
+**OPEN (C7):** children spawn `detached: true` and **survive VS Code exit**; `reconcileOnStart` only
+marks *dead* rows, so a survivor stays `running` forever.
 
-Existing machinery, inherited rather than reinvented:
+**OPEN (C2) — rev 1 stated a safety property backwards.** `startHot` awaits health at ~153 and INSERTs
+the `servers` row at ~176. A crash mid-boot leaves an **untracked pid**, not a reapable row. Fix:
+insert with the pid before the wait, update status after. This is a latent bug today; UAT makes it
+matter more.
 
-- `startHot` spawns each child `detached: true`, making it leader of a process group whose id equals
-  its pid; `killTree` signals the negative pid and reaps grandchildren — critical for launchers like
-  `npm run dev` that fork Vite.
-- The `servers` row is inserted **before** the health wait, so a crash mid-boot leaves a reapable row
-  rather than an untracked pid. UAT must not bypass `startHot`.
-- `stopTicketServers` / `pruneOrphanServers` / `reconcileOnStart` reap across a host crash.
-- `runCommand` already `killTree`s on timeout with a termination grace deadline.
-
-Five gaps UAT closes itself:
-
-1. **UAT aborted mid-run** — `try`/`finally` teardown plus an `AbortSignal`, mirroring `spin.ts`'s
-   `SpinCancelledError` + `teardownRun`.
-2. **Only reap what UAT started** — copy `spin.ts`'s created-vs-adopted discipline verbatim. An
-   adopted server is never killed, on any path, including abort.
-3. **No gate spawns its own child** — everything routes through `runCommand`, or it escapes the
-   timeout and the process-group reap.
-4. **The explorer drives a browser** — a headless browser is a process tree like any other and must
-   be launched through the same path, with the same timeout, or it becomes the most likely zombie in
-   the system.
-5. **Accumulation** — leaving stacks up means N in-flight tickets hold N live stacks. The per-ticket
-   port allocator bounds allocation and `stopTicketServers` exists; this design adds a dashboard
-   "Stop stack" action and reaps on archive. Accepted and monitored, not solved further.
+**OPEN (C22):** review inheriting a hot stack breaks any suite that starts its own server — the same
+port conflict the pipeline ordering avoids inside UAT.
 
 ---
 
 ## Manifest surface
 
-Project-level, with optional per-gate `repo:` scoping — so a cross-repo e2e gate stays expressible
-(the case karst's multi-repo spin exists to serve) while a UI gate can be pinned to the repo serving UI.
-
 ```yaml
 uat:
-  scaffold: none            # none | author
-  testDir: e2e/karst        # agent-authored tests live here; fix may not touch it
-  isolation: none           # none | reset | ephemeral  (only `none` wired in Phase 3)
-  secrets:
-    source: { type: manual }                   # or { type: infisical, projectId, env }
-    # values live in VS Code SecretStorage / the provider — NEVER in this file
+  testDir: e2e/karst          # authored steps; fix modifications flagged in review
+  maxFixAttempts: 3
+  isolation: none             # cut candidate
   gates:
-    - { name: smoke,       kind: script,  script: smoke }
-    - { name: integration, kind: script,  script: "test:integration" }
-    - { name: e2e,         kind: script,  script: e2e,  repo: web,
-        report: "reports/junit.xml" }          # enables the coverage gate
-    - { name: contract,    kind: command, command: "npm run test:contract", repo: api }
+    - { name: integration, kind: script, script: "test:integration" }
+    - { name: e2e,         kind: script, script: e2e, repo: web,
+        report: "reports/junit.xml" }
   author:
-    agent: uat-author
+    agent: uat-author         # → the `agents:` block (C13)
     enabled: true
-  explorer:
-    agent: uat-explorer
-    enabled: true
-    routes: ["/", "/issues/new"]               # optional entry points; else discovered
-  guard:
-    deny:
-      - { method: DELETE, path: "/api/**" }
-    maxMutations: 50
-    onDenied: abort                            # abort | record
 ```
 
-`kind: command` is the escape hatch for anything the built-ins do not cover.
+An absent `uat:` block yields the default pipeline. Per the new-`Manifest`-field checklist:
+`types.ts`, `validateManifest`, the `writeManifest` overlay, and `manifest/fixtures.ts`.
 
-**An absent `uat:` block is valid** and yields the default pipeline — `boot` plus the three built-in
-script gates, no coverage (no reporter configured), no explorer. Zero-config repos keep working.
-
-**No secret value is ever written to `karst.yml`** — the manifest holds only the source reference. A
-secret in the manifest is a secret in git.
-
-Per the new-`Manifest`-field checklist: `types.ts`, `validateManifest` (`schema.ts`, defaulted), the
-`writeManifest` overlay in `write.ts`, and `manifest/fixtures.ts`. Guarded by writeManifest.test.ts's
-"round-trips every modeled section".
+**OPEN (C21):** `testDir` is project-level but repos are many; it must resolve per-repo or relative to
+each gate's `repo:`.
 
 ---
 
-## Files
-
-| Path | Change |
-|---|---|
-| `src/workflow/gates/uatGates.ts` | new — built-in specs, custom-gate resolution, repo scoping |
-| `src/workflow/gates/boot.ts` | new — adopt-or-spin + health probe, returns `CommandResult` |
-| `src/workflow/gates/coverage.ts` | new — parse runner report, map `[AC-n]` tags → frozen criteria |
-| `src/workflow/gates/explore.ts` | new — `reduceExploration`, pure; no browser import |
-| `src/workflow/stages/uat.ts` | rewritten — pipeline over gates, mirroring `runReview`'s shape |
-| `src/workflow/gates/scripts.ts` | remove `UAT_GATE` (the `test` duplicate) |
-| `src/workflow/gates/run.ts` | additive — optional `env` in `RunCommandOptions` |
-| `src/workflow/gates/guard.ts` | new — guard proxy: deny matching, mutation budget, 403 + record |
-| `src/uat/secrets.ts` | new — `UatSecretSource` union, resolution to an env map |
-| `src/uat/redact.ts` | new — value-based scrub, applied before `BoundedOutput` writes |
-| `src/extension/secretStore.ts` | extend — UAT credential storage (manual source) |
-| `src/ui/settings/` | UAT credential entry + source picker |
-| `src/store/criteria.ts` | new — `ticket_criteria` reads/writes, freeze-once |
-| `src/store/schema.sql`, `migrations.ts` | `ticket_criteria`; `SCHEMA_VERSION` 15 → 16 |
-| `src/manifest/validate/uat.ts` | new — `uat:` block validation |
-| `src/manifest/types.ts`, `schema.ts`, `write.ts`, `fixtures.ts` | `uat:` field, per the checklist |
-| `src/agent/fixBrief.ts` | the `testDir` prohibition |
-| `src/workflow/stages/fix.ts` | mechanical guard — reject a diff touching `uat.testDir` |
-| `src/runtime/` | export adopt-or-spin (extracted from `spin.ts`, or a new `adopt.ts`) |
-| `src/extension.ts` | pass `manifest` into `runUat`, as the `runReview` wiring already does |
-
-`RunUatOpts` gains an optional `manifest`, mirroring `RunReviewOpts`: boot must resolve the ticket's
-runnable repositories and gates must honour `repo:` scoping, neither answerable from a bare `cwd`.
-Absent `manifest` preserves the current single-worktree API.
-
-No change to `machine.ts`, `graph.ts`, or the CLI verbs.
-
-## Tests (TDD, RED first)
-
-- **Verdict rules** — all pass; one fail; all null; `boot` null → gates 2–6 still run; `boot` nonzero
-  → everything downstream null and the verdict fails on boot alone.
-- **boot** — no runnable repo → null; all healthy → 0; one unhealthy → 1.
-- **Adoption** — an adopted server survives a UAT abort; a UAT-created server does not.
-- **Env** — `buildSpawnEnv` output reaches the child; the existing "leaves the event loop free while
-  the child runs" guard still passes.
-- **Coverage** — a frozen criterion with no tagged test fails; with a *failing* tagged test fails;
-  with a passing tagged test passes; no reporter configured → null.
-- **Criteria freeze** — `frozen_at` is written once; a second extraction cannot alter frozen rows.
-- **Explorer reducer** — purity guard: the module never imports a browser driver (the vadim.blog
-  self-test, ported). 5xx / console error / unhandled rejection / failed request each fail;
-  commentary and severity never affect the exit code; not-observed criteria do not fail.
-- **Explorer cadence** — skipped (null) whenever any of gates 1–6 is non-green.
-- **Fix guard** — a fix diff touching `uat.testDir` is rejected; one touching a unit test elsewhere
-  is not.
-- **Anti-duplication guard** — `UAT_GATES` never names `test`. The regression test for the bug this
-  spec fixes.
-- **Manifest** — a `uat:` block round-trips through `writeManifest`; an absent block yields defaults.
-- **Migration** — v15 → v16 is idempotent on re-open and skipped on a fresh DB.
-- **Credential isolation** — the UAT env never contains a key sourced from the repository's `.env`.
-  This is the load-bearing security test: assert `buildSpawnEnv`'s file-reading path is not on the UAT
-  path at all, rather than asserting a filter removed the right keys.
-- **No secret in the manifest** — `writeManifest` round-trips a `secrets.source` reference and never a
-  value; a value supplied in the block is rejected at validation.
-- **Redaction** — a UAT env value appearing in gate output is `[redacted:KEY]` in the artifact; a
-  coincidentally similar string that is not an env value is untouched.
-- **Guard proxy** — a denied method/path gets 403 from karst and never reaches the service; the
-  mutation budget stops the run at the declared count; `onDenied: abort` yields `explore` = null (an
-  incomplete exploration is not a pass); a 403 karst issued never appears as a machine-fact failure.
-- **Guard lifecycle** — the proxy's port is allocated and released with the ticket, and it is torn
-  down on abort like any other UAT-created process.
-
 ## Phasing
 
-Three plans. Each is independently shippable; the first fixes the duplication bug on its own.
+**Phase 0 — one commit, ships immediately.** Delete `UAT_GATE`, update its `inside/gates.ts` consumer,
+add the anti-duplication guard test. This is the literal stated bug.
 
-**Phase 1 — the programmatic pipeline.** `boot` + built-in script gates + custom gates, `env`
-threading, the `uat:` manifest block, removal of `UAT_GATE`, adopt-or-spin and the abort/teardown
-discipline. **Plus the credential split and redaction** — the UAT path must never read the
-repository's `.env`, and that has to be true from the first gate that runs, not retrofitted once
-agents arrive. A UAT stage that asks a real question. No AI anywhere.
+**Phase 1 — make UAT gate.** The `fixUat`/`fixReview` split + migration, the attempt cap, static gates,
+`boot` with adopt-or-spin, `env` threading with the allowlist, the `AbortSignal` cancel path, and the
+four missing teardown call sites. Resolves A1 and the C-series lifecycle items. **No AI.**
 
-**Phase 2 — authoring and coverage.** The `uat-author` artifact, criteria extract/review/freeze, the
-`ticket_criteria` migration, the `coverage` gate, `testDir` and the mechanical fix guard,
-`scaffold: author`. Additive: without it, `coverage` is null and Phase 1 still gates.
+**Phase 2 — authored steps.** The `uat-author` agent and its distribution path, Playwright-as-harness
+config and trace reading, steps into `testDir`, replay-on-re-entry, modification flagging.
 
-**Phase 3 — the explorer.** The `uat-explorer` artifact, the observation schema, `reduceExploration`,
-the cadence rule, browser process-tree containment, the guard proxy, and `isolation: none`. Additive:
-without it, `explore` is null. The guard ships *with* the explorer, never after — an explorer without
-enforced limits is the thing this section exists to prevent.
+**Phase 3 — criteria and coverage.** `ticket_criteria` migration, human freeze, the CLI write verb,
+`[AC-n]` parsing for one chosen format. Additive: without it `coverage` is `null`.
 
-## Explicitly not built
+## Deferred / cut
 
-Each was considered and dropped:
+Speculative surface with no user waiting on it, each carrying real validation and test cost:
 
-- **A karst-owned check corpus** (`uat_checks` table, declarative YAML checks, promotion-on-ship,
-  retirement policy). Dissolved once authored tests became ordinary repo files: they branch with the
-  code, so skew cannot occur; merging *is* promotion; deleting a test is retirement, in a diff you
-  review. Criteria are stored, but criteria are ticket-scoped and never gate another ticket.
-- **AI-driven *gate* execution** — an agent re-driving scripted checks every run. Lane 3 explores
-  once, when everything cheap is already green; it does not replace the scripted gates.
-- **Agent-reported pass/fail.** The self-report the machine is built to refuse.
-- **UAT as a confirm stage.** Would park every ticket on a human and kill auto-drive.
-- **Explorer findings routed into the fix brief.** Rejected: it puts agent-authored prose into the
-  place that shapes the next agent's behaviour. Findings stay in the artifact for the human.
+`UatSecretSource` union + `infisical` arm + settings UI · the standalone guard proxy (deleted by
+Playwright interception) · the isolation ladder's `reset`/`ephemeral` rungs · `scaffold: author` ·
+the AI-review second pass on criteria (replaced by a human freeze) · `kind: command`
 
-## Open risks
+## Cost
 
-| Risk | Mitigation |
-|---|---|
-| Blind-authored e2e specs false-fail, burning fix loops on test bugs | Lane 3 catches the live-app gap; revisit placement if the rate is worse than budget |
-| AI-authored test passes vacuously | RED-first brief + `fix` cannot touch `uat.testDir` (mechanical) |
-| Criterion tags mislabelled by the agent | Karst parses and decides; a mislabel cannot fake a *pass*, only misattribute one |
-| Lane 3's failure set grows until it is a self-report | Additions get the same scrutiny as a new CLI verb; purity guard is a test |
-| Headless browser becomes the pipeline's zombie | Launched through `runCommand`; same timeout and process-group reap |
-| Explorer mutates shared dev data (no test DB) | Low-privilege UAT account + guard proxy deny list + mutation budget. Bounded, not eliminated — accepted by declaring `isolation: none` |
-| Guard proxy sees only HTTP | localStorage, IndexedDB, websocket side effects escape it. Documented limit; the account remains the real boundary |
-| A provider outage leaves UAT with no credentials | Gate fails honestly ("credentials unavailable"), never falls back to the repository `.env` |
-| Redaction misses a secret the app fetched at runtime | Value-based scrub only covers what karst injected. Accepted — pattern scrubbing was rejected for mangling failing logs |
-| N in-flight tickets hold N live stacks | Per-ticket port allocation, dashboard Stop, reap on archive |
-| Repos have no harness on day one | Gates record `null` — honest silence, not a false pass; `scaffold: author` opt-in |
-| `smoke` / `test:integration` / `e2e` names are a convention karst imposes | Overridable per gate in the `uat:` block |
+Rev 1 claimed the AI parts were token-cheap because sub-agent context is separate. That is a category
+error: separate context means the **parent** does not pay — total tokens go *up*, since the agent
+re-reads routing, selectors and contracts. Authoring plus a browsing session with DOM snapshots is
+the most expensive token class in the pipeline.
+
+The bound is the ordering (static gates fail before any agent runs) plus `maxFixAttempts`.
+
+**OPEN:** `"failed network request (non-optional)"` — **"non-optional" is nowhere defined**, and that
+one adjective carries the determinism claim for the most expensive gate. Real dev stacks fire it
+constantly: source-map 404s, HMR reconnects, blocked analytics, `AbortError` on navigation.
