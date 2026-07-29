@@ -10,7 +10,7 @@ Three reviews (architecture, security, skeptical feasibility) against
 
 ## A. Structural — these break the design outright
 
-### A1 `BLOCK` — UAT never re-runs after a failure
+### A1 `RESOLVED` — UAT never re-runs after a failure
 
 `graph.ts:33`: `uat: { failed: 'fix' }` but `fix: { passed: 'review' }`. A ticket that fails UAT
 **ships without ever passing UAT**. Every cadence and cost argument in the spec describes a loop that
@@ -33,7 +33,37 @@ sidebar/dashboard stage classes, CLI marker vocabulary. Not small, and **nothing
 gates anything until this lands**.
 
 **Second-order:** `fixUat → uat` means every fix re-boots the stack and re-runs e2e. That is the real
-cost driver, and the spec never priced it.
+cost driver, and the spec never priced it. The attempt cap below is what bounds it.
+
+#### Resolution (decided)
+
+```
+scope → impl → uat → review → ship → done
+                ↑ ↓fail        ↑ ↓fail
+            fixUat ┘       fixReview ┘
+```
+
+Inside `uat`, static gates run first — `boot → smoke → integration → e2e → custom → coverage`, no AI.
+Any FAILED verdict short-circuits to `fixUat` without paying for the explorer. Only when no static
+gate failed does `explore` run. This is an ordering rule about *correctness*, not cost: red
+unit/integration/e2e is an obvious push back to fix, and spending an agent to confirm what a failing
+suite already reported is waste.
+
+It also settles C16: **the explorer runs iff no static gate FAILED.** Null gates do not block it —
+nothing was asked. (`boot` null still means no server, so `explore` records null too.)
+
+**Attempt cap** — the piece the original spec lacked entirely, and the answer to every
+"parks the ticket at fix forever" objection in this triage:
+
+| Decision | Value |
+|---|---|
+| Counted | Per gate stage, independent. `uat` and `review` each get their own budget. Needs no new state — `stages` is already keyed `(ticket_id, stage_key)` and carries `attempt`. |
+| Exhausted | Park at `fixUat`, needs-you, **no auto-resume**. Driver halts with reason `attempts-exhausted`; `autoResumeFix` does not fire. No new stage, no new edge. |
+| Explorer | Same cap; an explorer failure consumes an attempt like any other. A full re-entry re-boots and re-runs every static gate, so the cap is what bounds the expensive path. |
+| Configured | `uat.maxFixAttempts` in the manifest, default 3. |
+
+The cap is **driver policy, not a graph edge** — `Verdict` is only `passed｜failed｜null`, and
+"attempts exhausted" is not a verdict.
 
 ### A2 `BLOCK` — Lane 3's evidence is written by the agent it is meant to check
 
