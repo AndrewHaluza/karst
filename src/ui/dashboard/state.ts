@@ -19,12 +19,23 @@ import { buildStageInside, type StageInside } from '../../model/inside/index.js'
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import { summarizeMergeCheck } from '../../model/mergeCheckView.js';
+import type { MergeState } from '../../workflow/mergeCheck.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import { countFixAttempts } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 
 export type { PathContext, StepperCell, NowLine, StageRail, StageInside };
+
+/** One repo's merge verdict, already worded, as the PR panel renders it. */
+export interface MergeCheckPanelView {
+  repo: string;
+  state: MergeState;
+  /** The shared one-line summary — never re-worded webview-side. */
+  summary: string;
+  checkedAt: string;
+}
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
@@ -50,6 +61,15 @@ export interface DashboardState {
   hasRunnableRepos: boolean;
   worktrees: WorktreeView[];
   prs: PrView[];
+  /**
+   * Current mergeability per repo — the same verdicts the ship strip renders,
+   * lifted to the top level because the PR panel is where a conflict is acted
+   * on and a standalone webview cannot read the store. The sentence is rendered
+   * here, by the shared summarizer, so the panel cannot phrase a verdict of its
+   * own. A repo with no row was never checked; absence renders as nothing, never
+   * as clean.
+   */
+  mergeChecks: MergeCheckPanelView[];
   /** Configured ticketing provider ('clickup' | 'manual'); null when unknown. */
   provider: string | null;
   /** The board ref the ticket was fetched from, or null. */
@@ -120,6 +140,9 @@ export function buildDashboardState(
 
   const fixAttempts = countFixAttempts(ticket.stages);
   const prs = listPrsByTicket(store, ticketId);
+  // Read ONCE and share: the PR panel and the ship strip must never describe the
+  // same three-valued fact from two different reads.
+  const mergeChecks = listMergeChecksByTicket(store, ticketId);
   const phases = approachPhases(ticket.approach);
 
   return {
@@ -144,6 +167,12 @@ export function buildDashboardState(
     hasRunnableRepos: ticket.selectedRepos.some((r) => isRepoRunnable(r)),
     worktrees,
     prs,
+    mergeChecks: mergeChecks.map((c) => ({
+      repo: c.repo,
+      state: c.state,
+      summary: summarizeMergeCheck(c),
+      checkedAt: c.checkedAt,
+    })),
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
@@ -154,7 +183,7 @@ export function buildDashboardState(
       gateRuns: listGateRuns(store, ticketId),
       worktrees,
       prs,
-      mergeChecks: listMergeChecksByTicket(store, ticketId),
+      mergeChecks,
       session: {
         sessionId: ticket.sessionId,
         agentState: ticket.agentState,

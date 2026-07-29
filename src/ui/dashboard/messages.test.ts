@@ -20,6 +20,7 @@ function actions(): DashboardActions {
     resumeTicket: vi.fn(),
     createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
+    resolveConflicts: vi.fn(),
   };
 }
 
@@ -186,5 +187,21 @@ describe('routeAction', () => {
     routeAction({ type: 'open-stage-log', path: 42 }, a);
     routeAction({ type: 'open-stage-log', path: '' }, a);
     expect(a.openStageLog).not.toHaveBeenCalled();
+  });
+
+  it('dispatches resolve-conflicts with the repo the conflict is in', () => {
+    const a = actions();
+    routeAction({ type: 'resolve-conflicts', repo: 'api' }, a);
+    expect(a.resolveConflicts).toHaveBeenCalledWith('api');
+  });
+
+  // The repo name selects which worktree a session is opened against, so it is
+  // exactly the field a crafted message would want to bend.
+  it('ignores a resolve-conflicts with a missing or non-string repo', () => {
+    const a = actions();
+    routeAction({ type: 'resolve-conflicts' }, a);
+    routeAction({ type: 'resolve-conflicts', repo: 7 }, a);
+    routeAction({ type: 'resolve-conflicts', repo: '' }, a);
+    expect(a.resolveConflicts).not.toHaveBeenCalled();
   });
 });

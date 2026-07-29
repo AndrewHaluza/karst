@@ -21,6 +21,11 @@ export interface SyncablePr {
   status: string | null;
   /** A worktree path for the repo — gh's cwd, so it can resolve auth/host. */
   cwd: string;
+  /**
+   * The branch the worktree was cut from, or null. Carried for the merge sweep,
+   * which needs something to measure against and must never guess one.
+   */
+  baseRef: string | null;
 }
 
 export interface UpdatePrStatusInput {
@@ -44,6 +49,7 @@ interface SyncableRow {
   url: string;
   status: string | null;
   cwd: string;
+  base_ref: string | null;
 }
 
 /**
@@ -65,7 +71,7 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
   const scoped = scope.projectId !== undefined;
   const rows = store.db
     .prepare(
-      `SELECT p.ticket_id, p.repo, p.number, p.url, p.status, w.path AS cwd
+      `SELECT p.ticket_id, p.repo, p.number, p.url, p.status, w.path AS cwd, w.base_ref
          FROM prs p
          JOIN tickets t ON t.id = p.ticket_id
          JOIN worktrees w ON w.ticket_id = p.ticket_id AND w.repo = p.repo
@@ -84,5 +90,6 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
     url: r.url,
     status: r.status,
     cwd: r.cwd,
+    baseRef: r.base_ref,
   }));
 }

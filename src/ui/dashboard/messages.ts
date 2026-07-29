@@ -22,7 +22,8 @@ export type WebviewMessage =
   | { type: 'ship-ticket' }
   | { type: 'resume-ticket' }
   | { type: 'create-follow-up-ticket' }
-  | { type: 'open-stage-log'; path: string };
+  | { type: 'open-stage-log'; path: string }
+  | { type: 'resolve-conflicts'; repo: string };
 
 /** Host → webview messages: state pushes drive the stepper + panels. */
 export type HostMessage = { type: 'state'; state: DashboardState };
@@ -54,6 +55,13 @@ export interface DashboardActions {
   createFollowUpTicket: () => void;
   /** Open a stage's log (uat/review artifact) in an editor. */
   openStageLog: (path: string) => void;
+  /**
+   * Hand one repo's merge conflict to an agent session, seeded with the conflict
+   * context. Takes the repo (not a path) because the host resolves the worktree
+   * itself — the webview must not be able to name an arbitrary directory to open
+   * a session in.
+   */
+  resolveConflicts: (repo: string) => void;
 }
 
 /**
@@ -106,6 +114,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'create-follow-up-ticket' };
     case 'open-stage-log':
       return path ? { type: 'open-stage-log', path: m.path as string } : null;
+    case 'resolve-conflicts':
+      return typeof m.repo === 'string' && m.repo.length > 0
+        ? { type: 'resolve-conflicts', repo: m.repo }
+        : null;
     default:
       return null;
   }
@@ -170,6 +182,9 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'open-stage-log':
       actions.openStageLog(msg.path);
+      return;
+    case 'resolve-conflicts':
+      actions.resolveConflicts(msg.repo);
       return;
   }
 }
