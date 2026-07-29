@@ -249,6 +249,71 @@ describe('settings artifact conventions', () => {
   });
 });
 
+describe('settings section navigation', () => {
+  type FakeSection = { id: string; hidden: boolean };
+
+  function fakeSections(ids: readonly string[]): FakeSection[] {
+    return ids.map((id) => ({ id, hidden: id !== ids[0] }));
+  }
+
+  function loadShowSection(sections: FakeSection[]): (target: unknown) => unknown {
+    const nodes = sections.map((section) => ({
+      id: section.id,
+      classList: {
+        toggle: (cls: string, on: boolean) => {
+          if (cls === 'hidden') section.hidden = on;
+        },
+      },
+    }));
+    return runInNewContext(`(${functionSource('showSection')})`, {
+      document: {
+        querySelectorAll: (sel: string) => (sel === '.section' ? nodes : []),
+      },
+      console: { error: () => {} },
+    }) as (target: unknown) => unknown;
+  }
+
+  function visible(sections: FakeSection[]): string[] {
+    return sections.filter((s) => !s.hidden).map((s) => s.id);
+  }
+
+  it('has no hard-coded section id list — the omission that blanked Git', () => {
+    expect(HTML).not.toMatch(/\['general',\s*'services'/);
+  });
+
+  it('every nav button targets a section that exists, and vice versa', () => {
+    const navTargets = [...HTML.matchAll(/class="nav-btn[^"]*" data-section="([a-z]+)"/g)]
+      .map((m) => m[1]);
+    const sectionIds = [...HTML.matchAll(/<div class="section[^"]*" id="section-([a-z]+)"/g)]
+      .map((m) => m[1]);
+    expect(navTargets).toContain('git');
+    expect([...navTargets].sort()).toEqual([...sectionIds].sort());
+  });
+
+  it('shows the Git section and hides the others', () => {
+    const sections = fakeSections(['section-general', 'section-git', 'section-services']);
+    const shown = loadShowSection(sections)('git');
+    expect(shown).toBe('git');
+    expect(visible(sections)).toEqual(['section-git']);
+  });
+
+  it('falls back to the first section instead of rendering nothing', () => {
+    const sections = fakeSections(['section-general', 'section-git']);
+    const shown = loadShowSection(sections)('does-not-exist');
+    expect(shown).toBe('general');
+    expect(visible(sections)).toEqual(['section-general']);
+  });
+
+  it('nav clicks route through showSection and mark the shown tab active', () => {
+    const nav = HTML.match(
+      /document\.querySelectorAll\('\.nav-btn'\)\.forEach\(\(btn\) => {([\s\S]*?)\n {2}}\);/,
+    );
+    expect(nav, 'nav-btn handler not found').toBeTruthy();
+    expect(nav![1]).toContain('showSection(');
+    expect(nav![1]).toContain("classList.toggle('active'");
+  });
+});
+
 describe('repository field validation UX', () => {
   it('tracks touched fields via a blur listener', () => {
     expect(HTML).toContain('touchedFields');

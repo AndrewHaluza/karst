@@ -956,13 +956,29 @@
   }, true);
 
   // ---- nav ----
+  // Section visibility is derived from the DOM, never from a hard-coded id
+  // list: a list that omitted a section (git did) hid every section and left
+  // the content area blank. Returns the section name actually shown so the nav
+  // can mark the matching tab active — and so an unknown target degrades to a
+  // rendered section instead of nothing.
+  function showSection(target) {
+    const sections = [...document.querySelectorAll('.section')];
+    if (!sections.length) return null;
+    const names = sections.map((s) => s.id.replace(/^section-/, ''));
+    let shown = names.indexOf(target);
+    if (shown < 0) {
+      console.error('settings: unknown section "' + target + '"; showing "' + names[0] + '"');
+      shown = 0;
+    }
+    sections.forEach((section, i) => section.classList.toggle('hidden', i !== shown));
+    return names[shown];
+  }
+
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      const target = btn.dataset.section;
-      ['general', 'services', 'approaches', 'agents', 'ticketing'].forEach((s) => {
-        el('section-' + s).classList.toggle('hidden', s !== target);
+      const shown = showSection(btn.dataset.section);
+      document.querySelectorAll('.nav-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.section === shown);
       });
     });
   });
