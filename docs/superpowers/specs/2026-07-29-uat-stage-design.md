@@ -316,6 +316,127 @@ Absent or disabled → `explore` records `null`. The pipeline is fully functiona
 
 ---
 
+## Credentials
+
+`spin.ts:204` builds a service's env with `buildSpawnEnv(join(repo.repoPath, '.env'), …)`, whose own
+comment reads *"main `.env` keys first (secrets)"*. Handing that to UAT gates would leak three ways:
+
+1. Every gate child inherits the developer's real dev/prod secrets.
+2. Gate output is captured by `BoundedOutput` and **persisted in plaintext** to an artifact log that
+   gets attached to the ticket — one stack trace with a connection string is enough.
+3. The explorer *types credentials into a browser*, and its transcript enters an agent's context. For
+   a cloud agent, the secrets leave the machine. Lane 2 has a quieter version: an authoring agent that
+   hardcodes a credential into a test file you then commit.
+
+### UAT credentials are a different class of thing
+
+**The UAT path never reads the repository's `.env`.** Not filtered, not allowlisted — never read.
+Gates and both agents receive UAT-specific credentials plus the resolved port/peer vars, and nothing
+else. Absent credentials, a gate that needs them fails honestly rather than silently reaching for
+production.
+
+### Pluggable sources
+
+Credentials come from a declared source, a discriminated union in the shape of `ApproachSource`:
+
+```ts
+export type UatSecretSource =
+  | { type: 'manual' }                                  // entered in Settings, VS Code SecretStorage
+  | { type: 'infisical'; projectId: string; env: string };
+```
+
+`manual` stores values through the existing `extension/secretStore.ts` (VS Code SecretStorage —
+OS keychain, never on disk, never in the manifest) with entry in the settings webview. `infisical` is
+the first external provider. The union is the extension point; adding a provider is a new arm and an
+adapter, touching nothing else.
+
+The manifest holds the *reference*, never the value. A secret in `karst.yml` would be a secret in git.
+
+### Redaction
+
+Before `BoundedOutput` writes an artifact, every literal value from that gate's UAT env is replaced
+with `[redacted:KEY]`. Value-based, not pattern-based: deterministic, no false positives mangling a
+failing log, and it catches a connection string embedded in a stack trace.
+
+Defense in depth, explicitly not the primary control — it does nothing for leak 3, which is the one
+that leaves the machine.
+
+---
+
+## Data safety
+
+Ports are isolated per ticket. **The datastore is not** — `scope.ts:35` already warns that MVP shares
+one database. And requiring a disposable test database is not viable: on real projects (an ArangoDB
+service here) no test DB exists, all development goes through dev, and maintaining a per-ticket one is
+more cost than the feature is worth. A design that mandates isolation simply never runs there.
+
+Two risks, and they need different answers.
+
+### Determinism — largely already handled
+
+Lane 3 gates only on machine facts: 5xx, console errors, unhandled rejections, failed requests. Those
+are **state-independent** — a 500 is a 500 regardless of what another ticket's explorer did an hour
+ago. The state-sensitive question ("does this record exist") lives in `coverage` and the repo's own
+e2e suite, whose state management is the repo's problem in CI today and is unchanged by karst.
+
+This robustness is a consequence of keeping Lane 3's failure set small. It is another reason not to
+grow it.
+
+### Destruction — privilege first, then enforcement
+
+An explorer on a shared dev DB is not a new *class* of risk: the team already mutates it daily, and a
+human QA clicking through the dev app is the same act. The deltas are volume, absence of judgment,
+and being unattended — a human will not click "Delete all customers".
+
+**Primary control: the UAT account's privileges.** The explorer authenticates with the test account
+from the secret source above, and the app's own authorization decides what it can reach. Fully
+agnostic — karst knows nothing about ArangoDB, Postgres, or anything else.
+
+**Enforced control: the guard proxy.** Privilege alone is only as good as the app's authz, so karst
+adds interception it actually owns. Karst already injects the explorer's base URL, so it points it at
+a karst-owned proxy rather than the service:
+
+```yaml
+uat:
+  guard:
+    deny:
+      - { method: DELETE, path: "/api/**" }
+      - { method: POST,   path: "/api/admin/**" }
+    maxMutations: 50        # POST/PUT/PATCH/DELETE budget for one exploration
+    onDenied: abort         # abort | record
+```
+
+A denied request gets a 403 **from karst**, and is recorded. This is interception, not a brief
+instruction an agent may ignore.
+
+Two consequences that matter:
+
+- A denied 403 is a 4xx, and 4xx is deliberately not in the fail set — karst blocking the explorer is
+  karst working, not the ticket failing.
+- `onDenied: abort` ends exploration early, so the run is **incomplete**. `explore` records `null`,
+  not a pass: an exploration that stopped partway has not answered the question, and null-is-not-a-verdict
+  is the existing rule for exactly this.
+
+**Honest limits.** The proxy sees HTTP. UI-only side effects — localStorage, IndexedDB, a websocket
+message — escape it entirely. It is a bound on blast radius, not a sandbox. The proxy is also a port
+and a process: allocated through the same allocator, torn down under the same created-vs-adopted
+discipline, and async so it never blocks the extension host's event loop.
+
+### The isolation ladder
+
+Declared, agnostic, and karst never learns what the datastore is:
+
+| Rung | Meaning |
+|---|---|
+| `ephemeral` | You declare create/migrate/drop; karst runs them per ticket. |
+| `reset` | You declare a seed/reset command; karst runs it around the run. Shared store, restored. |
+| `none` | No commands, no infrastructure. Runs against dev; the account and guard keep it safe. |
+
+**`none` is the default and the only rung wired in Phase 3.** The field exists and validates so the
+other rungs need no migration later, but nothing is built for a stack nobody has yet.
+
+---
+
 ## Stack lifecycle
 
 **UAT adopts-or-spins and leaves the stack up.** Review inherits a hot stack, so manual acceptance
@@ -362,6 +483,10 @@ Project-level, with optional per-gate `repo:` scoping — so a cross-repo e2e ga
 uat:
   scaffold: none            # none | author
   testDir: e2e/karst        # agent-authored tests live here; fix may not touch it
+  isolation: none           # none | reset | ephemeral  (only `none` wired in Phase 3)
+  secrets:
+    source: { type: manual }                   # or { type: infisical, projectId, env }
+    # values live in VS Code SecretStorage / the provider — NEVER in this file
   gates:
     - { name: smoke,       kind: script,  script: smoke }
     - { name: integration, kind: script,  script: "test:integration" }
@@ -375,12 +500,20 @@ uat:
     agent: uat-explorer
     enabled: true
     routes: ["/", "/issues/new"]               # optional entry points; else discovered
+  guard:
+    deny:
+      - { method: DELETE, path: "/api/**" }
+    maxMutations: 50
+    onDenied: abort                            # abort | record
 ```
 
 `kind: command` is the escape hatch for anything the built-ins do not cover.
 
 **An absent `uat:` block is valid** and yields the default pipeline — `boot` plus the three built-in
 script gates, no coverage (no reporter configured), no explorer. Zero-config repos keep working.
+
+**No secret value is ever written to `karst.yml`** — the manifest holds only the source reference. A
+secret in the manifest is a secret in git.
 
 Per the new-`Manifest`-field checklist: `types.ts`, `validateManifest` (`schema.ts`, defaulted), the
 `writeManifest` overlay in `write.ts`, and `manifest/fixtures.ts`. Guarded by writeManifest.test.ts's
@@ -399,6 +532,11 @@ Per the new-`Manifest`-field checklist: `types.ts`, `validateManifest` (`schema.
 | `src/workflow/stages/uat.ts` | rewritten — pipeline over gates, mirroring `runReview`'s shape |
 | `src/workflow/gates/scripts.ts` | remove `UAT_GATE` (the `test` duplicate) |
 | `src/workflow/gates/run.ts` | additive — optional `env` in `RunCommandOptions` |
+| `src/workflow/gates/guard.ts` | new — guard proxy: deny matching, mutation budget, 403 + record |
+| `src/uat/secrets.ts` | new — `UatSecretSource` union, resolution to an env map |
+| `src/uat/redact.ts` | new — value-based scrub, applied before `BoundedOutput` writes |
+| `src/extension/secretStore.ts` | extend — UAT credential storage (manual source) |
+| `src/ui/settings/` | UAT credential entry + source picker |
 | `src/store/criteria.ts` | new — `ticket_criteria` reads/writes, freeze-once |
 | `src/store/schema.sql`, `migrations.ts` | `ticket_criteria`; `SCHEMA_VERSION` 15 → 16 |
 | `src/manifest/validate/uat.ts` | new — `uat:` block validation |
@@ -435,6 +573,18 @@ No change to `machine.ts`, `graph.ts`, or the CLI verbs.
   spec fixes.
 - **Manifest** — a `uat:` block round-trips through `writeManifest`; an absent block yields defaults.
 - **Migration** — v15 → v16 is idempotent on re-open and skipped on a fresh DB.
+- **Credential isolation** — the UAT env never contains a key sourced from the repository's `.env`.
+  This is the load-bearing security test: assert `buildSpawnEnv`'s file-reading path is not on the UAT
+  path at all, rather than asserting a filter removed the right keys.
+- **No secret in the manifest** — `writeManifest` round-trips a `secrets.source` reference and never a
+  value; a value supplied in the block is rejected at validation.
+- **Redaction** — a UAT env value appearing in gate output is `[redacted:KEY]` in the artifact; a
+  coincidentally similar string that is not an env value is untouched.
+- **Guard proxy** — a denied method/path gets 403 from karst and never reaches the service; the
+  mutation budget stops the run at the declared count; `onDenied: abort` yields `explore` = null (an
+  incomplete exploration is not a pass); a 403 karst issued never appears as a machine-fact failure.
+- **Guard lifecycle** — the proxy's port is allocated and released with the ticket, and it is torn
+  down on abort like any other UAT-created process.
 
 ## Phasing
 
@@ -442,14 +592,18 @@ Three plans. Each is independently shippable; the first fixes the duplication bu
 
 **Phase 1 — the programmatic pipeline.** `boot` + built-in script gates + custom gates, `env`
 threading, the `uat:` manifest block, removal of `UAT_GATE`, adopt-or-spin and the abort/teardown
-discipline. A UAT stage that asks a real question. No AI anywhere.
+discipline. **Plus the credential split and redaction** — the UAT path must never read the
+repository's `.env`, and that has to be true from the first gate that runs, not retrofitted once
+agents arrive. A UAT stage that asks a real question. No AI anywhere.
 
 **Phase 2 — authoring and coverage.** The `uat-author` artifact, criteria extract/review/freeze, the
 `ticket_criteria` migration, the `coverage` gate, `testDir` and the mechanical fix guard,
 `scaffold: author`. Additive: without it, `coverage` is null and Phase 1 still gates.
 
 **Phase 3 — the explorer.** The `uat-explorer` artifact, the observation schema, `reduceExploration`,
-the cadence rule, browser process-tree containment. Additive: without it, `explore` is null.
+the cadence rule, browser process-tree containment, the guard proxy, and `isolation: none`. Additive:
+without it, `explore` is null. The guard ships *with* the explorer, never after — an explorer without
+enforced limits is the thing this section exists to prevent.
 
 ## Explicitly not built
 
@@ -475,6 +629,10 @@ Each was considered and dropped:
 | Criterion tags mislabelled by the agent | Karst parses and decides; a mislabel cannot fake a *pass*, only misattribute one |
 | Lane 3's failure set grows until it is a self-report | Additions get the same scrutiny as a new CLI verb; purity guard is a test |
 | Headless browser becomes the pipeline's zombie | Launched through `runCommand`; same timeout and process-group reap |
+| Explorer mutates shared dev data (no test DB) | Low-privilege UAT account + guard proxy deny list + mutation budget. Bounded, not eliminated — accepted by declaring `isolation: none` |
+| Guard proxy sees only HTTP | localStorage, IndexedDB, websocket side effects escape it. Documented limit; the account remains the real boundary |
+| A provider outage leaves UAT with no credentials | Gate fails honestly ("credentials unavailable"), never falls back to the repository `.env` |
+| Redaction misses a secret the app fetched at runtime | Value-based scrub only covers what karst injected. Accepted — pattern scrubbing was rejected for mangling failing logs |
 | N in-flight tickets hold N live stacks | Per-ticket port allocation, dashboard Stop, reap on archive |
 | Repos have no harness on day one | Gates record `null` — honest silence, not a false pass; `scaffold: author` opt-in |
 | `smoke` / `test:integration` / `e2e` names are a convention karst imposes | Overridable per gate in the `uat:` block |
