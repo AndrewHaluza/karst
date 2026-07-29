@@ -141,6 +141,19 @@ Deterministic, and it matches the intent exactly. **Cost:** near zero.
 | Vacuous new tests | **Accepted, not solved.** The human diff at review is the control. |
 | Config bypass | **Documented limit.** |
 
+> **SUPERSEDED BY A4.** A4 decided the fix agent **may modify** authored steps, with every
+> modification flagged in the review diff — because steps now live in the repo and a legitimate UI
+> change must be repairable. That removes the add-only rule.
+>
+> What survives: the deadlock is still solved (a fix can write the missing test, more freely than
+> add-only allowed), and the **diff base** decision stands — capture HEAD at `autoResumeFix`, compare
+> the working tree, since gates read files off disk.
+>
+> What is lost: **there is no longer any mechanical vacuous-green guard.** The human review diff is
+> the sole control, with karst flagging agent modifications to draw the eye. This is a deliberate
+> trade — steps as maintained repo code must be repairable — but it should be stated plainly rather
+> than implied to be covered.
+
 **Two honest limits, recorded rather than papered over.** The original spec called this "the guard that
 actually stops it", which overclaimed:
 
@@ -153,7 +166,7 @@ actually stops it", which overclaimed:
    Rejected alternative: a `uat.protectedPaths` denylist — it would be perpetually incomplete and
    would block legitimate config changes during a fix.
 
-### A4 `BLOCK` — Lane 3 is gated off precisely when it is needed
+### A4 `RESOLVED` — Lane 3 is gated off precisely when it is needed
 
 The spec accepts that Lane 2 authors specs blind at impl, and names Lane 3 the mitigation. But Lane 3
 runs *only when gates 1–6 are green* — i.e. only when the blind specs already pass. When they
@@ -167,6 +180,49 @@ contradiction.
 This requires reframing the lane rule from "no AI runs during the stage" to **"no AI judges"** —
 which is the property that actually matters and which Lane 1 still holds. **Cost:** an AI step inside
 the stage; the separation argument gets one sentence harder to explain.
+
+#### Resolution (decided) — reorder, and merge Lanes 2 and 3
+
+```
+uat:
+  1. static gates    unit → integration → e2e        NO karst stack
+       ↓ any failed → fixUat (a spin was never paid for)
+  2. boot            spin + health
+  3. agent authors e2e steps against the LIVE app
+  4. karst runs them under karst's Playwright config
+  5. coverage
+       ↓ any failed → fixUat
+       ↓ passed → review
+```
+
+Three properties this ordering buys:
+
+- **No spin cost on the common failure.** A red unit test never pays for booting a multi-repo stack.
+- **Blind authoring disappears.** Steps are written against a running app with real selectors,
+  redirects and error states. There is nothing left for a "mitigation" to cover.
+- **It avoids a port conflict.** A standard Playwright suite starts its own server via `webServer`.
+  If karst's boot already holds those ports, the repo's own e2e fails to start for a reason unrelated
+  to the ticket. Running repo suites *before* boot lets each manage its own lifecycle. (Same latent
+  problem as C22.)
+
+**Lanes 2 and 3 collapse into one agent.** "Author e2e steps" and "explore" are the same act: the
+agent produces steps, karst runs them under its own Playwright config and reads the trace. A2's trust
+property is unchanged — agent supplies steps, Playwright supplies evidence.
+
+| Decision | Value |
+|---|---|
+| Reuse | Authored once on first UAT arrival, **replayed** on re-entry. Attempts 2–3 are free and deterministic, and a fix is judged against the same bar that failed it. |
+| Persistence | **Written into the repo from the start**, on the ticket's branch, into `uat.testDir`. They ride into the PR and are reviewed as code. |
+| Stale steps | The fix agent **may modify** them; every modification is flagged prominently in the review diff. |
+
+**Consequence — the authored steps must be runnable by the repo's own e2e runner.** They become part
+of the repo's suite, so on the *next* ticket they run in step 1, the static phase, before karst boots
+anything. They must therefore target the repo's normal e2e entry point and `webServer` config —
+**never karst's injected per-ticket ports**. A step depending on a karst-spun stack would fail for
+every later ticket. This is a hard requirement on the authoring brief and the kind of thing that
+breaks silently six months later if it is not stated now.
+
+**Consequence — A3's add-only rule is superseded.** See below.
 
 ---
 
