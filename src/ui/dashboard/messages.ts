@@ -26,6 +26,13 @@ export type WebviewMessage =
   | { type: 'open-stage-log'; path: string }
   | { type: 'resolve-conflicts'; repo: string }
   /**
+   * Merge one repo's PR from the ship stage. Carries the repo ONLY: the merge
+   * method is asked for host-side, in the confirmation the user must answer, so a
+   * crafted (or stale) message can neither choose the strategy nor skip the
+   * confirmation of an irreversible action.
+   */
+  | { type: 'merge-pr'; repo: string }
+  /**
    * Flip the terminal↔dashboard binding. Carries no value on purpose: the host
    * holds the preference and the webview only renders what it is pushed, so the
    * two can never disagree about which way the toggle currently sits.
@@ -77,6 +84,12 @@ export interface DashboardActions {
    * a session in.
    */
   resolveConflicts: (repo: string) => void;
+  /**
+   * Merge one repo's PR. Takes the repo (not a url or a number) for the same
+   * reason `resolveConflicts` does: the host resolves the PR from the store, so
+   * the webview cannot name an arbitrary pull request to merge.
+   */
+  mergePr: (repo: string) => void;
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void;
 }
@@ -134,6 +147,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'resolve-conflicts':
       return typeof m.repo === 'string' && m.repo.length > 0
         ? { type: 'resolve-conflicts', repo: m.repo }
+        : null;
+    // A companion `method` is DROPPED, not honored: how to merge is the host's
+    // question to the user, never the webview's to answer.
+    case 'merge-pr':
+      return typeof m.repo === 'string' && m.repo.length > 0
+        ? { type: 'merge-pr', repo: m.repo }
         : null;
     // Payload-free like the panel-level server controls: a companion `enabled`
     // is dropped rather than honored, so the host's value stays authoritative.
@@ -206,6 +225,9 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'resolve-conflicts':
       actions.resolveConflicts(msg.repo);
+      return;
+    case 'merge-pr':
+      actions.mergePr(msg.repo);
       return;
     case 'toggle-bind':
       actions.toggleBind();

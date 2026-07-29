@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
+import { normalizeComments, type PrComment } from '../model/prComments.js';
 
 /**
  * GitHub integration (§12, §15) — shells out to `gh`. The runner is injected so
@@ -257,6 +258,141 @@ export async function fetchPrState(gh: GhRunner, ref: string, cwd: string): Prom
     return 'unknown';
   }
   return normalizePrState(view.state, view.isDraft);
+}
+
+/**
+ * The PR facts the ship stage renders beside a PR, plus its normalized status.
+ *
+ * Every field is independently nullable because every one of them is gh's answer:
+ * an open PR legitimately has no `mergedAt`, an older gh may not return a field at
+ * all, and a probe that could not see the PR returns all-null. Null means "not
+ * stated" — never a blank to be dressed up as a value.
+ *
+ * `comments` is three-valued for the same reason `status` is: `[]` means the PR
+ * has no comments, null means gh did not say.
+ */
+export interface PrDetail {
+  status: PrStatus;
+  /** Source branch (gh `headRefName`) — the "from" of from-to. */
+  headRef: string | null;
+  /** Target branch (gh `baseRefName`) — the "to" of from-to. */
+  baseRef: string | null;
+  createdAt: string | null;
+  mergedAt: string | null;
+  comments: PrComment[] | null;
+}
+
+/**
+ * What a failed probe returns: nothing known, nothing guessed. A caller reads
+ * `status: 'unknown'` as "keep every value already stored" (F4), so this is never
+ * a partial overwrite.
+ */
+export const UNKNOWN_PR_DETAIL: PrDetail = {
+  status: 'unknown',
+  headRef: null,
+  baseRef: null,
+  createdAt: null,
+  mergedAt: null,
+  comments: null,
+};
+
+/** The `--json` fields `fetchPrDetail` requests, in one round trip. */
+const PR_DETAIL_FIELDS = 'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments';
+
+/** A gh string field, or null for absent/empty/wrong-typed. */
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * Current upstream state of a recorded PR PLUS the metadata the ship stage shows.
+ *
+ * A superset of `fetchPrState` in one gh call rather than two: the panel needs the
+ * status and the branches/dates/comments together, and two probes could disagree
+ * (a PR merged between them would render as open with a merge stamp).
+ *
+ * Never throws. Every failure — bad auth, a PR deleted upstream, unparseable
+ * output — is `UNKNOWN_PR_DETAIL`, which tells the caller to keep what it has
+ * instead of overwriting real metadata with nulls.
+ */
+export async function fetchPrDetail(
+  gh: GhRunner,
+  ref: string,
+  cwd: string,
+): Promise<PrDetail> {
+  const r = await gh(['pr', 'view', ref, '--json', PR_DETAIL_FIELDS], cwd);
+  if (r.exitCode !== 0) return UNKNOWN_PR_DETAIL;
+
+  let view: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(r.stdout);
+    if (typeof parsed !== 'object' || parsed === null) return UNKNOWN_PR_DETAIL;
+    view = parsed as Record<string, unknown>;
+  } catch {
+    return UNKNOWN_PR_DETAIL;
+  }
+
+  return {
+    status: normalizePrState(view.state, view.isDraft),
+    headRef: text(view.headRefName),
+    baseRef: text(view.baseRefName),
+    createdAt: text(view.createdAt),
+    mergedAt: text(view.mergedAt),
+    comments: normalizeComments(view.comments),
+  };
+}
+
+/**
+ * How the merge is performed upstream. Named explicitly at the call site — never
+ * defaulted — because the three produce different history and a repo's branch
+ * protection may allow only one of them.
+ */
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** Whether `gh pr merge` accepted, and gh's own words when it did not. */
+export interface MergeAttempt {
+  ok: boolean;
+  /** gh's refusal, verbatim; '' on success. */
+  reason: string;
+}
+
+/**
+ * Merge a PR via `gh pr merge`.
+ *
+ * Returns a result instead of throwing (unlike `openPr`): a refusal — conflicts,
+ * failing checks, no write permission, a dead network — is an expected outcome the
+ * caller must show to the user and then RE-PROBE the real state from, so it is
+ * modeled as data rather than an exception.
+ *
+ * A method flag is always passed: bare `gh pr merge` prompts interactively, and
+ * there is no tty behind a webview button — it would hang, not fail.
+ *
+ * Deliberately no `--delete-branch`: the `worktrees` row and `archive.ts`'s
+ * restore both target that ref, so deleting it upstream would break resuming and
+ * restoring a ticket. Nor `--auto`: queuing a merge for later cannot be reflected
+ * as merged state now, and the button must never claim more than happened.
+ */
+export async function mergePr(
+  gh: GhRunner,
+  ref: string,
+  cwd: string,
+  method: MergeMethod,
+): Promise<MergeAttempt> {
+  let r: GhResult;
+  try {
+    r = await gh(['pr', 'merge', ref, `--${method}`], cwd);
+  } catch (e) {
+    // A runner that rejects (spawn failure in a custom runner) is a failed merge
+    // with a reason, not an exception the UI has to catch a second time.
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  if (r.exitCode === 0) return { ok: true, reason: '' };
+  // A quiet runner may hand back nothing at all; the exit code is the last resort
+  // so the user is never shown an empty explanation.
+  return {
+    ok: false,
+    reason: r.stderr?.trim() || r.stdout.trim() || `gh exit ${r.exitCode}`,
+  };
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { listPrsByTicket } from './dashboard.js';
-import { updatePrStatus, listSyncablePrs } from './prs.js';
+import { updatePrStatus, updatePrDetail, findTicketPr, listSyncablePrs } from './prs.js';
 
 function seedPr(
   store: Store,
@@ -102,5 +102,173 @@ describe('listSyncablePrs', () => {
 
     const rows = listSyncablePrs(store, { projectId: 1 });
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe('updatePrDetail', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const url = (n: number) => `https://github.com/o/r/pull/${n}`;
+
+  it('writes the status and every metadata field for the matching PR only', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedPr(store, a.id, 'web', 34, 'open');
+
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: {
+        status: 'merged',
+        headRef: 'karst/feat/x',
+        baseRef: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: '2026-07-28T09:30:00Z',
+        comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+      },
+    });
+
+    const prs = listPrsByTicket(store, a.id);
+    expect(prs.find((p) => p.repo === 'api')).toMatchObject({
+      status: 'merged',
+      headRef: 'karst/feat/x',
+      baseRef: 'develop',
+      createdAt: '2026-07-23T08:00:00Z',
+      mergedAt: '2026-07-28T09:30:00Z',
+      comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+    });
+    const other = prs.find((p) => p.repo === 'web')!;
+    expect(other.status).toBe('open');
+    expect(other.headRef).toBeNull();
+  });
+
+  // The whole point of the three-valued fields: a probe that saw less than last
+  // time must not erase what karst already knows.
+  it('keeps a stored field when the new detail states null for it', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: {
+        status: 'open',
+        headRef: 'karst/feat/x',
+        baseRef: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: null,
+        comments: [{ author: 'ada', at: null, body: 'lgtm' }],
+      },
+    });
+
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: {
+        status: 'closed',
+        headRef: null,
+        baseRef: null,
+        createdAt: null,
+        mergedAt: null,
+        comments: null,
+      },
+    });
+
+    const pr = listPrsByTicket(store, a.id)[0]!;
+    expect(pr.status).toBe('closed'); // the status it DID report still lands
+    expect(pr.headRef).toBe('karst/feat/x');
+    expect(pr.baseRef).toBe('develop');
+    expect(pr.createdAt).toBe('2026-07-23T08:00:00Z');
+    expect(pr.comments).toEqual([{ author: 'ada', at: null, body: 'lgtm' }]);
+  });
+
+  // [] is a real answer: a thread whose only comment was deleted upstream must
+  // stop showing it.
+  it('clears comments when the probe reports an empty list', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    const base = {
+      status: 'open' as const,
+      headRef: null,
+      baseRef: null,
+      createdAt: null,
+      mergedAt: null,
+    };
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: { ...base, comments: [{ author: 'ada', at: null, body: 'gone soon' }] },
+    });
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: { ...base, comments: [] },
+    });
+    expect(listPrsByTicket(store, a.id)[0]!.comments).toEqual([]);
+  });
+
+  it('never writes an unknown status over a real one', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: {
+        status: 'unknown',
+        headRef: 'karst/feat/x',
+        baseRef: null,
+        createdAt: null,
+        mergedAt: null,
+        comments: null,
+      },
+    });
+    const pr = listPrsByTicket(store, a.id)[0]!;
+    expect(pr.status).toBe('open');
+    // Metadata it could still state is not thrown away with the status.
+    expect(pr.headRef).toBe('karst/feat/x');
+  });
+});
+
+describe('findTicketPr', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('resolves one repo’s PR with the worktree to run gh in', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    expect(findTicketPr(store, a.id, 'api')).toMatchObject({
+      repo: 'api',
+      number: 12,
+      url: 'https://github.com/o/r/pull/12',
+      status: 'open',
+      cwd: '/wt/api',
+    });
+  });
+
+  it('is null for a repo with no PR, and for a PR with no url to act on', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    expect(findTicketPr(store, a.id, 'api')).toBeNull();
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(a.id, 'api', 12, null, 'open');
+    expect(findTicketPr(store, a.id, 'api')).toBeNull();
+  });
+
+  // Without a worktree there is nowhere to run gh — the same graceful skip
+  // `listSyncablePrs` makes for an archived ticket.
+  it('is null when the worktree is gone (archived ticket)', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    expect(findTicketPr(store, a.id, 'api')).toBeNull();
   });
 });

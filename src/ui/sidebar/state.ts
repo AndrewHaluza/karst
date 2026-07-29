@@ -7,7 +7,6 @@ import {
   listPrsByTicket,
   type ServerView,
   type WorktreeView,
-  type PrView,
 } from '../../store/dashboard.js';
 import { buildTicketNodes, filterTickets, type TicketNode } from './items.js';
 import {
@@ -32,14 +31,29 @@ export interface SidebarWorktree extends WorktreeView {
  * postMessage boundary, so no class instances — only data.
  */
 
+/** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
+export interface SidebarPr {
+  repo: string;
+  number: number | null;
+  url: string | null;
+  status: string | null;
+}
+
 /** One ticket row: the collapsed node fields plus its expanded-body detail. */
 export interface TicketRow extends TicketNode {
   /** Running servers backing the expanded meta line. */
   servers: ServerView[];
   /** Worktrees backing the expanded meta line. */
   worktrees: SidebarWorktree[];
-  /** Open PRs backing the expanded meta line (rendered as "PR #<n>"). */
-  prs: PrView[];
+  /**
+   * Open PRs backing the expanded meta line (rendered as "PR #<n>").
+   *
+   * Deliberately narrowed to the identifying fields: this list is pushed for
+   * EVERY ticket on the board, so carrying the dashboard's PR metadata (comment
+   * bodies included) would put a whole review thread per ticket on the wire for a
+   * line that only prints numbers.
+   */
+  prs: SidebarPr[];
 }
 
 export interface SidebarState {
@@ -110,7 +124,9 @@ export function buildSidebarState(
       ...w,
       repoDisplay: repoDisplayPath(w.repo, pathContext),
     })),
-    prs: listPrsByTicket(store, node.ticketId),
+    prs: listPrsByTicket(store, node.ticketId).map(
+      (p): SidebarPr => ({ repo: p.repo, number: p.number, url: p.url, status: p.status }),
+    ),
   }));
 
   return {

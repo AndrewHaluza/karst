@@ -21,6 +21,7 @@ function actions(): DashboardActions {
     createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
+    mergePr: vi.fn(),
     toggleBind: vi.fn(),
   };
 }
@@ -204,6 +205,27 @@ describe('routeAction', () => {
     routeAction({ type: 'resolve-conflicts', repo: 7 }, a);
     routeAction({ type: 'resolve-conflicts', repo: '' }, a);
     expect(a.resolveConflicts).not.toHaveBeenCalled();
+  });
+
+  it('dispatches merge-pr with the repo whose PR is being merged', () => {
+    const a = actions();
+    routeAction({ type: 'merge-pr', repo: '/repo/api' }, a);
+    expect(a.mergePr).toHaveBeenCalledWith('/repo/api');
+  });
+
+  // Merging is irreversible, so this is the message a crafted one would most want
+  // to bend — and it carries NO method: the host asks the user how to merge, so a
+  // webview message can never choose the strategy for them.
+  it('ignores a merge-pr with a missing or non-string repo, and drops any method', () => {
+    const a = actions();
+    routeAction({ type: 'merge-pr' }, a);
+    routeAction({ type: 'merge-pr', repo: 7 }, a);
+    routeAction({ type: 'merge-pr', repo: '' }, a);
+    expect(a.mergePr).not.toHaveBeenCalled();
+    expect(parseWebviewMessage({ type: 'merge-pr', repo: 'api', method: 'rebase' })).toEqual({
+      type: 'merge-pr',
+      repo: 'api',
+    });
   });
 
   it('dispatches toggle-bind, carrying no state of its own', () => {

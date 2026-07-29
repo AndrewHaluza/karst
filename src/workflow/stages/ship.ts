@@ -5,7 +5,15 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
-import { openPr, findOpenPr, defaultGhRunnerAsync, type GhRunner } from '../../integrations/github.js';
+import {
+  openPr,
+  findOpenPr,
+  fetchPrDetail,
+  defaultGhRunnerAsync,
+  UNKNOWN_PR_DETAIL,
+  type GhRunner,
+} from '../../integrations/github.js';
+import { updatePrDetail } from '../../store/prs.js';
 import {
   commitAllIfDirty,
   hasChangesFrom,
@@ -324,6 +332,22 @@ export async function shipTicket(
       }
       onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
+      // The from-to branches and the opened stamp are what the ship stage shows
+      // beside the PR it just made. Read them now, from the PR that exists, rather
+      // than leaving the row blank until the next background sweep ticks — the
+      // moment the user is looking at ship is the moment right after it ran.
+      //
+      // Never fatal: a failed probe leaves NULLs, which render as absent and are
+      // filled by `syncPrStatuses` later. Observability must not break the
+      // operation it observes, and the PR is already open — the irreversible part
+      // succeeded.
+      const detail = await fetchPrDetail(gh, opened.url, wt.path).catch(() => UNKNOWN_PR_DETAIL);
+      updatePrDetail(store, {
+        ticketId: opts.ticketId,
+        repo: wt.repo,
+        url: opened.url,
+        detail,
+      });
       prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
     }
   } catch (err) {

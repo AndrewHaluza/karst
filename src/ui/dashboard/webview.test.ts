@@ -354,4 +354,46 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/shipDone = 'success'/);
     expect(HTML).toContain('✓ Shipped');
   });
+  it('renders the PR path through the host’s display form, never the raw path', () => {
+    // The path-display preference (relative/absolute) is resolved host-side into
+    // repoDisplay. Rendering `p.repo` here would print an absolute path in a
+    // workspace set to relative — the bug this replaces.
+    expect(HTML).toContain('p.repoDisplay || p.repo');
+  });
+
+  it('renders PR metadata from host-rendered strings only', () => {
+    // Each part is '' when the fact is absent, so the webview can place them
+    // without formatting a date or counting a thread — no Date() in this file.
+    for (const field of ['p.branches', 'p.opened', 'p.merged', 'p.commentsLabel']) {
+      expect(HTML, `missing PR metadata field: ${field}`).toContain(field);
+    }
+    // A comment stamp is likewise pre-formatted (`c.when`), never parsed here.
+    expect(HTML).toContain('c.when');
+  });
+
+  it('offers merge from the host’s verdict, and disables it with the host’s reason', () => {
+    expect(HTML).toContain('data-act="merge-pr"');
+    expect(HTML).toContain('p.canMerge');
+    expect(HTML).toContain('p.mergeBlockedReason');
+    // A merged PR gets no control at all — there is nothing left to do to it.
+    expect(HTML).toContain("p.status === 'merged'");
+  });
+
+  it('guards the merge click against a double fire and clears it on the next state', () => {
+    // Merging is irreversible: a second click while the host's confirmation is up
+    // must not post a second request, and the pending flag must not be able to
+    // stick (the host pushes state on success, failure, AND cancel).
+    const pendingAt = HTML.indexOf('mergePending = { ...mergePending');
+    expect(pendingAt).toBeGreaterThan(-1);
+    expect(HTML).toContain('if (!repo || mergePending[repo]) return;');
+    expect(HTML).toContain('mergePending = {};');
+  });
+
+  it('never lets the webview choose the merge strategy', () => {
+    // The method is the host's question to the user (a modal), so no strategy flag
+    // may appear in the posted message.
+    expect(HTML).not.toContain('--squash');
+    expect(HTML).not.toMatch(/method:\s*'(squash|merge|rebase)'/);
+  });
+
 });

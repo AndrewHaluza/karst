@@ -9,6 +9,9 @@ import {
   toGhResult,
   normalizePrState,
   fetchPrState,
+  fetchPrDetail,
+  UNKNOWN_PR_DETAIL,
+  mergePr,
   type GhRunner,
 } from './github.js';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
@@ -344,5 +347,147 @@ describe('fetchPrState', () => {
   it('is unknown on output that is not JSON', async () => {
     const gh: GhRunner = async () => ({ stdout: 'not json', exitCode: 0 });
     expect(await fetchPrState(gh, '1', '/wt')).toBe('unknown');
+  });
+});
+
+describe('fetchPrDetail', () => {
+  const full = {
+    state: 'MERGED',
+    isDraft: false,
+    headRefName: 'karst/feat/x',
+    baseRefName: 'develop',
+    createdAt: '2026-07-23T08:00:00Z',
+    mergedAt: '2026-07-28T09:30:00Z',
+    comments: [{ author: { login: 'ada' }, createdAt: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+  };
+
+  it('asks gh for every metadata field the ship stage renders, in one call', async () => {
+    const calls: { args: string[]; cwd: string }[] = [];
+    const gh: GhRunner = async (args, cwd) => {
+      calls.push({ args, cwd });
+      return { stdout: viewJson(full), exitCode: 0 };
+    };
+    const detail = await fetchPrDetail(gh, 'https://github.com/o/r/pull/9', '/wt/a');
+    expect(calls).toHaveLength(1); // one round trip, not one per field
+    expect(calls[0]!.args).toEqual([
+      'pr',
+      'view',
+      'https://github.com/o/r/pull/9',
+      '--json',
+      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments',
+    ]);
+    expect(calls[0]!.cwd).toBe('/wt/a');
+    expect(detail).toEqual({
+      status: 'merged',
+      headRef: 'karst/feat/x',
+      baseRef: 'develop',
+      createdAt: '2026-07-23T08:00:00Z',
+      mergedAt: '2026-07-28T09:30:00Z',
+      comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+    });
+  });
+
+  // An open PR has no merge stamp — that is the normal case, not missing data.
+  it('reads an open PR with no merge stamp and no comments', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({
+        state: 'OPEN',
+        isDraft: false,
+        headRefName: 'karst/fix/y',
+        baseRefName: 'main',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: null,
+        comments: [],
+      }),
+      exitCode: 0,
+    });
+    const detail = await fetchPrDetail(gh, '12', '/wt');
+    expect(detail.status).toBe('open');
+    expect(detail.mergedAt).toBeNull();
+    // [] is a real answer ('no comments'), distinct from null ('gh never told us').
+    expect(detail.comments).toEqual([]);
+  });
+
+  // Every failure is the all-unknown detail, never a throw and never a partial
+  // guess: the caller keeps what it already knows rather than overwriting it.
+  it('is the unknown detail when gh exits nonzero', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', exitCode: 1, stderr: 'bad auth' });
+    expect(await fetchPrDetail(gh, '1', '/wt')).toEqual(UNKNOWN_PR_DETAIL);
+  });
+
+  it('is the unknown detail on output that is not JSON', async () => {
+    const gh: GhRunner = async () => ({ stdout: 'not json', exitCode: 0 });
+    expect(await fetchPrDetail(gh, '1', '/wt')).toEqual(UNKNOWN_PR_DETAIL);
+  });
+
+  // A gh that answers with fewer fields than asked (an older gh, a partial row)
+  // must still yield a usable status — the missing parts are null, not invented.
+  it('nulls fields gh omitted while keeping the state it did report', async () => {
+    const gh: GhRunner = async () => ({ stdout: viewJson({ state: 'OPEN' }), exitCode: 0 });
+    expect(await fetchPrDetail(gh, '1', '/wt')).toEqual({
+      status: 'open',
+      headRef: null,
+      baseRef: null,
+      createdAt: null,
+      mergedAt: null,
+      comments: null,
+    });
+  });
+});
+
+describe('mergePr', () => {
+  it('merges by ref with the requested method, and never deletes the branch', async () => {
+    const calls: { args: string[]; cwd: string }[] = [];
+    const gh: GhRunner = async (args, cwd) => {
+      calls.push({ args, cwd });
+      return { stdout: 'Merged pull request #9', exitCode: 0 };
+    };
+    const r = await mergePr(gh, 'https://github.com/o/r/pull/9', '/wt/a', 'squash');
+    expect(calls[0]!.args).toEqual(['pr', 'merge', 'https://github.com/o/r/pull/9', '--squash']);
+    expect(calls[0]!.cwd).toBe('/wt/a');
+    // --delete-branch would destroy the ref the worktree row and the archive
+    // restore both depend on.
+    expect(calls[0]!.args).not.toContain('--delete-branch');
+    expect(r.ok).toBe(true);
+  });
+
+  it('supports a merge commit and a rebase merge', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', exitCode: 0 };
+    };
+    await mergePr(gh, '9', '/wt', 'merge');
+    await mergePr(gh, '9', '/wt', 'rebase');
+    expect(calls[0]).toContain('--merge');
+    expect(calls[1]).toContain('--rebase');
+  });
+
+  // A refused merge — conflicts, failing checks, no permission — must come back
+  // in gh's own words. This text is what the user is shown.
+  it('reports the refusal in gh’s own words', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: '',
+      exitCode: 1,
+      stderr: 'Pull request is not mergeable: the base branch policy prohibits the merge.',
+    });
+    const r = await mergePr(gh, '9', '/wt', 'squash');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('Pull request is not mergeable: the base branch policy prohibits the merge.');
+  });
+
+  it('falls back to stdout, then to the exit code, so a failure is never a bare blank', async () => {
+    const quiet: GhRunner = async () => ({ stdout: 'X00003: not authorized', exitCode: 1 });
+    expect((await mergePr(quiet, '9', '/wt', 'squash')).reason).toBe('X00003: not authorized');
+    const silent: GhRunner = async () => ({ stdout: '', exitCode: 4, stderr: '' });
+    expect((await mergePr(silent, '9', '/wt', 'squash')).reason).toBe('gh exit 4');
+  });
+
+  it('never throws when the runner itself rejects', async () => {
+    const gh: GhRunner = async () => {
+      throw new Error('spawn blew up');
+    };
+    const r = await mergePr(gh, '9', '/wt', 'squash');
+    expect(r).toEqual({ ok: false, reason: 'spawn blew up' });
   });
 });

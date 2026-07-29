@@ -6,7 +6,6 @@ import {
   listPrsByTicket,
   type ServerView,
   type WorktreeView,
-  type PrView,
 } from '../../store/dashboard.js';
 import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
@@ -25,8 +24,9 @@ import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import { countFixAttempts } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
+import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
 
-export type { PathContext, StepperCell, NowLine, StageRail, StageInside };
+export type { PathContext, StepperCell, NowLine, StageRail, StageInside, PrPanelRow };
 
 /** One repo's merge verdict, already worded, as the PR panel renders it. */
 export interface MergeCheckPanelView {
@@ -60,7 +60,14 @@ export interface DashboardState {
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;
   worktrees: WorktreeView[];
-  prs: PrView[];
+  /**
+   * The pull requests, already worded: from-to branches, opened/merged stamps,
+   * comments, and whether merging is offered (`model/prPanelView.ts`). Rendered
+   * host-side like every other piece of dashboard copy — the webview is
+   * standalone HTML and cannot import the formatter, so a webview-side format
+   * would be untested and would drift from the ship strip's.
+   */
+  prs: PrPanelRow[];
   /**
    * Current mergeability per repo — the same verdicts the ship strip renders,
    * lifted to the top level because the PR panel is where a conflict is acted
@@ -139,7 +146,13 @@ export function buildDashboardState(
   }));
 
   const fixAttempts = countFixAttempts(ticket.stages);
-  const prs = listPrsByTicket(store, ticketId);
+  // Rendered through the SAME path-display preference as the worktree rows: the
+  // ship stage names the same directories, and two formats for one path is the
+  // bug this replaces.
+  const prs = listPrsByTicket(store, ticketId).map((p) => ({
+    ...p,
+    repoDisplay: repoDisplayPath(p.repo, pathContext),
+  }));
   // Read ONCE and share: the PR panel and the ship strip must never describe the
   // same three-valued fact from two different reads.
   const mergeChecks = listMergeChecksByTicket(store, ticketId);
@@ -166,7 +179,7 @@ export function buildDashboardState(
     // Start button there is a dead affordance dressed as an available action.
     hasRunnableRepos: ticket.selectedRepos.some((r) => isRepoRunnable(r)),
     worktrees,
-    prs,
+    prs: buildPrPanelRows(prs),
     mergeChecks: mergeChecks.map((c) => ({
       repo: c.repo,
       state: c.state,
