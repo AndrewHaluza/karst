@@ -308,12 +308,46 @@ injection is stopped* — a human reads the list before it gates anything.
 **Also:** the criteria write path needs a CLI verb with its own parse path (charset, length, count
 limits, no delete), per the argv threat model in `CLAUDE.md`. The spec claimed "no CLI changes".
 
-### B4 `MED` — explorer transcript reaches a cloud agent
+### B4 `RESOLVED` — live app content reaching a cloud agent
 
-Credentials typed into a browser, shared-dev-DB PII, and debug-page contents all enter agent context
-each run. Explorer *commentary* also lands in the ticket artifact on a path that never touches
-redaction. **Fix:** falls away if Lane 3 defers. Otherwise: local-only model, or app-side auth
-injection instead of the agent typing credentials.
+Filed against Lane 3's browsing explorer. A2 deleted that; the finding survives in a narrower and
+more tractable form.
+
+**Verified: the agent does not browse.** It writes a Playwright script and *karst* runs it. Three
+channels into agent context, one of them new:
+
+| channel | new? | content |
+| --- | --- | --- |
+| worktree source | no — the impl agent already has it | code |
+| **failure feedback** for selector repair | **yes** | whatever karst chooses to hand back |
+| anything else | no | karst would have to put it there |
+
+karst owns the reporter config, so it owns channel 2 outright. B4 is therefore a design decision, not
+an inherent leak.
+
+**Decision — structured summary plus structure-only DOM.**
+
+The agent receives: failing step index, error class, the selector text, HTTP status codes, console
+error *messages*, and the DOM around the failure **with text nodes stripped** — tags, `data-testid`,
+`aria-*`, roles and classes kept, content dropped.
+
+Rationale: **a selector is structural.** What the agent needs to repair one is exactly the part that
+carries no user data; PII lives in text nodes, and selectors do not. Constraint and requirement point
+the same way rather than trading off.
+
+Explicitly **not** handed to the agent: response bodies, screenshots, full traces, text content.
+
+**Fallback if text-stripping proves fiddly:** drop to the structured summary alone. It degrades
+gracefully — a wrong selector costs one attempt against the cap of 3, it corrupts nothing.
+
+**Second finding, same class as B6 — Playwright's own output directory.** `test-results/` and
+`playwright-report/` (screenshots, network bodies, traces, all live dev-DB content) are written
+relative to the config, i.e. **inside the repo**, beside `uat.testDir`. One `git add -A` from a PR.
+karst owns the config, so `outputDir` points into `globalStorage/artifacts/<ticketId>/`. Cheap, but it
+does not happen by itself.
+
+**Not recommended:** a local-only model for the author agent — cuts against the subscription premise
+(Claude/Codex/Antigravity) and adds a config surface for less than the DOM-stripping gets.
 
 ### B5 `MED` — `testDir` guard diff semantics
 

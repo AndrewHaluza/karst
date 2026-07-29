@@ -208,6 +208,29 @@ Rev 1 had the agent emit an `ExplorationRecord` that a "pure" `reduceExploration
 faithfully reduced whatever the agent claimed. That was agent self-report with a JSON hop, and it is
 deleted.
 
+### What the agent is shown back (B4, resolved)
+
+The agent does not browse — it writes a script, karst runs it. So its only new exposure is the
+**failure feedback** karst hands back for selector repair, and karst owns that because karst owns the
+reporter.
+
+| shown | withheld |
+| --- | --- |
+| failing step index, error class | response bodies |
+| the selector text | screenshots |
+| HTTP status codes | full traces |
+| console error *messages* | text content |
+| DOM around the failure, **text nodes stripped** — tags, `data-testid`, `aria-*`, roles, classes | |
+
+**A selector is structural**, so what repair needs is precisely the part carrying no user data. PII
+lives in text nodes. Fallback if stripping proves fiddly: the structured summary alone — a wrong
+selector costs one attempt against the cap, it corrupts nothing.
+
+**Playwright's `outputDir` points into `globalStorage/artifacts/<ticketId>/`, never the repo.** By
+default `test-results/` and `playwright-report/` land beside `uat.testDir` inside the worktree —
+screenshots and network bodies full of live dev-DB content, one `git add -A` from a PR. Same class as
+the service-log finding in B6, same fix, and karst owning the config is what makes it available.
+
 ### Mechanics
 
 | | |
