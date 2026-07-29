@@ -183,8 +183,16 @@ setTimeout(() => {
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
 
     // The probe sits after the push, not before it: an existing PR must still
-    // receive the branch's new commits. Adopting is not skipping.
-    expect(order).toEqual(['git status', 'git push', 'gh pr view', 'gh pr create']);
+    // receive the branch's new commits. Adopting is not skipping. The trailing
+    // view is the metadata read (from-to branches, opened stamp) on the PR that
+    // now exists — the ship stage renders it immediately, not a sweep later.
+    expect(order).toEqual([
+      'git status',
+      'git push',
+      'gh pr view',
+      'gh pr create',
+      'gh pr view',
+    ]);
   });
 
   it('targets the current repository baseline instead of the worktree creation-time base', async () => {
@@ -311,6 +319,7 @@ setTimeout(() => {
         'git push',
         'gh pr view',
         'gh pr create',
+        'gh pr view',
         'git fetch',
       ]);
     });

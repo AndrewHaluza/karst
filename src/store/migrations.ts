@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -43,6 +43,12 @@ function tableColumns(db: Database, table: string): Set<string> {
 function ticketColumns(db: Database): Set<string> {
   return tableColumns(db, 'tickets');
 }
+
+/**
+ * v16 PR metadata columns, all TEXT (ISO stamps and a JSON blob — SQLite has no
+ * date or json type). Mirror schema.sql for fresh DBs.
+ */
+const V16_PR_COLUMNS = ['head_ref', 'base_ref', 'created_at', 'merged_at', 'comments'] as const;
 
 /** Tables whose `service` column became `repo` in v10. */
 const V10_RENAMED_TABLES = ['servers', 'port_allocations', 'baseline_refs'] as const;
@@ -291,6 +297,24 @@ export function migrate(db: Database): void {
     const cols = ticketColumns(db);
     if (cols.size > 0 && !cols.has('type')) {
       db.exec('ALTER TABLE tickets ADD COLUMN type TEXT');
+    }
+  }
+
+  if (current < 16) {
+    // v16 adds the PR metadata the ship stage renders beside a PR: its source and
+    // target branch, when it was opened, when it was merged, and its comments.
+    // Purely additive and guarded on the CURRENT columns, so a fresh DB (already
+    // carrying them from schema.sql) skips every ALTER and a re-open is a no-op.
+    //
+    // Nothing is backfilled — these facts live on GitHub, not in the registry, and
+    // a migration cannot reach the network. NULL means "never probed", which the
+    // PR panel renders as absent rather than as a blank or an invented value; the
+    // next `syncPrStatuses` sweep fills them in.
+    const cols = tableColumns(db, 'prs');
+    if (cols.size > 0) {
+      for (const col of V16_PR_COLUMNS) {
+        if (!cols.has(col)) db.exec(`ALTER TABLE prs ADD COLUMN ${col} TEXT`);
+      }
     }
   }
 

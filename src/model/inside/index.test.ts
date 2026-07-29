@@ -125,6 +125,49 @@ describe('buildStageInside', () => {
       expect(ops[0]!.detail).toContain('#12');
     });
 
+    // The ship strip names the same directory the worktree rows do, so it must
+    // honor the one path-display preference rather than printing a raw path.
+    it('names the repo by its DISPLAY path and carries the PR’s from-to branches', () => {
+      const prs = [
+        {
+          ticketId: 1,
+          repo: '/Users/nd/Work/projects/karst',
+          repoDisplay: './karst',
+          number: 12,
+          url: 'https://x/12',
+          status: 'open',
+          headRef: 'karst/feat/ship',
+          baseRef: 'develop',
+        },
+      ];
+      const ops = build({ ship: 'passed' }, { prs }).ship.ops;
+      expect(ops[0]!.detail).toBe('./karst #12 · karst/feat/ship → develop');
+      expect(ops[0]!.detail).not.toContain('/Users/nd');
+    });
+
+    it('says merged on the row once the PR carries a merge stamp', () => {
+      const prs = [
+        {
+          ticketId: 1,
+          repo: 'api',
+          number: 12,
+          url: 'https://x/12',
+          status: 'merged',
+          headRef: 'karst/feat/ship',
+          baseRef: 'develop',
+          mergedAt: '2026-07-28T09:30:00Z',
+        },
+      ];
+      expect(build({ ship: 'passed' }, { prs }).ship.ops[0]!.detail).toContain('merged');
+    });
+
+    // Unprobed metadata must render exactly as it did before the metadata existed
+    // — no empty arrow, no dangling separator.
+    it('renders a PR with no metadata as just its repo and number', () => {
+      const prs = [{ ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' }];
+      expect(build({ ship: 'passed' }, { prs }).ship.ops[0]!.detail).toBe('api #12');
+    });
+
     // A ticket that shipped before merge checks existed, or whose check never got
     // written, must render as it always did. Silence is the honest reading of "we
     // have not checked" — inventing a clean row would be the exact failure this

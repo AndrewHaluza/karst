@@ -1,6 +1,6 @@
 import type { GateRun } from '../../store/gateRuns.js';
 import type { PhaseMark } from '../../store/phaseMarks.js';
-import type { WorktreeView, PrView } from '../../store/dashboard.js';
+import type { WorktreeView } from '../../store/dashboard.js';
 import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import { summarizeMergeCheck, mergeOpStatus } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
@@ -16,11 +16,28 @@ export type { StageInside, StageOp, OpStatus, InsideDot } from './types.js';
  * Everything needed to say what happened inside each stage — all of it already
  * loaded by the caller, so this stays pure: no store, no clock, no vscode.
  */
+/**
+ * The PR facts the ship strip reads — a structural subset of `PrView`, so the
+ * strip states only what it renders and a caller with a partial row (a test, an
+ * older snapshot) still type-checks. The v16 metadata is optional for exactly
+ * that reason: absent is a state the strip must handle anyway.
+ */
+export interface ShipPrView {
+  /** The repository path — identity. */
+  repo: string;
+  /** The repository as displayed (path-display preference). Falls back to `repo`. */
+  repoDisplay?: string;
+  number: number | null;
+  headRef?: string | null;
+  baseRef?: string | null;
+  mergedAt?: string | null;
+}
+
 export interface StageInsideInput {
   stepper: readonly StepperCell[];
   gateRuns: readonly GateRun[];
   worktrees: readonly WorktreeView[];
-  prs: readonly PrView[];
+  prs: readonly ShipPrView[];
   /**
    * Current mergeability per repo, as of the last ship. Optional: a caller that
    * predates the merge check simply renders no merge rows, which is the correct
@@ -95,6 +112,12 @@ function scopeInside(
   return inside(cell, now, ops);
 }
 
+/** `head → base` for a strip row, degrading to whichever side is known. */
+function branchPair(headRef?: string | null, baseRef?: string | null): string {
+  if (headRef && baseRef) return `${headRef} → ${baseRef}`;
+  return headRef || (baseRef ? `→ ${baseRef}` : '');
+}
+
 /**
  * Ship's evidence is the PR rows it wrote and the merge check it recorded per
  * repo, plus — on a failure — the real error its catch stored on the stage. The
@@ -107,7 +130,7 @@ function scopeInside(
  */
 function shipInside(
   cell: StepperCell,
-  prs: readonly PrView[],
+  prs: readonly ShipPrView[],
   mergeChecks: readonly MergeCheckRow[],
   selectedRepos: readonly string[],
   now: string,
@@ -138,10 +161,22 @@ function shipInside(
   }
   const checksByRepo = new Map(mergeChecks.map((c) => [c.repo, c]));
   const ops = prs.flatMap((pr): StageOp[] => {
+    // The DISPLAY path, never the raw one: this row names the same directory the
+    // worktree rows do, so it must obey the one path-display preference (falling
+    // back to the path when a caller supplied no display form).
+    const label = pr.repoDisplay || pr.repo;
+    // From-to is the identity of a PR, so it belongs on the row that claims one
+    // was opened. Each part is appended only when known — an unprobed PR renders
+    // exactly as it did before the metadata existed, not with an empty arrow.
+    const parts = [
+      pr.number ? `${label} #${pr.number}` : label,
+      branchPair(pr.headRef, pr.baseRef),
+      pr.mergedAt ? 'merged' : '',
+    ].filter((p) => p !== '');
     const prOp: StageOp = {
       status: 'pass',
       name: 'pr',
-      detail: pr.number ? `${pr.repo} #${pr.number}` : pr.repo,
+      detail: parts.join(' · '),
       duration: '',
     };
     const check = checksByRepo.get(pr.repo);
@@ -151,7 +186,7 @@ function shipInside(
       {
         status: mergeOpStatus(check.state),
         name: 'merge',
-        detail: `${pr.repo} · ${summarizeMergeCheck(check)}`,
+        detail: `${label} · ${summarizeMergeCheck(check)}`,
         duration: '',
       },
     ];

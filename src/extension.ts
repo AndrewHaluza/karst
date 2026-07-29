@@ -71,6 +71,8 @@ import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
+import { mergeTicketPr } from './workflow/mergePr.js';
+import { findTicketPr } from './store/prs.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
@@ -2455,6 +2457,76 @@ function makeDashboardActions(
         return;
       }
       handOffToSession(brief);
+    },
+    // Merge one repo's PR, from the ship stage.
+    //
+    // Irreversible, so the confirmation is a MODAL and it is the same click that
+    // chooses the strategy — there is no default method and no way to merge
+    // without answering. The webview only names the repo; everything about how
+    // (and whether) the merge happens is decided here and in `mergeTicketPr`.
+    //
+    // The dashboard is refreshed on EVERY exit — success, refusal, cancel, throw —
+    // because the panel's pending state is cleared by a state push. Skipping the
+    // push on the cancel path would leave the button stuck on "Merging…".
+    mergePr: (repo) => {
+      if (!guardCapability('ship')) return;
+      void (async () => {
+        try {
+          // The store decides what is mergeable: `repo` arrived in a webview
+          // message and a stale panel can name a PR that has since gone.
+          const pr = findTicketPr(store, ticketId, repo);
+          if (!pr) {
+            void vscode.window.showInformationMessage(
+              `No pull request is recorded for "${repo}" on this ticket — nothing to merge.`,
+            );
+            return;
+          }
+          if (pr.status === 'merged') {
+            void vscode.window.showInformationMessage(
+              `Pull request${pr.number ? ` #${pr.number}` : ''} is already merged.`,
+            );
+            return;
+          }
+
+          const target = pr.baseRef ? ` into ${pr.baseRef}` : '';
+          const choice = await vscode.window.showWarningMessage(
+            `Merge pull request${pr.number ? ` #${pr.number}` : ''}${target}?`,
+            {
+              modal: true,
+              detail:
+                'This merges the branch on GitHub now. karst cannot undo it. '
+                + 'The worktree and its branch are kept.',
+            },
+            'Squash and merge',
+            'Create a merge commit',
+          );
+          if (!choice) return; // dismissed: nothing ran, and nothing is claimed
+
+          const result = await mergeTicketPr(store, {
+            ticketId,
+            repo,
+            method: choice === 'Squash and merge' ? 'squash' : 'merge',
+          });
+          if (result.ok) {
+            void vscode.window.showInformationMessage(
+              `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
+            );
+            return;
+          }
+          // The reason is gh's own words where there are any. `mergeTicketPr` has
+          // already persisted the real, re-probed state, so the panel and this
+          // message describe the same PR.
+          logError(`merge failed for ticket #${ticketId} (${repo})`, undefined);
+          void vscode.window.showErrorMessage(`Merge failed: ${result.reason}`);
+        } catch (e) {
+          logError('merge failed', e);
+          void vscode.window.showErrorMessage(
+            `Merge failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        } finally {
+          afterServerChange();
+        }
+      })();
     },
     toggleBind,
   };

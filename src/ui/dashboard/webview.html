@@ -400,6 +400,26 @@
   .mg-conflicted .mgtext{color:var(--vscode-testing-iconFailed,#cf222e)}
   .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mg .mgbtn{flex:none}
+  /* PR metadata: from-to, opened, merged. Indented under its PR like the merge
+     verdict, so it reads as facts ABOUT that pull request. */
+  .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-2px 0 4px 12px;padding:0 6px;
+    font-size:11px;color:var(--text-dim)}
+  .pmeta .pbranch{font-family:var(--mono);color:var(--text)}
+  .pmeta .pmerged{color:#a371f7}
+  .pmeta .psep{color:var(--text-faint)}
+  /* Comments collapse: the count is what a reader scans, the bodies are what they
+     open. `pre-wrap` keeps a review comment's own line breaks. */
+  .pcms{margin:0 0 6px 12px;padding:0 6px;font-size:11.5px}
+  .pcms summary{cursor:pointer;color:var(--link);width:fit-content}
+  .pcm{margin:6px 0 0;padding-left:8px;border-left:2px solid var(--border)}
+  .pcm .pcmwho{font-weight:600;font-size:11px}
+  .pcm .pcmwhen{margin-left:6px;font-size:10.5px;color:var(--text-faint)}
+  .pcm .pcmbody{white-space:pre-wrap;color:var(--text-dim);font-size:11.5px;margin-top:2px}
+  /* The merge button. `danger` marks the one irreversible action on this panel;
+     disabled carries the host's reason as its tooltip. */
+  .pr .mgbtn.danger{border-color:#8957e5;color:#c297ff}
+  .pr .mgbtn.danger:hover{background:#8957e5;color:#fff}
+  .pr .mgbtn[disabled]{opacity:.55;cursor:not-allowed}
 
   /* agent pill (colored by state) */
   .agent-pill{display:inline-flex;align-items:center;gap:6px}
@@ -649,6 +669,10 @@
   let shipping = false;
   let shipOps = null;
   let shipDone = null;
+  // Per-repo merge-in-flight flags, keyed by repo path. NOT persisted: a merge is
+  // a one-shot host round trip, and a flag restored from a reload would claim a
+  // merge is underway that nobody is running. Cleared on every state push.
+  let mergePending = {};
   // The window's terminal binding. UNLIKE the view state above, this is NOT a
   // webview concern: it is one host-owned preference shared by every open
   // dashboard, so it is never persisted here — a stored copy could only go
@@ -1091,17 +1115,72 @@
       + `<span class="mgtext">${esc(m.summary)}</span>${act}</div>`;
   }
 
+  // The merge control. Rendered from the host's verdict (`canMerge` +
+  // `mergeBlockedReason`) — the webview never decides that a PR is mergeable, and
+  // never phrases the reason it isn't.
+  //
+  // Merging is IRREVERSIBLE, so the click only asks: the host puts a modal in
+  // front of the user (which also chooses the strategy) before anything runs. The
+  // pending label exists so a click on an irreversible action is never silent
+  // while that dialog is up, and it is cleared by the next state push — including
+  // the one the host sends after a cancel, so the button can never stick.
+  function mergeButton(p) {
+    if (p.status === 'merged') return '';
+    if (mergePending[p.repo]) {
+      return `<button class="mgbtn" disabled title="Confirm the merge in the dialog.">Merging…</button>`;
+    }
+    if (!p.canMerge) {
+      return `<button class="mgbtn" disabled title="${esc(p.mergeBlockedReason)}">Merge</button>`;
+    }
+    const num = p.number ? ` #${p.number}` : '';
+    return `<button class="mgbtn danger" data-act="merge-pr" data-repo="${esc(p.repo)}"`
+      + ` title="Merge pull request${esc(num)} into ${esc(p.baseRef || 'its base branch')}. This cannot be undone.">Merge</button>`;
+  }
+
+  // The metadata line under a PR: from-to, when it was opened, when it merged, and
+  // how many comments it carries. Every part is a host-rendered string that is ''
+  // when the fact is absent, so a PR karst has not fully probed simply shows less
+  // — never a blank field, a placeholder, or "Invalid Date".
+  function prMetaLine(p) {
+    const bits = [
+      p.branches ? `<span class="pbranch">${esc(p.branches)}</span>` : '',
+      p.opened ? `<span>${esc(p.opened)}</span>` : '',
+      p.merged ? `<span class="pmerged">${esc(p.merged)}</span>` : '',
+    ].filter(Boolean);
+    if (!bits.length) return '';
+    return `<div class="pmeta">${bits.join('<span class="psep">·</span>')}</div>`;
+  }
+
+  // Comments collapse by default: the count is the fact a reader scans for, the
+  // bodies are what they open when it matters. A PR with none renders nothing at
+  // all rather than an empty disclosure.
+  function prComments(p) {
+    if (!p.commentsLabel) return '';
+    const rows = p.comments.map((c) => (
+      `<div class="pcm"><span class="pcmwho">${esc(c.author || 'unknown')}</span>`
+      + (c.when ? `<span class="pcmwhen">${esc(c.when)}</span>` : '')
+      + `<div class="pcmbody">${esc(c.body)}</div></div>`
+    )).join('');
+    return `<details class="pcms"><summary>${esc(p.commentsLabel)}</summary>${rows}</details>`;
+  }
+
   function renderPrs(prs, mergeChecks) {
     const byRepo = {};
     for (const m of (mergeChecks || [])) byRepo[m.repo] = m;
     el('prCount').textContent = prs.length ? `${prs.length}` : '';
     el('prs').innerHTML = prs.length ? prs.map((p) => (
       `<div class="prrow"><div class="pr"><span class="pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
-      + `<span class="prepo">${esc(p.repo)}</span>`
+      // The DISPLAY path, per the worktree path-display preference — the same
+      // string the worktree rows show for this repo.
+      + `<span class="prepo">${esc(p.repoDisplay || p.repo)}</span>`
       + `<span class="ptitle">${esc(p.url || '')}</span>`
       + `<span class="pnum">#${esc(p.number)}</span>`
-      + `<span class="pacts"><button data-act="open-pr" data-url="${esc(p.url)}">Open</button></span></div>`
+      + `<span class="pacts"><button data-act="open-pr" data-url="${esc(p.url)}">Open</button>`
+      + mergeButton(p)
+      + `</span></div>`
+      + prMetaLine(p)
       + mergeLine(byRepo[p.repo])
+      + prComments(p)
       + `</div>`
     )).join('') : '<div class="empty">No pull requests.</div>';
   }
@@ -1270,6 +1349,14 @@
       shipOps = seedShipOps(lastState ? lastState.worktrees : []);
       render(lastState);
     }
+    // Merging is irreversible and the host answers with a modal first, so the
+    // button must both stop repeating the request and show that the click landed.
+    if (act === 'merge-pr') {
+      const repo = btn.dataset.repo;
+      if (!repo || mergePending[repo]) return;
+      mergePending = { ...mergePending, [repo]: true };
+      render(lastState);
+    }
     if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
     else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
     else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
@@ -1306,6 +1393,10 @@
       // Resolve an in-flight ship FIRST, so render() draws either the held
       // spinner or the settled line — never a flash of the stale "Confirm ship".
       resolveShipping(msg.state);
+      // A state push is the host's answer to the merge request — success, refusal,
+      // or a cancelled confirmation (the host pushes either way). Clearing here is
+      // what stops a button sticking on "Merging…" forever.
+      mergePending = {};
       // Never touches selectedStage, so a full re-render preserves the user's
       // selection for free — including during a run, when pushes are frequent.
       render(msg.state);
