@@ -13,12 +13,13 @@ import {
   continueSessionInBackground,
   deferSessionRetry,
   KARST_LAUNCH_ENV,
-  KARST_TICKET_ENV,
   SessionManager,
+  ticketIdFromTerminalEnv,
   type TerminalHost,
   type SessionTerminal,
   type OpenSessionOptions,
 } from './ui/session.js';
+import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
   classifyRestoredSession,
   planSessionRecovery,
@@ -208,6 +209,15 @@ const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
 const HOOK_PORT_KEY = 'karst.hookPort';
 /** Tickets whose terminals this window launched, including hidden terminals. */
 const OWNED_SESSION_TICKETS_KEY = 'karst.ownedSessionTickets';
+
+/**
+ * Whether this window binds a ticket's agent terminal to its dashboard.
+ *
+ * `workspaceState`, like the keys above and for the same reason: the surfaces it
+ * binds — terminals and editor tabs — are window-local, so a global key would
+ * make a second window's dashboard reveal terminals the user cannot see.
+ */
+const BIND_TERMINAL_KEY = 'karst.bindTerminalToDashboard';
 
 /**
  * Global (cross-window) flag: the one-shot adoption of pre-v6 tickets has run.
@@ -913,6 +923,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
     .catch((error) => logError('karst: model catalog load failed', error));
 
+  // Declared before the manager because the two reference each other: the
+  // manager asks the binder how the toggle sits, and the binder reveals through
+  // the manager. Assigned immediately below, and neither direction is read
+  // until a panel actually opens.
+  let binder: TerminalDashboardBinder;
+
   const dashboard = new DashboardManager(
     localStore,
     makePanelHost(context),
@@ -951,6 +967,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             seedPrompt: prompt,
           });
         },
+        () => binder.toggle(),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
@@ -982,6 +999,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // provider openSession will launch with (a Continue it can't honor would
     // just flash a terminal that exits on a foreign `--resume`).
     () => currentManifest()?.agentProvider,
+    {
+      enabled: () => binder.enabled(),
+      onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
+    },
+  );
+
+  binder = new TerminalDashboardBinder({
+    isEnabled: () => context.workspaceState.get<boolean>(BIND_TERMINAL_KEY) === true,
+    persist: (enabled) => void context.workspaceState.update(BIND_TERMINAL_KEY, enabled),
+    // Open-or-reveal: a dashboard is a read-only view of the store, so the
+    // terminal click can materialize one. `preserveFocus` keeps the caret in the
+    // shell the user is typing into — and keeps the panel from going ACTIVE,
+    // which is what stops the two listeners revealing each other in a circle.
+    revealDashboard: (ticketId) => dashboard.openDashboard(ticketId, { preserveFocus: true }),
+    // Reveal only. Never `karst.openSession`: that launches an agent, and
+    // clicking a tab must not spend tokens or move the ticket.
+    revealTerminal: (ticketId) => sessions.focusSession(ticketId, true),
+    broadcast: () => dashboard.pushBind(),
+  });
+
+  context.subscriptions.push(
+    // Every terminal in the window raises this, karst's or not; the ticket comes
+    // from the launch env, and a terminal without one resolves to undefined.
+    vscode.window.onDidChangeActiveTerminal((terminal) =>
+      binder.onTerminalActivated(ticketIdFromTerminalEnv(terminalEnv(terminal))),
+    ),
   );
 
   // The live verbose channel (§ naming/status): whatever a tab or terminal
@@ -2111,20 +2154,31 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
     injectPalette(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
   );
   return {
-    createPanel(title): DashboardPanel {
+    createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
         'karst.dashboard',
         title,
-        vscode.ViewColumn.Active,
+        // A bound open rides on the user clicking the TERMINAL: the panel must
+        // appear beside it without taking the caret out of the shell.
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus: preserveFocus === true },
         { enableScripts: true, retainContextWhenHidden: true },
       );
       // Nonce per panel, not per host (the html above is built once and reused).
       panel.webview.html = injectCsp(html, newNonce());
       return {
-        reveal: () => panel.reveal(),
+        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
         postMessage: (message) => void panel.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+        // `active` — not `visible`: a preserve-focus reveal makes the panel
+        // visible without the user being on it, and binding off that would fire
+        // on karst's own reveal rather than on a real click.
+        onDidChangeViewState: (handler) =>
+          panel.onDidChangeViewState(
+            (e) => handler(e.webviewPanel.active),
+            undefined,
+            context.subscriptions,
+          ),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
         setIcon: (p: string) => {
           panel.iconPath = vscode.Uri.file(p);
@@ -2134,10 +2188,24 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
   };
 }
 
+/**
+ * A terminal's launch environment, when it has one. `creationOptions` is a union
+ * — a pty-backed terminal carries no `env` at all — so the narrowing lives here
+ * rather than at each call site.
+ */
+function terminalEnv(
+  terminal: vscode.Terminal | undefined,
+): Readonly<Record<string, string | undefined>> | undefined {
+  const opts = terminal?.creationOptions;
+  return opts && 'env' in opts
+    ? (opts.env as Readonly<Record<string, string | undefined>> | undefined)
+    : undefined;
+}
+
 /** Wrap a VS Code terminal for both freshly-created and restored sessions. */
 function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
   return {
-    show: () => terminal.show(),
+    show: (preserveFocus) => terminal.show(preserveFocus),
     sendText: (text) => terminal.sendText(text, true),
     dispose: () => terminal.dispose(),
     onDidClose: (handler) => {
@@ -2174,13 +2242,12 @@ function makeTerminalHost(): TerminalHost {
     },
     restoredSessions: () =>
       vscode.window.terminals.flatMap((terminal) => {
-        const creationOptions = terminal.creationOptions;
-        const env = 'env' in creationOptions ? creationOptions.env : undefined;
-        const raw = env?.[KARST_TICKET_ENV];
+        const env = terminalEnv(terminal);
+        const ticketId = ticketIdFromTerminalEnv(env);
         const launchId = env?.[KARST_LAUNCH_ENV];
-        return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
+        return ticketId !== undefined
           ? [{
-              ticketId: Number(raw),
+              ticketId,
               ...(typeof launchId === 'string' && launchId.length > 0
                 ? { launchId }
                 : {}),
@@ -2224,6 +2291,9 @@ function makeDashboardActions(
   // `openSession` alone would be dropped whenever a session is already up —
   // openSession only focuses an existing terminal.
   handOffToSession: (prompt: string) => void,
+  // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
+  // takes no id — every open dashboard reports the same toggle.
+  toggleBind: () => void,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {
@@ -2386,5 +2456,6 @@ function makeDashboardActions(
       }
       handOffToSession(brief);
     },
+    toggleBind,
   };
 }

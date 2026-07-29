@@ -4,6 +4,7 @@ import {
   KARST_LAUNCH_ENV,
   KARST_TICKET_ENV,
   SessionManager,
+  ticketIdFromTerminalEnv,
   type TerminalHost,
   type FakeTerminal,
   type RestoredSession,
@@ -59,9 +60,13 @@ function fakeHost(
         iconPath: opts.iconPath,
         color: opts.color,
         shown: 0,
+        shownPreserveFocus: [],
         disposed: false,
         sent: [],
-        show: () => term.shown++,
+        show: (preserveFocus) => {
+          term.shown++;
+          term.shownPreserveFocus.push(preserveFocus);
+        },
         sendText: (text) => term.sent.push(text),
         dispose: () => {
           term.disposed = true;
@@ -402,6 +407,18 @@ describe('SessionManager', () => {
     const before = terminals[0]!.shown;
     mgr.focusSession(1);
     expect(terminals[0]!.shown).toBe(before + 1);
+  });
+
+  it('focusSession can reveal without stealing focus', () => {
+    // The dashboard binding reveals the terminal beside a panel the user just
+    // clicked — taking focus there would yank the caret out from under them and
+    // put the two bound surfaces into a focus ping-pong.
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 1, '/wt/a');
+    mgr.focusSession(1, true);
+    expect(terminals[0]!.shownPreserveFocus.at(-1)).toBe(true);
   });
 
   it('nudge types a prompt without revealing the IDE terminal', () => {
@@ -884,5 +901,28 @@ describe('SessionManager', () => {
     terminals[0]!.dispose();
 
     expect(cleanup).toHaveBeenCalledWith('/wt/a', ['/wt/a/.codex/karst']);
+  });
+});
+
+describe('ticketIdFromTerminalEnv', () => {
+  it('reads the ticket a terminal was launched for', () => {
+    expect(ticketIdFromTerminalEnv({ [KARST_TICKET_ENV]: '42' })).toBe(42);
+  });
+
+  it('has no answer for a terminal karst did not launch', () => {
+    // Every terminal in the window — the user's own shells included — reaches
+    // this helper. Anything but a Karst launch must resolve to nothing.
+    expect(ticketIdFromTerminalEnv(undefined)).toBeUndefined();
+    expect(ticketIdFromTerminalEnv({})).toBeUndefined();
+    expect(ticketIdFromTerminalEnv({ [KARST_TICKET_ENV]: undefined })).toBeUndefined();
+  });
+
+  it('refuses anything that is not a positive integer id', () => {
+    // The value comes back out of the host's own environment record, so it is
+    // typed as a string but never validated. `Number('')` is 0 and `Number(' 1')`
+    // is 1 — both would silently address the wrong ticket, or none.
+    for (const raw of ['', '0', '-1', '1.5', ' 1', '1abc', 'abc']) {
+      expect(ticketIdFromTerminalEnv({ [KARST_TICKET_ENV]: raw })).toBeUndefined();
+    }
   });
 });

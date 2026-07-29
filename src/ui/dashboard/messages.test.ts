@@ -21,6 +21,7 @@ function actions(): DashboardActions {
     createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
+    toggleBind: vi.fn(),
   };
 }
 
@@ -203,5 +204,17 @@ describe('routeAction', () => {
     routeAction({ type: 'resolve-conflicts', repo: 7 }, a);
     routeAction({ type: 'resolve-conflicts', repo: '' }, a);
     expect(a.resolveConflicts).not.toHaveBeenCalled();
+  });
+
+  it('dispatches toggle-bind, carrying no state of its own', () => {
+    // The host owns the binding and flips it. A message that carried the desired
+    // value could disagree with the host — two panels racing, or a stale webview
+    // after a reload — and the pref is window-wide, so the two must not desync.
+    expect(parseWebviewMessage({ type: 'toggle-bind', enabled: false })).toEqual({
+      type: 'toggle-bind',
+    });
+    const a = actions();
+    routeAction({ type: 'toggle-bind' }, a);
+    expect(a.toggleBind).toHaveBeenCalledTimes(1);
   });
 });

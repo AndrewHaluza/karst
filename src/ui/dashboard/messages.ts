@@ -1,4 +1,5 @@
 import type { DashboardState } from './state.js';
+import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { isHttpUrl } from '../shared/url.js';
 
 /**
@@ -23,10 +24,24 @@ export type WebviewMessage =
   | { type: 'resume-ticket' }
   | { type: 'create-follow-up-ticket' }
   | { type: 'open-stage-log'; path: string }
-  | { type: 'resolve-conflicts'; repo: string };
+  | { type: 'resolve-conflicts'; repo: string }
+  /**
+   * Flip the terminal↔dashboard binding. Carries no value on purpose: the host
+   * holds the preference and the webview only renders what it is pushed, so the
+   * two can never disagree about which way the toggle currently sits.
+   */
+  | { type: 'toggle-bind' };
 
-/** Host → webview messages: state pushes drive the stepper + panels. */
-export type HostMessage = { type: 'state'; state: DashboardState };
+/**
+ * Host → webview messages. `state` pushes drive the stepper + panels;
+ * `ship-progress` overlays live ship steps that are not in the store; `bind`
+ * carries the window's terminal-binding preference, which is host-owned and
+ * likewise absent from `DashboardState`.
+ */
+export type HostMessage =
+  | { type: 'state'; state: DashboardState }
+  | { type: 'ship-progress'; event: ShipStepEvent }
+  | { type: 'bind'; enabled: boolean };
 
 /** The daemon-facing side-effects a dashboard can trigger. */
 export interface DashboardActions {
@@ -62,6 +77,8 @@ export interface DashboardActions {
    * a session in.
    */
   resolveConflicts: (repo: string) => void;
+  /** Flip the window's terminal↔dashboard binding. */
+  toggleBind: () => void;
 }
 
 /**
@@ -118,6 +135,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return typeof m.repo === 'string' && m.repo.length > 0
         ? { type: 'resolve-conflicts', repo: m.repo }
         : null;
+    // Payload-free like the panel-level server controls: a companion `enabled`
+    // is dropped rather than honored, so the host's value stays authoritative.
+    case 'toggle-bind':
+      return { type: 'toggle-bind' };
     default:
       return null;
   }
@@ -185,6 +206,9 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'resolve-conflicts':
       actions.resolveConflicts(msg.repo);
+      return;
+    case 'toggle-bind':
+      actions.toggleBind();
       return;
   }
 }
