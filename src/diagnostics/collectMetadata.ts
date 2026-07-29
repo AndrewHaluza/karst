@@ -8,6 +8,7 @@ import { DIAGNOSTIC_LIMITS } from './limits.js'
 import { projectEffectiveConfig } from './projectConfig.js'
 import type { Pseudonymizer } from './pseudonymize.js'
 import { sanitizeText } from './redact.js'
+import { createRepositoryAliases, type RepositoryAliases } from './repositoryAliases.js'
 import {
   readGateRuns,
   readMergeChecks,
@@ -132,6 +133,11 @@ function makeSafeText(
   }
 }
 
+/** First-seen order, no repeats — a monorepo's entries appear once each. */
+function dedup(values: readonly string[]): string[] {
+  return [...new Set(values)]
+}
+
 function selectedRepos(raw: string | null): string[] {
   if (!raw) return []
   try {
@@ -166,17 +172,11 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
   const redactions: Record<string, number> = {}
   const safe = makeSafeText(redactions)
   const repositoryNames = selectedRepos(ticket.selected_repos)
-  const repositoryRefs = new Map<string, string>()
-  const repositoryAlias = (name: string): string => {
-    const existing = repositoryRefs.get(name)
-    if (existing) return existing
-    const alias = `repo_${repositoryRefs.size + 1}`
-    repositoryRefs.set(name, alias)
-    return alias
-  }
+  const repositories = createRepositoryAliases(input.manifest)
   const provider = resolveProvider(ticket.agent_provider, input.manifest.agentProvider)
   const model = resolveModelForProvider(provider, ticket.model, input.manifest.defaultModel)
-  const mapRepositories = (values: readonly string[]): string[] => values.map(repositoryAlias)
+  const mapRepositories = (values: readonly string[]): string[] =>
+    values.map(repositories.byName)
 
   const metadata: Partial<Record<DiagnosticSectionName, DiagnosticSection>> = {
     runtime: available({
@@ -213,7 +213,7 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
       resolvedModel: model,
       resolvedProvider: provider,
       aliases: input.aliases,
-      repositoryAlias,
+      repositoryAlias: repositories.byName,
     })),
   }
 
@@ -264,9 +264,9 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
   }
 
   await yieldToHost(input.isCancelled)
-  metadata.topology = collectTopology(input, safe, repositoryAlias)
+  metadata.topology = collectTopology(input, safe, repositories)
   await yieldToHost(input.isCancelled)
-  metadata.pullRequest = collectPullRequests(input, safe, repositoryAlias)
+  metadata.pullRequest = collectPullRequests(input, safe, repositories)
   await yieldToHost(input.isCancelled)
   metadata.logs = collectLogs(input.logs.snapshot(), input.generatedAt, safe)
 
@@ -291,14 +291,7 @@ export async function collectProjectMetadata(
   await yieldToHost(input.isCancelled)
   const redactions: Record<string, number> = {}
   const safe = makeSafeText(redactions)
-  const repositoryRefs = new Map<string, string>()
-  const repositoryAlias = (name: string): string => {
-    const existing = repositoryRefs.get(name)
-    if (existing) return existing
-    const alias = `repo_${repositoryRefs.size + 1}`
-    repositoryRefs.set(name, alias)
-    return alias
-  }
+  const aliases = createRepositoryAliases(input.manifest)
   const repositories = Object.keys(input.manifest.repositories)
   return {
     reportId: input.reportId,
@@ -321,7 +314,7 @@ export async function collectProjectMetadata(
         resolvedModel: input.manifest.defaultModel,
         resolvedProvider: resolveProvider(undefined, input.manifest.agentProvider),
         aliases: input.aliases,
-        repositoryAlias,
+        repositoryAlias: aliases.byName,
       })),
       logs: collectLogs(input.logs.snapshot(), input.generatedAt, safe),
     },
@@ -337,7 +330,7 @@ export async function collectProjectMetadata(
 function collectTopology(
   input: MetadataSources,
   safe: (value: string | null) => string | null,
-  repositoryAlias: (name: string) => string,
+  repositories: RepositoryAliases,
 ): DiagnosticSection {
   try {
     const cap = DIAGNOSTIC_LIMITS.maxRowsPerSection
@@ -345,19 +338,27 @@ function collectTopology(
     const servers = readServers(input.store, input.ticketId, cap)
     const omitted = worktrees.omitted + servers.omitted
     const data = {
+      // A worktree row is keyed by repoPath, so it names as many manifest
+      // entries as share that path — `repositories`, plural, rather than a
+      // single alias that would have to pick one of them. `repoPathRef` joins
+      // the row to the PR and merge-check rows for the same path even when the
+      // manifest no longer lists any entry for it.
       worktrees: worktrees.rows.map((row) => ({
-        repository: repositoryAlias(row.repo),
+        repositories: repositories.byPath(row.repo),
+        repoPathRef: input.aliases.path(row.repo),
         pathRef: input.aliases.path(row.path),
         branchRef: row.branch ? input.aliases.branch(row.branch) : null,
         baseRef: row.baseRef ? input.aliases.baseRef(row.baseRef) : null,
         depsMode: safe(row.depsMode),
       })),
       servers: servers.rows.map((row) => ({
-        repository: repositoryAlias(row.repo),
+        repository: repositories.byName(row.repo),
         status: safe(row.status),
         hasAddress: row.hasAddress,
       })),
-      repositoryOrder: worktrees.rows.map((row) => repositoryAlias(row.repo)),
+      repositoryOrder: dedup(
+        worktrees.rows.flatMap((row) => repositories.byPath(row.repo)),
+      ),
     }
     return omitted > 0
       ? { status: 'truncated', data: json(data), omitted, reason: 'rows' }
@@ -370,22 +371,26 @@ function collectTopology(
 function collectPullRequests(
   input: MetadataSources,
   safe: (value: string | null) => string | null,
-  repositoryAlias: (name: string) => string,
+  repositories: RepositoryAliases,
 ): DiagnosticSection {
   try {
     const cap = DIAGNOSTIC_LIMITS.maxRowsPerSection
     const prs = readPullRequests(input.store, input.ticketId, cap)
     const merges = readMergeChecks(input.store, input.ticketId, cap)
     const omitted = prs.omitted + merges.omitted
+    // Both tables key by repoPath, exactly as `worktrees` does — same pair of
+    // fields, same reason.
     const data = {
       pullRequests: prs.rows.map((row) => ({
-        repository: repositoryAlias(row.repo),
+        repositories: repositories.byPath(row.repo),
+        repoPathRef: input.aliases.path(row.repo),
         number: row.number,
         status: safe(row.status),
         hasUrl: row.hasUrl,
       })),
       mergeChecks: merges.rows.map((row) => ({
-        repository: repositoryAlias(row.repo),
+        repositories: repositories.byPath(row.repo),
+        repoPathRef: input.aliases.path(row.repo),
         state: safe(row.state),
         conflictFileCount: row.conflictFileCount,
         hasHeadSha: row.hasHeadSha,
