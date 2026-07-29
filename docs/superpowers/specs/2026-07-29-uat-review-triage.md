@@ -116,7 +116,7 @@ base URL is baked into the bundle at build time.
 The throwaway exploration script lives outside `uat.testDir`, so it never collides with the fix guard
 (A3).
 
-### A3 `BLOCK` — the coverage gate deadlocks
+### A3 `RESOLVED` — the coverage gate deadlocks
 
 `coverage` fails when a criterion has no passing test → the remedy is to write a test → tests live in
 `uat.testDir` → `fix` may not touch `testDir`. Unwinnable, which is exactly what the null rule exists
@@ -131,6 +131,27 @@ git diff --diff-filter=A    ∩  testDir   → allow    (new test)
 ```
 
 Deterministic, and it matches the intent exactly. **Cost:** near zero.
+
+#### Resolution (decided)
+
+| Decision | Value |
+|---|---|
+| Rule | Add-only, as above. Modified or deleted files under `testDir` reject; added files pass. |
+| Diff base | Capture HEAD when `autoResumeFix` fires; compare the **working tree** (staged + unstaged + untracked) against it. Sees exactly what this fix attempt did and cannot be dodged by leaving edits uncommitted — gates read files off disk, not history. Needs a ref stored per fix attempt. |
+| Vacuous new tests | **Accepted, not solved.** The human diff at review is the control. |
+| Config bypass | **Documented limit.** |
+
+**Two honest limits, recorded rather than papered over.** The original spec called this "the guard that
+actually stops it", which overclaimed:
+
+1. Add-only stops *rewriting the red test*. It does not stop **adding a vacuous one** —
+   `test('[AC-3] …', () => expect(true).toBe(true))` satisfies coverage. The gate checks *existence*,
+   so it is gameable by construction; "is this test meaningful" is undecidable. `runReview` already
+   opens the diff for the human regardless of verdict, and that is the real control.
+2. Editing `playwright.config.ts` (`testPathIgnorePatterns`), a global fixture, or the reporter
+   mapping neuters a failing test **without touching `testDir`**. A path-prefix guard cannot see it.
+   Rejected alternative: a `uat.protectedPaths` denylist — it would be perpetually incomplete and
+   would block legitimate config changes during a fix.
 
 ### A4 `BLOCK` — Lane 3 is gated off precisely when it is needed
 
