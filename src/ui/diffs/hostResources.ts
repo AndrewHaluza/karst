@@ -18,17 +18,35 @@ export class DisposableBag implements DisposableLike {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const item of this.items) item.dispose();
+    const owned = [...this.items];
     this.items.clear();
+    let firstError: unknown;
+    let failed = false;
+    for (const item of owned) {
+      try {
+        item.dispose();
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+    }
+    if (failed) throw firstError;
   }
+}
+
+interface VirtualDocumentEntry {
+  content: string;
+  owner: symbol | null;
 }
 
 /** Prepared virtual text keyed only by the host-created URI string. */
 export class VirtualDocumentRegistry {
-  private readonly documents = new Map<string, string>();
+  private readonly documents = new Map<string, VirtualDocumentEntry>();
 
   get(key: string): string | undefined {
-    return this.documents.get(key);
+    return this.documents.get(key)?.content;
   }
 
   delete(key: string): void {
@@ -42,23 +60,44 @@ export class VirtualDocumentRegistry {
 
 export class VirtualDocumentAttempt {
   private readonly keys = new Set<string>();
-  private committed = false;
+  private readonly owner = Symbol('virtual-document-attempt');
+  private state: 'active' | 'committed' | 'rolled back' = 'active';
 
-  constructor(private readonly documents: Map<string, string>) {}
+  constructor(private readonly documents: Map<string, VirtualDocumentEntry>) {}
 
   set(key: string, content: string): void {
-    this.documents.set(key, content);
+    this.assertActive();
+    if (this.documents.has(key)) {
+      throw new Error(`Virtual document already exists: ${key}`);
+    }
+    this.documents.set(key, { content, owner: this.owner });
     this.keys.add(key);
   }
 
   commit(): void {
-    this.committed = true;
+    this.assertActive();
+    for (const key of this.keys) {
+      const entry = this.documents.get(key);
+      if (entry?.owner === this.owner) entry.owner = null;
+    }
+    this.state = 'committed';
     this.keys.clear();
   }
 
   rollback(): void {
-    if (this.committed) return;
-    for (const key of this.keys) this.documents.delete(key);
+    this.assertActive();
+    for (const key of this.keys) {
+      if (this.documents.get(key)?.owner === this.owner) {
+        this.documents.delete(key);
+      }
+    }
+    this.state = 'rolled back';
     this.keys.clear();
+  }
+
+  private assertActive(): void {
+    if (this.state !== 'active') {
+      throw new Error(`Virtual document attempt is already ${this.state}`);
+    }
   }
 }

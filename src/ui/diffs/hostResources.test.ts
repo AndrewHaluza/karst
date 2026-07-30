@@ -20,11 +20,58 @@ describe('VirtualDocumentRegistry', () => {
     attempt.set('karst-diff:/1/file.ts', 'prepared content');
 
     attempt.commit();
-    attempt.rollback();
 
     expect(documents.get('karst-diff:/1/file.ts')).toBe('prepared content');
     documents.delete('karst-diff:/1/file.ts');
     expect(documents.get('karst-diff:/1/file.ts')).toBeUndefined();
+  });
+
+  it('isolates a committed owner from a colliding concurrent attempt', () => {
+    const documents = new VirtualDocumentRegistry();
+    const owner = documents.beginAttempt();
+    owner.set('karst-diff:/1/file.ts', 'owner content');
+    owner.commit();
+    const collider = documents.beginAttempt();
+
+    expect(() => collider.set('karst-diff:/1/file.ts', 'collider content')).toThrow(
+      /already exists/i,
+    );
+    collider.rollback();
+
+    expect(documents.get('karst-diff:/1/file.ts')).toBe('owner content');
+  });
+
+  it('rejects a duplicate insertion without overwriting its own first value', () => {
+    const documents = new VirtualDocumentRegistry();
+    const attempt = documents.beginAttempt();
+    attempt.set('karst-diff:/1/file.ts', 'first content');
+
+    expect(() => attempt.set('karst-diff:/1/file.ts', 'second content')).toThrow(
+      /already exists/i,
+    );
+    expect(documents.get('karst-diff:/1/file.ts')).toBe('first content');
+
+    attempt.rollback();
+    expect(documents.get('karst-diff:/1/file.ts')).toBeUndefined();
+  });
+
+  it('rejects every operation after an attempt commits or rolls back', () => {
+    const documents = new VirtualDocumentRegistry();
+    const committed = documents.beginAttempt();
+    committed.commit();
+    const rolledBack = documents.beginAttempt();
+    rolledBack.rollback();
+
+    for (const operation of [
+      () => committed.set('committed', 'content'),
+      () => committed.commit(),
+      () => committed.rollback(),
+      () => rolledBack.set('rolled-back', 'content'),
+      () => rolledBack.commit(),
+      () => rolledBack.rollback(),
+    ]) {
+      expect(operation).toThrow(/attempt is already (committed|rolled back)/i);
+    }
   });
 });
 
@@ -44,5 +91,26 @@ describe('DisposableBag', () => {
     expect(first.dispose).toHaveBeenCalledOnce();
     expect(second.dispose).toHaveBeenCalledOnce();
     expect(late.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('attempts every listener after one throws, then rethrows only the first error', () => {
+    const firstError = new Error('first listener failed');
+    const first = { dispose: vi.fn(() => { throw firstError; }) };
+    const second = { dispose: vi.fn() };
+    const third = { dispose: vi.fn() };
+    const listeners = new DisposableBag();
+    listeners.add(first);
+    listeners.add(second);
+    listeners.add(third);
+
+    expect(() => listeners.dispose()).toThrow(firstError);
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(second.dispose).toHaveBeenCalledOnce();
+    expect(third.dispose).toHaveBeenCalledOnce();
+
+    expect(() => listeners.dispose()).not.toThrow();
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(second.dispose).toHaveBeenCalledOnce();
+    expect(third.dispose).toHaveBeenCalledOnce();
   });
 });
