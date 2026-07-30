@@ -1,6 +1,6 @@
 import type { GitRunner } from '../../integrations/git.js';
 import { OUTPUT_TRUNCATION_MARKER } from '../../runtime/boundedOutput.js';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export type FileChangeStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
@@ -372,7 +372,9 @@ export async function prepareDiff(
   git: GitRunner,
   target: DiffTarget,
   workingFile: {
-    stat(path: string): Promise<{ size: number }>;
+    lstat(path: string): Promise<{ size: number; isSymbolicLink(): boolean }>;
+    realpath(path: string): Promise<string>;
+    readlink(path: string): Promise<string>;
     read(path: string): Promise<Buffer>;
   },
 ): Promise<PreparedDiff> {
@@ -403,24 +405,64 @@ export async function prepareDiff(
     }
   };
 
-  const statWorking = async (path: string): Promise<void> => {
+  const fsCall = async <T>(operation: () => Promise<T>): Promise<T> => {
     try {
-      assertSize((await workingFile.stat(path)).size);
+      return await operation();
     } catch (error) {
       if (error instanceof TextDiffUnavailableError) throw error;
       throw new TextDiffUnavailableError(error instanceof Error ? error.message : String(error));
     }
   };
 
-  const readWorking = async (path: string): Promise<Buffer> => {
-    try {
-      const content = await workingFile.read(path);
-      assertSize(content.byteLength);
-      return content;
-    } catch (error) {
-      if (error instanceof TextDiffUnavailableError) throw error;
-      throw new TextDiffUnavailableError(error instanceof Error ? error.message : String(error));
+  const realRoot = await fsCall(() => workingFile.realpath(cwd));
+  const assertWithinRealRoot = (path: string): void => {
+    const fromRoot = relative(realRoot, path);
+    if (
+      fromRoot === '..' ||
+      fromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(fromRoot)
+    ) {
+      throw new TextDiffUnavailableError('resource resolves outside the real worktree');
     }
+  };
+
+  type PreparedWorking =
+    | { kind: 'file'; path: string; bytes: Buffer }
+    | { kind: 'symlink'; content: string; bytes: Buffer };
+  const preparedWorking = new Map<string, Promise<PreparedWorking>>();
+  const prepareWorking = (path: string): Promise<PreparedWorking> => {
+    const existing = preparedWorking.get(path);
+    if (existing) return existing;
+    const preparing = fsCall(async () => {
+      if (!isAbsolute(path)) {
+        throw new TextDiffUnavailableError('working resource path is not absolute');
+      }
+
+      // Resolve and contain the directory first. For a final-component symlink
+      // we deliberately do not realpath the link itself: that would follow the
+      // target Karst must never read or open.
+      const realParent = await workingFile.realpath(dirname(path));
+      assertWithinRealRoot(realParent);
+      const entry = await workingFile.lstat(path);
+      assertSize(entry.size);
+      if (entry.isSymbolicLink()) {
+        const content = await workingFile.readlink(path);
+        const bytes = Buffer.from(content);
+        assertSize(bytes.byteLength);
+        return { kind: 'symlink' as const, content, bytes };
+      }
+
+      // Return the same resolved path whose containment was checked. This
+      // narrows authority to the validated resource; path APIs cannot promise
+      // that the filesystem will remain unchanged after this check.
+      const realPath = await workingFile.realpath(path);
+      assertWithinRealRoot(realPath);
+      const bytes = await workingFile.read(realPath);
+      assertSize(bytes.byteLength);
+      return { kind: 'file' as const, path: realPath, bytes };
+    });
+    preparedWorking.set(path, preparing);
+    return preparing;
   };
 
   const objectSize = async (object: string): Promise<void> => {
@@ -452,9 +494,14 @@ export async function prepareDiff(
       return { kind: 'virtual', label: resourceLabel(source), content: '' };
     }
     if (source.kind === 'working') {
-      await statWorking(source.path);
-      await readWorking(source.path);
-      return { kind: 'file', label: resourceLabel(source), path: source.path };
+      const prepared = await prepareWorking(source.path);
+      return prepared.kind === 'symlink'
+        ? {
+            kind: 'virtual',
+            label: resourceLabel(source),
+            content: prepared.content,
+          }
+        : { kind: 'file', label: resourceLabel(source), path: prepared.path };
     }
 
     const object = source.kind === 'git' ? `${source.revision}:${source.path}` : `:${source.path}`;
@@ -467,9 +514,16 @@ export async function prepareDiff(
   };
 
   if (target.binaryCheck.kind === 'untracked') {
-    const path = target.binaryCheck.path;
-    await statWorking(path);
-    const prefix = (await readWorking(path)).subarray(0, 8 * 1024);
+    const source =
+      target.left.kind === 'working'
+        ? target.left
+        : target.right.kind === 'working'
+          ? target.right
+          : null;
+    if (!source) {
+      throw new TextDiffUnavailableError('untracked diff has no working resource');
+    }
+    const prefix = (await prepareWorking(source.path)).bytes.subarray(0, 8 * 1024);
     if (prefix.includes(0)) throw new TextDiffUnavailableError('untracked file is binary');
   } else {
     const args =

@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import {
+  lstat as fsLstat,
+  readFile as fsReadFile,
+  readlink as fsReadlink,
+  realpath as fsRealpath,
+} from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
@@ -24,6 +29,11 @@ import {
   type PreparedDiffResource,
 } from './ui/diffs/git.js';
 import { buildTicketChangesSnapshot } from './ui/diffs/snapshot.js';
+import {
+  DisposableBag,
+  type VirtualDocumentAttempt,
+  VirtualDocumentRegistry,
+} from './ui/diffs/hostResources.js';
 import {
   continueSessionInBackground,
   deferSessionRetry,
@@ -946,7 +956,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
     .catch((error) => logError('karst: model catalog load failed', error));
 
-  const virtualDocuments = new Map<string, string>();
+  const virtualDocuments = new VirtualDocumentRegistry();
   let virtualDocumentId = 0;
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('karst-diff', {
@@ -962,12 +972,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diffContentGit: GitRunner = (args, cwd) =>
     runGit(args, cwd, GIT_TIMEOUT_MS, DIFF_CONTENT_MAX_BYTES);
   const workingFile = {
-    stat: async (path: string): Promise<{ size: number }> => ({
-      size: (await stat(path)).size,
-    }),
-    read: (path: string): Promise<Buffer> => readFile(path),
+    lstat: async (path: string) => {
+      const entry = await fsLstat(path);
+      return { size: entry.size, isSymbolicLink: () => entry.isSymbolicLink() };
+    },
+    realpath: (path: string): Promise<string> => fsRealpath(path),
+    readlink: (path: string): Promise<string> => fsReadlink(path),
+    read: (path: string): Promise<Buffer> => fsReadFile(path),
   };
-  const materializeDiffResource = (resource: PreparedDiffResource): vscode.Uri => {
+  const materializeDiffResource = (
+    resource: PreparedDiffResource,
+    attempt: VirtualDocumentAttempt,
+  ): vscode.Uri => {
     if (resource.kind === 'file') return vscode.Uri.file(resource.path);
 
     // The comparison suffix belongs in the editor label, not in the URI: it can
@@ -980,14 +996,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       scheme: 'karst-diff',
       path: `/${++virtualDocumentId}/${safeBasename}`,
     });
-    virtualDocuments.set(uri.toString(), resource.content);
+    attempt.set(uri.toString(), resource.content);
     return uri;
   };
   const openTicketDiff = async (target: DiffTarget): Promise<void> => {
+    const virtualAttempt = virtualDocuments.beginAttempt();
     try {
       const prepared = await prepareDiff(diffContentGit, target, workingFile);
-      const leftUri = materializeDiffResource(prepared.left);
-      const rightUri = materializeDiffResource(prepared.right);
+      const leftUri = materializeDiffResource(prepared.left, virtualAttempt);
+      const rightUri = materializeDiffResource(prepared.right, virtualAttempt);
       await vscode.commands.executeCommand(
         'vscode.diff',
         leftUri,
@@ -995,7 +1012,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         prepared.title,
         { preview: true, viewColumn: vscode.ViewColumn.Beside },
       );
+      virtualAttempt.commit();
     } catch (error) {
+      virtualAttempt.rollback();
       if (error instanceof TextDiffUnavailableError) {
         void vscode.window.showWarningMessage(error.message);
         return;
@@ -2293,7 +2312,7 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
 }
 
 /** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
-function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHost {
+function makeChangesPanelHost(_context: vscode.ExtensionContext): ChangesPanelHost {
   const html = readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8');
   return {
     createPanel(title, _ticketId): ChangesPanel {
@@ -2304,13 +2323,22 @@ function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHos
         { enableScripts: true, retainContextWhenHidden: true },
       );
       panel.webview.html = injectCsp(html, newNonce());
+      const listeners = new DisposableBag();
       return {
         reveal: () => panel.reveal(),
         postMessage: (message) => void panel.webview.postMessage(message),
-        onDidReceiveMessage: (handler) =>
-          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
-        onDidDispose: (handler) =>
-          panel.onDidDispose(handler, undefined, context.subscriptions),
+        onDidReceiveMessage: (handler) => {
+          listeners.add(panel.webview.onDidReceiveMessage(handler));
+        },
+        onDidDispose: (handler) => {
+          listeners.add(panel.onDidDispose(() => {
+            try {
+              handler();
+            } finally {
+              listeners.dispose();
+            }
+          }));
+        },
       };
     },
   };

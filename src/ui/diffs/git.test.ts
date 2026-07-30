@@ -1,5 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
@@ -67,7 +77,12 @@ function createWorktreeFixture(): { dir: string; spec: WorktreeSpec; base: strin
 }
 
 const workingFile = {
-  stat: async (path: string) => ({ size: statSync(path).size }),
+  lstat: async (path: string) => {
+    const entry = lstatSync(path);
+    return { size: entry.size, isSymbolicLink: () => entry.isSymbolicLink() };
+  },
+  realpath: async (path: string) => realpathSync(path),
+  readlink: async (path: string) => readlinkSync(path),
   read: async (path: string) => readFileSync(path),
 };
 
@@ -324,7 +339,10 @@ describe('prepareDiff', () => {
       expect(staged.left).toMatchObject({ kind: 'virtual', content: 'value=1\n' });
       expect(staged.right).toMatchObject({ kind: 'virtual', content: 'value=2\n' });
       expect(unstaged.left).toMatchObject({ kind: 'virtual', content: 'value=2\n' });
-      expect(unstaged.right).toMatchObject({ kind: 'file', path: join(dir, 'value.txt') });
+      expect(unstaged.right).toMatchObject({
+        kind: 'file',
+        path: realpathSync(join(dir, 'value.txt')),
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -353,7 +371,9 @@ describe('prepareDiff', () => {
       expect(unstaged.right).toEqual({
         kind: 'file',
         label: 'value.txt (working tree)',
-        path: (unstagedTarget.right as { kind: 'working'; path: string }).path,
+        path: realpathSync(
+          (unstagedTarget.right as { kind: 'working'; path: string }).path,
+        ),
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -367,7 +387,7 @@ describe('prepareDiff', () => {
         (file) => file.path === 'value.txt',
       )!.target;
       const unreadableWorkingFile = {
-        stat: workingFile.stat,
+        ...workingFile,
         read: async (_path: string): Promise<Buffer> => {
           throw new Error('EACCES: file became unreadable');
         },
@@ -430,6 +450,72 @@ describe('prepareDiff', () => {
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('renders an outside-target symlink as link text without reading its target', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    const outside = mkdtempSync(join(tmpdir(), 'karst-diff-outside-'));
+    try {
+      const targetPath = join(outside, 'secret.bin');
+      writeFileSync(targetPath, Buffer.from([0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x00]));
+      symlinkSync(targetPath, join(dir, 'outside-link'));
+      const target = (await inspectWorktree(defaultGitRunner, spec)).untracked.find(
+        (file) => file.path === 'outside-link',
+      )!.target;
+      const reads: string[] = [];
+
+      const prepared = await prepareDiff(defaultGitRunner, target, {
+        ...workingFile,
+        read: async (path: string) => {
+          reads.push(path);
+          return readFileSync(path);
+        },
+      });
+
+      expect(prepared.right).toEqual({
+        kind: 'virtual',
+        label: 'outside-link (working tree)',
+        content: targetPath,
+      });
+      expect(reads).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a regular resource reached through a parent symlink outside the real worktree', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    const outside = mkdtempSync(join(tmpdir(), 'karst-diff-escape-'));
+    try {
+      write(dir, 'probe.txt', 'probe\n');
+      write(outside, 'outside.txt', 'outside\n');
+      symlinkSync(outside, join(dir, 'escape'));
+      const target = (await inspectWorktree(defaultGitRunner, spec)).untracked.find(
+        (file) => file.path === 'probe.txt',
+      )!.target;
+      target.right = {
+        kind: 'working',
+        path: join(dir, 'escape', 'outside.txt'),
+        label: 'Working Tree',
+      };
+      target.binaryCheck = { kind: 'untracked', path: 'escape/outside.txt' };
+      const reads: string[] = [];
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, {
+          ...workingFile,
+          read: async (path: string) => {
+            reads.push(path);
+            return readFileSync(path);
+          },
+        }),
+      ).rejects.toThrow(/outside the real worktree/i);
+      expect(reads).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 
