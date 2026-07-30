@@ -86,7 +86,7 @@ export class TicketChangesManager {
     const requestId = ++session.requestId;
     session.panel.postMessage({ type: 'loading', state: session.snapshot?.state ?? null });
 
-    void this.load(ticketId).then(
+    void Promise.resolve().then(() => this.load(ticketId)).then(
       (snapshot) => {
         if (!this.isCurrent(ticketId, session, requestId)) return;
         session.snapshot = snapshot;
@@ -110,7 +110,7 @@ export class TicketChangesManager {
       return;
     }
 
-    void this.openDiff(target).catch((error: unknown) => {
+    void Promise.resolve().then(() => this.openDiff(target)).catch((error: unknown) => {
       this.logError('karst: opening ticket change failed', error);
       this.warn(errorMessage(error));
     });

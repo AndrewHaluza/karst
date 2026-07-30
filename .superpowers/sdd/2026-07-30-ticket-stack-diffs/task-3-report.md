@@ -54,3 +54,65 @@ Confirmed that each accepted diff id retrieves the original `DiffTarget` object
 from the current `ReadonlyMap`, every load checks session liveness plus request
 generation before posting, disposal invalidates outstanding loads, and untrusted
 path/repo/revision fields never enter the protocol.
+
+## Fix round 1 — synchronous dependency throws
+
+### Fix summary
+
+Wrapped both injected async dependency invocations in a promise continuation:
+`load(ticketId)` now reaches the normal load-error branch even if it throws
+synchronously, and `openDiff(target)` now reaches the same logging and warning
+path for synchronous throws and promise rejections.
+
+The panel test's `settle` helper now waits for the next event-loop turn so it
+also drains the added promise-continuation boundary.
+
+### RED evidence
+
+`npx vitest run src/ui/diffs/panel.test.ts src/ui/diffs/messages.test.ts`:
+
+```text
+FAIL  src/ui/diffs/panel.test.ts > TicketChangesManager > turns a synchronous load throw into a panel error
+AssertionError: expected [Function] to not throw an error but 'Error: Load exploded' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"Error: Load exploded"
+
+ ❯ src/ui/diffs/panel.test.ts:265:40
+    263|     );
+    264|
+    265|     expect(() => manager.open(41)).not.toThrow();
+       |                                        ^
+    266|     await settle();
+    267|
+
+FAIL  src/ui/diffs/panel.test.ts > TicketChangesManager > warns with the reason when openDiff throws synchronously
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'Synchronous diff failure' ]
+
+Number of calls: 0
+
+ ❯ src/ui/diffs/panel.test.ts:297:18
+    295|     await settle();
+    296|
+    297|     expect(warn).toHaveBeenCalledWith('Synchronous diff failure');
+       |                  ^
+    298|     expect(logError).toHaveBeenCalledWith(
+    299|       'karst: opening ticket change failed',
+
+Test Files  1 failed | 1 passed (2)
+     Tests  2 failed | 11 passed (13)
+```
+
+### GREEN evidence
+
+`npx vitest run src/ui/diffs/panel.test.ts src/ui/diffs/messages.test.ts`:
+
+```text
+Test Files  2 passed (2)
+     Tests  13 passed (13)
+```
+
+`npm run typecheck` and `git diff --check` both passed.

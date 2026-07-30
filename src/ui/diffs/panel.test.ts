@@ -80,8 +80,7 @@ function makeHost(): { host: ChangesPanelHost; panels: FakePanel[] } {
 }
 
 async function settle(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 describe('TicketChangesManager', () => {
@@ -248,6 +247,57 @@ describe('TicketChangesManager', () => {
     expect(logError).toHaveBeenCalledWith('karst: opening ticket change failed', expect.any(Error));
     expect(warn).toHaveBeenCalledWith('Diff unavailable');
     expect(openDiff).toHaveBeenCalledTimes(2);
+  });
+
+  it('turns a synchronous load throw into a panel error', async () => {
+    const { host, panels } = makeHost();
+    const logError = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      () => { throw new Error('Load exploded'); },
+      async () => {},
+      () => {},
+      logError,
+    );
+
+    expect(() => manager.open(41)).not.toThrow();
+    await settle();
+
+    expect(panels[0]!.posted).toEqual([
+      { type: 'loading', state: null },
+      { type: 'error', message: 'Load exploded' },
+    ]);
+    expect(logError).toHaveBeenCalledWith(
+      'karst: loading ticket changes failed',
+      expect.any(Error),
+    );
+  });
+
+  it('warns with the reason when openDiff throws synchronously', async () => {
+    const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+    const { host, panels } = makeHost();
+    const warn = vi.fn();
+    const logError = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      async () => loaded,
+      () => { throw new Error('Synchronous diff failure'); },
+      warn,
+      logError,
+    );
+
+    manager.open(41);
+    await settle();
+    panels[0]!.emit({ type: 'open-diff', changeId: 'current:1' });
+    await settle();
+
+    expect(warn).toHaveBeenCalledWith('Synchronous diff failure');
+    expect(logError).toHaveBeenCalledWith(
+      'karst: opening ticket change failed',
+      expect.any(Error),
+    );
   });
 
   it('posts nothing after disposal and recreates on the next open', async () => {
