@@ -1,6 +1,6 @@
 import type { GitRunner } from '../../integrations/git.js';
 import { OUTPUT_TRUNCATION_MARKER } from '../../runtime/boundedOutput.js';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export type FileChangeStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
@@ -143,7 +143,7 @@ export function parseCommitHeaders(output: string): CommitHeader[] {
       shortHash: required(fields, cursor + 1, 'commit'),
       author: required(fields, cursor + 2, 'commit'),
       authoredAt: required(fields, cursor + 3, 'commit'),
-      subject: required(fields, cursor + 4, 'commit'),
+      subject: fields[cursor + 4]!,
     });
   }
   return commits;
@@ -157,7 +157,12 @@ function workingPath(spec: WorktreeSpec, path: string): string {
   const root = resolve(spec.path);
   const candidate = resolve(join(spec.path, path));
   const fromRoot = relative(root, candidate);
-  if (fromRoot === '' || fromRoot.startsWith('..') || isAbsolute(fromRoot)) {
+  if (
+    fromRoot === '' ||
+    fromRoot === '..' ||
+    fromRoot.startsWith(`..${sep}`) ||
+    isAbsolute(fromRoot)
+  ) {
     throw new Error(`Git inspection for ${spec.label} rejected an out-of-worktree path`);
   }
   return candidate;
@@ -407,6 +412,17 @@ export async function prepareDiff(
     }
   };
 
+  const readWorking = async (path: string): Promise<Buffer> => {
+    try {
+      const content = await workingFile.read(path);
+      assertSize(content.byteLength);
+      return content;
+    } catch (error) {
+      if (error instanceof TextDiffUnavailableError) throw error;
+      throw new TextDiffUnavailableError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const objectSize = async (object: string): Promise<void> => {
     const sizeText = await run(['cat-file', '-s', object]);
     const size = Number.parseInt(sizeText.trim(), 10);
@@ -425,6 +441,7 @@ export async function prepareDiff(
     if (source.kind === 'empty') return { kind: 'virtual', label: source.label, content: '' };
     if (source.kind === 'working') {
       await statWorking(source.path);
+      await readWorking(source.path);
       return { kind: 'file', label: sourceLabel(source), path: source.path };
     }
 
@@ -440,12 +457,7 @@ export async function prepareDiff(
   if (target.binaryCheck.kind === 'untracked') {
     const path = target.binaryCheck.path;
     await statWorking(path);
-    let prefix: Buffer;
-    try {
-      prefix = (await workingFile.read(path)).subarray(0, 8 * 1024);
-    } catch (error) {
-      throw new TextDiffUnavailableError(error instanceof Error ? error.message : String(error));
-    }
+    const prefix = (await readWorking(path)).subarray(0, 8 * 1024);
     if (prefix.includes(0)) throw new TextDiffUnavailableError('untracked file is binary');
   } else {
     const args =

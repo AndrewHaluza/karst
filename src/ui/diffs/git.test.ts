@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
@@ -112,9 +112,48 @@ describe('parseCommitHeaders', () => {
   it('rejects incomplete commit fields instead of returning a partial commit list', () => {
     expect(() => parseCommitHeaders('123\0abc\0Ada\0')).toThrow(/incomplete/i);
   });
+
+  it('accepts an empty commit subject while requiring every preceding field', () => {
+    expect(
+      parseCommitHeaders(
+        '1234567890abcdef\0' +
+          '1234567\0' +
+          'Ada Lovelace\0' +
+          '2026-07-30T12:34:56+00:00\0' +
+          '\0',
+      ),
+    ).toEqual([
+      {
+        hash: '1234567890abcdef',
+        shortHash: '1234567',
+        author: 'Ada Lovelace',
+        authoredAt: '2026-07-30T12:34:56+00:00',
+        subject: '',
+      },
+    ]);
+  });
 });
 
 describe('inspectWorktree', () => {
+  it('inspects a real Git commit with an empty subject', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      write(dir, 'empty subject.ts', 'empty subject\n');
+      fixtureGit(dir, ['add', 'empty subject.ts']);
+      fixtureGit(dir, ['commit', '--allow-empty-message', '-m', '']);
+
+      const inspected = await inspectWorktree(defaultGitRunner, spec);
+      const emptySubjectCommit = inspected.commits[0]!;
+
+      expect(emptySubjectCommit.subject).toBe('');
+      expect(emptySubjectCommit.files).toContainEqual(
+        expect.objectContaining({ path: 'empty subject.ts', status: 'added' }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('lists first-parent commits since base newest-first with exact commit files', async () => {
     const { dir, spec } = createWorktreeFixture();
     try {
@@ -204,6 +243,53 @@ describe('inspectWorktree', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('keeps legitimate worktree paths whose first component starts with two dots', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      mkdirSync(join(dir, '..notes'));
+      write(dir, '..notes/file.txt', 'notes\n');
+
+      const inspected = await inspectWorktree(defaultGitRunner, spec);
+
+      expect(inspected.untracked).toContainEqual(
+        expect.objectContaining({ path: '..notes/file.txt', status: 'added' }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a Git-reported path that traverses outside the worktree', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-diff-containment-'));
+    const hostileGit: GitRunner = async (args) => {
+      const command = args[0];
+      const stdout =
+        command === 'rev-parse'
+          ? args[2] === 'HEAD^{commit}'
+            ? 'head\n'
+            : 'base\n'
+          : command === 'merge-base'
+            ? 'base\n'
+            : command === 'ls-files'
+              ? '../escape.txt\0'
+              : '';
+      return { stdout, stderr: '', exitCode: 0 };
+    };
+
+    try {
+      await expect(
+        inspectWorktree(hostileGit, {
+          label: 'Hostile Repository',
+          path: dir,
+          branch: 'feature/diff',
+          baseRef: 'base',
+        }),
+      ).rejects.toThrow(/out-of-worktree path/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('prepareDiff', () => {
@@ -239,6 +325,27 @@ describe('prepareDiff', () => {
       expect(staged.right).toMatchObject({ kind: 'virtual', content: 'value=2\n' });
       expect(unstaged.left).toMatchObject({ kind: 'virtual', content: 'value=2\n' });
       expect(unstaged.right).toMatchObject({ kind: 'file', path: join(dir, 'value.txt') });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a working resource that cannot be read after it is inspected', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).unstaged.find(
+        (file) => file.path === 'value.txt',
+      )!.target;
+      const unreadableWorkingFile = {
+        stat: workingFile.stat,
+        read: async (_path: string): Promise<Buffer> => {
+          throw new Error('EACCES: file became unreadable');
+        },
+      };
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, unreadableWorkingFile),
+      ).rejects.toBeInstanceOf(TextDiffUnavailableError);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
