@@ -7,15 +7,17 @@ import { STAGE_KEYS, type StageKey } from '../model/types.js';
  * guarantee (§5.4) lives in the machine, which refuses to transition without a
  * definite verdict.
  *
- * Shape (fix→revalidate→review loop, plan §T4.1):
+ * Shape (fix→revalidate→uat loop):
  *   scope ─pass→ impl ─pass→ uat ─pass→ review ─pass→ ship ─pass→ done
- *                              │                 │        ▲
- *                            fail              fail       │
- *                              ▼                 ▼         │
- *                             fix ──────────── fix ─pass──┘
+ *                            ↑ │              │
+ *                            │ fail          fail
+ *                            │  ▼              ▼
+ *                            └─ fix ←──────────┘
  *
- * `fix` re-runs and, on pass, re-enters `review` (revalidate) — the deterministic
- * MVP loop. A gate can fail more than once; `attempt` climbs per loop (machine).
+ * `fix` always returns to `uat`. A review failure re-validates from uat because a
+ * fix made for a review finding is still unvalidated code, and the two keys a
+ * split would need are distinguishable only by WHICH gate failed — which
+ * `gate_runs` already records, append-only, per stage and attempt.
  */
 
 /** A verdict-keyed edge set for one stage. `undefined` = terminal on that kind. */
@@ -30,7 +32,7 @@ export const STAGE_GRAPH: Readonly<Record<StageKey, StageEdges>> = {
   impl: { passed: 'uat' },
   uat: { passed: 'review', failed: 'fix' },
   review: { passed: 'ship', failed: 'fix' },
-  fix: { passed: 'review' }, // revalidate: fix pass re-enters the review gate
+  fix: { passed: 'uat' }, // revalidate: every fix re-enters uat, whichever gate failed
   ship: { passed: 'done' },
   done: {},
 };

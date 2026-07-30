@@ -23,7 +23,7 @@ import { manifest as buildManifest, runnableRepo } from '../manifest/fixtures.js
 /**
  * MVP definition-of-done (plan line 474), driven over the REAL stage modules and
  * store — deterministic (injected runners, no live servers): create -> scope ->
- * impl -> uat -> review (with a fix loop) -> ship -> done, then reopen and prove
+ * impl -> uat -> review (with a fix/UAT revalidation loop) -> ship -> done, then reopen and prove
  * no ticket lost its stage. The live-server half (spin) is covered by
  * spin.integration.test.ts; this proves the workflow spine end to end.
  */
@@ -68,7 +68,7 @@ describe('MVP lifecycle (workflow spine)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('drives a ticket create -> ... -> done, with a review fix loop, surviving reopen', async () => {
+  it('drives a ticket create -> ... -> done, with a review fix/UAT revalidation loop, surviving reopen', async () => {
     // create
     const id = createTicketFlow(store, { key: 'PROJ-142', title: 'add search' }).id;
     expect(getTicket(store, id).stageCurrent).toBe('scope');
@@ -88,13 +88,15 @@ describe('MVP lifecycle (workflow spine)', () => {
     await runUat(store, { ticketId: id, cwd: '/wt', artifactDir: dir }, PASS);
     expect(getTicket(store, id).stageCurrent).toBe('review');
 
-    // review FAILS -> fix, then fix resumes -> back to review, then review PASSES
+    // review FAILS -> fix, then fix resumes -> UAT revalidation -> review -> ship
     store.db.prepare('UPDATE tickets SET session_id = ? WHERE id = ?').run('sess-1', id);
     await runReview(store, { ticketId: id, cwd: '/wt', artifactDir: dir }, GATES_FAIL);
     expect(getTicket(store, id).stageCurrent).toBe('fix');
     expect(getTicket(store, id).stages.find((s) => s.stageKey === 'review')!.attempt).toBe(1);
 
-    await runFix(store, { ticketId: id, cwd: '/wt' }, adapter); // -> review
+    await runFix(store, { ticketId: id, cwd: '/wt' }, adapter); // -> uat
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    await runUat(store, { ticketId: id, cwd: '/wt', artifactDir: dir }, PASS); // -> review
     await runReview(store, { ticketId: id, cwd: '/wt', artifactDir: dir }, GATES_PASS);
     expect(getTicket(store, id).stageCurrent).toBe('ship');
 
