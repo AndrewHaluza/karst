@@ -24,6 +24,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('a.detail');
   });
 
+  it('offers one ticket-level Changes action and no per-worktree Diff action', () => {
+    expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
+    expect(HTML).not.toContain('diff-worktree');
+  });
+
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
     // markers are load-bearing at runtime (renderKeyPill calls providerIconHtml,

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
@@ -9,6 +10,20 @@ import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import {
+  TicketChangesManager,
+  type ChangesPanel,
+  type ChangesPanelHost,
+} from './ui/diffs/panel.js';
+import {
+  DIFF_CONTENT_MAX_BYTES,
+  TextDiffUnavailableError,
+  inspectWorktree,
+  prepareDiff,
+  type DiffTarget,
+  type PreparedDiffResource,
+} from './ui/diffs/git.js';
+import { buildTicketChangesSnapshot } from './ui/diffs/snapshot.js';
 import {
   continueSessionInBackground,
   deferSessionRetry,
@@ -79,10 +94,16 @@ import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
 import { makePortAllocator } from './resolver/allocator.js';
-import { defaultGitRunner } from './integrations/git.js';
+import {
+  defaultGitRunner,
+  GIT_TIMEOUT_MS,
+  runGit,
+  type GitRunner,
+} from './integrations/git.js';
 import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import type { PathContext } from './ui/dashboard/state.js';
+import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
@@ -925,6 +946,86 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
     .catch((error) => logError('karst: model catalog load failed', error));
 
+  const virtualDocuments = new Map<string, string>();
+  let virtualDocumentId = 0;
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider('karst-diff', {
+      provideTextDocumentContent: (uri) => virtualDocuments.get(uri.toString()) ?? '',
+    }),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      if (document.uri.scheme === 'karst-diff') {
+        virtualDocuments.delete(document.uri.toString());
+      }
+    }),
+  );
+
+  const diffContentGit: GitRunner = (args, cwd) =>
+    runGit(args, cwd, GIT_TIMEOUT_MS, DIFF_CONTENT_MAX_BYTES);
+  const workingFile = {
+    stat: async (path: string): Promise<{ size: number }> => ({
+      size: (await stat(path)).size,
+    }),
+    read: (path: string): Promise<Buffer> => readFile(path),
+  };
+  const materializeDiffResource = (resource: PreparedDiffResource): vscode.Uri => {
+    if (resource.kind === 'file') return vscode.Uri.file(resource.path);
+
+    // The comparison suffix belongs in the editor label, not in the URI: it can
+    // name a Git revision. The URI exposes only an opaque host token plus a
+    // sanitized basename, while the provider map owns the already-prepared text.
+    const basenameOnly = resource.label.replace(/\s+\([^)]*\)$/, '');
+    const safeBasename =
+      basename(basenameOnly).replace(/[^a-zA-Z0-9._-]+/g, '-') || 'resource';
+    const uri = vscode.Uri.from({
+      scheme: 'karst-diff',
+      path: `/${++virtualDocumentId}/${safeBasename}`,
+    });
+    virtualDocuments.set(uri.toString(), resource.content);
+    return uri;
+  };
+  const openTicketDiff = async (target: DiffTarget): Promise<void> => {
+    try {
+      const prepared = await prepareDiff(diffContentGit, target, workingFile);
+      const leftUri = materializeDiffResource(prepared.left);
+      const rightUri = materializeDiffResource(prepared.right);
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        leftUri,
+        rightUri,
+        prepared.title,
+        { preview: true, viewColumn: vscode.ViewColumn.Beside },
+      );
+    } catch (error) {
+      if (error instanceof TextDiffUnavailableError) {
+        void vscode.window.showWarningMessage(error.message);
+        return;
+      }
+      logError('karst: opening native ticket diff failed', error);
+    }
+  };
+
+  const changes = new TicketChangesManager(
+    makeChangesPanelHost(context),
+    (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
+    async (ticketId) => {
+      const pathContext = worktreePathContext(currentManifest(), logger.warn);
+      const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
+        label: repoDisplayPath(worktree.repo, pathContext),
+        path: worktree.path,
+        branch: worktree.branch,
+        baseRef: worktree.baseRef,
+      }));
+      return buildTicketChangesSnapshot(
+        ticketId,
+        worktrees,
+        (spec) => inspectWorktree(defaultGitRunner, spec),
+      );
+    },
+    openTicketDiff,
+    (message) => void vscode.window.showWarningMessage(message),
+    logError,
+  );
+
   // Declared before the manager because the two reference each other: the
   // manager asks the binder how the toggle sits, and the binder reveals through
   // the manager. Assigned immediately below, and neither direction is read
@@ -969,6 +1070,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             seedPrompt: prompt,
           });
         },
+        () => changes.open(ticketId),
         () => binder.toggle(),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
@@ -2190,6 +2292,30 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
   };
 }
 
+/** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
+function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHost {
+  const html = readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8');
+  return {
+    createPanel(title, _ticketId): ChangesPanel {
+      const panel = vscode.window.createWebviewPanel(
+        'karst.changes',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      );
+      panel.webview.html = injectCsp(html, newNonce());
+      return {
+        reveal: () => panel.reveal(),
+        postMessage: (message) => void panel.webview.postMessage(message),
+        onDidReceiveMessage: (handler) =>
+          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+        onDidDispose: (handler) =>
+          panel.onDidDispose(handler, undefined, context.subscriptions),
+      };
+    },
+  };
+}
+
 /**
  * A terminal's launch environment, when it has one. `creationOptions` is a union
  * — a pty-backed terminal carries no `env` at all — so the narrowing lives here
@@ -2293,6 +2419,9 @@ function makeDashboardActions(
   // `openSession` alone would be dropped whenever a session is already up —
   // openSession only focuses an existing terminal.
   handOffToSession: (prompt: string) => void,
+  // Open the host-owned, whole-ticket changes explorer. The dashboard action
+  // carries no path because this closure already owns the ticket id.
+  showChanges: () => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -2342,18 +2471,7 @@ function makeDashboardActions(
       stopTicketServers(store, ticketId);
       afterServerChange();
     },
-    // Diff → register the worktree with Git, then open the Source Control view
-    // so its changes (vs the branch point) are shown. The SCM view is the right
-    // whole-worktree affordance (per-file `git.openChange` needs a file target).
-    diffWorktree: (path) => {
-      void (async () => {
-        // git.openRepository expects a plain path string, not a Uri — passing a
-        // Uri makes the git extension call `.toLowerCase()` on the object and
-        // throw "e.toLowerCase is not a function".
-        await vscode.commands.executeCommand('git.openRepository', path);
-        await vscode.commands.executeCommand('workbench.view.scm');
-      })();
-    },
+    showChanges,
     // Open folder → reveal the worktree in the Explorer (navigate there), not
     // the OS file manager.
     openWorktreeFolder: (path) =>

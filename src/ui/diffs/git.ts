@@ -1,6 +1,6 @@
 import type { GitRunner } from '../../integrations/git.js';
 import { OUTPUT_TRUNCATION_MARKER } from '../../runtime/boundedOutput.js';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export type FileChangeStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
@@ -432,17 +432,29 @@ export async function prepareDiff(
     assertSize(size);
   };
 
-  const sourceLabel = (source: DiffSource): string => {
-    if (source.kind === 'empty') return source.label;
-    return `${source.label}:${source.path}`;
+  const resourceLabel = (source: DiffSource): string => {
+    const path = source.kind === 'empty' ? target.displayPath : source.path;
+    const comparison =
+      source.kind === 'empty'
+        ? 'empty'
+        : source.kind === 'index'
+          ? 'index'
+          : source.kind === 'working'
+            ? 'working tree'
+            : source.revision === 'HEAD'
+              ? 'HEAD'
+              : source.label.slice(0, 7);
+    return `${basename(path)} (${comparison})`;
   };
 
   const resource = async (source: DiffSource): Promise<PreparedDiffResource> => {
-    if (source.kind === 'empty') return { kind: 'virtual', label: source.label, content: '' };
+    if (source.kind === 'empty') {
+      return { kind: 'virtual', label: resourceLabel(source), content: '' };
+    }
     if (source.kind === 'working') {
       await statWorking(source.path);
       await readWorking(source.path);
-      return { kind: 'file', label: sourceLabel(source), path: source.path };
+      return { kind: 'file', label: resourceLabel(source), path: source.path };
     }
 
     const object = source.kind === 'git' ? `${source.revision}:${source.path}` : `:${source.path}`;
@@ -451,7 +463,7 @@ export async function prepareDiff(
     if (Buffer.byteLength(content) > DIFF_CONTENT_MAX_BYTES) {
       throw new TextDiffUnavailableError(`resource exceeds ${DIFF_CONTENT_MAX_BYTES} bytes`);
     }
-    return { kind: 'virtual', label: sourceLabel(source), content };
+    return { kind: 'virtual', label: resourceLabel(source), content };
   };
 
   if (target.binaryCheck.kind === 'untracked') {
@@ -479,7 +491,7 @@ export async function prepareDiff(
   }
 
   return {
-    title: `${target.repoLabel}: ${target.groupLabel}: ${target.displayPath}`,
+    title: `${target.repoLabel} · ${target.groupLabel} · ${target.displayPath}`,
     left: await resource(target.left),
     right: await resource(target.right),
   };

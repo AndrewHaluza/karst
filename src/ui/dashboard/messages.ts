@@ -14,7 +14,7 @@ export type WebviewMessage =
   | { type: 'spin-servers' }
   | { type: 'restart-servers' }
   | { type: 'stop-servers' }
-  | { type: 'diff-worktree'; path: string }
+  | { type: 'show-changes' }
   | { type: 'open-worktree-folder'; path: string }
   | { type: 'open-pr'; url: string }
   | { type: 'open-ticket-link'; url: string }
@@ -65,7 +65,7 @@ export interface DashboardActions {
    */
   restartServers: () => void;
   stopServers: () => void;
-  diffWorktree: (path: string) => void;
+  showChanges: () => void;
   openWorktreeFolder: (path: string) => void;
   openPr: (url: string) => void;
   openTicketLink: (url: string) => void;
@@ -124,8 +124,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'restart-servers' };
     case 'stop-servers':
       return { type: 'stop-servers' };
-    case 'diff-worktree':
-      return path ? { type: 'diff-worktree', path: m.path as string } : null;
+    case 'show-changes':
+      return { type: 'show-changes' };
     case 'open-worktree-folder':
       return path ? { type: 'open-worktree-folder', path: m.path as string } : null;
     case 'open-pr':
@@ -193,8 +193,8 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
     case 'stop-servers':
       actions.stopServers();
       return;
-    case 'diff-worktree':
-      actions.diffWorktree(msg.path);
+    case 'show-changes':
+      actions.showChanges();
       return;
     case 'open-worktree-folder':
       actions.openWorktreeFolder(msg.path);

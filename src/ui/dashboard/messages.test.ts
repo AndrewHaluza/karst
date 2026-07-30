@@ -10,7 +10,7 @@ function actions(): DashboardActions {
     spinServers: vi.fn(),
     restartServers: vi.fn(),
     stopServers: vi.fn(),
-    diffWorktree: vi.fn(),
+    showChanges: vi.fn(),
     openWorktreeFolder: vi.fn(),
     openPr: vi.fn(),
     openTicketLink: vi.fn(),
@@ -41,11 +41,15 @@ describe('routeAction', () => {
     expect(a.openServer).toHaveBeenCalledWith(3);
   });
 
-  it('dispatches worktree diff / open-folder by path', () => {
+  it('dispatches ticket changes without trusting a companion path', () => {
     const a = actions();
-    routeAction({ type: 'diff-worktree', path: '/wt/a' }, a);
+    routeAction({ type: 'show-changes', path: '/forged' }, a);
+    expect(a.showChanges).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches open-folder by path', () => {
+    const a = actions();
     routeAction({ type: 'open-worktree-folder', path: '/wt/a' }, a);
-    expect(a.diffWorktree).toHaveBeenCalledWith('/wt/a');
     expect(a.openWorktreeFolder).toHaveBeenCalledWith('/wt/a');
   });
 
@@ -120,12 +124,8 @@ describe('routeAction', () => {
     expect(a.stopServer).not.toHaveBeenCalled();
   });
 
-  it('rejects a worktree action whose path is missing or non-string', () => {
-    const a = actions();
-    routeAction({ type: 'diff-worktree', path: 123 }, a);
-    routeAction({ type: 'diff-worktree' }, a);
-    routeAction({ type: 'diff-worktree', path: '' }, a);
-    expect(a.diffWorktree).not.toHaveBeenCalled();
+  it('rejects the removed path-bearing worktree diff action', () => {
+    expect(parseWebviewMessage({ type: 'diff-worktree', path: '/wt/a' })).toBeNull();
   });
 
   it('rejects an open-pr url that is not http(s) — no file:// or other scheme', () => {

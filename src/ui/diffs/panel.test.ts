@@ -187,9 +187,10 @@ describe('TicketChangesManager', () => {
   });
 
   it('opens only a target from the current snapshot map', async () => {
-    const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+    const diffTarget = target('src/current.ts');
+    const loaded = snapshot(41, 'current:1', diffTarget);
     const { host, panels } = makeHost();
-    const openDiff = vi.fn(async () => {});
+    const openDiff = vi.fn(async (_target: DiffTarget) => {});
     const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, async () => loaded, openDiff, () => {});
 
     manager.open(41);
@@ -197,7 +198,8 @@ describe('TicketChangesManager', () => {
     panels[0]!.emit({ type: 'open-diff', changeId: 'current:1', path: '/forged' });
     await settle();
 
-    expect(openDiff).toHaveBeenCalledWith(loaded.targets.get('current:1'));
+    expect(openDiff).toHaveBeenCalledWith(diffTarget);
+    expect(openDiff.mock.calls[0]![0]).toBe(diffTarget);
   });
 
   it('warns and refreshes for a stale or forged change id', async () => {

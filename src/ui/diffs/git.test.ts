@@ -330,6 +330,36 @@ describe('prepareDiff', () => {
     }
   });
 
+  it('prepares display-only titles and stable resources for the native diff adapter', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const inspected = await inspectWorktree(defaultGitRunner, spec);
+      const stagedTarget = inspected.staged.find((file) => file.path === 'value.txt')!.target;
+      const unstagedTarget = inspected.unstaged.find((file) => file.path === 'value.txt')!.target;
+
+      const staged = await prepareDiff(defaultGitRunner, stagedTarget, workingFile);
+      const unstaged = await prepareDiff(defaultGitRunner, unstagedTarget, workingFile);
+
+      expect(staged).toEqual({
+        title: 'Repository · Staged Changes · value.txt',
+        left: { kind: 'virtual', label: 'value.txt (HEAD)', content: 'value=1\n' },
+        right: { kind: 'virtual', label: 'value.txt (index)', content: 'value=2\n' },
+      });
+      expect(unstaged.left).toEqual({
+        kind: 'virtual',
+        label: 'value.txt (index)',
+        content: 'value=2\n',
+      });
+      expect(unstaged.right).toEqual({
+        kind: 'file',
+        label: 'value.txt (working tree)',
+        path: (unstagedTarget.right as { kind: 'working'; path: string }).path,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('refuses a working resource that cannot be read after it is inspected', async () => {
     const { dir, spec } = createWorktreeFixture();
     try {
@@ -371,10 +401,18 @@ describe('prepareDiff', () => {
         workingFile,
       );
 
-      expect(added.left).toMatchObject({ kind: 'virtual', content: '' });
-      expect(deleted.right).toMatchObject({ kind: 'virtual', content: '' });
-      expect(renamed.left.label).toContain('old name.ts');
-      expect(renamed.right.label).toContain('new name.ts');
+      expect(added.left).toEqual({
+        kind: 'virtual',
+        label: 'new file.ts (empty)',
+        content: '',
+      });
+      expect(deleted.right).toEqual({
+        kind: 'virtual',
+        label: 'gone.ts (empty)',
+        content: '',
+      });
+      expect(renamed.left.label).toMatch(/^old name\.ts \([0-9a-f]{7}\)$/);
+      expect(renamed.right.label).toMatch(/^new name\.ts \([0-9a-f]{7}\)$/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
