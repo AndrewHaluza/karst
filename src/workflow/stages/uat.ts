@@ -6,7 +6,7 @@ import { setStage, stageAttempt } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { transition } from '../machine.js';
 import { nowIso } from '../../model/time.js';
-import { UAT_GATE, readPackageScripts } from '../gates/scripts.js';
+import { UAT_GATES, readPackageScripts } from '../gates/scripts.js';
 import { runCommand } from '../gates/run.js';
 
 /**
@@ -49,6 +49,9 @@ export interface UatOutcome {
   artifactPath: string;
 }
 
+/** The repo-suite gate — the first entry, which the list guarantees exists. */
+const TEST_GATE = UAT_GATES[0]!;
+
 /**
  * Spawns an explicit command as the suite, capturing combined output. Async so
  * the extension host's event loop keeps serving hooks and webviews while the
@@ -77,10 +80,10 @@ export function makeTestRunner(command: string, args: string[]): TestRunner {
 export function makeNpmTestRunner(): TestRunner {
   return async (cwd) => {
     const scripts = readPackageScripts(cwd);
-    if (scripts[UAT_GATE.script] === undefined) {
-      return { exitCode: null, output: `no "${UAT_GATE.script}" script in package.json` };
+    if (scripts[TEST_GATE.script] === undefined) {
+      return { exitCode: null, output: `no "${TEST_GATE.script}" script in package.json` };
     }
-    return makeTestRunner('npm', [...UAT_GATE.args])(cwd);
+    return makeTestRunner('npm', [...TEST_GATE.args])(cwd);
   };
 }
 
@@ -121,7 +124,7 @@ export async function runUat(
       runAt,
       gates: [
         {
-          gateName: UAT_GATE.name,
+          gateName: TEST_GATE.name,
           exitCode,
           startedAt: startedAt ?? null,
           endedAt: endedAt ?? null,

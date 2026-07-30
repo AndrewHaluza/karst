@@ -1,4 +1,4 @@
-import { REVIEW_GATES, UAT_GATE, type GateSpec } from '../../workflow/gates/scripts.js';
+import { REVIEW_GATES, UAT_GATES, type GateSpec } from '../../workflow/gates/scripts.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
@@ -110,6 +110,6 @@ export function reviewInside(
 
 export function uatInside(cell: StepperCell, runs: readonly GateRun[], now: string): StageInside {
   const showPending = cell.status === 'running' || cell.status === 'pending';
-  const ops = gateOps([UAT_GATE], latestBatch(runs, 'uat'), showPending);
+  const ops = gateOps(UAT_GATES, latestBatch(runs, 'uat'), showPending);
   return inside(cell, now, ops);
 }

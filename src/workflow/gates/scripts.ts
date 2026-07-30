@@ -24,11 +24,18 @@ export const REVIEW_GATES: readonly GateSpec[] = [
 ];
 
 /**
- * The uat gate: the repo's own suite. Shares REVIEW_GATES' 'test' entry by
- * design — uat and review ask the same repo the same question at two different
- * moments, and neither may invent a script the repo never defined.
+ * The UAT gate list. A list, not a constant: the original bug was that UAT asked
+ * exactly ONE question and another stage asked it too, so the fix is not removing
+ * `test` — it is giving UAT room to ask more. `test` stays FIRST because it is the
+ * conventional entry point and usually the cheapest suite in the repo, and
+ * cheapest-first is what makes a failing gate fail fast.
+ *
+ * Sharing REVIEW_GATES' `test` entry is still true here and still not enough on
+ * its own — see `uat/aggregate.ts`, which checks the identities that actually RAN.
  */
-export const UAT_GATE: GateSpec = { name: 'test', script: 'test', args: ['test'] };
+export const UAT_GATES: readonly GateSpec[] = [
+  { name: 'test', script: 'test', args: ['test'] },
+];
 
 /**
  * The `scripts` a repo defines, or `{}` when it defines none — no package.json,
