@@ -1,10 +1,42 @@
 # UAT design — review triage
 
-Three reviews (architecture, security, skeptical feasibility) against
-`2026-07-29-uat-stage-design.md`. Every finding, its fix, and what the fix costs.
+> **HISTORICAL — not normative.** `2026-07-29-uat-stage-design.md` (rev 5) is the design of record.
+> Where this document and the spec disagree, **the spec wins, without exception.** This file exists for
+> the reasoning trail: what was considered, what was rejected, and why. Individual resolutions below were
+> written against rev 1–3; many were later reversed. The R-series at the end lists the rev-4 reversals;
+> the rev-5 reversals are listed here, and earlier supersessions are marked inline where they occurred.
+> **Do not implement from any section of this file.**
+
+Four reviews (architecture, security, skeptical feasibility, codex full-scope) against
+`2026-07-29-uat-stage-design.md`. Every finding, its fix, and what the fix costs. The fourth is kept
+verbatim in `2026-07-30-uat-codex-review.md`, whose header records where the spec diverges from it.
 
 **Severity:** `BLOCK` = design does not work until fixed · `HIGH` = ships a false guarantee ·
 `MED` = real but bounded · `LOW` = correction.
+
+**Reversed by rev 4:** C22 (hot-stack handoff — now torn down before review), B3b (criteria CLI write verb
+— now deleted, host writes), the C7 "reap on `deactivate`" lean (now lifecycle-owned with a lease), the
+"awaited request" definition (now assertions-only), and `fixReview: { passed: 'review' }` (now `→ uat`).
+
+**Reversed by rev 5** — four parallel reviews of rev 4 (factual, security, consistency, implementability):
+
+| this file says | rev 5 |
+|---|---|
+| **A1** — split `fix` into `fixUat`/`fixReview` | **withdrawn.** Once both branches return to `uat` the split encodes nothing `gate_runs` does not already hold. `fix: { passed: 'uat' }`, no migration. |
+| **A1 / C14 / C15** — "the driver parks needs-you", "`Verdict = null` already means this" | no such path exists; `transition(null)` throws. Superseded by rev 4's `StageRunResult`, and **R1** records it |
+| **A3** (line ~179) — "`runReview` **already opens the diff** … that is the real control" | **false.** `openDiff` has no production implementation — R19 / P5. The four accepted risks resting on it were vacuous |
+| **C2** — badged `DEFERRED` | un-deferred in rev 4 as **P2** |
+| **C9 / section E** — "delete `UAT_GATE` + the guard test, one commit" | contradicted by C9 itself (`inside/gates.ts` imports it) and by the effective-signal check: a declared-set guard passes vacuously for a repo defining only `test` |
+| **E** — "frozen criteria as a concept survives untouched" | contradicted by B3 in this same file; there is no freeze |
+| **§ Playwright source** — "`npx playwright` in the worktree; absent → `null`" | **reversed on security grounds:** bare `npx` downloads an unpinned package from the network and runs it as the harness. Workspace-local only; absent → `capability-missing` |
+| **§ recommended cuts** — cut `kind: command` | un-cut; cutting it makes UAT Node-only |
+| Anything treating browser route interception as an egress **boundary** | withdrawn — it does not constrain a Node process |
+| Anything counting the B4 shown/withheld table as a containment **control** | withdrawn — it is a feedback design |
+
+Additionally, **rev 5 adds a prerequisite bug no review in this file found**: marker authority is bound to
+no ticket (P7), so an injected agent advances a ticket in another project and another window. Every
+argument in this file about `parseStageArgs`' narrowness concerns the stage *vocabulary* and none of them
+reaches *whose* ticket.
 
 ---
 
@@ -774,3 +806,71 @@ Speculative surface, no user waiting on it, each carrying real validation and te
 `UatSecretSource` union + `infisical` arm + settings UI · the guard proxy (B2) · the isolation ladder
 (three rungs, one wired, two for a stack nobody has) · `scaffold: author` · the AI-review second pass
 on criteria (B3 replaces it with a human click) · `kind: command`
+
+---
+
+# R. Fourth review — `codex-review-uat-design` (2026-07-30)
+
+6 blockers / 10 high / 2 medium against rev 3 (`1e1b95a`). **Every finding was verified against source
+before being accepted** — the review is read-only prose, and rev 1 and rev 3 both contained confident
+claims about code that turned out to be backwards. Verdicts below are the result of that check, not of
+reading the report.
+
+**Outcome: 16 confirmed, 1 overstated, 1 wrong in its reasoning but right in substance, 1 finding the
+review missed.**
+
+## R-blockers
+
+| id | finding | verdict | evidence |
+|---|---|---|---|
+| R1 | null has no durable parking path | **CONFIRMED** | `machine.ts:55` throws → escapes `runStageDriver` → `extension.ts:1044` logs and returns → `stage_current` still `uat` → `ticketsToSweep` (`driverController.ts:28`) re-runs the whole stage every activation, forever. Rev 3's "the driver parks needs-you" describes nothing that exists. |
+| R2 | a review fix can ship code UAT never saw | **CONFIRMED**, pre-existing | `graph.ts:33` `fix: { passed: 'review' }` has the hole on `main`; rev 3 preserved it while splitting. → `fixReview: { passed: 'uat' }` + digest short-circuit |
+| R3 | the fix split has no migration | **CONFIRMED, worse than reported** | `tickets.ts:180` seeds one row per `STAGE_KEYS` at creation, so no existing ticket has a `fixUat` row and `transition` throws `ticket N has no stage 'fixUat'` (`machine.ts:71`). Without a backfill the split bricks every install. |
+| R4 | marker authority is not bound to current state | **CONFIRMED, exploitable today** | `cli/stage.ts:103` passes the argv-chosen stage to `transition`, which only checks the row *exists*. An injected `stage fix pass` at `impl` marks `fix` passed and sets `stage_current = review` — **UAT skipped entirely**. → P1 |
+| R5 | authored JS is not independent evidence and can reach secrets | **CONFIRMED in substance** | a Playwright config is not a sandbox; the script is arbitrary Node code in a process rev 3 hands the secret overlay. The claimed *contradiction* with the "secrets reach neither… " sentence is a **misread** — that sentence is about artifacts, not process env. Fix adopted: contain the process (env allowlist, no secrets, declared-origin egress). Fix **rejected**: a declarative DSL. |
+| R6 | Phase 1 depends on a server-recovery defect it defers | **CONFIRMED** | `supervisor.ts:88` spawn → ~153 health → ~176 INSERT. Rev 3 deferred it; UAT boots a stack per fix attempt, so the window goes from rare to routine. → P2 |
+
+## R-high
+
+All ten confirmed. The load-bearing ones:
+
+| id | finding | evidence |
+|---|---|---|
+| R7 | independent-signal checked against *declared* names | `gates/scripts.ts:31` — `UAT_GATE` is literally `REVIEW_GATES`' test entry. karst's own repo defines only `test`, so every UAT probe records `null` and the stage passes having asked nothing new. → check effective `(repo, command, args)` identities that actually ran |
+| R8 | multi-repository targeting undefined | `extension.ts:1015` — `listWorktreesByTicket(store, id)[0]`, the *first* worktree in arbitrary order |
+| R9 | authoring has no exclusive ownership | `driverController.ts:6-13` documents that gates deliberately run under a live session — safe for read-only gates, not for a second writer |
+| R10 | in-memory single-flight against a shared DB | `driverController.ts:37-38`, two in-process `Set`s; the store is global storage → P6 |
+| R11 | cancellation specified only for `runCommand` | `RunCommandOptions` has no `signal`; `RunHeadlessOpts` has none either. `startHot` already accepts `opts.signal` — one seam of five |
+| R12 | hot-stack handoff conflicts with review's `test` gate | **rev 3 contains its own refutation**: it argues static-gates-before-boot precisely to avoid port conflicts, then accepts that conflict one stage later, where it becomes a `failed` verdict for a cause no agent can fix |
+| R13 | teardown triggers race workflow ownership | confirmed; rev 3 had flagged the sub-decision as open. Now decided: lifecycle-owned, lease-gated |
+| R14 | "the step awaited this request" is not derivable | confirmed — `goto`/`waitForResponse` resolve on 500; `requestfailed` is transport-only. Rev 3's definition was unimplementable → assertions are verdicts, telemetry is evidence |
+| R15 | criteria has a write verb and no storage | rev 3 deletes `ticket_criteria` ("not needed") and keeps the verb. Plus: free-form ticket text as a shell token cannot be defended by receiver-side argv validation, which runs after expansion → verb deleted, host writes |
+| R16 | no containment contract for paths | confirmed — only `worktree.ts:76` realpaths anything; no shared validator exists |
+
+## R-medium
+
+Both fair. Retry semantics are now stated exactly (budgets table); the triage is now explicitly historical
+with the reversed sections named in this file's header.
+
+## R19 — what the review missed
+
+**`openDiff` has no production implementation.** `review.ts:113` defaults to `() => {}`,
+`extension.ts:1027` passes nothing, and no `vscode.diff` call exists anywhere in `src/`.
+
+The review noticed only that a sentence about it was wrong. It is not a documentation defect. **B5b** in
+this file records the accepted risk that four controls — A3 vacuous tests, A4, B3 advisory coverage, B5
+modification flagging — all collapse onto "the human reads the review diff". They collapse onto a diff
+that is never opened. Every one of those mitigations is currently vacuous, which makes this the widest-
+blast-radius finding of the four reviews. → **P5**
+
+## On the report's own resolution addendum
+
+The addendum states its 18 resolutions were "triaged with the project owner" and are "normative for the
+next design revision". That triage happened in the review worktree; it is not a decision recorded here.
+Rev 4 adopts most of it and **declines three items**:
+
+| declined | why |
+|---|---|
+| Declarative test DSL | a format expressive enough for real e2e converges on Playwright's API with a worse debugger, and it makes authored steps unrunnable by the repo's own suite — losing the property that they become ordinary maintained tests. Containment is an environment problem, solved with an environment fix. |
+| Hard sandbox dependency, no host fallback | the named substrate (PR #25) is documentation only, so this makes UAT unshippable for an unbounded period. Ship on the containment model; the sandbox becomes an outer layer when it exists. |
+| Everything in one ticket | six of the findings are pre-existing `main` bugs (P1–P6). Four are live hazards today and two are exploitable. They ship first, separately. |
