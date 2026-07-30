@@ -9,6 +9,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const assets = [
   'ui/dashboard/webview.html',
+  'ui/diffs/webview.html',
   'ui/onboarding/webview.html',
   'ui/settings/webview.html',
   'ui/sidebar/webview.html',

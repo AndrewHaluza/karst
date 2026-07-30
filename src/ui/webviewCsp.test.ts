@@ -33,6 +33,7 @@ describe('webview discovery', () => {
   it('finds every webview that exists today', () => {
     expect([...WEBVIEWS].sort()).toEqual([
       'dashboard',
+      'diffs',
       'onboarding',
       'settings',
       'sidebar',
