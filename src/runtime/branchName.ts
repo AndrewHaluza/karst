@@ -13,6 +13,9 @@
  * `worktreeByRepo`), so a repo-dependent branch name has no single answer there.
  */
 
+import { parseTemplateTokens, parseTokenBody } from '../template/token.js';
+import { applyTransforms, validateTemplateTransforms } from '../template/transforms.js';
+
 export const DEFAULT_BRANCH_TEMPLATE = 'karst/{type}/{slug}';
 
 /** Variables a branch template may use. */
@@ -72,21 +75,26 @@ export function validateBranchTemplate(template: string): void {
 
   const allowed = new Set<string>(BRANCH_VARIABLES);
   const used = new Set<string>();
+  const tokens = parseTemplateTokens(template);
   let remainder = '';
   let lastIndex = 0;
-  for (const match of template.matchAll(TOKEN)) {
-    remainder += template.slice(lastIndex, match.index);
-    const token = match[1]!;
-    if (!allowed.has(token)) {
-      throw new Error(`branchName contains unsupported variable "{${token}}"`);
+  for (const token of tokens) {
+    remainder += template.slice(lastIndex, token.index);
+    if (!allowed.has(token.variable)) {
+      throw new Error(`branchName contains unsupported variable "{${token.variable}}"`);
     }
-    used.add(token);
-    lastIndex = match.index! + match[0].length;
+    used.add(token.variable);
+    lastIndex = token.index + token.raw.length;
   }
   remainder += template.slice(lastIndex);
   if (remainder.includes('{') || remainder.includes('}')) {
     throw new Error('branchName contains malformed template braces');
   }
+  validateTemplateTransforms('branchName', tokens);
+  // Transforms do not change WHICH variable a placeholder reads, so the
+  // per-ticket rule still holds on `{key|slice:-4}`. It is a weaker guarantee
+  // than an untransformed key — a short enough slice can make two tickets
+  // collide — but the branch is what the user asked to shorten.
   if (!UNIQUE_VARIABLES.some((v) => used.has(v))) {
     throw new Error(
       'branchName must include one of {slug}, {key} or {id} so two tickets cannot share a branch',
@@ -107,13 +115,21 @@ export function renderBranchName(
   const effective = template && template.trim() !== '' ? template : DEFAULT_BRANCH_TEMPLATE;
   validateBranchTemplate(effective);
 
+  // Transforms read the RAW value and sanitization runs after, so `{key|slice:-4}`
+  // means the same four characters here as on every other surface. Sanitizing
+  // first would slice a string the user never sees.
   const values: Record<string, string> = {
     id: String(context.id),
-    key: sanitizeValue(context.key ?? ''),
-    title: sanitizeValue(context.title ?? ''),
-    slug: sanitizeValue(context.slug),
-    type: sanitizeValue(context.type),
+    key: context.key ?? '',
+    title: context.title ?? '',
+    slug: context.slug,
+    type: context.type,
   };
-  const rendered = sanitizeRef(effective.replace(TOKEN, (_m, token: string) => values[token]!));
+  const rendered = sanitizeRef(
+    effective.replace(TOKEN, (_m, body: string) => {
+      const { variable, transforms } = parseTokenBody(body);
+      return sanitizeValue(applyTransforms(values[variable]!, transforms));
+    }),
+  );
   return rendered || String(context.id);
 }

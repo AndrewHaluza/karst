@@ -43,6 +43,8 @@ import {
   type TerminalHost,
   type SessionTerminal,
   type OpenSessionOptions,
+  type RestoredSession,
+  type RestoredSessionDisposition,
 } from './ui/session.js';
 import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
@@ -60,6 +62,7 @@ import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import {
+  catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
   loadModelCatalog,
 } from './agent/modelCatalogLoader.js';
@@ -952,7 +955,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void loadModelCatalog({ cache: modelCatalogCache })
     .then(async (loaded) => {
       for (const diagnostic of loaded.diagnostics) {
-        logger.warn(`karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`);
+        // An optional provider CLI that is not installed is a normal state, not
+        // a fault; only a source that was supposed to work and did not warns.
+        const line = `karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`;
+        if (catalogDiagnosticSeverity(diagnostic.category) === 'warn') logger.warn(line);
+        else logger.info(line);
       }
       modelCatalog = loaded.catalog;
       onboarding.refreshModels();
@@ -1012,7 +1019,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     attempt.set(uri.toString(), resource.content);
     return uri;
   };
-  const openTicketDiff = async (target: DiffTarget): Promise<void> => {
+  const openTicketDiff = async (
+    target: DiffTarget,
+    viewColumn: number | undefined,
+  ): Promise<void> => {
     const virtualAttempt = virtualDocuments.beginAttempt();
     try {
       const prepared = await prepareDiff(defaultGitRunner, target, workingFile);
@@ -1023,7 +1033,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         leftUri,
         rightUri,
         prepared.title,
-        { preview: true, viewColumn: vscode.ViewColumn.Beside },
+        // The column is the panel's own + 1 (see `diffViewColumn`): `Beside`
+        // resolves against whatever is active when this runs, which after the
+        // first diff is that diff — so every click used to open ANOTHER group.
+        { preview: true, viewColumn: viewColumn ?? vscode.ViewColumn.Beside },
       );
       virtualAttempt.commit();
     } catch (error) {
@@ -1063,6 +1076,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openTicketDiff,
     (message) => void vscode.window.showWarningMessage(message),
     logError,
+    (text) => void vscode.env.clipboard.writeText(text),
   );
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
@@ -2050,10 +2064,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // project terminals into the new manager, then recover only owned sessions
   // that remain hidden in the background through the registered command so its
   // usual scoping/seed/materialization path is preserved.
-  const projectId = currentProject()?.id;
-  const currentTickets =
-    projectId === undefined ? [] : listTickets(localStore, { projectId });
-  const candidates: RecoveryCandidate[] = currentTickets.map((ticket) => ({
+  const toRecoveryCandidate = (
+    ticket: ReturnType<typeof listTickets>[number],
+  ): RecoveryCandidate => ({
     id: ticket.id,
     agentState: ticket.agentState,
     canResume: shouldResumeSession({
@@ -2063,8 +2076,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
     }),
     hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
-  }));
+  });
+  const projectId = currentProject()?.id;
+  const currentTickets =
+    projectId === undefined ? [] : listTickets(localStore, { projectId });
+  const candidates: RecoveryCandidate[] = currentTickets.map(toRecoveryCandidate);
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+
+  // A terminal tab can be revived AFTER this activation scan — VS Code restores
+  // them on its own schedule — and one that lands late used to be invisible to
+  // karst forever: background recovery then launched a SECOND agent beside the
+  // still-running first, leaving the user two tabs for one ticket. Every
+  // terminal opened from here on is reconciled the same way the scan does it,
+  // classified against the store as it stands at that moment.
+  const classifyLateSession = (ticketId: number): RestoredSessionDisposition => {
+    const project = currentProject()?.id;
+    if (project === undefined) return 'ignore';
+    const ticket = listTickets(localStore, { projectId: project }).find(
+      (row) => row.id === ticketId,
+    );
+    return classifyRestoredSession(ticket ? toRecoveryCandidate(ticket) : undefined);
+  };
+  context.subscriptions.push(
+    vscode.window.onDidOpenTerminal((terminal) => {
+      const session = restoredSessionOf(terminal);
+      if (!session) return;
+      const outcome = sessions.adoptLateSession(session, classifyLateSession);
+      if (outcome.kind === 'adopted') {
+        logger.info(
+          `session recovery: adopted late-restored terminal for ticket ${session.ticketId}`,
+        );
+        provider.refresh();
+        dashboard.pushState(session.ticketId);
+        return;
+      }
+      if (outcome.kind === 'duplicate') {
+        logger.warn(
+          `session recovery: closed a duplicate restored terminal for ticket ${session.ticketId}`,
+        );
+      }
+    }),
+  );
+
   const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));
   });
@@ -2358,6 +2411,9 @@ function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHos
       const listeners = new DisposableBag();
       return {
         reveal: () => panel.reveal(),
+        // Read per call, not captured: the user can drag the panel to another
+        // group, and the diff belongs beside wherever it is NOW.
+        viewColumn: () => panel.viewColumn,
         postMessage: (message) => void panel.webview.postMessage(message),
         onDidReceiveMessage: (handler) => {
           listeners.add(panel.webview.onDidReceiveMessage(handler));
@@ -2388,6 +2444,24 @@ function terminalEnv(
   return opts && 'env' in opts
     ? (opts.env as Readonly<Record<string, string | undefined>> | undefined)
     : undefined;
+}
+
+/**
+ * Read a terminal's karst identity, or undefined when it has none. The env is
+ * the only durable terminal→ticket link, and `exitStatus` is what separates a
+ * live session from a tab whose agent already quit.
+ */
+function restoredSessionOf(terminal: vscode.Terminal): RestoredSession | undefined {
+  const env = terminalEnv(terminal);
+  const ticketId = ticketIdFromTerminalEnv(env);
+  if (ticketId === undefined) return undefined;
+  const launchId = env?.[KARST_LAUNCH_ENV];
+  return {
+    ticketId,
+    ...(typeof launchId === 'string' && launchId.length > 0 ? { launchId } : {}),
+    ...(terminal.exitStatus !== undefined ? { exited: true } : {}),
+    terminal: wrapTerminal(terminal),
+  };
 }
 
 /** Wrap a VS Code terminal for both freshly-created and restored sessions. */
@@ -2430,18 +2504,8 @@ function makeTerminalHost(): TerminalHost {
     },
     restoredSessions: () =>
       vscode.window.terminals.flatMap((terminal) => {
-        const env = terminalEnv(terminal);
-        const ticketId = ticketIdFromTerminalEnv(env);
-        const launchId = env?.[KARST_LAUNCH_ENV];
-        return ticketId !== undefined
-          ? [{
-              ticketId,
-              ...(typeof launchId === 'string' && launchId.length > 0
-                ? { launchId }
-                : {}),
-              terminal: wrapTerminal(terminal),
-            }]
-          : [];
+        const session = restoredSessionOf(terminal);
+        return session ? [session] : [];
       }),
   };
 }

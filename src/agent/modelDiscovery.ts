@@ -12,9 +12,28 @@ function truncateUtf8(text: string, maxBytes: number): string {
   return new StringDecoder('utf8').write(encoded.subarray(0, Math.max(0, maxBytes)));
 }
 
+/**
+ * Why a provider produced no models, as a closed discriminant.
+ *
+ * The distinction the catalog loader needs is "normal state of this machine"
+ * (`command-unavailable` — an optional CLI is simply not installed;
+ * `unsupported` — karst has no probe for this provider at all) versus "a real
+ * fault" (everything else). That distinction must travel as a code: it used to
+ * be recovered downstream by substring-matching the human-readable `reason`,
+ * which is how the permanently unsupported Claude probe came to be reported as
+ * a missing `claude` binary on machines that had one.
+ */
+export type DiscoveryUnavailableCode =
+  | 'command-unavailable'
+  | 'unsupported'
+  | 'timeout'
+  | 'nonzero-exit'
+  | 'invalid-output';
+
 export type DiscoveryResult =
   | { status: 'available'; models: ModelOption[] }
-  | { status: 'unavailable'; reason: string };
+  /** `reason` is diagnostic prose that may contain CLI output — never rendered. */
+  | { status: 'unavailable'; code: DiscoveryUnavailableCode; reason: string };
 
 export interface CommandResult {
   stdout: string;
@@ -171,13 +190,24 @@ export function makeCommandRunner(
 
 const defaultCommandRunner = makeCommandRunner();
 
-function unavailable(reason: string): DiscoveryResult {
-  return { status: 'unavailable', reason };
+function unavailable(code: DiscoveryUnavailableCode, reason: string): DiscoveryResult {
+  return { status: 'unavailable', code, reason };
 }
+
+/** Spawn-level outcome → discovery code. Exhaustive over `CommandResult.failure`. */
+const FAILURE_CODES: Record<NonNullable<CommandResult['failure']>, DiscoveryUnavailableCode> = {
+  'command unavailable': 'command-unavailable',
+  'command failed': 'nonzero-exit',
+  'timed out': 'timeout',
+  'output exceeded': 'invalid-output',
+};
 
 function commandFailure(result: CommandResult): DiscoveryResult | undefined {
   if (result.exitCode === 0) return undefined;
-  return unavailable(result.failure ?? (result.stderr.trim() || `command exited ${result.exitCode}`));
+  // An unclassified non-zero exit is a CLI that ran and refused, never an absent
+  // one — only a spawn ENOENT may claim `command-unavailable`.
+  const code = result.failure ? FAILURE_CODES[result.failure] : 'nonzero-exit';
+  return unavailable(code, result.failure ?? (result.stderr.trim() || `command exited ${result.exitCode}`));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -224,25 +254,43 @@ export function parseCodexModels(stdout: string): ModelOption[] | undefined {
   return validateModelList('codex', models);
 }
 
-/** Parse the documented `agy models` text output into normalized catalog rows. */
+/** A bare model id as `agy models` prints it \u2014 no spaces, no punctuation prose. */
+const BARE_MODEL_LINE = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+
+function antigravityModelId(label: string): string {
+  return label
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Parse `agy models` into normalized catalog rows.
+ *
+ * Two shapes are accepted because the CLI ships both: the documented
+ * `Available models:` heading followed by human labels, and \u2014 what the current
+ * `agy` actually prints \u2014 a bare newline-separated list of ids with no heading.
+ * Requiring the heading made a working, installed `agy` report `invalid-output`.
+ *
+ * The headingless form is only accepted when EVERY line is a bare model id, so
+ * usage text, an auth error, or any other prose is still refused rather than
+ * silently turned into models.
+ */
 export function parseAntigravityModels(stdout: string): ModelOption[] | undefined {
   const lines = stdout.split(/\r?\n/);
   const heading = lines.findIndex((line) => line.trim().toLowerCase() === 'available models:');
-  if (heading < 0) return undefined;
 
-  const models = lines.slice(heading + 1)
+  const labels = (heading < 0 ? lines : lines.slice(heading + 1))
     .map((line) => line.trim().replace(/^(?:[-*]\s+)/, ''))
-    .filter((label) => label.length > 0)
-    .map((label) => ({
-      id: label
-        .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9.]+/g, '-')
-        .replace(/^-+|-+$/g, ''),
-      label,
-    }));
-  return validateModelList('antigravity', models);
+    .filter((label) => label.length > 0);
+  if (heading < 0 && !labels.every((label) => BARE_MODEL_LINE.test(label))) return undefined;
+
+  return validateModelList(
+    'antigravity',
+    labels.map((label) => ({ id: antigravityModelId(label), label })),
+  );
 }
 
 const CODEX_INITIALIZE_INPUT = `${JSON.stringify({
@@ -286,7 +334,7 @@ export async function discoverCodexModels(run: CommandRunner = defaultCommandRun
   const models = parseCodexModels(result.stdout);
   return models
     ? { status: 'available', models }
-    : unavailable('Codex returned an invalid or empty model list');
+    : unavailable('invalid-output', 'Codex returned an invalid or empty model list');
 }
 
 export async function discoverAntigravityModels(
@@ -299,9 +347,15 @@ export async function discoverAntigravityModels(
   const models = parseAntigravityModels(result.stdout);
   return models
     ? { status: 'available', models }
-    : unavailable('Antigravity returned an invalid or empty model list');
+    : unavailable('invalid-output', 'Antigravity returned an invalid or empty model list');
 }
 
+/**
+ * The Claude Code CLI exposes no model-listing command, so karst has no probe to
+ * run. This is a property of karst, not of the user's machine: it is `unsupported`
+ * and never `command-unavailable`, which would accuse an installed `claude` of
+ * being missing on every activation.
+ */
 export async function discoverClaudeModels(): Promise<DiscoveryResult> {
-  return unavailable('Claude CLI model discovery is unsupported');
+  return unavailable('unsupported', 'Claude CLI model discovery is unsupported');
 }

@@ -111,11 +111,14 @@ function persistDraft(
   input: TicketDraftFields,
 ): number {
   // The key is optional on the webview's manual-entry path (§ manual ticket
-  // creation): a blank key means "generate one now". Resolved once, here, so
-  // create and edit share the exact same key whether it's persisted via
-  // createTicketFlow or updateTicketCore below — never generated twice, never
-  // lost between the two branches.
-  const key = input.key || generateTicketKey(deps.store, { projectId: deps.projectId });
+  // creation): a blank key means "derive one from the title now" (the webview
+  // previews the same derivation while you type, so this is normally a no-op
+  // agreement rather than a surprise). Resolved once, here, so create and edit
+  // share the exact same key whether it's persisted via createTicketFlow or
+  // updateTicketCore below — never generated twice, never lost between the two
+  // branches.
+  const key = input.key
+    || generateTicketKey(deps.store, { projectId: deps.projectId }, input.title);
   let ticketId: number;
   if (ctx.ticketId !== undefined) {
     updateTicketCore(deps.store, ctx.ticketId, { key, title: input.title });
