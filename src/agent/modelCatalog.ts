@@ -17,6 +17,7 @@ const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
 
 const BUNDLED_CATALOG: ModelCatalog = {
   claude: [
+    { id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'] },
     { id: 'claude-opus-4-8', label: 'Opus 4.8', providers: ['claude'] },
     { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'] },
     { id: 'claude-haiku-4-5', label: 'Haiku 4.5', providers: ['claude'] },
