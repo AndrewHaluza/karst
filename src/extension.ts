@@ -41,7 +41,7 @@ import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { renderFixBrief } from './agent/fixBrief.js';
-import { countFixAttempts, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow/fixAttempts.js';
+import { countFixAttempts, lastFailedGate, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow/fixAttempts.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModelForProvider } from './agent/models.js';
@@ -1072,11 +1072,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the loop always ends in a human decision rather than silence.
   function autoResumeFix(ticketId: number): void {
     const t = getTicket(localStore, ticketId);
-    const attempts = countFixAttempts(t.stages);
-    if (!fixAttemptsRemain(attempts)) {
+    // Which gate's budget this resume spends. No failed gate means nothing sent
+    // the ticket here, so there is nothing to resume against.
+    const gate = lastFailedGate(t.stages);
+    if (!gate) {
+      logger.info(`stage driver: ticket ${ticketId} at fix with no failed gate; leaving it`);
+      return;
+    }
+    // uat.maxFixAttempts wires in with the manifest block (Task 9)
+    const cap = FIX_ATTEMPT_CAP;
+    const attempts = countFixAttempts(t.stages, gate);
+    if (!fixAttemptsRemain(attempts, cap)) {
       logger.info(
-        `stage driver: ticket ${ticketId} parked at fix — ${attempts} gate failures, ` +
-          `at the cap of ${FIX_ATTEMPT_CAP}; leaving it for a human`,
+        `stage driver: ticket ${ticketId} parked at fix — ${attempts} ${gate} failures, ` +
+          `at the cap of ${cap}; leaving it for a human`,
       );
       return;
     }

@@ -21,7 +21,7 @@ import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
-import { countFixAttempts } from '../../workflow/fixAttempts.js';
+import { countFixAttempts, lastFailedGate } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 
 export type { PathContext, StepperCell, NowLine, StageRail, StageInside };
@@ -118,7 +118,11 @@ export function buildDashboardState(
     repoDisplay: repoDisplayPath(w.repo, pathContext),
   }));
 
-  const fixAttempts = countFixAttempts(ticket.stages);
+  // The fix loop's displayed count is whichever gate actually sent the ticket
+  // there — the rail/now-line only ever narrate `fix`, so with no failed gate
+  // there is nothing to report yet (0, same as before any gate has failed).
+  const failedGate = lastFailedGate(ticket.stages);
+  const fixAttempts = failedGate ? countFixAttempts(ticket.stages, failedGate) : 0;
   const prs = listPrsByTicket(store, ticketId);
   const phases = approachPhases(ticket.approach);
 
