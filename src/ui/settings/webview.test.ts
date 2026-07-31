@@ -394,3 +394,73 @@ describe('chevron and invalid-field styling', () => {
     expect(HTML).toMatch(/input\[aria-invalid="true"\][^{]*\{[^}]*border-color/);
   });
 });
+
+/** Classes on the accordion card that hosts the custom provider dropdown. */
+function providerCardClasses(): string[] {
+  const wrap = HTML.indexOf('id="provSelectWrap"');
+  expect(wrap, '#provSelectWrap not found').toBeGreaterThan(-1);
+  // The nearest preceding opening tag whose class list contains `card` itself
+  // (not `card-body`, which sits between the wrapper and its card).
+  const tags = [...HTML.slice(0, wrap).matchAll(/<div class="([^"]*)"/g)]
+    .map((m) => m[1]!.split(/\s+/).filter(Boolean))
+    .filter((classes) => classes.includes('card'));
+  const last = tags[tags.length - 1];
+  expect(last, 'no enclosing .card for #provSelectWrap').toBeTruthy();
+  return last!;
+}
+
+describe('ticketing provider dropdown', () => {
+  // The menu is absolutely positioned below the trigger and is taller than the
+  // (short) card that hosts it, so the accordion's `.card{overflow:hidden}`
+  // clipped it to a sliver: the dropdown opened but was invisible.
+  it('is not clipped by its accordion card', () => {
+    const classes = providerCardClasses();
+    const optedOut = classes.some(
+      (c) => c !== 'card' && new RegExp(`\\.card\\.${c}\\{[^}]*overflow:visible`).test(HTML),
+    );
+    expect(optedOut, `provider card classes "${classes.join(' ')}" are still clipped`).toBe(true);
+  });
+
+  it('paints the menu above the cards that follow it', () => {
+    const m = HTML.match(/\.provselect-menu\{([^}]*)\}/);
+    expect(m, '.provselect-menu rule not found').toBeTruthy();
+    expect(m![1]).toMatch(/z-index:\d+/);
+  });
+});
+
+describe('ticketing token state', () => {
+  // Regression: the token buttons used to trigger a full `state` push, which
+  // replaces `draft` with the manifest on disk. Setting a token is the first
+  // step of first-time ticketing setup, so that silently reverted the provider
+  // (and team id) the user had just entered but not yet saved.
+  it('applies the host token flag without touching the manifest draft', () => {
+    const source = functionSource('applyTokenState');
+    expect(source).not.toContain('draft');
+    expect(source).not.toContain('lastSaved');
+
+    let rendered = 0;
+    let saved: Record<string, unknown> | null = null;
+    const sandbox = {
+      tokenConfigured: false,
+      renderTicketing: () => { rendered += 1; },
+      vscode: {
+        getState: () => ({ manifest: { ticketing: { provider: 'clickup' } }, tokenConfigured: false }),
+        setState: (s: Record<string, unknown>) => { saved = s; },
+      },
+    };
+    runInNewContext(`(${source})(true)`, sandbox);
+
+    expect(sandbox.tokenConfigured).toBe(true);
+    expect(rendered).toBe(1);
+    // The persisted copy keeps the rest of the state and only flips the flag.
+    expect(saved).toEqual({
+      manifest: { ticketing: { provider: 'clickup' } },
+      tokenConfigured: true,
+    });
+  });
+
+  it('routes the host token-state message to applyTokenState', () => {
+    expect(HTML).toContain("case 'token-state'");
+    expect(HTML).toMatch(/applyTokenState\(msg\.configured\)/);
+  });
+});
