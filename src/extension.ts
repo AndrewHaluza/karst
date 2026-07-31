@@ -60,6 +60,7 @@ import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import {
+  catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
   loadModelCatalog,
 } from './agent/modelCatalogLoader.js';
@@ -952,7 +953,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void loadModelCatalog({ cache: modelCatalogCache })
     .then(async (loaded) => {
       for (const diagnostic of loaded.diagnostics) {
-        logger.warn(`karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`);
+        // An optional provider CLI that is not installed is a normal state, not
+        // a fault; only a source that was supposed to work and did not warns.
+        const line = `karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`;
+        if (catalogDiagnosticSeverity(diagnostic.category) === 'warn') logger.warn(line);
+        else logger.info(line);
       }
       modelCatalog = loaded.catalog;
       onboarding.refreshModels();

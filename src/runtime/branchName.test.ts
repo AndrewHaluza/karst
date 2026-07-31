@@ -81,3 +81,61 @@ describe('renderBranchName', () => {
     expect(rendered).not.toMatch(/[/.-]$/);
   });
 });
+
+describe('placeholder transforms', () => {
+  it('shortens a look-alike ticket key to its distinguishing tail', () => {
+    expect(
+      renderBranchName('karst/{type}/{key|slice:-4}', { ...context, key: '869e82530' }),
+    ).toBe('karst/feat/2530');
+    expect(
+      renderBranchName('karst/{type}/{key|slice:-4}', { ...context, key: '869e820e2' }),
+    ).toBe('karst/feat/20e2');
+  });
+
+  it('transforms the raw value, then sanitizes the result for git', () => {
+    expect(renderBranchName('{key}/{title|truncate:6}', { ...context, title: 'Add search' })).toBe(
+      'proj-42/add-s',
+    );
+  });
+
+  it('a transformed unique variable still satisfies the per-ticket rule', () => {
+    expect(() => validateBranchTemplate('karst/{key|slice:-4}')).not.toThrow();
+    expect(() => validateBranchTemplate('karst/{title|upper}')).toThrow(
+      /must include one of \{slug\}, \{key\} or \{id\}/,
+    );
+  });
+
+  it('rejects an unknown transform, naming the placeholder', () => {
+    expect(() => validateBranchTemplate('karst/{key|slize:-4}')).toThrow(
+      /branchName contains unknown transform "slize" in "\{key\|slize:-4\}"/,
+    );
+  });
+
+  it('rejects a malformed argument, naming the placeholder and the reason', () => {
+    expect(() => validateBranchTemplate('karst/{key|slice:x}')).toThrow(
+      /branchName has an invalid "slice" argument in "\{key\|slice:x\}": start must be an integer/,
+    );
+  });
+
+  it('still validates the variable of a transformed placeholder', () => {
+    expect(() => validateBranchTemplate('karst/{repo|upper}-{slug}')).toThrow(
+      /branchName contains unsupported variable "\{repo\}"/,
+    );
+  });
+
+  it('a transform that empties every value still never renders blank', () => {
+    expect(renderBranchName('{key|slice:0,0}', context)).toBe('42');
+  });
+
+  it('renders templates without transforms byte-identically', () => {
+    for (const template of ['karst/{type}/{slug}', '{key}-{slug}', 'karst/{slug}', '{id}']) {
+      expect(renderBranchName(template, context)).toBe(
+        template
+          .replace('{type}', 'feat')
+          .replace('{slug}', 'proj-42-add-search')
+          .replace('{key}', 'proj-42')
+          .replace('{id}', '42'),
+      );
+    }
+  });
+});

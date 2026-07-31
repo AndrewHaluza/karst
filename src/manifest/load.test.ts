@@ -1442,3 +1442,71 @@ conventions:
     }
   });
 });
+
+describe('placeholder transforms in manifest templates', () => {
+  it('accepts a valid transform in every template field', () => {
+    const { path, cleanup } = fixture(
+      `${VALID}\nticketLabelTemplate: "{key|slice:-4} — {title|truncate:40}"\n` +
+        `terminalNameTemplate: "Karst: {key|slice:-4}"\n` +
+        `conventions:\n  branchName: "karst/{type}/{key|slice:-4}"\n` +
+        `  commitMessage: "{type}({scope}): {title} [{key|slice:-4}]"\n` +
+        `  pullRequestTitle: "{title|truncate:60}"\n` +
+        `  pullRequestDescription: "{description|default:No summary.}"\n`,
+    );
+    try {
+      const manifest = loadManifest(path);
+      expect(manifest.ticketLabelTemplate).toBe('{key|slice:-4} — {title|truncate:40}');
+      expect(manifest.conventions?.branchName).toBe('karst/{type}/{key|slice:-4}');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown transform in ticketLabelTemplate, naming the placeholder', () => {
+    const { path, cleanup } = fixture(`${VALID}\nticketLabelTemplate: "{key|slize:-4}"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /ticketLabelTemplate contains unknown transform "slize" in "\{key\|slize:-4\}"/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown transform in terminalNameTemplate', () => {
+    const { path, cleanup } = fixture(`${VALID}\nterminalNameTemplate: "{key|nope}"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /terminalNameTemplate contains unknown transform "nope"/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a malformed argument in conventions.branchName', () => {
+    const { path, cleanup } = fixture(
+      `${VALID}\nconventions:\n  branchName: "karst/{key|slice:x}"\n`,
+    );
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /conventions\.branchName has an invalid "slice" argument in "\{key\|slice:x\}": start must be an integer/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a malformed argument in conventions.commitMessage', () => {
+    const { path, cleanup } = fixture(
+      `${VALID}\nconventions:\n  commitMessage: "{title|truncate:0}"\n`,
+    );
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /conventions\.commitMessage has an invalid "truncate" argument in "\{title\|truncate:0\}"/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});

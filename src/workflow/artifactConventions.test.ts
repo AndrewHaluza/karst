@@ -93,3 +93,84 @@ describe('artifact convention rendering', () => {
     expect(usesDescription('{title}: description')).toBe(false);
   });
 });
+
+describe('placeholder transforms', () => {
+  it('renders the distinguishing tail of a look-alike ticket key', () => {
+    expect(
+      renderArtifactTemplate('commitMessage', '{type}: {title} [{key|slice:-4}]', {
+        ...context,
+        key: '869e82530',
+      }),
+    ).toBe('feat: Add search [2530]');
+    expect(
+      renderArtifactTemplate('commitMessage', '{type}: {title} [{key|slice:-4}]', {
+        ...context,
+        key: '869e820e2',
+      }),
+    ).toBe('feat: Add search [20e2]');
+  });
+
+  it('applies a chain left to right', () => {
+    expect(
+      renderArtifactTemplate('pullRequestTitle', '{title|truncate:8|upper}', context),
+    ).toBe('ADD SEA…');
+  });
+
+  it('validates the variable of a transformed placeholder', () => {
+    expect(() => validateArtifactTemplate('commitMessage', '{nope|upper}')).toThrow(
+      /commitMessage contains unsupported variable "\{nope\}"/,
+    );
+  });
+
+  it('rejects an unknown transform, naming the placeholder', () => {
+    expect(() => validateArtifactTemplate('commitMessage', '{key|slize:-4}')).toThrow(
+      /commitMessage contains unknown transform "slize" in "\{key\|slize:-4\}"/,
+    );
+  });
+
+  it('rejects a malformed argument, naming the placeholder and the reason', () => {
+    expect(() => validateArtifactTemplate('pullRequestTitle', '{title|truncate:0}')).toThrow(
+      /pullRequestTitle has an invalid "truncate" argument in "\{title\|truncate:0\}": width must be a positive integer/,
+    );
+  });
+
+  it('an empty description with a default never renders blank', () => {
+    expect(
+      renderArtifactTemplate('pullRequestDescription', '{description|default:No summary.}', {
+        ...context,
+        description: '',
+      }),
+    ).toBe('No summary.');
+  });
+
+  it('detects a transformed {description} as still requiring generated prose', () => {
+    expect(usesDescription('## Summary\n{description|trim}')).toBe(true);
+    expect(usesDescription('{title|default:description}')).toBe(false);
+  });
+
+  it('renders templates without transforms byte-identically', () => {
+    for (const template of [
+      '{type}({scope}): {title} [{key}]',
+      '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}',
+      '[{key}] {title}',
+      '{title}',
+      'no placeholders at all',
+    ]) {
+      expect(renderArtifactTemplate('pullRequestDescription', template, context)).toBe(
+        template.replace(/\{(\w+)\}/g, (_m, name: string) =>
+          String(
+            {
+              id: context.id,
+              key: context.key,
+              title: context.title,
+              repo: context.repo,
+              type: context.type,
+              scope: context.scope,
+              description: context.description ?? '',
+            }[name],
+          ),
+        ),
+      );
+    }
+  });
+});

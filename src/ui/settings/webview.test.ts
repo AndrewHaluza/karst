@@ -5,6 +5,8 @@ import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { CONVENTION_PRESETS } from '../../workflow/conventionPresets.js';
 import { TICKET_TYPES } from '../../store/ticketTypes.js';
+import { TRANSFORM_NAMES, applyTransforms } from '../../template/transforms.js';
+import { parseTokenBody } from '../../template/token.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -392,5 +394,70 @@ describe('chevron and invalid-field styling', () => {
 
   it('applies the error border to any invalid field, not just convention fields', () => {
     expect(HTML).toMatch(/input\[aria-invalid="true"\][^{]*\{[^}]*border-color/);
+  });
+});
+
+/**
+ * Extract the webview's mirrored transform engine and run it. Pinning the NAMES
+ * alone would let the two implementations drift on semantics, and a preview that
+ * disagrees with what Karst actually writes is worse than no preview.
+ */
+function loadMirrorTransforms(): (value: unknown, body: string) => string {
+  const arity = HTML.match(/const TRANSFORM_ARITY = \{[\s\S]*?\};/);
+  if (!arity) throw new Error('TRANSFORM_ARITY mirror not found');
+  const source = [
+    arity[0],
+    functionSource('splitTransformArgs'),
+    functionSource('separateWords'),
+    functionSource('parseTokenBody'),
+    functionSource('applyOneTransform'),
+    functionSource('applyTransforms'),
+    '((value, body) => applyTransforms(value, parseTokenBody(body).transforms))',
+  ].join('\n');
+  return runInNewContext(source, {}) as (value: unknown, body: string) => string;
+}
+
+describe('settings placeholder-transform mirror', () => {
+  it('lists exactly the host transform names', () => {
+    expect(HTML).toContain(
+      `const TRANSFORM_NAMES = [${TRANSFORM_NAMES.map((n) => `'${n}'`).join(', ')}];`,
+    );
+  });
+
+  it('renders every transform exactly as the host does', () => {
+    const mirror = loadMirrorTransforms();
+    const cases: Array<[unknown, string]> = [
+      ['869e82530', 'key|slice:-4'],
+      ['869e820e2', 'key|slice:-4'],
+      ['abcdef', 'k|slice:1,3'],
+      ['abcdef', 'k|slice:-4,-2'],
+      ['abc', 'k|slice:10'],
+      ['abc', 'k|slice:2,1'],
+      ['abcdefgh', 'k|truncate:5'],
+      ['abcdefgh', 'k|truncate:5,...'],
+      ['abcdefgh', 'k|truncate:2,...'],
+      ['🙂🙂🙂🙂', 'k|truncate:3'],
+      ['abcde', 'k|truncate:5'],
+      ['PROJ-142', 'k|lower'],
+      ['proj-142', 'k|upper'],
+      ['Add Login  Flow!', 'k|kebab'],
+      ['Add Login  Flow!', 'k|snake'],
+      ['Привет мир', 'k|kebab'],
+      ['  add login  ', 'k|trim'],
+      ['', 'k|default:idle'],
+      ['working', 'k|default:idle'],
+      [null, 'k|default:idle'],
+      ['869e82530', 'k|slice:-4|upper'],
+      ['  Add Login  ', 'k|trim|kebab|truncate:6'],
+      ['', 'k|default:Not Started|kebab'],
+      ['abc', 'k'],
+      [null, 'k|slice:-4'],
+      [undefined, 'k|truncate:5'],
+      ['abc', 'k|nosuchtransform'],
+    ];
+    for (const [value, body] of cases) {
+      const expected = applyTransforms(value, parseTokenBody(body).transforms);
+      expect(mirror(value, body), `${String(value)} | ${body}`).toBe(expected);
+    }
   });
 });
