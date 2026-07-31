@@ -1019,9 +1019,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             dashboard.pushState(id);
           },
           shouldContinue: () => driver.shouldContinue(ticketId),
+          // TODO(later task): runUat/runReview don't yet return StageRunResult
+          // themselves — they still always transition, so wrap them as
+          // 'advanced' with the ticket's post-transition stage. A later task
+          // rewrites the runners to report 'blocked'/'stopped' directly.
           runUat: (id, cwd) =>
             runUat(localStore, { ticketId: id, cwd, artifactDir: artifactDirFor(id) }).then(
-              () => getTicket(localStore, id).stageCurrent as StageKey,
+              () => ({ kind: 'advanced' as const, next: getTicket(localStore, id).stageCurrent as StageKey }),
             ),
           runReview: (id, cwd) =>
             runReview(localStore, {
@@ -1030,7 +1034,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               artifactDir: artifactDirFor(id),
               manifest: currentManifest(),
             }).then(
-              () => getTicket(localStore, id).stageCurrent as StageKey,
+              () => ({ kind: 'advanced' as const, next: getTicket(localStore, id).stageCurrent as StageKey }),
             ),
         },
         ticketId,

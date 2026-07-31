@@ -16,16 +16,27 @@ export function shouldStartDriver(stage: StageKey): boolean {
 }
 
 /**
- * Select the ticket ids the driver should resume — those parked at a deterministic
- * gate. Used by the activation + terminal-close sweeps so a gate-stranded ticket
- * recovers even when the hook that would normally kick the driver never arrived
- * (dead/stale hook port, session closed without a reachable SessionEnd). Pure of
- * vscode + the store, so it is unit-testable.
+ * Select the ticket ids the driver should resume — those parked at a
+ * deterministic gate that is NOT blocked.
+ *
+ * The blocked check is what makes parking durable. Without it a blocked ticket is
+ * re-selected on every window activation and the whole failed stage runs again to
+ * park in the same place, forever.
  */
 export function ticketsToSweep(
-  tickets: readonly { id: number; stageCurrent: string | null }[],
+  tickets: readonly {
+    id: number;
+    stageCurrent: string | null;
+    stages: readonly { stageKey: string; blockedKind: string | null }[];
+  }[],
 ): number[] {
-  return tickets.filter((t) => shouldStartDriver(t.stageCurrent as StageKey)).map((t) => t.id);
+  return tickets
+    .filter((t) => {
+      if (!shouldStartDriver(t.stageCurrent as StageKey)) return false;
+      const current = t.stages.find((s) => s.stageKey === t.stageCurrent);
+      return !current?.blockedKind;
+    })
+    .map((t) => t.id);
 }
 
 /**

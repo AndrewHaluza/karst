@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import type { StageKey } from '../model/types.js';
+import type { StageKey, StageRunResult } from '../model/types.js';
 import { getTicket } from '../store/tickets.js';
 
 /**
@@ -20,8 +20,8 @@ export interface StageOutcome {
 
 export interface StageDriverDeps {
   store: Store;
-  runUat: (ticketId: number, cwd: string) => Promise<StageKey>;
-  runReview: (ticketId: number, cwd: string) => Promise<StageKey>;
+  runUat: (ticketId: number, cwd: string) => Promise<StageRunResult>;
+  runReview: (ticketId: number, cwd: string) => Promise<StageRunResult>;
   worktreeFor: (ticketId: number) => string | null;
   onProgress: (ticketId: number, stage: StageKey, status: DriverStatus) => void;
   shouldContinue: () => boolean;
@@ -58,8 +58,16 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
     if (!cwd) throw new Error(`ticket ${ticketId} has no worktree for stage '${stage}'`);
 
     deps.onProgress(ticketId, stage, 'running');
-    if (stage === 'uat') await deps.runUat(ticketId, cwd);
-    else await deps.runReview(ticketId, cwd);
-    // Loop: the runner already transitioned; re-read stage_current and continue.
+    const result = stage === 'uat'
+      ? await deps.runUat(ticketId, cwd)
+      : await deps.runReview(ticketId, cwd);
+
+    // A block is a resting place, not an error: the stage stays current, the row
+    // carries why, and the sweep skips it until a human clears it.
+    if (result.kind === 'blocked') {
+      return finish(deps, ticketId, stage, 'blocked', `${result.blocker}: ${result.reason}`);
+    }
+    if (result.kind === 'stopped') return finish(deps, ticketId, stage, 'stopped');
+    // advanced: the runner already transitioned; re-read stage_current and continue.
   }
 }

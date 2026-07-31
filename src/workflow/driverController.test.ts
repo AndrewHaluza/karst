@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { shouldStartDriver, ticketsToSweep, DriverController } from './driverController.js';
 
 describe('ticketsToSweep', () => {
-  const at = (id: number, stageCurrent: string | null) => ({ id, stageCurrent });
+  const at = (id: number, stageCurrent: string | null) => ({ id, stageCurrent, stages: [] });
 
   it('selects gate-stage tickets regardless of any open session', () => {
     const tickets = [at(1, 'uat'), at(2, 'review'), at(3, 'impl'), at(4, 'done')];
@@ -16,6 +16,39 @@ describe('ticketsToSweep', () => {
 
   it('returns empty for an empty ticket list', () => {
     expect(ticketsToSweep([])).toEqual([]);
+  });
+});
+
+describe('ticketsToSweep with blocked stages', () => {
+  it('selects a ticket parked at an unblocked gate', () => {
+    expect(
+      ticketsToSweep([
+        { id: 1, stageCurrent: 'uat', stages: [{ stageKey: 'uat', blockedKind: null }] },
+      ]),
+    ).toEqual([1]);
+  });
+
+  it('does NOT select a ticket whose current gate is blocked', () => {
+    expect(
+      ticketsToSweep([
+        { id: 1, stageCurrent: 'uat', stages: [{ stageKey: 'uat', blockedKind: 'nothing-to-run' }] },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('ignores a block recorded on a stage the ticket has moved past', () => {
+    expect(
+      ticketsToSweep([
+        {
+          id: 1,
+          stageCurrent: 'review',
+          stages: [
+            { stageKey: 'uat', blockedKind: 'nothing-to-run' },
+            { stageKey: 'review', blockedKind: null },
+          ],
+        },
+      ]),
+    ).toEqual([1]);
   });
 });
 

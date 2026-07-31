@@ -62,3 +62,13 @@ export type BlockerKind =
   | 'no-independent-signal' // Phase 2 only — a warning in Phase 1
   | 'boot-failed'           // Phase 2
   | 'lease-lost';           // Phase 2
+
+/**
+ * What one stage run did. A runner no longer implies a transition by returning:
+ * it says whether it advanced the ticket, could not ask the question at all, or
+ * was stopped. `blocked` and `stopped` both mean no verdict and no attempt.
+ */
+export type StageRunResult =
+  | { kind: 'advanced'; next: StageKey }
+  | { kind: 'blocked'; blocker: BlockerKind; reason: string }
+  | { kind: 'stopped' };
