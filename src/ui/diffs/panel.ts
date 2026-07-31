@@ -1,4 +1,5 @@
 import type { LogError } from '../../logging/logger.js';
+import { diffViewColumn } from './diffColumn.js';
 import { StaleDiffTargetError, type DiffTarget } from './git.js';
 import {
   routeChangesMessage,
@@ -9,6 +10,8 @@ import type { TicketChangesSnapshot } from './snapshot.js';
 /** The subset of a webview panel used by the ticket changes manager. */
 export interface ChangesPanel {
   reveal(): void;
+  /** The editor group the panel is in, or `undefined` while it is hidden. */
+  viewColumn(): number | undefined;
   postMessage(message: ChangesHostMessage): void;
   onDidReceiveMessage(handler: (message: unknown) => void): void;
   onDidDispose(handler: () => void): void;
@@ -52,9 +55,13 @@ export class TicketChangesManager {
       ticketId: number,
       signal: AbortSignal,
     ) => Promise<TicketChangesSnapshot>,
-    private readonly openDiff: (target: DiffTarget) => Promise<void>,
+    private readonly openDiff: (
+      target: DiffTarget,
+      viewColumn: number | undefined,
+    ) => Promise<void>,
     private readonly warn: (message: string) => void,
     private readonly logError: LogError = (message, error) => console.error(message, error),
+    private readonly writeClipboard: (text: string) => void = () => {},
   ) {}
 
   open(ticketId: number): void {
@@ -82,6 +89,7 @@ export class TicketChangesManager {
         routeChangesMessage(raw, {
           refresh: () => this.refresh(ticketId, session),
           openDiff: (changeId) => this.openTarget(ticketId, session, changeId),
+          copyHash: (hash) => this.copyHash(hash),
         });
       } catch (error) {
         this.logError('karst: ticket changes action failed', error);
@@ -177,7 +185,11 @@ export class TicketChangesManager {
       return;
     }
 
-    void Promise.resolve().then(() => this.openDiff(target)).catch((error: unknown) => {
+    // Resolved per click from the LIVE panel: the user may have dragged the
+    // panel into another group since it opened, and the diff belongs beside
+    // where the panel is now.
+    const column = diffViewColumn(session.panel.viewColumn());
+    void Promise.resolve().then(() => this.openDiff(target, column)).catch((error: unknown) => {
       if (!this.isLive(ticketId, session)) return;
       if (error instanceof StaleDiffTargetError) {
         this.warn(error.message);
@@ -192,6 +204,20 @@ export class TicketChangesManager {
       // the voided tail with nothing attached to it.
       this.report('karst: ticket changes open failed', error);
     });
+  }
+
+  /**
+   * The webview already confirmed the copy optimistically, so a failure here
+   * would otherwise be invisible: it is reported, never swallowed. The hash was
+   * validated as a git object name before it reached this point.
+   */
+  private copyHash(hash: string): void {
+    try {
+      this.writeClipboard(hash);
+    } catch (error) {
+      this.logError('karst: copying a commit hash failed', error);
+      this.warn(`Could not copy ${hash} to the clipboard.`);
+    }
   }
 
   /**

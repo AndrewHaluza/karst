@@ -7,10 +7,12 @@ import type { TicketChangesSnapshot, TicketChangesState } from './snapshot.js';
 class FakePanel implements ChangesPanel {
   revealed = 0;
   posted: ChangesHostMessage[] = [];
+  column: number | undefined = 1;
   private messageHandler?: (message: unknown) => void;
   private disposeHandler?: () => void;
 
   reveal(): void { this.revealed += 1; }
+  viewColumn(): number | undefined { return this.column; }
   postMessage(message: ChangesHostMessage): void { this.posted.push(message); }
   onDidReceiveMessage(handler: (message: unknown) => void): void { this.messageHandler = handler; }
   onDidDispose(handler: () => void): void { this.disposeHandler = handler; }
@@ -182,7 +184,7 @@ describe('TicketChangesManager', () => {
       { type: 'state', state: snapshot(41, 'new:1', newTarget).state },
       { type: 'state', state: snapshot(41, 'latest:1', target('src/latest.ts')).state },
     ]);
-    expect(openDiff).toHaveBeenCalledWith(newTarget);
+    expect(openDiff).toHaveBeenCalledWith(newTarget, 2);
     expect(warn).toHaveBeenCalledWith('That change is stale. Refreshing ticket changes…');
   });
 
@@ -231,7 +233,7 @@ describe('TicketChangesManager', () => {
     const diffTarget = target('src/current.ts');
     const loaded = snapshot(41, 'current:1', diffTarget);
     const { host, panels } = makeHost();
-    const openDiff = vi.fn(async (_target: DiffTarget) => {});
+    const openDiff = vi.fn(async (_target: DiffTarget, _column?: number) => {});
     const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, async () => loaded, openDiff, () => {});
 
     manager.open(41);
@@ -239,8 +241,90 @@ describe('TicketChangesManager', () => {
     panels[0]!.emit({ type: 'open-diff', changeId: 'current:1', path: '/forged' });
     await settle();
 
-    expect(openDiff).toHaveBeenCalledWith(diffTarget);
+    expect(openDiff).toHaveBeenCalledWith(diffTarget, 2);
     expect(openDiff.mock.calls[0]![0]).toBe(diffTarget);
+  });
+
+  /**
+   * Every click names the SAME editor group, so a second diff replaces the
+   * first instead of opening yet another group beside the last one.
+   */
+  it('opens every diff in the column anchored to its panel', async () => {
+    const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+    const { host, panels } = makeHost();
+    const openDiff = vi.fn(async (_target: DiffTarget, _column?: number) => {});
+    const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, async () => loaded, openDiff, () => {});
+
+    manager.open(41);
+    await settle();
+    panels[0]!.column = 3;
+    panels[0]!.emit({ type: 'open-diff', changeId: 'current:1' });
+    panels[0]!.emit({ type: 'open-diff', changeId: 'current:1' });
+    await settle();
+
+    expect(openDiff.mock.calls.map((call) => call[1])).toEqual([4, 4]);
+  });
+
+  it('puts a validated commit hash on the clipboard', async () => {
+    const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+    const { host, panels } = makeHost();
+    const clipboard = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      async () => loaded,
+      async () => {},
+      () => {},
+      () => {},
+      clipboard,
+    );
+
+    manager.open(41);
+    await settle();
+    panels[0]!.emit({ type: 'copy-hash', hash: '9f1c2ab' });
+    panels[0]!.emit({ type: 'copy-hash', hash: 'not a hash' });
+    await settle();
+
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith('9f1c2ab');
+  });
+
+  it('warns instead of failing silently when the clipboard write throws', async () => {
+    const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+    const { host, panels } = makeHost();
+    const warn = vi.fn();
+    const logError = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      async () => loaded,
+      async () => {},
+      warn,
+      logError,
+      () => { throw new Error('no clipboard'); },
+    );
+
+    manager.open(41);
+    await settle();
+    panels[0]!.emit({ type: 'copy-hash', hash: '9f1c2ab' });
+    await settle();
+
+    expect(warn).toHaveBeenCalledWith('Could not copy 9f1c2ab to the clipboard.');
+    expect(logError).toHaveBeenCalledWith('karst: copying a commit hash failed', expect.any(Error));
+  });
+
+  it('leaves the column to the host when its panel is hidden', async () => {
+    const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+    const { host, panels } = makeHost();
+    const openDiff = vi.fn(async (_target: DiffTarget, _column?: number) => {});
+    const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, async () => loaded, openDiff, () => {});
+
+    manager.open(41);
+    await settle();
+    panels[0]!.column = undefined;
+    panels[0]!.emit({ type: 'open-diff', changeId: 'current:1' });
+    await settle();
+
+    expect(openDiff.mock.calls[0]![1]).toBeUndefined();
   });
 
   it('warns and refreshes for a stale or forged change id', async () => {

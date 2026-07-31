@@ -1012,7 +1012,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     attempt.set(uri.toString(), resource.content);
     return uri;
   };
-  const openTicketDiff = async (target: DiffTarget): Promise<void> => {
+  const openTicketDiff = async (
+    target: DiffTarget,
+    viewColumn: number | undefined,
+  ): Promise<void> => {
     const virtualAttempt = virtualDocuments.beginAttempt();
     try {
       const prepared = await prepareDiff(defaultGitRunner, target, workingFile);
@@ -1023,7 +1026,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         leftUri,
         rightUri,
         prepared.title,
-        { preview: true, viewColumn: vscode.ViewColumn.Beside },
+        // The column is the panel's own + 1 (see `diffViewColumn`): `Beside`
+        // resolves against whatever is active when this runs, which after the
+        // first diff is that diff — so every click used to open ANOTHER group.
+        { preview: true, viewColumn: viewColumn ?? vscode.ViewColumn.Beside },
       );
       virtualAttempt.commit();
     } catch (error) {
@@ -1063,6 +1069,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openTicketDiff,
     (message) => void vscode.window.showWarningMessage(message),
     logError,
+    (text) => void vscode.env.clipboard.writeText(text),
   );
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
@@ -2358,6 +2365,9 @@ function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHos
       const listeners = new DisposableBag();
       return {
         reveal: () => panel.reveal(),
+        // Read per call, not captured: the user can drag the panel to another
+        // group, and the diff belongs beside wherever it is NOW.
+        viewColumn: () => panel.viewColumn,
         postMessage: (message) => void panel.webview.postMessage(message),
         onDidReceiveMessage: (handler) => {
           listeners.add(panel.webview.onDidReceiveMessage(handler));
