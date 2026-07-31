@@ -12,6 +12,9 @@ import {
   fetchPrDetail,
   UNKNOWN_PR_DETAIL,
   mergePr,
+  updatePrBody,
+  fetchPrBody,
+  prFromAlreadyExists,
   type GhRunner,
 } from './github.js';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
@@ -239,6 +242,68 @@ describe('openPr', () => {
     const gh: GhRunner = async () => ({ stdout: '', exitCode: 3, stderr: '' });
     await expect(openPr(gh, { cwd: '/wt', title: 'T', body: 'b' })).rejects.toThrow(/exit 3/);
   });
+
+  it('marks a genuinely created PR as not adopted', async () => {
+    const gh: GhRunner = async () => ({ stdout: 'https://github.com/o/r/pull/7', exitCode: 0 });
+    expect(await openPr(gh, { cwd: '/wt', title: 'T', body: 'b' })).toEqual({
+      number: 7,
+      url: 'https://github.com/o/r/pull/7',
+      adopted: false,
+    });
+  });
+
+  // The reported bug, in its most stubborn form: the branch probe can come back
+  // blind (bad auth, an ambiguous base repo, a remote hiccup) and gh then refuses
+  // the create — while handing back the URL of the PR that already exists. An
+  // existing PR is what ship is FOR, so this is a reusable answer, not a failure.
+  it('reuses the PR gh names instead of throwing when one already exists', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: '',
+      exitCode: 1,
+      stderr:
+        'a pull request for branch "fix/thing" into branch "develop" already exists:\nhttps://github.com/team/project/pull/123123',
+    });
+    expect(await openPr(gh, { cwd: '/wt', title: 'T', body: 'b' })).toEqual({
+      number: 123123,
+      url: 'https://github.com/team/project/pull/123123',
+      adopted: true,
+    });
+  });
+
+  it('reuses it even when gh writes the refusal to stdout', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: 'a pull request for branch "x" into branch "develop" already exists:\nhttps://h/o/r/pull/5',
+      exitCode: 1,
+      stderr: '',
+    });
+    expect((await openPr(gh, { cwd: '/wt', title: 'T', body: 'b' })).adopted).toBe(true);
+  });
+});
+
+describe('prFromAlreadyExists', () => {
+  it('reads the PR gh named in its refusal', () => {
+    expect(
+      prFromAlreadyExists(
+        'a pull request for branch "fix/x" into branch "develop" already exists:\nhttps://github.com/o/r/pull/42\n',
+      ),
+    ).toEqual({ number: 42, url: 'https://github.com/o/r/pull/42' });
+  });
+
+  it('is null for a failure that names no PR', () => {
+    expect(prFromAlreadyExists('could not determine base repository')).toBeNull();
+    expect(prFromAlreadyExists('')).toBeNull();
+  });
+
+  // Both signals are required, and deliberately so: reusing the wrong PR would
+  // record someone else's work as this ticket's and pass the stage silently,
+  // while failing to match only restores the loud error that was already visible.
+  it('is null for a URL that is not an already-exists refusal', () => {
+    expect(prFromAlreadyExists('pull request https://github.com/o/r/pull/9 is not mergeable')).toBeNull();
+  });
+
+  it('is null for an already-exists message with no URL to reuse', () => {
+    expect(prFromAlreadyExists('a pull request for branch "x" already exists')).toBeNull();
+  });
 });
 
 const viewJson = (o: unknown): string => JSON.stringify(o);
@@ -248,12 +313,34 @@ describe('findOpenPr', () => {
     const calls: { args: string[]; cwd: string }[] = [];
     const gh: GhRunner = async (args, cwd) => {
       calls.push({ args, cwd });
-      return { stdout: viewJson({ number: 18, url: 'https://github.com/o/r/pull/18', state: 'OPEN' }), exitCode: 0 };
+      return {
+        stdout: viewJson({ number: 18, url: 'https://github.com/o/r/pull/18', state: 'OPEN', body: 'why' }),
+        exitCode: 0,
+      };
     };
     const pr = await findOpenPr(gh, '/wt/a');
-    expect(calls[0]!.args).toEqual(['pr', 'view', '--json', 'number,url,state']);
+    expect(calls[0]!.args).toEqual(['pr', 'view', '--json', 'number,url,state,body']);
     expect(calls[0]!.cwd).toBe('/wt/a');
-    expect(pr).toEqual({ number: 18, url: 'https://github.com/o/r/pull/18' });
+    expect(pr).toEqual({ number: 18, url: 'https://github.com/o/r/pull/18', body: 'why' });
+  });
+
+  // The body decides whether an adopted PR may be prefilled, so the three cases
+  // must stay distinguishable: prose to keep, '' to fill, and null for "gh did
+  // not say" — which is NOT permission to overwrite.
+  it('reports an empty body as empty, not as absent', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ number: 2, url: 'https://github.com/o/r/pull/2', state: 'OPEN', body: '' }),
+      exitCode: 0,
+    });
+    expect((await findOpenPr(gh, '/wt'))?.body).toBe('');
+  });
+
+  it('reports a body gh never returned as null, not as empty', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ number: 2, url: 'https://github.com/o/r/pull/2', state: 'OPEN' }),
+      exitCode: 0,
+    });
+    expect((await findOpenPr(gh, '/wt'))?.body).toBeNull();
   });
 
   // The only signal gh gives for "this branch has no PR" is a nonzero exit. It is
@@ -286,12 +373,92 @@ describe('findOpenPr', () => {
       stdout: viewJson({ url: 'https://github.com/o/r/pull/12', state: 'OPEN' }),
       exitCode: 0,
     });
-    expect(await findOpenPr(gh, '/wt')).toEqual({ number: 12, url: 'https://github.com/o/r/pull/12' });
+    expect(await findOpenPr(gh, '/wt')).toEqual({
+      number: 12,
+      url: 'https://github.com/o/r/pull/12',
+      body: null,
+    });
   });
 
   it('is null when the JSON carries no url — an adopted PR with no link is useless', async () => {
     const gh: GhRunner = async () => ({ stdout: viewJson({ number: 3, state: 'OPEN' }), exitCode: 0 });
     expect(await findOpenPr(gh, '/wt')).toBeNull();
+  });
+});
+
+describe('fetchPrBody', () => {
+  it('asks gh for the body of a PR by ref, in the given cwd', async () => {
+    const calls: { args: string[]; cwd: string }[] = [];
+    const gh: GhRunner = async (args, cwd) => {
+      calls.push({ args, cwd });
+      return { stdout: viewJson({ body: '## Summary\nwhy' }), exitCode: 0 };
+    };
+    const body = await fetchPrBody(gh, 'https://github.com/o/r/pull/9', '/wt/a');
+    expect(calls[0]!.args).toEqual(['pr', 'view', 'https://github.com/o/r/pull/9', '--json', 'body']);
+    expect(calls[0]!.cwd).toBe('/wt/a');
+    expect(body).toBe('## Summary\nwhy');
+  });
+
+  it('reports an empty body as empty, not as absent', async () => {
+    const gh: GhRunner = async () => ({ stdout: viewJson({ body: '' }), exitCode: 0 });
+    expect(await fetchPrBody(gh, '9', '/wt')).toBe('');
+  });
+
+  // Same rule as every other probe: a failure says "I do not know", never "empty"
+  // — because "empty" is what authorizes an overwrite.
+  it('is null for every failure, rather than throwing or guessing empty', async () => {
+    const failed: GhRunner = async () => ({ stdout: '', exitCode: 1, stderr: 'auth' });
+    const garbled: GhRunner = async () => ({ stdout: 'not json', exitCode: 0 });
+    expect(await fetchPrBody(failed, '9', '/wt')).toBeNull();
+    expect(await fetchPrBody(garbled, '9', '/wt')).toBeNull();
+    expect(await fetchPrBody(async () => ({ stdout: viewJson({}), exitCode: 0 }), '9', '/wt')).toBeNull();
+  });
+});
+
+describe('updatePrBody', () => {
+  it('edits the PR body by ref, in the given cwd', async () => {
+    const calls: { args: string[]; cwd: string }[] = [];
+    const gh: GhRunner = async (args, cwd) => {
+      calls.push({ args, cwd });
+      return { stdout: '', exitCode: 0 };
+    };
+    const ok = await updatePrBody(gh, 'https://github.com/o/r/pull/8', '/wt/a', '## Summary\nx');
+
+    expect(calls[0]!.args).toEqual([
+      'pr',
+      'edit',
+      'https://github.com/o/r/pull/8',
+      '--body',
+      '## Summary\nx',
+    ]);
+    expect(calls[0]!.cwd).toBe('/wt/a');
+    expect(ok).toEqual({ ok: true, reason: '' });
+  });
+
+  // The PR is already open — the irreversible part of ship succeeded. A failed
+  // backfill is a note on a ship that worked, never an exception that parks the
+  // ticket, so this reports rather than throws.
+  it('reports gh’s refusal instead of throwing', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', stderr: 'no write access', exitCode: 1 });
+    expect(await updatePrBody(gh, '8', '/wt', 'body')).toEqual({
+      ok: false,
+      reason: 'no write access',
+    });
+  });
+
+  it('reports a runner that rejects, rather than propagating it', async () => {
+    const gh: GhRunner = async () => {
+      throw new Error('spawn failed');
+    };
+    expect(await updatePrBody(gh, '8', '/wt', 'body')).toEqual({
+      ok: false,
+      reason: 'spawn failed',
+    });
+  });
+
+  it('never leaves the reason empty when gh says nothing', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', exitCode: 3 });
+    expect((await updatePrBody(gh, '8', '/wt', 'body')).reason).toBe('gh exit 3');
   });
 });
 
