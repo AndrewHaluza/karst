@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -291,6 +291,20 @@ export function migrate(db: Database): void {
     const cols = ticketColumns(db);
     if (cols.size > 0 && !cols.has('type')) {
       db.exec('ALTER TABLE tickets ADD COLUMN type TEXT');
+    }
+  }
+
+  if (current < 16) {
+    // v16 gives a gate stage a durable "karst could not ask" state. Purely
+    // additive and guarded on the CURRENT columns, so a fresh DB (already carrying
+    // them from schema.sql) skips the step and a re-open is a no-op. Nothing is
+    // backfilled: absence IS "not blocked", which is the correct reading of every
+    // existing row.
+    const cols = tableColumns(db, 'stages');
+    if (cols.size > 0) {
+      if (!cols.has('blocked_kind')) db.exec('ALTER TABLE stages ADD COLUMN blocked_kind TEXT');
+      if (!cols.has('blocked_reason')) db.exec('ALTER TABLE stages ADD COLUMN blocked_reason TEXT');
+      if (!cols.has('blocked_at')) db.exec('ALTER TABLE stages ADD COLUMN blocked_at TEXT');
     }
   }
 

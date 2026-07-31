@@ -46,3 +46,19 @@ export const STAGE_KEYS: readonly StageKey[] = [
   'ship',
   'done',
 ] as const;
+
+/**
+ * Why karst could not ask a stage's question. Distinct from a `failed` verdict:
+ * `failed` means the code is wrong and an agent can act; a blocker is
+ * environmental — a human frees the port, installs the binary, fixes the config.
+ *
+ * `attempts-exhausted` is deliberately NOT here: it is entirely about attempts
+ * consumed, it does mean the code is wrong, and its resting place (the ticket sits
+ * at `fix`, unswept) already exists and needs no state.
+ */
+export type BlockerKind =
+  | 'nothing-to-run'        // Phase 1: every gate returned null
+  | 'capability-missing'    // Phase 1: permission/IO error; Phase 2: Playwright, auth digest
+  | 'no-independent-signal' // Phase 2 only — a warning in Phase 1
+  | 'boot-failed'           // Phase 2
+  | 'lease-lost';           // Phase 2
