@@ -1079,8 +1079,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.info(`stage driver: ticket ${ticketId} at fix with no failed gate; leaving it`);
       return;
     }
-    // uat.maxFixAttempts wires in with the manifest block (Task 9)
-    const cap = FIX_ATTEMPT_CAP;
+    const cap =
+      gate === 'uat'
+        ? (currentManifest()?.uat?.maxFixAttempts ?? FIX_ATTEMPT_CAP)
+        : FIX_ATTEMPT_CAP;
     const attempts = countFixAttempts(t.stages, gate);
     if (!fixAttemptsRemain(attempts, cap)) {
       logger.info(
