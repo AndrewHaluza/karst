@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { attentionItems, attentionSummary, type AttentionItem } from './attention.js';
+import {
+  attentionItems,
+  attentionSummary,
+  AttentionManager,
+  type AttentionItem,
+  type AttentionHost,
+} from './attention.js';
 import type { TicketWithStages } from '../store/tickets.js';
 import type { StageKey, StageStatus } from '../model/types.js';
 
@@ -156,5 +162,58 @@ describe('attentionSummary', () => {
     expect(lines).toHaveLength(11);
     expect(lines[10]).toBe('…and 3 more');
     expect(attentionSummary(many)?.count).toBe(13);
+  });
+});
+
+function fakeHost(): AttentionHost & {
+  status: Array<[string, string, boolean]>;
+  badges: Array<[number, string]>;
+  hidden: number;
+  cleared: number;
+} {
+  const h = {
+    status: [] as Array<[string, string, boolean]>,
+    badges: [] as Array<[number, string]>,
+    hidden: 0,
+    cleared: 0,
+    setStatus: (text: string, tooltip: string, warning: boolean) => {
+      h.status.push([text, tooltip, warning]);
+    },
+    hideStatus: () => {
+      h.hidden += 1;
+    },
+    setBadge: (value: number, tooltip: string) => {
+      h.badges.push([value, tooltip]);
+    },
+    clearBadge: () => {
+      h.cleared += 1;
+    },
+  };
+  return h;
+}
+
+describe('AttentionManager', () => {
+  it('hides both surfaces on an empty set, and never badges a zero', () => {
+    const host = fakeHost();
+    new AttentionManager(host).render([]);
+    expect(host.hidden).toBe(1);
+    expect(host.cleared).toBe(1);
+    expect(host.status).toEqual([]);
+    expect(host.badges).toEqual([]);
+  });
+
+  it('paints status and badge from the same summary', () => {
+    const host = fakeHost();
+    new AttentionManager(host).render([item(), item({ ticketId: 2, key: 'A-2' })]);
+    expect(host.status).toEqual([
+      ['$(bell) 2 need you', 'A-1 · agent asked a question\nA-2 · agent asked a question', false],
+    ]);
+    expect(host.badges).toEqual([[2, '2 tickets need your input']]);
+  });
+
+  it('flags the status warning when a ticket is blocked', () => {
+    const host = fakeHost();
+    new AttentionManager(host).render([item({ kind: 'failed', reason: 'uat failed' })]);
+    expect(host.status[0]![2]).toBe(true);
   });
 });

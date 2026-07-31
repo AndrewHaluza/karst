@@ -110,3 +110,34 @@ export function attentionSummary(items: readonly AttentionItem[]): AttentionSumm
     badgeTooltip: `${count} ${count === 1 ? 'ticket needs' : 'tickets need'} your input`,
   };
 }
+
+/**
+ * The two surfaces the attention set paints, behind an interface so this module
+ * stays free of `vscode` and unit-testable with a fake — the same shape
+ * `StatusBarManager` uses.
+ */
+export interface AttentionHost {
+  setStatus(text: string, tooltip: string, warning: boolean): void;
+  hideStatus(): void;
+  setBadge(value: number, tooltip: string): void;
+  clearBadge(): void;
+}
+
+/**
+ * Paints the activity-bar badge and the status item from ONE summary, so the
+ * number on the logo and the words in the bar can never disagree.
+ */
+export class AttentionManager {
+  constructor(private readonly host: AttentionHost) {}
+
+  render(items: readonly AttentionItem[]): void {
+    const summary = attentionSummary(items);
+    if (!summary) {
+      this.host.hideStatus();
+      this.host.clearBadge();
+      return;
+    }
+    this.host.setStatus(summary.text, summary.tooltip, summary.warning);
+    this.host.setBadge(summary.count, summary.badgeTooltip);
+  }
+}
