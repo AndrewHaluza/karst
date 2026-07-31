@@ -51,13 +51,27 @@ function fakeGh(): { gh: GhRunner; calls: number } {
   } as { gh: GhRunner; calls: number };
 }
 
-/** gh with an already-open PR on the branch — the state that used to fail ship. */
-function ghWithExistingPr(url: string): { gh: GhRunner; args: string[][] } {
+/**
+ * gh with an already-open PR on the branch — the state that used to fail ship.
+ *
+ * `view` carries a body because that is what decides whether ship may prefill a
+ * description; pass `null` for a gh that never reported one, and `''` for a PR
+ * opened by hand with no description at all.
+ */
+function ghWithExistingPr(
+  url: string,
+  body: string | null = 'a description someone already wrote',
+  editExit = 0,
+): { gh: GhRunner; args: string[][] } {
   const args: string[][] = [];
   const gh: GhRunner = async (a) => {
     args.push(a);
     if (a[1] === 'view') {
-      return { stdout: JSON.stringify({ number: 18, url, state: 'OPEN' }), exitCode: 0 };
+      const view = body === null ? { number: 18, url, state: 'OPEN' } : { number: 18, url, state: 'OPEN', body };
+      return { stdout: JSON.stringify(view), exitCode: 0 };
+    }
+    if (a[1] === 'edit') {
+      return { stdout: '', stderr: editExit === 0 ? '' : 'no write access', exitCode: editExit };
     }
     return { stdout: '', stderr: `a pull request for branch "karst/x" already exists:\n${url}`, exitCode: 1 };
   };
@@ -860,7 +874,7 @@ setTimeout(() => {
     // per repo to write prose for a PR that already exists.
     it('asks no model for a description it cannot use', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
-      const { gh } = ghWithExistingPr(URL);
+      const { gh, args } = ghWithExistingPr(URL);
       let headless = 0;
       const events: ShipStepEvent[] = [];
       const adapter: AgentAdapter = { ...fakeAdapter(), runHeadless: async () => {
@@ -883,11 +897,104 @@ setTimeout(() => {
       );
 
       expect(headless).toBe(0);
+      expect(args.some((a) => a[1] === 'edit')).toBe(false);
       expect(events).toContainEqual({
         repo: '/repo/frontend',
         step: 'describe',
         status: 'note',
-        detail: 'existing PR already open — description not regenerated',
+        detail: 'existing PR already has a description — kept',
+      });
+    });
+
+    // The second half of the reported bug: a PR opened by hand often has NO
+    // description, and ship skipped the describe step wholesale — so adopting it
+    // left a permanently empty PR body that nothing would ever fill.
+    describe('and that PR has no description', () => {
+      it('fills it in, rather than leaving the PR body empty forever', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        const { gh, args } = ghWithExistingPr(URL, '');
+        const events: ShipStepEvent[] = [];
+
+        await shipTicket(
+          store,
+          { ticketId: id, conventions: { pullRequestDescription: '## Summary\n{description}' } },
+          gh,
+          fakeAdapter(),
+          fakeGit().git,
+          (event) => events.push(event),
+        );
+
+        const edit = args.find((a) => a[1] === 'edit');
+        expect(edit).toEqual(['pr', 'edit', URL, '--body', '## Summary\nGenerated PR body.']);
+        expect(events).toContainEqual({
+          repo: '/repo/frontend',
+          step: 'describe',
+          status: 'pass',
+          detail: 'existing PR had no description — filled in',
+        });
+        expect(getTicket(store, id).stageCurrent).toBe('done');
+      });
+
+      // Whitespace is not a description a human wrote; it is the same emptiness
+      // with invisible characters in it.
+      it('treats a whitespace-only body as empty', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        const { gh, args } = ghWithExistingPr(URL, '\n  \n');
+
+        await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+        expect(args.some((a) => a[1] === 'edit')).toBe(true);
+      });
+
+      // The PR is already open — ship's irreversible part succeeded. A refused
+      // edit is a note on a working ship, not a failure that parks the ticket.
+      it('notes a refused edit and still finishes the ship', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        const { gh } = ghWithExistingPr(URL, '', 1);
+        const events: ShipStepEvent[] = [];
+
+        await shipTicket(
+          store,
+          { ticketId: id },
+          gh,
+          fakeAdapter(),
+          fakeGit().git,
+          (event) => events.push(event),
+        );
+
+        expect(events).toContainEqual({
+          repo: '/repo/frontend',
+          step: 'describe',
+          status: 'note',
+          detail: 'existing PR had no description — update failed: no write access',
+        });
+        expect(getTicket(store, id).stageCurrent).toBe('done');
+      });
+    });
+
+    // "gh did not say" is not "the PR has no description". Overwriting on a
+    // degraded probe would destroy prose a human wrote — the one outcome this
+    // whole path must never produce.
+    it('leaves the body alone when gh reported no body at all', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh, args } = ghWithExistingPr(URL, null);
+      const events: ShipStepEvent[] = [];
+
+      await shipTicket(
+        store,
+        { ticketId: id },
+        gh,
+        fakeAdapter(),
+        fakeGit().git,
+        (event) => events.push(event),
+      );
+
+      expect(args.some((a) => a[1] === 'edit')).toBe(false);
+      expect(events).toContainEqual({
+        repo: '/repo/frontend',
+        step: 'describe',
+        status: 'note',
+        detail: 'existing PR description could not be read — left unchanged',
       });
     });
   });

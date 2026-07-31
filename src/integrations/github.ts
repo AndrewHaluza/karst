@@ -179,6 +179,19 @@ interface PrView {
   number?: unknown;
   url?: unknown;
   state?: unknown;
+  body?: unknown;
+}
+
+/**
+ * An open PR ship found rather than opened, plus the body it already carries.
+ *
+ * `body` is three-valued for the same reason `PrDetail.comments` is: `''` means
+ * the PR genuinely has no description (and may therefore be prefilled), null
+ * means gh did not say — which is never permission to overwrite prose a human
+ * may have written.
+ */
+export interface ExistingPr extends OpenedPr {
+  body: string | null;
 }
 
 /**
@@ -194,9 +207,12 @@ interface PrView {
  * Only an OPEN PR counts. A closed or merged one does not block a new PR on the
  * same branch, and adopting it would strand the ticket on a PR nobody will merge
  * while skipping the create that should have happened.
+ *
+ * The body rides along in the same round trip because the caller must decide, in
+ * the same breath as adopting, whether the PR still needs a description.
  */
-export async function findOpenPr(gh: GhRunner, cwd: string): Promise<OpenedPr | null> {
-  const r = await gh(['pr', 'view', '--json', 'number,url,state'], cwd);
+export async function findOpenPr(gh: GhRunner, cwd: string): Promise<ExistingPr | null> {
+  const r = await gh(['pr', 'view', '--json', 'number,url,state,body'], cwd);
   if (r.exitCode !== 0) return null;
 
   let view: PrView;
@@ -208,7 +224,43 @@ export async function findOpenPr(gh: GhRunner, cwd: string): Promise<OpenedPr | 
   if (view.state !== 'OPEN' || typeof view.url !== 'string' || view.url === '') return null;
 
   const number = typeof view.number === 'number' ? view.number : prNumberFromUrl(view.url);
-  return { url: view.url, number };
+  // Deliberately NOT `text()`: '' and absent mean different things here.
+  const body = typeof view.body === 'string' ? view.body : null;
+  return { url: view.url, number, body };
+}
+
+/** Whether `gh pr edit` accepted, and gh's own words when it did not. */
+export interface PrEditAttempt {
+  ok: boolean;
+  /** gh's refusal, verbatim; '' on success. */
+  reason: string;
+}
+
+/**
+ * Replace a PR's description via `gh pr edit`.
+ *
+ * Returns a result instead of throwing (like `mergePr`, unlike `openPr`): this
+ * only ever runs against a PR that is ALREADY open, so ship's irreversible part
+ * has succeeded by the time it is called. A refusal — no write permission, a dead
+ * network — is a note on a ship that worked, never an exception that parks a
+ * ticket at a stage with no `failed` edge to leave by.
+ */
+export async function updatePrBody(
+  gh: GhRunner,
+  ref: string,
+  cwd: string,
+  body: string,
+): Promise<PrEditAttempt> {
+  let r: GhResult;
+  try {
+    r = await gh(['pr', 'edit', ref, '--body', body], cwd);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  if (r.exitCode === 0) return { ok: true, reason: '' };
+  // A quiet runner may hand back nothing at all; the exit code is the last resort
+  // so the user is never shown an empty explanation.
+  return { ok: false, reason: r.stderr?.trim() || r.stdout.trim() || `gh exit ${r.exitCode}` };
 }
 
 /**

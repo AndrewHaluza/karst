@@ -12,6 +12,7 @@ import {
   fetchPrDetail,
   UNKNOWN_PR_DETAIL,
   mergePr,
+  updatePrBody,
   type GhRunner,
 } from './github.js';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
@@ -248,12 +249,34 @@ describe('findOpenPr', () => {
     const calls: { args: string[]; cwd: string }[] = [];
     const gh: GhRunner = async (args, cwd) => {
       calls.push({ args, cwd });
-      return { stdout: viewJson({ number: 18, url: 'https://github.com/o/r/pull/18', state: 'OPEN' }), exitCode: 0 };
+      return {
+        stdout: viewJson({ number: 18, url: 'https://github.com/o/r/pull/18', state: 'OPEN', body: 'why' }),
+        exitCode: 0,
+      };
     };
     const pr = await findOpenPr(gh, '/wt/a');
-    expect(calls[0]!.args).toEqual(['pr', 'view', '--json', 'number,url,state']);
+    expect(calls[0]!.args).toEqual(['pr', 'view', '--json', 'number,url,state,body']);
     expect(calls[0]!.cwd).toBe('/wt/a');
-    expect(pr).toEqual({ number: 18, url: 'https://github.com/o/r/pull/18' });
+    expect(pr).toEqual({ number: 18, url: 'https://github.com/o/r/pull/18', body: 'why' });
+  });
+
+  // The body decides whether an adopted PR may be prefilled, so the three cases
+  // must stay distinguishable: prose to keep, '' to fill, and null for "gh did
+  // not say" — which is NOT permission to overwrite.
+  it('reports an empty body as empty, not as absent', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ number: 2, url: 'https://github.com/o/r/pull/2', state: 'OPEN', body: '' }),
+      exitCode: 0,
+    });
+    expect((await findOpenPr(gh, '/wt'))?.body).toBe('');
+  });
+
+  it('reports a body gh never returned as null, not as empty', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ number: 2, url: 'https://github.com/o/r/pull/2', state: 'OPEN' }),
+      exitCode: 0,
+    });
+    expect((await findOpenPr(gh, '/wt'))?.body).toBeNull();
   });
 
   // The only signal gh gives for "this branch has no PR" is a nonzero exit. It is
@@ -286,12 +309,63 @@ describe('findOpenPr', () => {
       stdout: viewJson({ url: 'https://github.com/o/r/pull/12', state: 'OPEN' }),
       exitCode: 0,
     });
-    expect(await findOpenPr(gh, '/wt')).toEqual({ number: 12, url: 'https://github.com/o/r/pull/12' });
+    expect(await findOpenPr(gh, '/wt')).toEqual({
+      number: 12,
+      url: 'https://github.com/o/r/pull/12',
+      body: null,
+    });
   });
 
   it('is null when the JSON carries no url — an adopted PR with no link is useless', async () => {
     const gh: GhRunner = async () => ({ stdout: viewJson({ number: 3, state: 'OPEN' }), exitCode: 0 });
     expect(await findOpenPr(gh, '/wt')).toBeNull();
+  });
+});
+
+describe('updatePrBody', () => {
+  it('edits the PR body by ref, in the given cwd', async () => {
+    const calls: { args: string[]; cwd: string }[] = [];
+    const gh: GhRunner = async (args, cwd) => {
+      calls.push({ args, cwd });
+      return { stdout: '', exitCode: 0 };
+    };
+    const ok = await updatePrBody(gh, 'https://github.com/o/r/pull/8', '/wt/a', '## Summary\nx');
+
+    expect(calls[0]!.args).toEqual([
+      'pr',
+      'edit',
+      'https://github.com/o/r/pull/8',
+      '--body',
+      '## Summary\nx',
+    ]);
+    expect(calls[0]!.cwd).toBe('/wt/a');
+    expect(ok).toEqual({ ok: true, reason: '' });
+  });
+
+  // The PR is already open — the irreversible part of ship succeeded. A failed
+  // backfill is a note on a ship that worked, never an exception that parks the
+  // ticket, so this reports rather than throws.
+  it('reports gh’s refusal instead of throwing', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', stderr: 'no write access', exitCode: 1 });
+    expect(await updatePrBody(gh, '8', '/wt', 'body')).toEqual({
+      ok: false,
+      reason: 'no write access',
+    });
+  });
+
+  it('reports a runner that rejects, rather than propagating it', async () => {
+    const gh: GhRunner = async () => {
+      throw new Error('spawn failed');
+    };
+    expect(await updatePrBody(gh, '8', '/wt', 'body')).toEqual({
+      ok: false,
+      reason: 'spawn failed',
+    });
+  });
+
+  it('never leaves the reason empty when gh says nothing', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', exitCode: 3 });
+    expect((await updatePrBody(gh, '8', '/wt', 'body')).reason).toBe('gh exit 3');
   });
 });
 
