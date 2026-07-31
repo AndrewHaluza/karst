@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--KARST_CSP-->
+  <title>Ticket changes</title>
+  <style>
+    :root {
+      --canvas: var(--vscode-editor-background, #1e1e1e);
+      --text: var(--vscode-foreground, #cccccc);
+      --muted: var(--vscode-descriptionForeground, #969696);
+      --line: var(--vscode-panel-border, #3c3c3c);
+      --stratum: var(--vscode-sideBarSectionHeader-background, #252526);
+      --hover: var(--vscode-list-hoverBackground, #2a2d2e);
+      --active: var(--vscode-list-activeSelectionBackground, #04395e);
+      --focus: var(--vscode-focusBorder, #007fd4);
+      --error: var(--vscode-errorForeground, #f48771);
+      --mono: var(--vscode-editor-font-family, monospace);
+      --rail: 5.25rem;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      min-width: 220px;
+      color: var(--text);
+      background: var(--canvas);
+      font: var(--vscode-font-weight) var(--vscode-font-size)/1.45 var(--vscode-font-family);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.22rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    #summary {
+      margin-top: 2px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      font-variant-numeric: tabular-nums;
+    }
+    button, input { font: inherit; }
+    button {
+      color: var(--vscode-button-foreground, #ffffff);
+      background: var(--vscode-button-background, #0e639c);
+      border: 1px solid transparent;
+      border-radius: 2px;
+    }
+    button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, #1177bb); }
+    button:disabled { opacity: 0.62; }
+    button:focus-visible,
+    input:focus-visible,
+    summary:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+    #refresh {
+      flex: none;
+      min-width: 82px;
+      padding: 4px 12px;
+    }
+    .filter { display: block; margin-block: 12px; }
+    .filter input {
+      width: 100%;
+      padding: 6px 8px;
+      color: var(--vscode-input-foreground, var(--text));
+      background: var(--vscode-input-background, var(--stratum));
+      border: 1px solid var(--vscode-input-border, var(--line));
+      border-radius: 2px;
+    }
+    .filter input::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
+    #notice {
+      margin-bottom: 12px;
+      padding: 8px 10px;
+      color: var(--error);
+      border-left: 3px solid var(--error);
+      background: var(--stratum);
+    }
+    #notice[hidden] { display: none; }
+    #repos {
+      display: grid;
+      gap: 10px;
+    }
+    details, summary { min-width: 0; }
+    summary {
+      position: relative;
+      cursor: pointer;
+      user-select: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before {
+      position: absolute;
+      left: 6px;
+      content: '›';
+      color: var(--muted);
+      font-family: var(--mono);
+      transform-origin: center;
+      transition: transform 80ms ease;
+    }
+    details[open] > summary::before { transform: rotate(90deg); }
+    .repo {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--line);
+      background: var(--canvas);
+    }
+    .repo[open] { border-left-color: var(--focus); }
+    .repo > summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 11px 9px 22px;
+      background: var(--stratum);
+      list-style-position: inside;
+    }
+    .repo[open] > summary { border-bottom: 1px solid var(--line); }
+    .repo > summary > span:first-child { min-width: 0; }
+    .repo > summary strong,
+    .repo > summary small {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+    .repo > summary strong { font-weight: 600; }
+    .repo > summary small,
+    .repo > summary > span:last-child {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .repo > summary > span:last-child { text-align: right; }
+    .group {
+      margin: 0 10px 0 12px;
+      border-left: 1px solid var(--line);
+    }
+    .group + .group { border-top: 1px solid var(--line); }
+    .group > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 9px 8px 22px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      font-weight: 600;
+      letter-spacing: 0.055em;
+    }
+    .group > summary span {
+      min-width: 2ch;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .commit {
+      margin-left: 10px;
+      border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+    }
+    .commit > summary {
+      display: grid;
+      grid-template-columns: var(--rail) minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: baseline;
+      padding: 6px 9px 6px 22px;
+      list-style-position: inside;
+    }
+    .commit > summary code {
+      overflow: hidden;
+      color: var(--vscode-textLink-foreground, #3794ff);
+      font-family: var(--mono);
+      text-overflow: ellipsis;
+    }
+    .commit > summary > span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .commit-meta {
+      padding: 0 9px 6px calc(var(--rail) + 17px);
+      color: var(--muted);
+      font-size: 0.78rem;
+      overflow-wrap: anywhere;
+    }
+    .file {
+      display: grid;
+      grid-template-columns: var(--rail) minmax(0, 1fr);
+      gap: 8px;
+      width: 100%;
+      padding: 5px 9px;
+      color: var(--text);
+      background: transparent;
+      border: 0;
+      border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+      border-radius: 0;
+      text-align: left;
+      transition: background-color 80ms ease;
+    }
+    .file:hover:not(:disabled) { background: var(--hover); }
+    .file:active { background: var(--active); }
+    .file-path {
+      grid-column: 2;
+      overflow-wrap: anywhere;
+      font-family: var(--mono);
+    }
+    .status {
+      grid-column: 1;
+      grid-row: 1;
+      justify-self: end;
+      min-width: 2ch;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-weight: 700;
+      text-align: center;
+    }
+    .status-added { color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b); }
+    .status-modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d); }
+    .status-deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
+    .status-renamed { color: var(--vscode-gitDecoration-renamedResourceForeground, #73c991); }
+    .error {
+      padding-bottom: 10px;
+      border-left-color: var(--error);
+    }
+    .error h2 {
+      margin: 0;
+      padding: 9px 11px;
+      background: var(--stratum);
+      font-size: 1rem;
+    }
+    .error p {
+      margin: 10px 11px 2px;
+      color: var(--error);
+      overflow-wrap: anywhere;
+    }
+    .error small {
+      display: block;
+      margin-inline: 11px;
+      color: var(--muted);
+    }
+    .empty {
+      padding: 16px;
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      text-align: center;
+    }
+    .clean-state {
+      text-align: left;
+      border-style: solid;
+      border-left: 3px solid var(--vscode-testing-iconPassed, #73c991);
+    }
+    .sr {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    @media (max-width: 440px) {
+      body { padding: 10px; }
+      header { align-items: flex-start; }
+      #refresh { min-width: 0; }
+      .repo > summary { grid-template-columns: 1fr; gap: 3px; }
+      .repo > summary > span:last-child { text-align: left; }
+      .group { margin-right: 6px; margin-left: 7px; }
+      .commit > summary {
+        grid-template-columns: minmax(4.5rem, var(--rail)) minmax(0, 1fr);
+      }
+      .commit > summary > span { grid-column: 2; }
+      .commit-meta { padding-left: calc(var(--rail) + 17px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .file, summary::before { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Ticket changes</h1>
+      <div id="summary" aria-live="polite"></div>
+    </div>
+    <button id="refresh" type="button">Refresh</button>
+  </header>
+  <label class="filter">
+    <span class="sr">Filter files or commits</span>
+    <input id="filter" type="search" placeholder="Filter files or commits…" />
+  </label>
+  <div id="notice" role="status" hidden></div>
+  <main id="repos" aria-live="polite"></main>
+  <script>
+    const vscode = acquireVsCodeApi();
+    const summary = document.getElementById('summary');
+    const refresh = document.getElementById('refresh');
+    const filter = document.getElementById('filter');
+    const repos = document.getElementById('repos');
+    const notice = document.getElementById('notice');
+    const restored = vscode.getState();
+    let lastState = restored?.state || null;
+    let loading = Boolean(restored?.loading);
+
+    const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ESCAPES[ch]);
+    const includes = (value, needle) => String(value ?? '').toLowerCase().includes(needle);
+
+    function fileMatches(file, needle) {
+      return includes(file.path, needle) || includes(file.oldPath, needle);
+    }
+
+    function commitMatches(commit, needle) {
+      return [commit.hash, commit.shortHash, commit.subject, commit.author]
+        .some((value) => includes(value, needle))
+        || commit.files.some((file) => fileMatches(file, needle));
+    }
+
+    function worktreeMatches(worktree, needle) {
+      return [worktree.label, worktree.branch, worktree.baseRef]
+        .some((value) => includes(value, needle))
+        || worktree.commits.some((commit) => commitMatches(commit, needle))
+        || [...worktree.staged, ...worktree.unstaged, ...worktree.untracked]
+          .some((file) => fileMatches(file, needle));
+    }
+
+    const STATUS = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
+
+    function fileRow(file) {
+      const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
+      return `<button type="button" class="file" data-change-id="${esc(file.changeId)}">`
+        + `<span class="file-path">${esc(shown)}</span>`
+        + `<span class="status status-${esc(file.status)}">${STATUS[file.status] || 'M'}</span>`
+        + `</button>`;
+    }
+
+    function pendingGroup(label, files) {
+      if (!files.length) return '';
+      return `<details class="group" open><summary>${esc(label)}`
+        + `<span>${files.length}</span></summary>${files.map(fileRow).join('')}</details>`;
+    }
+
+    function commitRow(commit, index) {
+      return `<details class="commit"${index === 0 ? ' open' : ''}>`
+        + `<summary><code>${esc(commit.shortHash)}</code> ${esc(commit.subject)}`
+        + `<span>${commit.files.length}</span></summary>`
+        + `<div class="commit-meta">${esc(commit.author)} · ${esc(commit.authoredAt)}</div>`
+        + `${commit.files.map(fileRow).join('')}</details>`;
+    }
+
+    function worktreeRow(worktree) {
+      if (worktree.error) {
+        return `<section class="repo error"><h2>${esc(worktree.label)}</h2>`
+          + `<p>${esc(worktree.error)}</p>`
+          + `<small>Refresh to try this repository again.</small></section>`;
+      }
+      const pending = worktree.staged.length + worktree.unstaged.length + worktree.untracked.length;
+      const changed = worktree.commits.length + pending > 0;
+      const subtitle = `${worktree.branch || 'detached'} ↔ ${worktree.baseRef || 'unknown base'}`;
+      return `<details class="repo"${changed ? ' open' : ''}>`
+        + `<summary><span><strong>${esc(worktree.label)}</strong>`
+        + `<small>${esc(subtitle)}</small></span>`
+        + `<span>${worktree.commits.length} commits · ${pending ? `${pending} pending` : 'clean'}</span>`
+        + `</summary>`
+        + `${worktree.commits.length
+          ? `<details class="group" open><summary>COMMITS<span>${worktree.commits.length}</span></summary>`
+            + `${worktree.commits.map(commitRow).join('')}</details>`
+          : ''}`
+        + pendingGroup('STAGED CHANGES', worktree.staged)
+        + pendingGroup('CHANGES', worktree.unstaged)
+        + pendingGroup('UNTRACKED FILES', worktree.untracked)
+        + `</details>`;
+    }
+
+    function render(state, isLoading) {
+      lastState = state;
+      loading = isLoading;
+      const needle = filter.value.trim().toLowerCase();
+      summary.textContent = state
+        ? `${state.worktreeCount} worktrees · ${state.commitCount} commits · ${state.pendingCount} pending`
+        : 'No worktrees';
+      const visible = state
+        ? state.worktrees.filter((worktree) => !needle || worktreeMatches(worktree, needle))
+        : [];
+      const allClean = state && state.worktrees.length > 0
+        && state.commitCount === 0 && state.pendingCount === 0
+        && state.worktrees.every((worktree) => !worktree.error);
+      const rows = visible.map(worktreeRow).join('');
+      if (visible.length) {
+        repos.innerHTML = (allClean
+          ? '<div class="empty clean-state">All ticket worktrees are clean. There are no commits or pending files to diff.</div>'
+          : '') + rows;
+      } else if (needle) {
+        repos.innerHTML = '<div class="empty">No changes match this filter. Clear the filter to see all repositories.</div>';
+      } else if (loading) {
+        repos.innerHTML = '<div class="empty">Loading ticket worktrees…</div>';
+      } else {
+        repos.innerHTML = '<div class="empty">No ticket worktrees. Create or attach worktrees, then refresh.</div>';
+      }
+      refresh.disabled = loading;
+      refresh.textContent = loading ? 'Refreshing…' : 'Refresh';
+      vscode.setState({ state: lastState, loading });
+    }
+
+    refresh.addEventListener('click', () => {
+      render(lastState, true);
+      vscode.postMessage({ type: 'refresh' });
+    });
+    filter.addEventListener('input', () => render(lastState, loading));
+    document.addEventListener('click', (event) => {
+      const row = event.target.closest('[data-change-id]');
+      if (row) vscode.postMessage({ type: 'open-diff', changeId: row.dataset.changeId });
+    });
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'loading') {
+        notice.hidden = true;
+        render(msg.state || lastState, true);
+      } else if (msg.type === 'state') {
+        notice.hidden = true;
+        render(msg.state, false);
+      } else if (msg.type === 'error') {
+        render(lastState, false);
+        notice.textContent = `Could not refresh ticket changes: ${msg.message}. Refresh to try again.`;
+        notice.hidden = false;
+      }
+    });
+    render(lastState, loading);
+  </script>
+</body>
+</html>

@@ -13,11 +13,33 @@ import { killTree } from '../runtime/processTree.js';
 
 export interface GitResult {
   stdout: string;
+  stdoutTruncated?: boolean;
   stderr: string;
   exitCode: number;
 }
 
-export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>;
+export interface GitRunOptions {
+  signal?: AbortSignal;
+}
+
+export type GitRunner = (
+  args: string[],
+  cwd: string,
+  options?: GitRunOptions,
+) => Promise<GitResult>;
+
+export interface GitBytesResult {
+  stdout: Buffer;
+  stdoutTruncated: boolean;
+  stderr: string;
+  exitCode: number;
+}
+
+export type GitBytesRunner = (
+  args: string[],
+  cwd: string,
+  options?: GitRunOptions,
+) => Promise<GitBytesResult>;
 
 /**
  * How long a single git invocation may take before it is killed and answered as a
@@ -37,100 +59,167 @@ export const GIT_TERMINATION_GRACE_MS = 5_000;
  * synchronous spawn froze all of them for the duration of the call — tolerable
  * for local plumbing, indefensible once ship fetches from a remote.
  */
-export function runGit(
+interface GitProcessResult {
+  stdout: BoundedOutput;
+  stderr: BoundedOutput;
+  stderrDiagnostic: string;
+  exitCode: number;
+}
+
+function runGitProcess(
   args: string[],
   cwd: string,
   timeoutMs: number = GIT_TIMEOUT_MS,
   maxOutputBytes: number = GIT_MAX_OUTPUT_BYTES,
   terminationGraceMs: number = GIT_TERMINATION_GRACE_MS,
-): Promise<GitResult> {
+  signal?: AbortSignal,
+): Promise<GitProcessResult> {
   return new Promise((resolve) => {
     const stdout = new BoundedOutput(Math.max(0, maxOutputBytes));
     const stderr = new BoundedOutput(Math.max(0, maxOutputBytes));
     let settled = false;
-    let timedOut = false;
+    let termination: 'abort' | 'timeout' | null = null;
     let terminationDiagnostic = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let terminationTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const settle = (result: GitResult): void => {
+    const settle = (exitCode: number, stderrDiagnostic = ''): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       if (terminationTimer !== undefined) clearTimeout(terminationTimer);
-      resolve(result);
+      signal?.removeEventListener('abort', abort);
+      resolve({ stdout, stderr, stderrDiagnostic, exitCode });
     };
 
-    // Armed before the child exists so a spawn that never starts still settles.
-    const timer = setTimeout(() => {
-      timedOut = true;
+    const terminationReason = (unconfirmed: boolean): string => {
+      const reason =
+        termination === 'timeout'
+          ? `git timed out after ${timeoutMs}ms`
+          : 'git was aborted';
+      return `${reason}${terminationDiagnostic}${
+        unconfirmed ? '; child exit was not confirmed' : ''
+      }: git ${args.join(' ')}`;
+    };
+
+    const terminate = (kind: 'abort' | 'timeout'): void => {
+      if (settled || termination !== null) return;
+      termination = kind;
       if (child?.pid === undefined) terminationDiagnostic = '; child pid unavailable';
       else killTree(child.pid);
       terminationTimer = setTimeout(
-        () =>
-          settle({
-            stdout: stdout.render(),
-            stderr: stderr.render(
-              `git timed out after ${timeoutMs}ms${terminationDiagnostic}; child exit was not confirmed: git ${args.join(' ')}`,
-            ),
-            exitCode: 1,
-          }),
+        () => settle(1, terminationReason(true)),
         Math.max(0, terminationGraceMs),
       );
-    }, timeoutMs);
+    };
+
+    const abort = (): void => terminate('abort');
+
+    if (signal?.aborted) {
+      termination = 'abort';
+      settle(1, 'git was aborted before it started');
+      return;
+    }
 
     let child: ReturnType<typeof spawn> | undefined;
     try {
       child = spawn('git', args, { cwd, detached: true });
     } catch (err) {
       // A bad `cwd` throws synchronously on some platforms rather than emitting.
-      settle({
-        stdout: '',
-        stderr: `could not run git: ${err instanceof Error ? err.message : String(err)}`,
-        exitCode: 1,
-      });
+      settle(1, `could not run git: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
+
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    timer = setTimeout(() => terminate('timeout'), Math.max(0, timeoutMs));
 
     child.stdout?.on('data', (chunk: Buffer) => stdout.append(chunk));
     child.stderr?.on('data', (chunk: Buffer) => stderr.append(chunk));
 
     child.once('error', (err: Error) => {
-      if (timedOut) {
+      if (termination !== null) {
         terminationDiagnostic += `; termination error: ${err.message}`;
         return;
       }
-      settle({
-        stdout: stdout.render(),
-        stderr: stderr.render(`could not run git: ${err.message}`),
-        exitCode: 1,
-      });
+      settle(1, `could not run git: ${err.message}`);
     });
 
     child.once('close', (code) => {
-      if (timedOut) {
-        settle({
-          stdout: stdout.render(),
-          stderr: stderr.render(
-            `git timed out after ${timeoutMs}ms${terminationDiagnostic}: git ${args.join(' ')}`,
-          ),
-          exitCode: 1,
-        });
+      if (termination !== null) {
+        settle(1, terminationReason(false));
         return;
       }
-      const exitCode = code ?? 1;
-      const renderedStderr = stderr.render();
-      settle({
-        stdout: stdout.render(),
-        stderr:
-          renderedStderr || (exitCode !== 0 ? `git exited ${exitCode}` : ''),
-        exitCode,
-      });
+      settle(code ?? 1);
     });
   });
 }
 
+export function runGit(
+  args: string[],
+  cwd: string,
+  timeoutMs: number = GIT_TIMEOUT_MS,
+  maxOutputBytes: number = GIT_MAX_OUTPUT_BYTES,
+  terminationGraceMs: number = GIT_TERMINATION_GRACE_MS,
+  signal?: AbortSignal,
+): Promise<GitResult> {
+  return runGitProcess(
+    args,
+    cwd,
+    timeoutMs,
+    maxOutputBytes,
+    terminationGraceMs,
+    signal,
+  ).then((result) => {
+    const renderedStderr = result.stderr.render(result.stderrDiagnostic);
+    return {
+      stdout: result.stdout.render(),
+      stdoutTruncated: result.stdout.truncated,
+      stderr:
+        renderedStderr || (result.exitCode !== 0 ? `git exited ${result.exitCode}` : ''),
+      exitCode: result.exitCode,
+    };
+  });
+}
+
+/** Byte-preserving bounded Git stdout for immutable content reads. */
+export function runGitBytes(
+  args: string[],
+  cwd: string,
+  timeoutMs: number = GIT_TIMEOUT_MS,
+  maxOutputBytes: number = GIT_MAX_OUTPUT_BYTES,
+  terminationGraceMs: number = GIT_TERMINATION_GRACE_MS,
+  signal?: AbortSignal,
+): Promise<GitBytesResult> {
+  return runGitProcess(
+    args,
+    cwd,
+    timeoutMs,
+    maxOutputBytes,
+    terminationGraceMs,
+    signal,
+  ).then((result) => {
+    const renderedStderr = result.stderr.render(result.stderrDiagnostic);
+    return {
+      stdout: result.stdout.toBuffer(),
+      stdoutTruncated: result.stdout.truncated,
+      stderr:
+        renderedStderr || (result.exitCode !== 0 ? `git exited ${result.exitCode}` : ''),
+      exitCode: result.exitCode,
+    };
+  });
+}
+
 /** Default runner: `git <args>` in `cwd`. Never throws — the exit code is the answer. */
-export const defaultGitRunner: GitRunner = (args, cwd) => runGit(args, cwd);
+export const defaultGitRunner: GitRunner = (args, cwd, options) =>
+  runGit(
+    args,
+    cwd,
+    GIT_TIMEOUT_MS,
+    GIT_MAX_OUTPUT_BYTES,
+    GIT_TERMINATION_GRACE_MS,
+    options?.signal,
+  );
 
 /** `git <args>` in `cwd`, throwing git's own reason (never a bare colon) on failure. */
 async function run(git: GitRunner, args: string[], cwd: string, what: string): Promise<string> {

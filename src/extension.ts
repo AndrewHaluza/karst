@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import {
+  lstat as fsLstat,
+  readFile as fsReadFile,
+  readlink as fsReadlink,
+  realpath as fsRealpath,
+} from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
@@ -9,6 +15,25 @@ import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import {
+  TicketChangesManager,
+  type ChangesPanel,
+  type ChangesPanelHost,
+} from './ui/diffs/panel.js';
+import {
+  StaleDiffTargetError,
+  TextDiffUnavailableError,
+  inspectWorktree,
+  prepareDiff,
+  type DiffTarget,
+  type PreparedDiffResource,
+} from './ui/diffs/git.js';
+import { buildTicketChangesSnapshot } from './ui/diffs/snapshot.js';
+import {
+  DisposableBag,
+  type VirtualDocumentAttempt,
+  VirtualDocumentRegistry,
+} from './ui/diffs/hostResources.js';
 import {
   continueSessionInBackground,
   deferSessionRetry,
@@ -79,10 +104,13 @@ import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
 import { makePortAllocator } from './resolver/allocator.js';
-import { defaultGitRunner } from './integrations/git.js';
+import {
+  defaultGitRunner,
+} from './integrations/git.js';
 import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import type { PathContext } from './ui/dashboard/state.js';
+import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
@@ -249,6 +277,13 @@ let endpoint: HookEndpoint | undefined;
 const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
+/**
+ * Torn down BEFORE `store.close()`: an in-flight changes refresh re-enters its
+ * loader from a settlement handler, and that loader reads the store
+ * synchronously. `context.subscriptions` is drained only after `deactivate`
+ * returns, so the manager is registered there AND called here.
+ */
+let shutdownTicketChanges: (() => void) | undefined;
 const pendingSessionRecoveryTasks = new Set<Promise<void>>();
 
 /** Per-ticket single-flight + Stop bookkeeping for the auto-driver (§11/§12). */
@@ -925,6 +960,113 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
     .catch((error) => logError('karst: model catalog load failed', error));
 
+  const virtualDocuments = new VirtualDocumentRegistry();
+  let virtualDocumentId = 0;
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider('karst-diff', {
+      // `resolve`, never `?? ''`: VS Code restores open `karst-diff:` editors
+      // across a window reload but the registry is rebuilt empty, and an empty
+      // string is a legitimate diff side. It must refuse, not fabricate.
+      provideTextDocumentContent: (uri) => virtualDocuments.resolve(uri.toString()),
+    }),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      if (document.uri.scheme === 'karst-diff') {
+        virtualDocuments.delete(document.uri.toString());
+      }
+    }),
+  );
+
+  const workingFile = {
+    lstat: async (path: string) => {
+      const entry = await fsLstat(path);
+      return {
+        dev: entry.dev,
+        ino: entry.ino,
+        mode: entry.mode,
+        size: entry.size,
+        mtimeMs: entry.mtimeMs,
+        ctimeMs: entry.ctimeMs,
+        isSymbolicLink: () => entry.isSymbolicLink(),
+      };
+    },
+    realpath: (path: string): Promise<string> => fsRealpath(path),
+    readlink: (path: string): Promise<string> => fsReadlink(path),
+    read: (path: string): Promise<Buffer> => fsReadFile(path),
+  };
+  const materializeDiffResource = (
+    resource: PreparedDiffResource,
+    attempt: VirtualDocumentAttempt,
+  ): vscode.Uri => {
+    if (resource.kind === 'file') return vscode.Uri.file(resource.path);
+
+    // The comparison suffix belongs in the editor label, not in the URI: it can
+    // name a Git revision. The URI exposes only an opaque host token plus a
+    // sanitized basename, while the provider map owns the already-prepared text.
+    const basenameOnly = resource.label.replace(/\s+\([^)]*\)$/, '');
+    const safeBasename =
+      basename(basenameOnly).replace(/[^a-zA-Z0-9._-]+/g, '-') || 'resource';
+    const uri = vscode.Uri.from({
+      scheme: 'karst-diff',
+      path: `/${++virtualDocumentId}/${safeBasename}`,
+    });
+    attempt.set(uri.toString(), resource.content);
+    return uri;
+  };
+  const openTicketDiff = async (target: DiffTarget): Promise<void> => {
+    const virtualAttempt = virtualDocuments.beginAttempt();
+    try {
+      const prepared = await prepareDiff(defaultGitRunner, target, workingFile);
+      const leftUri = materializeDiffResource(prepared.left, virtualAttempt);
+      const rightUri = materializeDiffResource(prepared.right, virtualAttempt);
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        leftUri,
+        rightUri,
+        prepared.title,
+        { preview: true, viewColumn: vscode.ViewColumn.Beside },
+      );
+      virtualAttempt.commit();
+    } catch (error) {
+      virtualAttempt.rollback();
+      if (error instanceof StaleDiffTargetError) throw error;
+      if (error instanceof TextDiffUnavailableError) {
+        void vscode.window.showWarningMessage(error.message);
+        return;
+      }
+      // Rethrown, not swallowed: the manager's generic branch is what tells the
+      // user their click failed. Returning here would resolve the promise and
+      // leave an unexpected failure completely silent in the UI.
+      logError('karst: opening native ticket diff failed', error);
+      throw error;
+    }
+  };
+
+  const changes = new TicketChangesManager(
+    makeChangesPanelHost(context),
+    (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
+    async (ticketId, signal) => {
+      const pathContext = worktreePathContext(currentManifest(), logger.warn);
+      const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
+        label: repoDisplayPath(worktree.repo, pathContext),
+        path: worktree.path,
+        branch: worktree.branch,
+        baseRef: worktree.baseRef,
+      }));
+      return buildTicketChangesSnapshot(
+        ticketId,
+        worktrees,
+        (spec, inspectSignal) => inspectWorktree(defaultGitRunner, spec, inspectSignal),
+        undefined,
+        signal,
+      );
+    },
+    openTicketDiff,
+    (message) => void vscode.window.showWarningMessage(message),
+    logError,
+  );
+  shutdownTicketChanges = () => changes.dispose();
+  context.subscriptions.push(changes);
+
   // Declared before the manager because the two reference each other: the
   // manager asks the binder how the toggle sits, and the binder reveals through
   // the manager. Assigned immediately below, and neither direction is read
@@ -969,6 +1111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             seedPrompt: prompt,
           });
         },
+        () => changes.open(ticketId),
         () => binder.toggle(),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
@@ -2021,6 +2164,12 @@ export async function deactivate(): Promise<void> {
   shutdownSessionRecovery = undefined;
   flushSessionOwnership = undefined;
   try {
+    shutdownTicketChanges?.();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  shutdownTicketChanges = undefined;
+  try {
     store?.close();
   } catch (error) {
     cleanupErrors.push(error);
@@ -2190,6 +2339,43 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
   };
 }
 
+/** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
+function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHost {
+  const html = readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8');
+  return {
+    createPanel(title, _ticketId): ChangesPanel {
+      const panel = vscode.window.createWebviewPanel(
+        'karst.changes',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      );
+      // The panel itself, not only its listeners: without this the webview
+      // outlives extension unload with no owner. VS Code tolerates a second
+      // dispose of an already-closed panel.
+      context.subscriptions.push(panel);
+      panel.webview.html = injectCsp(html, newNonce());
+      const listeners = new DisposableBag();
+      return {
+        reveal: () => panel.reveal(),
+        postMessage: (message) => void panel.webview.postMessage(message),
+        onDidReceiveMessage: (handler) => {
+          listeners.add(panel.webview.onDidReceiveMessage(handler));
+        },
+        onDidDispose: (handler) => {
+          listeners.add(panel.onDidDispose(() => {
+            try {
+              handler();
+            } finally {
+              listeners.dispose();
+            }
+          }));
+        },
+      };
+    },
+  };
+}
+
 /**
  * A terminal's launch environment, when it has one. `creationOptions` is a union
  * — a pty-backed terminal carries no `env` at all — so the narrowing lives here
@@ -2293,6 +2479,9 @@ function makeDashboardActions(
   // `openSession` alone would be dropped whenever a session is already up —
   // openSession only focuses an existing terminal.
   handOffToSession: (prompt: string) => void,
+  // Open the host-owned, whole-ticket changes explorer. The dashboard action
+  // carries no path because this closure already owns the ticket id.
+  showChanges: () => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -2342,18 +2531,7 @@ function makeDashboardActions(
       stopTicketServers(store, ticketId);
       afterServerChange();
     },
-    // Diff → register the worktree with Git, then open the Source Control view
-    // so its changes (vs the branch point) are shown. The SCM view is the right
-    // whole-worktree affordance (per-file `git.openChange` needs a file target).
-    diffWorktree: (path) => {
-      void (async () => {
-        // git.openRepository expects a plain path string, not a Uri — passing a
-        // Uri makes the git extension call `.toLowerCase()` on the object and
-        // throw "e.toLowerCase is not a function".
-        await vscode.commands.executeCommand('git.openRepository', path);
-        await vscode.commands.executeCommand('workbench.view.scm');
-      })();
-    },
+    showChanges,
     // Open folder → reveal the worktree in the Explorer (navigate there), not
     // the OS file manager.
     openWorktreeFolder: (path) =>

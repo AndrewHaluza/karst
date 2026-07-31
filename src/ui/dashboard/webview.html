@@ -621,7 +621,7 @@
 
 <div class="grid">
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
-  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span></div><div class="pbody" id="worktrees"></div></div>
+  <div class="panel"><div class="phead"><span>Worktrees<span class="count" id="wtCount"></span></span><button id="wtChanges" data-act="show-changes" type="button">Changes</button></div><div class="pbody" id="worktrees"></div></div>
   <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span></div><div class="pbody" id="prs"></div></div>
 </div>
 
@@ -1092,11 +1092,11 @@
 
   function renderWorktrees(wts) {
     el('wtCount').textContent = wts.length ? `${wts.length}` : '';
+    el('wtChanges').disabled = wts.length === 0;
     el('worktrees').innerHTML = wts.length ? wts.map((w) => (
       `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
       + `<span class="wbr">${esc(w.branch || '')}</span>`
       + `<span class="wacts">`
-      + `<button data-act="diff-worktree" data-path="${esc(w.path)}">Diff</button>`
       + `<button data-act="open-worktree-folder" data-path="${esc(w.path)}">Open folder</button>`
       + `</span></div>`
     )).join('') : '<div class="empty">No worktrees.</div>';
