@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   bundledModelCatalog,
@@ -48,5 +50,16 @@ describe('bundledModelCatalog', () => {
     for (const provider of ['claude', 'codex', 'antigravity'] as const) {
       expect(catalog[provider].length).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * The published feed (`model-catalog.json`) and the bundled fallback are the
+   * same curated list served two ways. A drift between them means an install
+   * that reaches the feed and one that falls back offer different models.
+   */
+  it('matches the published model feed exactly', () => {
+    const feedPath = fileURLToPath(new URL('../../model-catalog.json', import.meta.url));
+    const feed = JSON.parse(readFileSync(feedPath, 'utf8')) as unknown;
+    expect(parseModelFeed(feed)).toEqual(bundledModelCatalog());
   });
 });
