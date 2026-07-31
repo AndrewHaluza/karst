@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   bundledModelCatalog,
@@ -47,6 +48,23 @@ describe('bundledModelCatalog', () => {
     const catalog = bundledModelCatalog();
     for (const provider of ['claude', 'codex', 'antigravity'] as const) {
       expect(catalog[provider].length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// The feed tier is opt-in and has no default URL, so this file is the artifact
+// an operator publishes and points `feedUrl` at. Nothing reads it at build time;
+// without this guard it can be deleted, renamed, or malformed and the only
+// signal is an invalid-response diagnostic on whoever enabled the feed.
+describe('the publishable model-catalog.json feed asset', () => {
+  const feed: unknown = JSON.parse(
+    readFileSync(new URL('../../model-catalog.json', import.meta.url), 'utf8'),
+  );
+
+  it('parses through the same validation the loader applies', () => {
+    const parsed = parseModelFeed(feed);
+    for (const provider of ['claude', 'codex', 'antigravity'] as const) {
+      expect(parsed[provider]?.length ?? 0).toBeGreaterThan(0);
     }
   });
 });
