@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { probeScripts } from './probe.js';
 
 /** One review gate: a name, the npm script it needs, and how to invoke it. */
 export interface GateSpec {
@@ -38,18 +37,13 @@ export const UAT_GATES: readonly GateSpec[] = [
 ];
 
 /**
- * The `scripts` a repo defines, or `{}` when it defines none — no package.json,
- * unreadable, malformed, or no scripts block. Never throws: an unreadable
- * package.json means karst cannot ask this repo anything, which is an answer,
- * not a crash in the middle of a gate.
+ * The `scripts` a repo defines, or `{}` when karst could not read them.
+ *
+ * Kept for review, which has no place to put a richer answer yet. UAT calls
+ * `probeScripts` directly, because "why is this empty" is the whole question
+ * there — see `uat/gates.ts`.
  */
 export function readPackageScripts(cwd: string): Record<string, string> {
-  try {
-    const parsed = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as {
-      scripts?: Record<string, string>;
-    };
-    return parsed.scripts ?? {};
-  } catch {
-    return {};
-  }
+  const probe = probeScripts(cwd);
+  return probe.kind === 'ok' ? probe.scripts : {};
 }
