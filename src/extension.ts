@@ -80,6 +80,7 @@ import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { glyphThemeColorKey } from './model/glyphColor.js';
 import { StatusBarManager } from './ui/statusBar.js';
+import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
 import { composeStageCommand } from './cli/stage.js';
 import { composePhaseCommand } from './cli/phaseCommand.js';
@@ -335,7 +336,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }), () => worktreePathContext(currentManifest(), logger.warn), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider);
-  const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
+  const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
+    makeSidebarViewHost(context);
   provider.bind(sidebarHost);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SIDEBAR_VIEW_ID, sidebarProvider),
@@ -1206,6 +1208,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // The needs-you channel, and the reason the activity-bar logo carries state at
+  // all: this must reach the user with the Karst panel CLOSED. Priority 50 sits
+  // between the deps item (0) and the focused-ticket item (100), so the bar
+  // reads left to right as: tools broken → what needs you → where you are.
+  const attnItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  attnItem.command = 'karst.showAttention';
+  context.subscriptions.push(attnItem);
+  const attention = new AttentionManager({
+    setStatus: (text, tooltip, warning) => {
+      attnItem.text = text;
+      attnItem.tooltip = tooltip;
+      attnItem.backgroundColor = warning
+        ? new vscode.ThemeColor('statusBarItem.warningBackground')
+        : undefined;
+      attnItem.show();
+    },
+    hideStatus: () => attnItem.hide(),
+    setBadge: (value, tooltip) => sidebarBadge.set(value, tooltip),
+    clearBadge: () => sidebarBadge.clear(),
+  });
+
+  /**
+   * The tickets needing this window's user. SCOPED: the store lives in global
+   * storage and every IDE window shares it, so an unscoped read would badge this
+   * window with another project's waiting tickets.
+   */
+  const currentAttention = (): AttentionItem[] =>
+    attentionItems(listTickets(localStore, { projectId: currentProject()?.id }));
+
+  /** Repaint both surfaces. Never throws: a failed repaint must not break the
+   * sidebar push that just succeeded, and a store closed during shutdown reads
+   * as "nothing needs you" rather than an error. */
+  const refreshAttention = (): void => {
+    try {
+      attention.render(currentAttention());
+    } catch (err) {
+      logError('karst: attention refresh failed', err);
+      attention.render([]);
+    }
+  };
+
+  provider.onRefresh(refreshAttention);
+  refreshAttention();
+
   // Where the auto-driver persists its gate-run evidence (§11/§12), mirroring
   // the per-ticket layout the runners themselves expect.
   const artifactDirFor = (ticketId: number): string =>
@@ -1980,6 +2026,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('karst.showAttention', async () => {
+      const items = currentAttention();
+      if (items.length === 0) {
+        // The command is palette-reachable even at zero; an empty picker would
+        // read as a broken list rather than an answer.
+        void vscode.window.showInformationMessage('No tickets need your input.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        items.map((i) => ({
+          label: `${i.kind === 'failed' ? '$(warning)' : '$(bell)'} ${i.key} · ${i.reason}`,
+          description: i.title,
+          ticketId: i.ticketId,
+        })),
+        { placeHolder: 'Tickets needing you' },
+      );
+      if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
+    }),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
       const query = await vscode.window.showInputBox({ prompt: 'Filter tickets' });
