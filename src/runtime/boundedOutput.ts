@@ -22,8 +22,13 @@ export class BoundedOutput {
     if (chunk.byteLength > remaining) this.didTruncate = true;
   }
 
+  /** Returns the retained prefix without decoding or adding a text marker. */
+  toBuffer(): Buffer {
+    return Buffer.concat(this.chunks, this.retainedBytes);
+  }
+
   render(diagnostic = ''): string {
-    const decoded = Buffer.concat(this.chunks, this.retainedBytes).toString();
+    const decoded = this.toBuffer().toString();
     let decodedBytes = 0;
     let decodedEnd = 0;
     for (const codePoint of decoded) {

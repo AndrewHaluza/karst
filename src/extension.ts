@@ -21,7 +21,7 @@ import {
   type ChangesPanelHost,
 } from './ui/diffs/panel.js';
 import {
-  DIFF_CONTENT_MAX_BYTES,
+  StaleDiffTargetError,
   TextDiffUnavailableError,
   inspectWorktree,
   prepareDiff,
@@ -106,9 +106,6 @@ import { listArchives } from './store/worktreeArchives.js';
 import { makePortAllocator } from './resolver/allocator.js';
 import {
   defaultGitRunner,
-  GIT_TIMEOUT_MS,
-  runGit,
-  type GitRunner,
 } from './integrations/git.js';
 import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
@@ -969,12 +966,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  const diffContentGit: GitRunner = (args, cwd) =>
-    runGit(args, cwd, GIT_TIMEOUT_MS, DIFF_CONTENT_MAX_BYTES);
   const workingFile = {
     lstat: async (path: string) => {
       const entry = await fsLstat(path);
-      return { size: entry.size, isSymbolicLink: () => entry.isSymbolicLink() };
+      return {
+        dev: entry.dev,
+        ino: entry.ino,
+        mode: entry.mode,
+        size: entry.size,
+        mtimeMs: entry.mtimeMs,
+        ctimeMs: entry.ctimeMs,
+        isSymbolicLink: () => entry.isSymbolicLink(),
+      };
     },
     realpath: (path: string): Promise<string> => fsRealpath(path),
     readlink: (path: string): Promise<string> => fsReadlink(path),
@@ -1002,7 +1005,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const openTicketDiff = async (target: DiffTarget): Promise<void> => {
     const virtualAttempt = virtualDocuments.beginAttempt();
     try {
-      const prepared = await prepareDiff(diffContentGit, target, workingFile);
+      const prepared = await prepareDiff(defaultGitRunner, target, workingFile);
       const leftUri = materializeDiffResource(prepared.left, virtualAttempt);
       const rightUri = materializeDiffResource(prepared.right, virtualAttempt);
       await vscode.commands.executeCommand(
@@ -1015,6 +1018,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       virtualAttempt.commit();
     } catch (error) {
       virtualAttempt.rollback();
+      if (error instanceof StaleDiffTargetError) throw error;
       if (error instanceof TextDiffUnavailableError) {
         void vscode.window.showWarningMessage(error.message);
         return;
@@ -1026,7 +1030,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const changes = new TicketChangesManager(
     makeChangesPanelHost(context),
     (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
-    async (ticketId) => {
+    async (ticketId, signal) => {
       const pathContext = worktreePathContext(currentManifest(), logger.warn);
       const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
         label: repoDisplayPath(worktree.repo, pathContext),
@@ -1037,7 +1041,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return buildTicketChangesSnapshot(
         ticketId,
         worktrees,
-        (spec) => inspectWorktree(defaultGitRunner, spec),
+        (spec, inspectSignal) => inspectWorktree(defaultGitRunner, spec, inspectSignal),
+        undefined,
+        signal,
       );
     },
     openTicketDiff,

@@ -52,4 +52,11 @@ describe('ticket changes webview.html', () => {
     expect(HTML).toContain('render(msg.state || lastState, true)');
     expect(HTML).toMatch(/vscode\.setState\(/);
   });
+
+  it('keeps loading persistent while filtering and restores it with webview state', () => {
+    expect(HTML).toMatch(/let loading\s*=\s*Boolean\(restored\?\.loading\)/);
+    expect(HTML).toContain("filter.addEventListener('input', () => render(lastState, loading))");
+    expect(HTML).toContain('vscode.setState({ state: lastState, loading })');
+    expect(HTML).toMatch(/refresh\.addEventListener\('click',\s*\(\) => \{\s*render\(lastState, true\)/);
+  });
 });

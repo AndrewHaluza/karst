@@ -310,6 +310,7 @@
     const notice = document.getElementById('notice');
     const restored = vscode.getState();
     let lastState = restored?.state || null;
+    let loading = Boolean(restored?.loading);
 
     const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ESCAPES[ch]);
@@ -381,8 +382,9 @@
         + `</details>`;
     }
 
-    function render(state, loading) {
+    function render(state, isLoading) {
       lastState = state;
+      loading = isLoading;
       const needle = filter.value.trim().toLowerCase();
       summary.textContent = state
         ? `${state.worktreeCount} worktrees · ${state.commitCount} commits · ${state.pendingCount} pending`
@@ -407,13 +409,14 @@
       }
       refresh.disabled = loading;
       refresh.textContent = loading ? 'Refreshing…' : 'Refresh';
-      vscode.setState({ state: lastState });
+      vscode.setState({ state: lastState, loading });
     }
 
     refresh.addEventListener('click', () => {
+      render(lastState, true);
       vscode.postMessage({ type: 'refresh' });
     });
-    filter.addEventListener('input', () => render(lastState, false));
+    filter.addEventListener('input', () => render(lastState, loading));
     document.addEventListener('click', (event) => {
       const row = event.target.closest('[data-change-id]');
       if (row) vscode.postMessage({ type: 'open-diff', changeId: row.dataset.changeId });
@@ -433,7 +436,7 @@
         notice.hidden = false;
       }
     });
-    render(lastState, false);
+    render(lastState, loading);
   </script>
 </body>
 </html>

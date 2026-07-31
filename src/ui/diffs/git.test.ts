@@ -6,6 +6,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -13,13 +14,22 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { defaultGitRunner, GIT_TIMEOUT_MS, runGit, type GitRunner } from '../../integrations/git.js';
+import {
+  defaultGitRunner,
+  GIT_TERMINATION_GRACE_MS,
+  GIT_TIMEOUT_MS,
+  runGitBytes,
+  type GitBytesRunner,
+  type GitRunner,
+} from '../../integrations/git.js';
 import {
   DIFF_CONTENT_MAX_BYTES,
   inspectWorktree,
   parseCommitHeaders,
+  parseStageZeroEntries,
   parseNameStatus,
   prepareDiff,
+  StaleDiffTargetError,
   TextDiffUnavailableError,
   type WorktreeSpec,
 } from './git.js';
@@ -79,15 +89,30 @@ function createWorktreeFixture(): { dir: string; spec: WorktreeSpec; base: strin
 const workingFile = {
   lstat: async (path: string) => {
     const entry = lstatSync(path);
-    return { size: entry.size, isSymbolicLink: () => entry.isSymbolicLink() };
+    return {
+      dev: entry.dev,
+      ino: entry.ino,
+      mode: entry.mode,
+      size: entry.size,
+      mtimeMs: entry.mtimeMs,
+      ctimeMs: entry.ctimeMs,
+      isSymbolicLink: () => entry.isSymbolicLink(),
+    };
   },
   realpath: async (path: string) => realpathSync(path),
   readlink: async (path: string) => readlinkSync(path),
   read: async (path: string) => readFileSync(path),
 };
 
-const diffContentGit: GitRunner = (args, cwd) =>
-  runGit(args, cwd, GIT_TIMEOUT_MS, DIFF_CONTENT_MAX_BYTES);
+const diffContentGit: GitBytesRunner = (args, cwd, options) =>
+  runGitBytes(
+    args,
+    cwd,
+    GIT_TIMEOUT_MS,
+    DIFF_CONTENT_MAX_BYTES,
+    GIT_TERMINATION_GRACE_MS,
+    options?.signal,
+  );
 
 describe('parseNameStatus', () => {
   it('parses NUL-delimited adds, deletes, and renames without splitting spaces', () => {
@@ -149,6 +174,21 @@ describe('parseCommitHeaders', () => {
   });
 });
 
+describe('parseStageZeroEntries', () => {
+  it('parses the metadata prefix without interpreting numeric-colon filenames', () => {
+    expect(
+      parseStageZeroEntries(
+        '100644 1111111111111111111111111111111111111111 0\t0:secret\0' +
+          '100755 2222222222222222222222222222222222222222 0\t2:script\0' +
+          '100644 3333333333333333333333333333333333333333 2\tconflict\0',
+      ),
+    ).toEqual(new Map([
+      ['0:secret', '1111111111111111111111111111111111111111'],
+      ['2:script', '2222222222222222222222222222222222222222'],
+    ]));
+  });
+});
+
 describe('inspectWorktree', () => {
   it('inspects a real Git commit with an empty subject', async () => {
     const { dir, spec } = createWorktreeFixture();
@@ -193,6 +233,83 @@ describe('inspectWorktree', () => {
     }
   });
 
+  it('lists a real merge commit and compares it with its first parent', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-diff-merge-'));
+    try {
+      fixtureGit(dir, ['init', '-q']);
+      fixtureGit(dir, ['config', 'user.name', 'Karst Test']);
+      fixtureGit(dir, ['config', 'user.email', 'karst-test@example.com']);
+      write(dir, 'base.txt', 'base\n');
+      commit(dir, 'base');
+      const base = fixtureGit(dir, ['rev-parse', 'HEAD']).trim();
+
+      fixtureGit(dir, ['checkout', '-q', '-b', 'side']);
+      write(dir, 'from-side.txt', 'side\n');
+      commit(dir, 'side only');
+      fixtureGit(dir, ['checkout', '-q', '-b', 'ticket', base]);
+      write(dir, 'from-ticket.txt', 'ticket\n');
+      commit(dir, 'ticket only');
+      const firstParent = fixtureGit(dir, ['rev-parse', 'HEAD']).trim();
+      fixtureGit(dir, ['merge', '--no-ff', 'side', '-m', 'merge side']);
+
+      const inspected = await inspectWorktree(defaultGitRunner, {
+        label: 'Merge Repository',
+        path: dir,
+        branch: 'ticket',
+        baseRef: base,
+      });
+
+      expect(inspected.commits.map((entry) => entry.subject)).toEqual([
+        'merge side',
+        'ticket only',
+      ]);
+      expect(inspected.commits[0]!.files).toContainEqual(
+        expect.objectContaining({
+          status: 'added',
+          path: 'from-side.txt',
+          target: expect.objectContaining({
+            left: { kind: 'empty', label: firstParent },
+          }),
+        }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the captured HEAD OID even if HEAD advances before later inspection commands', async () => {
+    const { dir, spec, base } = createWorktreeFixture();
+    try {
+      fixtureGit(dir, ['reset', '--hard', '-q']);
+      fixtureGit(dir, ['clean', '-fdq']);
+      const capturedHead = fixtureGit(dir, ['rev-parse', 'HEAD']).trim();
+      const seen: string[][] = [];
+      let advanced = false;
+      const advancingGit: GitRunner = async (args, cwd, options) => {
+        seen.push(args);
+        if (args[0] === 'log' && !advanced) {
+          advanced = true;
+          write(dir, 'later.ts', 'later\n');
+          commit(dir, 'later commit');
+        }
+        return defaultGitRunner(args, cwd, options);
+      };
+
+      const inspected = await inspectWorktree(advancingGit, { ...spec, baseRef: base });
+
+      expect(inspected.commits.map((entry) => entry.subject)).toEqual([
+        'rename and remove files',
+        'add a commit file',
+      ]);
+      expect(seen.find((args) => args[0] === 'log')).toContain(`${base}..${capturedHead}`);
+      expect(seen.find((args) => args[0] === 'diff' && args.includes('--cached'))).toContain(
+        capturedHead,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('separates staged, unstaged, staged-plus-unstaged, and untracked paths', async () => {
     const { dir, spec } = createWorktreeFixture();
     try {
@@ -203,9 +320,21 @@ describe('inspectWorktree', () => {
       expect(inspected.staged.map((file) => file.path)).toEqual(['staged only.txt', 'value.txt']);
       expect(inspected.unstaged.map((file) => file.path)).toEqual(['unstaged.txt', 'value.txt']);
       expect(inspected.untracked.map((file) => file.path)).toEqual(['untracked file.txt']);
-      expect(stagedValue.target.left).toMatchObject({ kind: 'git', revision: 'HEAD', path: 'value.txt' });
-      expect(stagedValue.target.right).toMatchObject({ kind: 'index', path: 'value.txt' });
-      expect(unstagedValue.target.left).toMatchObject({ kind: 'index', path: 'value.txt' });
+      expect(stagedValue.target.left).toMatchObject({
+        kind: 'git',
+        revision: fixtureGit(dir, ['rev-parse', 'HEAD']).trim(),
+        path: 'value.txt',
+      });
+      expect(stagedValue.target.right).toMatchObject({
+        kind: 'index',
+        blob: fixtureGit(dir, ['rev-parse', ':./value.txt']).trim(),
+        path: 'value.txt',
+      });
+      expect(unstagedValue.target.left).toMatchObject({
+        kind: 'index',
+        blob: fixtureGit(dir, ['rev-parse', ':./value.txt']).trim(),
+        path: 'value.txt',
+      });
       expect(unstagedValue.target.right).toMatchObject({ kind: 'working', path: join(dir, 'value.txt') });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -286,7 +415,7 @@ describe('inspectWorktree', () => {
             : 'base\n'
           : command === 'merge-base'
             ? 'base\n'
-            : command === 'ls-files'
+          : command === 'ls-files' && !args.includes('--stage')
               ? '../escape.txt\0'
               : '';
       return { stdout, stderr: '', exitCode: 0 };
@@ -308,6 +437,27 @@ describe('inspectWorktree', () => {
 });
 
 describe('prepareDiff', () => {
+  it('opens the captured stage-zero blob for a numeric-colon filename', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      write(dir, '0:secret', 'captured stage zero\n');
+      fixtureGit(dir, ['add', '0:secret']);
+      const expectedBlob = fixtureGit(dir, ['rev-parse', ':./0:secret']).trim();
+      const target = (await inspectWorktree(defaultGitRunner, spec)).staged.find(
+        (file) => file.path === '0:secret',
+      )!.target;
+
+      expect(target.right).toMatchObject({ kind: 'index', path: '0:secret', blob: expectedBlob });
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).resolves.toMatchObject({
+        right: { kind: 'virtual', content: 'captured stage zero\n' },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('reads Git-backed text between 1 MiB and 5 MiB through the content runner', async () => {
     const { dir, spec } = createWorktreeFixture();
     try {
@@ -318,7 +468,7 @@ describe('prepareDiff', () => {
         (file) => file.path === 'large staged.txt',
       )!.target;
 
-      const prepared = await prepareDiff(diffContentGit, target, workingFile);
+      const prepared = await prepareDiff(defaultGitRunner, target, workingFile, diffContentGit);
 
       expect(prepared.right).toMatchObject({ kind: 'virtual', content });
     } finally {
@@ -448,6 +598,199 @@ describe('prepareDiff', () => {
       await expect(prepareDiff(defaultGitRunner, target, workingFile)).rejects.toBeInstanceOf(
         TextDiffUnavailableError,
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses invalid UTF-8 from a Git-backed blob instead of replacement-decoding it', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      writeFileSync(join(dir, 'invalid.txt'), Buffer.from([0xc3, 0x28]));
+      fixtureGit(dir, ['add', 'invalid.txt']);
+      const target = (await inspectWorktree(defaultGitRunner, spec)).staged.find(
+        (file) => file.path === 'invalid.txt',
+      )!.target;
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).rejects.toThrow(/UTF-8/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses NUL binary data from a Git-backed blob', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      writeFileSync(join(dir, 'tracked.bin'), Buffer.from([0x61, 0x00, 0x62]));
+      fixtureGit(dir, ['add', 'tracked.bin']);
+      const target = (await inspectWorktree(defaultGitRunner, spec)).staged.find(
+        (file) => file.path === 'tracked.bin',
+      )!.target;
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).rejects.toBeInstanceOf(TextDiffUnavailableError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a Git-backed blob larger than 5 MiB before returning partial text', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      write(dir, 'large staged.txt', 'x'.repeat(DIFF_CONTENT_MAX_BYTES + 1));
+      fixtureGit(dir, ['add', 'large staged.txt']);
+      const target = (await inspectWorktree(defaultGitRunner, spec)).staged.find(
+        (file) => file.path === 'large staged.txt',
+      )!.target;
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).rejects.toThrow(/exceeds/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws a distinct stale error when an untracked file changes after inspection', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).untracked.find(
+        (file) => file.path === 'untracked file.txt',
+      )!.target;
+      write(dir, 'untracked file.txt', 'changed after inspection\n');
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).rejects.toBeInstanceOf(StaleDiffTargetError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws a distinct stale error when a pending file moves after inspection', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).untracked.find(
+        (file) => file.path === 'untracked file.txt',
+      )!.target;
+      renameSync(join(dir, 'untracked file.txt'), join(dir, 'moved.txt'));
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).rejects.toBeInstanceOf(StaleDiffTargetError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws a distinct stale error when an unstaged file is staged after inspection', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).unstaged.find(
+        (file) => file.path === 'unstaged.txt',
+      )!.target;
+      fixtureGit(dir, ['add', 'unstaged.txt']);
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).rejects.toBeInstanceOf(StaleDiffTargetError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws a distinct stale error when an untracked file is committed after inspection', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).untracked.find(
+        (file) => file.path === 'untracked file.txt',
+      )!.target;
+      commit(dir, 'commit pending file');
+
+      await expect(
+        prepareDiff(defaultGitRunner, target, workingFile, diffContentGit),
+      ).rejects.toBeInstanceOf(StaleDiffTargetError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a Git validation failure as unavailable rather than stale', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).staged.find(
+        (file) => file.path === 'value.txt',
+      )!.target;
+      const failingValidationGit: GitRunner = async (args, cwd, options) => {
+        if (args[0] === 'rev-parse' && args.includes('HEAD^{commit}')) {
+          return {
+            stdout: '',
+            stderr: 'fatal: cannot read repository state',
+            exitCode: 128,
+          };
+        }
+        return defaultGitRunner(args, cwd, options);
+      };
+
+      const error = await prepareDiff(
+        failingValidationGit,
+        target,
+        workingFile,
+        diffContentGit,
+      ).catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(TextDiffUnavailableError);
+      expect(error).not.toBeInstanceOf(StaleDiffTargetError);
+      expect(String(error)).toMatch(/cannot read repository state/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stays stale when a working file changes after validation but before preparation', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).unstaged.find(
+        (file) => file.path === 'value.txt',
+      )!.target;
+      let changed = false;
+      const changingGit: GitRunner = async (args, cwd, options) => {
+        if (!changed && args[0] === 'cat-file' && args[1] === '-s') {
+          changed = true;
+          write(dir, 'value.txt', 'changed after validation and before preparation\n');
+        }
+        return defaultGitRunner(args, cwd, options);
+      };
+
+      await expect(
+        prepareDiff(changingGit, target, workingFile, diffContentGit),
+      ).rejects.toBeInstanceOf(StaleDiffTargetError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stays stale when a working file disappears after validation but before preparation', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const target = (await inspectWorktree(defaultGitRunner, spec)).unstaged.find(
+        (file) => file.path === 'value.txt',
+      )!.target;
+      let removed = false;
+      const removingGit: GitRunner = async (args, cwd, options) => {
+        if (!removed && args[0] === 'cat-file' && args[1] === '-s') {
+          removed = true;
+          rmSync(join(dir, 'value.txt'));
+        }
+        return defaultGitRunner(args, cwd, options);
+      };
+
+      await expect(
+        prepareDiff(removingGit, target, workingFile, diffContentGit),
+      ).rejects.toBeInstanceOf(StaleDiffTargetError);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

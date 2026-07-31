@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DiffTarget, InspectedFile, InspectedWorktree, WorktreeSpec } from './git.js';
 import { buildTicketChangesSnapshot } from './snapshot.js';
 
@@ -172,5 +172,22 @@ describe('buildTicketChangesSnapshot', () => {
     expect(first.state.worktrees[0]!.staged[0]!.changeId).toBe('first-generation:1');
     expect(second.state.worktrees[0]!.staged[0]!.changeId).toBe('second-generation:1');
     expect(second.targets.has(first.state.worktrees[0]!.staged[0]!.changeId)).toBe(false);
+  });
+
+  it('propagates cancellation instead of rendering it as a repository error', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const inspect = vi.fn(async () => inspected(firstSpec));
+
+    const pending = buildTicketChangesSnapshot(
+      1,
+      [firstSpec],
+      inspect,
+      () => 'cancelled-generation',
+      controller.signal,
+    );
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(inspect).not.toHaveBeenCalled();
   });
 });

@@ -53,25 +53,50 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function defaultInspect(spec: WorktreeSpec): Promise<InspectedWorktree> {
-  return inspectWorktree(defaultGitRunner, spec);
+function abortError(): Error {
+  const error = new Error('Ticket changes refresh was aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
+}
+
+function defaultInspect(
+  spec: WorktreeSpec,
+  signal?: AbortSignal,
+): Promise<InspectedWorktree> {
+  return inspectWorktree(defaultGitRunner, spec, signal);
 }
 
 export async function buildTicketChangesSnapshot(
   ticketId: number,
   worktrees: readonly WorktreeSpec[],
-  inspect: (spec: WorktreeSpec) => Promise<InspectedWorktree> = defaultInspect,
+  inspect: (
+    spec: WorktreeSpec,
+    signal?: AbortSignal,
+  ) => Promise<InspectedWorktree> = defaultInspect,
   makePrefix: () => string = () => randomBytes(16).toString('hex'),
+  signal?: AbortSignal,
 ): Promise<TicketChangesSnapshot> {
+  throwIfAborted(signal);
   const settled = await Promise.all(
     worktrees.map(async (spec) => {
       try {
-        return { spec, inspected: await inspect(spec), error: null };
+        throwIfAborted(signal);
+        const inspected = await inspect(spec, signal);
+        throwIfAborted(signal);
+        return { spec, inspected, error: null };
       } catch (error) {
+        if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          throw abortError();
+        }
         return { spec, inspected: null, error: errorMessage(error) };
       }
     }),
   );
+  throwIfAborted(signal);
   const targets = new Map<string, DiffTarget>();
   const prefix = makePrefix();
   let counter = 0;

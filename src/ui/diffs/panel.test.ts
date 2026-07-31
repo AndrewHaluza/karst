@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DiffTarget } from './git.js';
+import { StaleDiffTargetError, type DiffTarget } from './git.js';
 import type { ChangesHostMessage } from './messages.js';
 import { TicketChangesManager, type ChangesPanel, type ChangesPanelHost } from './panel.js';
 import type { TicketChangesSnapshot, TicketChangesState } from './snapshot.js';
@@ -167,10 +167,11 @@ describe('TicketChangesManager', () => {
     const newTarget = target('src/new.ts');
 
     manager.open(41);
-    panels[0]!.emit({ type: 'refresh' });
-    second.resolve(snapshot(41, 'new:1', newTarget));
     await settle();
+    panels[0]!.emit({ type: 'refresh' });
     first.resolve(snapshot(41, 'old:1', oldTarget));
+    await settle();
+    second.resolve(snapshot(41, 'new:1', newTarget));
     await settle();
     panels[0]!.emit({ type: 'open-diff', changeId: 'new:1' });
     await settle();
@@ -184,6 +185,47 @@ describe('TicketChangesManager', () => {
     ]);
     expect(openDiff).toHaveBeenCalledWith(newTarget);
     expect(warn).toHaveBeenCalledWith('That change is stale. Refreshing ticket changes…');
+  });
+
+  it('coalesces refresh spam into one replacement load and aborts the superseded load', async () => {
+    const signals: AbortSignal[] = [];
+    const loads: Deferred<TicketChangesSnapshot>[] = [];
+    const load = vi.fn((_ticketId: number, signal: AbortSignal) => {
+      signals.push(signal);
+      const pending = deferred<TicketChangesSnapshot>();
+      loads.push(pending);
+      signal.addEventListener('abort', () => {
+        const error = new Error('cancelled');
+        error.name = 'AbortError';
+        pending.reject(error);
+      }, { once: true });
+      return pending.promise;
+    });
+    const { host, panels } = makeHost();
+    const logError = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      load,
+      async () => {},
+      () => {},
+      logError,
+    );
+
+    manager.open(41);
+    await settle();
+    panels[0]!.emit({ type: 'refresh' });
+    panels[0]!.emit({ type: 'refresh' });
+    panels[0]!.emit({ type: 'refresh' });
+    await settle();
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(signals[0]!.aborted).toBe(true);
+    expect(signals[1]!.aborted).toBe(false);
+    expect(logError).not.toHaveBeenCalled();
+
+    loads[1]!.resolve(snapshot(41, 'current:1', target('src/current.ts')));
+    await settle();
   });
 
   it('opens only a target from the current snapshot map', async () => {
@@ -251,6 +293,33 @@ describe('TicketChangesManager', () => {
     expect(openDiff).toHaveBeenCalledTimes(2);
   });
 
+  it('warns and refreshes when preparing a trusted target reports it stale', async () => {
+    const initial = snapshot(41, 'current:1', target('src/current.ts'));
+    const refreshed = snapshot(41, 'next:1', target('src/next.ts'));
+    const load = vi.fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(refreshed);
+    const stale = new StaleDiffTargetError('the index changed');
+    const { host, panels } = makeHost();
+    const warn = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      load,
+      async () => { throw stale; },
+      warn,
+    );
+
+    manager.open(41);
+    await settle();
+    panels[0]!.emit({ type: 'open-diff', changeId: 'current:1' });
+    await settle();
+
+    expect(warn).toHaveBeenCalledWith(stale.message);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(panels[0]!.posted.at(-1)).toEqual({ type: 'state', state: refreshed.state });
+  });
+
   it('turns a synchronous load throw into a panel error', async () => {
     const { host, panels } = makeHost();
     const logError = vi.fn();
@@ -315,6 +384,7 @@ describe('TicketChangesManager', () => {
     );
 
     manager.open(41);
+    await settle();
     panels[0]!.dispose();
     first.resolve(snapshot(41, 'old:1', target('src/old.ts')));
     await settle();
@@ -329,5 +399,38 @@ describe('TicketChangesManager', () => {
       { type: 'loading', state: null },
       { type: 'state', state: snapshot(41, 'new:1', target('src/new.ts')).state },
     ]);
+  });
+
+  it('aborts the active load when its panel is disposed', async () => {
+    let signal: AbortSignal | undefined;
+    const load = vi.fn((_ticketId: number, currentSignal: AbortSignal) => {
+      signal = currentSignal;
+      return new Promise<TicketChangesSnapshot>((_resolve, reject) => {
+        currentSignal.addEventListener('abort', () => {
+          const error = new Error('cancelled');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    });
+    const { host, panels } = makeHost();
+    const logError = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      load,
+      async () => {},
+      () => {},
+      logError,
+    );
+
+    manager.open(41);
+    await settle();
+    panels[0]!.dispose();
+    await settle();
+
+    expect(signal?.aborted).toBe(true);
+    expect(logError).not.toHaveBeenCalled();
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
   });
 });

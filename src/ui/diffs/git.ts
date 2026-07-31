@@ -1,13 +1,44 @@
+import { lstat as fsLstat } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { GitRunner } from '../../integrations/git.js';
-import { OUTPUT_TRUNCATION_MARKER } from '../../runtime/boundedOutput.js';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import {
+  fingerprintAt,
+  registerDiffTargetSnapshot,
+  type IndexExpectation,
+  type WorkingExpectation,
+} from './diffResources.js';
+import type {
+  CommitHeader,
+  FileChangeStatus,
+  ParsedFile,
+} from './gitParsers.js';
+import {
+  parseCommitHeaders,
+  parseNameStatus,
+  parseStageZeroEntries,
+} from './gitParsers.js';
 
-export type FileChangeStatus = 'added' | 'modified' | 'deleted' | 'renamed';
+export {
+  parseCommitHeaders,
+  parseNameStatus,
+  parseStageZeroEntries,
+};
+export type { FileChangeStatus } from './gitParsers.js';
+export {
+  DIFF_CONTENT_MAX_BYTES,
+  prepareDiff,
+  StaleDiffTargetError,
+  TextDiffUnavailableError,
+} from './diffResources.js';
+export type {
+  ResourceStat,
+  WorkingFileAccess,
+} from './diffResources.js';
 
 export type DiffSource =
   | { kind: 'empty'; label: string }
   | { kind: 'git'; revision: string; path: string; label: string }
-  | { kind: 'index'; path: string; label: string }
+  | { kind: 'index'; blob: string; path: string; label: string }
   | { kind: 'working'; path: string; label: string };
 
 export interface DiffTarget {
@@ -64,89 +95,16 @@ export interface PreparedDiff {
   right: PreparedDiffResource;
 }
 
-export const DIFF_CONTENT_MAX_BYTES = 5 * 1024 * 1024;
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-const targetWorktrees = new WeakMap<DiffTarget, string>();
 
-export class TextDiffUnavailableError extends Error {
-  constructor(reason: string) {
-    super(`Text diff is unavailable: ${reason}`);
-    this.name = 'TextDiffUnavailableError';
-  }
+function abortError(): Error {
+  const error = new Error('Git inspection was aborted');
+  error.name = 'AbortError';
+  return error;
 }
 
-interface ParsedFile {
-  status: FileChangeStatus;
-  path: string;
-  oldPath: string | null;
-}
-
-interface CommitHeader {
-  hash: string;
-  shortHash: string;
-  author: string;
-  authoredAt: string;
-  subject: string;
-}
-
-function rejectTruncated(output: string): void {
-  if (output.includes(OUTPUT_TRUNCATION_MARKER)) {
-    throw new Error('Git output is incomplete because it was truncated');
-  }
-}
-
-function required(fields: string[], cursor: number, what: string): string {
-  const value = fields[cursor];
-  if (value === undefined || value === '') throw new Error(`Incomplete Git ${what} record`);
-  return value;
-}
-
-/** Strictly parses Git's -z --name-status output without interpreting filenames. */
-export function parseNameStatus(output: string): ParsedFile[] {
-  rejectTruncated(output);
-  const fields = output.split('\0');
-  if (fields.at(-1) === '') fields.pop();
-  const parsed: ParsedFile[] = [];
-
-  for (let cursor = 0; cursor < fields.length;) {
-    const token = required(fields, cursor++, 'name-status');
-    const code = token[0];
-    if (code === 'R' || code === 'C') {
-      const oldPath = required(fields, cursor++, 'rename');
-      const path = required(fields, cursor++, 'rename');
-      parsed.push({ status: code === 'R' ? 'renamed' : 'modified', path, oldPath });
-      continue;
-    }
-
-    const path = required(fields, cursor++, 'name-status');
-    parsed.push({
-      status: code === 'A' ? 'added' : code === 'D' ? 'deleted' : 'modified',
-      path,
-      oldPath: null,
-    });
-  }
-
-  return parsed;
-}
-
-/** Parses the five NUL-delimited fields emitted by the log command used below. */
-export function parseCommitHeaders(output: string): CommitHeader[] {
-  rejectTruncated(output);
-  const fields = output.split('\0');
-  if (fields.at(-1) === '') fields.pop();
-  if (fields.length % 5 !== 0) throw new Error('Incomplete Git commit record');
-
-  const commits: CommitHeader[] = [];
-  for (let cursor = 0; cursor < fields.length; cursor += 5) {
-    commits.push({
-      hash: required(fields, cursor, 'commit'),
-      shortHash: required(fields, cursor + 1, 'commit'),
-      author: required(fields, cursor + 2, 'commit'),
-      authoredAt: required(fields, cursor + 3, 'commit'),
-      subject: fields[cursor + 4]!,
-    });
-  }
-  return commits;
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
 }
 
 function sourceEmpty(label: string): DiffSource {
@@ -158,23 +116,26 @@ function workingPath(spec: WorktreeSpec, path: string): string {
   const candidate = resolve(join(spec.path, path));
   const fromRoot = relative(root, candidate);
   if (
-    fromRoot === '' ||
-    fromRoot === '..' ||
-    fromRoot.startsWith(`..${sep}`) ||
-    isAbsolute(fromRoot)
+    fromRoot === ''
+    || fromRoot === '..'
+    || fromRoot.startsWith(`..${sep}`)
+    || isAbsolute(fromRoot)
   ) {
     throw new Error(`Git inspection for ${spec.label} rejected an out-of-worktree path`);
   }
   return candidate;
 }
 
-function trackedTarget(
+function registerTarget(
   spec: WorktreeSpec,
+  head: string,
   groupLabel: string,
   file: ParsedFile,
   left: DiffSource,
   right: DiffSource,
   binaryCheck: DiffTarget['binaryCheck'],
+  index: readonly IndexExpectation[] = [],
+  working: readonly WorkingExpectation[] = [],
 ): DiffTarget {
   const target: DiffTarget = {
     repoLabel: spec.label,
@@ -184,19 +145,46 @@ function trackedTarget(
     right,
     binaryCheck,
   };
-  targetWorktrees.set(target, spec.path);
+  registerDiffTargetSnapshot(target, {
+    cwd: spec.path,
+    head,
+    index: dedupeIndex(index),
+    working: dedupeWorking(working),
+  });
   return target;
+}
+
+function dedupeIndex(entries: readonly IndexExpectation[]): IndexExpectation[] {
+  return [...new Map(entries.map((entry) => [entry.path, entry])).values()];
+}
+
+function dedupeWorking(entries: readonly WorkingExpectation[]): WorkingExpectation[] {
+  return [...new Map(entries.map((entry) => [entry.path, entry])).values()];
+}
+
+function requiredIndexBlob(
+  entries: ReadonlyMap<string, string>,
+  spec: WorktreeSpec,
+  path: string,
+): string {
+  const blob = entries.get(path);
+  if (!blob) {
+    throw new Error(`Git inspection failed for ${spec.label}: index blob is missing for ${path}`);
+  }
+  return blob;
 }
 
 function commitFile(
   spec: WorktreeSpec,
+  head: string,
   commit: CommitHeader,
   parent: string,
   file: ParsedFile,
 ): InspectedFile {
   const oldPath = file.oldPath ?? file.path;
-  const target = trackedTarget(
+  const target = registerTarget(
     spec,
+    head,
     `${commit.shortHash} ${commit.subject}`,
     file,
     file.status === 'added'
@@ -210,55 +198,112 @@ function commitFile(
   return { ...file, target };
 }
 
-function stagedFile(spec: WorktreeSpec, file: ParsedFile): InspectedFile {
+function stagedFile(
+  spec: WorktreeSpec,
+  head: string,
+  entries: ReadonlyMap<string, string>,
+  file: ParsedFile,
+): InspectedFile {
   const oldPath = file.oldPath ?? file.path;
+  const indexBlob =
+    file.status === 'deleted' ? null : requiredIndexBlob(entries, spec, file.path);
+  const expectations: IndexExpectation[] = [{ path: file.path, blob: indexBlob }];
+  if (file.oldPath) expectations.push({ path: file.oldPath, blob: null });
+
   return {
     ...file,
-    target: trackedTarget(
+    target: registerTarget(
       spec,
+      head,
       'Staged Changes',
       file,
       file.status === 'added'
         ? sourceEmpty('HEAD')
-        : { kind: 'git', revision: 'HEAD', path: oldPath, label: 'HEAD' },
+        : { kind: 'git', revision: head, path: oldPath, label: 'HEAD' },
       file.status === 'deleted'
         ? sourceEmpty('Index')
-        : { kind: 'index', path: file.path, label: 'Index' },
+        : { kind: 'index', blob: indexBlob!, path: file.path, label: 'Index' },
       { kind: 'staged', path: file.path },
+      expectations,
     ),
   };
 }
 
-function unstagedFile(spec: WorktreeSpec, file: ParsedFile): InspectedFile {
+async function unstagedFile(
+  spec: WorktreeSpec,
+  head: string,
+  entries: ReadonlyMap<string, string>,
+  file: ParsedFile,
+  signal?: AbortSignal,
+): Promise<InspectedFile> {
   const oldPath = file.oldPath ?? file.path;
+  const indexBlob = entries.get(oldPath) ?? null;
+  if (file.status !== 'added' && indexBlob === null) {
+    throw new Error(`Git inspection failed for ${spec.label}: index blob is missing for ${oldPath}`);
+  }
+  const currentPath = workingPath(spec, file.path);
+  const currentFingerprint =
+    file.status === 'deleted' ? null : await fingerprintAt(currentPath, fsLstat, signal);
+  if (file.status !== 'deleted' && currentFingerprint === null) {
+    throw new Error(`Git inspection failed for ${spec.label}: working file is missing for ${file.path}`);
+  }
+  const indexExpectations: IndexExpectation[] = [{ path: oldPath, blob: indexBlob }];
+  const workingExpectations: WorkingExpectation[] = [{
+    path: currentPath,
+    fingerprint: currentFingerprint,
+  }];
+  if (file.oldPath) {
+    indexExpectations.push({ path: file.path, blob: entries.get(file.path) ?? null });
+    workingExpectations.push({
+      path: workingPath(spec, file.oldPath),
+      fingerprint: null,
+    });
+  }
+
   return {
     ...file,
-    target: trackedTarget(
+    target: registerTarget(
       spec,
+      head,
       'Unstaged Changes',
       file,
       file.status === 'added'
         ? sourceEmpty('Index')
-        : { kind: 'index', path: oldPath, label: 'Index' },
+        : { kind: 'index', blob: indexBlob!, path: oldPath, label: 'Index' },
       file.status === 'deleted'
         ? sourceEmpty('Working Tree')
-        : { kind: 'working', path: workingPath(spec, file.path), label: 'Working Tree' },
+        : { kind: 'working', path: currentPath, label: 'Working Tree' },
       { kind: 'unstaged', path: file.path },
+      indexExpectations,
+      workingExpectations,
     ),
   };
 }
 
-function untrackedFile(spec: WorktreeSpec, path: string): InspectedFile {
+async function untrackedFile(
+  spec: WorktreeSpec,
+  head: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<InspectedFile> {
   const file: ParsedFile = { status: 'added', path, oldPath: null };
+  const currentPath = workingPath(spec, path);
+  const currentFingerprint = await fingerprintAt(currentPath, fsLstat, signal);
+  if (currentFingerprint === null) {
+    throw new Error(`Git inspection failed for ${spec.label}: untracked file is missing for ${path}`);
+  }
   return {
     ...file,
-    target: trackedTarget(
+    target: registerTarget(
       spec,
+      head,
       'Untracked Files',
       file,
       sourceEmpty('Empty'),
-      { kind: 'working', path: workingPath(spec, path), label: 'Working Tree' },
+      { kind: 'working', path: currentPath, label: 'Working Tree' },
       { kind: 'untracked', path },
+      [{ path, blob: null }],
+      [{ path: currentPath, fingerprint: currentFingerprint }],
     ),
   };
 }
@@ -268,13 +313,16 @@ async function gitText(
   args: string[],
   spec: WorktreeSpec,
   what: string,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const result = await git(args, spec.path);
+  throwIfAborted(signal);
+  const result = await git(args, spec.path, { signal });
+  throwIfAborted(signal);
   if (result.exitCode !== 0) {
     const reason = result.stderr.trim() || result.stdout.trim() || `git exit ${result.exitCode}`;
     throw new Error(`Git inspection failed for ${spec.label}: git ${what}: ${reason}`);
   }
-  if (result.stdout.includes(OUTPUT_TRUNCATION_MARKER)) {
+  if (result.stdoutTruncated) {
     throw new Error(`Git inspection failed for ${spec.label}: git ${what} output was truncated`);
   }
   return result.stdout;
@@ -284,8 +332,15 @@ async function firstParent(
   git: GitRunner,
   spec: WorktreeSpec,
   commit: string,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const output = await gitText(git, ['rev-list', '--parents', '-n', '1', commit], spec, 'rev-list');
+  const output = await gitText(
+    git,
+    ['rev-list', '--parents', '-n', '1', commit],
+    spec,
+    'rev-list',
+    signal,
+  );
   const parts = output.trim().split(/\s+/);
   if (parts[0] !== commit) {
     throw new Error(`Git inspection failed for ${spec.label}: malformed parent for ${commit}`);
@@ -296,22 +351,33 @@ async function firstParent(
 export async function inspectWorktree(
   git: GitRunner,
   spec: WorktreeSpec,
+  signal?: AbortSignal,
 ): Promise<InspectedWorktree> {
-  if (!spec.baseRef) throw new Error(`Git inspection failed for ${spec.label}: recorded base is missing`);
+  if (!spec.baseRef) {
+    throw new Error(`Git inspection failed for ${spec.label}: recorded base is missing`);
+  }
 
-  const head = await gitText(git, ['rev-parse', '--verify', 'HEAD^{commit}'], spec, 'rev-parse HEAD');
-  const base = await gitText(
-    git,
-    ['rev-parse', '--verify', `${spec.baseRef}^{commit}`],
-    spec,
-    'rev-parse base',
-  );
-  const mergeBase = await gitText(
-    git,
-    ['merge-base', head.trim(), base.trim()],
-    spec,
-    'merge-base',
-  );
+  const head = (
+    await gitText(
+      git,
+      ['rev-parse', '--verify', 'HEAD^{commit}'],
+      spec,
+      'rev-parse HEAD',
+      signal,
+    )
+  ).trim();
+  const base = (
+    await gitText(
+      git,
+      ['rev-parse', '--verify', `${spec.baseRef}^{commit}`],
+      spec,
+      'rev-parse base',
+      signal,
+    )
+  ).trim();
+  const mergeBase = (
+    await gitText(git, ['merge-base', head, base], spec, 'merge-base', signal)
+  ).trim();
   const commitHeaders = parseCommitHeaders(
     await gitText(
       git,
@@ -320,233 +386,61 @@ export async function inspectWorktree(
         '--first-parent',
         '-z',
         '--format=%H%x00%h%x00%an%x00%aI%x00%s',
-        `${mergeBase.trim()}..HEAD`,
+        `${mergeBase}..${head}`,
       ],
       spec,
       'log',
+      signal,
     ),
   );
 
   const commits: InspectedCommit[] = [];
   for (const header of commitHeaders) {
-    const parent = await firstParent(git, spec, header.hash);
+    const parent = await firstParent(git, spec, header.hash, signal);
     const files = parseNameStatus(
       await gitText(
         git,
         ['diff-tree', '--no-commit-id', '--name-status', '-z', '-r', '-M', parent, header.hash],
         spec,
         'diff-tree',
+        signal,
       ),
-    ).map((file) => commitFile(spec, header, parent, file));
+    ).map((file) => commitFile(spec, head, header, parent, file));
     commits.push({ ...header, files });
   }
 
+  const indexEntries = parseStageZeroEntries(
+    await gitText(git, ['ls-files', '--stage', '-z'], spec, 'index entries', signal),
+  );
   const staged = parseNameStatus(
     await gitText(
       git,
-      ['diff', '--cached', '--name-status', '-z', '-M', 'HEAD'],
+      ['diff', '--cached', '--name-status', '-z', '-M', head],
       spec,
       'staged diff',
+      signal,
     ),
-  ).map((file) => stagedFile(spec, file));
-  const unstaged = parseNameStatus(
-    await gitText(git, ['diff', '--name-status', '-z', '-M'], spec, 'unstaged diff'),
-  ).map((file) => unstagedFile(spec, file));
+  ).map((file) => stagedFile(spec, head, indexEntries, file));
+  const unstagedFiles = parseNameStatus(
+    await gitText(git, ['diff', '--name-status', '-z', '-M'], spec, 'unstaged diff', signal),
+  );
+  const unstaged = await Promise.all(
+    unstagedFiles.map((file) => unstagedFile(spec, head, indexEntries, file, signal)),
+  );
   const untrackedOutput = await gitText(
     git,
     ['ls-files', '--others', '--exclude-standard', '-z'],
     spec,
     'untracked files',
+    signal,
   );
   const untrackedPaths = untrackedOutput.split('\0');
   if (untrackedPaths.at(-1) === '') untrackedPaths.pop();
-  const untracked = untrackedPaths.map((path) => {
+  const untracked = await Promise.all(untrackedPaths.map((path) => {
     if (!path) throw new Error(`Git inspection failed for ${spec.label}: incomplete untracked path`);
-    return untrackedFile(spec, path);
-  });
+    return untrackedFile(spec, head, path, signal);
+  }));
 
+  throwIfAborted(signal);
   return { spec, commits, staged, unstaged, untracked };
-}
-
-export async function prepareDiff(
-  git: GitRunner,
-  target: DiffTarget,
-  workingFile: {
-    lstat(path: string): Promise<{ size: number; isSymbolicLink(): boolean }>;
-    realpath(path: string): Promise<string>;
-    readlink(path: string): Promise<string>;
-    read(path: string): Promise<Buffer>;
-  },
-): Promise<PreparedDiff> {
-  const cwd = targetWorktrees.get(target);
-  if (!cwd) throw new TextDiffUnavailableError('the worktree for this diff is unknown');
-
-  const run = async (args: string[]): Promise<string> => {
-    try {
-      const result = await git(args, cwd);
-      if (result.exitCode !== 0) {
-        const reason = result.stderr.trim() || result.stdout.trim() || `git exit ${result.exitCode}`;
-        throw new TextDiffUnavailableError(reason);
-      }
-      if (result.stdout.includes(OUTPUT_TRUNCATION_MARKER)) {
-        throw new TextDiffUnavailableError('Git output was truncated');
-      }
-      return result.stdout;
-    } catch (error) {
-      if (error instanceof TextDiffUnavailableError) throw error;
-      throw new TextDiffUnavailableError(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const assertSize = (size: number): void => {
-    if (!Number.isFinite(size) || size < 0) throw new TextDiffUnavailableError('resource size is invalid');
-    if (size > DIFF_CONTENT_MAX_BYTES) {
-      throw new TextDiffUnavailableError(`resource exceeds ${DIFF_CONTENT_MAX_BYTES} bytes`);
-    }
-  };
-
-  const fsCall = async <T>(operation: () => Promise<T>): Promise<T> => {
-    try {
-      return await operation();
-    } catch (error) {
-      if (error instanceof TextDiffUnavailableError) throw error;
-      throw new TextDiffUnavailableError(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const realRoot = await fsCall(() => workingFile.realpath(cwd));
-  const assertWithinRealRoot = (path: string): void => {
-    const fromRoot = relative(realRoot, path);
-    if (
-      fromRoot === '..' ||
-      fromRoot.startsWith(`..${sep}`) ||
-      isAbsolute(fromRoot)
-    ) {
-      throw new TextDiffUnavailableError('resource resolves outside the real worktree');
-    }
-  };
-
-  type PreparedWorking =
-    | { kind: 'file'; path: string; bytes: Buffer }
-    | { kind: 'symlink'; content: string; bytes: Buffer };
-  const preparedWorking = new Map<string, Promise<PreparedWorking>>();
-  const prepareWorking = (path: string): Promise<PreparedWorking> => {
-    const existing = preparedWorking.get(path);
-    if (existing) return existing;
-    const preparing = fsCall(async () => {
-      if (!isAbsolute(path)) {
-        throw new TextDiffUnavailableError('working resource path is not absolute');
-      }
-
-      // Resolve and contain the directory first. For a final-component symlink
-      // we deliberately do not realpath the link itself: that would follow the
-      // target Karst must never read or open.
-      const realParent = await workingFile.realpath(dirname(path));
-      assertWithinRealRoot(realParent);
-      const entry = await workingFile.lstat(path);
-      assertSize(entry.size);
-      if (entry.isSymbolicLink()) {
-        const content = await workingFile.readlink(path);
-        const bytes = Buffer.from(content);
-        assertSize(bytes.byteLength);
-        return { kind: 'symlink' as const, content, bytes };
-      }
-
-      // Return the same resolved path whose containment was checked. This
-      // narrows authority to the validated resource; path APIs cannot promise
-      // that the filesystem will remain unchanged after this check.
-      const realPath = await workingFile.realpath(path);
-      assertWithinRealRoot(realPath);
-      const bytes = await workingFile.read(realPath);
-      assertSize(bytes.byteLength);
-      return { kind: 'file' as const, path: realPath, bytes };
-    });
-    preparedWorking.set(path, preparing);
-    return preparing;
-  };
-
-  const objectSize = async (object: string): Promise<void> => {
-    const sizeText = await run(['cat-file', '-s', object]);
-    const size = Number.parseInt(sizeText.trim(), 10);
-    if (!/^\d+$/.test(sizeText.trim())) {
-      throw new TextDiffUnavailableError('Git returned an invalid object size');
-    }
-    assertSize(size);
-  };
-
-  const resourceLabel = (source: DiffSource): string => {
-    const path = source.kind === 'empty' ? target.displayPath : source.path;
-    const comparison =
-      source.kind === 'empty'
-        ? 'empty'
-        : source.kind === 'index'
-          ? 'index'
-          : source.kind === 'working'
-            ? 'working tree'
-            : source.revision === 'HEAD'
-              ? 'HEAD'
-              : source.label.slice(0, 7);
-    return `${basename(path)} (${comparison})`;
-  };
-
-  const resource = async (source: DiffSource): Promise<PreparedDiffResource> => {
-    if (source.kind === 'empty') {
-      return { kind: 'virtual', label: resourceLabel(source), content: '' };
-    }
-    if (source.kind === 'working') {
-      const prepared = await prepareWorking(source.path);
-      return prepared.kind === 'symlink'
-        ? {
-            kind: 'virtual',
-            label: resourceLabel(source),
-            content: prepared.content,
-          }
-        : { kind: 'file', label: resourceLabel(source), path: prepared.path };
-    }
-
-    const object = source.kind === 'git' ? `${source.revision}:${source.path}` : `:${source.path}`;
-    await objectSize(object);
-    const content = await run(['show', object]);
-    if (Buffer.byteLength(content) > DIFF_CONTENT_MAX_BYTES) {
-      throw new TextDiffUnavailableError(`resource exceeds ${DIFF_CONTENT_MAX_BYTES} bytes`);
-    }
-    return { kind: 'virtual', label: resourceLabel(source), content };
-  };
-
-  if (target.binaryCheck.kind === 'untracked') {
-    const source =
-      target.left.kind === 'working'
-        ? target.left
-        : target.right.kind === 'working'
-          ? target.right
-          : null;
-    if (!source) {
-      throw new TextDiffUnavailableError('untracked diff has no working resource');
-    }
-    const prefix = (await prepareWorking(source.path)).bytes.subarray(0, 8 * 1024);
-    if (prefix.includes(0)) throw new TextDiffUnavailableError('untracked file is binary');
-  } else {
-    const args =
-      target.binaryCheck.kind === 'commit'
-        ? [
-            'diff',
-            '--numstat',
-            target.binaryCheck.parent,
-            target.binaryCheck.commit,
-            '--',
-            target.binaryCheck.path,
-          ]
-        : target.binaryCheck.kind === 'staged'
-          ? ['diff', '--cached', '--numstat', 'HEAD', '--', target.binaryCheck.path]
-          : ['diff', '--numstat', '--', target.binaryCheck.path];
-    if ((await run(args)).split('\n').some((line) => line.startsWith('-\t-'))) {
-      throw new TextDiffUnavailableError('Git reports a binary file');
-    }
-  }
-
-  return {
-    title: `${target.repoLabel} · ${target.groupLabel} · ${target.displayPath}`,
-    left: await resource(target.left),
-    right: await resource(target.right),
-  };
 }

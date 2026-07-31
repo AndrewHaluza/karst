@@ -1,5 +1,5 @@
 import type { LogError } from '../../logging/logger.js';
-import type { DiffTarget } from './git.js';
+import { StaleDiffTargetError, type DiffTarget } from './git.js';
 import {
   routeChangesMessage,
   type ChangesHostMessage,
@@ -24,10 +24,18 @@ interface PanelSession {
   requestId: number;
   snapshot: TicketChangesSnapshot | null;
   disposed: boolean;
+  controller: AbortController | null;
+  refreshQueued: boolean;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function abortError(): Error {
+  const error = new Error('Ticket changes refresh was aborted');
+  error.name = 'AbortError';
+  return error;
 }
 
 /**
@@ -40,7 +48,10 @@ export class TicketChangesManager {
   constructor(
     private readonly host: ChangesPanelHost,
     private readonly titleFor: (ticketId: number) => string,
-    private readonly load: (ticketId: number) => Promise<TicketChangesSnapshot>,
+    private readonly load: (
+      ticketId: number,
+      signal: AbortSignal,
+    ) => Promise<TicketChangesSnapshot>,
     private readonly openDiff: (target: DiffTarget) => Promise<void>,
     private readonly warn: (message: string) => void,
     private readonly logError: LogError = (message, error) => console.error(message, error),
@@ -55,7 +66,14 @@ export class TicketChangesManager {
     }
 
     const panel = this.host.createPanel(this.titleFor(ticketId), ticketId);
-    const session: PanelSession = { panel, requestId: 0, snapshot: null, disposed: false };
+    const session: PanelSession = {
+      panel,
+      requestId: 0,
+      snapshot: null,
+      disposed: false,
+      controller: null,
+      refreshQueued: false,
+    };
     this.sessions.set(ticketId, session);
 
     panel.onDidReceiveMessage((raw) => {
@@ -71,6 +89,10 @@ export class TicketChangesManager {
     });
     panel.onDidDispose(() => {
       session.disposed = true;
+      session.refreshQueued = false;
+      session.snapshot = null;
+      session.controller?.abort();
+      session.controller = null;
       if (this.sessions.get(ticketId) === session) this.sessions.delete(ticketId);
     });
 
@@ -83,22 +105,41 @@ export class TicketChangesManager {
 
   private refresh(ticketId: number, session: PanelSession): void {
     if (!this.isLive(ticketId, session)) return;
+    if (session.controller) {
+      session.refreshQueued = true;
+      session.controller.abort();
+      return;
+    }
+
     const requestId = ++session.requestId;
+    const controller = new AbortController();
+    session.controller = controller;
     session.panel.postMessage({ type: 'loading', state: session.snapshot?.state ?? null });
 
-    void Promise.resolve().then(() => this.load(ticketId)).then(
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) throw abortError();
+      return this.load(ticketId, controller.signal);
+    }).then(
       (snapshot) => {
+        if (controller.signal.aborted) return;
         if (!this.isCurrent(ticketId, session, requestId)) return;
         session.snapshot = snapshot;
         session.panel.postMessage({ type: 'state', state: snapshot.state });
       },
       (error) => {
+        if (controller.signal.aborted) return;
         if (!this.isCurrent(ticketId, session, requestId)) return;
         const message = errorMessage(error);
         this.logError('karst: loading ticket changes failed', error);
         session.panel.postMessage({ type: 'error', message });
       },
-    );
+    ).finally(() => {
+      if (session.controller !== controller) return;
+      session.controller = null;
+      if (!this.isLive(ticketId, session) || !session.refreshQueued) return;
+      session.refreshQueued = false;
+      this.refresh(ticketId, session);
+    });
   }
 
   private openTarget(ticketId: number, session: PanelSession, changeId: string): void {
@@ -111,6 +152,12 @@ export class TicketChangesManager {
     }
 
     void Promise.resolve().then(() => this.openDiff(target)).catch((error: unknown) => {
+      if (!this.isLive(ticketId, session)) return;
+      if (error instanceof StaleDiffTargetError) {
+        this.warn(error.message);
+        this.refresh(ticketId, session);
+        return;
+      }
       this.logError('karst: opening ticket change failed', error);
       this.warn(errorMessage(error));
     });
