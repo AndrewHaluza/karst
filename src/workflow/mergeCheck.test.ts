@@ -71,18 +71,99 @@ describe('checkMergeable', () => {
     expect(r.files).toEqual([]);
   });
 
-  // git < 2.38 has no `--write-tree`. Degrading to unknown with git's own words
-  // beats mis-reporting, and tells the user exactly what to fix.
-  it('reports unknown when git is too old to know --write-tree', async () => {
-    const { git } = scriptedGit({
+  // git < 2.38 has no `--write-tree` — it has no options at all, so it counts
+  // argv, fails the count, and prints its usage banner. That banner is what the
+  // dashboard was showing verbatim: "unknown (usage: git merge-tree <base-tree>
+  // <branch1> <branch2>)", which names neither the cause nor the fix.
+  describe('when git is too old to know --write-tree', () => {
+    const OLD_GIT_USAGE = 'usage: git merge-tree <base-tree> <branch1> <branch2>';
+
+    // A branch that already contains its base merges by fast-forward — there is
+    // no merge to conflict. That is provable from ancestry alone, on any git, so
+    // the common case (branch just cut or just rebased) gets a real answer
+    // instead of a shrug.
+    it('proves clean by ancestry when the branch already contains its base', async () => {
+      const { git, seen } = scriptedGit({
+        ...HEALTHY_PREAMBLE,
+        'merge-tree': { exitCode: 129, stderr: OLD_GIT_USAGE },
+        'merge-base': { exitCode: 0 },
+      });
+
+      const r = await checkMergeable(git, '/wt/fe', 'main');
+
+      expect(r.state).toBe('clean');
+      expect(r.reason).toBeNull();
+      expect(seen).toContainEqual(['merge-base', '--is-ancestor', 'abc1234', 'abc1234']);
+    });
+
+    // Ancestry cannot answer a real merge, and this file's whole doctrine is that
+    // a probe which could not run must not read as "no conflict".
+    it('reports unknown — never clean — once the branches have diverged', async () => {
+      const { git } = scriptedGit({
+        ...HEALTHY_PREAMBLE,
+        'merge-tree': { exitCode: 129, stderr: OLD_GIT_USAGE },
+        'merge-base': { exitCode: 1 },
+      });
+
+      const r = await checkMergeable(git, '/wt/fe', 'main');
+
+      expect(r.state).toBe('unknown');
+      // The one fact the user can act on is the version requirement — and it is
+      // the one fact git's usage banner does not contain. Naming it beats
+      // quoting a banner that only describes a command nobody typed.
+      expect(r.reason).toMatch(/2\.38/);
+      expect(r.reason).not.toContain('usage:');
+    });
+
+    it('reports unknown when ancestry itself cannot be determined', async () => {
+      const { git } = scriptedGit({
+        ...HEALTHY_PREAMBLE,
+        'merge-tree': { exitCode: 129, stderr: OLD_GIT_USAGE },
+        'merge-base': { exitCode: 128, stderr: 'fatal: Not a valid object name' },
+      });
+
+      expect((await checkMergeable(git, '/wt/fe', 'main')).state).toBe('unknown');
+    });
+
+    it('recognises the option-parsing wording too, not just the usage banner', async () => {
+      const { git } = scriptedGit({
+        ...HEALTHY_PREAMBLE,
+        'merge-tree': { exitCode: 129, stderr: "error: unknown option `write-tree'" },
+        'merge-base': { exitCode: 0 },
+      });
+
+      expect((await checkMergeable(git, '/wt/fe', 'main')).state).toBe('clean');
+    });
+
+    it('still records the SHAs the verdict was computed from', async () => {
+      const { git } = scriptedGit({
+        ...HEALTHY_PREAMBLE,
+        'merge-tree': { exitCode: 129, stderr: OLD_GIT_USAGE },
+        'merge-base': { exitCode: 1 },
+      });
+
+      const r = await checkMergeable(git, '/wt/fe', 'main');
+
+      expect(r.headSha).toBe('abc1234');
+      expect(r.baseSha).toBe('abc1234');
+    });
+  });
+
+  // The fallback is for one specific incapacity. A git that CAN run the probe and
+  // reports a real error must keep reporting it — routing that through an ancestry
+  // shortcut would answer "clean" for a repo git just refused to read.
+  it('does not fall back to ancestry for a merge-tree error that is not a usage failure', async () => {
+    const { git, seen } = scriptedGit({
       ...HEALTHY_PREAMBLE,
-      'merge-tree': { exitCode: 129, stderr: "error: unknown option `write-tree'" },
+      'merge-tree': { exitCode: 128, stderr: 'fatal: not something we can merge' },
+      'merge-base': { exitCode: 0 },
     });
 
     const r = await checkMergeable(git, '/wt/fe', 'main');
 
     expect(r.state).toBe('unknown');
-    expect(r.reason).toContain('write-tree');
+    expect(r.reason).toContain('fatal: not something we can merge');
+    expect(seen.some((a) => a[0] === 'merge-base')).toBe(false);
   });
 
   it('reports unknown when the worktree has no base ref recorded', async () => {
