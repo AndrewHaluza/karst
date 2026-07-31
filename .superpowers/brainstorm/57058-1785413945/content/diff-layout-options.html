@@ -1,0 +1,145 @@
+<h2>How should “Diff” open?</h2>
+<p class="subtitle">
+  Compare the three interaction models. Each example shows the same worktree:
+  3 branch changes since <strong>develop</strong> and 2 local working-tree changes.
+</p>
+
+<div class="cards" style="grid-template-columns:1fr;gap:22px">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:0;background:#181818">
+      <div style="display:flex;min-height:310px;color:#ccc;font:12px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:left">
+        <div style="width:280px;border-right:1px solid #333;background:#202020">
+          <div style="padding:11px 13px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center">
+            <strong style="color:#eee">WORKTREE CHANGES</strong>
+            <span style="color:#888">↻ &nbsp;•••</span>
+          </div>
+          <div style="padding:10px 12px;border-bottom:1px solid #333">
+            <div style="color:#eee;font-weight:600">Karst-extention</div>
+            <div style="color:#888;margin-top:3px">show-wt-diffs · vs develop</div>
+          </div>
+          <div style="display:flex;gap:4px;padding:8px;border-bottom:1px solid #333">
+            <span style="padding:4px 9px;background:#3c3c3c;border-radius:3px;color:#fff">All&nbsp; 5</span>
+            <span style="padding:4px 9px;color:#aaa">Branch&nbsp; 3</span>
+            <span style="padding:4px 9px;color:#aaa">Local&nbsp; 2</span>
+          </div>
+          <div style="padding:7px 10px;color:#aaa">⌄ &nbsp;BRANCH CHANGES <span style="float:right">3</span></div>
+          <div style="padding:7px 13px;background:#37373d;color:#fff">TS&nbsp;&nbsp; src/ui/diffs/panel.ts <span style="float:right;color:#73c991">A</span></div>
+          <div style="padding:7px 13px">TS&nbsp;&nbsp; src/extension.ts <span style="float:right;color:#cca700">M</span></div>
+          <div style="padding:7px 13px">TS&nbsp;&nbsp; src/ui/dashboard/messages.ts <span style="float:right;color:#cca700">M</span></div>
+          <div style="padding:7px 10px;color:#aaa">⌄ &nbsp;LOCAL CHANGES <span style="float:right">2</span></div>
+          <div style="padding:7px 13px">TS&nbsp;&nbsp; src/extension.ts <span style="float:right;color:#cca700">M</span></div>
+          <div style="padding:7px 13px">TS&nbsp;&nbsp; src/ui/diffs/panel.test.ts <span style="float:right;color:#73c991">A</span></div>
+        </div>
+        <div style="flex:1;background:#1e1e1e">
+          <div style="height:34px;border-bottom:1px solid #333;padding:8px 12px;box-sizing:border-box;color:#eee">
+            panel.ts (develop) ↔ panel.ts (show-wt-diffs)
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;min-height:275px">
+            <pre style="margin:0;padding:18px;color:#aaa;border-right:1px solid #333;line-height:1.7;white-space:pre-wrap">41  export interface DiffPanel {
+42    reveal(): void;
+43  }
+44
+45  export class Manager {</pre>
+            <pre style="margin:0;padding:18px;color:#aaa;line-height:1.7;white-space:pre-wrap">41  export interface DiffPanel {
+42    reveal(): void;
+<span style="display:block;background:#234d2f;color:#d7f4dd">43    postMessage(data: unknown): void;</span>
+44  }
+45  export class Manager {</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Dedicated change explorer + native diff editor</h3>
+      <p>
+        “Diff” opens a focused Karst tab. The left side groups Branch and Local
+        changes; selecting a file opens VS Code’s familiar side-by-side editor.
+        Files changed in both scopes appear in both groups, so the comparison is explicit.
+      </p>
+      <p style="color:#73c991"><strong>Recommended:</strong> fast overview, low visual noise, native editor features.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:0;background:#181818">
+      <div style="min-height:300px;color:#ccc;font:12px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:left;background:#1e1e1e">
+        <div style="height:40px;padding:9px 14px;box-sizing:border-box;border-bottom:1px solid #333;display:flex;gap:8px;align-items:center">
+          <strong style="color:#eee;margin-right:auto">Karst-extention changes</strong>
+          <span style="padding:4px 10px;background:#3c3c3c;border-radius:3px">All 5</span>
+          <span style="padding:4px 10px">Branch 3</span>
+          <span style="padding:4px 10px">Local 2</span>
+        </div>
+        <div style="padding:11px 16px;border-bottom:1px solid #333;color:#aaa">
+          5 files &nbsp; <span style="color:#73c991">+186</span> &nbsp; <span style="color:#f48771">−24</span>
+        </div>
+        <div style="padding:10px 16px;border-bottom:1px solid #333">
+          <strong style="color:#eee">src/ui/diffs/panel.ts</strong>
+          <span style="margin-left:8px;padding:2px 6px;background:#164a29;color:#9be9a8;border-radius:8px">BRANCH</span>
+          <span style="float:right;color:#73c991">+84</span>
+        </div>
+        <pre style="margin:0;padding:12px 22px;line-height:1.6;color:#aaa;white-space:pre-wrap">@@ -41,6 +41,7 @@
+ export interface DiffPanel {
+   reveal(): void;
+<span style="display:block;background:#234d2f;color:#d7f4dd">+  postMessage(data: unknown): void;</span>
+ }</pre>
+        <div style="padding:10px 16px;border-top:1px solid #333;border-bottom:1px solid #333">
+          <strong style="color:#eee">src/extension.ts</strong>
+          <span style="margin-left:8px;padding:2px 6px;background:#273a63;color:#9ecbff;border-radius:8px">BRANCH</span>
+          <span style="margin-left:4px;padding:2px 6px;background:#614a19;color:#ffd580;border-radius:8px">LOCAL</span>
+          <span style="float:right;color:#73c991">+42</span>
+        </div>
+        <pre style="margin:0;padding:12px 22px;line-height:1.6;color:#aaa;white-space:pre-wrap">@@ -2345,4 +2345,5 @@
+- open Source Control
+<span style="display:block;background:#234d2f;color:#d7f4dd">+ open Karst worktree changes</span></pre>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Full patch viewer inside Karst</h3>
+      <p>
+        A GitHub-style scrollable page renders every patch inline. It is excellent
+        for review, but duplicates editor behavior and becomes heavy for large changes,
+        binary files, syntax highlighting, and navigation.
+      </p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:20px;background:#181818">
+      <div style="color:#ccc;font:12px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:left;background:#252526;border:1px solid #3b3b3b;border-radius:5px;max-width:760px;margin:auto">
+        <div style="padding:14px 16px;border-bottom:1px solid #3b3b3b;display:flex;align-items:center;gap:8px">
+          <strong style="color:#eee">Karst-extention</strong>
+          <span style="color:#888">./.karst/worktrees/show-wt-diffs</span>
+          <span style="margin-left:auto;color:#aaa">Open folder</span>
+          <span style="padding:5px 10px;background:#0e639c;color:#fff;border-radius:2px">Changes 5</span>
+        </div>
+        <div style="padding:12px 16px;background:#202020">
+          <div style="display:flex;gap:14px;margin-bottom:10px;color:#aaa">
+            <strong style="color:#fff;border-bottom:2px solid #3794ff;padding-bottom:6px">All 5</strong>
+            <span>Branch 3</span><span>Local 2</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;padding-top:6px">
+            <div>▾ src/ui/diffs/panel.ts <span style="float:right;color:#73c991">A</span></div>
+            <div>▾ src/extension.ts <span style="float:right;color:#cca700">M</span></div>
+            <div>▾ src/ui/dashboard/messages.ts <span style="float:right;color:#cca700">M</span></div>
+            <div>▾ src/ui/diffs/panel.test.ts <span style="float:right;color:#73c991">A</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="height:80px;padding:24px;color:#777;text-align:center">
+        The existing ticket dashboard continues below…
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Expand changes inside the ticket dashboard</h3>
+      <p>
+        Keeps worktree context and file actions together. It saves one tab, but the
+        dashboard becomes crowded and the file list competes with servers, stages,
+        pull requests, and ticket controls.
+      </p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">
+  Click the layout you prefer, then tell me what feels right or wrong in the terminal.
+</p>
