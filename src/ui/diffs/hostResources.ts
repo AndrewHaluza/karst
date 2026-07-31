@@ -41,12 +41,38 @@ interface VirtualDocumentEntry {
   owner: symbol | null;
 }
 
+/**
+ * Served in place of a virtual document the registry no longer holds. An empty
+ * string is NOT a safe substitute: one side of a diff is legitimately empty for
+ * an added or deleted file, so `''` would render as "the whole file was added"
+ * with nothing marking it as fabricated. The registry is in-memory and rebuilt
+ * per activation while VS Code restores open `karst-diff:` editors across a
+ * window reload, so this is the text a restored — or rolled-back — editor gets.
+ */
+export const VIRTUAL_DOCUMENT_UNAVAILABLE = [
+  'karst: this diff content is no longer available.',
+  '',
+  'The prepared text for this editor was released when the window reloaded, when',
+  'the editor was closed, or when the diff failed to open. Close this editor and',
+  'reopen the change from the ticket Changes panel.',
+].join('\n');
+
 /** Prepared virtual text keyed only by the host-created URI string. */
 export class VirtualDocumentRegistry {
   private readonly documents = new Map<string, VirtualDocumentEntry>();
 
   get(key: string): string | undefined {
     return this.documents.get(key)?.content;
+  }
+
+  /**
+   * The content provider's answer: the registered text, or a loud refusal when
+   * this key is unknown. Distinguishes "never registered / evicted" from "holds
+   * the empty string" — only the former is a refusal.
+   */
+  resolve(key: string): string {
+    const entry = this.documents.get(key);
+    return entry ? entry.content : VIRTUAL_DOCUMENT_UNAVAILABLE;
   }
 
   delete(key: string): void {

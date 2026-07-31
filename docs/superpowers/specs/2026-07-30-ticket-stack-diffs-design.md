@@ -126,9 +126,9 @@ For each worktree:
 First-parent history keeps commits brought in only through a base-branch merge
 out of the ticket's own list while retaining the ticket commits and the merge
 commit itself. A merge commit is compared with its first parent. An empty
-commit remains visible with zero files. Karst worktrees branch from an existing
-recorded base, so this merge-base-bounded range cannot contain a root commit;
-the explorer does not invent an orphan-history fallback.
+commit remains visible with zero files. The root-commit empty-tree comparison
+is supported even though Karst worktrees normally branch from an existing
+base.
 
 No fallback silently guesses another base. A missing or invalid recorded base
 is a repository-level error because labeling an invented range as the ticket's

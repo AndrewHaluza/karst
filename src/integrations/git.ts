@@ -221,17 +221,6 @@ export const defaultGitRunner: GitRunner = (args, cwd, options) =>
     options?.signal,
   );
 
-/** Default byte runner, bounded independently by its caller. */
-export const defaultGitBytesRunner: GitBytesRunner = (args, cwd, options) =>
-  runGitBytes(
-    args,
-    cwd,
-    GIT_TIMEOUT_MS,
-    GIT_MAX_OUTPUT_BYTES,
-    GIT_TERMINATION_GRACE_MS,
-    options?.signal,
-  );
-
 /** `git <args>` in `cwd`, throwing git's own reason (never a bare colon) on failure. */
 async function run(git: GitRunner, args: string[], cwd: string, what: string): Promise<string> {
   const r = await git(args, cwd);

@@ -6,6 +6,12 @@ export interface ParsedFile {
   status: FileChangeStatus;
   path: string;
   oldPath: string | null;
+  /**
+   * True for an unmerged (`U`) path. Such a path has NO stage-zero index entry,
+   * so it must never be routed to a diff that requires one. Display status stays
+   * `modified`; the distinction is consumed host-side, not by the webview.
+   */
+  conflicted?: true;
 }
 
 export interface CommitHeader {
@@ -34,6 +40,7 @@ export function parseNameStatus(output: string): ParsedFile[] {
   const fields = output.split('\0');
   if (fields.at(-1) === '') fields.pop();
   const parsed: ParsedFile[] = [];
+  const conflicted = new Set<string>();
 
   for (let cursor = 0; cursor < fields.length;) {
     const token = required(fields, cursor++, 'name-status');
@@ -46,6 +53,11 @@ export function parseNameStatus(output: string): ParsedFile[] {
     }
 
     const path = required(fields, cursor++, 'name-status');
+    if (code === 'U') {
+      conflicted.add(path);
+      parsed.push({ status: 'modified', path, oldPath: null, conflicted: true });
+      continue;
+    }
     parsed.push({
       status: code === 'A' ? 'added' : code === 'D' ? 'deleted' : 'modified',
       path,
@@ -53,7 +65,10 @@ export function parseNameStatus(output: string): ParsedFile[] {
     });
   }
 
-  return parsed;
+  // Git reports one unmerged path twice in `diff --name-status` (`U` then `M`).
+  // Keep the conflicted record; drop every plain record naming the same path.
+  if (conflicted.size === 0) return parsed;
+  return parsed.filter((file) => file.conflicted || !conflicted.has(file.path));
 }
 
 /** Parses the five NUL-delimited fields emitted by the inspection log command. */
@@ -77,10 +92,10 @@ export function parseCommitHeaders(output: string): CommitHeader[] {
 }
 
 /**
- * Parses `git ls-files --stage -z`, retaining only stage zero. The first TAB
- * terminates Git's fixed metadata prefix; every later byte belongs to the path.
+ * Parses `git ls-files --stage -z`, retaining only the requested stage. The first
+ * TAB terminates Git's fixed metadata prefix; every later byte belongs to the path.
  */
-export function parseStageZeroEntries(output: string): Map<string, string> {
+function parseIndexStage(output: string, wanted: string, what: string): Map<string, string> {
   rejectTruncated(output);
   const records = output.split('\0');
   if (records.at(-1) === '') records.pop();
@@ -99,12 +114,25 @@ export function parseStageZeroEntries(output: string): Map<string, string> {
       throw new Error('Malformed Git index object id');
     }
     if (!stage || !/^[0-3]$/.test(stage)) throw new Error('Malformed Git index stage');
-    if (stage !== '0') continue;
+    if (stage !== wanted) continue;
 
     const path = record.slice(separator + 1);
-    if (entries.has(path)) throw new Error('Duplicate stage-zero Git index path');
+    if (entries.has(path)) throw new Error(`Duplicate ${what} Git index path`);
     entries.set(path, object);
   }
 
   return entries;
+}
+
+/** Stage zero: the merged index entry every non-conflicted path has. */
+export function parseStageZeroEntries(output: string): Map<string, string> {
+  return parseIndexStage(output, '0', 'stage-zero');
+}
+
+/**
+ * Stage two: the "ours" side of an unmerged path. An unmerged path has no
+ * stage-zero entry, so this is the only index blob available for it.
+ */
+export function parseStageTwoEntries(output: string): Map<string, string> {
+  return parseIndexStage(output, '2', 'stage-two');
 }

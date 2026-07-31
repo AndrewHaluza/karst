@@ -23,7 +23,6 @@ function target(path: string): DiffTarget {
     displayPath: path,
     left: { kind: 'empty', label: 'Empty' },
     right: { kind: 'working', path: `/worktrees/repository/${path}`, label: 'Working Tree' },
-    binaryCheck: { kind: 'untracked', path },
   };
 }
 

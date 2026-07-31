@@ -86,6 +86,41 @@ function createWorktreeFixture(): { dir: string; spec: WorktreeSpec; base: strin
   };
 }
 
+/** A worktree stopped mid-merge: `conflict.txt` has no stage-zero index entry. */
+function createConflictFixture(): { dir: string; spec: WorktreeSpec } {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-diff-conflict-'));
+  fixtureGit(dir, ['init', '-q']);
+  fixtureGit(dir, ['config', 'user.name', 'Karst Test']);
+  fixtureGit(dir, ['config', 'user.email', 'karst-test@example.com']);
+
+  write(dir, 'conflict.txt', 'base\n');
+  write(dir, 'staged.txt', 'staged=1\n');
+  write(dir, 'unstaged.txt', 'unstaged=1\n');
+  commit(dir, 'base');
+  const base = fixtureGit(dir, ['rev-parse', 'HEAD']).trim();
+
+  fixtureGit(dir, ['checkout', '-q', '-b', 'side']);
+  write(dir, 'conflict.txt', 'theirs\n');
+  commit(dir, 'theirs');
+  fixtureGit(dir, ['checkout', '-q', '-b', 'ticket', base]);
+  write(dir, 'conflict.txt', 'ours\n');
+  commit(dir, 'ours');
+
+  try {
+    fixtureGit(dir, ['merge', 'side']);
+    throw new Error('fixture expected a merge conflict');
+  } catch (error) {
+    if (!lstatSync(join(dir, '.git', 'MERGE_HEAD'), { throwIfNoEntry: false })) throw error;
+  }
+
+  write(dir, 'staged.txt', 'staged=2\n');
+  fixtureGit(dir, ['add', 'staged.txt']);
+  write(dir, 'unstaged.txt', 'unstaged=2\n');
+  write(dir, 'untracked.txt', 'untracked\n');
+
+  return { dir, spec: { label: 'Conflicted Repository', path: dir, branch: 'ticket', baseRef: base } };
+}
+
 const workingFile = {
   lstat: async (path: string) => {
     const entry = lstatSync(path);
@@ -430,6 +465,124 @@ describe('inspectWorktree', () => {
           baseRef: 'base',
         }),
       ).rejects.toThrow(/out-of-worktree path/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads index entries for changed paths only, not the whole repository index', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      // Stands in for a repository large enough that listing the ENTIRE index
+      // exceeds the runner's output bound. A scoped read stays far below it.
+      const wholeIndexIsTooLarge: GitRunner = async (args, cwd, options) => {
+        if (args[0] === 'ls-files' && args.includes('--stage') && !args.includes('--')) {
+          return { stdout: '', stderr: '', exitCode: 0, stdoutTruncated: true };
+        }
+        return defaultGitRunner(args, cwd, options);
+      };
+
+      const inspected = await inspectWorktree(wholeIndexIsTooLarge, spec);
+
+      expect(inspected.staged.map((file) => file.path)).toEqual(['staged only.txt', 'value.txt']);
+      expect(inspected.unstaged.map((file) => file.path)).toEqual(['unstaged.txt', 'value.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a truncated index read as a scoped worktree error', async () => {
+    const { dir, spec } = createWorktreeFixture();
+    try {
+      const truncatingGit: GitRunner = async (args, cwd, options) => {
+        if (args[0] === 'ls-files' && args.includes('--stage')) {
+          return { stdout: '', stderr: '', exitCode: 0, stdoutTruncated: true };
+        }
+        return defaultGitRunner(args, cwd, options);
+      };
+
+      await expect(inspectWorktree(truncatingGit, spec)).rejects.toThrow(
+        /Repository: git index entries output was truncated/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves index blobs for paths that look like pathspec magic or globs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-diff-pathspec-'));
+    try {
+      fixtureGit(dir, ['init', '-q']);
+      fixtureGit(dir, ['config', 'user.name', 'Karst Test']);
+      fixtureGit(dir, ['config', 'user.email', 'karst-test@example.com']);
+      write(dir, ':colon.txt', 'colon=1\n');
+      write(dir, 'star*.txt', 'star=1\n');
+      commit(dir, 'base');
+      const base = fixtureGit(dir, ['rev-parse', 'HEAD']).trim();
+      write(dir, ':colon.txt', 'colon=2\n');
+      write(dir, 'star*.txt', 'star=2\n');
+      fixtureGit(dir, ['add', '-A']);
+
+      const inspected = await inspectWorktree(defaultGitRunner, {
+        label: 'Pathspec Repository',
+        path: dir,
+        branch: 'ticket',
+        baseRef: base,
+      });
+
+      expect(inspected.staged.map((file) => file.path)).toEqual([':colon.txt', 'star*.txt']);
+      const colon = inspected.staged.find((file) => file.path === ':colon.txt')!;
+      expect(colon.target.right).toMatchObject({
+        kind: 'index',
+        blob: fixtureGit(dir, ['hash-object', join(dir, ':colon.txt')]).trim(),
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('degrades one row for a conflicted path instead of failing the whole worktree', async () => {
+    const { dir, spec } = createConflictFixture();
+    try {
+      const inspected = await inspectWorktree(defaultGitRunner, spec);
+
+      expect(inspected.commits.map((entry) => entry.subject)).toEqual(['ours']);
+      expect(inspected.untracked.map((file) => file.path)).toEqual(['untracked.txt']);
+      expect(inspected.staged.map((file) => file.path)).toEqual(['staged.txt']);
+
+      const pending = [...inspected.staged, ...inspected.unstaged];
+      expect(pending.filter((file) => file.path === 'conflict.txt')).toHaveLength(1);
+      expect(inspected.unstaged.map((file) => file.path)).toEqual([
+        'unstaged.txt',
+        'conflict.txt',
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('compares a conflicted path with the ours index stage rather than a missing stage zero', async () => {
+    const { dir, spec } = createConflictFixture();
+    try {
+      const inspected = await inspectWorktree(defaultGitRunner, spec);
+      const conflicted = inspected.unstaged.find((file) => file.path === 'conflict.txt')!;
+
+      expect(conflicted.target.left).toMatchObject({
+        kind: 'index',
+        blob: fixtureGit(dir, ['rev-parse', ':2:conflict.txt']).trim(),
+        path: 'conflict.txt',
+      });
+      expect(conflicted.target.right).toMatchObject({
+        kind: 'working',
+        path: join(dir, 'conflict.txt'),
+      });
+
+      const prepared = await prepareDiff(defaultGitRunner, conflicted.target, workingFile);
+      expect(prepared.left).toMatchObject({ kind: 'virtual', content: 'ours\n' });
+      expect(prepared.right).toMatchObject({
+        kind: 'file',
+        path: realpathSync(join(dir, 'conflict.txt')),
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -843,7 +996,6 @@ describe('prepareDiff', () => {
         path: join(dir, 'escape', 'outside.txt'),
         label: 'Working Tree',
       };
-      target.binaryCheck = { kind: 'untracked', path: 'escape/outside.txt' };
       const reads: string[] = [];
 
       await expect(

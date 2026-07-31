@@ -277,6 +277,13 @@ let endpoint: HookEndpoint | undefined;
 const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
+/**
+ * Torn down BEFORE `store.close()`: an in-flight changes refresh re-enters its
+ * loader from a settlement handler, and that loader reads the store
+ * synchronously. `context.subscriptions` is drained only after `deactivate`
+ * returns, so the manager is registered there AND called here.
+ */
+let shutdownTicketChanges: (() => void) | undefined;
 const pendingSessionRecoveryTasks = new Set<Promise<void>>();
 
 /** Per-ticket single-flight + Stop bookkeeping for the auto-driver (§11/§12). */
@@ -957,7 +964,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let virtualDocumentId = 0;
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('karst-diff', {
-      provideTextDocumentContent: (uri) => virtualDocuments.get(uri.toString()) ?? '',
+      // `resolve`, never `?? ''`: VS Code restores open `karst-diff:` editors
+      // across a window reload but the registry is rebuilt empty, and an empty
+      // string is a legitimate diff side. It must refuse, not fabricate.
+      provideTextDocumentContent: (uri) => virtualDocuments.resolve(uri.toString()),
     }),
     vscode.workspace.onDidCloseTextDocument((document) => {
       if (document.uri.scheme === 'karst-diff') {
@@ -1023,7 +1033,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showWarningMessage(error.message);
         return;
       }
+      // Rethrown, not swallowed: the manager's generic branch is what tells the
+      // user their click failed. Returning here would resolve the promise and
+      // leave an unexpected failure completely silent in the UI.
       logError('karst: opening native ticket diff failed', error);
+      throw error;
     }
   };
 
@@ -1050,6 +1064,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (message) => void vscode.window.showWarningMessage(message),
     logError,
   );
+  shutdownTicketChanges = () => changes.dispose();
+  context.subscriptions.push(changes);
 
   // Declared before the manager because the two reference each other: the
   // manager asks the binder how the toggle sits, and the binder reveals through
@@ -2148,6 +2164,12 @@ export async function deactivate(): Promise<void> {
   shutdownSessionRecovery = undefined;
   flushSessionOwnership = undefined;
   try {
+    shutdownTicketChanges?.();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  shutdownTicketChanges = undefined;
+  try {
     store?.close();
   } catch (error) {
     cleanupErrors.push(error);
@@ -2318,7 +2340,7 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
 }
 
 /** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
-function makeChangesPanelHost(_context: vscode.ExtensionContext): ChangesPanelHost {
+function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHost {
   const html = readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8');
   return {
     createPanel(title, _ticketId): ChangesPanel {
@@ -2328,6 +2350,10 @@ function makeChangesPanelHost(_context: vscode.ExtensionContext): ChangesPanelHo
         vscode.ViewColumn.Active,
         { enableScripts: true, retainContextWhenHidden: true },
       );
+      // The panel itself, not only its listeners: without this the webview
+      // outlives extension unload with no owner. VS Code tolerates a second
+      // dispose of an already-closed panel.
+      context.subscriptions.push(panel);
       panel.webview.html = injectCsp(html, newNonce());
       const listeners = new DisposableBag();
       return {

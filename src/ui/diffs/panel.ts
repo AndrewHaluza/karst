@@ -103,6 +103,26 @@ export class TicketChangesManager {
     return this.sessions.has(ticketId);
   }
 
+  /**
+   * Extension shutdown. Every other async owner in the host is drained at
+   * deactivate; without this one an in-flight load settles AFTER the store is
+   * closed and the `.finally` re-entry runs the injected loader against a dead
+   * SQLite connection. Marking each session disposed is what stops that
+   * re-entry — aborting alone would not, because the queued refresh is
+   * dispatched from the settlement handler, not from the signal.
+   */
+  dispose(): void {
+    const sessions = [...this.sessions.values()];
+    this.sessions.clear();
+    for (const session of sessions) {
+      session.disposed = true;
+      session.refreshQueued = false;
+      session.snapshot = null;
+      session.controller?.abort();
+      session.controller = null;
+    }
+  }
+
   private refresh(ticketId: number, session: PanelSession): void {
     if (!this.isLive(ticketId, session)) return;
     if (session.controller) {
@@ -139,6 +159,12 @@ export class TicketChangesManager {
       if (!this.isLive(ticketId, session) || !session.refreshQueued) return;
       session.refreshQueued = false;
       this.refresh(ticketId, session);
+    }).catch((error: unknown) => {
+      // `ChangesPanel` is an injected interface: `postMessage` on a torn-down
+      // webview can throw, from either settlement handler or from the queued
+      // refresh re-entered above. Without this the voided tail would surface as
+      // an unhandled rejection in the extension host.
+      this.report('karst: ticket changes refresh failed', error);
     });
   }
 
@@ -160,7 +186,25 @@ export class TicketChangesManager {
       }
       this.logError('karst: opening ticket change failed', error);
       this.warn(errorMessage(error));
+    }).catch((error: unknown) => {
+      // Same reason as the refresh chain: `warn` and `refresh` are injected and
+      // may throw from inside the handler above, which would otherwise reject
+      // the voided tail with nothing attached to it.
+      this.report('karst: ticket changes open failed', error);
     });
+  }
+
+  /**
+   * The last handler on a voided chain. A throw from the log channel itself has
+   * nowhere left to go, so it is contained here rather than escaping as an
+   * unhandled rejection — every other failure is reported before reaching this.
+   */
+  private report(message: string, error: unknown): void {
+    try {
+      this.logError(message, error);
+    } catch {
+      // Intentionally terminal.
+    }
   }
 
   private isLive(ticketId: number, session: PanelSession): boolean {

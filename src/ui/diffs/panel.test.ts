@@ -41,7 +41,6 @@ function target(path: string): DiffTarget {
     displayPath: path,
     left: { kind: 'empty', label: 'Empty' },
     right: { kind: 'working', path: `/worktrees/repository/${path}`, label: 'Working Tree' },
-    binaryCheck: { kind: 'untracked', path },
   };
 }
 
@@ -399,6 +398,154 @@ describe('TicketChangesManager', () => {
       { type: 'loading', state: null },
       { type: 'state', state: snapshot(41, 'new:1', target('src/new.ts')).state },
     ]);
+  });
+
+  it('aborts a queued refresh and its in-flight load when the extension shuts down', async () => {
+    const signals: AbortSignal[] = [];
+    const loads: Deferred<TicketChangesSnapshot>[] = [];
+    const load = vi.fn((_ticketId: number, signal: AbortSignal) => {
+      signals.push(signal);
+      const pending = deferred<TicketChangesSnapshot>();
+      loads.push(pending);
+      return pending.promise;
+    });
+    const { host, panels } = makeHost();
+    const logError = vi.fn();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      load,
+      async () => {},
+      () => {},
+      logError,
+    );
+
+    manager.open(41);
+    await settle();
+    // Queues a replacement load behind the in-flight one, exactly as a Refresh
+    // click during a slow load does.
+    panels[0]!.emit({ type: 'refresh' });
+    expect(load).toHaveBeenCalledTimes(1);
+
+    manager.dispose();
+
+    expect(signals[0]!.aborted).toBe(true);
+    expect(manager.isOpen(41)).toBe(false);
+
+    // The aborted load still settles afterwards; nothing may re-enter refresh
+    // and reach the (now closed) store behind the injected loader.
+    loads[0]!.resolve(snapshot(41, 'late:1', target('src/late.ts')));
+    await settle();
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('disposes idempotently and posts nothing to a disposed session', async () => {
+    const pending = deferred<TicketChangesSnapshot>();
+    const { host, panels } = makeHost();
+    const manager = new TicketChangesManager(
+      host,
+      (id) => `Changes ${id}`,
+      () => pending.promise,
+      async () => {},
+      () => {},
+    );
+
+    manager.open(41);
+    await settle();
+
+    expect(() => {
+      manager.dispose();
+      manager.dispose();
+    }).not.toThrow();
+
+    pending.resolve(snapshot(41, 'late:1', target('src/late.ts')));
+    await settle();
+
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    // A disposed manager must not resurrect a session either.
+    panels[0]!.emit({ type: 'refresh' });
+    await settle();
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+  });
+
+  it('never leaks an unhandled rejection when the panel throws while posting state', async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { rejections.push(reason); };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const panels: FakePanel[] = [];
+      const host: ChangesPanelHost = {
+        createPanel: () => {
+          const panel = new FakePanel();
+          const post = panel.postMessage.bind(panel);
+          panel.postMessage = (message: ChangesHostMessage): void => {
+            post(message);
+            if (message.type === 'state') throw new Error('panel is gone');
+          };
+          panels.push(panel);
+          return panel;
+        },
+      };
+      const loaded = deferred<TicketChangesSnapshot>();
+      const logError = vi.fn();
+      const manager = new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        () => loaded.promise,
+        async () => {},
+        () => {},
+        logError,
+      );
+
+      manager.open(41);
+      loaded.resolve(snapshot(41, 'current:1', target('src/current.ts')));
+      await settle();
+      await settle();
+
+      expect(rejections).toEqual([]);
+      expect(logError).toHaveBeenCalledWith(
+        'karst: ticket changes refresh failed',
+        expect.any(Error),
+      );
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('never leaks an unhandled rejection when the warn channel throws', async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { rejections.push(reason); };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const logError = vi.fn();
+      const manager = new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        async () => loaded,
+        async () => { throw new Error('Diff unavailable'); },
+        () => { throw new Error('warn channel is gone'); },
+        logError,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-diff', changeId: 'current:1' });
+      await settle();
+      await settle();
+
+      expect(rejections).toEqual([]);
+      expect(logError).toHaveBeenCalledWith(
+        'karst: ticket changes open failed',
+        expect.any(Error),
+      );
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   it('aborts the active load when its panel is disposed', async () => {

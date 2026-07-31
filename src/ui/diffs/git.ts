@@ -15,6 +15,7 @@ import type {
 import {
   parseCommitHeaders,
   parseNameStatus,
+  parseStageTwoEntries,
   parseStageZeroEntries,
 } from './gitParsers.js';
 
@@ -47,11 +48,6 @@ export interface DiffTarget {
   displayPath: string;
   left: DiffSource;
   right: DiffSource;
-  binaryCheck:
-    | { kind: 'commit'; parent: string; commit: string; path: string }
-    | { kind: 'staged'; path: string }
-    | { kind: 'unstaged'; path: string }
-    | { kind: 'untracked'; path: string };
 }
 
 export interface InspectedFile {
@@ -133,7 +129,6 @@ function registerTarget(
   file: ParsedFile,
   left: DiffSource,
   right: DiffSource,
-  binaryCheck: DiffTarget['binaryCheck'],
   index: readonly IndexExpectation[] = [],
   working: readonly WorkingExpectation[] = [],
 ): DiffTarget {
@@ -143,7 +138,6 @@ function registerTarget(
     displayPath: file.path,
     left,
     right,
-    binaryCheck,
   };
   registerDiffTargetSnapshot(target, {
     cwd: spec.path,
@@ -193,7 +187,6 @@ function commitFile(
     file.status === 'deleted'
       ? sourceEmpty(commit.shortHash)
       : { kind: 'git', revision: commit.hash, path: file.path, label: commit.shortHash },
-    { kind: 'commit', parent, commit: commit.hash, path: file.path },
   );
   return { ...file, target };
 }
@@ -223,7 +216,6 @@ function stagedFile(
       file.status === 'deleted'
         ? sourceEmpty('Index')
         : { kind: 'index', blob: indexBlob!, path: file.path, label: 'Index' },
-      { kind: 'staged', path: file.path },
       expectations,
     ),
   };
@@ -273,9 +265,44 @@ async function unstagedFile(
       file.status === 'deleted'
         ? sourceEmpty('Working Tree')
         : { kind: 'working', path: currentPath, label: 'Working Tree' },
-      { kind: 'unstaged', path: file.path },
       indexExpectations,
       workingExpectations,
+    ),
+  };
+}
+
+/**
+ * An unmerged path has NO stage-zero index entry, so it can never be routed
+ * through `requiredIndexBlob`. It is compared as "ours" (index stage two, or
+ * empty when our side has none) against the working tree, which is where the
+ * conflict markers live. One conflicted path degrades one row, never the
+ * whole worktree.
+ */
+async function conflictedFile(
+  spec: WorktreeSpec,
+  head: string,
+  ourBlob: string | null,
+  path: string,
+  signal?: AbortSignal,
+): Promise<InspectedFile> {
+  const file: ParsedFile = { status: 'modified', path, oldPath: null, conflicted: true };
+  const currentPath = workingPath(spec, path);
+  const currentFingerprint = await fingerprintAt(currentPath, fsLstat, signal);
+  return {
+    ...file,
+    target: registerTarget(
+      spec,
+      head,
+      'Merge Conflicts',
+      file,
+      ourBlob === null
+        ? sourceEmpty('Ours')
+        : { kind: 'index', blob: ourBlob, path, label: 'Ours' },
+      currentFingerprint === null
+        ? sourceEmpty('Working Tree')
+        : { kind: 'working', path: currentPath, label: 'Working Tree' },
+      [{ path, blob: null }],
+      [{ path: currentPath, fingerprint: currentFingerprint }],
     ),
   };
 }
@@ -301,7 +328,6 @@ async function untrackedFile(
       file,
       sourceEmpty('Empty'),
       { kind: 'working', path: currentPath, label: 'Working Tree' },
-      { kind: 'untracked', path },
       [{ path, blob: null }],
       [{ path: currentPath, fingerprint: currentFingerprint }],
     ),
@@ -346,6 +372,39 @@ async function firstParent(
     throw new Error(`Git inspection failed for ${spec.label}: malformed parent for ${commit}`);
   }
   return parts[1] ?? EMPTY_TREE;
+}
+
+/** Every path whose index entry a pending row may need, new and old alike. */
+function indexPathsOf(...groups: readonly ParsedFile[][]): string[] {
+  const paths = new Set<string>();
+  for (const group of groups) {
+    for (const file of group) {
+      paths.add(file.path);
+      if (file.oldPath) paths.add(file.oldPath);
+    }
+  }
+  return [...paths];
+}
+
+/**
+ * `:(literal)` is mandatory: a path containing `*`, `?`, `[` or a leading `:`
+ * would otherwise be read as a glob or as pathspec magic and match the wrong
+ * entries — or none, which reads as a missing index blob.
+ */
+async function readIndexEntries(
+  git: GitRunner,
+  spec: WorktreeSpec,
+  paths: readonly string[],
+  signal?: AbortSignal,
+): Promise<string> {
+  if (paths.length === 0) return '';
+  return gitText(
+    git,
+    ['ls-files', '--stage', '-z', '--', ...paths.map((path) => `:(literal)${path}`)],
+    spec,
+    'index entries',
+    signal,
+  );
 }
 
 export async function inspectWorktree(
@@ -409,10 +468,7 @@ export async function inspectWorktree(
     commits.push({ ...header, files });
   }
 
-  const indexEntries = parseStageZeroEntries(
-    await gitText(git, ['ls-files', '--stage', '-z'], spec, 'index entries', signal),
-  );
-  const staged = parseNameStatus(
+  const stagedFiles = parseNameStatus(
     await gitText(
       git,
       ['diff', '--cached', '--name-status', '-z', '-M', head],
@@ -420,12 +476,39 @@ export async function inspectWorktree(
       'staged diff',
       signal,
     ),
-  ).map((file) => stagedFile(spec, head, indexEntries, file));
+  );
   const unstagedFiles = parseNameStatus(
     await gitText(git, ['diff', '--name-status', '-z', '-M'], spec, 'unstaged diff', signal),
   );
+  // Read the index for the changed paths only: an unscoped `ls-files --stage`
+  // scales with REPOSITORY size and is the one command here that can exceed the
+  // runner's output bound on a large repo, turning the worktree into an error.
+  const indexOutput = await readIndexEntries(
+    git,
+    spec,
+    indexPathsOf(stagedFiles, unstagedFiles),
+    signal,
+  );
+  const indexEntries = parseStageZeroEntries(indexOutput);
+  const ourEntries = parseStageTwoEntries(indexOutput);
+  // A conflicted path is reported by BOTH pending commands; list it exactly once.
+  const conflictedPaths = new Set(
+    [...stagedFiles, ...unstagedFiles].filter((file) => file.conflicted).map((file) => file.path),
+  );
+  const pending = (file: ParsedFile): boolean => !conflictedPaths.has(file.path);
+
+  const staged = stagedFiles
+    .filter(pending)
+    .map((file) => stagedFile(spec, head, indexEntries, file));
   const unstaged = await Promise.all(
-    unstagedFiles.map((file) => unstagedFile(spec, head, indexEntries, file, signal)),
+    unstagedFiles
+      .filter(pending)
+      .map(async (file) => unstagedFile(spec, head, indexEntries, file, signal)),
+  );
+  const conflicted = await Promise.all(
+    [...conflictedPaths].map(
+      async (path) => conflictedFile(spec, head, ourEntries.get(path) ?? null, path, signal),
+    ),
   );
   const untrackedOutput = await gitText(
     git,
@@ -436,11 +519,13 @@ export async function inspectWorktree(
   );
   const untrackedPaths = untrackedOutput.split('\0');
   if (untrackedPaths.at(-1) === '') untrackedPaths.pop();
-  const untracked = await Promise.all(untrackedPaths.map((path) => {
+  // `async` so a rejected path still reaches Promise.all instead of orphaning
+  // the untrackedFile promises already created at lower indexes.
+  const untracked = await Promise.all(untrackedPaths.map(async (path) => {
     if (!path) throw new Error(`Git inspection failed for ${spec.label}: incomplete untracked path`);
     return untrackedFile(spec, head, path, signal);
   }));
 
   throwIfAborted(signal);
-  return { spec, commits, staged, unstaged, untracked };
+  return { spec, commits, staged, unstaged: [...unstaged, ...conflicted], untracked };
 }
