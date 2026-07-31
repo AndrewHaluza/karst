@@ -139,6 +139,13 @@
     border-radius:4px;cursor:pointer;font-size:13px}
   .provselect-opt:hover{background:var(--vscode-list-hoverBackground)}
   .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--vscode-list-hoverBackground))}
+  /* The menu is absolutely positioned below the trigger and is taller than the
+     card that hosts it (the ClickUp fields below it are hidden while the
+     provider is `manual`), so the accordion's `.card{overflow:hidden}` clipped
+     it to a sliver — the dropdown opened but read as invisible. This card is
+     always open and has no rounded body to clip, so it opts out. The menu's
+     z-index is what keeps it above the cards that follow. */
+  .card.unclipped{overflow:visible}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -561,7 +568,7 @@
 
     <!-- Ticketing -->
     <div class="section hidden" id="section-ticketing">
-      <div class="card open">
+      <div class="card open unclipped">
         <div class="card-body" style="display:block;padding-top:14px">
           <label id="ticketProviderLabel">Provider</label>
           <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
@@ -2604,6 +2611,18 @@
   el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
   el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
 
+  // The host's answer to set-token/clear-token. The token is keychain state, not
+  // manifest state, so this NEVER touches `draft` — a full `state` push would
+  // replace the draft with the saved manifest, and the token is set mid-setup,
+  // before the provider has ever been saved. Re-rendering also re-arms the
+  // list auto-fetch now that a prerequisite has changed.
+  function applyTokenState(configured) {
+    tokenConfigured = Boolean(configured);
+    renderTicketing();
+    const prev = vscode.getState();
+    if (prev) vscode.setState({ ...prev, tokenConfigured });
+  }
+
   // ---- top bar ----
   el('discardBtn').addEventListener('click', () => {
     draft = clone(lastSaved);
@@ -2725,6 +2744,10 @@
           touchedFields.add(msg.name + '.repoPath');
           markDirty();
         }
+        break;
+      }
+      case 'token-state': {
+        applyTokenState(msg.configured);
         break;
       }
       case 'ticket-statuses': {

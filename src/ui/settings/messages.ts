@@ -34,6 +34,13 @@ export type SettingsHostMessage =
   | { type: 'ticket-statuses-error'; message: string }
   | { type: 'ticket-lists'; lists: TicketList[] }
   | { type: 'ticket-lists-error'; message: string }
+  /**
+   * Whether a ticketing token is stored, on its own message. Deliberately NOT a
+   * `state` push: state carries the manifest and replaces the webview's draft,
+   * so reporting the token that way discarded whatever the user had entered but
+   * not yet saved — which, during first-time setup, is the provider itself.
+   */
+  | { type: 'token-state'; configured: boolean }
   | { type: 'repo-path-picked'; name: string; path: string };
 
 /** The host-side effects a settings panel can trigger. */
