@@ -4,6 +4,7 @@ import { createTicketFlow } from '../workflow/stages/create.js';
 import { getTicket } from './tickets.js';
 import { transition } from '../workflow/machine.js';
 import { listGateRuns } from './gateRuns.js';
+import { stageAttempt } from './stages.js';
 import { parkGateStage, stageBlock, clearStageBlock } from './stageBlocks.js';
 
 describe('parkGateStage', () => {
@@ -65,6 +66,30 @@ describe('parkGateStage', () => {
     ).toThrow();
     expect(stageBlock(store, id, 'uat')).toBeNull();
     expect(listGateRuns(store, id)).toHaveLength(0);
+  });
+
+  it('rolls back an already-written gate row when a later gate in the same batch throws', () => {
+    // First gate is well-formed and its INSERT genuinely succeeds; the second
+    // is malformed and throws. This is the case a single-gate batch cannot
+    // exercise: it proves the transaction actually rolls back a prior write,
+    // not just that the throw happens before any write at all.
+    expect(() =>
+      parkGateStage(store, {
+        ticketId: id,
+        stageKey: 'uat',
+        kind: 'nothing-to-run',
+        reason: 'x',
+        runAt: '2026-07-30T10:00:00.000Z',
+        gates: [
+          { gateName: 'test', exitCode: null, startedAt: null, endedAt: null },
+          { gateName: { bad: true } as unknown as string, exitCode: null, startedAt: null, endedAt: null },
+        ],
+      }),
+    ).toThrow();
+
+    expect(listGateRuns(store, id)).toHaveLength(0);
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    expect(stageAttempt(store, id, 'uat')).toBe(0);
   });
 
   it('reads back and clears a block', () => {
