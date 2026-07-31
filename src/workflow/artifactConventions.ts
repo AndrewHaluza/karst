@@ -6,6 +6,9 @@
  * repeats that guard for direct callers and rejects a blank final artifact.
  */
 
+import { hasVariable, parseTemplateTokens, parseTokenBody } from '../template/token.js';
+import { applyTransforms, validateTemplateTransforms } from '../template/transforms.js';
+
 export type ArtifactConventionName =
   | 'commitMessage'
   | 'pullRequestTitle'
@@ -33,8 +36,9 @@ const VARIABLES: Record<ArtifactConventionName, ReadonlySet<string>> = {
 const TOKEN = /\{([^{}]*)\}/g;
 
 /**
- * Validate one template's syntax and artifact-specific variable vocabulary.
- * Literal braces are intentionally unsupported: there is no escaping contract.
+ * Validate one template's syntax, artifact-specific variable vocabulary, and any
+ * placeholder transforms. Literal braces are intentionally unsupported: there is
+ * no escaping contract.
  */
 export function validateArtifactTemplate(
   field: ArtifactConventionName,
@@ -45,25 +49,30 @@ export function validateArtifactTemplate(
   }
 
   const allowed = VARIABLES[field];
+  const tokens = parseTemplateTokens(template);
   let remainder = '';
   let lastIndex = 0;
-  for (const match of template.matchAll(TOKEN)) {
-    remainder += template.slice(lastIndex, match.index);
-    const token = match[1]!;
-    if (!allowed.has(token)) {
-      throw new Error(`${field} contains unsupported variable "{${token}}"`);
+  for (const token of tokens) {
+    remainder += template.slice(lastIndex, token.index);
+    if (!allowed.has(token.variable)) {
+      throw new Error(`${field} contains unsupported variable "{${token.variable}}"`);
     }
-    lastIndex = match.index! + match[0].length;
+    lastIndex = token.index + token.raw.length;
   }
   remainder += template.slice(lastIndex);
   if (remainder.includes('{') || remainder.includes('}')) {
     throw new Error(`${field} contains malformed template braces`);
   }
+  validateTemplateTransforms(field, tokens);
 }
 
-/** Whether rendering this body requires generated pull-request prose. */
+/**
+ * Whether rendering this body requires generated pull-request prose. Parsed
+ * rather than string-matched: `{description|trim}` still needs the summary, and
+ * a substring check would silently skip the generation call.
+ */
 export function usesDescription(template: string): boolean {
-  return template.includes('{description}');
+  return hasVariable(template, 'description');
 }
 
 /** Render a validated template once; substituted values are never rescanned. */
@@ -82,7 +91,10 @@ export function renderArtifactTemplate(
     scope: context.scope,
     description: context.description ?? '',
   };
-  const rendered = template.replace(TOKEN, (_match, token: string) => values[token]!);
+  const rendered = template.replace(TOKEN, (_match, body: string) => {
+    const { variable, transforms } = parseTokenBody(body);
+    return applyTransforms(values[variable]!, transforms);
+  });
   if (rendered.trim() === '') {
     throw new Error(`${field} rendered to a blank value`);
   }

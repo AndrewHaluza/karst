@@ -227,6 +227,87 @@ commit Karst creates for a dirty worktree. Karst does not rewrite commits made
 by an agent or user. PR templates affect only PRs Karst creates; an already-open
 PR adopted during ship is not retitled or given a new description.
 
+### Placeholder transforms
+
+Any placeholder, in any Karst template, may pipe its value through transforms:
+
+```yaml
+ticketLabelTemplate: "{key|slice:-4} — {title|truncate:48}"
+terminalNameTemplate: "Karst: {key|slice:-4}"
+conventions:
+  branchName: "karst/{type}/{key|slice:-4}"
+  commitMessage: "{type}({scope}): {title} [{key|slice:-4}]"
+```
+
+The motivating case: ticket ids from an external tracker often share a long
+common prefix — `869e82530` and `869e820e2` differ only in their last four
+characters. Rendering them whole spends horizontal space on characters that
+distinguish nothing, so `{key|slice:-4}` renders `2530` and `20e2` instead.
+
+Transforms work in `ticketLabelTemplate`, `terminalNameTemplate`, and all four
+`conventions` fields. A template with no `|` renders exactly as it always has.
+
+| Transform | Arguments | What it does |
+| --- | --- | --- |
+| `slice` | `start`, optional `end` | Exactly `String.prototype.slice`. |
+| `truncate` | `width`, optional `marker` | Shorten to `width` **only when longer**, marking the cut. |
+| `upper` | — | Uppercase. |
+| `lower` | — | Lowercase. |
+| `kebab` | — | Lowercase; every non-alphanumeric run becomes one `-`. |
+| `snake` | — | Lowercase; every non-alphanumeric run becomes one `_`. |
+| `trim` | — | Strip leading and trailing whitespace; the interior survives. |
+| `default` | replacement | Replace an **empty** value (missing field, or `""`). |
+
+Worked examples, against a ticket keyed `869e82530` titled `  Add login flow  `:
+
+| Placeholder | Renders |
+| --- | --- |
+| `{key\|slice:-4}` | `2530` — the distinguishing tail |
+| `{key\|slice:0,3}` | `869` — the shared prefix |
+| `{key\|slice:2}` | `9e82530` — from index 2 to the end |
+| `{key\|slice:-4,-2}` | `25` — negative start and end |
+| `{title\|trim\|truncate:8}` | `Add log…` |
+| `{title\|trim\|truncate:8,...}` | `Add l...` — custom marker, inside the budget |
+| `{title\|trim\|kebab}` | `add-login-flow` |
+| `{title\|trim\|snake}` | `add_login_flow` |
+| `{key\|slice:-4\|upper}` | `2530` — chained, left to right |
+| `{status\|default:idle}` | `idle` when the ticket has no agent state |
+
+Syntax and semantics:
+
+- **Chaining** is left to right: `{title|trim|kebab|truncate:6}` trims, then
+  kebab-cases, then truncates. Order is observable — reversing a pair generally
+  changes the result.
+- **Arguments** follow `:` and are separated by `,`. Only as many commas as the
+  transform takes arguments are split, so the last argument may itself contain a
+  comma (`{title|truncate:20,, …}` uses `, …` as the marker) and `default` takes
+  its whole text (`{status|default:not started, yet}`). Arguments are taken
+  verbatim — `{key|slice: -4}` is an error, not `-4`.
+- **`slice` is `String.prototype.slice`**, including negative indices,
+  out-of-range indices, and `start >= end` (which yields the empty string).
+  It therefore operates on **UTF-16 code units**, not characters: slicing a
+  string containing emoji or other astral characters can cut one in half.
+  `truncate` counts **code points** instead, because its job is readable output.
+  Neither is grapheme-aware, so a combining mark can be separated from its base.
+- **`truncate` never exceeds its width**: the marker is inside the budget, so
+  `{title|truncate:8}` yields at most 8 characters. A marker at least as wide as
+  the budget degrades to a hard cut rather than emitting marker-only output.
+- **`default` triggers on empty, not on blank.** A whitespace-only value is not
+  empty; write `{status|trim|default:none}` when it should be.
+- **Errors are configuration-time.** An unknown transform name or a malformed
+  argument is rejected when the manifest loads, naming the offending placeholder
+  and the reason — `conventions.branchName has an invalid "slice" argument in
+  "{key|slice:x}": start must be an integer`. Nothing is coerced at render time,
+  so a typo can never quietly become a shortened-away name.
+- **Rendering never throws on data.** Missing, `null`, and non-string values all
+  render as the empty string before any transform runs.
+- **Branch names are still sanitized afterwards.** Transforms apply to the raw
+  value, so `{key|slice:-4}` means the same four characters everywhere; the
+  branch renderer then sanitizes the assembled ref into a legal git ref. Note
+  that slicing `{slug}`/`{key}`/`{id}` down far enough weakens the guarantee that
+  two tickets cannot share a branch — the per-ticket rule checks which variable a
+  placeholder reads, not how much of it survives.
+
 ### The agent adapter seam
 
 Every agent call — interactive session, headless stage run, PR description —
