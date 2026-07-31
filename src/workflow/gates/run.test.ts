@@ -227,7 +227,7 @@ describe('runProcess', () => {
       process.cwd(),
       { signal: controller.signal },
     );
-    setTimeout(() => controller.abort(), 50);
+    controller.abort();
     const out = await started;
     expect(out.kind).toBe('aborted');
   });
