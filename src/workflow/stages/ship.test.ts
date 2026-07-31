@@ -972,6 +972,119 @@ setTimeout(() => {
       });
     });
 
+    // The probe is not infallible: `gh pr view` for the current branch comes back
+    // nonzero for bad auth, an ambiguous base repository, or a remote hiccup just
+    // as it does for "no PR" — and then ship went on to create, gh refused with
+    // "a pull request for branch … already exists", and `openPr` threw. That is
+    // the exact failure on the ticket. gh names the PR in its refusal, so there is
+    // never a reason to fail: reuse it.
+    describe('but the branch probe came back blind', () => {
+      /** gh that cannot answer the branch probe, and refuses the create. */
+      function ghBlindProbe(body: string | null = 'a description someone already wrote'): {
+        gh: GhRunner;
+        args: string[][];
+      } {
+        const args: string[][] = [];
+        const gh: GhRunner = async (a) => {
+          args.push(a);
+          // The branch-inferred probe (no ref) — blind, exactly like "no PR".
+          if (a[1] === 'view' && a[2] === '--json') {
+            return { stdout: '', stderr: 'could not determine base repository', exitCode: 1 };
+          }
+          // Any probe BY ref still works: gh knows this PR, it just could not map
+          // the branch to it.
+          if (a[1] === 'view') {
+            const view = body === null ? { state: 'OPEN' } : { state: 'OPEN', body };
+            return { stdout: JSON.stringify(view), exitCode: 0 };
+          }
+          if (a[1] === 'edit') return { stdout: '', exitCode: 0 };
+          return {
+            stdout: '',
+            stderr: `a pull request for branch "karst/x" into branch "develop" already exists:\n${URL}`,
+            exitCode: 1,
+          };
+        };
+        return { gh, args };
+      }
+
+      it('reuses the PR gh names instead of failing the ship', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        const { gh } = ghBlindProbe();
+
+        const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+        expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 18, url: URL }]);
+        expect(getTicket(store, id).stageCurrent).toBe('done');
+        expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!.verdict).toBeNull();
+      });
+
+      // The whole point of recording it: a retry must be absorbed by the local
+      // guard rather than driven back into the same refusal.
+      it('records the reused PR, so a re-run does not create a duplicate', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        await shipTicket(store, { ticketId: id }, ghBlindProbe().gh, fakeAdapter(), fakeGit().git);
+        expect(listPrsByTicket(store, id)).toHaveLength(1);
+
+        const second = ghBlindProbe();
+        await shipTicket(store, { ticketId: id }, second.gh, fakeAdapter(), fakeGit().git);
+
+        expect(second.args).toEqual([]);
+        expect(listPrsByTicket(store, id)).toHaveLength(1);
+      });
+
+      // The body ship just generated never reached GitHub — gh refused the create.
+      // It is exactly as usable as one built for an adopted PR, and subject to the
+      // same rule: fill an empty description, never overwrite a written one.
+      it('fills an empty description with the body the create never delivered', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        const { gh, args } = ghBlindProbe('');
+        let headless = 0;
+        const adapter: AgentAdapter = {
+          ...fakeAdapter(),
+          runHeadless: async () => {
+            headless++;
+            return { sessionId: 's', verdict: null, raw: 'Generated PR body.' };
+          },
+        };
+
+        await shipTicket(store, { ticketId: id }, gh, adapter, fakeGit().git);
+
+        expect(args.find((a) => a[1] === 'edit')).toEqual([
+          'pr',
+          'edit',
+          URL,
+          '--body',
+          'Generated PR body.',
+        ]);
+        // The description was paid for once, before the create — never again.
+        expect(headless).toBe(1);
+      });
+
+      it('keeps a description the reused PR already has', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        const { gh, args } = ghBlindProbe('prose a human wrote');
+
+        await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+        expect(args.some((a) => a[1] === 'edit')).toBe(false);
+      });
+
+      // A refusal that names no PR is a real failure and must still park the
+      // ticket — reuse is for an existing PR, not a blanket "never fail".
+      it('still fails the ship for a refusal that names no PR', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        const gh: GhRunner = async (a) => {
+          if (a[1] === 'view') return { stdout: '', stderr: 'blind', exitCode: 1 };
+          return { stdout: '', stderr: 'GraphQL: Resource not accessible', exitCode: 1 };
+        };
+
+        await expect(
+          shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git),
+        ).rejects.toThrow(/Resource not accessible/);
+        expect(getTicket(store, id).stageCurrent).toBe('ship');
+      });
+    });
+
     // "gh did not say" is not "the PR has no description". Overwriting on a
     // degraded probe would destroy prose a human wrote — the one outcome this
     // whole path must never produce.

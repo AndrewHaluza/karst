@@ -9,6 +9,7 @@ import {
   openPr,
   findOpenPr,
   fetchPrDetail,
+  fetchPrBody,
   updatePrBody,
   defaultGhRunnerAsync,
   UNKNOWN_PR_DETAIL,
@@ -85,6 +86,19 @@ async function describePr(
     cwd,
   });
   return sanitizePrDescription(r.raw, title);
+}
+
+/**
+ * Say that the PR step found a PR rather than opening one, so the live view never
+ * shows a plain `pass` for work that did not happen.
+ */
+function noteReusedPr(repo: string, onProgress: ShipProgress): void {
+  onProgress({
+    repo,
+    step: 'pr',
+    status: 'note',
+    detail: 'a PR for this branch already existed — reused it',
+  });
 }
 
 /**
@@ -388,11 +402,33 @@ export async function shipTicket(
         // overwriting a description a human wrote is unrecoverable, leaving one
         // empty is not. So only a body gh positively reported as empty is filled;
         // "gh did not say" (null) is left alone, exactly like a degraded PR probe.
+        noteReusedPr(wt.repo, onProgress);
         await backfillDescription(gh, wt.repo, wt.path, existing, buildBody, onProgress);
         opened = existing;
       } else {
         const body = await buildBody();
-        opened = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
+        const created = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
+        if (created.adopted) {
+          // The probe above answered null but a PR existed anyway — it is
+          // branch-inferred, so bad auth or an ambiguous base repo looks exactly
+          // like "no PR". gh named the PR when it refused, so nothing failed.
+          //
+          // The body just generated never reached GitHub. Re-probe by ref (the
+          // branch lookup is the thing that just proved unreliable) and apply the
+          // same rule as any adopted PR: fill an empty description, never
+          // overwrite a written one. No second model call — the prose exists.
+          noteReusedPr(wt.repo, onProgress);
+          const current = await fetchPrBody(gh, created.url, wt.path);
+          await backfillDescription(
+            gh,
+            wt.repo,
+            wt.path,
+            { ...created, body: current },
+            async () => body,
+            onProgress,
+          );
+        }
+        opened = created;
       }
       onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
