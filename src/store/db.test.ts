@@ -540,21 +540,91 @@ describe('openStore', () => {
   it('migrates a legacy v15 DB by adding the stage blocked columns', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const file = join(dir, 'legacy-v15.db');
-    const legacy = openStore(file);
-    legacy.db.pragma('user_version = 15');
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      'CREATE TABLE stages (ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, verdict TEXT, artifact_path TEXT, started_at TEXT, ended_at TEXT, PRIMARY KEY (ticket_id, stage_key))',
+    );
+    legacy
+      .prepare(
+        'INSERT INTO stages (ticket_id, stage_key, status, attempt, verdict, artifact_path, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        1,
+        'uat',
+        'passed',
+        3,
+        'ok',
+        '/tmp/uat-artifact.json',
+        '2026-01-01T00:00:00Z',
+        '2026-01-01T00:05:00Z',
+      );
+    legacy.pragma('user_version = 15');
     legacy.close();
 
-    const migrated = openStore(file);
-    cleanups.push(() => migrated.close());
-    const cols = migrated.db
-      .prepare("PRAGMA table_info('stages')")
-      .all()
-      .map((r) => (r as { name: string }).name);
-    expect(cols).toContain('blocked_kind');
-    expect(cols).toContain('blocked_reason');
-    expect(cols).toContain('blocked_at');
+    const migrated = openStore(path);
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('stages')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('blocked_kind')).toBe(true);
+    expect(cols.has('blocked_reason')).toBe(true);
+    expect(cols.has('blocked_at')).toBe(true);
+
+    // The stage row is left exactly as it was: the migration is additive only.
+    const row = migrated.db
+      .prepare(
+        'SELECT status, attempt, verdict, artifact_path, started_at, ended_at, blocked_kind, blocked_reason, blocked_at FROM stages WHERE ticket_id = ? AND stage_key = ?',
+      )
+      .get(1, 'uat') as
+      | {
+          status: string;
+          attempt: number;
+          verdict: string;
+          artifact_path: string;
+          started_at: string;
+          ended_at: string;
+          blocked_kind: string | null;
+          blocked_reason: string | null;
+          blocked_at: string | null;
+        }
+      | undefined;
+    expect(row).toEqual({
+      status: 'passed',
+      attempt: 3,
+      verdict: 'ok',
+      artifact_path: '/tmp/uat-artifact.json',
+      started_at: '2026-01-01T00:00:00Z',
+      ended_at: '2026-01-01T00:05:00Z',
+      // Nothing is backfilled: absence means "not blocked", the correct reading
+      // of a pre-v16 row that was never blocked in the first place.
+      blocked_kind: null,
+      blocked_reason: null,
+      blocked_at: null,
+    });
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(16);
+    migrated.close();
+
+    // Idempotence: reopening an already-migrated DB must not error, re-alter
+    // the columns, or lose the row.
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    const reopenedCols = new Set(
+      (reopened.db.prepare("PRAGMA table_info('stages')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(reopenedCols.has('blocked_kind')).toBe(true);
+    expect(reopenedCols.has('blocked_reason')).toBe(true);
+    expect(reopenedCols.has('blocked_at')).toBe(true);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(16);
+    const reopenedRow = reopened.db
+      .prepare(
+        'SELECT status, attempt, verdict FROM stages WHERE ticket_id = ? AND stage_key = ?',
+      )
+      .get(1, 'uat') as { status: string; attempt: number; verdict: string } | undefined;
+    expect(reopenedRow).toEqual({ status: 'passed', attempt: 3, verdict: 'ok' });
   });
 
   it('enforces UNIQUE(slug) on projects', () => {
