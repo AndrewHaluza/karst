@@ -151,6 +151,12 @@ export function resolveUatGates(
  * information per attempt worth more than saved minutes: an agent that learns
  * about the unit failure only, fixes it, re-enters and THEN hits the integration
  * failure has spent two of three attempts to learn what one could have told it.
+ *
+ * `stopped` still carries `results` for whichever gates completed before the
+ * abort landed (empty when none did). `gate_runs` is the project's only
+ * append-only evidence table — a `stopped` outcome that discarded its partial
+ * results would make the work those gates already did unrecoverable by any
+ * caller, even though it happened.
  */
 export interface RunGatesOptions {
   signal?: AbortSignal;
@@ -163,11 +169,11 @@ export async function runUatGates(
   gates: readonly ResolvedGate[],
   cwd: string,
   opts: RunGatesOptions = {},
-): Promise<{ kind: 'ran'; results: GateResult[] } | { kind: 'stopped' }> {
+): Promise<{ kind: 'ran'; results: GateResult[] } | { kind: 'stopped'; results: GateResult[] }> {
   const now = opts.now ?? nowIso;
   const results: GateResult[] = [];
   for (const gate of gates) {
-    if (opts.signal?.aborted) return { kind: 'stopped' };
+    if (opts.signal?.aborted) return { kind: 'stopped', results };
     const startedAt = now();
 
     if (gate.script !== null && gate.required && opts.scriptsAvailable?.(gate.script) === false) {
@@ -187,7 +193,7 @@ export async function runUatGates(
 
     const outcome = await runProcess(gate.command, gate.args, cwd, { signal: opts.signal });
 
-    if (outcome.kind === 'aborted') return { kind: 'stopped' };
+    if (outcome.kind === 'aborted') return { kind: 'stopped', results };
     if (outcome.kind === 'spawnFailed' && !gate.required && gate.script !== null) {
       // A discovered script whose binary vanished between probe and spawn: karst
       // had no question to ask after all, so it stays null rather than becoming a

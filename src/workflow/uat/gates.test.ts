@@ -179,7 +179,43 @@ describe('runUatGates', () => {
       { signal: controller.signal, now },
     );
     setTimeout(() => controller.abort(), 50);
-    expect((await started).kind).toBe('stopped');
+    const out = await started;
+    expect(out.kind).toBe('stopped');
+    if (out.kind !== 'stopped') return;
+    // Aborted before the one gate completed: no evidence to carry.
+    expect(out.results).toEqual([]);
+  });
+
+  // Standing amendment: "persist partial gate evidence on stopped and blocked
+  // outcomes through one transactional outcome writer" / "collect
+  // completed-target evidence before parking a multi-repository run." A
+  // `stopped` outcome must still carry whatever gates already finished —
+  // `gate_runs` is the ONLY place a prior attempt's evidence survives, so
+  // discarding it here makes it unrecoverable by any caller.
+  it('carries completed gate results on stopped when the abort lands after the first gate finishes', async () => {
+    const controller = new AbortController();
+    const started = runUatGates(
+      [
+        { name: 'fast', command: 'node', args: ['-e', 'process.exit(0)'], script: null, required: true },
+        { name: 'slow', command: 'node', args: ['-e', 'setTimeout(()=>{},60000)'], script: null, required: true },
+      ],
+      process.cwd(),
+      {
+        signal: controller.signal,
+        now,
+        // Abort right after the first gate's result is recorded, before the
+        // loop reaches the second (slow) gate's spawn.
+      },
+    );
+    // Give the first gate time to complete and be pushed to `results`, then
+    // abort so the second gate's runProcess call observes it.
+    setTimeout(() => controller.abort(), 200);
+    const out = await started;
+    expect(out.kind).toBe('stopped');
+    if (out.kind !== 'stopped') return;
+    expect(out.results).toEqual([
+      expect.objectContaining({ name: 'fast', exitCode: 0 }),
+    ]);
   });
 
   it('fails a configured gate whose script the repo does not define', async () => {
