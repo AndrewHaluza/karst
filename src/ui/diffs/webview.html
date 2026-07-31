@@ -98,16 +98,24 @@
       user-select: none;
     }
     summary::-webkit-details-marker { display: none; }
+    /* Optically centred against the row, not dropped at its top: an absolutely
+       positioned marker takes its static position from the first line box, so a
+       two-line repo header or a baseline-aligned commit row left the chevron
+       riding high. Anchoring to the summary's own middle holds at every row
+       height and in both states — the open rotation carries the same offset. */
     summary::before {
       position: absolute;
+      top: 50%;
       left: 6px;
       content: '›';
       color: var(--muted);
       font-family: var(--mono);
+      line-height: 1;
+      transform: translateY(-50%);
       transform-origin: center;
       transition: transform 80ms ease;
     }
-    details[open] > summary::before { transform: rotate(90deg); }
+    details[open] > summary::before { transform: translateY(-50%) rotate(90deg); }
     .repo {
       min-width: 0;
       border: 1px solid var(--line);
@@ -168,18 +176,49 @@
     }
     .commit > summary {
       display: grid;
-      grid-template-columns: var(--rail) minmax(0, 1fr) auto;
+      grid-template-columns: var(--rail) minmax(0, 1fr) auto auto;
       gap: 8px;
       align-items: baseline;
       padding: 6px 9px 6px 22px;
       list-style-position: inside;
     }
+    /* The hash ends at the rail's right edge, where a file row's status glyph
+       ends. Left-aligned it was followed by the rail's leftover width — a hash
+       is far narrower than the column — which read as a gap after the chip;
+       ending it at the rail leaves only the layout's own 8px before the subject.
+       Selectable on purpose: a commit hash is something the reader retypes into
+       git, so `summary`'s user-select:none is lifted here (the click handler
+       keeps a drag-select from toggling the row). */
     .commit > summary code {
+      justify-self: end;
       overflow: hidden;
       color: var(--vscode-textLink-foreground, #3794ff);
       font-family: var(--mono);
       text-overflow: ellipsis;
+      user-select: text;
+      cursor: text;
     }
+    /* Row action, shown on hover like VS Code's own list rows — and on focus, so
+       it is reachable without a pointer. It carries the FULL hash, not the
+       abbreviation on screen. */
+    .copy-hash {
+      align-self: center;
+      padding: 0 5px;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      opacity: 0;
+      transition: opacity 80ms ease, background-color 80ms ease;
+    }
+    .commit > summary:hover .copy-hash,
+    .copy-hash:focus-visible,
+    .copy-hash.copied { opacity: 1; }
+    .copy-hash:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+    .copy-hash.copied { color: var(--vscode-testing-iconPassed, #73c991); }
     .commit > summary > span {
       color: var(--muted);
       font-family: var(--mono);
@@ -277,13 +316,15 @@
       .repo > summary > span:last-child { text-align: left; }
       .group { margin-right: 6px; margin-left: 7px; }
       .commit > summary {
-        grid-template-columns: minmax(4.5rem, var(--rail)) minmax(0, 1fr);
+        grid-template-columns: minmax(4.5rem, var(--rail)) minmax(0, 1fr) auto;
       }
+      /* The count drops under the subject; the copy action stays on the hash's
+         own row, where the thing it copies is. */
       .commit > summary > span { grid-column: 2; }
       .commit-meta { padding-left: calc(var(--rail) + 17px); }
     }
     @media (prefers-reduced-motion: reduce) {
-      .file, summary::before { transition: none; }
+      .file, summary::before, .copy-hash { transition: none; }
     }
   </style>
 </head>
@@ -350,9 +391,16 @@
         + `<span>${files.length}</span></summary>${files.map(fileRow).join('')}</details>`;
     }
 
+    const COPY_GLYPH = '⧉';
+
+    // No literal space between the hash and the subject: they are separate grid
+    // items, so the gap is the layout's, and a stray text node would print as a
+    // second one after the hash.
     function commitRow(commit, index) {
       return `<details class="commit"${index === 0 ? ' open' : ''}>`
-        + `<summary><code>${esc(commit.shortHash)}</code> ${esc(commit.subject)}`
+        + `<summary><code data-hash>${esc(commit.shortHash)}</code>${esc(commit.subject)}`
+        + `<button type="button" class="copy-hash" data-copy-hash="${esc(commit.hash)}"`
+        + ` aria-label="Copy commit hash" title="Copy commit hash">${COPY_GLYPH}</button>`
         + `<span>${commit.files.length}</span></summary>`
         + `<div class="commit-meta">${esc(commit.author)} · ${esc(commit.authoredAt)}</div>`
         + `${commit.files.map(fileRow).join('')}</details>`;
@@ -417,7 +465,41 @@
       vscode.postMessage({ type: 'refresh' });
     });
     filter.addEventListener('input', () => render(lastState, loading));
+    // Optimistic confirmation: the host owns the clipboard, the webview only
+    // says the click landed. The label is what flashes, so the confirmation
+    // reaches a screen reader too and is not a purely visual beat.
+    const COPIED_MS = 1200;
+    function flashCopied(button) {
+      if (button.dataset.flash) clearTimeout(Number(button.dataset.flash));
+      button.textContent = '✓';
+      button.classList.add('copied');
+      button.setAttribute('aria-label', 'Copied');
+      button.dataset.flash = String(setTimeout(() => {
+        button.textContent = COPY_GLYPH;
+        button.classList.remove('copied');
+        button.setAttribute('aria-label', 'Copy commit hash');
+        delete button.dataset.flash;
+      }, COPIED_MS));
+    }
+
     document.addEventListener('click', (event) => {
+      const copy = event.target.closest('[data-copy-hash]');
+      if (copy) {
+        // The button sits inside a <summary>: without this the copy would also
+        // collapse the commit it belongs to.
+        event.preventDefault();
+        vscode.postMessage({ type: 'copy-hash', hash: copy.dataset.copyHash });
+        flashCopied(copy);
+        return;
+      }
+      // A drag that ends on the hash is a selection, not a click on the
+      // disclosure — toggling there would drop the selection the user just made.
+      // A plain click still toggles, which is the row's prior behaviour.
+      const selection = document.getSelection?.();
+      if (event.target.closest('code[data-hash]') && selection && !selection.isCollapsed) {
+        event.preventDefault();
+        return;
+      }
       const row = event.target.closest('[data-change-id]');
       if (row) vscode.postMessage({ type: 'open-diff', changeId: row.dataset.changeId });
     });

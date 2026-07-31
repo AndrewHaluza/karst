@@ -29,6 +29,29 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toContain('diff-worktree');
   });
 
+  /**
+   * The panels sit side by side in one grid row: a header that sizes itself to
+   * its own contents puts its body on a different line from its neighbour's,
+   * which is what made the Worktrees block read as drifted. One declared height
+   * is what keeps them level whatever a header carries.
+   */
+  it('gives every panel header the same declared height', () => {
+    expect(HTML).toMatch(/--phead-h:\s*\d+px/);
+    expect(HTML).toMatch(/\.phead\{[^}]*min-height:var\(--phead-h\)/);
+    // No per-panel override may reintroduce a second height.
+    expect(HTML).not.toMatch(/\.svpanel \.phead\{[^}]*(?:min-)?height:/);
+    expect(HTML).not.toMatch(/\.svpanel \.phead\{[^}]*padding:/);
+  });
+
+  /**
+   * `.count` earns its position from `margin-left:auto` against .phead's flex
+   * line. Wrapped in a span it had nothing to push against and printed flush
+   * against the label.
+   */
+  it('keeps the worktrees count a direct child of its panel header', () => {
+    expect(HTML).toContain('<div class="phead">Worktrees<span class="count" id="wtCount"></span>');
+  });
+
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
     // markers are load-bearing at runtime (renderKeyPill calls providerIconHtml,
