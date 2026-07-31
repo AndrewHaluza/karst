@@ -335,6 +335,26 @@ describe('buildOnboardingActions', () => {
     expect(tickets[0]!.key).toBeTruthy(); // never persists an empty string
   });
 
+  it('a blank key is derived from the title, not a random MANUAL- id', async () => {
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({ key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    expect(listTickets(store)[0]!.key).toBe('FIX-LOGIN-REDIRECT');
+  });
+
+  it('two blank-key submissions of the SAME title still get distinct keys', async () => {
+    const mk = () => buildOnboardingActions(deps)({
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    });
+    const fields = { key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null };
+
+    await mk().submit({ ...fields });
+    await mk().submit({ ...fields });
+    const keys = listTickets(store).map((t) => t.key).sort();
+    expect(keys).toEqual(['FIX-LOGIN-REDIRECT', 'FIX-LOGIN-REDIRECT-2']);
+  });
+
   it('two blank-key submissions generate distinct keys — no collision', async () => {
     const actionsA = buildOnboardingActions(deps)({
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},

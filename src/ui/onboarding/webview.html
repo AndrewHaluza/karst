@@ -227,7 +227,7 @@
   </div>
   <label for="ref">Key</label>
   <div class="row">
-    <input type="text" id="ref" placeholder="PROJ-142  ·  or a board id like CU-1234" />
+    <input type="text" id="ref" placeholder="PROJ-142  ·  a board id like CU-1234  ·  or leave it to the title" />
     <button id="fetchBtn" class="secondary">Fetch</button>
   </div>
   <div class="row2">
@@ -394,7 +394,12 @@
     // seed it from the identity (key), falling back to the board ref only if the
     // ticket has no key yet.
     if (!el('ref').value) el('ref').value = state.key || state.sourceRef || '';
+    // A key that came from the state is the ticket's real identity — the Title
+    // must never overwrite it on the next keystroke.
+    if (el('ref').value) refTouched = true;
     if (!el('title').value) el('title').value = state.title || '';
+    // Create mode with a title but no key yet: show what will be persisted.
+    if (!refTouched) el('ref').value = deriveKey(el('title').value);
     if (!el('desc').value) el('desc').value = state.description || '';
 
     renderGate(state.unclassified, state.repos);
@@ -499,22 +504,47 @@
     syncAnalyzeBtn();
   }
 
-  // Phase 1 is complete once the ticket has an identity. For a manual ticket
-  // (no board to fetch from) the key is optional — a blank one is generated at
-  // persist time (see actions.ts persistDraft) — so title alone is the "actual
-  // required field" and must never be gated on the key. Every other provider
-  // still needs the key (it doubles as the fetch id), so that requirement is
-  // unchanged. Phase 2 (repos, approach, submit) stays hidden until Phase 1 is
-  // valid — the strongest "identify first" signal. Edit mode seeds both, so
-  // Phase 2 shows on first render.
+  // Phase 1 is complete once the ticket has an identity, and the TITLE is that
+  // identity: a key left blank is derived from the title at persist time (see
+  // actions.ts persistDraft; deriveKey below previews the same rule live). This
+  // holds for every provider, not just `manual` — a board-backed project still
+  // gets hand-entered tickets that were never fetched, and gating those on the
+  // key hid Phase 2 behind a field the user had no id for (869echhyr). Phase 2
+  // (repos, approach, submit) stays hidden until Phase 1 is valid — the
+  // strongest "identify first" signal. Edit mode seeds the title, so Phase 2
+  // shows on first render.
   function phase1Valid() {
-    const hasTitle = el('title').value.trim() !== '';
-    if (currentProvider === 'manual') return hasTitle;
-    return el('ref').value.trim() !== '' && hasTitle;
+    return el('title').value.trim() !== '';
   }
   function syncPhase2() {
     el('phase2').classList.toggle('hidden', !phase1Valid());
   }
+
+  // MIRROR of src/store/titleKey.ts (slugifyTitleKey / TITLE_KEY_MAX) — this
+  // page is standalone HTML and cannot import TS. Pinned by webview.test.ts, and
+  // it must stay pinned: the key previewed here is the key persistDraft derives
+  // for a blank field, so a drift shows the user one key and stores another.
+  const TITLE_KEY_MAX = 32;
+  function deriveKey(title) {
+    const words = String(title == null ? '' : title)
+      .toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w !== '');
+    const out = [];
+    let len = 0;
+    for (const word of words) {
+      const next = len === 0 ? word.length : len + 1 + word.length;
+      if (next > TITLE_KEY_MAX) break;
+      out.push(word);
+      len = next;
+    }
+    if (out.length === 0) return (words[0] || '').slice(0, TITLE_KEY_MAX);
+    return out.join('-');
+  }
+
+  // The Key field auto-follows the Title until the user takes it over (types in
+  // it, pastes a board id, or the ticket already has a persisted key). Clearing
+  // the field hands it back — refTouched tracks "has content the user owns",
+  // not "was ever focused".
+  let refTouched = false;
 
   // Whether a repo is effectively selected (user toggle wins; else scored default).
   function repoSelected(r) { return Boolean(draft.repos[r.service] ?? r.selected); }
@@ -830,10 +860,10 @@
     if (submitBusy || saveBusy) return; // a save or launch is already in flight
     const key = el('ref').value.trim();
     const title = el('title').value.trim();
-    // The key is optional for a manual ticket (generated at persist time);
-    // every other provider still needs it — unchanged from before.
-    if ((currentProvider !== 'manual' && !key) || !title) {
-      showErr(currentProvider === 'manual' ? 'Title is required.' : 'Key and title are required.');
+    // The key is optional everywhere: blank means "derive it from the title"
+    // (persistDraft does, the field previews it). Title is the one hard field.
+    if (!title) {
+      showErr('Title is required.');
       return;
     }
     clearErr(); // a retry starts clean — the previous failure no longer applies
@@ -862,8 +892,8 @@
     if (submitBusy || saveBusy) return; // a save or launch is already in flight
     const key = el('ref').value.trim();
     const title = el('title').value.trim();
-    if ((currentProvider !== 'manual' && !key) || !title) {
-      showErr(currentProvider === 'manual' ? 'Title is required.' : 'Key and title are required.');
+    if (!title) {
+      showErr('Title is required.');
       return;
     }
     clearErr();
@@ -882,8 +912,16 @@
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live.
-  el('ref').addEventListener('input', syncPhase2);
-  el('title').addEventListener('input', syncPhase2);
+  el('ref').addEventListener('input', () => {
+    // Own the field while it has content; empty hands it back to the Title.
+    refTouched = el('ref').value.trim() !== '';
+    if (!refTouched) el('ref').value = deriveKey(el('title').value);
+    syncPhase2();
+  });
+  el('title').addEventListener('input', () => {
+    if (!refTouched) el('ref').value = deriveKey(el('title').value);
+    syncPhase2();
+  });
   // Editing the Prompt is a context change: re-gate the control. It does NOT
   // auto-prefill (that would rewrite the prompt mid-type); prefill auto-runs only
   // after a fetch (and only when Auto-prefill is on), or on an explicit click.
