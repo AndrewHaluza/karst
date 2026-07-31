@@ -117,16 +117,25 @@ import, unit-tested with a fake.
 
 `WebviewView.badge = { value, tooltip }` paints the number on the activity-bar
 container icon. `makeSidebarViewHost` is the only place holding the real
-`WebviewView`, so it owns the binding and its `SidebarViewHost` gains:
+`WebviewView`, so it owns the binding. It returns a third member alongside
+`host` and `provider`:
 
 ```ts
-setBadge(badge: { value: number; tooltip: string } | undefined): void;
+{ host, provider, badge: BadgeCache }
 ```
 
+`SidebarViewHost` itself is left alone — it is the manager's resolve contract,
+and adding a badge verb to it would force every existing test fake to grow one.
+
+The caching lives in a new `src/ui/sidebar/badgeCache.ts`, not in `host.ts`,
+because `host.ts` imports `vscode` and so cannot load under vitest. Same split
+as `secretStore.ts`/`secrets.ts`: the logic is testable, the `vscode` binding
+stays a thin wrapper.
+
 `AttentionHost.setBadge(value, tooltip)` / `clearBadge()` are the manager's
-verbs; `extension.ts` adapts them to this single nullable setter. The two shapes
-are deliberate — the manager never expresses "badge zero", and the host never
-needs to know why.
+verbs; `extension.ts` adapts them onto the `BadgeCache`. The two shapes are
+deliberate — the manager never expresses "badge zero", and the cache never needs
+to know why.
 
 Two behaviours are load-bearing:
 
@@ -238,7 +247,12 @@ ticket mutation
 - mixed set → `failed` sorted before `input`, then oldest `updatedAt` first
 - `AttentionManager.render([])` → `hideStatus` + `clearBadge`, never `setBadge(0, …)`
 - tooltip caps at 10 lines with an `…and N more` overflow line
-- `setBadge` issued before resolve is applied on the first resolve (fake host)
+
+`src/ui/sidebar/badgeCache.test.ts`:
+
+- `set` before `attach` is replayed onto the target on `attach`
+- `set(0, …)` stores and applies `undefined`, never `{ value: 0 }`
+- `clear` after `attach` pushes `undefined` through
 
 `src/ui/sidebar/panel.test.ts`:
 
@@ -253,7 +267,9 @@ Written RED first, per the repo's strict TDD rule.
 | ----------------------------- | ------------------------------------------------- |
 | `src/ui/attention.ts`         | new — derivation + `AttentionManager`             |
 | `src/ui/attention.test.ts`    | new — unit tests                                  |
-| `src/ui/sidebar/host.ts`      | add `setBadge` + resolve-time cache               |
+| `src/ui/sidebar/badgeCache.ts`| new — resolve-time badge cache (vscode-free)      |
+| `src/ui/sidebar/badgeCache.test.ts` | new — unit tests                           |
+| `src/ui/sidebar/host.ts`      | own a `BadgeCache`, attach it on resolve          |
 | `src/ui/sidebar/panel.ts`     | add `onRefresh`                                   |
 | `src/ui/sidebar/panel.test.ts`| cover `onRefresh`                                 |
 | `src/extension.ts`            | status item, command registration, refresh wiring |
