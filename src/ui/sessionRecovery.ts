@@ -12,6 +12,8 @@ export interface SessionLiveness {
 /** The observed result of attempting to reopen a restored agent session. */
 export type RestoredSessionOpenResult =
   | { kind: 'opened' }
+  /** A terminal VS Code revived took the ticket over while this attempt ran. */
+  | { kind: 'adopted' }
   | { kind: 'not-open' }
   | { kind: 'closed' }
   | { kind: 'timed-out' }
@@ -20,7 +22,7 @@ export type RestoredSessionOpenResult =
 
 type ReadinessResult = Extract<
   RestoredSessionOpenResult,
-  { kind: 'opened' | 'closed' | 'timed-out' | 'interrupted' }
+  { kind: 'opened' | 'adopted' | 'closed' | 'timed-out' | 'interrupted' }
 >;
 
 interface PendingReadiness {
@@ -123,7 +125,11 @@ export class SessionRecoveryLifecycle {
    * accepting an unknown generation could let a disposed duplicate take over.
    */
   adoptLaunch(ticketId: number, launchId: string | undefined): void {
-    this.cancel(ticketId);
+    // An adoption can land in the middle of a replacement attempt for the same
+    // ticket. That attempt must be told, not merely dropped: its waiter would
+    // otherwise hang until the timeout and then dispose the adopted terminal
+    // as a failed launch.
+    this.supersede(ticketId);
     const previous = this.activeLaunches.get(ticketId);
     if (previous !== undefined && previous !== launchId) {
       this.rememberRetired(previous);
@@ -244,6 +250,15 @@ export class SessionRecoveryLifecycle {
     clearTimeout(pending.timer);
     this.pending.delete(ticketId);
   }
+
+  /** Settle a pending attempt that an adopted terminal has just replaced. */
+  private supersede(ticketId: number): void {
+    const pending = this.pending.get(ticketId);
+    this.cancel(ticketId);
+    if (!pending || pending.result) return;
+    pending.result = { kind: 'adopted' };
+    pending.resolve(pending.result);
+  }
 }
 
 /**
@@ -267,7 +282,13 @@ export async function resumeRestoredSession(
     }
 
     const observed = readiness.result();
-    if (observed?.kind === 'closed' || observed?.kind === 'interrupted') {
+    if (
+      observed?.kind === 'closed' ||
+      observed?.kind === 'interrupted' ||
+      // The ticket already has a live terminal — the revived one this attempt
+      // was racing. Nothing about the launch matters after that.
+      observed?.kind === 'adopted'
+    ) {
       return observed;
     }
     if (!sessions.isOpen(ticketId)) return { kind: 'not-open' };
@@ -298,7 +319,11 @@ export async function recoverSession(
     ticketId,
     open,
   );
-  if (outcome.kind !== 'opened' && sessions.isOpen(ticketId)) {
+  if (
+    outcome.kind !== 'opened' &&
+    outcome.kind !== 'adopted' &&
+    sessions.isOpen(ticketId)
+  ) {
     lifecycle.retire(ticketId);
     try {
       sessions.disposeSession(ticketId);
@@ -336,7 +361,7 @@ export type RecoveryOutcomeDisposition =
 export function recoveryOutcomeDisposition(
   outcome: RestoredSessionOpenResult,
 ): RecoveryOutcomeDisposition {
-  if (outcome.kind === 'opened') return 'ready';
+  if (outcome.kind === 'opened' || outcome.kind === 'adopted') return 'ready';
   if (outcome.kind === 'interrupted') return 'retry-next-activation';
   return 'abandon';
 }

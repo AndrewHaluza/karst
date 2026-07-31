@@ -11,6 +11,18 @@ describe('extension activation', () => {
     expect(pkg.activationEvents).toContain('onStartupFinished');
   });
 
+  it('reconciles terminals VS Code revives after the activation scan', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'extension.ts'),
+      'utf8',
+    );
+
+    // The one-shot scan cannot see a tab restored a moment later; without this
+    // subscription that tab stays invisible and recovery launches a duplicate.
+    expect(source).toContain('vscode.window.onDidOpenTerminal((terminal) => {');
+    expect(source).toContain('sessions.adoptLateSession(session, classifyLateSession)');
+  });
+
   it('does not run project recovery from an unbound startup window', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'extension.ts'),
