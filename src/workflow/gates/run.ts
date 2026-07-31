@@ -61,11 +61,25 @@ export function runProcess(
     }
 
     const p = prepareCommand(command, args);
-    const child = spawn(p.command, p.args, {
-      cwd,
-      windowsVerbatimArguments: p.windowsVerbatimArguments,
-      detached: true,
-    });
+
+    // node:child_process.spawn validates its arguments SYNCHRONOUSLY and throws
+    // for a structurally invalid command (e.g. an empty string) rather than
+    // emitting the async 'error' event a bad-but-well-formed one (a missing
+    // binary) gets below. Without this guard that throw propagates out of the
+    // Promise executor as an unhandled rejection instead of a spawnFailed
+    // outcome — the same "spawn failed" fact, reported two different ways.
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(p.command, p.args, {
+        cwd,
+        windowsVerbatimArguments: p.windowsVerbatimArguments,
+        detached: true,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      resolve({ kind: 'spawnFailed', message, output: output.render(message) });
+      return;
+    }
 
     let settled = false;
     let timedOut = false;

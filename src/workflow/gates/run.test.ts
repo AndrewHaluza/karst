@@ -219,6 +219,16 @@ describe('runProcess', () => {
     expect(out.kind).toBe('spawnFailed');
   });
 
+  // spawn() validates synchronously and THROWS for a structurally invalid
+  // command (empty string) rather than emitting the async 'error' event a
+  // missing-but-well-formed binary gets above. Without a try/catch around the
+  // spawn call this rejects the returned promise instead of resolving
+  // spawnFailed — an unhandled rejection, not a reported outcome.
+  it('reports an empty command as spawnFailed instead of throwing', async () => {
+    const out = await runProcess('', [], process.cwd());
+    expect(out.kind).toBe('spawnFailed');
+  });
+
   it('reports an aborted child as aborted, not as a failing gate', async () => {
     const controller = new AbortController();
     const started = runProcess(
