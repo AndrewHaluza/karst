@@ -1,14 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentProvider } from '../manifest/types.js';
 import type { ModelCatalog, ModelOption } from './modelCatalog.js';
 import type { DiscoveryResult } from './modelDiscovery.js';
 import {
+  catalogDiagnosticSeverity,
   fetchModelFeed,
   formatCatalogDiagnostic,
   loadModelCatalog,
   type CatalogCache,
   type CatalogCacheEntry,
   type CatalogDiagnostic,
+  type CatalogDiagnosticCategory,
   type CatalogLoaderDeps,
 } from './modelCatalogLoader.js';
 
@@ -28,7 +30,11 @@ function available(provider: AgentProvider, id: string): () => Promise<Discovery
   return async () => ({ status: 'available', models: models(provider, id) });
 }
 
-const unavailable = async (): Promise<DiscoveryResult> => ({ status: 'unavailable', reason: 'not installed' });
+const unavailable = async (): Promise<DiscoveryResult> => ({
+  status: 'unavailable',
+  code: 'command-unavailable',
+  reason: 'not installed',
+});
 
 class MemoryCache implements CatalogCache {
   readonly entries = new Map<AgentProvider, CatalogCacheEntry>();
@@ -62,10 +68,13 @@ function completeFeed(): typeof fetch {
   });
 }
 
+const FEED_URL = 'https://feed.test/model-catalog.json';
+
 function baseDeps(cache: CatalogCache, fetchImpl: typeof fetch): CatalogLoaderDeps {
   return {
     cache,
     fetchImpl,
+    feedUrl: FEED_URL,
     bundledCatalog: catalog(),
     cliLoaders: { claude: unavailable, codex: unavailable, antigravity: unavailable },
   };
@@ -191,16 +200,17 @@ describe('loadModelCatalog', () => {
 
 describe('loadModelCatalog diagnostics', () => {
   it.each([
-    ['a missing command', 'command unavailable: SECRET_BINARY_PATH', 'command-unavailable'],
-    ['a timeout', 'timed out after SECRET_TIMEOUT_VALUE', 'timeout'],
-    ['a non-zero exit', 'command failed: SECRET_STDERR', 'nonzero-exit'],
-    ['protocol or invalid output', 'Codex returned SECRET_OUTPUT as an invalid model list', 'invalid-output'],
-  ])('classifies %s without retaining its raw CLI reason', async (_case, reason, category) => {
+    ['a missing command', 'command-unavailable'],
+    ['a timeout', 'timeout'],
+    ['a non-zero exit', 'nonzero-exit'],
+    ['protocol or invalid output', 'invalid-output'],
+    ['an unsupported provider probe', 'unsupported'],
+  ] as const)('carries the discovery code for %s without retaining its raw CLI reason', async (_case, code) => {
     const result = await loadModelCatalog({
       ...baseDeps(new MemoryCache(), completeFeed()),
       cliLoaders: {
         claude: available('claude', 'cli-claude'),
-        codex: async () => ({ status: 'unavailable', reason }),
+        codex: async () => ({ status: 'unavailable', code, reason: 'SECRET_STDERR' }),
         antigravity: available('antigravity', 'cli-antigravity'),
       },
     });
@@ -209,13 +219,36 @@ describe('loadModelCatalog diagnostics', () => {
     expect(result.diagnostics).toEqual([{
       provider: 'codex',
       tier: 'cli',
-      category,
+      category: code,
     }]);
     expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
   });
 
+  it('never reports an unsupported provider probe as a missing command', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: async () => ({
+          status: 'unavailable',
+          code: 'unsupported',
+          reason: 'Claude CLI model discovery is unsupported',
+        }),
+        codex: available('codex', 'cli-codex'),
+        antigravity: available('antigravity', 'cli-antigravity'),
+      },
+    });
+
+    expect(result.diagnostics.map(formatCatalogDiagnostic)).toEqual(['claude:cli:unsupported']);
+  });
+
   it.each([
-    ['an HTTP error', (async () => new Response('SECRET_BODY', { status: 503 })) as typeof fetch, undefined, 'http-error'],
+    [
+      'an HTTP error',
+      (async () => new Response('SECRET_BODY', { status: 503 })) as typeof fetch,
+      undefined,
+      'http-error',
+      '503',
+    ],
     [
       'a timeout',
       ((_: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -223,16 +256,78 @@ describe('loadModelCatalog diagnostics', () => {
       })) as typeof fetch,
       { timeoutMs: 1 },
       'timeout',
+      undefined,
     ],
-    ['an invalid response', (async () => new Response('{SECRET_RESPONSE')) as typeof fetch, undefined, 'invalid-response'],
-  ] as const)('reports %s without exposing the response failure', async (_case, fetchImpl, feedLimits, category) => {
+    [
+      'an invalid response',
+      (async () => new Response('{SECRET_RESPONSE')) as typeof fetch,
+      undefined,
+      'invalid-response',
+      'unparseable-body',
+    ],
+  ] as const)('names the failing feed for %s without exposing the response failure', async (
+    _case,
+    fetchImpl,
+    feedLimits,
+    category,
+    cause,
+  ) => {
     const result = await loadModelCatalog({
       ...baseDeps(new MemoryCache(), fetchImpl),
+      feedUrl: 'https://feed.test/model-catalog.json',
       feedLimits,
     });
 
-    expect(result.diagnostics).toContainEqual({ tier: 'feed', category });
+    expect(result.diagnostics).toContainEqual({
+      tier: 'feed',
+      category,
+      target: 'https://feed.test/model-catalog.json',
+      ...(cause === undefined ? {} : { cause }),
+    });
     expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
+  });
+
+  it('reports a transport failure with the underlying error code, not the message', async () => {
+    const fetchImpl = (async () => {
+      throw Object.assign(new TypeError('fetch failed to SECRET_HOST'), { code: 'ENOTFOUND' });
+    }) as typeof fetch;
+
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), fetchImpl),
+      feedUrl: 'https://feed.test/model-catalog.json',
+    });
+
+    expect(result.diagnostics).toContainEqual({
+      tier: 'feed',
+      category: 'http-error',
+      target: 'https://feed.test/model-catalog.json',
+      cause: 'ENOTFOUND',
+    });
+    expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
+  });
+
+  it('strips credentials and query from the feed target it reports', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), (async () => new Response('no', { status: 500 })) as typeof fetch),
+      feedUrl: 'https://user:SECRET_TOKEN@feed.test/model-catalog.json?key=SECRET_KEY',
+    });
+
+    expect(result.diagnostics).toContainEqual({
+      tier: 'feed',
+      category: 'http-error',
+      target: 'https://feed.test/model-catalog.json',
+      cause: '500',
+    });
+    expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
+  });
+
+  it('does not abort the catalog when the feed fails', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), (async () => new Response('no', { status: 404 })) as typeof fetch),
+    });
+
+    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled' });
+    expect(result.diagnostics.filter((d) => d.tier === 'feed')).toHaveLength(1);
   });
 
   it('reports a provider-scoped empty feed section', async () => {
@@ -248,6 +343,64 @@ describe('loadModelCatalog diagnostics', () => {
       tier: 'feed',
       category: 'empty',
     });
+  });
+
+  it('emits no warn-level diagnostic when no optional provider CLI is installed', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: async () => ({ status: 'unavailable', code: 'unsupported', reason: 'unsupported' }),
+        codex: unavailable,
+        antigravity: unavailable,
+      },
+    });
+
+    expect(result.diagnostics.filter((d) => catalogDiagnosticSeverity(d.category) === 'warn')).toEqual([]);
+    expect(result.sources).toEqual({ claude: 'feed', codex: 'feed', antigravity: 'feed' });
+  });
+
+  it('never fetches, and reports nothing, when no feed is configured', async () => {
+    const fetchImpl = vi.fn(async () => new Response('no', { status: 404 })) as unknown as typeof fetch;
+
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), fetchImpl),
+      feedUrl: undefined,
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result.diagnostics.filter((d) => d.tier === 'feed')).toEqual([]);
+    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled' });
+  });
+
+  it('populates the catalog from a provider CLI that is installed', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: unavailable,
+        codex: available('codex', 'cli-codex'),
+        antigravity: unavailable,
+      },
+    });
+
+    expect(result.sources.codex).toBe('cli');
+    expect(result.catalog.codex).toEqual(models('codex', 'cli-codex'));
+    expect(result.diagnostics.some((d) => d.provider === 'codex')).toBe(false);
+  });
+});
+
+describe('catalogDiagnosticSeverity', () => {
+  it.each([
+    ['command-unavailable', 'info'],
+    ['unsupported', 'info'],
+    ['empty', 'info'],
+    ['timeout', 'warn'],
+    ['nonzero-exit', 'warn'],
+    ['invalid-output', 'warn'],
+    ['http-error', 'warn'],
+    ['invalid-response', 'warn'],
+    ['persistence-failed', 'warn'],
+  ] as const)('reports %s at %s', (category: CatalogDiagnosticCategory, severity) => {
+    expect(catalogDiagnosticSeverity(category)).toBe(severity);
   });
 });
 
@@ -272,11 +425,30 @@ describe('formatCatalogDiagnostic', () => {
       },
       'all:feed:http-error',
     ],
+    [
+      {
+        tier: 'feed',
+        category: 'http-error',
+        target: 'https://feed.test/model-catalog.json',
+        cause: '404',
+        body: 'SECRET_RESPONSE_BODY',
+      },
+      'all:feed:http-error target=https://feed.test/model-catalog.json cause=404',
+    ],
   ] as const)('formats only the bounded structured fields', (value, expected) => {
     const diagnostic = value as unknown as CatalogDiagnostic;
 
     expect(formatCatalogDiagnostic(diagnostic)).toBe(expected);
     expect(formatCatalogDiagnostic(diagnostic)).not.toContain('SECRET_');
+  });
+
+  it.each([
+    ['a target that is not a bounded URL', { target: 'javascript:alert(1) SECRET' }],
+    ['a cause carrying free text', { cause: 'boom: SECRET_STDERR' }],
+  ])('drops %s rather than rendering it', (_case, extra) => {
+    const diagnostic = { tier: 'feed', category: 'http-error', ...extra } as unknown as CatalogDiagnostic;
+
+    expect(formatCatalogDiagnostic(diagnostic)).toBe('all:feed:http-error');
   });
 });
 
@@ -286,19 +458,19 @@ describe('fetchModelFeed', () => {
     ['invalid JSON', (async () => new Response('{')) as typeof fetch],
     ['unknown schema version', (async () => new Response(JSON.stringify({ version: 2, providers: {} }))) as typeof fetch],
   ])('returns no feed models for a %s', async (_case, fetchImpl) => {
-    expect(await fetchModelFeed(fetchImpl)).toEqual({});
+    expect(await fetchModelFeed(fetchImpl, FEED_URL)).toEqual({});
   });
 
   it('rejects a non-HTTPS final URL', async () => {
     const response = feedResponse({ codex: [{ id: 'feed-codex', label: 'Feed Codex' }] });
     Object.defineProperty(response, 'url', { value: 'http://example.test/model-catalog.json' });
 
-    expect(await fetchModelFeed((async () => response) as typeof fetch)).toEqual({});
+    expect(await fetchModelFeed((async () => response) as typeof fetch, FEED_URL)).toEqual({});
   });
 
   it('bounds the response body before parsing it', async () => {
     const oversized = new Response('x'.repeat(33));
-    expect(await fetchModelFeed((async () => oversized) as typeof fetch, undefined, { maxBodyBytes: 32 }))
+    expect(await fetchModelFeed((async () => oversized) as typeof fetch, FEED_URL, { maxBodyBytes: 32 }))
       .toEqual({});
   });
 
@@ -307,14 +479,14 @@ describe('fetchModelFeed', () => {
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
     })) as typeof fetch;
 
-    expect(await fetchModelFeed(fetchImpl, undefined, { timeoutMs: 1 })).toEqual({});
+    expect(await fetchModelFeed(fetchImpl, FEED_URL, { timeoutMs: 1 })).toEqual({});
   });
 
   it('passes a successful feed list through the shared provider validation', async () => {
     const result = await fetchModelFeed(feed({
       claude: [{ id: 'claude-current', label: ' Claude Current ' }],
       codex: [],
-    }));
+    }), FEED_URL);
 
     expect(result).toEqual({
       claude: [{ id: 'claude-current', label: 'Claude Current', providers: ['claude'] }],
