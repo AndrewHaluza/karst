@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attentionItems } from './attention.js';
+import { attentionItems, attentionSummary, type AttentionItem } from './attention.js';
 import type { TicketWithStages } from '../store/tickets.js';
 import type { StageKey, StageStatus } from '../model/types.js';
 
@@ -104,5 +104,57 @@ describe('attentionItems', () => {
       ticket({ id: 2, key: 'A-2', agentState: 'waiting', updatedAt: '2026-07-28T00:00:00Z' }),
     ]);
     expect(items.map((i) => i.key)).toEqual(['A-2', 'A-1']);
+  });
+});
+
+const item = (over: Partial<AttentionItem> = {}): AttentionItem => ({
+  ticketId: 1,
+  key: 'A-1',
+  title: 'a thing',
+  stage: 'impl',
+  kind: 'input',
+  reason: 'agent asked a question',
+  ...over,
+});
+
+describe('attentionSummary', () => {
+  it('returns null for an empty set — nothing is shown when nothing is wrong', () => {
+    expect(attentionSummary([])).toBeNull();
+  });
+
+  it('uses singular copy for one ticket', () => {
+    const s = attentionSummary([item()]);
+    expect(s?.text).toBe('$(bell) 1 needs you');
+    expect(s?.badgeTooltip).toBe('1 ticket needs your input');
+    expect(s?.count).toBe(1);
+  });
+
+  it('uses plural copy for several tickets', () => {
+    const s = attentionSummary([item(), item({ ticketId: 2, key: 'A-2' })]);
+    expect(s?.text).toBe('$(bell) 2 need you');
+    expect(s?.badgeTooltip).toBe('2 tickets need your input');
+  });
+
+  it('lists one key · reason line per ticket in the tooltip', () => {
+    const s = attentionSummary([
+      item({ key: 'A-3', kind: 'failed', reason: 'uat failed' }),
+      item({ ticketId: 2, key: 'A-1' }),
+    ]);
+    expect(s?.tooltip).toBe('A-3 · uat failed\nA-1 · agent asked a question');
+  });
+
+  it('warns only when something is actually blocked', () => {
+    expect(attentionSummary([item()])?.warning).toBe(false);
+    expect(attentionSummary([item({ kind: 'failed' })])?.warning).toBe(true);
+  });
+
+  it('caps the tooltip at 10 lines and says how many it dropped', () => {
+    const many = Array.from({ length: 13 }, (_, i) =>
+      item({ ticketId: i + 1, key: `A-${i + 1}` }),
+    );
+    const lines = attentionSummary(many)!.tooltip.split('\n');
+    expect(lines).toHaveLength(11);
+    expect(lines[10]).toBe('…and 3 more');
+    expect(attentionSummary(many)?.count).toBe(13);
   });
 });

@@ -73,3 +73,40 @@ export function attentionItems(tickets: readonly TicketWithStages[]): AttentionI
   });
   return rows.map((r) => r.item);
 }
+
+export interface AttentionSummary {
+  count: number;
+  /** Status-bar label, e.g. `$(bell) 2 need you`. */
+  text: string;
+  /** Multi-line status-bar tooltip, one `key · reason` line per ticket. */
+  tooltip: string;
+  /** True when any item is `failed` — drives the warning background. */
+  warning: boolean;
+  /** Badge tooltip, e.g. `2 tickets need your input`. */
+  badgeTooltip: string;
+}
+
+/** A tooltip is not a list view; the QuickPick is where the full set lives. */
+const TOOLTIP_LIMIT = 10;
+
+/**
+ * Render the set into the strings both surfaces show, or `null` when the set is
+ * empty. Null means SHOW NOTHING: a permanent "all good" indicator is noise —
+ * the same rule `buildDepsIndicator` follows.
+ */
+export function attentionSummary(items: readonly AttentionItem[]): AttentionSummary | null {
+  const count = items.length;
+  if (count === 0) return null;
+
+  const lines = items.slice(0, TOOLTIP_LIMIT).map((i) => `${i.key} · ${i.reason}`);
+  const dropped = count - lines.length;
+  if (dropped > 0) lines.push(`…and ${dropped} more`);
+
+  return {
+    count,
+    text: `$(bell) ${count} ${count === 1 ? 'needs' : 'need'} you`,
+    tooltip: lines.join('\n'),
+    warning: items.some((i) => i.kind === 'failed'),
+    badgeTooltip: `${count} ${count === 1 ? 'ticket needs' : 'tickets need'} your input`,
+  };
+}
