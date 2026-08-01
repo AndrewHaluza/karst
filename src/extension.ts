@@ -1422,9 +1422,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     // Every terminal in the window raises this, karst's or not; the ticket comes
-    // from the launch env, and a terminal without one resolves to undefined.
+    // from the launch env, or — after a reload has stripped it — from the pid
+    // this window recorded, and a terminal with neither resolves to undefined.
     vscode.window.onDidChangeActiveTerminal((terminal) =>
-      binder.onTerminalActivated(ticketIdFromTerminalEnv(terminalEnv(terminal))),
+      binder.onTerminalActivated(
+        terminal ? terminalIdentity.identify(terminal)?.ticketId : undefined,
+      ),
     ),
   );
 
@@ -2530,6 +2533,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     provider.refresh();
     dashboard.pushAll();
   }
+  // Each replacement below reveals its terminal, and every reveal raises the
+  // activation the binding listens for. None of that is the user landing on a
+  // ticket, so the binding stays out of it until recovery has settled —
+  // otherwise a window coming up with several live sessions drags a dashboard
+  // open per recovered ticket while it is still starting.
+  const revealsDuringRecovery = backgroundRecoveryPlan.resume.length > 0;
+  if (revealsDuringRecovery) binder.suspend();
+  const recoveryTasks: Array<Promise<unknown>> = [];
   for (const ticketId of backgroundRecoveryPlan.resume) {
     const recoveryTask = recoverSession(
       sessions,
@@ -2567,9 +2578,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError(`session recovery completion failed for ticket ${ticketId}`, error);
     });
     pendingSessionRecoveryTasks.add(recoveryTask);
+    recoveryTasks.push(recoveryTask);
     void recoveryTask.finally(() => {
       pendingSessionRecoveryTasks.delete(recoveryTask);
     });
+  }
+  if (revealsDuringRecovery) {
+    // Released whatever the outcomes were: a recovery that failed still stops
+    // producing reveals, and a binding left suspended would need a reload. One
+    // turn after the last task settles, because a reveal's activation event
+    // crosses the host boundary and can land just behind the command that
+    // caused it. Best-effort by nature — an activation that arrives later still
+    // costs one dashboard reveal, never a loop.
+    void Promise.allSettled(recoveryTasks).then(() =>
+      setTimeout(() => binder.resume(), 0),
+    );
   }
 }
 
