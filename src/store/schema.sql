@@ -196,3 +196,49 @@ CREATE TABLE IF NOT EXISTS merge_checks (
   checked_at    TEXT NOT NULL,
   PRIMARY KEY (ticket_id, repo)
 );
+
+-- One row per instrumented AI/LLM invocation (§ token consumption stats).
+-- APPEND-ONLY evidence, like gate_runs and phase_marks and for the same reason:
+-- a call is an EVENT. It cannot live on `tickets` (one row per ticket) or on
+-- `stages` (one row per stage_key, overwritten by a retry), and the whole value
+-- of the table is that a prior expensive attempt still shows up in the totals.
+-- Nothing UPDATEs it.
+--
+-- No prompt or completion TEXT is ever stored here — only counts and metadata.
+-- That is a hard rule, not an omission: this table is queried by an aggregate
+-- view, ticket content is confidential, and a column that could hold it would
+-- eventually hold it.
+--
+-- `ticket_id` is nullable because the first AI call of a ticket's life (the
+-- onboarding analyzer) runs while the ticket is still an unsaved draft. Such a
+-- call is real spend and is recorded unattributed rather than dropped.
+-- `project_id` scopes the table for the same reason every ticket query is
+-- scoped: the DB lives in global storage and is shared by every IDE window.
+--
+-- `estimated` marks a row whose counts came from `estimateTokenUsage` because
+-- the core reported none. It is carried to the view so an approximation is
+-- never presented as measured.
+CREATE TABLE IF NOT EXISTS token_usage (
+  id                 INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS call order
+  project_id         INTEGER,              -- -> projects.id; NULL = unscoped (recovery only)
+  ticket_id          INTEGER,              -- -> tickets.id; NULL = not yet a ticket (draft)
+  call_site          TEXT NOT NULL,        -- AiCallSite (agent/aiCallSites.ts) — a closed set
+  provider           TEXT,                 -- claude | codex | antigravity
+  model              TEXT,                 -- model id the core reported; NULL = it did not say
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens       INTEGER NOT NULL DEFAULT 0,
+  estimated          INTEGER NOT NULL DEFAULT 0,  -- 1 = counts are an estimate, not a report
+  outcome            TEXT NOT NULL,        -- ok | error (a failed call still burned tokens)
+  recorded_at        TEXT NOT NULL         -- ISO-8601; what every time-range filter cuts on
+);
+-- The aggregation index set. Every stats query filters on (project_id,
+-- recorded_at) and then groups by one of ticket / call_site / model, so each
+-- grouping gets a covering leading edge — the rollups stay in SQLite as the row
+-- count grows instead of becoming an in-memory scan.
+CREATE INDEX IF NOT EXISTS idx_token_usage_project_time ON token_usage(project_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_token_usage_ticket ON token_usage(ticket_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_token_usage_site ON token_usage(project_id, call_site, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, model, recorded_at);

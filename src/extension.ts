@@ -138,9 +138,13 @@ import {
 } from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
+  AgentProvider,
   ApproachDef,
   TicketingConfig,
 } from './manifest/types.js';
+import { instrumentAdapter } from './agent/instrumentedAdapter.js';
+import { recordTokenUsage } from './store/tokenUsage.js';
+import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import {
   listInstalled,
   readApproachPackage,
@@ -460,10 +464,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     load: loadManifest,
   });
   const currentManifest = (): Manifest | undefined => manifests.get();
+  /**
+   * Every agent adapter this window hands out is INSTRUMENTED (§ token
+   * consumption stats). Wrapping happens here, at the two places an adapter is
+   * resolved, so a new AI integration is measured the moment it is written —
+   * the alternative, a record call per call site, is the duplication the
+   * instrumentation exists to avoid.
+   *
+   * `projectId` is a getter: the DB is shared by every IDE window, so a spend
+   * row that is not project-scoped shows up in another project's totals.
+   */
+  const instrument = (adapter: AgentAdapter, provider: AgentProvider): AgentAdapter =>
+    instrumentAdapter(adapter, {
+      sink: { record: (entry) => recordTokenUsage(localStore, entry) },
+      provider,
+      projectId: () => currentProject()?.id ?? null,
+      logError,
+    });
+
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
     const ticketProvider =
       ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    return resolveAdapter(resolveProvider(ticketProvider, currentManifest()?.agentProvider));
+    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+    return instrument(resolveAdapter(provider), provider);
   };
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
@@ -743,7 +766,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // object is built once at activation, so a static property would be
       // permanently stuck on the fallback ('claude') read at that moment.
       get adapter() {
-        return resolveAdapter((currentManifest() ?? emptyManifest()).agentProvider ?? 'claude');
+        const provider = (currentManifest() ?? emptyManifest()).agentProvider ?? 'claude';
+        // Instrumented like every other adapter: onboarding's analyzer is the
+        // first AI call of a ticket's life and often its most expensive.
+        return instrument(resolveAdapter(provider), provider);
       },
       onChange: () => provider.refresh(),
       // Finish handoff: scope the ticket's selected repos (worktrees, no
@@ -1114,6 +1140,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the manager. Assigned immediately below, and neither direction is read
   // until a panel actually opens.
   let binder: TerminalDashboardBinder;
+
+  // One token-usage panel per window (§ token consumption stats). Project-scoped
+  // like every other query: the DB is global storage, shared by every window.
+  const tokenUsagePanel = new UsagePanelManager(localStore, makeUsagePanelHost(context), {
+    projectId: () => currentProject()?.id,
+    openDashboard: (ticketId) =>
+      void vscode.commands.executeCommand('karst.openDashboard', ticketId),
+    logError,
+  });
 
   const dashboard = new DashboardManager(
     localStore,
@@ -2146,6 +2181,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
     }),
+    vscode.commands.registerCommand('karst.openTokenUsage', () => tokenUsagePanel.open()),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
       const query = await vscode.window.showInputBox({ prompt: 'Filter tickets' });
@@ -2539,6 +2575,30 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
         setIcon: (p: string) => {
           panel.iconPath = vscode.Uri.file(p);
         },
+      };
+    },
+  };
+}
+
+/** Real token-usage panel, with a fresh CSP nonce for every panel. */
+function makeUsagePanelHost(context: vscode.ExtensionContext): UsagePanelHost {
+  const html = readFileSync(join(HERE, 'ui', 'usage', 'webview.html'), 'utf8');
+  return {
+    createPanel(title): UsagePanel {
+      const panel = vscode.window.createWebviewPanel(
+        'karst.tokenUsage',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      );
+      context.subscriptions.push(panel);
+      panel.webview.html = injectCsp(html, newNonce());
+      return {
+        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
+        postMessage: (message) => void panel.webview.postMessage(message),
+        onDidReceiveMessage: (handler) =>
+          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+        onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
       };
     },
   };

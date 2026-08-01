@@ -37,6 +37,7 @@ describe('webview discovery', () => {
       'onboarding',
       'settings',
       'sidebar',
+      'usage',
       'welcome',
     ]);
   });
