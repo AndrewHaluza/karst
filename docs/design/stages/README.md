@@ -58,6 +58,12 @@ left before this parks" can be seen. Nothing in karst shows that today.
 disagree, the spec wins (the mockup draws the needs-you segment's button as an
 actor; the spec narrows it to a navigational control).
 
-E additionally removes the rail's 560px floor: at a real 430px side-panel width
-it degrades in two steps (drop annotations, then drop names) instead of scrolling
-sideways.
+E additionally removes the rail's 560px floor. It degrades in three measured
+steps — drop annotations, then drop names, then reduce the passed-by segments to
+position markers while the current segment sheds its own annotation and shortens
+its name to the stage key. Two steps was the first attempt and it was wrong: at a
+397px lane five of the eight cases were still over, and because the lane was
+`overflow:hidden` that showed up as the current segment's action button being
+clipped away with nothing to indicate it. The lane is `overflow-x:auto` now and
+the three steps clear every case down to **300px**. The measurement loop that
+produced that number is in the file; re-run it if a segment gains content.

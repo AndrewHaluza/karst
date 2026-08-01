@@ -109,10 +109,19 @@ Segment content by state:
 | needs-you | pause glyph `❚❚` (or `⚠` when conflicted), name, reason, action button, amber wash |
 | current + impl | name, one pip per declared phase, reported ones filled, latest reported phase name |
 
-Degradation is two steps, measured rather than a breakpoint, because the threshold depends on the current stage's name length and on whether a meter is riding along:
+### Narrow widths
 
-1. **snug** — compact segments drop annotations (duration, the meter's numeral) and keep every stage name.
-2. **tight** — compact segments also drop names, keeping the glyph. The current segment always says everything.
+Degradation is **three** steps, measured rather than a breakpoint, because the threshold depends on the current stage's name length and on whether a meter is riding along:
+
+1. **snug** — compact segments drop annotations (duration, the meter's numeral, the approach caption) and keep every stage name.
+2. **tight** — compact segments also drop names and the meter's return label, keeping the glyph.
+3. **bare** — the floor. Compact segments become position markers: no meter, minimum padding, `min-width:0`. The **current** segment gives up its meta, its approach pips and its meter numeral, and shortens its name from the human title to the stage key (`Implementation` → `impl` — the same word every other segment shows, so it is a shortening, not a different label). It never gives up its name or its action button.
+
+Two, which was the earlier draft, did not fit. Measured across the eight mockup cases at a 397px lane, five were still over after **tight** — and the lane was `overflow:hidden`, so "still over" meant the current segment's own action button was clipped away with no scrollbar to say so. Three steps clear every case down to **300px**, which is well under any width the dashboard is used at.
+
+**The lane is `overflow-x:auto`, never `hidden`.** Below 300px the steps run out and a thin scrollbar appears. That is the intended failure: a scrollbar is something the user can act on, silent clipping is not. `overflow:hidden` is what turned an over-wide track into an invisible defect in the first place, and the two-step draft only looked correct because of it.
+
+Anything a step drops must already be in the accessible name, since the name does not degrade. That includes the meter's attempt count and its return target — `revalidates from uat` is in the `aria-label` precisely because the `↩ uat` text is one of the things **bare** drops.
 
 The single measurement is `lane.scrollWidth > lane.clientWidth`, re-run on `resize`, on the next animation frame, on `load` and on `fonts.ready`. Nothing is *positioned* from a measured rect — that was the earlier draft's weakest point against a codebase whose geometry is derived CSS.
 
@@ -136,6 +145,10 @@ TDD, RED first, per the repo's workflow.
 
 **`src/ui/dashboard/state.test.ts`**: a ticket parked pending at `ship` produces a rail whose ship segment has `needsUser: true`; a ticket with `agentState: 'waiting'` at `impl` puts it on impl.
 
+**Narrow-width guard** — a jsdom test cannot lay out flexbox, so this is pinned two ways instead:
+- Static, in `webview.test.ts`: the lane's overflow is `auto`, never `hidden`; every one of the three step classes has a rule that hides something; and the current segment's name and action button are never a target of a `display:none` rule at any step (grep the stylesheet, the same way the CSP and design-system tests read the file).
+- Empirical, in the mockup: `docs/design/stages/variant-e-track.html` carries the eight cases and the measurement loop that produced the 300px floor. It stays the record for the number, and re-running it is how the floor is re-checked if a segment gains content.
+
 **`src/ui/dashboard/webview.test.ts`**: the existing mirror pins keep passing untouched (UI-R34 — none of `SECTION_FIELDS`, `TICKET_TYPES`, `CONVENTION_PRESETS`, `TRANSFORM_NAMES`, `deriveKey`, `MAX_PASTE_BYTES`, `briefToText` is touched). New pins: the track markup contains no nested `<button>`; every segment's `pick` carries matching `aria-label` and `title`; a segment with a meter carries the attempt count in its accessible name.
 
 **`src/ui/designSystem.test.ts`** and **`src/ui/webviewCsp.test.ts`** are unchanged and must stay green — the dashboard is a discovered directory in both.
@@ -147,5 +160,6 @@ Sidebar chips, the onboarding stepper, the status bar, the Inside strip's conten
 ## Risks
 
 - **`fix` becomes harder to find.** Mitigated by making the meter the control, but a user who knows the old node is gone will look for it. Accepted: the meter is on the stage the loop belongs to, which is where it should have been.
-- **The measured degradation is the one non-derived piece.** It only toggles two classes and cannot detach anything, but it is still a measurement in a codebase that avoids them. Accepted as the price of killing the 560px floor.
+- **The measured degradation is the one non-derived piece.** It only toggles three classes and cannot detach anything, but it is still a measurement in a codebase that avoids them. Accepted as the price of killing the 560px floor.
+- **The 300px floor is measured against today's content.** A segment that gains a new fact moves it. The mockup is the instrument; re-run its loop rather than assuming the number holds.
 - **Two entry points to one selection** (`pick` and the meter's `data-stage="fix"`) inside one segment. Both post the existing selection message; no new host handler.

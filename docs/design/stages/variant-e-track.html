@@ -73,8 +73,14 @@
   /* ── the track ────────────────────────────────────────────────────────────
      Chevron segments interlock by a negative margin equal to the arrow depth, so
      the track is one continuous object with no gaps to read as separators. */
+  /* overflow-x:auto, never hidden. The three degradation steps below keep the
+     track inside its lane at every width a VS Code panel can actually be dragged
+     to, so this scrollbar is unreachable in practice — but if a width ever gets
+     past them, the honest failure is a scrollbar the user can act on, not a
+     silently clipped action button. overflow:hidden here is what turned an
+     over-wide track into an invisible defect. */
   .lane1{display:flex;align-items:stretch;height:46px;border-radius:9px;background:var(--sunken);
-    border:1px solid var(--border);overflow:hidden}
+    border:1px solid var(--border);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
   /* A segment is a WRAPPER holding the select button and, when the stage is
      parked on the user, its action button. The chevron clip and the wash live on
      the wrapper because a <button> may not contain a <button> — nested, the
@@ -125,16 +131,53 @@
      and keep the glyph — the current segment still says everything. This is the
      degradation the shipped rail does not have: it hits a 560px floor and
      scrolls sideways instead. */
-  /* Two steps, in order of what costs least to lose. SNUG drops the facts that
+  /* THREE steps, in order of what costs least to lose. SNUG drops the facts that
      the segment merely annotates (duration, the meter's numeral) and keeps every
-     stage NAME. TIGHT then drops the names too. Collapsing straight to glyphs the
-     moment the track is one pixel over is what made a comfortably-fitting rail
-     read as an emergency. */
+     stage NAME. TIGHT then drops the names too. BARE is the floor: the passed-by
+     segments become position markers and the CURRENT segment sheds its own
+     annotation, keeping only glyph, name and action. Collapsing straight to
+     glyphs the moment the track is one pixel over is what made a comfortably
+     fitting rail read as an emergency.
+
+     Three, not two, because two did not fit. Measured at a 397px lane, five of
+     the eight cases were still over after TIGHT — and .lane1 is overflow:hidden,
+     so "still over" means the current segment's own action button was being
+     clipped away with no scrollbar to say so. The floor has to be reached by
+     construction, not hoped for: at BARE the six passed-by segments cost a fixed
+     ~22px each, so whatever is left is the current segment's, and the current
+     segment's own min-content is glyph + name + button. */
   .track.snug .seg:not(.cur) .mt,
   .track.snug .seg:not(.cur) .fixm .tx{display:none}
   .track.snug .seg:not(.cur) .fixm{padding-left:6px;margin-left:0}
+  .track.snug .seg.cur .ph .pn{display:none}
   .track.tight .seg:not(.cur) .nm{display:none}
   .track.tight .seg:not(.cur){padding-left:18px;padding-right:8px}
+  .track.tight .seg:not(.cur) .fixm .ret{display:none}
+  /* BARE. The non-current segments stop carrying anything but their position and
+     their status hue; min-width:0 lets them give up the last of their padding
+     rather than pushing the current segment's content under the clip. */
+  .track.bare .seg:not(.cur){padding-left:14px;padding-right:4px;min-width:0}
+  .track.bare .seg:not(.cur) .fixm{display:none}
+  .track.bare .seg:not(.cur) .g{width:12px}
+  /* The current segment gives up its META — the one thing on it that is an
+     annotation rather than an identity or an action. The name says where the
+     ticket is and the button says what is wanted; both survive to the floor. */
+  .track.bare .seg.cur .mt{display:none}
+  .track.bare .seg.cur{padding-right:20px}
+  /* At the floor the current segment also gives up its ANNOTATIONS: the approach
+     pips, and the meter's numeral (the ticks still carry the count, and the
+     accessible name carries it in words either way). Never the name, never the
+     button. */
+  .track.bare .seg.cur .ph{display:none}
+  .track.bare .seg.cur .fixm .tx,
+  .track.bare .seg.cur .fixm .ret{display:none}
+  /* …and its name shortens to the stage KEY, which is what every other segment
+     shows anyway. "Implementation" is 113px of a 300px panel; `impl` is 30. The
+     abbreviation is the same word the graph uses, so it is a shortening rather
+     than a different label. */
+  .seg .nm .abbr{display:none}
+  .track.bare .seg.cur .nm .full{display:none}
+  .track.bare .seg.cur .nm .abbr{display:inline}
 
   .seg .g{flex:none;width:16px;height:16px;display:grid;place-items:center;font-size:11px;font-weight:700}
   .seg .nm{font-size:11px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;
@@ -291,7 +334,12 @@ function render(c, idx){
     const retried = fx && fx.gate === k;
     const cls = [status, cur?'cur':''].filter(Boolean).join(' ');
     const g = segGlyph(status, status==='running' || (retried && fx.live), needs && c.conflict);
-    const name = cur ? TITLE[k] : k;
+    /* Both forms ship; CSS picks one. The current segment normally shows the
+       human title and falls back to the key at the narrowest step — swapping the
+       text in JS would mean re-rendering on resize. */
+    const name = cur
+      ? `<span class="full">${esc(TITLE[k])}</span><span class="abbr">${esc(k)}</span>`
+      : esc(k);
 
     /* The meter is APPENDED, never assigned into the same slot as the meta —
        a retried gate has both a duration and a spent cap and must not have to
@@ -312,11 +360,15 @@ function render(c, idx){
     /* The accessible name carries the loop too: a screen reader must not have to
        infer a running retry from a meter it cannot see. */
     const aria = (needs ? `${TITLE[k]}: needs you` : `${TITLE[k]}: ${status}`)
-      + (retried ? ` — fix attempt ${fx.spent} of ${FIX_ATTEMPT_CAP}${fx.live?', running':''}` : '');
+      + (retried ? ` — fix attempt ${fx.spent} of ${FIX_ATTEMPT_CAP}${fx.live?', running':''}` : '')
+      /* The return target is in the accessible name too, not only in the `↩ uat`
+         text: that text is one of the things the narrowest step drops, and a
+         fact that disappears at 300px was never safe to leave to the visual. */
+      + (retried && fx.ret ? `, revalidates from ${fx.ret}` : '');
     return `<div class="seg stg-${k} ${cls}" data-k="${k}">
       <button type="button" class="pick" aria-current="${cur}"
         aria-label="${esc(aria)}" title="${esc(aria)}"></button>
-      <span class="g">${g}</span><span class="nm">${esc(name)}</span>${extra}</div>`;
+      <span class="g">${g}</span><span class="nm">${name}</span>${extra}</div>`;
   }).join('');
 
   return `<section class="case">
@@ -350,10 +402,12 @@ function place(){
   document.querySelectorAll('.track').forEach((track)=>{
     const lane1 = track.querySelector('.lane1');
     const over = ()=> lane1.scrollWidth > lane1.clientWidth + 1;
-    track.classList.remove('snug','tight');
+    track.classList.remove('snug','tight','bare');
     if (!over()) return;
     track.classList.add('snug');
-    if (over()) track.classList.add('tight');
+    if (!over()) return;
+    track.classList.add('tight');
+    if (over()) track.classList.add('bare');
   });
 }
 /* Run once now, again after the frame the browser actually lays out in, and
