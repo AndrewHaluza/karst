@@ -76,12 +76,16 @@ function flow(overrides: Partial<AgentSwitchFlowDeps> = {}) {
     }),
     isSessionOpen: () => true,
     pickProvider: async () => (order.push('pick-provider'), 'codex'),
-    isProviderReady: (provider) => (order.push(`ready:${provider}`), true),
+    isProviderReady: async (provider) => (order.push(`ready:${provider}`), true),
     pickModel: async (_provider, choices) => (order.push('pick-model'), choices[1]),
     confirm: async () => (order.push('confirm'), true),
     persist: (selection) => order.push(`persist:${selection.provider}:${selection.model}`),
     dispose: () => order.push('dispose'),
-    launch: async () => { order.push('launch'); },
+    launch: async (options) => {
+      order.push(
+        `launch:allow-resume=${String(options.allowResume)}:provider-ready=${String(options.providerReady)}`,
+      );
+    },
     ...overrides,
   };
   return { deps, order };
@@ -93,8 +97,43 @@ describe('runAgentSwitchFlow', () => {
     await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'switched' });
     expect(order).toEqual([
       'pick-provider', 'ready:codex', 'pick-model', 'confirm',
-      'persist:codex:codex-x', 'dispose', 'launch',
+      'persist:codex:codex-x', 'dispose',
+      'launch:allow-resume=false:provider-ready=true',
     ]);
+  });
+
+  it('awaits replacement readiness and keeps the current session when it times out', async () => {
+    let finishReadiness!: (ready: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => { finishReadiness = resolve; });
+    const { deps, order } = flow({
+      isProviderReady: async () => {
+        order.push('ready:codex');
+        return await readiness;
+      },
+    });
+
+    const switching = runAgentSwitchFlow(deps, CATALOG);
+    await Promise.resolve();
+    expect(order).toEqual(['pick-provider', 'ready:codex']);
+
+    finishReadiness(false);
+    await expect(switching).resolves.toEqual({ kind: 'unavailable', provider: 'codex' });
+    expect(order.some((entry) => entry.startsWith('persist'))).toBe(false);
+    expect(order).not.toContain('dispose');
+  });
+
+  it('propagates a replacement readiness error without mutating or disposing', async () => {
+    const readiness = Promise.reject(new Error('probe failed'));
+    // Avoid an unhandled-rejection diagnostic against the pre-fix implementation,
+    // which does not yet await the returned promise.
+    void readiness.catch(() => undefined);
+    const { deps, order } = flow({
+      isProviderReady: async () => await readiness,
+    });
+
+    await expect(runAgentSwitchFlow(deps, CATALOG)).rejects.toThrow('probe failed');
+    expect(order.some((entry) => entry.startsWith('persist'))).toBe(false);
+    expect(order).not.toContain('dispose');
   });
 
   it.each(['provider', 'model', 'confirm'] as const)(
@@ -107,12 +146,12 @@ describe('runAgentSwitchFlow', () => {
       await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'cancelled', at });
       expect(order.some((entry) => entry.startsWith('persist'))).toBe(false);
       expect(order).not.toContain('dispose');
-      expect(order).not.toContain('launch');
+      expect(order.some((entry) => entry.startsWith('launch'))).toBe(false);
     },
   );
 
   it('keeps the current session when the selected CLI is unavailable', async () => {
-    const { deps, order } = flow({ isProviderReady: () => false });
+    const { deps, order } = flow({ isProviderReady: async () => false });
     await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({
       kind: 'unavailable', provider: 'codex',
     });
@@ -142,6 +181,6 @@ describe('runAgentSwitchFlow', () => {
     const { deps, order } = flow({ persist: () => { throw new Error('write'); } });
     await expect(runAgentSwitchFlow(deps, CATALOG)).rejects.toThrow('write');
     expect(order).not.toContain('dispose');
-    expect(order).not.toContain('launch');
+    expect(order.some((entry) => entry.startsWith('launch'))).toBe(false);
   });
 });

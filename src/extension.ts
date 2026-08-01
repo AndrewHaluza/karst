@@ -216,6 +216,7 @@ import {
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
+import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { WelcomeManager } from './ui/welcome/panel.js';
 import { buildWelcomeActions } from './ui/welcome/actions.js';
@@ -637,6 +638,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   };
 
+  /**
+   * Switch-only provider probe. Unlike the activation and ordinary action
+   * guards, this runs from an open dashboard and must never block the shared
+   * extension-host event loop while a candidate CLI answers (or hangs).
+   */
+  const guardProviderCapabilityAsync = async (
+    capability: Capability,
+    agentProvider: AgentProvider,
+  ): Promise<boolean> => {
+    const faults = await ensureCapabilityAsync(capability, dependencyRegistry(agentProvider));
+    if (faults.length === 0) return true;
+    for (const fault of faults) logger.warn(`blocked: '${fault.dep.binary}' is ${fault.state}`);
+    const message = faults
+      .map((fault) => renderDependencyFault(fault.dep, fault.state))
+      .filter((text): text is string => text !== null)
+      .join(' ');
+    void vscode.window.showErrorMessage(message, 'Open setup checklist').then((choice) => {
+      if (choice === 'Open setup checklist') welcome.open();
+    });
+    return false;
+  };
+
   const switchAgentSession = async (ticketId: number): Promise<void> => {
     try {
       const outcome = await runAgentSwitchFlow({
@@ -657,7 +680,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return picked?.provider;
         },
-        isProviderReady: (provider) => guardProviderCapability('sessions', provider),
+        isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
         pickModel: async (provider, choices) => vscode.window.showQuickPick(
           choices.map((choice) => ({ ...choice, label: choice.label })),
           { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
@@ -678,8 +701,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           model: model ?? '',
         }),
         dispose: () => sessions.disposeSession(ticketId),
-        launch: async () => {
-          await vscode.commands.executeCommand('karst.openSession', ticketId);
+        launch: async (options) => {
+          await vscode.commands.executeCommand('karst.openSession', ticketId, options);
         },
       }, modelCatalog);
 
@@ -1751,7 +1774,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const adapter = currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!guardCapability('sessions', ticketId)) return;
+      if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -1903,6 +1926,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessionProvider: t.sessionProvider,
         stageCurrent: t.stageCurrent as StageKey,
         provider: launchProvider,
+        allowResume: options.allowResume,
       })
         ? (t.sessionId ?? undefined)
         : undefined;

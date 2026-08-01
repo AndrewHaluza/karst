@@ -45,6 +45,11 @@ export interface AgentSwitchModelChoice {
 }
 
 export interface AgentSwitchSelection { provider: AgentProvider; model: string | null }
+export interface AgentSwitchLaunchOptions {
+  allowResume: false;
+  /** The candidate provider passed the coordinator's async readiness probe. */
+  providerReady: true;
+}
 
 export interface AgentSwitchSnapshot {
   stageCurrent: string | null;
@@ -60,7 +65,7 @@ export interface AgentSwitchFlowDeps {
     choices: readonly AgentSwitchProviderChoice[],
     current: AgentSessionView,
   ): Promise<AgentProvider | undefined>;
-  isProviderReady(provider: AgentProvider): boolean;
+  isProviderReady(provider: AgentProvider): Promise<boolean>;
   pickModel(
     provider: AgentProvider,
     choices: readonly AgentSwitchModelChoice[],
@@ -68,7 +73,7 @@ export interface AgentSwitchFlowDeps {
   confirm(input: { from: AgentSessionView; to: AgentSessionView }): Promise<boolean>;
   persist(selection: AgentSwitchSelection): void;
   dispose(): void;
-  launch(): Promise<void>;
+  launch(options: AgentSwitchLaunchOptions): Promise<void>;
 }
 
 export type AgentSwitchOutcome =
@@ -141,7 +146,7 @@ export async function runAgentSwitchFlow(
   const provider = await deps.pickProvider(agentSwitchProviderChoices(initial.provider), from);
   if (provider === undefined) return { kind: 'cancelled', at: 'provider' };
   if (provider === initial.provider) return { kind: 'stale' };
-  if (!deps.isProviderReady(provider)) return { kind: 'unavailable', provider };
+  if (!await deps.isProviderReady(provider)) return { kind: 'unavailable', provider };
 
   const modelChoices = agentSwitchModelChoices({
     provider,
@@ -172,7 +177,7 @@ export async function runAgentSwitchFlow(
   deps.persist({ provider, model: modelChoice.model });
   deps.dispose();
   try {
-    await deps.launch();
+    await deps.launch({ allowResume: false, providerReady: true });
     return { kind: 'switched' };
   } catch (error) {
     return { kind: 'launch-failed', error };
