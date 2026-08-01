@@ -1,6 +1,7 @@
 import type { DashboardState } from './state.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { isHttpUrl } from '../shared/url.js';
+import type { WorktreeStats } from './worktreeStats.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -15,7 +16,9 @@ export type WebviewMessage =
   | { type: 'restart-servers' }
   | { type: 'stop-servers' }
   | { type: 'show-changes' }
+  | { type: 'open-worktree-terminal'; path: string }
   | { type: 'open-worktree-folder'; path: string }
+  | { type: 'copy-worktree-branch'; branch: string }
   | { type: 'open-pr'; url: string }
   | { type: 'open-ticket-link'; url: string }
   | { type: 'edit-ticket' }
@@ -53,6 +56,7 @@ export type WebviewMessage =
  */
 export type HostMessage =
   | { type: 'state'; state: DashboardState }
+  | { type: 'worktree-stats'; stats: WorktreeStats[] }
   | { type: 'ship-progress'; event: ShipStepEvent }
   | { type: 'bind'; enabled: boolean };
 
@@ -72,7 +76,9 @@ export interface DashboardActions {
   restartServers: () => void;
   stopServers: () => void;
   showChanges: () => void;
+  openWorktreeTerminal: (path: string) => void;
   openWorktreeFolder: (path: string) => void;
+  copyWorktreeBranch: (branch: string) => void;
   openPr: (url: string) => void;
   openTicketLink: (url: string) => void;
   editTicket: () => void;
@@ -119,6 +125,7 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
   const m = raw as Record<string, unknown>;
   const num = typeof m.serverId === 'number' && Number.isFinite(m.serverId);
   const path = typeof m.path === 'string' && m.path.length > 0;
+  const branch = typeof m.branch === 'string' && m.branch.length > 0;
   switch (m.type) {
     case 'stop-server':
       return num ? { type: 'stop-server', serverId: m.serverId as number } : null;
@@ -138,8 +145,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'stop-servers' };
     case 'show-changes':
       return { type: 'show-changes' };
+    case 'open-worktree-terminal':
+      return path ? { type: 'open-worktree-terminal', path: m.path as string } : null;
     case 'open-worktree-folder':
       return path ? { type: 'open-worktree-folder', path: m.path as string } : null;
+    case 'copy-worktree-branch':
+      return branch ? { type: 'copy-worktree-branch', branch: m.branch as string } : null;
     case 'open-pr':
       return isHttpUrl(m.url) ? { type: 'open-pr', url: m.url } : null;
     case 'open-ticket-link':
@@ -213,8 +224,14 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
     case 'show-changes':
       actions.showChanges();
       return;
+    case 'open-worktree-terminal':
+      actions.openWorktreeTerminal(msg.path);
+      return;
     case 'open-worktree-folder':
       actions.openWorktreeFolder(msg.path);
+      return;
+    case 'copy-worktree-branch':
+      actions.copyWorktreeBranch(msg.branch);
       return;
     case 'open-pr':
       actions.openPr(msg.url);
