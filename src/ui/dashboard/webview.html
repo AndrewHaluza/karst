@@ -419,6 +419,16 @@
   .mg-conflicted .mgtext{color:var(--vscode-testing-iconFailed,#cf222e)}
   .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mg .mgbtn{flex:none}
+  /* The conflict list / the reason karst could not tell. Collapsed by default,
+     like the PR comments thread further down this same panel — the count is what
+     a reader scans, the detail is what they open. Capped and scrollable so a
+     forty-file conflict cannot push the rest of the panel off screen. */
+  .mgd{margin:-4px 0 6px 30px;font-size:11.5px}
+  .mgd summary{cursor:pointer;color:var(--link);width:fit-content}
+  .mgdbody{max-height:180px;overflow-y:auto;margin-top:4px}
+  .mgfile{font-family:var(--mono);font-size:11px;color:var(--text-dim);word-break:break-all}
+  /* git's own words: `pre-wrap` keeps the line breaks a multi-line git error has. */
+  .mgreason{white-space:pre-wrap;color:var(--text-dim);word-break:break-word}
   /* PR metadata: from-to, opened, merged. Indented under its PR like the merge
      verdict, so it reads as facts ABOUT that pull request. */
   .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-2px 0 4px 12px;padding:0 6px;
@@ -1133,17 +1143,34 @@
     )).join('') : '<div class="empty">No worktrees.</div>';
   }
 
-  // Mergeability under a PR row. The verdict and its sentence are the host's
-  // (summarizeMergeCheck) — the webview only places them. A repo with no check
-  // renders NOTHING: never asked is not the same as clean, and the one thing
-  // this panel must not do is reassure about a question nobody put.
+  // Mergeability under a PR row. Every string is the host's
+  // (`buildMergeCheckPanelRows`) — the webview only places them. A repo with no
+  // check renders NOTHING: never asked is not the same as clean, and the one
+  // thing this panel must not do is reassure about a question nobody put.
+  //
+  // The headline is bounded (verdict, count, base ref, age), so it fits the line
+  // it is given. Everything unbounded — the path list, git's own error prose —
+  // lives in the disclosure, which is where it can wrap and be selected. A row
+  // the host gave no `detailsLabel` renders no disclosure at all.
   function mergeLine(m) {
     if (!m) return '';
     const act = m.state === 'conflicted'
       ? `<button class="mgbtn" data-act="resolve-conflicts" data-repo="${esc(m.repo)}">Resolve conflicts</button>`
       : '';
-    return `<div class="mg mg-${esc(m.state)}"><span class="mgdot" aria-hidden="true"></span>`
-      + `<span class="mgtext">${esc(m.summary)}</span>${act}</div>`;
+    // The relative age drifts between state pushes; the absolute stamp does not.
+    const title = m.checkedTitle ? ` title="checked ${esc(m.checkedTitle)}"` : '';
+    const body = m.reason
+      ? `<div class="mgreason">${esc(m.reason)}</div>`
+      : (m.files || []).map((f) => `<div class="mgfile">${esc(f)}</div>`).join('');
+    const details = m.detailsLabel
+      ? `<details class="mgd"><summary>${esc(m.detailsLabel)}</summary>`
+        + `<div class="mgdbody">${body}</div></details>`
+      : '';
+    return `<div class="mgwrap mg-${esc(m.state)}">`
+      + `<div class="mg"><span class="mgdot" aria-hidden="true"></span>`
+      + `<span class="mgtext"${title}>${esc(m.headline)}</span>${act}</div>`
+      + details
+      + `</div>`;
   }
 
   // The merge control. Rendered from the host's verdict (`canMerge` +
