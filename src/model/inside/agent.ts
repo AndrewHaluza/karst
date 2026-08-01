@@ -76,7 +76,7 @@ function agentOp(
  * legitimately (research → plan → research), and a repeat counter would make
  * ordinary iteration read as thrashing.
  */
-function reportedPhases(marks: readonly PhaseMark[], cell: StepperCell): PhaseMark[] {
+export function reportedPhases(marks: readonly PhaseMark[], cell: StepperCell): PhaseMark[] {
   const attempt = cell.attempt ?? 0;
   const mine = marks.filter((m) => m.stageKey === cell.stageKey && m.attempt === attempt);
   const first = new Map<string, PhaseMark>();
