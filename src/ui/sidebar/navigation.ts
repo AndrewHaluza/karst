@@ -4,8 +4,9 @@ import { getTicket, type TicketWithStages } from '../../store/tickets.js';
 export type TicketListDestination = 'edit' | 'dashboard';
 
 export interface TicketListNavigationActions {
-  edit(ticketId: number): void;
-  openDashboard(ticketId: number): void;
+  edit(ticketId: number): void | PromiseLike<unknown>;
+  openDashboard(ticketId: number): void | PromiseLike<unknown>;
+  onError(error: unknown): void;
 }
 
 /**
@@ -26,6 +27,8 @@ export function openTicketFromList(
   actions: TicketListNavigationActions,
 ): void {
   const destination = ticketListDestination(getTicket(store, ticketId));
-  if (destination === 'dashboard') actions.openDashboard(ticketId);
-  else actions.edit(ticketId);
+  const result = destination === 'dashboard'
+    ? actions.openDashboard(ticketId)
+    : actions.edit(ticketId);
+  if (result) void Promise.resolve(result).catch(actions.onError);
 }

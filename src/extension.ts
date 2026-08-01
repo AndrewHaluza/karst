@@ -348,9 +348,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     create: () => void vscode.commands.executeCommand('karst.createTicket'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
     openTicket: (id) => openTicketFromList(localStore, id, {
-      edit: (ticketId) => void vscode.commands.executeCommand('karst.editTicket', ticketId),
+      edit: (ticketId) => vscode.commands.executeCommand('karst.editTicket', ticketId),
       openDashboard: (ticketId) =>
-        void vscode.commands.executeCommand('karst.openDashboard', ticketId),
+        vscode.commands.executeCommand('karst.openDashboard', ticketId),
+      onError: (error) => logError(`ticket-list navigation failed for ticket ${id}`, error),
     }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
