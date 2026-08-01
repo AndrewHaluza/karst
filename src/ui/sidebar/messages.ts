@@ -1,3 +1,4 @@
+import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { SidebarState } from './state.js';
 import { FACETS, type FacetKey } from './facets.js';
 
@@ -24,25 +25,37 @@ export type SidebarWebviewMessage =
   | { type: 'unarchive'; ticketId: number }
   | { type: 'delete'; ticketId: number };
 
-/** Host → webview. */
-export type SidebarHostMessage = { type: 'state'; state: SidebarState };
+/**
+ * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
+ * and every other row action had no way to report an outcome (UI-R13). Every
+ * action now reports through the single `action-result` seam, which is what
+ * lets a row's icon button settle into a visible success/failure instead of
+ * being fire-and-forget.
+ */
+export type SidebarHostMessage = { type: 'state'; state: SidebarState } | ActionResultMessage;
 
-/** Host-side effects the sidebar can trigger (executeCommand passthrough). */
+/**
+ * Host-side effects the sidebar can trigger (executeCommand passthrough). A
+ * `void` return acks the request as soon as it is accepted; a returned promise
+ * is awaited and its settlement becomes the terminal `action-result`
+ * (docs/ui/DESIGN-SYSTEM.md §5.3, UI-R13). This is a type WIDENING from
+ * `() => void` — every existing implementation still satisfies it.
+ */
 export interface SidebarActions {
-  toggleFacet(facet: FacetKey): void;
-  setFilter(query: string): void;
-  refresh(): void;
-  requestState(): void;
-  create(): void;
-  openSettings(): void;
-  openTicket(ticketId: number): void;
-  openDashboard(ticketId: number): void;
-  spin(ticketId: number): void;
-  openSession(ticketId: number): void;
-  edit(ticketId: number): void;
-  archive(ticketId: number): void;
-  unarchive(ticketId: number): void;
-  delete(ticketId: number): void;
+  toggleFacet(facet: FacetKey): void | Promise<void>;
+  setFilter(query: string): void | Promise<void>;
+  refresh(): void | Promise<void>;
+  requestState(): void | Promise<void>;
+  create(): void | Promise<void>;
+  openSettings(): void | Promise<void>;
+  openTicket(ticketId: number): void | Promise<void>;
+  openDashboard(ticketId: number): void | Promise<void>;
+  spin(ticketId: number): void | Promise<void>;
+  openSession(ticketId: number): void | Promise<void>;
+  edit(ticketId: number): void | Promise<void>;
+  archive(ticketId: number): void | Promise<void>;
+  unarchive(ticketId: number): void | Promise<void>;
+  delete(ticketId: number): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -83,10 +96,15 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
   }
 }
 
-/** Parse then dispatch a webview message to the matching action. No-op if bad. */
-export function routeSidebarAction(raw: unknown, actions: SidebarActions): void {
-  const msg = parseSidebarMessage(raw);
-  if (!msg) return;
+/**
+ * Dispatch an ALREADY-PARSED message to its action, returning whatever the
+ * action returns. The single dispatch seam (panel.ts) parses `raw` once, reads
+ * its `requestId` off the raw shape (which this narrower deliberately never
+ * sees), and wraps this call in `reportAction` so the caller can await a real
+ * outcome and report exactly one terminal `action-result` (UI-R13). Mirrors
+ * welcome/messages.ts's `routeWelcomeAction`.
+ */
+export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarActions): void | Promise<void> {
   switch (msg.type) {
     case 'toggle-facet':
       return actions.toggleFacet(msg.facet);

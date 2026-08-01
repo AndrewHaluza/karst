@@ -160,7 +160,7 @@ describe('onboarding webview.html', () => {
   });
 
   it('posts set-provider on change and carries agentProvider into submit/save', () => {
-    expect(HTML).toContain("post({ type: 'set-provider', id });");
+    expect(HTML).toContain("post({ type: 'set-provider', id, requestId });");
     const submitBlock = HTML.slice(
       HTML.indexOf("el('submitBtn').addEventListener"),
       HTML.indexOf("el('saveBtn').addEventListener"),
@@ -223,8 +223,8 @@ describe('attachment strip', () => {
       { id: 7, kind: 'image', name: 'a.png', byteSize: 1, src: 'webview://a.png' },
     ]);
     expect(html).toMatch(/<img[^>]*data-attach-id="7"/);
-    expect(html).toMatch(/<button[^>]*class="attachdetach"[^>]*data-attach-id="7"/);
-    expect(html).toMatch(/<button[^>]*class="attachopen"[^>]*data-attach-id="7"/);
+    expect(html).toMatch(/<button[^>]*class="[^"]*\battachdetach\b[^"]*"[^>]*data-attach-id="7"/);
+    expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="7"/);
     expect(html).toContain('aria-label="Open a.png"');
   });
 
@@ -233,8 +233,8 @@ describe('attachment strip', () => {
       { id: 8, kind: 'video', name: 'b.mov', byteSize: 1, src: 'webview://b.mp4' },
     ]);
     expect(html).toMatch(/<video[^>]*data-attach-id="8"/);
-    expect(html).toMatch(/<button[^>]*class="attachdetach"[^>]*data-attach-id="8"/);
-    expect(html).toMatch(/<button[^>]*class="attachopen"[^>]*data-attach-id="8"/);
+    expect(html).toMatch(/<button[^>]*class="[^"]*\battachdetach\b[^"]*"[^>]*data-attach-id="8"/);
+    expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="8"/);
     expect(html).toContain('aria-label="Open b.mov"');
   });
 
@@ -341,4 +341,208 @@ describe('pasted file reader', () => {
       expect(harness.posted).toEqual([]);
     },
   );
+});
+
+// ── UI-RULES.md remediation guards (Task 3.5) ─────────────────────────────────
+
+function styleBlocks(): string[] {
+  const blocks: string[] = [];
+  const re = /<style>([\s\S]*?)<\/style>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(HTML))) blocks.push(m[1]!);
+  expect(blocks.length).toBeGreaterThanOrEqual(2); // the main <style> + the trailing palette <style>
+  return blocks;
+}
+
+function scriptBlock(): string {
+  const start = HTML.indexOf('<script>');
+  const end = HTML.indexOf('</script>');
+  expect(start, '<script> not found').toBeGreaterThanOrEqual(0);
+  expect(end, '</script> not found').toBeGreaterThan(start);
+  return HTML.slice(start + '<script>'.length, end);
+}
+
+describe('onboarding webview.html — UI-RULES.md remediation', () => {
+  it('carries the design-system markers ahead of any file-local rule (UI-R03)', () => {
+    const [main] = styleBlocks();
+    expect(main!.trimStart().startsWith('/*KARST_DS_CSS*/')).toBe(true);
+    const script = scriptBlock();
+    expect(script.trimStart().startsWith('/*KARST_DS_JS*/')).toBe(true);
+  });
+
+  it('contains no raw hex/rgb/px/rem style literal outside the injected tokens (UI-R04)', () => {
+    const [main] = styleBlocks();
+    const local = main!.slice(main!.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
+    const offenders = local.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
+    expect(offenders, JSON.stringify(offenders)).toBeNull();
+  });
+
+  it('carries no inline style="…" attribute in the markup (UI-R04 extends past the stylesheet)', () => {
+    expect(HTML).not.toMatch(/\sstyle="/);
+  });
+
+  it('.ghost resolves to the real k-btn--ghost primitive, not a ruleless local class (UI-R10)', () => {
+    expect(HTML).not.toMatch(/class="ghost"/);
+    expect(HTML).toContain('id="attachBtn" class="k-btn k-btn--ghost"');
+  });
+
+  it('does not restyle a bare <button> — every button is a `.k-btn`/`.k-iconbtn`/`.k-switch` variant (UI-R07)', () => {
+    const [main] = styleBlocks();
+    expect(main).not.toMatch(/(^|\s)button\s*\{/);
+    expect(main).not.toContain('button.secondary');
+    expect(main).not.toContain('#fetchBtn.done{');
+  });
+
+  it('every <button> (static or templated) carries a k-btn/k-iconbtn/k-switch/k-chip/acard class (UI-R07)', () => {
+    // Strip HTML comments, <style> blocks, and JS `//`/`/* */` comments first —
+    // a doc comment describing markup (e.g. "a real <button role=…>") reads as
+    // a bare `<button …>` tag to a naive regex otherwise.
+    const withoutHtmlComments = HTML.replace(/<!--[\s\S]*?-->/g, '');
+    const withoutStyle = withoutHtmlComments.replace(/<style>[\s\S]*?<\/style>/g, '');
+    const withoutBlockComments = withoutStyle.replace(/\/\*[\s\S]*?\*\//g, '');
+    const withoutLineComments = withoutBlockComments.replace(/^\s*\/\/.*$/gm, '');
+    const buttonTags = [...withoutLineComments.matchAll(/<button\b[^>]*>/g)].map((m) => m[0]);
+    expect(buttonTags.length).toBeGreaterThan(0);
+    for (const tag of buttonTags) {
+      expect(tag, tag).toMatch(/class="[^"]*\b(k-btn|k-iconbtn|k-switch|k-chip|acard)\b/);
+    }
+  });
+
+  it('#detailsBtn tracks its disclosure state via aria-expanded (UI-R26)', () => {
+    expect(HTML).toContain('id="detailsBtn" aria-expanded="false"');
+    const script = scriptBlock();
+    expect(script).toContain("el('detailsBtn').setAttribute('aria-expanded', 'true');");
+    expect(script).toContain("el('detailsBtn').setAttribute('aria-expanded', 'false');");
+  });
+
+  it('repo chips are real buttons carrying aria-pressed, not a bare role="button" span (UI-R09, R26)', () => {
+    expect(HTML).not.toMatch(/role="button"\s+tabindex="0"\s+data-repo/);
+    const script = scriptBlock();
+    expect(script).toContain('class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"');
+  });
+
+  it('the approach picker is a radiogroup of real buttons carrying aria-checked (UI-R09, R26)', () => {
+    expect(HTML).toContain('id="approachList" role="radiogroup" aria-label="Approach"');
+    const script = scriptBlock();
+    expect(script).toContain('role="radio" aria-checked="${a.id===sel}" data-approach="${esc(a.id)}"');
+    expect(script).not.toMatch(/class="acard[^"]*"\s+role="button"/);
+  });
+
+  it('the vertical stepper marks the current step with aria-current (UI-R26)', () => {
+    const script = scriptBlock();
+    const fnMatch = script.match(/function setStep\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
+    expect(fnMatch, 'setStep() not found').toBeTruthy();
+    const body = fnMatch![1]!;
+    expect(body).toContain("s.setAttribute('aria-current', 'step')");
+    expect(body).toContain("s.removeAttribute('aria-current')");
+  });
+
+  it('the gate signal-word inputs carry an accessible name, not a placeholder alone (UI-R25)', () => {
+    const script = scriptBlock();
+    expect(script).toContain('aria-label="Signal words for ${esc(svc)}"');
+  });
+
+  it('every static input/select/textarea has a real <label for> or an aria-label (UI-R25)', () => {
+    const ids = [...HTML.matchAll(/<(?:input|select|textarea)\b[^>]*\bid="([a-zA-Z-]+)"[^>]*>/g)]
+      .map((m) => ({ tag: m[0], id: m[1]! }));
+    expect(ids.length).toBeGreaterThan(0);
+    for (const { tag, id } of ids) {
+      const labeled = HTML.includes(`for="${id}"`) || /aria-label="/.test(tag);
+      expect(labeled, `${id} has neither a <label for> nor an aria-label`).toBe(true);
+    }
+  });
+
+  it('marks the Title field invalid (and clears it) instead of only the global banner (UI-R25)', () => {
+    const script = scriptBlock();
+    expect(script).toContain('function setTitleInvalid(invalid)');
+    expect(script).toContain("input.setAttribute('aria-invalid', 'true')");
+    expect(script).toContain("input.setAttribute('aria-describedby', 'err')");
+    // Called from both submit and save validation, and cleared on a valid retry.
+    const submitBlock = HTML.slice(HTML.indexOf("el('submitBtn').addEventListener"), HTML.indexOf("el('saveBtn').addEventListener"));
+    expect(submitBlock).toContain('setTitleInvalid(true)');
+    expect(submitBlock).toContain('setTitleInvalid(false)');
+  });
+
+  it('#err is an announced region (role=alert) and the toast root is the one status live region (UI-R27)', () => {
+    expect(HTML).toContain('id="err" role="alert"');
+  });
+
+  it('the destructive attachment control uses the danger icon-button variant with a matching aria-label (UI-R10b, R21, R24)', () => {
+    const script = scriptBlock();
+    expect(script).toContain('k-iconbtn k-iconbtn--danger attachdetach');
+    expect(script).toContain('aria-label="Remove attachment" title="Remove attachment"');
+  });
+
+  it('async controls report pending via the shared runtime rather than swapping their label (UI-R11, R18)', () => {
+    const script = scriptBlock();
+    // attach-pick / attach-bytes / detach-attachment / open-attachment.
+    expect(script).toContain("karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));");
+    expect(script).toContain('karstBeginPending(detach, requestId);');
+    expect(script).toContain('karstBeginPending(open, requestId);');
+    expect(script).toContain('karstBeginPending(el(\'attachBtn\'), requestId);');
+    // set-repos / set-approach / set-agent / set-model / set-provider / set-type.
+    expect(script).toContain("post({ type: 'set-repos', repos, requestId });");
+    expect(script).toContain("post({ type: 'set-approach', id, requestId });");
+    expect(script).toContain("post({ type: 'set-agent', id, requestId });");
+    expect(script).toContain("post({ type: 'set-model', id, requestId });");
+    expect(script).toContain("post({ type: 'set-provider', id, requestId });");
+    expect(script).toContain("post({ type: 'set-type', id, requestId });");
+  });
+
+  it('handles action-result by settling the pending control (UI-R13)', () => {
+    const script = scriptBlock();
+    expect(script).toContain("case 'action-result': karstSettle(msg.requestId, msg.ok, msg.message); break;");
+  });
+
+  it('no control mutates a button label while pending — setSubmitBusy/setSaveBusy/setFetchState never touch textContent (UI-R18)', () => {
+    const script = scriptBlock();
+    for (const fnName of ['setSubmitBusy', 'setSaveBusy', 'setFetchState']) {
+      const fnMatch = script.match(new RegExp(`function ${fnName}\\([^)]*\\)\\s*{([\\s\\S]*?)\\n {2}}`));
+      expect(fnMatch, `${fnName}() not found`).toBeTruthy();
+      const body = fnMatch![1]!;
+      expect(body, `${fnName} touches textContent`).not.toContain('textContent');
+      expect(body, `${fnName} touches innerHTML`).not.toContain('innerHTML');
+    }
+    // render() only ever sets the submit label OUTSIDE a busy window.
+    expect(script).toContain("if (!submitBusy) el('submitBtn').textContent = submitLabel;");
+  });
+
+  it('the busy vocabulary is closed and every member (including "suggest") is handled (UI-R16)', () => {
+    const script = scriptBlock();
+    const fnMatch = script.match(/function setBusy\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
+    expect(fnMatch, 'setBusy() not found').toBeTruthy();
+    const body = fnMatch![1]!;
+    for (const what of ['fetch', 'submit', 'save', 'suggest', 'analyze']) {
+      expect(body, `setBusy has no '${what}' case`).toContain(`what === '${what}'`);
+    }
+  });
+});
+
+describe('legacy busy channel watchdog', () => {
+  /**
+   * `fetch`/`suggest`/`submit`/`analyze`/`save` settle through the host's
+   * `busy:false`, not through `action-result`, so the shared runtime's watchdog
+   * never covered them: a host that never sent the closing half left the button
+   * disabled forever (UI-R14).
+   */
+  it('arms a watchdog whenever a busy state is entered', () => {
+    expect(HTML).toContain('function armBusyWatchdog(');
+    expect(HTML).toMatch(/if \(on\) armBusyWatchdog\(what\); else clearBusyWatchdog\(what\);/);
+  });
+
+  it('reuses the runtime timeout rather than inventing a second one', () => {
+    expect(HTML).toContain('KARST_WATCHDOG_MS');
+  });
+
+  it('reports the expiry as unknown, which is not a failure claim', () => {
+    const at = HTML.indexOf('function armBusyWatchdog(');
+    const body = HTML.slice(at, at + 600);
+    expect(body).toMatch(/unknown/i);
+    expect(body).not.toMatch(/\bfailed\b/i);
+  });
+
+  it('clears the pending state when the watchdog fires', () => {
+    const at = HTML.indexOf('function armBusyWatchdog(');
+    expect(HTML.slice(at, at + 600)).toContain('setBusy(what, false)');
+  });
 });

@@ -3,9 +3,11 @@ import type { AgentProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildSidebarState } from './state.js';
 import {
+  parseSidebarMessage,
   routeSidebarAction,
   type SidebarActions,
   type SidebarHostMessage,
+  type SidebarWebviewMessage,
 } from './messages.js';
 import {
   toggleFacet,
@@ -15,6 +17,7 @@ import {
   type FacetSelection,
 } from './facets.js';
 import type { PathContext } from '../worktreePath.js';
+import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
  * The subset of a `vscode.WebviewView` the manager touches. Modeled as an
@@ -73,15 +76,34 @@ export class SidebarViewManager {
     host.onResolve((view) => {
       this.view = view;
       view.onDidReceiveMessage((raw) => {
-        try {
-          routeSidebarAction(raw, actions);
-        } catch (err) {
-          // The message pump must never die on one bad message.
-          this.logError('karst: sidebar action failed', err);
-        }
+        // The requestId is read off the RAW message, before parsing narrows it
+        // away (parseSidebarMessage deliberately drops every field it does not
+        // model). `reportAction` never rejects, so the message pump is safe by
+        // construction; an unparsed message posts nothing (UI-R13).
+        const requestId = readRequestId(raw);
+        const msg = parseSidebarMessage(raw);
+        if (!msg) return;
+        void reportAction(requestId, (m) => view.postMessage(m), () => this.runAction(msg, actions));
       });
       this.push();
     });
+  }
+
+  /** Dispatch one parsed message, logging (but still surfacing) any failure. */
+  private runAction(msg: SidebarWebviewMessage, actions: SidebarActions): void | Promise<void> {
+    try {
+      const result = routeSidebarAction(msg, actions);
+      if (result && typeof (result as PromiseLike<void>).then === 'function') {
+        return (result as Promise<void>).catch((err: unknown) => {
+          this.logError('karst: sidebar action failed', err);
+          throw err;
+        });
+      }
+      return result;
+    } catch (err) {
+      this.logError('karst: sidebar action failed', err);
+      throw err;
+    }
   }
 
   /** Re-read the store and push a fresh state snapshot; no-op before resolve. */

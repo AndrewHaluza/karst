@@ -118,6 +118,86 @@ describe('WelcomeManager', () => {
     expect(panels).toHaveLength(2);
   });
 
+  it('posts exactly one action-result per parsed request that carries a requestId (UI-R13)', async () => {
+    const { host, panels } = makeHost();
+    const mgr = new WelcomeManager(fakeState, host, () => ({
+      createManifest: vi.fn(),
+      recheckDeps: vi.fn(),
+      openSettings: vi.fn(),
+      createTicket: vi.fn(),
+      dismiss: vi.fn(),
+      requestState: vi.fn(),
+    }));
+    mgr.open();
+    panels[0]!.send({ type: 'recheck-deps', requestId: 'r1' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const results = panels[0]!.posted.filter((m) => m.type === 'action-result');
+    expect(results).toEqual([{ type: 'action-result', requestId: 'r1', ok: true }]);
+  });
+
+  it('posts no action-result for a message with no requestId (back-compat)', async () => {
+    const { host, panels } = makeHost();
+    const recheckDeps = vi.fn();
+    const mgr = new WelcomeManager(fakeState, host, () => ({
+      createManifest: vi.fn(),
+      recheckDeps,
+      openSettings: vi.fn(),
+      createTicket: vi.fn(),
+      dismiss: vi.fn(),
+      requestState: vi.fn(),
+    }));
+    mgr.open();
+    panels[0]!.send({ type: 'recheck-deps' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(recheckDeps).toHaveBeenCalledOnce();
+    expect(panels[0]!.posted.some((m) => m.type === 'action-result')).toBe(false);
+  });
+
+  it('reports a rejected action as ok:false with its message, and logs it', async () => {
+    const { host, panels } = makeHost();
+    const logError = vi.fn();
+    const mgr = new WelcomeManager(
+      fakeState,
+      host,
+      () => ({
+        createManifest: vi.fn().mockRejectedValue(new Error('disk full')),
+        recheckDeps: vi.fn(),
+        openSettings: vi.fn(),
+        createTicket: vi.fn(),
+        dismiss: vi.fn(),
+        requestState: vi.fn(),
+      }),
+      logError,
+    );
+    mgr.open();
+    panels[0]!.send({ type: 'create-manifest', requestId: 'r2' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const results = panels[0]!.posted.filter((m) => m.type === 'action-result');
+    expect(results).toEqual([{ type: 'action-result', requestId: 'r2', ok: false, message: 'disk full' }]);
+    expect(logError).toHaveBeenCalledWith('karst: welcome action failed', expect.any(Error));
+  });
+
+  it('acks a void action synchronously without waiting on anything (handoff kind)', async () => {
+    const { host, panels } = makeHost();
+    const mgr = new WelcomeManager(fakeState, host, () => ({
+      createManifest: vi.fn(),
+      recheckDeps: vi.fn(),
+      openSettings: vi.fn(),
+      createTicket: vi.fn(),
+      dismiss: vi.fn(),
+      requestState: vi.fn(),
+    }));
+    mgr.open();
+    panels[0]!.send({ type: 'open-settings', requestId: 'r3' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(panels[0]!.posted).toContainEqual({ type: 'action-result', requestId: 'r3', ok: true });
+  });
+
   it('binds pushState so an action re-reads loadState', () => {
     const { host, panels } = makeHost();
     let capturedCtx: WelcomeActionsCtx | undefined;

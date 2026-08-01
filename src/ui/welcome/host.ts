@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { WelcomePanel, WelcomePanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
+import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 
 /**
@@ -16,7 +17,7 @@ import { injectCsp, newNonce } from '../../model/csp.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 export function makeWelcomePanelHost(context: vscode.ExtensionContext): WelcomePanelHost {
-  const html = injectPalette(readFileSync(join(HERE, 'webview.html'), 'utf8'));
+  const html = injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8')));
   return {
     createPanel(title: string): WelcomePanel {
       const panel = vscode.window.createWebviewPanel(

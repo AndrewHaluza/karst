@@ -6,82 +6,64 @@
 -->
 <!--KARST_CSP-->
 <style>
+  /*KARST_DS_CSS*/
+
   :root{
-    /* Theme-aware: inherit VS Code's palette so light + dark both read well.
-       Stage colors map to the editor's chart colors (kept as --st-* so the
-       inline style="" in the render fns keeps working). */
-    --border:var(--vscode-panel-border);
-    --hover:var(--vscode-list-hoverBackground);
-    --text:var(--vscode-foreground);
-    --text-dim:var(--vscode-descriptionForeground,var(--vscode-foreground));
-    --text-faint:var(--vscode-disabledForeground,var(--vscode-descriptionForeground));
-    --link:var(--vscode-textLink-foreground);
-    /* MUST stay opaque. --panel-bg is not just a surface tint: the rail nodes
-       fill with it to MASK the connector running under them, and the selection
-       ring's inner gap (box-shadow 0 0 0 2px) is painted in it to punch the ring
-       away from the node. A theme that omits editorWidget.background used to
-       fall back to `transparent`, and both masks silently stopped masking — the
-       connector drew through the node body and through the ring's gap, so the
-       ring read as a broken circle crossed by the rail. editor.background is
-       always defined and is exactly what sits behind the stepper anyway, so it
-       is the correct opaque floor. */
-    --panel-bg:var(--vscode-editorWidget-background,var(--vscode-editor-background));
-    --st-done:var(--vscode-charts-green,#4bb64b);
-    --st-running:var(--vscode-charts-blue,#3794ff);
-    --st-pending:var(--vscode-charts-lines,#6e7681);
-    --st-input:var(--vscode-charts-yellow,#cca700);
-    --st-failed:var(--vscode-charts-red,#f14c4c);
-    /* Selection, kept off the status ramp so a selected node's status stays
-       readable underneath the ring. */
-    --st-sel:var(--vscode-charts-purple,#8a63d2);
+    /* Status colors come from the shared ramp (--k-pending|running|attention|
+       passed|failed, injected via /*KARST_PALETTE*\/ below) and are consumed
+       directly as var(--k-*) everywhere in this file (UI-R05/R06: one token
+       per meaning, declared once, never redeclared or given a second name).
+       --k-surface is the opaque mask the rail nodes fill with to hide the
+       connector running under them — it used to be a local `--panel-bg` here
+       with its own hex fallback; that fallback is now the one in
+       designSystem.ts, so a theme without editorWidget.background still gets
+       the same opaque floor. */
+
     /* One header height for every panel in the grid. The headers carry
-       different contents — bare text, icon buttons, a text button — and letting
-       each size itself put the Worktrees body 2px below the Servers body beside
-       it, so the whole block read as drifted. Padding alone cannot fix that:
-       the tallest control still sets the height. */
-    --phead-h:39px;
-    --mono:var(--vscode-editor-font-family,"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace);
-    --ui:var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);
+       different contents — bare text, icon buttons, a text button — and
+       letting each size itself put the Worktrees body 2px below the Servers
+       body beside it, so the whole block read as drifted. Padding alone
+       cannot fix that: the tallest control still sets the height. Composed
+       from tokens (a large control + one padding step + the hairline)
+       rather than a bare 39px literal (UI-R04). */
+    --phead-h:calc(var(--k-control-h-lg) + var(--k-space-4) + var(--k-border-w));
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--vscode-editor-background);color:var(--text);font-family:var(--ui);font-size:var(--vscode-font-size,13px);padding:22px 26px}
-  button{font-family:inherit;cursor:pointer;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:none;border-radius:5px;padding:3px 9px;font-size:11px}
-  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
-  button:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
-  a{color:var(--link);text-decoration:none}
+  body{margin:0;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-ui);font-size:var(--k-text-base);padding:var(--k-space-8) var(--k-space-9)}
+  a{color:var(--k-link);text-decoration:none}
   /* Toggled by the render fns (fault card, impl phases) — without this rule the
      `hidden` class was a no-op and an empty box still drew its border. */
   .hidden{display:none}
 
-  .dhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
-  .dhead h1{font-size:17px;margin:0}
+  .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-2)}
+  .dhead h1{font-size:var(--k-text-xl);margin:0}
   .dhead h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dhead .agent{margin-left:auto;font-size:11px;color:var(--text-dim);font-family:var(--mono)}
+  .dhead .agent{margin-left:auto;font-size:var(--k-text-xs);color:var(--k-text-dim);font-family:var(--k-font-mono)}
   /* The key pill IS the board link: provider mark + key + arrow, one target.
      A separate link chip echoed the key (both print the board's id), so the
      two collapse into one. The board ref/brief demote to the tooltip.
-     Manual (no board) is the same pill, dashed and inert. */
-  .dhead .keypill{display:inline-flex;align-items:center;gap:6px;flex:none;
-    font-family:var(--mono);font-size:11.5px;color:var(--text);
-    border:1px solid var(--border);border-radius:14px;padding:3px 10px;
-    background:var(--panel-bg);line-height:1.3}
-  .dhead a.keypill:hover{border-color:var(--link);background:var(--hover)}
-  .dhead a.keypill .arw{color:var(--link);transition:transform .12s ease}
-  .dhead a.keypill:hover .arw{transform:translate(1px,-1px)}
-  .dhead a.keypill:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
-  .dhead .keypill.local{border-style:dashed;color:var(--text-dim);
+     Manual (no board) is the same pill, dashed and inert — built on the shared
+     `.k-chip` primitive (UI-R08: one pill shape, one radius, for every chip in
+     this file), with only content-specific bits (monospace, the hover arrow
+     shift) layered on top. */
+  .dhead .keypill{font-family:var(--k-font-mono)}
+  .dhead a.keypill .arw{color:var(--k-link);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  .dhead a.keypill:hover .arw{transform:translate(var(--k-space-1),calc(var(--k-space-1) * -1))}
+  /* Inert: dashed border + default cursor say plainly "not a control" — a
+     plain span, never a link, so nothing implies it is clickable (the
+     `.k-chip` informational form: no role, no tabindex). */
+  .dhead .keypill.local{border-style:dashed;color:var(--k-text-dim);
     background:transparent;cursor:default}
   /* The terminal binding. Off is the default, so the resting look is quiet —
      an outline, like every other non-primary control here. On is not a hover
      shade but a filled chip: the button reports a mode that changes what
-     clicking a TAB does, and a state that subtle reads as "nothing happened". */
-  .dhead .bindtoggle{flex:none;background:transparent;color:var(--text-dim);
-    border:1px solid var(--border);display:inline-flex;align-items:center;gap:5px}
-  .dhead .bindtoggle:hover{background:var(--hover);color:var(--text)}
-  .dhead .bindtoggle .dot{width:6px;height:6px;border-radius:50%;
+     clicking a TAB does, and a state that subtle reads as "nothing happened".
+     Built on `.k-btn--ghost` (quiet outline at rest) with the pressed state
+     re-themed to the primary action fill. */
+  .dhead .bindtoggle .dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);
     background:currentColor;opacity:.45}
-  .dhead .bindtoggle[aria-pressed="true"]{color:var(--vscode-button-foreground);
-    background:var(--vscode-button-background);border-color:transparent}
+  .dhead .bindtoggle[aria-pressed="true"]{color:var(--k-action-fg);
+    background:var(--k-action-bg);border-color:transparent}
   .dhead .bindtoggle[aria-pressed="true"] .dot{opacity:1}
   @media (prefers-reduced-motion:reduce){.dhead a.keypill:hover .arw{transform:none}}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
@@ -97,7 +79,10 @@
      The CONNECTORS carry state, not just the nodes. Status is never color alone —
      each node also carries a glyph and a distinct shape (filled / hollow /
      broken), so the rail survives colorblindness and high-contrast themes. */
-  .stepper{margin:20px 0 26px;padding:14px 8px 8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-bg)}
+  .stepper{margin:var(--k-space-8) 0 var(--k-space-9);
+    padding:calc(var(--k-space-6) + var(--k-space-1)) var(--k-space-4) var(--k-space-4);
+    border:var(--k-border-w) solid var(--k-border);
+    border-radius:calc(var(--k-radius-lg) + var(--k-border-w));background:var(--k-surface)}
   /* The rail scrolls inside itself on a narrow panel; the page never scrolls sideways. */
   /* padding-top is LOAD-BEARING, not spacing. overflow-x:auto forces overflow-y
      to compute to `auto` as well, so this box clips vertically too — and the
@@ -105,12 +90,15 @@
      the node and the focus outline 5px, so both were sliced off flat and the
      selected circle rendered as an open arc. 6px is the outline's reach; the
      stepper gives back the same 6px from its own padding so nothing moves. */
-  .railwrap{overflow-x:auto;padding-top:6px}
+  .railwrap{overflow-x:auto;padding-top:var(--k-space-3)}
   /* Column geometry is DERIVED, never hardcoded: the rail is a flex row of
      `--cols` equal columns, so column n centers at (n + 0.5) / cols. Every
      attachment point below is a calc() off these vars (written inline from
      state.rail.geometry), so adding or removing a stage moves the loop with it
      instead of silently detaching it. */
+  /* 560px is the rail's minimum readable width at 7 columns — a component
+     dimension, not a spacing value; the closed 0–26px space scale has no step
+     anywhere near it (UI-R04 exception, same category as a @media breakpoint). */
   .track{min-width:560px}
   .main{display:flex;align-items:flex-start}
   /* Each column carries its stage's color via the shared stg-<stage> token
@@ -120,48 +108,55 @@
      independent reads. A stageKey with no stg-* class falls through to this
      neutral default rather than rendering uncolored. */
   .st{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0;
-    color:var(--st-pending);--stg-color:var(--st-pending)}
-  .st .seg{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
+    color:var(--k-pending);--stg-color:var(--k-pending)}
+  .st .seg{position:absolute;top:calc(var(--k-space-7) - var(--k-border-w));left:-50%;width:100%;
+    height:var(--k-space-1);background:var(--k-border);z-index:0}
   .st:first-child .seg{display:none}
-  .st .seg.lit{background:var(--st-done);opacity:.55}
-  .st .seg.active{background:var(--st-running)}
+  .st .seg.lit{background:var(--k-passed);opacity:.55}
+  .st .seg.active{background:var(--k-running)}
   .st .seg.broken{background-color:transparent;
-    background-image:repeating-linear-gradient(90deg,var(--st-failed) 0 4px,transparent 4px 8px)}
+    background-image:repeating-linear-gradient(90deg,var(--k-failed) 0 var(--k-space-2),transparent var(--k-space-2) var(--k-space-4))}
   /* The node IS the control — a button, so Tab and Enter work for free. */
   /* Pending is a hollow ring in the stage's hue (border + glyph both
      currentColor, inherited from .st). Status changes the FILL, not the color. */
-  .st .node{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
-    background:var(--panel-bg);border:2px solid var(--stg-color);color:var(--stg-color);
-    position:relative;z-index:1;font-size:13px;font-weight:700;line-height:1;
+  .st .node{width:var(--k-control-h-lg);height:var(--k-control-h-lg);border-radius:var(--k-radius-circle);
+    display:grid;place-items:center;
+    background:var(--k-surface);border:calc(var(--k-border-w) * 2) solid var(--stg-color);color:var(--stg-color);
+    position:relative;z-index:1;font-size:var(--k-text-base);font-weight:700;line-height:1;
     padding:0;cursor:pointer;font-family:inherit}
   .st .node:hover{filter:brightness(1.25)}
-  /* Focus is focusBorder, NOT --st-sel. The selection ring is --st-sel and ends
-     4px out; an --st-sel outline at offset 3px overlaps it in the same colour,
-     so the two fused into one fat purple slab and a keyboard user landing on the
-     already-selected node saw no focus change at all. Two colours at two radii
-     keep selection and focus independently readable — and it is what every other
-     focusable here (buttons, keypill, the approach summary) already uses. */
-  .st .node:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:3px}
+  /* Focus is --k-focus, NOT the selection ring's --k-series-2. The selection
+     ring ends 4px out; a --k-series-2 outline at offset 3px overlaps it in the
+     same colour, so the two fused into one fat purple slab and a keyboard user
+     landing on the already-selected node saw no focus change at all. Two
+     colours at two radii keep selection and focus independently readable —
+     doubled off the base focus tokens rather than the standard 1px/1px, which
+     is what every OTHER focusable here (buttons, keypill, the approach
+     summary) uses. */
+  .st .node:focus-visible{outline:calc(var(--k-focus-w) * 2) solid var(--k-focus);
+    outline-offset:calc(var(--k-focus-offset) + var(--k-space-1))}
   /* The label IS the stage color — the same string and hue as the sidebar chip.
      Inherits from .st, so it can never drift from the node above it. */
-  .st .lbl{margin-top:9px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:inherit;text-align:center}
-  .st .meta{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);margin-top:3px;height:12px}
+  .st .lbl{margin-top:calc(var(--k-space-4) + var(--k-border-w));font-size:var(--k-text-2xs);
+    letter-spacing:.06em;text-transform:uppercase;color:inherit;text-align:center}
+  .st .meta{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);
+    margin-top:calc(var(--k-space-1) + var(--k-border-w));height:var(--k-space-6)}
   /* Passed/running FILL the node in the stage hue; the glyph knocks out against
      it. Hue still says which stage, fill says it is done/working. */
-  .st.done .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--vscode-editor-background)}
+  .st.done .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--k-success-fg)}
   /* Skipped is the one status that leaves the stage ramp: a stage that never ran
      has no identity to assert, so it reads neutral gray. */
-  .st.skipped .node{background:var(--st-pending);border-color:var(--st-pending);color:var(--vscode-editor-background);opacity:.55}
+  .st.skipped .node{background:var(--k-pending);border-color:var(--k-pending);color:var(--k-success-fg);opacity:.55}
   /* No pulse on a running node: it carries a spinner, and two simultaneous
-     animations on one 30px mark read as noise. */
-  .st.running .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--vscode-editor-background)}
+     animations on one node-sized mark read as noise. */
+  .st.running .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--k-success-fg)}
   /* Failed reads as a break in the circuit: hollow + dashed, never filled — in
      the stage's hue (fix's is red, which is also its status meaning). */
   .st.failed .node{background:transparent;border-color:var(--stg-color);border-style:dashed;color:var(--stg-color)}
   /* Selection is a RING, never a fill — status already owns fill and the stage
      owns hue, and all three must stay independently readable, so the ring keeps
-     its own off-ramp purple. */
-  .st.sel .node{box-shadow:0 0 0 2px var(--panel-bg),0 0 0 4px var(--st-sel)}
+     its own off-ramp purple (the shared categorical token, UI-R08). */
+  .st.sel .node{box-shadow:0 0 0 var(--k-space-1) var(--k-surface),0 0 0 calc(var(--k-space-2) * 1) var(--k-series-2)}
   /* Scale only — never opacity. The one node this drives (armed fix) sits ON the
      bracket's bottom edge, and its fill is what MASKS that edge. Fading the node
      to .72 made the dashed bracket show through the fill and through the
@@ -173,10 +168,11 @@
      is the one mark that reads as work in progress. Under reduced motion it
      stops as a broken ring — still shape-distinct from ✓ ✕ · –, so status never
      rides on color alone. */
-  .spin{display:block;border-radius:50%;border:2px solid currentColor;
-    border-top-color:transparent;animation:spin .9s linear infinite}
-  .st .spin{width:13px;height:13px}
-  .oglyph .spin{width:9px;height:9px;margin:0 auto;border-width:1.5px;color:var(--st-running)}
+  .spin{display:block;border-radius:var(--k-radius-circle);border:calc(var(--k-border-w) * 2) solid currentColor;
+    border-top-color:transparent;animation:spin var(--k-dur-spin) linear infinite}
+  .st .spin{width:var(--k-text-base);height:var(--k-text-base)}
+  .oglyph .spin{width:var(--k-space-4);height:var(--k-space-4);margin:0 auto;
+    border-width:calc(var(--k-border-w) * 1.5);color:var(--k-running)}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){
     .loop.armed .fixnode .node{animation:none}
@@ -186,66 +182,77 @@
   /* ── the branch band ──────────────────────────────────────────────────── */
   /* ONE band carries both branches off the rail: fix hangs at the gate columns,
      impl's approach at impl's column. Two grid rows — row 1 is the branch level,
-     row 2 is where impl's disclosure expands, clear of both branches. */
-  .loop{position:relative;display:grid;grid-template-rows:62px auto;margin-top:6px}
-  .loop .drop{position:absolute;top:0;height:30px;
+     row 2 is where impl's disclosure expands, clear of both branches. 62px is
+     twice the node control size plus its border — the band's height falls out
+     of the geometry it hosts, not the spacing scale. */
+  .loop{position:relative;display:grid;
+    grid-template-rows:calc(var(--k-control-h-lg) * 2 + var(--k-border-w) * 2) auto;
+    margin-top:var(--k-space-3)}
+  .loop .drop{position:absolute;top:0;height:var(--k-control-h-lg);
     left:calc((var(--uat) + 0.5) / var(--cols) * 100%);
     right:calc(100% - (var(--review) + 0.5) / var(--cols) * 100%);
-    border:2px dashed var(--border);border-top:none;border-radius:0 0 12px 12px}
+    border:calc(var(--k-border-w) * 2) dashed var(--k-border);border-top:none;
+    border-radius:0 0 var(--k-radius-xl) var(--k-radius-xl)}
   /* Armed changes color, never style: a solid rounded bracket reads as a box
      drawn around the fix node; dashed keeps reading as a path. */
-  .loop.armed .drop{border-color:var(--st-failed)}
-  /* fix ─pass→ review: parallel to review's descender, offset a fixed 20px so
-     the two edges read as a channel rather than one ambiguous line. */
-  .loop .ret{position:absolute;top:4px;width:2px;height:26px;background:var(--border);
-    left:calc((var(--review) + 0.5) / var(--cols) * 100% + 20px)}
-  .loop .ret::before{content:"▲";position:absolute;top:-10px;left:-4px;font-size:9px;
-    line-height:1;color:var(--border)}
-  .loop.armed .ret{background:var(--st-running)}
-  .loop.armed .ret::before{color:var(--st-running)}
-  .loop .retlbl{position:absolute;top:5px;font-family:var(--mono);font-size:9px;
-    color:var(--text-faint);white-space:nowrap;
-    left:calc((var(--review) + 0.5) / var(--cols) * 100% + 32px)}
-  .loop.armed .retlbl{color:var(--st-running)}
-  .loop .faillbl{position:absolute;top:5px;font-family:var(--mono);font-size:9px;
-    color:var(--text-faint);white-space:nowrap;transform:translateX(-100%);padding-right:7px;
+  .loop.armed .drop{border-color:var(--k-failed)}
+  /* fix ─pass→ review: parallel to review's descender, offset a fixed distance
+     off the token scale so the two edges read as a channel rather than one
+     ambiguous line. */
+  .loop .ret{position:absolute;top:var(--k-space-2);width:var(--k-space-1);height:var(--k-space-9);background:var(--k-border);
+    left:calc((var(--review) + 0.5) / var(--cols) * 100% + var(--k-space-8))}
+  .loop .ret::before{content:"▲";position:absolute;top:calc(var(--k-space-5) * -1);left:calc(var(--k-space-2) * -1);
+    font-size:var(--k-text-2xs);line-height:1;color:var(--k-border)}
+  .loop.armed .ret{background:var(--k-running)}
+  .loop.armed .ret::before{color:var(--k-running)}
+  .loop .retlbl{position:absolute;top:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+    color:var(--k-text-faint);white-space:nowrap;
+    left:calc((var(--review) + 0.5) / var(--cols) * 100% + var(--k-space-8) + var(--k-space-6))}
+  .loop.armed .retlbl{color:var(--k-running)}
+  .loop .faillbl{position:absolute;top:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+    color:var(--k-text-faint);white-space:nowrap;transform:translateX(-100%);padding-right:var(--k-space-4);
     left:calc((var(--uat) + 0.5) / var(--cols) * 100%)}
-  .loop.armed .faillbl{color:var(--st-failed)}
+  .loop.armed .faillbl{color:var(--k-failed)}
 
   /* Node on the bracket's bottom edge, name and status on ONE line beneath it.
      Beside the node they run into the bracket's right descender; as two stacked
-     lines they cost 30px to say two words. */
+     lines they cost too much vertical space to say two words. */
   /* fix carries its own stage hue (stg-fix, added in the markup) exactly like a
      rail node — currentColor here is that hue, so the ring, label, and armed
      fill all read as one stage. */
-  .loop .fixnode{position:absolute;top:17px;display:flex;flex-direction:column;
-    align-items:center;gap:4px;
+  .loop .fixnode{position:absolute;top:calc(var(--k-space-7) + var(--k-border-w));display:flex;flex-direction:column;
+    align-items:center;gap:var(--k-space-2);
     left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
     transform:translateX(-50%)}
-  .loop .fixnode .node{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
-    background:var(--panel-bg);border:2px dashed var(--stg-color);color:var(--stg-color);
-    font-size:12px;font-weight:700;flex:none;padding:0;cursor:pointer;font-family:inherit}
+  .loop .fixnode .node{width:var(--k-control-h-md);height:var(--k-control-h-md);border-radius:var(--k-radius-circle);
+    display:grid;place-items:center;
+    background:var(--k-surface);border:calc(var(--k-border-w) * 2) dashed var(--stg-color);color:var(--stg-color);
+    font-size:var(--k-text-md);font-weight:700;flex:none;padding:0;cursor:pointer;font-family:inherit}
   .loop .fixnode .node:hover{filter:brightness(1.25)}
-  /* focusBorder, not --st-sel — same fusion with the selection ring as the rail
-     nodes above. */
-  .loop .fixnode .node:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:3px}
-  .loop .fixnode .cl{display:flex;align-items:baseline;gap:6px;white-space:nowrap}
-  .loop .fixnode .lbl{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:inherit}
-  .loop .fixnode .cap{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);white-space:nowrap}
-  /* Armed FILLS the ring (status: the loop is live); hue stays fix's. */
+  /* --k-focus, not --k-series-2 — same fusion with the selection ring as the
+     rail nodes above. */
+  .loop .fixnode .node:focus-visible{outline:calc(var(--k-focus-w) * 2) solid var(--k-focus);
+    outline-offset:calc(var(--k-focus-offset) + var(--k-space-1))}
+  .loop .fixnode .cl{display:flex;align-items:baseline;gap:var(--k-space-3);white-space:nowrap}
+  .loop .fixnode .lbl{font-size:var(--k-text-2xs);letter-spacing:.06em;text-transform:uppercase;color:inherit}
+  .loop .fixnode .cap{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  /* Armed FILLS the ring (status: the loop is live); hue stays fix's. No token
+     matches this pulse's cadence — it is a one-off animation timing, not a
+     spacing/color/radius value, so UI-R04 does not cover it; flagged here
+     rather than inventing a --k-dur step nobody else would reuse. */
   .loop.armed .fixnode .node{border-style:solid;border-color:var(--stg-color);
-    background:var(--stg-color);color:var(--vscode-editor-background);
+    background:var(--stg-color);color:var(--k-success-fg);
     animation:node-pulse 1.7s ease-in-out infinite}
-  .loop.armed .fixnode .cap{color:var(--st-input)}
+  .loop.armed .fixnode .cap{color:var(--k-attention)}
   /* A fix pass is a resolved/healthy attempt even though review runs next to
      revalidate it. Paint that stored success green instead of leaving the
      branch looking like an unresolved red retry. */
-  .loop .fixnode.done .node{--stg-color:var(--st-done);border-style:solid;
+  .loop .fixnode.done .node{--stg-color:var(--k-passed);border-style:solid;
     border-color:var(--stg-color);background:var(--stg-color);
-    color:var(--vscode-editor-background)}
-  .loop .fixnode.done .lbl{color:var(--st-done)}
-  .loop .fixnode.sel .node{box-shadow:0 0 0 2px var(--panel-bg),0 0 0 4px var(--st-sel)}
-  .loop .fixnode.sel .lbl{color:var(--text)}
+    color:var(--k-success-fg)}
+  .loop .fixnode.done .lbl{color:var(--k-passed)}
+  .loop .fixnode.sel .node{box-shadow:0 0 0 var(--k-space-1) var(--k-surface),0 0 0 var(--k-space-2) var(--k-series-2)}
+  .loop .fixnode.sel .lbl{color:var(--k-text)}
 
   /* fix is optional, so it defaults collapsed: the whole return channel is
      dropped and row 1 shrinks to the approach chip it still has to carry. Only
@@ -254,23 +261,21 @@
   .loop.collapsed{grid-template-rows:auto auto}
   /* A dim stage-hued pill in fix's own colour (stg-fix on the button), so the
      affordance still reads as "the fix loop" while it is hidden. Centred on the
-     branch, exactly where the fix node would sit. */
-  .fixtoggle{position:absolute;top:2px;left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
-    transform:translateX(-50%);font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;
-    padding:2px 8px;border-radius:9px;border:1px dashed var(--border);background:var(--panel-bg);
-    color:var(--text-faint);white-space:nowrap;cursor:pointer;line-height:1.4}
-  .fixtoggle:hover{background:var(--hover);border-color:var(--text-dim);color:var(--text-dim)}
-  .fixtoggle:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
+     branch, exactly where the fix node would sit. Built on `.k-chip` (UI-R08);
+     only position and the dashed "inert while collapsed" treatment stay local. */
+  .fixtoggle{position:absolute;top:var(--k-space-1);left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
+    transform:translateX(-50%);font-family:var(--k-font-mono);letter-spacing:.04em;
+    border-style:dashed;white-space:nowrap;line-height:1.4}
   /* When the branch is shown, the toggle steps aside to the band's right edge so
      it never overlaps the fix node it now sits beside. */
-  .fixtoggle.open{left:auto;right:2px;transform:none}
+  .fixtoggle.open{left:auto;right:var(--k-space-1);transform:none}
 
   /* impl's stem drops from the rail and STOPS at the approach chip — the same
      move the bracket makes into the fix node. Running it the full band height
      left a line dangling past the chip, which read as two unrelated marks. */
-  .loop .implstem{position:absolute;top:0;height:21px;width:2px;background:var(--border);
+  .loop .implstem{position:absolute;top:0;height:calc(var(--k-space-8) + var(--k-border-w));width:var(--k-space-1);background:var(--k-border);
     left:calc((var(--impl) + 0.5) / var(--cols) * 100%)}
-  .loop .implstem.on{background:var(--st-running)}
+  .loop .implstem.on{background:var(--k-running)}
 
   /* ── impl's approach: named on the rail, detail on demand ─────────────── */
   /* display:contents is what lets the summary chip sit in row 1 while the detail
@@ -279,191 +284,197 @@
   /* Centered ON impl's stem, exactly as the fix node centers on its bracket.
      Width cap: the gap to the bracket, doubled (the chip is centered, so only
      half reaches right), minus the `fail` edge label that hangs to the bracket's
-     LEFT — the nearest thing this can hit — plus a gutter. */
-  .branch-slot{grid-row:1;justify-self:start;align-self:start;margin-top:21px;
+     LEFT — the nearest thing this can hit — plus a gutter (72px: geometry
+     derived from the rail's own layout, not a spacing value). */
+  .branch-slot{grid-row:1;justify-self:start;align-self:start;margin-top:calc(var(--k-space-8) + var(--k-border-w));
     margin-left:calc((var(--impl) + 0.5) / var(--cols) * 100%);
     transform:translateX(-50%);
     max-width:calc((var(--uat) - var(--impl)) / var(--cols) * 200% - 72px);
     display:inline-flex;align-items:center;min-width:0}
   .approach > summary{list-style:none;cursor:pointer}
   .approach > summary::-webkit-details-marker{display:none}
-  .approach > summary:hover .aid{background:var(--hover);border-color:var(--text-dim)}
-  .approach > summary:focus-visible .aid{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
+  .approach > summary:hover .aid{background:var(--k-surface-hover);border-color:var(--k-text-dim)}
+  /* Primitives style :focus-visible on <button>/<a>/<input>; a <summary> is
+     neither, so it gets no ring from the generic rule and needs its own —
+     otherwise a keyboard user tabbing to the approach disclosure sees nothing. */
+  .approach > summary:focus-visible .aid{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   /* The chevron rides INSIDE the chip: beside it, it detached from both the stem
      and the chip and read as a stray glyph. */
-  .approach .chev{color:var(--text-faint);font-size:7px;transition:transform .12s ease;flex:none}
+  .approach .chev{color:var(--k-text-faint);font-size:var(--k-text-2xs);transition:transform var(--k-dur-fast) var(--k-ease-standard);flex:none}
   .approach[open] .chev{transform:rotate(180deg)}
   @media (prefers-reduced-motion:reduce){.approach .chev{transition:none}}
   /* A long id truncates rather than pushing into the fix branch; the full value
-     stays in the title. */
-  .approach .aid,.noapproach .none{font-family:var(--mono);font-size:10px;padding:2px 8px;
-    border-radius:9px;border:1px solid var(--border);background:var(--panel-bg);
-    color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+     stays in the title. Built on `.k-chip` (UI-R08: one pill shape for keypill,
+     fixtoggle, this, and the PR status chip below); only monospace + truncation
+     stay local. */
+  .approach .aid,.noapproach .none{font-family:var(--k-font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   /* max-width:100% is what makes the cap bite — the slot's max-width alone lets
      a nowrap chip overflow it. */
-  .approach .aid{display:inline-flex;align-items:center;gap:6px;max-width:100%}
+  .approach .aid{display:inline-flex;align-items:center;gap:var(--k-space-3);max-width:100%}
   .approach .aid .nm{overflow:hidden;text-overflow:ellipsis;min-width:0}
-  .approach.active .aid{border-color:var(--st-running);color:var(--text)}
-  .approach.done .aid{border-color:var(--st-done);color:var(--st-done)}
+  .approach.active .aid{border-color:var(--k-running);color:var(--k-text)}
+  .approach.done .aid{border-color:var(--k-passed);color:var(--k-passed)}
   /* No approach at all (manual ticket): a plain inert chip, never an empty
      disclosure the user can open onto nothing. */
-  .noapproach .none{border-style:dashed;color:var(--text-faint)}
+  .noapproach .none{border-style:dashed;color:var(--k-text-faint)}
 
-  .approach .detail{grid-row:2;margin:2px 0 0;
-    margin-left:calc((var(--impl) + 0.5) / var(--cols) * 100% - 8px);
-    border:1px solid var(--border);border-radius:8px;
-    padding:8px 4px 6px;max-width:640px}
-  .phrow{display:flex;align-items:baseline;gap:10px;padding:4px 10px;border-radius:6px}
-  .phrow:hover{background:var(--hover)}
-  .phrow .pi{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);width:12px;flex:none}
-  .phrow .pn{font-size:11.5px}
-  .approach .foot{font-family:var(--mono);font-size:9px;color:var(--text-faint);
-    padding:8px 10px 0;margin-top:5px;border-top:1px solid var(--border);opacity:.85}
+  .approach .detail{grid-row:2;margin:var(--k-space-1) 0 0;
+    margin-left:calc((var(--impl) + 0.5) / var(--cols) * 100% - var(--k-space-4));
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
+    padding:var(--k-space-4) var(--k-space-2) var(--k-space-3);max-width:640px}
+  .phrow{display:flex;align-items:baseline;gap:var(--k-space-5);padding:var(--k-space-2) var(--k-space-5);border-radius:var(--k-radius-md)}
+  .phrow:hover{background:var(--k-surface-hover)}
+  .phrow .pi{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);width:var(--k-space-6);flex:none}
+  .phrow .pn{font-size:var(--k-text-sm)}
+  .approach .foot{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);
+    padding:var(--k-space-4) var(--k-space-5) 0;margin-top:var(--k-space-3);border-top:var(--k-border-w) solid var(--k-border);opacity:.85}
 
   /* ── activity strip: what happens inside the SELECTED stage ───────────── */
-  .act{margin:16px 6px 2px;border:1px solid var(--border);border-radius:9px}
-  .act .ahead{display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid var(--border)}
-  .act .aname{font-size:12px;font-weight:600}
-  .act .adot{width:7px;height:7px;border-radius:50%;background:var(--st-running);flex:none}
-  .act .adot.wait{background:var(--st-input)} .act .adot.idle{background:var(--st-pending)}
-  .act .adot.fail{background:var(--st-failed)} .act .adot.done{background:var(--st-done)}
-  .act .adot.pend{background:transparent;border:2px solid var(--st-pending);width:9px;height:9px}
-  .act .aclock{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--text-faint)}
+  .act{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
+  .act .ahead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .act .aname{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
+  .act .adot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-running);flex:none}
+  .act .adot.wait{background:var(--k-attention)} .act .adot.idle{background:var(--k-pending)}
+  .act .adot.fail{background:var(--k-failed)} .act .adot.done{background:var(--k-passed)}
+  .act .adot.pend{background:transparent;border:calc(var(--k-border-w) * 2) solid var(--k-pending);width:var(--k-space-4);height:var(--k-space-4)}
+  .act .aclock{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
   /* Viewing a stage that is not the current one — say so, and offer the way
      back. Without this the strip silently contradicts the Now line. */
-  .act.viewing{border-color:var(--st-sel)}
-  .act .vbar{display:flex;align-items:center;gap:9px;padding:6px 13px;font-size:11px;
-    color:var(--text-dim);background:var(--hover);border-bottom:1px solid var(--border)}
+  .act.viewing{border-color:var(--k-series-2)}
+  .act .vbar{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-xs);
+    color:var(--k-text-dim);background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border)}
   .act .vbar .sp{margin-left:auto}
-  .act .blurb{padding:10px 14px;font-size:11.5px;color:var(--text-dim)}
-  .act .ops{padding:4px 6px 8px}
-  .op{display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:6px}
-  .op:hover{background:var(--hover)}
-  .op .oglyph{width:14px;text-align:center;font-size:11px;color:var(--text-faint)}
-  .op.pass .oglyph{color:var(--st-done)} .op.run .oglyph{color:var(--st-running)}
-  .op.fail .oglyph{color:var(--st-failed)} .op.wait .oglyph{color:var(--st-input)}
-  .op .oname{font-size:12px;min-width:82px}
-  .op .ocmd{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex:1;overflow:hidden;
+  .act .blurb{padding:var(--k-space-5) var(--k-space-7);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .act .ops{padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
+  .op{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
+  .op:hover{background:var(--k-surface-hover)}
+  .op .oglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint)}
+  .op.pass .oglyph{color:var(--k-passed)} .op.run .oglyph{color:var(--k-running)}
+  .op.fail .oglyph{color:var(--k-failed)} .op.wait .oglyph{color:var(--k-attention)}
+  /* 82px has no scale match — the name column's minimum is set by the longest
+     op label karst emits ("Implementation"), not a spacing value. */
+  .op .oname{font-size:var(--k-text-md);min-width:82px}
+  .op .ocmd{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;overflow:hidden;
     white-space:nowrap;text-overflow:ellipsis}
-  .op .odur{font-family:var(--mono);font-size:10.5px;color:var(--text-faint)}
+  .op .odur{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
   .op.pending{opacity:.5}
   /* A gate the repo cannot answer, or a phase karst cannot observe, is not a
      failure — say so plainly instead of dressing it as a status. */
   .op.note .ocmd{font-style:italic;opacity:.75}
-  button.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
-  button.ghost:hover{background:var(--hover)}
 
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
-  .fault{margin:16px 6px 2px;padding:10px 12px;border-left:3px solid var(--st-failed);
-    border-radius:0 6px 6px 0;background:var(--vscode-inputValidation-errorBackground,transparent)}
-  .fault .ftitle{font-size:12px;font-weight:600;margin-bottom:6px}
-  .fault .freason{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;word-break:break-word}
-  .fault .fmeta{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:7px}
-  .fault .facts{margin-top:9px}
+  .fault{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);padding:var(--k-space-5) var(--k-space-6);
+    border-left:calc(var(--k-border-w) * 3) solid var(--k-failed);
+    border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;background:var(--vscode-inputValidation-errorBackground,transparent)}
+  .fault .ftitle{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin-bottom:var(--k-space-3)}
+  .fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);white-space:pre-wrap;word-break:break-word}
+  .fault .fmeta{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:calc(var(--k-space-4) - var(--k-border-w))}
+  .fault .facts{margin-top:var(--k-space-6)}
 
   /* The "Now" line — one plain sentence naming what is happening and the next
      action the user controls. Built host-side (state.now) so the copy is tested. */
-  .now{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 6px 2px;padding-top:11px;
-    border-top:1px solid var(--border);font-size:12px;color:var(--text)}
+  .now{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-5);margin:var(--k-space-6) var(--k-space-3) var(--k-space-1);padding-top:calc(var(--k-space-6) - var(--k-border-w));
+    border-top:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-md);color:var(--k-text)}
   .now .ntext{flex:1}
-  .now .now-sub{flex-basis:100%;font-size:11px;color:var(--text-dim)}
-  .now .switch-agent{
-    color:var(--vscode-button-secondaryForeground,var(--vscode-button-foreground));
-    background:var(--vscode-button-secondaryBackground,var(--vscode-button-background));
-  }
-  .now .switch-agent:hover{
-    background:var(--vscode-button-secondaryHoverBackground,var(--vscode-button-hoverBackground));
-  }
+  .now .now-sub{flex-basis:100%;font-size:var(--k-text-xs);color:var(--k-text-dim)}
   /* The ship-in-progress spinner rides in the Now line at the gate-node size.
      .spin is display:block, so it needs an explicit box here. */
-  .now .spin{width:13px;height:13px;flex:none;color:var(--st-running)}
+  .now .spin{width:var(--k-text-base);height:var(--k-text-base);flex:none;color:var(--k-running)}
   /* The resolved-success flash: a brief "Shipped ✓" beside the settled line. */
-  .now .shipbadge{font-weight:600;flex:none}
-  .now .shipbadge.ok{color:var(--st-done)}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
+  .now .shipbadge{font-weight:var(--k-weight-semibold);flex:none}
+  .now .shipbadge.ok{color:var(--k-passed)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--k-space-7)}
+  .panel{border:var(--k-border-w) solid var(--k-border);border-radius:calc(var(--k-radius-lg) + var(--k-border-w));background:var(--k-surface);overflow:hidden}
   .panel.span{grid-column:1 / -1}
-  .phead{display:flex;align-items:center;gap:8px;min-height:var(--phead-h);padding:8px 14px;
-    border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600}
-  .phead .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-faint);font-weight:400}
-  /* An icon-only panel control. Quiet until hovered — it sits in a header, not a
-     row of actions, and a filled button there reads as the panel's subject. The
-     hit area stays 22px square regardless of the 13px glyph inside it. */
-  .phead .iconbtn{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;
-    width:22px;height:22px;padding:0;border:none;border-radius:5px;background:transparent;
-    color:var(--text-dim);cursor:pointer}
-  .phead .iconbtn:hover:not(:disabled){background:var(--hover);color:var(--text)}
-  .phead .iconbtn:disabled{opacity:.6;cursor:default}
-  /* Busy: the same glyph, turning — not a swapped-in spinner, which would resize
-     the header mid-refresh. */
-  .phead .iconbtn.busy svg{animation:spin .9s linear infinite}
-  @media (prefers-reduced-motion: reduce){.phead .iconbtn.busy svg{animation:none}}
-  .pbody{padding:6px 8px 10px}
-  .empty{padding:16px 14px;color:var(--text-faint);font-size:12px}
+  .phead{display:flex;align-items:center;gap:var(--k-space-4);min-height:var(--phead-h);padding:var(--k-space-4) var(--k-space-7);
+    border-bottom:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
+  .phead .count{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);font-weight:var(--k-weight-normal)}
+  /* An icon-only panel control, built on `.k-iconbtn` (UI-R07) — quiet until
+     hovered, since it sits in a header, not a row of actions, and a filled
+     button there would read as the panel's subject. */
+  .phead .iconbtn{margin-left:auto}
+  .pbody{padding:var(--k-space-3) var(--k-space-4) var(--k-space-5)}
+  .empty{padding:var(--k-space-7) var(--k-space-6);color:var(--k-text-faint);font-size:var(--k-text-md)}
 
-  .wt,.pr{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:6px}
-  .wt:hover,.pr:hover{background:var(--hover)}
-  .wt .wrepo{font-size:12.5px;min-width:74px}
-  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:4px}
-  .wt .wbranch{display:flex;align-items:center;gap:2px;min-width:0;flex:1}
-  .wt .wbr{font-family:var(--mono);font-size:11px;color:var(--text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .wt .wstats{display:flex;gap:5px;font-family:var(--mono);font-size:11px;white-space:nowrap}
-  .wt .wadd{color:var(--st-done)}
-  .wt .wdel{color:var(--st-failed)}
-  .pr .pst{font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);text-transform:uppercase;letter-spacing:.4px}
-  /* Live PR state at a glance: open green, merged purple, closed red, draft muted. */
-  .pr .pst-open{background:var(--vscode-testing-iconPassed,#2ea043);color:#fff}
-  .pr .pst-merged{background:#8957e5;color:#fff}
-  .pr .pst-closed{background:var(--vscode-testing-iconFailed,#cf222e);color:#fff}
-  .pr .pst-draft,.pr .pst-unknown{background:var(--vscode-descriptionForeground,#8b949e);color:var(--vscode-editor-background,#0d1117)}
-  .pr .pnum{font-family:var(--mono);color:var(--link)}
-  .pr .ptitle{flex:1;font-size:12.5px}
+  .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md)}
+  .wt:hover,.pr:hover{background:var(--k-surface-hover)}
+  /* 74px has no scale match — set by the longest repo label karst has shown in
+     practice, not a spacing value. */
+  .wt .wrepo{font-size:var(--k-text-md);min-width:74px}
+  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2)}
+  .wt .wbranch{display:flex;align-items:center;gap:var(--k-space-1);min-width:0;flex:1}
+  .wt .wbr{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap}
+  .wt .wadd{color:var(--k-passed)}
+  .wt .wdel{color:var(--k-failed)}
+  /* Built on `.k-chip` (UI-R08: the same pill primitive as keypill/fixtoggle/
+     approach .aid); only the monospace uppercase treatment stays local. Every
+     status renders one of the variants below, so the chip's own default fill
+     never shows in practice. */
+  .pr .pst{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px}
+  /* Live PR state at a glance: open green, merged purple (the shared
+     categorical token, UI-R08), closed red, draft muted — every fill is paired
+     with the SAME "text on a filled surface" token the design system already
+     defines for success/danger (UI-R29: paired tokens, never a hand-picked
+     foreground). */
+  .pr .pst-open{background:var(--k-success);color:var(--k-success-fg)}
+  .pr .pst-merged{background:var(--k-series-2);color:var(--k-success-fg)}
+  .pr .pst-closed{background:var(--k-danger);color:var(--k-danger-fg)}
+  .pr .pst-draft,.pr .pst-unknown{background:var(--k-text-faint);color:var(--k-success-fg)}
+  .pr .pnum{font-family:var(--k-font-mono);color:var(--k-link)}
+  .pr .ptitle{flex:1;font-size:var(--k-text-md)}
   /* Merge verdict, indented under its PR so it reads as a fact ABOUT that PR and
      never as a second pull request. Shape (filled/hollow/ring) carries the state
      alongside colour, matching the servers panel's dot. */
-  .mg{display:flex;align-items:center;gap:8px;margin:-2px 0 6px 12px;padding:2px 6px;font-size:11.5px;color:var(--vscode-descriptionForeground)}
-  .mg .mgdot{width:8px;height:8px;border-radius:50%;flex:none}
-  .mg-clean .mgdot{background:var(--vscode-testing-iconPassed,#2ea043)}
-  .mg-conflicted .mgdot{background:var(--vscode-testing-iconFailed,#cf222e)}
-  .mg-unknown .mgdot{border:2px solid var(--vscode-descriptionForeground,#8b949e);width:6px;height:6px}
-  .mg-conflicted .mgtext{color:var(--vscode-testing-iconFailed,#cf222e)}
+  .mg{display:flex;align-items:center;gap:var(--k-space-4);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-3) var(--k-space-6);
+    padding:var(--k-space-1) var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .mg .mgdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);flex:none}
+  .mg-clean .mgdot{background:var(--k-success)}
+  .mg-conflicted .mgdot{background:var(--k-danger)}
+  .mg-unknown .mgdot{border:calc(var(--k-border-w) * 2) solid var(--k-pending);width:var(--k-space-3);height:var(--k-space-3)}
+  .mg-conflicted .mgtext{color:var(--k-danger)}
   .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mg .mgbtn{flex:none}
   /* The conflict list / the reason karst could not tell. Collapsed by default,
      like the PR comments thread further down this same panel — the count is what
      a reader scans, the detail is what they open. Capped and scrollable so a
      forty-file conflict cannot push the rest of the panel off screen. */
-  .mgd{margin:-4px 0 6px 30px;font-size:11.5px}
-  .mgd summary{cursor:pointer;color:var(--link);width:fit-content}
-  .mgdbody{max-height:180px;overflow-y:auto;margin-top:4px}
-  .mgfile{font-family:var(--mono);font-size:11px;color:var(--text-dim);word-break:break-all}
+  .mgd{margin:calc(var(--k-space-2) * -1) 0 var(--k-space-3) var(--k-space-9);font-size:var(--k-text-sm)}
+  .mgd summary{cursor:pointer;color:var(--k-link);width:fit-content}
+  /* <summary> is not a <button>/<a>/<input>, so it gets no ring from the
+     primitives' generic :focus-visible rule (same reasoning as the approach
+     disclosure above). */
+  .mgd summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  /* 180px has no scale match — a scroll cap sized to the panel, not a spacing
+     value (same category as the servers panel's 288px below). */
+  .mgdbody{max-height:180px;overflow-y:auto;margin-top:var(--k-space-2)}
+  .mgfile{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);word-break:break-all}
   /* git's own words: `pre-wrap` keeps the line breaks a multi-line git error has. */
-  .mgreason{white-space:pre-wrap;color:var(--text-dim);word-break:break-word}
+  .mgreason{white-space:pre-wrap;color:var(--k-text-dim);word-break:break-word}
   /* PR metadata: from-to, opened, merged. Indented under its PR like the merge
      verdict, so it reads as facts ABOUT that pull request. */
-  .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-2px 0 4px 12px;padding:0 6px;
-    font-size:11px;color:var(--text-dim)}
-  .pmeta .pbranch{font-family:var(--mono);color:var(--text)}
-  .pmeta .pmerged{color:#a371f7}
-  .pmeta .psep{color:var(--text-faint)}
+  .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-2) var(--k-space-6);padding:0 var(--k-space-3);
+    font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .pmeta .pbranch{font-family:var(--k-font-mono);color:var(--k-text)}
+  .pmeta .pmerged{color:var(--k-series-2)}
+  .pmeta .psep{color:var(--k-text-faint)}
   /* Comments collapse: the count is what a reader scans, the bodies are what they
      open. `pre-wrap` keeps a review comment's own line breaks. */
-  .pcms{margin:0 0 6px 12px;padding:0 6px;font-size:11.5px}
-  .pcms summary{cursor:pointer;color:var(--link);width:fit-content}
-  .pcm{margin:6px 0 0;padding-left:8px;border-left:2px solid var(--border)}
-  .pcm .pcmwho{font-weight:600;font-size:11px}
-  .pcm .pcmwhen{margin-left:6px;font-size:10.5px;color:var(--text-faint)}
-  .pcm .pcmbody{white-space:pre-wrap;color:var(--text-dim);font-size:11.5px;margin-top:2px}
-  /* The merge button. `danger` marks the one irreversible action on this panel;
-     disabled carries the host's reason as its tooltip. */
-  .pr .mgbtn.danger{border-color:#8957e5;color:#c297ff}
-  .pr .mgbtn.danger:hover{background:#8957e5;color:#fff}
-  .pr .mgbtn[disabled]{opacity:.55;cursor:not-allowed}
+  .pcms{margin:0 0 var(--k-space-3) var(--k-space-6);padding:0 var(--k-space-3);font-size:var(--k-text-sm)}
+  .pcms summary{cursor:pointer;color:var(--k-link);width:fit-content}
+  .pcms summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .pcm{margin:var(--k-space-3) 0 0;padding-left:var(--k-space-4);border-left:var(--k-space-1) solid var(--k-border)}
+  .pcm .pcmwho{font-weight:var(--k-weight-semibold);font-size:var(--k-text-xs)}
+  .pcm .pcmwhen{margin-left:var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-faint)}
+  .pcm .pcmbody{white-space:pre-wrap;color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
+  /* The merge control is `.k-btn--danger` (UI-R10b: the one irreversible action
+     on this panel), built in markup — no bespoke color rule left here. */
+  .mgbtn{flex:none}
 
   /* agent pill (colored by state) */
-  .agent-pill{display:inline-flex;align-items:center;gap:6px}
-  .agent-pill .dot{width:7px;height:7px;border-radius:50%}
+  .agent-pill{display:inline-flex;align-items:center;gap:var(--k-space-3)}
+  .agent-pill .dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle)}
 
   /* ===================== Servers panel ==================================
      One service is ONE LINE at every width. The panel reacts to its own grid
@@ -471,95 +482,91 @@
      is shared with Worktrees and Pull requests, which need none of this. */
   /* Visually hidden, still announced — for labels the layout drops but a screen
      reader still needs (the dot-only Status header, the filter's label). */
-  .sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  .sr{position:absolute;width:var(--k-border-w);height:var(--k-border-w);padding:0;margin:calc(var(--k-border-w) * -1);overflow:hidden;
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
   .svpanel{container-type:inline-size}
   /* Whole-ticket controls live in the HEADER because they act on every service
      and must survive the states where the body has no rows to hang a button
      off — the empty body is exactly when Start matters most. The count
      therefore gives up the auto margin it keeps in the other panels. */
-  .svpanel .phead{padding-right:10px}
+  .svpanel .phead{padding-right:var(--k-space-5)}
   .svpanel .phead .count{margin-left:0}
-  .svpanel .phead .pops{margin-left:auto;display:flex;gap:2px}
+  .svpanel .phead .pops{margin-left:auto;display:flex;gap:var(--k-space-1)}
   .svpanel .pbody{padding:0}
 
   /* Icon buttons — inline SVG off a sprite (no icon font, no external asset:
      the webview CSP forbids both). Icon-only is what lets four actions share a
      row without the action column outgrowing the data. The label is not lost,
      it moves to aria-label + title, so the word survives for both pointer and
-     screen reader. */
-  .ib{display:inline-flex;align-items:center;justify-content:center;
-    width:23px;height:23px;padding:0;border-radius:5px;flex:none;
-    background:transparent;border:1px solid transparent;color:var(--text-dim);
-    transition:background .12s ease,border-color .12s ease}
-  .ib:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
-  .ib svg{width:14px;height:14px;display:block;transition:transform .12s ease}
+     screen reader. Built on `.k-iconbtn` (UI-R07: sizing, hover surface, focus
+     ring, and the disabled/pending states all come from the primitive); `.ib`
+     stays a LAYOUT+colour-only local class — the glyph's own size, and each
+     action's resting hue off the shared status ramp. */
+  .ib svg{width:calc(var(--k-space-6) + var(--k-space-1));height:calc(var(--k-space-6) + var(--k-space-1));display:block;
+    transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   /* Each action carries its OWN resting colour, off the same status ramp the
      stepper uses — hue is the fastest way to tell Stop from Start before any
      label is read. The word is still on every button, so hue accelerates, it
      never carries. */
-  .ib.t-open{color:var(--st-running)}
-  .ib.t-copy{color:var(--st-sel)}
-  .ib.t-restart{color:var(--st-input)}
-  .ib.t-stop{color:var(--st-failed)}
-  .ib.t-start{color:var(--st-done)}
-  .ib.ok{color:var(--st-done)}
-  /* Hover is a SEPARATE channel from colour: a surface and border appear under
-     the icon and the glyph grows. Deliberately not a brightness shift — under a
-     light theme every hue is already dark, so brightening moves the icon toward
-     the background and costs contrast on the very element being pointed at.
-     Scale and surface read the same in both themes. */
-  .ib:hover:not(:disabled){background:var(--hover);border-color:var(--border)}
+  .ib.t-open{color:var(--k-running)}
+  .ib.t-copy{color:var(--k-series-2)}
+  .ib.t-restart{color:var(--k-attention)}
+  .ib.t-stop{color:var(--k-failed)}
+  .ib.t-start{color:var(--k-passed)}
+  .ib.ok{color:var(--k-passed)}
+  /* The glyph grows slightly on hover/active — layered on top of the
+     primitive's own surface+border hover, never replacing it. */
   .ib:hover:not(:disabled) svg{transform:scale(1.14)}
   .ib:active:not(:disabled) svg{transform:scale(.94)}
-  .ib:disabled{color:var(--text-faint);opacity:.45;cursor:default}
   @media (prefers-reduced-motion:reduce){
-    .ib,.ib svg{transition:none}
+    .ib svg{transition:none}
     .ib:hover svg,.ib:active svg{transform:none}
   }
 
   /* Status semantics. Colour is never the only carrier: each state has a
      distinct GLYPH (filled disc vs hollow ring), the address column reads "—"
      when offline, and the dot carries its word to pointer and screen reader. */
-  .svpanel .glyph{flex:0 0 auto;display:inline-block;border-radius:50%}
-  .svpanel .glyph.on{width:8px;height:8px;background:var(--st-done)}
-  .svpanel .glyph.off{width:9px;height:9px;background:transparent;border:2px solid var(--st-pending)}
+  .svpanel .glyph{flex:0 0 auto;display:inline-block;border-radius:var(--k-radius-circle)}
+  .svpanel .glyph.on{width:var(--k-space-4);height:var(--k-space-4);background:var(--k-passed)}
+  .svpanel .glyph.off{width:calc(var(--k-space-4) + var(--k-border-w));height:calc(var(--k-space-4) + var(--k-border-w));background:transparent;border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
 
-  .svpanel .filter{display:flex;align-items:center;gap:8px;padding:8px 10px;
-    border-bottom:1px solid var(--border)}
-  .svpanel .filter input{flex:1;min-width:0;font-family:var(--ui);font-size:11.5px;
-    padding:3px 8px;border-radius:5px;background:var(--vscode-input-background);
-    color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}
-  .svpanel .filter input:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:0}
+  .svpanel .filter{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5);
+    border-bottom:var(--k-border-w) solid var(--k-border)}
+  /* Built on `.k-input` — the local rule is layout only (it fills the filter row). */
+  .svpanel .filter input{flex:1;min-width:0}
+  /* 288px has no scale match — a scroll cap sized to the panel, not a spacing
+     value (same category as the merge-conflict list's 180px above). */
   .svpanel .scroll{max-height:288px;overflow-y:auto;overflow-x:hidden}
-  .svpanel table{width:100%;border-collapse:collapse;font-size:12.5px}
-  .svpanel thead th{position:sticky;top:0;z-index:1;background:var(--panel-bg);
-    text-align:left;font-weight:600;font-size:10.5px;text-transform:uppercase;
-    letter-spacing:.6px;color:var(--text-faint);padding:7px 10px;
-    border-bottom:1px solid var(--border);white-space:nowrap}
-  .svpanel tbody tr:hover,.svpanel tbody tr:focus-within{background:var(--hover)}
-  .svpanel td{padding:4px 10px;vertical-align:middle}
-  /* Status is the DOT only — no word. A "Status" label over a 9px dot only
-     crowded the header, so that header is screen-reader-only. */
+  .svpanel table{width:100%;border-collapse:collapse;font-size:var(--k-text-md)}
+  .svpanel thead th{position:sticky;top:0;z-index:1;background:var(--k-surface);
+    text-align:left;font-weight:var(--k-weight-semibold);font-size:var(--k-text-2xs);text-transform:uppercase;
+    letter-spacing:.6px;color:var(--k-text-faint);padding:calc(var(--k-space-3) + var(--k-border-w)) var(--k-space-5);
+    border-bottom:var(--k-border-w) solid var(--k-border);white-space:nowrap}
+  .svpanel tbody tr:hover,.svpanel tbody tr:focus-within{background:var(--k-surface-hover)}
+  .svpanel td{padding:var(--k-space-2) var(--k-space-5);vertical-align:middle}
+  /* Status is the DOT only — no word. A word over a small dot only crowded the
+     header, so that header is screen-reader-only. */
   .svpanel td.c-dot{width:1%;padding-right:0;line-height:0}
   /* The NAME column absorbs all the slack, which pushes the address and its two
      ops into one right-hand group. The address is right-aligned inside a
      shrink-wrapped column, and that is what makes Open/Copy sit flush against
      the value on EVERY row instead of after a ragged gap. */
-  .svpanel td.c-name{font-size:12.5px;max-width:0;width:100%;overflow:hidden;
+  .svpanel td.c-name{font-size:var(--k-text-md);max-width:0;width:100%;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
-  .svpanel td.c-addr{font-family:var(--mono);font-size:11.5px;color:var(--text-dim);
-    white-space:nowrap;width:1%;text-align:right;padding-right:5px}
-  .svpanel td.c-addr.off{font-style:italic;color:var(--text-faint)}
+  .svpanel td.c-addr{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);
+    white-space:nowrap;width:1%;text-align:right;padding-right:calc(var(--k-space-3) - var(--k-border-w))}
+  .svpanel td.c-addr.off{font-style:italic;color:var(--k-text-faint)}
   .svpanel td.c-addr .short{display:none}
   .svpanel td.c-addrops{width:1%;padding-left:0;padding-right:0}
   /* The gap between the address group and the lifecycle group is the only thing
-     separating them — keep it wider than the 2px inside each group. */
-  .svpanel td.c-acts{text-align:right;white-space:nowrap;width:1%;padding-left:12px}
-  .svpanel td .g{display:inline-flex;gap:2px;justify-content:flex-end}
+     separating them — keep it wider than the gap inside each group. */
+  .svpanel td.c-acts{text-align:right;white-space:nowrap;width:1%;padding-left:var(--k-space-6)}
+  .svpanel td .g{display:inline-flex;gap:var(--k-space-1);justify-content:flex-end}
 
   /* Narrow COMPACTS, it does not restack: one service stays one line, which is
-     the whole point of this design. */
+     the whole point of this design. 400px cannot be a token: @container
+     conditions cannot read a custom property, so no --k-* applies here (same
+     exception as a @media breakpoint). */
   @container (max-width: 400px){
     /* SPECIFICITY TRAP — do not simplify these back to bare `td`. A
        class-qualified `td.c-acts` (0,2,1) out-specifies a bare `td` (0,1,1)
@@ -567,30 +574,31 @@
        lands: the 1% action column survived into narrow and wrapped every icon
        onto its own line. The re-qualification is the fix. */
     .svpanel td.c-acts{width:auto}
-    .svpanel thead th{padding:6px 6px;font-size:10px}
-    .svpanel td{padding:4px 6px}
+    .svpanel thead th{padding:var(--k-space-3);font-size:var(--k-text-2xs)}
+    .svpanel td{padding:var(--k-space-2) var(--k-space-3)}
     /* At this width "localhost:5173" ellipsises to "localhost…" — showing the
        part that never varies and hiding the part that does. Both strings are in
        the DOM so the swap is CSS, not a JS width probe; the full address stays
        on the cell's title either way. */
-    .svpanel td.c-addr{font-size:11px}
+    .svpanel td.c-addr{font-size:var(--k-text-xs)}
     .svpanel td.c-addr .full{display:none}
     .svpanel td.c-addr .short{display:inline}
   }
 
   /* Empty states. Dense: mark + headline on one line, the reason under it, and
      no button — Start lives in the header where it works in every state. */
-  .svpanel .estate{display:flex;align-items:flex-start;gap:10px;padding:14px 14px 15px}
+  .svpanel .estate{display:flex;align-items:flex-start;gap:var(--k-space-5);
+    padding:calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1) + var(--k-border-w))}
   .svpanel .estate .emark{display:flex;align-items:center;justify-content:center;
-    width:22px;height:22px;border-radius:50%;flex:none;margin-top:-1px;
-    background:var(--hover);color:var(--text-faint)}
-  .svpanel .estate .emark svg{width:13px;height:13px;display:block}
-  .svpanel .estate .ehead{font-size:12.5px;font-weight:600;color:var(--text)}
-  .svpanel .estate .esub{font-size:11.5px;color:var(--text-dim);line-height:1.45;margin-top:2px}
+    width:var(--k-control-h-sm);height:var(--k-control-h-sm);border-radius:var(--k-radius-circle);flex:none;margin-top:calc(var(--k-border-w) * -1);
+    background:var(--k-surface-hover);color:var(--k-text-faint)}
+  .svpanel .estate .emark svg{width:var(--k-text-base);height:var(--k-text-base);display:block}
+  .svpanel .estate .ehead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);color:var(--k-text)}
+  .svpanel .estate .esub{font-size:var(--k-text-sm);color:var(--k-text-dim);line-height:1.45;margin-top:var(--k-space-1)}
   /* The dead end gets no action anywhere, so it also gets no emphasis — the
      block stays at description weight to read as a statement, not a prompt. */
-  .svpanel .estate.dead .ehead{color:var(--text-dim);font-weight:500}
-  .svpanel .nomatch{padding:14px;color:var(--text-faint);font-size:12px}
+  .svpanel .estate.dead .ehead{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}
+  .svpanel .nomatch{padding:calc(var(--k-space-6) + var(--k-space-1));color:var(--k-text-faint);font-size:var(--k-text-md)}
 </style>
 
 <!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
@@ -658,10 +666,10 @@
   <span id="keyPill"></span>
   <h1 id="title"></h1>
   <span class="agent" id="agent"></span>
-  <button id="bindBtn" class="bindtoggle" data-act="toggle-bind" aria-pressed="false"
+  <button id="bindBtn" type="button" class="k-btn k-btn--ghost k-btn--sm bindtoggle" data-act="toggle-bind" aria-pressed="false"
     title="Bind is off — this dashboard and the agent terminal move independently"><span class="dot" aria-hidden="true"></span>Bind terminal</button>
-  <button id="followUpBtn" class="hidden" title="Create a new ticket linked to this one, pre-filled with its repos/approach/agent">Create follow-up</button>
-  <button id="editBtn" title="Edit ticket">Edit</button>
+  <button id="followUpBtn" type="button" class="hidden k-btn k-btn--secondary k-btn--sm" data-act="create-follow-up-ticket" title="Create a new ticket linked to this one, pre-filled with its repos/approach/agent">Create follow-up</button>
+  <button id="editBtn" type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="edit-ticket" title="Edit this ticket's title, description, and scope">Edit</button>
 </div>
 
 <div class="stepper">
@@ -679,15 +687,17 @@
   <!-- The count is a direct child of .phead, like every other panel's: nested in
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
-  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" class="iconbtn" data-act="show-changes" type="button"
+  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" class="k-iconbtn iconbtn" data-act="show-changes" type="button"
     aria-label="Show ticket changes" title="Show ticket changes"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><use href="#i-diff"/></svg></button></div><div class="pbody" id="worktrees"></div></div>
-  <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="iconbtn" data-act="refresh-prs" type="button"
-    aria-label="Refresh pull requests" title="Re-check pull request status and mergeability now">
+  <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="k-iconbtn iconbtn" data-act="refresh-prs" type="button"
+    aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now">
     <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914l1.09-.508A6.2 6.2 0 1 1 8 1.8V0l3 2.4-3 2.4V3Z"/></svg>
   </button></div><div class="pbody" id="prs"></div></div>
 </div>
 
 <script>
+  /*KARST_DS_JS*/
+
   // Shared ticketing-provider identity (icon + brand) — single source in
   // src/model/providerIdentity.ts, injected here at load (CSP forbids a
   // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
@@ -731,13 +741,30 @@
   // (success) or landed failed (error). `shipOps` is per-repo/per-step live
   // state the host streams via `ship-progress`, overlaid onto the Inside block;
   // `shipDone` is the brief post-success flash.
+  //
+  // `shipRequestId` / `mergeRequests` / `prRefreshId` below are the runtime's
+  // pending bookkeeping (karstBeginPending/karstSettle) for these same three
+  // controls. They are tracked SEPARATELY from `shipping`/`openMergeRepos`'s
+  // fellow view-state because ship/merge/refresh-prs are the one place this
+  // file's full-innerHTML re-render (§ render()) collides with the runtime's
+  // element-keyed pending map: a `state` push mid-ship replaces the "Confirm
+  // ship" button with a brand-new DOM node, so a pending flag living only on
+  // the OLD (now detached) element would vanish from the redraw even though
+  // the request is still outstanding. Keeping the requestId here — consulted
+  // by the render functions below — is what survives that replacement; the
+  // runtime is still what emits the toast and the `aria-busy`/`disabled` pair
+  // on whichever element is live when a request begins or ends.
   let shipping = false;
   let shipOps = null;
   let shipDone = null;
-  // Per-repo merge-in-flight flags, keyed by repo path. NOT persisted: a merge is
-  // a one-shot host round trip, and a flag restored from a reload would claim a
-  // merge is underway that nobody is running. Cleared on every state push.
-  let mergePending = {};
+  let shipRequestId = null;
+  // Per-repo merge-in-flight request ids, keyed by repo path. NOT persisted: a
+  // merge is a one-shot host round trip, and an id restored from a reload
+  // would claim a merge is underway that nobody is running. Cleared on every
+  // state push — extension.ts's mergePr always refreshes in a `finally`
+  // (success, refusal, cancel, or throw), so a push is guaranteed to arrive
+  // and end the pending state; it is never left to a watchdog alone.
+  let mergeRequests = {};
   // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
   // state, exactly like `selectedStage`: render() replaces #prs wholesale on
   // every `state` push AND every ship-progress tick, so a disclosure that is
@@ -751,7 +778,7 @@
   // in which a button with no busy state looks inert and gets pressed again.
   // Cleared by the next state push (the host always sends one when the refresh
   // settles, including when nothing moved), so it can never stick.
-  let prRefreshing = false;
+  let prRefreshId = null;
   // The window's terminal binding. UNLIKE the view state above, this is NOT a
   // webview concern: it is one host-owned preference shared by every open
   // dashboard, so it is never persisted here — a stored copy could only go
@@ -850,10 +877,15 @@
     const nodes = rail.main.map((cell, i) => {
       const cls = STEP_CLASS[cell.status] || '';
       const on = sel === cell.stageKey;
+      // Icon-only (a glyph or a spinner, never text) — aria-label AND title
+      // carry the SAME string (UI-R21/R24): the stage name plus its status,
+      // since colour/shape alone would leave a screen-reader user with no
+      // account of which stage this node is.
+      const nodeName = `${esc(STAGE_TITLE[cell.stageKey] || cell.stageKey)}: ${esc(cell.status)}`;
       return `<div class="st ${cls} stg-${esc(cell.stageKey)} ${on ? 'sel' : ''}">`
         + `<div class="seg ${segClass(cell, rail.main[i - 1])}"></div>`
-        + `<button class="node" data-stage="${esc(cell.stageKey)}" aria-pressed="${on}"`
-        + ` title="${esc(STAGE_TITLE[cell.stageKey] || cell.stageKey)}: ${esc(cell.status)}">`
+        + `<button type="button" class="node" data-stage="${esc(cell.stageKey)}" aria-pressed="${on}"`
+        + ` aria-label="${nodeName}" title="${nodeName}">`
         + `${STEP_GLYPH[cell.status] || ''}</button>`
         + `<div class="lbl">${esc(cell.stageKey)}</div>`
         + `<div class="meta">${esc(durationText(cell))}</div></div>`;
@@ -877,16 +909,21 @@
     const toggle = rail.armed
       ? ''
       : showFix
-        ? `<button class="fixtoggle open" data-fixtoggle aria-expanded="true"`
+        ? `<button type="button" class="k-chip fixtoggle open" data-fixtoggle aria-expanded="true"`
           + ` title="Hide the optional fix loop">hide fix ⌃</button>`
-        : `<button class="fixtoggle" data-fixtoggle aria-expanded="false"`
+        : `<button type="button" class="k-chip fixtoggle" data-fixtoggle aria-expanded="false"`
           + ` title="fix runs only when a uat or review gate fails — show the loop">+ fix ⌄</button>`;
+    // The fix node is icon-only (↺) — aria-label AND title carry the same
+    // string (UI-R21/R24); the ancestor's own title (below) explains the loop
+    // as a whole, which is not part of THIS button's accessible name.
+    const fixNodeName = fixSel ? 'Fix stage, selected' : 'View fix stage';
     const branch = showFix
       ? `<div class="drop"></div><div class="ret"></div>`
         + `<div class="retlbl">pass → review</div><div class="faillbl">fail</div>`
         + `<div class="fixnode ${fixClass} stg-fix ${fixSel ? 'sel' : ''}"`
-        + ` title="Entered only when the uat or review gate fails; on pass it returns to review.">`
-        + `<button class="node" data-stage="fix" aria-pressed="${fixSel}">↺</button>`
+        + ` title="Entered only when the uat or review gate fails; on pass it returns to review">`
+        + `<button type="button" class="node" data-stage="fix" aria-pressed="${fixSel}"`
+        + ` aria-label="${fixNodeName}" title="${fixNodeName}">↺</button>`
         + `<div class="cl"><span class="lbl">fix</span>`
         + `<span class="cap">${esc(rail.cap || 'idle')}</span></div></div>`
       : '';
@@ -907,8 +944,8 @@
   // so the list cannot be read as progress karst is tracking.
   function renderApproach(approach, rail) {
     if (!approach) {
-      return `<div class="noapproach branch-slot" title="This ticket has no approach selected.">`
-        + `<span class="none">no approach</span></div>`;
+      return `<div class="noapproach branch-slot" title="This ticket has no approach selected">`
+        + `<span class="k-chip none">no approach</span></div>`;
     }
     const impl = rail.main.find((c) => c.stageKey === 'impl');
     const cls = impl && (impl.status === 'passed' || impl.status === 'skipped') ? 'done'
@@ -924,7 +961,7 @@
       : 'this approach declares no workflow — impl is one undivided stage';
     return `<details class="approach ${cls}">`
       + `<summary class="branch-slot" title="Approach driving impl — ${esc(approach.id)}, ${count}">`
-      + `<span class="aid"><span class="nm">${esc(approach.id)}</span>`
+      + `<span class="k-chip aid"><span class="nm">${esc(approach.id)}</span>`
       + `<span class="chev">▼</span></span></summary>`
       + `<div class="detail">${rows}<div class="foot">${esc(foot)}</div></div></details>`;
   }
@@ -944,7 +981,8 @@
     const back = viewing ? STAGE_TITLE[state.stageCurrent] || state.stageCurrent : '';
     const vbar = viewing
       ? `<div class="vbar"><span>Viewing ${esc(strip.title)} — not the current stage.</span>`
-        + `<span class="sp"><button class="ghost" data-back>Back to ${esc(back)}</button></span></div>`
+        + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-back`
+        + ` title="Return the strip to the stage the ticket is actually on">Back to ${esc(back)}</button></span></div>`
       : '';
 
     const body = strip.ops.length
@@ -975,7 +1013,8 @@
       + `<div class="freason">${esc(failed.reason || 'No reason recorded.')}</div>`
       + (timing ? `<div class="fmeta">${esc(timing)}${attempt}</div>` : '')
       + (failed.artifactPath
-        ? `<div class="facts"><button data-act="open-stage-log" data-path="${esc(failed.artifactPath)}">Open log</button></div>`
+        ? `<div class="facts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-stage-log"`
+          + ` data-path="${esc(failed.artifactPath)}" title="Open this stage's log file in an editor">Open log</button></div>`
         : '');
   }
 
@@ -985,6 +1024,17 @@
   // resolves --resume vs. a fresh (self-scoping) launch on its own, so the verb
   // is a label concern only — the button always reaches the one entry point.
   const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket', session: 'resume-ticket' };
+  // Fixed, static tooltip text per action kind (UI-R19/R20) — the label alone
+  // ("Ship", "Resume") is a bare verb whose object is not visible on the
+  // button. These are structural UI copy, like every other static tooltip in
+  // this file (sidebar's row actions are the precedent), not a host-derived
+  // value — UI-R31 governs DATA, not fixed control copy.
+  const NOW_TITLE = {
+    'open-log': "Open the failed stage's log file",
+    ship: 'Ship this ticket — commit, push, and open pull requests',
+    resume: "Resume this ticket's agent session",
+    session: "Resume this ticket's agent session",
+  };
 
   function renderNow(now, agentSession) {
     // While a ship is in flight, the real per-step progress lives in the Inside
@@ -997,9 +1047,11 @@
     const line = now || { text: '' };
     const a = line.action;
     const type = a && NOW_MESSAGE[a.kind];
+    const title = a && NOW_TITLE[a.kind];
     const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
     const switchAction = agentSession && agentSession.canSwitch
-      ? '<button class="switch-agent" data-act="switch-agent">Switch agent…</button>'
+      ? '<button type="button" class="k-btn k-btn--secondary k-btn--sm switch-agent" data-act="switch-agent"'
+        + ' title="Switch this ticket\'s live agent session">Switch agent…</button>'
       : '';
     const identity = agentSession
       ? `${agentSession.providerLabel} · ${agentSession.modelLabel}`
@@ -1013,7 +1065,8 @@
       ? `<div class="now-sub">${esc(subtitle)}</div>`
       : '';
     el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
-      + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '')
+      + (type ? `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="${type}"${attrs}`
+        + `${title ? ` title="${esc(title)}"` : ''}>${esc(a.label)}</button>` : '')
       + switchAction
       + sub;
   }
@@ -1027,16 +1080,25 @@
     if (!shipping) return;
     const atShip = state.stageCurrent === 'ship';
     const failed = atShip && state.currentStage && state.currentStage.status === 'failed';
+    const requestId = shipRequestId;
+    shipRequestId = null;
     if (failed) {
       shipping = false; // the failed Now line + fault card are the explicit error state
       shipOps = null;
+      // The fault card already carries the reason inline (UI-R14b territory);
+      // the toast stays generic so the two do not repeat host prose twice.
+      if (requestId) karstSettle(requestId, false);
     } else if (!atShip) {
       shipping = false;
       shipOps = null;
       shipDone = 'success';
+      if (requestId) karstSettle(requestId, true);
       setTimeout(() => { shipDone = null; render(lastState); }, 2400);
     }
-    // else still at ship (running) → hold the spinner across this push
+    // else still at ship (running) → hold the spinner across this push, and
+    // leave requestId in place (restored below) so a later push can still
+    // settle it.
+    if (!failed && atShip) shipRequestId = requestId;
   }
 
   // ---------------------------------------------------------------------
@@ -1052,15 +1114,17 @@
   /**
    * An icon action. The visible label IS the icon, so the word survives as both
    * aria-label (screen readers) and title (hover) — nothing is conveyed by shape
-   * alone. A disabled button keeps a title saying WHY: a greyed icon with no
-   * explanation is a dead end the user cannot tell from a broken one.
+   * alone, and the two carry the SAME string (UI-R21). A disabled button keeps
+   * that string as WHY: a greyed icon with no explanation is a dead end the
+   * user cannot tell from a broken one, for a screen-reader user exactly as
+   * much as a sighted one.
    */
   const iact = (action, id, label, name, disabledWhy) => (
-    `<button class="ib t-${name}" data-act="${action}"`
+    `<button type="button" class="k-iconbtn ib t-${name}" data-act="${action}"`
     + `${id != null ? ` data-id="${id}"` : ''}`
     + `${name === 'copy' ? ' data-copy' : ''}`
     + `${disabledWhy ? ' disabled' : ''}`
-    + ` aria-label="${esc(label)}" title="${esc(disabledWhy || label)}">`
+    + ` aria-label="${esc(disabledWhy || label)}" title="${esc(disabledWhy || label)}">`
     + `${svgIcon(name)}</button>`
   );
 
@@ -1160,7 +1224,7 @@
     const filterable = servers.length > 6;
     const bar = filterable
       ? `<div class="filter"><label class="sr" for="srvFilter">Filter services</label>`
-        + `<input id="srvFilter" type="search" placeholder="Filter ${servers.length} services…"`
+        + `<input id="srvFilter" class="k-input" type="search" placeholder="Filter ${servers.length} services…"`
         + ` value="${esc(srvFilter)}" data-filter></div>`
       : '';
     const shown = filterable && needle
@@ -1188,12 +1252,17 @@
         : '';
       const branch = w.branch
         ? `<span class="wbranch"><span class="wbr">${esc(w.branch)}</span>`
-          + `<button class="ib t-copy" data-act="copy-worktree-branch" data-branch="${esc(w.branch)}" data-copy aria-label="Copy branch name" title="Copy branch name">${svgIcon('copy')}</button></span>`
+          // Optimistic (UI-R15): the host does the clipboard write and cannot
+          // fail in a way the user must act on, so flashCopied confirms
+          // without waiting for a round trip — see flashCopied() below.
+          + `<button type="button" class="k-iconbtn ib t-copy" data-act="copy-worktree-branch" data-branch="${esc(w.branch)}" data-copy aria-label="Copy branch name" title="Copy branch name">${svgIcon('copy')}</button></span>`
         : '';
       return `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
         + branch + totals + `<span class="wacts">`
-        + `<button data-act="open-worktree-terminal" data-path="${esc(w.path)}">Open Terminal</button>`
-        + `<button data-act="open-worktree-folder" data-path="${esc(w.path)}">Reveal in Explorer</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
+        + ` title="Open a terminal in this worktree">Open Terminal</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
+        + ` title="Reveal this worktree in the file explorer">Reveal in Explorer</button>`
         + `</span></div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';
   }
@@ -1210,7 +1279,8 @@
   function mergeLine(m) {
     if (!m) return '';
     const act = m.state === 'conflicted'
-      ? `<button class="mgbtn" data-act="resolve-conflicts" data-repo="${esc(m.repo)}">Resolve conflicts</button>`
+      ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="resolve-conflicts" data-repo="${esc(m.repo)}"`
+        + ` title="Hand this repo's conflict to an agent session">Resolve conflicts</button>`
       : '';
     // The relative age drifts between state pushes; the absolute stamp does not.
     const title = m.checkedTitle ? ` title="checked ${esc(m.checkedTitle)}"` : '';
@@ -1236,21 +1306,24 @@
   // never phrases the reason it isn't.
   //
   // Merging is IRREVERSIBLE, so the click only asks: the host puts a modal in
-  // front of the user (which also chooses the strategy) before anything runs. The
-  // pending label exists so a click on an irreversible action is never silent
-  // while that dialog is up, and it is cleared by the next state push — including
-  // the one the host sends after a cancel, so the button can never stick.
+  // front of the user (which also chooses the strategy) before anything runs.
+  // `.k-btn--danger` (UI-R10b) marks it as the one irreversible action on this
+  // panel. The pending state (aria-busy, via `mergeRequests`) exists so a click
+  // on an irreversible action is never silent while that dialog is up, and it
+  // is cleared by the next state push — including the one the host sends after
+  // a cancel, so the button can never stick (see `mergeRequests`' own comment).
   function mergeButton(p) {
     if (p.status === 'merged') return '';
-    if (mergePending[p.repo]) {
-      return `<button class="mgbtn" disabled title="Confirm the merge in the dialog.">Merging…</button>`;
+    if (mergeRequests[p.repo]) {
+      return `<button type="button" class="k-btn k-btn--danger k-btn--sm mgbtn" aria-busy="true" disabled`
+        + ` title="Confirm the merge in the dialog">Merge</button>`;
     }
     if (!p.canMerge) {
-      return `<button class="mgbtn" disabled title="${esc(p.mergeBlockedReason)}">Merge</button>`;
+      return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" disabled title="${esc(p.mergeBlockedReason)}">Merge</button>`;
     }
     const num = p.number ? ` #${p.number}` : '';
-    return `<button class="mgbtn danger" data-act="merge-pr" data-repo="${esc(p.repo)}"`
-      + ` title="Merge pull request${esc(num)} into ${esc(p.baseRef || 'its base branch')}. This cannot be undone.">Merge</button>`;
+    return `<button type="button" class="k-btn k-btn--danger k-btn--sm mgbtn" data-act="merge-pr" data-repo="${esc(p.repo)}"`
+      + ` title="Merge PR${esc(num)} into ${esc(p.baseRef || 'its base')} — cannot be undone">Merge</button>`;
   }
 
   // The metadata line under a PR: from-to, when it was opened, when it merged, and
@@ -1287,19 +1360,25 @@
     // The refresh stays live even with zero PRs: "none yet" is exactly the answer
     // a user wants to re-ask right after a ship.
     const refresh = el('prRefresh');
-    refresh.classList.toggle('busy', prRefreshing);
-    refresh.disabled = prRefreshing;
-    refresh.title = prRefreshing
+    const refreshing = !!prRefreshId;
+    if (refreshing) refresh.setAttribute('aria-busy', 'true');
+    else refresh.removeAttribute('aria-busy');
+    refresh.disabled = refreshing;
+    // aria-label and title stay the SAME string in both states (UI-R21) — an
+    // icon-only control's accessible name and its tooltip must never diverge.
+    const refreshName = refreshing
       ? 'Re-checking pull requests…'
       : 'Re-check pull request status and mergeability now';
+    refresh.title = refreshName;
+    refresh.setAttribute('aria-label', refreshName);
     el('prs').innerHTML = prs.length ? prs.map((p) => (
-      `<div class="prrow"><div class="pr"><span class="pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
+      `<div class="prrow"><div class="pr"><span class="k-chip pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
       // The DISPLAY path, per the worktree path-display preference — the same
       // string the worktree rows show for this repo.
       + `<span class="prepo">${esc(p.repoDisplay || p.repo)}</span>`
       + `<span class="ptitle">${esc(p.url || '')}</span>`
       + `<span class="pnum">#${esc(p.number)}</span>`
-      + `<span class="pacts"><button data-act="open-pr" data-url="${esc(p.url)}">Open</button>`
+      + `<span class="pacts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-pr" data-url="${esc(p.url)}" title="Open this pull request">Open</button>`
       + mergeButton(p)
       + `</span></div>`
       + prMetaLine(p)
@@ -1311,15 +1390,15 @@
 
   // agent state -> pill color (uses the same chart vars as the stepper).
   const AGENT_COLOR = {
-    running: 'var(--st-running)',
-    waiting: 'var(--st-input)',
-    idle: 'var(--st-pending)',
-    none: 'var(--st-pending)',
+    running: 'var(--k-running)',
+    waiting: 'var(--k-attention)',
+    idle: 'var(--k-pending)',
+    none: 'var(--k-pending)',
   };
 
   function renderAgent(agentState) {
     const st = agentState || 'none';
-    const color = AGENT_COLOR[st] || 'var(--st-pending)';
+    const color = AGENT_COLOR[st] || 'var(--k-pending)';
     el('agent').innerHTML =
       `<span class="agent-pill"><span class="dot" style="background:${color}"></span>`
       + `agent: ${esc(st)}</span>`;
@@ -1333,8 +1412,11 @@
   function renderKeyPill(state) {
     const label = state.key || `#${state.ticketId}`;
     if (!state.ticketUrl) {
+      // Inert: a plain, non-interactive <span> (the `.k-chip` informational
+      // form — no role, no tabindex) with a dashed border and default cursor,
+      // so nothing about it implies a control that can be activated.
       el('keyPill').innerHTML =
-        `<span class="keypill local" title="Manual ticket — not linked to a board.">${esc(label)}</span>`;
+        `<span class="k-chip keypill local" title="Manual ticket — not linked to a board">${esc(label)}</span>`;
       return;
     }
     const icon = providerIconHtml(state.provider);
@@ -1344,7 +1426,7 @@
     const hover = [ref, state.brief].filter(Boolean).join(' — ');
     const tip = hover ? ` title="${esc(hover)}"` : '';
     el('keyPill').innerHTML =
-      `<a class="keypill" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>`
+      `<a class="k-chip keypill" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>`
       + `${icon}${esc(label)} <span class="arw" aria-hidden="true">↗</span></a>`;
   }
 
@@ -1399,8 +1481,9 @@
     persist();
   }
 
-  el('editBtn').addEventListener('click', () => post({ type: 'edit-ticket' }));
-  el('followUpBtn').addEventListener('click', () => post({ type: 'create-follow-up-ticket' }));
+  // editBtn/followUpBtn post through the generic delegated `[data-act]`
+  // handler below (data-act is set in their markup, above) — the same pending
+  // lifecycle every other posting control gets, rather than a bespoke listener.
 
   // Filtering is local and never round-trips to the host. Re-rendering replaces
   // the input element, so focus and caret are restored explicitly — otherwise
@@ -1442,8 +1525,10 @@
     openMergeRepos = next;
   }, true);
 
-  // Optimistic feedback for the copy button — the host does the actual clipboard
-  // write; the webview just confirms it so the click feels responsive.
+  // Optimistic feedback for the copy button (UI-R15) — the host does the actual
+  // clipboard write, and a webview that cannot confirm a write is not something
+  // the user needs to act on (the click is trivially repeatable), so this
+  // confirms without waiting for a round trip. Never used for a mutation.
   function flashCopied(btn) {
     // An icon button has no text to swap, so the GLYPH is what flashes — and the
     // confirmation moves onto aria-label too, so it is not a purely visual beat
@@ -1472,45 +1557,115 @@
   // Delegate clicks (buttons + the ticket-link anchor) → action messages
   // (messages.ts routeAction). A no-payload action (e.g. spin-servers) posts
   // just its type.
+  //
+  // Rows here render by full innerHTML replacement (every `state` push and
+  // every `ship-progress` tick calls render()), so a per-element `karstAction`
+  // binding — which keys pending state to the ONE element it was bound to —
+  // would go stale the instant a re-render swaps that element out from under
+  // it. This delegated handler instead calls the runtime's underlying pieces
+  // (karstRequestId / karstBeginPending / karstIsPending) directly, the same
+  // fix `sidebar` and `diffs` already apply to the same problem, so every
+  // control still gets the four required properties: pending on click,
+  // non-re-triggerable, a terminal result, and a watchdog.
+  //
+  // ship-ticket / merge-pr / refresh-prs are the exception: extension.ts does
+  // not await their inner promise (each fires a multi-second-to-multi-minute
+  // network operation and returns immediately), so the generic host ack would
+  // arrive and settle the control almost instantly — long before the real
+  // work finishes. Those three carry NO requestId on the wire and settle
+  // themselves from the next meaningful `state` push instead (§
+  // DESIGN-SYSTEM.md 5.1: a mutating action "settles on the host's result, OR
+  // THE NEXT state push") — see resolveShipping() and the `state` handler
+  // below. merge-pr's payload also stays exactly `{type:'merge-pr', repo}`
+  // regardless (UI-R37): the strategy is the host's question to the user, and
+  // widening the wire payload here would be the same failure the omitted
+  // `method` already guards against.
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     e.preventDefault();
     const act = btn.dataset.act;
-    // Confirm ship kicks off slow backend work (model call + gh pr create). Guard
-    // against double-submit and show that the click registered BEFORE the host is
-    // even asked — no window where the button looks inert with work underway.
+
+    // Confirm ship kicks off slow backend work (model call + gh pr create).
+    // Guard against double-submit and show that the click registered BEFORE
+    // the host is even asked — no window where the button looks inert with
+    // work underway.
     if (act === 'ship-ticket') {
       if (shipping) return;
       shipping = true;
       shipDone = null;
       shipOps = seedShipOps(lastState ? lastState.worktrees : []);
+      shipRequestId = karstRequestId();
+      karstBeginPending(btn, shipRequestId);
       render(lastState);
+      post({ type: act });
+      return;
     }
     // Merging is irreversible and the host answers with a modal first, so the
-    // button must both stop repeating the request and show that the click landed.
+    // button must both stop repeating the request and show that the click
+    // landed. See resolveMergeOutcome() for how mergeRequests[repo] settles.
     if (act === 'merge-pr') {
       const repo = btn.dataset.repo;
-      if (!repo || mergePending[repo]) return;
-      mergePending = { ...mergePending, [repo]: true };
+      if (!repo || mergeRequests[repo]) return;
+      const requestId = karstRequestId();
+      karstBeginPending(btn, requestId);
+      mergeRequests = { ...mergeRequests, [repo]: requestId };
       render(lastState);
+      post({ type: act, repo });
+      return;
     }
-    // Same reason as the two above: the work is a slow host round trip (gh per
-    // PR, git fetch per repo), so show it landed and stop it repeating.
+    // Same reason as the two above: the work is a slow host round trip (gh
+    // per PR, git fetch per repo), so show it landed and stop it repeating.
     if (act === 'refresh-prs') {
-      if (prRefreshing) return;
-      prRefreshing = true;
+      if (prRefreshId) return;
+      prRefreshId = karstRequestId();
+      karstBeginPending(btn, prRefreshId);
       if (lastState) render(lastState);
+      post({ type: act });
+      return;
     }
-    if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
-    else if (btn.dataset.branch) post({ type: act, branch: btn.dataset.branch });
-    else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
-    else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
+
+    // Every other posting control settles on the host's genuine `action-result`
+    // ack (UI-R11–R14): pending on click, dropped (not queued) on a repeat,
+    // and the runtime's own watchdog covers a host that never answers.
+    if (karstIsPending(btn) || btn.disabled) return;
+    const requestId = karstRequestId();
+    karstBeginPending(btn, requestId);
+    if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id), requestId });
+    else if (btn.dataset.branch) post({ type: act, branch: btn.dataset.branch, requestId });
+    else if (btn.dataset.path) post({ type: act, path: btn.dataset.path, requestId });
+    else if (btn.dataset.url) post({ type: act, url: btn.dataset.url, requestId });
     // The repo NAMES the conflict; the host resolves it to a worktree itself.
-    else if (btn.dataset.repo) post({ type: act, repo: btn.dataset.repo });
-    else post({ type: act });
+    else if (btn.dataset.repo) post({ type: act, repo: btn.dataset.repo, requestId });
+    else post({ type: act, requestId });
+    // Optimistic clipboard confirmation (UI-R15) rides ALONGSIDE the pending
+    // state above, not instead of it — the button still reports whatever the
+    // host's real ack says, same as every other control.
     if (btn.hasAttribute('data-copy')) flashCopied(btn);
   });
+
+  // Settle every outstanding merge request against the fresh PR list. `merged`
+  // is the one outcome the webview can actually verify — the host reports
+  // nothing else back over this channel — so a repo that came back merged
+  // settles `true` (success flash + toast); anything else settles `null`
+  // (unknown), never `false`. Claiming FAILED would misreport a user who
+  // simply cancelled the host's confirmation dialog, which is not a failure;
+  // distinguishing a real refusal from a cancel needs a host-side signal this
+  // webview does not have (see the PR panel's own header comment).
+  function resolveMergeOutcome(state) {
+    if (!Object.keys(mergeRequests).length) return;
+    const prByRepo = {};
+    for (const p of (state.prs || [])) prByRepo[p.repo] = p;
+    for (const [repo, requestId] of Object.entries(mergeRequests)) {
+      const merged = prByRepo[repo] && prByRepo[repo].status === 'merged';
+      karstSettle(requestId, merged ? true : null, merged ? 'Merged.' : undefined);
+    }
+    // A state push is the host's answer to every outstanding merge request —
+    // success, refusal, or a cancelled confirmation (the host pushes either
+    // way, via extension.ts's `finally`). Clearing here is what stops a
+    // button sticking on "Merge" (pending) forever.
+    mergeRequests = {};
+  }
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -1542,17 +1697,31 @@
       if (lastState) renderWorktrees(lastState.worktrees || []);
       return;
     }
+    // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13).
+    // ship-ticket/merge-pr/refresh-prs never reach here (they carry no
+    // requestId on the wire, by design — see the click handler above); every
+    // other posting control settles through this one line.
+    if (msg.type === 'action-result') {
+      karstSettle(msg.requestId, msg.ok, msg.message);
+      return;
+    }
     if (msg.type === 'state') {
       // Resolve an in-flight ship FIRST, so render() draws either the held
       // spinner or the settled line — never a flash of the stale "Confirm ship".
       resolveShipping(msg.state);
-      // A state push is the host's answer to the merge request — success, refusal,
-      // or a cancelled confirmation (the host pushes either way). Clearing here is
-      // what stops a button sticking on "Merging…" forever.
-      mergePending = {};
+      // Likewise merge — settle every outstanding request against the fresh
+      // PR list before rendering, so the button's pending state and its
+      // terminal toast land in the same frame.
+      resolveMergeOutcome(msg.state);
       // Likewise the refresh icon: the host pushes state when the sweep settles
-      // even if no verdict moved, precisely so the spin has an end.
-      prRefreshing = false;
+      // even if no verdict moved, precisely so the spin has an end. The result
+      // is always reported ok:true — the webview cannot itself distinguish "PR
+      // status changed" from "confirmed unchanged", and both are a successful
+      // refresh (UI-R31: no verdict is invented here).
+      if (prRefreshId) {
+        karstSettle(prRefreshId, true);
+        prRefreshId = null;
+      }
       // The matching async totals message follows this snapshot. Until then,
       // omit numbers rather than showing values for an older working tree.
       worktreeStats = {};

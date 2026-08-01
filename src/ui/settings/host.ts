@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { SettingsPanel, SettingsPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
+import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 
@@ -19,7 +20,9 @@ import { injectCsp, newNonce } from '../../model/csp.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 export function makeSettingsPanelHost(context: vscode.ExtensionContext): SettingsPanelHost {
-  const html = injectProviderIdentity(injectPalette(readFileSync(join(HERE, 'webview.html'), 'utf8')));
+  const html = injectProviderIdentity(
+    injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
+  );
   return {
     createPanel(title: string): SettingsPanel {
       const panel = vscode.window.createWebviewPanel(

@@ -1,3 +1,4 @@
+import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { WelcomeState } from './state.js';
 
 /**
@@ -16,18 +17,28 @@ export type WelcomeMessage =
   | { type: 'dismiss' }
   | { type: 'request-state' };
 
-export type WelcomeHostMessage =
-  | { type: 'state'; state: WelcomeState }
-  | { type: 'error'; message: string };
+/**
+ * The old bare `{type:'error', message}` channel is gone: every action now
+ * reports through the single `action-result` seam (UI-R13), which is what
+ * lets the webview surface a failure as a toast instead of the page's own
+ * unlabelled `#error` div.
+ */
+export type WelcomeHostMessage = { type: 'state'; state: WelcomeState } | ActionResultMessage;
 
-/** Host-side side-effects the welcome page can trigger. */
+/**
+ * Host-side side-effects the welcome page can trigger. A `void` return acks
+ * the request as soon as it is accepted; a returned promise is awaited and
+ * its settlement (resolve/reject) becomes the terminal `action-result`
+ * (docs/ui/DESIGN-SYSTEM.md §5.3, UI-R13). This is a type widening from
+ * `() => void` — every existing implementation still satisfies it.
+ */
 export interface WelcomeActions {
-  createManifest: () => void;
-  recheckDeps: () => void;
-  openSettings: () => void;
-  createTicket: () => void;
-  dismiss: () => void;
-  requestState: () => void;
+  createManifest: () => void | Promise<void>;
+  recheckDeps: () => void | Promise<void>;
+  openSettings: () => void | Promise<void>;
+  createTicket: () => void | Promise<void>;
+  dismiss: () => void | Promise<void>;
+  requestState: () => void | Promise<void>;
 }
 
 const KNOWN: ReadonlySet<WelcomeMessage['type']> = new Set([
@@ -46,27 +57,26 @@ export function parseWelcomeMessage(raw: unknown): WelcomeMessage | null {
   return { type: type as WelcomeMessage['type'] };
 }
 
-export function routeWelcomeAction(raw: unknown, actions: WelcomeActions): void {
-  const msg = parseWelcomeMessage(raw);
-  if (!msg) return;
+/**
+ * Dispatch an ALREADY-PARSED message to its action, returning whatever the
+ * action returns. The single dispatch seam (panel.ts) parses `raw` once,
+ * reads its `requestId` off the raw shape (which this narrower deliberately
+ * never sees), and wraps this call in `reportAction` so the caller can await
+ * a real outcome and report exactly one terminal `action-result` (UI-R13).
+ */
+export function routeWelcomeAction(msg: WelcomeMessage, actions: WelcomeActions): void | Promise<void> {
   switch (msg.type) {
     case 'create-manifest':
-      actions.createManifest();
-      return;
+      return actions.createManifest();
     case 'recheck-deps':
-      actions.recheckDeps();
-      return;
+      return actions.recheckDeps();
     case 'open-settings':
-      actions.openSettings();
-      return;
+      return actions.openSettings();
     case 'create-ticket':
-      actions.createTicket();
-      return;
+      return actions.createTicket();
     case 'dismiss':
-      actions.dismiss();
-      return;
+      return actions.dismiss();
     case 'request-state':
-      actions.requestState();
-      return;
+      return actions.requestState();
   }
 }

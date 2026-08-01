@@ -8,147 +8,147 @@
 -->
 <!--KARST_CSP-->
 <style>
+  /*KARST_DS_CSS*/
+
   :root{
-    --gap:16px;
-    --mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
     /* One chevron for every dropdown (native <select> + the custom provider
-       trigger) so placement and size read the same. Mid-gray shows on light and
-       dark input chrome alike. */
+       trigger) so placement and size read the same. A data-URI SVG cannot
+       consume a CSS custom property, so its stroke colour cannot resolve to a
+       --k-* token the way every other colour in this file does — this is the
+       one accepted UI-R04 exception, forced by the encoding, not by choice.
+       Mid-gray shows on light and dark input chrome alike. */
     --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{
-    margin:0;padding:0;display:flex;
-    background:var(--vscode-editor-background);
-    color:var(--vscode-foreground);
-    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
-    font-size:var(--vscode-font-size,13px);
+    margin:var(--k-space-0);padding:var(--k-space-0);display:flex;
+    background:var(--k-bg);
+    color:var(--k-text);
+    font-family:var(--k-font-ui);
+    font-size:var(--k-text-base);
   }
-  h1{font-size:16px;margin:0}
-  h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:0 0 8px}
+  h1{font-size:var(--k-text-xl);margin:var(--k-space-0)}
+  h2{font-size:var(--k-text-base);text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
   .hidden{display:none !important}
 
   /* ---- layout: left nav + content ---- */
   .nav{
-    width:150px;flex:0 0 auto;padding:18px 8px;
-    border-right:1px solid var(--vscode-panel-border);
+    width:calc(var(--k-space-8) * 7.5);flex:0 0 auto;padding:var(--k-space-7) var(--k-space-4);
+    border-right:var(--k-border-w) solid var(--vscode-panel-border);
   }
+  /* A tab list, not a general action button — no k- primitive covers this
+     shape, so it stays a local, unprefixed component (§ STYLE-GUIDE.md 2).
+     Its values are still tokens throughout. */
   .nav button{
-    display:block;position:relative;width:100%;text-align:left;margin-bottom:2px;
-    background:transparent;color:var(--vscode-foreground);border:none;
-    border-radius:5px;padding:7px 22px 7px 10px;font-size:12.5px;cursor:pointer;
+    display:block;position:relative;width:100%;text-align:left;margin-bottom:var(--k-space-1);
+    background:transparent;color:var(--k-text);border:none;
+    border-radius:var(--k-radius-sm);padding:var(--k-space-3) var(--k-space-8) var(--k-space-3) var(--k-space-5);
+    font-size:var(--k-text-sm);cursor:pointer;
   }
   /* Per-tab marker: unsaved changes, or (red, and it wins) a validation error on
      that tab. Without it, tab-scoped Save would hide unsaved work behind a tab. */
   .nav button.has-changes::after,.nav button.has-error::after{
-    content:'';position:absolute;right:9px;top:50%;transform:translateY(-50%);
-    width:7px;height:7px;border-radius:50%;
-    background:var(--vscode-charts-yellow,#cca700);
+    content:'';position:absolute;right:var(--k-space-5);top:50%;transform:translateY(-50%);
+    width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);
+    background:var(--k-attention);
   }
-  .nav button.has-error::after{background:var(--vscode-errorForeground,#f14c4c)}
-  .nav button:hover{background:var(--vscode-list-hoverBackground)}
+  .nav button.has-error::after{background:var(--k-failed)}
+  .nav button:hover{background:var(--k-surface-hover)}
+  .nav button:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .nav button.active{
-    background:var(--vscode-list-activeSelectionBackground,var(--vscode-list-hoverBackground));
-    color:var(--vscode-list-activeSelectionForeground,var(--vscode-foreground));
+    background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text));
   }
   .main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;height:100vh}
 
   /* ---- top bar ---- */
   .topbar{
-    display:flex;align-items:center;gap:10px;
-    padding:14px 22px;border-bottom:1px solid var(--vscode-panel-border);
+    display:flex;align-items:center;gap:var(--k-space-5);
+    padding:var(--k-space-6) var(--k-space-8);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
     flex:0 0 auto;
   }
   .dirty-dot{
-    width:8px;height:8px;border-radius:50%;
-    background:var(--vscode-charts-yellow,#cca700);
+    width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);
+    background:var(--k-attention);
   }
   .topbar .spacer{flex:1}
-  .saved-msg{font-size:12px;opacity:.7}
+  .saved-msg{font-size:var(--k-text-md);opacity:.7}
   .topbar-section{font-weight:normal;opacity:.6}
   .unsaved-hint{
-    font-size:11.5px;color:var(--vscode-descriptionForeground,var(--vscode-foreground));
-    opacity:.85;margin-right:4px;
+    font-size:var(--k-text-sm);color:var(--k-text-dim);
+    opacity:.85;margin-right:var(--k-space-2);
   }
 
   /* ---- unsaved-changes modal (leaving a dirty tab) ---- */
   .modal-backdrop{
-    position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
-    background:rgba(0,0,0,.45);
+    position:fixed;inset:0;z-index:var(--k-z-modal);display:flex;align-items:center;justify-content:center;
+    background:var(--k-scrim);
   }
   .modal{
-    width:min(430px,88vw);padding:18px 20px;border-radius:8px;
-    background:var(--vscode-editorWidget-background,var(--vscode-editor-background));
-    border:1px solid var(--vscode-panel-border);
-    box-shadow:0 10px 34px rgba(0,0,0,.4);
+    width:min(calc(var(--k-space-8) * 21.5),88vw);padding:var(--k-space-7) var(--k-space-8);border-radius:var(--k-radius-xl);
+    background:var(--k-surface);
+    border:var(--k-border-w) solid var(--vscode-panel-border);
+    box-shadow:var(--k-elev-3);
   }
-  .modal h2{margin:0 0 8px;text-transform:none;letter-spacing:0;font-size:14px;opacity:1}
-  .modal p{margin:0;font-size:12.5px;line-height:1.5;
-    color:var(--vscode-descriptionForeground,var(--vscode-foreground))}
-  .modal .modal-error{margin-top:10px;font-size:11.5px;color:var(--vscode-errorForeground)}
-  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+  .modal h2{margin:var(--k-space-0) var(--k-space-0) var(--k-space-4);text-transform:none;letter-spacing:0;font-size:var(--k-text-lg);opacity:1}
+  .modal p{margin:var(--k-space-0);font-size:var(--k-text-md);line-height:var(--k-leading-normal);
+    color:var(--k-text-dim)}
+  .modal .modal-error{margin-top:var(--k-space-5);font-size:var(--k-text-sm);color:var(--k-danger)}
+  .modal-actions{display:flex;justify-content:flex-end;gap:var(--k-space-4);margin-top:var(--k-space-7)}
   /* Live preview + variable hint for the ticket-label template field. */
-  .label-preview{margin-top:6px;font-size:12px;
-    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.85}
-  .label-preview .lp-val{font-family:var(--vscode-editor-font-family,monospace);
-    color:var(--vscode-foreground);opacity:1}
-  .label-vars{margin-top:4px;font-size:11px;
-    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.7}
-  .label-vars code{font-family:var(--vscode-editor-font-family,monospace)}
+  .label-preview{margin-top:var(--k-space-3);font-size:var(--k-text-md);
+    color:var(--k-text-dim);opacity:.85}
+  .label-preview .lp-val{font-family:var(--k-font-mono);
+    color:var(--k-text);opacity:1}
+  .label-vars{margin-top:var(--k-space-2);font-size:var(--k-text-xs);
+    color:var(--k-text-dim);opacity:.7}
+  .label-vars code{font-family:var(--k-font-mono)}
   .convention-intro,.convention-hint,.convention-vars,.convention-preview{
-    color:var(--vscode-descriptionForeground,var(--vscode-foreground));font-size:11px}
-  .convention-intro{margin:0 0 8px}
-  .convention-hint{margin-top:5px}
-  .convention-vars{margin-top:4px}
-  .convention-vars code{font-family:var(--mono)}
-  .convention-preview{margin-top:6px;white-space:pre-wrap}
-  .convention-preview .lp-val{font-family:var(--mono);color:var(--vscode-foreground)}
-  textarea.convention-description{min-height:110px}
-  .convention-error{color:var(--vscode-errorForeground);font-size:11px;margin-top:5px}
+    color:var(--k-text-dim);font-size:var(--k-text-xs)}
+  .convention-intro{margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
+  .convention-hint{margin-top:var(--k-space-2)}
+  .convention-vars{margin-top:var(--k-space-2)}
+  .convention-vars code{font-family:var(--k-font-mono)}
+  .convention-preview{margin-top:var(--k-space-3);white-space:pre-wrap}
+  .convention-preview .lp-val{font-family:var(--k-font-mono);color:var(--k-text)}
+  textarea.convention-description{min-height:calc(var(--k-space-8) * 5.5)}
+  .convention-error{color:var(--k-danger);font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
   .convention-control[aria-invalid="true"],
   input[aria-invalid="true"],select[aria-invalid="true"]{
-    border-color:var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground))}
+    border-color:var(--vscode-inputValidation-errorBorder,var(--k-danger))}
   /* Inline per-field validation message on repository cards — see
      applyFieldValidationUI; only ever shown for a field the user has touched. */
-  .field-error{color:var(--vscode-errorForeground);font-size:11px;margin-top:5px}
+  .field-error{color:var(--k-danger);font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
 
-  .content{flex:1 1 auto;overflow:auto;padding:20px 26px}
-  .section{max-width:760px}
+  .content{flex:1 1 auto;overflow:auto;padding:var(--k-space-8) var(--k-space-9)}
+  .section{max-width:calc(var(--k-space-8) * 38)}
 
   /* ---- form basics ---- */
-  label{display:block;font-size:12px;opacity:.8;margin:10px 0 4px}
-  input[type=text],input[type=number],select{
-    padding:6px 8px;border-radius:5px;
-    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
+  label{display:block;font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
+  input[type=text],input[type=number],select,textarea{
+    padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));
     background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    font-family:inherit;font-size:13px;
+    font-family:inherit;font-size:var(--k-text-base);
+  }
+  /* Matches `.k-input`'s own rule (§ DESIGN-SYSTEM 4.4): inputs get the focus
+     ring on `:focus`, not only `:focus-visible` — a mouse user tabbing away
+     from a text field they just edited still needs to see where focus is. */
+  input[type=text]:focus,input[type=number]:focus,select:focus,textarea:focus{
+    outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset);
   }
   input[type=text],select{width:100%}
   /* Drop the OS arrow and paint our own, vertically centered with room reserved
      via padding — the native arrow's placement drifts between platforms/renderers. */
   select{
-    appearance:none;-webkit-appearance:none;padding-right:30px;
+    appearance:none;-webkit-appearance:none;padding-right:calc(var(--k-space-8) + var(--k-space-4));
     background-image:var(--chevron);background-repeat:no-repeat;
-    background-position:right 10px center;
+    background-position:right var(--k-space-5) center;
   }
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .row{display:flex;gap:var(--k-space-4);align-items:center;flex-wrap:wrap}
   .row > *{flex:1 1 0}
   .row .fixed{flex:0 0 auto}
-
-  button{
-    font-family:inherit;font-size:12px;cursor:pointer;
-    background:var(--vscode-button-background);color:var(--vscode-button-foreground);
-    border:none;border-radius:5px;padding:5px 12px;
-  }
-  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
-  button:disabled{opacity:.5;cursor:not-allowed}
-  button.secondary{
-    background:var(--vscode-button-secondaryBackground,transparent);
-    color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));
-    border:1px solid var(--vscode-panel-border);
-  }
-  button.icon{padding:3px 8px;font-size:11px}
 
   /* Custom provider dropdown (§ Ticketing): styled to match the native
      input/select chrome above, but a button+listbox so the branded badge
@@ -156,19 +156,21 @@
   .provselect{position:relative;width:100%}
   .provselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
     text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:5px;
-    padding:6px 8px;font-family:inherit;font-size:13px}
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base)}
   .provselect-trigger:hover{background:var(--vscode-input-background)}
-  .provselect-trigger .chev{flex:none;width:12px;height:12px;margin-left:8px;
-    background:var(--chevron) no-repeat center/12px}
-  .provselect-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;
-    background:var(--vscode-dropdown-background,var(--vscode-editor-background));
-    border:1px solid var(--vscode-dropdown-border,var(--vscode-panel-border));
-    border-radius:6px;padding:4px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
-  .provselect-opt{display:flex;align-items:center;gap:6px;padding:6px 8px;
-    border-radius:4px;cursor:pointer;font-size:13px}
-  .provselect-opt:hover{background:var(--vscode-list-hoverBackground)}
-  .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--vscode-list-hoverBackground))}
+  .provselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .provselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
+    background:var(--chevron) no-repeat center/var(--k-space-6)}
+  .provselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
+  .provselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
+  .provselect-opt:hover{background:var(--k-surface-hover)}
+  .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .provselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   /* The menu is absolutely positioned below the trigger and is taller than the
      card that hosts it (the ClickUp fields below it are hidden while the
      provider is `manual`), so the accordion's `.card{overflow:hidden}` clipped
@@ -183,66 +185,79 @@
 
   /* ---- accordion cards ---- */
   .card{
-    border:1px solid var(--vscode-panel-border);border-radius:8px;
-    margin-bottom:var(--gap);
+    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
+    margin-bottom:var(--k-space-7);
     background:var(--vscode-editorWidget-background,transparent);
     overflow:hidden;
   }
   .card .card-head{
-    display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;
-    user-select:none;
+    display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-5) var(--k-space-6);
   }
-  .card .card-head:hover{background:var(--vscode-list-hoverBackground)}
-  /* Bigger than the old 10px — a chevron that small was hard to see and hard to
+  /* The disclosure itself is a real <button aria-expanded> (UI-R09, R26), NOT
+     the whole row: the enable switch and Remove button are SIBLINGS in the
+     head, not descendants of the toggle, so a real <button> here never nests
+     inside another interactive control. Chrome reset to keep the existing
+     left-aligned layout instead of k-btn's centered/padded look. */
+  .card .card-toggle{
+    display:flex;align-items:center;gap:var(--k-space-5);flex:1 1 auto;min-width:0;
+    text-align:left;background:transparent;border:none;color:inherit;
+    font:inherit;cursor:pointer;user-select:none;border-radius:var(--k-radius-sm);
+  }
+  .card .card-toggle:hover{background:var(--k-surface-hover)}
+  .card .card-toggle:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  /* Bigger than the previous chevron — one that small was hard to see and hard to
      hit as the open/close affordance for a whole card. */
-  .card .card-head .chevron{
-    font-size:16px;opacity:.7;transition:transform .1s;
+  .card .card-toggle .chevron{
+    font-size:var(--k-text-lg);opacity:.7;transition:transform var(--k-dur-fast);
     display:inline-flex;align-items:center;justify-content:center;
-    width:20px;height:20px;flex:none;
+    width:var(--k-space-8);height:var(--k-space-8);flex:none;
   }
-  .card.open .card-head .chevron{transform:rotate(90deg)}
-  .card .card-title{font-weight:600;font-size:13px;flex:1}
-  .card .card-body{padding:0 14px 14px;display:none}
+  .card.open .card-toggle .chevron{transform:rotate(90deg)}
+  .card .card-head .no-service{margin-left:var(--k-space-4)}
+  /* Destructive actions had NO styling of their own on this page: "Delete"
+     (agent), "Remove" (repository/port/bind/signal) and "Uninstall" (approach)
+     all rendered as the same plain `.secondary` as "Cancel" and "Reload"
+     (UI-R10b). This is the danger variant, in the feedback token so there is no
+     second red. */
+  button.danger{color:var(--k-danger);border-color:var(--k-danger)}
+  button.danger:hover:not(:disabled){background:var(--k-danger);color:var(--k-danger-fg)}
+  .card .card-title{font-weight:600;font-size:var(--k-text-base);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card .card-body{padding:var(--k-space-0) var(--k-space-6) var(--k-space-6);display:none}
   .card.open .card-body{display:block}
 
-  table.sub{width:100%;border-collapse:collapse;margin:8px 0}
+  table.sub{width:100%;border-collapse:collapse;margin:var(--k-space-4) var(--k-space-0)}
   table.sub th{
-    text-align:left;font-size:11px;opacity:.6;font-weight:500;
-    padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border);
+    text-align:left;font-size:var(--k-text-xs);opacity:.6;font-weight:500;
+    padding:var(--k-space-2) var(--k-space-3);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
   }
-  table.sub td{padding:4px 6px;vertical-align:middle}
+  table.sub td{padding:var(--k-space-2) var(--k-space-3);vertical-align:middle}
   table.sub input[type=text],table.sub input[type=number],table.sub select{width:100%}
 
-  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  .chips{display:flex;flex-wrap:wrap;gap:var(--k-space-3);margin:var(--k-space-3) var(--k-space-0)}
   .chip{
-    display:inline-flex;align-items:center;gap:6px;
+    display:inline-flex;align-items:center;gap:var(--k-space-3);
     background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
-    border-radius:9px;padding:2px 8px;font-size:11.5px;
+    border-radius:var(--k-radius-lg);padding:var(--k-space-1) var(--k-space-4);font-size:var(--k-text-sm);
   }
-  .chip button{
-    background:transparent;color:inherit;border:none;padding:0;
-    font-size:12px;line-height:1;cursor:pointer;opacity:.7;
-  }
-  .chip button:hover{opacity:1;background:transparent}
 
-  .toggle{display:flex;align-items:center;gap:8px}
+  .toggle{display:flex;align-items:center;gap:var(--k-space-4)}
   .toggle input{width:auto}
 
   .bind-row{
-    display:flex;gap:6px;align-items:center;padding:4px 0;margin-left:16px;
+    display:flex;gap:var(--k-space-3);align-items:center;padding:var(--k-space-2) var(--k-space-0);margin-left:var(--k-space-7);
   }
 
-  .footer-row{display:flex;justify-content:flex-end;margin-top:6px}
-  .empty{opacity:.5;font-size:12px;padding:6px 4px}
+  .footer-row{display:flex;justify-content:flex-end;margin-top:var(--k-space-3)}
+  .empty{opacity:.5;font-size:var(--k-text-md);padding:var(--k-space-3) var(--k-space-2)}
   .err-banner{
-    color:var(--vscode-errorForeground);font-size:12px;
-    padding:8px 12px;margin-bottom:14px;border-radius:6px;
-    background:var(--vscode-inputValidation-errorBackground,rgba(244,71,71,.08));
-    border:1px solid var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground));
+    color:var(--k-danger);font-size:var(--k-text-md);
+    padding:var(--k-space-4) var(--k-space-6);margin-bottom:var(--k-space-7);border-radius:var(--k-radius-md);
+    background:var(--vscode-inputValidation-errorBackground,color-mix(in srgb,var(--k-danger) 8%,transparent));
+    border:var(--k-border-w) solid var(--vscode-inputValidation-errorBorder,var(--k-danger));
   }
-  .agent-row{display:flex;align-items:center;gap:8px;padding:6px 4px}
-  .approach-install{margin-left:0;flex-shrink:0}
-  .installed-tag,.builtin-tag{font-size:11px;opacity:.6}
+  .agent-row{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-2)}
+  .approach-install{margin-left:var(--k-space-0);flex-shrink:0}
+  .installed-tag,.builtin-tag{font-size:var(--k-text-xs);opacity:.6}
   /* Ticketing token row: the status text grows so its buttons keep their natural
      width and sit right-aligned — same shape as the List/Status rows (field grows,
      action stays fixed). Without this, .row > *{flex:1 1 0} stretches every button
@@ -250,176 +265,161 @@
   #tokenStatus{flex:1 1 auto;min-width:0}
   /* Zero the global label margins inside a checkbox toggle so the box and its
      text share one baseline instead of the label riding low. */
-  .toggle label{margin:0}
+  .toggle label{margin:var(--k-space-0)}
   /* Fetched-field hint (list/status): a reserved line under the control so text
      appearing or clearing never nudges the card height. */
-  .field-hint{font-size:11px;opacity:.6;margin-top:6px;min-height:15px}
+  .field-hint{font-size:var(--k-text-xs);opacity:.6;margin-top:var(--k-space-3);min-height:var(--k-space-7)}
   /* Token connection state as a dot + label rather than a bare "Token: …" line. */
-  .status-pill{display:inline-flex;align-items:center;gap:7px;font-size:12px}
-  .status-pill .dot{width:8px;height:8px;border-radius:50%;flex:none;
-    background:var(--vscode-descriptionForeground,#8a8a8a)}
-  .status-pill.ok .dot{background:var(--vscode-charts-green,#89d185)}
+  .status-pill{display:inline-flex;align-items:center;gap:var(--k-space-4);font-size:var(--k-text-md)}
+  .status-pill .dot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);flex:none;
+    background:var(--k-text-faint)}
+  .status-pill.ok .dot{background:var(--k-success)}
   .status-pill.off{opacity:.7}
   /* Icon + short label buttons (the Reload actions). */
-  .icon-btn{display:inline-flex;align-items:center;gap:5px}
-  .icon-btn .btn-ico{flex:none;width:13px;height:13px}
-  .approach-source{font-family:var(--mono);font-size:11px;opacity:.7}
-  .confirm-run{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
-  .confirm-cmd{font-family:var(--mono);font-size:11px;opacity:.8}
-  .confirm-actions{display:flex;gap:6px}
+  .icon-btn{display:inline-flex;align-items:center;gap:var(--k-space-3)}
+  .icon-btn .btn-ico{flex:none;width:var(--k-space-6);height:var(--k-space-6)}
+  .approach-source{font-family:var(--k-font-mono);font-size:var(--k-text-xs);opacity:.7}
+  .approach-source:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .confirm-run{display:flex;flex-direction:column;gap:var(--k-space-2);align-items:flex-end}
+  .confirm-cmd{font-family:var(--k-font-mono);font-size:var(--k-text-xs);opacity:.8}
+  .confirm-actions{display:flex;gap:var(--k-space-3)}
 
   .is-disabled{opacity:.55}
-  .chip.generated{border:1px solid var(--vscode-focusBorder);background:transparent}
+  .chip.generated{border:var(--k-border-w) solid var(--k-focus);background:transparent}
 
   /* ---- approaches roster (grouped Installed / Available / Built-in cards) ---- */
   .approach-group-header{
-    font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;
-    color:var(--vscode-descriptionForeground);
-    margin:16px 0 8px;padding-bottom:4px;
-    border-bottom:1px solid var(--vscode-panel-border);
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;
+    color:var(--k-text-dim);
+    margin:var(--k-space-7) var(--k-space-0) var(--k-space-4);padding-bottom:var(--k-space-2);
+    border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
   }
-  .approach-group-header:first-child{margin-top:0}
+  .approach-group-header:first-child{margin-top:var(--k-space-0)}
   .roster-card{
-    display:flex;border:1px solid var(--vscode-panel-border);border-radius:8px;
-    margin-bottom:10px;overflow:hidden;
+    display:flex;border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
+    margin-bottom:var(--k-space-5);overflow:hidden;
     background:var(--vscode-editorWidget-background,transparent);
   }
-  .roster-card .approach-rail{width:4px;flex:0 0 auto;background:var(--vscode-panel-border)}
-  .roster-card.installed .approach-rail{background:var(--vscode-charts-green)}
-  .roster-card .approach-body{padding:12px 14px;flex:1 1 auto;min-width:0}
-  .roster-card .approach-head{display:flex;align-items:baseline;gap:10px}
-  .roster-card .approach-id{font-family:var(--mono);font-weight:600;font-size:13px}
+  .roster-card .approach-rail{width:var(--k-space-2);flex:0 0 auto;background:var(--vscode-panel-border)}
+  .roster-card.installed .approach-rail{background:var(--k-success)}
+  .roster-card .approach-body{padding:var(--k-space-6) var(--k-space-6);flex:1 1 auto;min-width:0}
+  .roster-card .approach-head{display:flex;align-items:baseline;gap:var(--k-space-5)}
+  .roster-card .approach-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-base)}
   .roster-card .approach-label{
-    color:var(--vscode-foreground);font-size:12.5px;flex:1 1 auto;min-width:0;
+    color:var(--k-text);font-size:var(--k-text-md);flex:1 1 auto;min-width:0;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
-  .roster-card .approach-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex:0 0 auto}
-  .roster-card .approach-lines{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-  .roster-card .approach-line{display:flex;gap:10px;align-items:center}
+  .roster-card .approach-actions{display:flex;align-items:center;gap:var(--k-space-5);margin-left:auto;flex:0 0 auto}
+  .roster-card .approach-lines{display:flex;flex-direction:column;gap:var(--k-space-3);margin-top:var(--k-space-5)}
+  .roster-card .approach-line{display:flex;gap:var(--k-space-5);align-items:center}
   .roster-card .approach-line .micro{
-    font-size:10px;text-transform:uppercase;letter-spacing:.06em;
-    color:var(--vscode-descriptionForeground);min-width:36px;flex:0 0 auto;
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.06em;
+    color:var(--k-text-dim);min-width:calc(var(--k-space-8) * 1.8);flex:0 0 auto;
   }
-  .roster-card .approach-line .chips{margin:0}
-  .roster-card .approach-foot{margin-top:10px}
-
-  /* enable toggle: native checkbox visually hidden, a dot pill reflects state */
-  .approach-toggle{position:relative;display:inline-flex;align-items:center;cursor:pointer}
-  .approach-toggle input{position:absolute;opacity:0;width:1px;height:1px}
-  .approach-toggle .dot{
-    width:26px;height:15px;border-radius:9px;
-    background:var(--vscode-input-background);border:1px solid var(--vscode-panel-border);
-    position:relative;transition:background .15s;
-  }
-  .approach-toggle .dot::after{
-    content:"";position:absolute;width:11px;height:11px;border-radius:50%;
-    background:var(--vscode-descriptionForeground);top:1px;left:1px;transition:left .15s;
-  }
-  .approach-toggle input:checked + .dot{background:var(--vscode-charts-green)}
-  .approach-toggle input:checked + .dot::after{left:12px;background:var(--vscode-button-foreground,var(--vscode-editor-background))}
-  .approach-toggle input:focus-visible + .dot{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}
-  .approach-toggle.disabled{opacity:.45;cursor:not-allowed}
+  .roster-card .approach-line .chips{margin:var(--k-space-0)}
+  .roster-card .approach-foot{margin-top:var(--k-space-5)}
 
   /* ---- agents roster (provenance groups: Yours / From approaches) ---- */
   .agent-hero{
-    display:flex;align-items:baseline;gap:14px;padding:12px 14px;margin-bottom:16px;
-    border:1px solid var(--vscode-panel-border);border-radius:8px;
+    display:flex;align-items:baseline;gap:var(--k-space-7);padding:var(--k-space-6) var(--k-space-6);margin-bottom:var(--k-space-7);
+    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     background:var(--vscode-editorWidget-background,transparent);
   }
-  .agent-hero .stat{font-size:20px;font-weight:650;font-family:var(--mono);line-height:1;flex:0 0 auto}
-  .agent-hero .stat b{color:var(--vscode-charts-green);font-weight:650}
-  .agent-hero .cap{font-size:12px;opacity:.75;flex:1 1 auto}
+  .agent-hero .stat{font-size:var(--k-text-2xl);font-weight:650;font-family:var(--k-font-mono);line-height:1;flex:0 0 auto}
+  .agent-hero .stat b{color:var(--k-success);font-weight:650}
+  .agent-hero .cap{font-size:var(--k-text-md);opacity:.75;flex:1 1 auto}
 
-  .agent-group{margin-bottom:18px}
-  .agent-group:last-child{margin-bottom:0}
+  .agent-group{margin-bottom:var(--k-space-8)}
+  .agent-group:last-child{margin-bottom:var(--k-space-0)}
 
-  .agent-spine{border-left:2px solid var(--vscode-panel-border);margin-left:6px}
+  .agent-spine{border-left:var(--k-border-w) solid var(--vscode-panel-border);margin-left:var(--k-space-3)}
   .agent-appr-head{
-    display:flex;align-items:center;gap:8px;padding:6px 0 6px 14px;position:relative;
+    display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-0) var(--k-space-3) var(--k-space-7);position:relative;
   }
-  .agent-appr-head:not(:first-child){margin-top:4px}
+  .agent-appr-head:not(:first-child){margin-top:var(--k-space-2)}
   .agent-appr-head::before{
-    content:"";position:absolute;left:-2px;top:50%;width:12px;height:2px;
+    content:"";position:absolute;left:calc(var(--k-space-1) * -1);top:50%;width:var(--k-space-6);height:var(--k-border-w);
     background:var(--vscode-panel-border);
   }
   .agent-appr-head .appr-id{
-    font-family:var(--mono);font-size:12px;font-weight:600;color:var(--vscode-textLink-foreground);
+    font-family:var(--k-font-mono);font-size:var(--k-text-md);font-weight:600;color:var(--k-link);
   }
   .agent-appr-head .spacer{flex:1}
 
   .agent-roster-row{
-    display:flex;align-items:center;gap:10px;padding:8px 10px;
-    border-left:2px solid transparent;border-radius:0 6px 6px 0;
+    display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-5);
+    border-left:calc(var(--k-border-w) * 2) solid transparent;border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;
   }
-  .agent-spine .agent-roster-row{margin-left:0;padding-left:14px}
-  .agent-roster-row:hover{background:var(--vscode-list-hoverBackground)}
-  .agent-roster-row.on{border-left-color:var(--vscode-charts-green)}
+  .agent-spine .agent-roster-row{margin-left:var(--k-space-0);padding-left:var(--k-space-7)}
+  .agent-roster-row:hover{background:var(--k-surface-hover)}
+  .agent-roster-row.on{border-left-color:var(--k-success)}
   .agent-roster-row .glyph{
-    width:20px;height:20px;border-radius:5px;flex:0 0 auto;display:grid;place-items:center;
-    font-family:var(--mono);font-size:11px;background:var(--vscode-badge-background);
+    width:var(--k-space-8);height:var(--k-space-8);border-radius:var(--k-radius-sm);flex:0 0 auto;display:grid;place-items:center;
+    font-family:var(--k-font-mono);font-size:var(--k-text-xs);background:var(--vscode-badge-background);
     color:var(--vscode-badge-foreground);
   }
-  .agent-roster-row .nm{font-family:var(--mono);font-size:13px}
-  .agent-roster-row .owner{font-family:var(--mono);font-size:11px;opacity:.5}
+  .agent-roster-row .nm{font-family:var(--k-font-mono);font-size:var(--k-text-base)}
+  .agent-roster-row .owner{font-family:var(--k-font-mono);font-size:var(--k-text-xs);opacity:.5}
   .agent-roster-row .spacer{flex:1}
 
-  .agent-editor{margin:2px 0 10px 14px}
-  .agent-editor .footer-row{margin-top:6px}
+  .agent-editor{margin:var(--k-space-1) var(--k-space-0) var(--k-space-5) var(--k-space-7)}
+  .agent-editor .footer-row{margin-top:var(--k-space-3)}
 
-  .agent-link{
-    color:var(--vscode-textLink-foreground);font-size:11.5px;text-decoration:none;
-    cursor:pointer;
-  }
-  .agent-link:hover{text-decoration:underline}
-  .agent-link:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}
-
-  /* command chips become clickable when they carry data-cmd (opens the drawer) */
-  .chip[data-cmd]{cursor:pointer;border:1px solid transparent}
-  .chip[data-cmd]:hover{border-color:var(--vscode-focusBorder)}
-  .chip[data-cmd]:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}
+  /* Command chips become clickable when they carry data-cmd (opens the drawer) —
+     rendered as a real <button class="chip"> (UI-R09) so Enter/Space/focus come
+     for free; the pill's own local styling is unchanged, only its semantics are.
+     `.chip` is a local (non-k-) component, so its own focus ring is declared
+     here — the injected FOUNDATION block only reaches `.k-*` selectors. */
+  button.chip[data-cmd]{font-family:inherit;cursor:pointer;border:var(--k-border-w) solid transparent}
+  button.chip[data-cmd]:hover{border-color:var(--k-focus)}
+  button.chip[data-cmd]:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* ---- command-body drawer ---- */
   .drawer{
-    position:fixed;top:0;right:0;height:100%;width:min(440px,92vw);
-    background:var(--vscode-editorWidget-background,var(--vscode-editor-background));
-    border-left:1px solid var(--vscode-panel-border);
-    box-shadow:-8px 0 16px var(--vscode-widget-shadow,transparent);
-    transform:translateX(100%);transition:transform .18s ease;
-    z-index:50;display:flex;flex-direction:column;
+    position:fixed;top:0;right:0;height:100%;width:min(calc(var(--k-space-8) * 22),92vw);
+    background:var(--vscode-editorWidget-background,var(--k-bg));
+    border-left:var(--k-border-w) solid var(--vscode-panel-border);
+    box-shadow:var(--k-elev-2);
+    transform:translateX(100%);transition:transform var(--k-dur-slow) var(--k-ease-out);
+    z-index:var(--k-z-drawer);display:flex;flex-direction:column;
   }
   .drawer.open{transform:translateX(0)}
   .drawer .drawer-head{
-    display:flex;align-items:center;gap:10px;padding:12px 14px;
-    border-bottom:1px solid var(--vscode-panel-border);flex:0 0 auto;
+    display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-6) var(--k-space-6);
+    border-bottom:var(--k-border-w) solid var(--vscode-panel-border);flex:0 0 auto;
   }
   .drawer .drawer-head .spacer{flex:1}
   .drawer .drawer-body{
-    flex:1 1 auto;margin:0;padding:14px;overflow:auto;
-    font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:var(--vscode-foreground);
+    flex:1 1 auto;margin:var(--k-space-0);padding:var(--k-space-6);overflow:auto;
+    font-family:var(--k-font-mono);font-size:var(--k-text-md);white-space:pre-wrap;color:var(--k-text);
   }
   /* The approach-editor drawer body is a real form, not a pre-formatted
      command-body view — reset the mono/pre-wrap styling from the base
      .drawer-body and let normal label/input rules apply. */
   .drawer .drawer-body.form{
-    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
-    font-size:13px;white-space:normal;
+    font-family:var(--k-font-ui);
+    font-size:var(--k-text-base);white-space:normal;
   }
-  .drawer .drawer-body.form label:first-child{margin-top:0}
+  .drawer .drawer-body.form label:first-child{margin-top:var(--k-space-0)}
   .drawer-error{
-    color:var(--vscode-errorForeground);font-size:12px;
-    padding:6px 10px;margin-bottom:10px;border-radius:6px;
-    background:var(--vscode-inputValidation-errorBackground,rgba(244,71,71,.08));
-    border:1px solid var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground));
+    color:var(--k-danger);font-size:var(--k-text-md);
+    padding:var(--k-space-3) var(--k-space-5);margin-bottom:var(--k-space-5);border-radius:var(--k-radius-md);
+    background:var(--vscode-inputValidation-errorBackground,color-mix(in srgb,var(--k-danger) 8%,transparent));
+    border:var(--k-border-w) solid var(--vscode-inputValidation-errorBorder,var(--k-danger));
   }
-  .drawer-note{font-size:11px;color:var(--vscode-descriptionForeground)}
+  .drawer-note{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+
+  /* Local (non-k-prefixed) transitions the injected design system's own
+     reduced-motion block does not reach — nulled here for the same reason
+     (UI-R30): nothing here carries information motion alone. */
   @media (prefers-reduced-motion:reduce){
-    .drawer,.approach-toggle .dot,.approach-toggle .dot::after{transition:none}
+    .drawer,.card-toggle .chevron{transition:none}
   }
 
   textarea{
     background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:5px;
-    padding:8px;font-family:var(--mono);font-size:12px;width:100%;resize:vertical;min-height:160px;
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    padding:var(--k-space-4);font-family:var(--k-font-mono);font-size:var(--k-text-md);width:100%;resize:vertical;min-height:calc(var(--k-space-8) * 8);
   }
 </style>
 
@@ -441,12 +441,12 @@
     <span class="saved-msg hidden" id="savedMsg" role="status" aria-live="polite">Saved</span>
     <span class="spacer"></span>
     <span class="unsaved-hint hidden" id="unsavedHint"></span>
-    <button class="secondary" id="discardBtn" disabled>Discard</button>
-    <button id="saveBtn" disabled>Save</button>
+    <button class="k-btn k-btn--secondary" id="discardBtn" disabled>Discard</button>
+    <button class="k-btn k-btn--primary" id="saveBtn" disabled>Save</button>
   </div>
 
   <div class="content">
-    <div class="err-banner hidden" id="errBanner"></div>
+    <div class="err-banner hidden" id="errBanner" role="alert"></div>
 
     <!-- General -->
     <div class="section" id="section-general">
@@ -455,10 +455,10 @@
           <label for="f-host">Host</label>
           <input type="text" id="f-host" placeholder="localhost" />
 
-          <label>Port range</label>
-          <div class="row">
-            <input type="number" id="f-portMin" placeholder="min" />
-            <input type="number" id="f-portMax" placeholder="max" />
+          <label id="portRangeLabel">Port range</label>
+          <div class="row" role="group" aria-labelledby="portRangeLabel">
+            <input type="number" id="f-portMin" placeholder="min" aria-label="Port range minimum" />
+            <input type="number" id="f-portMax" placeholder="max" aria-label="Port range maximum" />
           </div>
 
           <label for="f-baseline">Baseline branch</label>
@@ -504,7 +504,7 @@
               <label for="f-conventionPreset">Preset</label>
               <select id="f-conventionPreset"></select>
             </div>
-            <button class="secondary fixed" id="applyPresetBtn" type="button">Apply preset</button>
+            <button class="k-btn k-btn--secondary fixed" id="applyPresetBtn" type="button">Apply preset</button>
           </div>
           <div class="convention-hint" id="presetHint">
             Fills the fields below for review — nothing is written until you press Save.
@@ -520,7 +520,7 @@
           </div>
           <div class="convention-vars" id="branchNameVars"></div>
           <div class="convention-preview" id="branchNamePreview"></div>
-          <div class="convention-error hidden" id="branchNameError"></div>
+          <div class="convention-error hidden" id="branchNameError" role="alert"></div>
 
           <label for="f-defaultType">Default ticket type</label>
           <select id="f-defaultType" aria-describedby="defaultTypeHint"></select>
@@ -537,7 +537,7 @@
           </div>
           <div class="convention-vars" id="commitMessageVars"></div>
           <div class="convention-preview" id="commitMessagePreview"></div>
-          <div class="convention-error hidden" id="commitMessageError"></div>
+          <div class="convention-error hidden" id="commitMessageError" role="alert"></div>
 
           <label for="f-prTitleTemplate">Pull request title template</label>
           <input class="convention-control" type="text" id="f-prTitleTemplate"
@@ -548,7 +548,7 @@
           </div>
           <div class="convention-vars" id="prTitleVars"></div>
           <div class="convention-preview" id="prTitlePreview"></div>
-          <div class="convention-error hidden" id="prTitleError"></div>
+          <div class="convention-error hidden" id="prTitleError" role="alert"></div>
 
           <label for="f-prDescriptionTemplate">Pull request description template</label>
           <textarea class="convention-control convention-description"
@@ -560,7 +560,7 @@
           </div>
           <div class="convention-vars" id="prDescriptionVars"></div>
           <div class="convention-preview" id="prDescriptionPreview"></div>
-          <div class="convention-error hidden" id="prDescriptionError"></div>
+          <div class="convention-error hidden" id="prDescriptionError" role="alert"></div>
         </div>
       </div>
     </div>
@@ -569,7 +569,7 @@
     <div class="section hidden" id="section-services">
       <div id="serviceCards"></div>
       <div class="footer-row">
-        <button class="secondary" id="addServiceBtn">+ Add repository</button>
+        <button class="k-btn k-btn--secondary" id="addServiceBtn">+ Add repository</button>
       </div>
     </div>
 
@@ -579,7 +579,7 @@
         <div class="card-body" style="display:block;padding-top:14px">
           <div id="approachList"></div>
           <div class="footer-row">
-            <button class="secondary" id="addApproachBtn">+ Add approach</button>
+            <button class="k-btn k-btn--secondary" id="addApproachBtn">+ Add approach</button>
           </div>
         </div>
       </div>
@@ -592,8 +592,8 @@
           <div id="agentHero"></div>
           <div id="agentList"></div>
           <div class="footer-row">
-            <input type="text" id="newAgentName" placeholder="agent name" style="width:180px;margin-right:8px" />
-            <button class="secondary" id="addAgentBtn">+ Add agent</button>
+            <input type="text" id="newAgentName" placeholder="agent name" aria-label="New agent name" style="width:180px;margin-right:8px" />
+            <button class="k-btn k-btn--secondary" id="addAgentBtn">+ Add agent</button>
           </div>
         </div>
       </div>
@@ -609,6 +609,7 @@
                each option render the shared provider-identity badge instead. -->
           <div class="provselect" id="provSelectWrap">
             <button type="button" class="provselect-trigger" id="providerTrigger"
+              aria-label="Ticketing provider"
                     aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
             <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
           </div>
@@ -621,15 +622,15 @@
             <label for="f-ticketList">List <span class="installed-tag">(the ClickUp list to advance tickets in)</span></label>
             <div class="row" style="align-items:center">
               <select id="f-ticketList"></select>
-              <button class="secondary fixed icon-btn" id="refreshListsBtn" title="Reload lists from ClickUp"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload lists</button>
+              <button class="k-btn k-btn--secondary k-btn--sm fixed icon-btn" id="refreshListsBtn" title="Reload lists from ClickUp"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload lists</button>
             </div>
-            <div id="listHint" class="field-hint"></div>
+            <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
 
             <label>API token <span class="installed-tag">(stored in your OS keychain — never in karst.yml)</span></label>
             <div class="row" style="align-items:center">
               <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
-              <button class="secondary fixed" id="setTokenBtn">Set token</button>
-              <button class="secondary fixed" id="clearTokenBtn">Clear token</button>
+              <button class="k-btn k-btn--secondary fixed" id="setTokenBtn">Set token</button>
+              <button class="k-btn k-btn--secondary fixed" id="clearTokenBtn">Clear token</button>
             </div>
           </div>
         </div>
@@ -648,9 +649,9 @@
             <label for="f-startStatus">Status at start of work</label>
             <div class="row" style="align-items:center">
               <select id="f-startStatus"></select>
-              <button class="secondary fixed icon-btn" id="refreshStartStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
+              <button class="k-btn k-btn--secondary k-btn--sm fixed icon-btn" id="refreshStartStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
             </div>
-            <div id="startStatusHint" class="field-hint"></div>
+            <div id="startStatusHint" class="field-hint" role="status" aria-live="polite"></div>
           </div>
         </div>
       </div>
@@ -668,9 +669,9 @@
             <label for="f-shipStatus">Status after ship</label>
             <div class="row" style="align-items:center">
               <select id="f-shipStatus"></select>
-              <button class="secondary fixed icon-btn" id="refreshStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
+              <button class="k-btn k-btn--secondary k-btn--sm fixed icon-btn" id="refreshStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
             </div>
-            <div id="statusHint" class="field-hint"></div>
+            <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>
           </div>
         </div>
       </div>
@@ -691,9 +692,9 @@
       These changes cannot be saved yet — fix the validation error first, or discard them.
     </p>
     <div class="modal-actions">
-      <button class="secondary" id="leaveCancelBtn">Cancel</button>
-      <button class="secondary" id="leaveDiscardBtn">Discard changes</button>
-      <button id="leaveSaveBtn">Save</button>
+      <button class="k-btn k-btn--secondary" id="leaveCancelBtn">Cancel</button>
+      <button class="k-btn k-btn--secondary" id="leaveDiscardBtn">Discard changes</button>
+      <button class="k-btn k-btn--primary" id="leaveSaveBtn">Save</button>
     </div>
   </div>
 </div>
@@ -705,7 +706,7 @@
   <div class="drawer-head">
     <span class="chip generated" id="cmdDrawerTitle"></span>
     <span class="spacer"></span>
-    <button class="secondary icon" id="cmdDrawerClose" aria-label="Close">&times;</button>
+    <button class="k-iconbtn" id="cmdDrawerClose" aria-label="Close this panel" title="Close this panel">&times;</button>
   </div>
   <pre class="drawer-body" id="cmdDrawerBody"></pre>
 </div>
@@ -720,10 +721,10 @@
   <div class="drawer-head">
     <span class="card-title" id="approachDrawerTitle">Add approach</span>
     <span class="spacer"></span>
-    <button class="secondary icon" id="approachDrawerClose" aria-label="Close">&times;</button>
+    <button class="k-iconbtn" id="approachDrawerClose" aria-label="Close this panel" title="Close this panel">&times;</button>
   </div>
   <div class="drawer-body form" id="approachDrawerBody">
-    <div class="drawer-error hidden" id="approachDrawerError"></div>
+    <div class="drawer-error hidden" id="approachDrawerError" role="alert"></div>
 
     <label for="af-id">Id</label>
     <input type="text" id="af-id" placeholder="my-approach" />
@@ -779,17 +780,19 @@
     <div class="footer-row" id="approachDrawerDeleteRow" style="justify-content:space-between;align-items:center">
       <span id="approachDrawerDeleteNote" class="drawer-note hidden">Uninstall before deleting.</span>
       <span class="spacer"></span>
-      <button class="secondary" id="approachDrawerDelete">Delete</button>
+      <button class="k-btn k-btn--danger" id="approachDrawerDelete">Delete</button>
     </div>
 
     <div class="footer-row">
-      <button class="secondary" id="approachDrawerCancel">Cancel</button>
-      <button id="approachDrawerSave">Save</button>
+      <button class="k-btn k-btn--secondary" id="approachDrawerCancel">Cancel</button>
+      <button class="k-btn k-btn--primary" id="approachDrawerSave">Save</button>
     </div>
   </div>
 </div>
 
 <script>
+  /*KARST_DS_JS*/
+
   // Shared ticketing-provider identity (icon + brand) — single source in
   // src/model/providerIdentity.ts, injected here at load (CSP forbids a
   // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
@@ -800,6 +803,31 @@
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  // A dynamic value (a repository/agent/approach name) used as an HTML `id`/
+  // `for` target: names are arbitrary user text, not ID-safe by construction,
+  // so every character outside [A-Za-z0-9_-] collapses to '-'. Collisions are
+  // a labelling nicety, not a correctness hazard — the field itself is still
+  // reachable, just not perfectly disambiguated by id alone in a rare clash.
+  const safeId = (prefix, raw) => prefix + '-' + String(raw ?? '').replace(/[^A-Za-z0-9_-]/g, '-');
+
+  /**
+   * Post a mutating (or fetching) action to the host through the shared
+   * async-action runtime (§ docs/ui/DESIGN-SYSTEM.md §5, UI-R11–R14): the
+   * CONTROL that was clicked enters pending on this click — before the round
+   * trip, never after — is non-re-triggerable while pending (karstIsPending
+   * guards it, `disabled` blocks the browser from ever firing another click),
+   * and leaves pending on the host's single `action-result` reply (routed to
+   * `karstSettle` in the `message` handler below) or the watchdog. Controls
+   * bound this way are recreated on every re-render, so this calls the
+   * runtime's pieces directly rather than `karstAction` (which binds its own
+   * listener once) — the delegated `click` handler already fires per click.
+   */
+  function postAction(control, type, payload) {
+    if (!control || karstIsPending(control) || control.disabled) return;
+    const requestId = karstRequestId();
+    karstBeginPending(control, requestId);
+    post({ type, ...(payload || {}), requestId });
+  }
 
   const emptyManifest = () => ({
     host: '',
@@ -1131,7 +1159,12 @@
     const label = SECTION_LABELS[currentSection] || 'changes';
     el('topbarSection').textContent = SECTION_LABELS[currentSection] ? '› ' + label : '';
     const saveBtn = el('saveBtn');
-    saveBtn.disabled = !valid || !scopedDirty;
+    // A save already in flight stays disabled regardless of what else recomputes
+    // this — without it, a `state` push that lands mid-save (or any other
+    // trigger of updateSaveEnabled) could re-enable the button before the
+    // host's terminal result arrives, opening the double-submit window this
+    // guard exists to close (UI-R12).
+    saveBtn.disabled = !valid || !scopedDirty || karstIsPending(saveBtn);
     saveBtn.textContent = 'Save ' + label;
     saveBtn.title = !scopedDirty
       ? 'No unsaved changes on ' + label
@@ -1620,47 +1653,70 @@
     // A DRAFT repository is simply one that is disabled: the system ignores it,
     // so validation lets it stay incomplete until the author flips it on.
     const isEnabled = repo.enabled !== false;
+    const bodyId = safeId('card-body', name);
+    const nameFieldId = safeId('f-svc-name', name);
+    const repoPathId = safeId('f-svc-repoPath', name);
+    const baselineId = safeId('f-svc-baseline', name);
+    const migrationsId = safeId('f-svc-migrations', name);
+    const runnableId = safeId('f-svc-runnable', name);
+    const startId = safeId('f-svc-start', name);
+    const healthId = safeId('f-svc-health', name);
+    const repoPathErrId = safeId('err', name + '.repoPath');
+    const startErrId = safeId('err', name + '.start');
+    const healthErrId = safeId('err', name + '.health');
+    // The disclosure is a real <button aria-expanded>, not the whole row
+    // (UI-R09, R26) — it was a bare `<div data-toggle>` with `cursor:pointer`,
+    // no role, no tabindex and no keydown handler anywhere, so the repo
+    // accordion was entirely unusable by keyboard. The enable switch and
+    // Remove are SIBLINGS of the toggle button, never descendants, so no
+    // interactive control ever nests inside another.
     return `<div class="card ${isOpen ? 'open' : ''}" data-card="${esc(name)}">`
-      + `<div class="card-head" data-toggle="${esc(name)}">`
-      + `<span class="chevron">&#9656;</span>`
+      + `<div class="card-head">`
+      + `<button type="button" class="card-toggle" data-toggle="${esc(name)}"`
+      + ` aria-expanded="${isOpen ? 'true' : 'false'}" aria-controls="${bodyId}">`
+      + `<span class="chevron" aria-hidden="true">&#9656;</span>`
       + `<span class="card-title">${esc(name)}</span>`
+      + `</button>`
       + (repo.enabled === false ? `<span class="chip">Draft</span>` : '')
       + (svc ? '' : `<span class="field-hint" style="margin:0 0 0 8px">no service</span>`)
-      + `<label class="approach-toggle" title="${isEnabled ? 'Disable this repository' : 'Enable this repository'}">`
-      + `<input type="checkbox" data-repo-enabled="${esc(name)}" ${isEnabled ? 'checked' : ''}/>`
-      + `<span class="dot"></span>`
-      + `</label>`
-      + `<button class="secondary icon" data-remove-service="${esc(name)}">Remove</button>`
+      + `<button type="button" class="k-switch" role="switch" aria-checked="${isEnabled ? 'true' : 'false'}"`
+      + ` data-repo-enabled="${esc(name)}"`
+      + ` aria-label="${isEnabled ? 'Disable this repository' : 'Enable this repository'}"`
+      + ` title="${isEnabled ? 'Disable this repository' : 'Enable this repository'}">`
+      + `<span class="k-switch-track"></span>`
+      + `</button>`
+      + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-remove-service="${esc(name)}"`
+      + ` title="Remove ${esc(name)} from the manifest">Remove</button>`
       + `</div>`
-      + `<div class="card-body">`
-      + `<label>Name</label>`
-      + `<input type="text" placeholder="my-repo" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
-      + `<label>Repo path</label>`
+      + `<div class="card-body" id="${bodyId}">`
+      + `<label for="${nameFieldId}">Name</label>`
+      + `<input type="text" id="${nameFieldId}" placeholder="my-repo" data-svc-name="${esc(name)}" value="${esc(name)}"/>`
+      + `<label for="${repoPathId}">Repo path</label>`
       + `<div class="row">`
-      + `<input type="text" placeholder="/Users/you/code/${esc(name)}" data-svc-field="repoPath" data-svc="${esc(name)}" data-touch-key="${esc(name)}.repoPath" value="${esc(repo.repoPath)}"/>`
-      + `<button type="button" class="secondary icon fixed" data-browse-repo-path="${esc(name)}" title="Browse for a folder">Browse&hellip;</button>`
+      + `<input type="text" id="${repoPathId}" placeholder="/Users/you/code/${esc(name)}" data-svc-field="repoPath" data-svc="${esc(name)}" data-touch-key="${esc(name)}.repoPath" aria-describedby="${repoPathErrId}" value="${esc(repo.repoPath)}"/>`
+      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm fixed" data-browse-repo-path="${esc(name)}" title="Browse for a folder">Browse&hellip;</button>`
       + `</div>`
-      + `<div class="field-error hidden" data-field-error="${esc(name)}.repoPath"></div>`
-      + `<label>Baseline branch override <span class="field-hint">(blank inherits ${esc(draft.baselineBranch)})</span></label>`
-      + `<input type="text" placeholder="main" data-svc-field="baselineBranch" data-svc="${esc(name)}" value="${esc(repo.baselineBranch || '')}"/>`
+      + `<div class="field-error hidden" id="${repoPathErrId}" role="alert" data-field-error="${esc(name)}.repoPath"></div>`
+      + `<label for="${baselineId}">Baseline branch override <span class="field-hint">(blank inherits ${esc(draft.baselineBranch)})</span></label>`
+      + `<input type="text" id="${baselineId}" placeholder="main" data-svc-field="baselineBranch" data-svc="${esc(name)}" value="${esc(repo.baselineBranch || '')}"/>`
       + `<div class="toggle" style="margin-top:10px">`
-      + `<input type="checkbox" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${repo.hasMigrations ? 'checked' : ''}/>`
-      + `<label style="margin:0">Has migrations</label>`
+      + `<input type="checkbox" id="${migrationsId}" data-svc-field="hasMigrations" data-svc="${esc(name)}" ${repo.hasMigrations ? 'checked' : ''}/>`
+      + `<label style="margin:0" for="${migrationsId}">Has migrations</label>`
       + `</div>`
 
       + `<div class="toggle" style="margin-top:10px">`
-      + `<input type="checkbox" data-runnable="${esc(name)}" ${svc ? 'checked' : ''}/>`
-      + `<label style="margin:0">Runnable service</label>`
+      + `<input type="checkbox" id="${runnableId}" data-runnable="${esc(name)}" ${svc ? 'checked' : ''}/>`
+      + `<label style="margin:0" for="${runnableId}">Runnable service</label>`
       + `</div>`
       + `<div class="field-hint">Off means karst gives this repo a worktree but never starts it. No port, no health check.</div>`
 
       + (svc
-        ? `<label>Start command</label>`
-          + `<input type="text" placeholder="npm run dev" data-svc-field="start" data-svc="${esc(name)}" data-touch-key="${esc(name)}.start" value="${esc(svc.start || '')}"/>`
-          + `<div class="field-error hidden" data-field-error="${esc(name)}.start"></div>`
-          + `<label>Health check</label>`
-          + `<input type="text" placeholder="http://{host}:{port}/health" data-svc-field="health" data-svc="${esc(name)}" data-touch-key="${esc(name)}.health" value="${esc(svc.health || '')}"/>`
-          + `<div class="field-error hidden" data-field-error="${esc(name)}.health"></div>`
+        ? `<label for="${startId}">Start command</label>`
+          + `<input type="text" id="${startId}" placeholder="npm run dev" data-svc-field="start" data-svc="${esc(name)}" data-touch-key="${esc(name)}.start" aria-describedby="${startErrId}" value="${esc(svc.start || '')}"/>`
+          + `<div class="field-error hidden" id="${startErrId}" role="alert" data-field-error="${esc(name)}.start"></div>`
+          + `<label for="${healthId}">Health check</label>`
+          + `<input type="text" id="${healthId}" placeholder="http://{host}:{port}/health" data-svc-field="health" data-svc="${esc(name)}" data-touch-key="${esc(name)}.health" aria-describedby="${healthErrId}" value="${esc(svc.health || '')}"/>`
+          + `<div class="field-error hidden" id="${healthErrId}" role="alert" data-field-error="${esc(name)}.health"></div>`
           + `<h2 style="margin-top:16px">Ports</h2>`
           + renderPortsTable(name, svc.ports || [])
           + `<h2 style="margin-top:16px">Depends on</h2>`
@@ -1676,21 +1732,22 @@
   function renderPortsTable(svcName, ports) {
     const rows = ports.map((p, i) => (
       `<tr>`
-      + `<td><input type="text" placeholder="http" data-port-field="name" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.name)}"/></td>`
-      + `<td><input type="text" placeholder="PORT" data-port-field="env" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.env)}"/></td>`
-      + `<td><input type="number" placeholder="3000" data-port-field="default" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.default)}"/></td>`
-      + `<td><button class="secondary icon" data-remove-port="${esc(svcName)}" data-idx="${i}">&times;</button></td>`
+      + `<td><input type="text" placeholder="http" aria-label="Port ${i + 1} name" data-port-field="name" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.name)}"/></td>`
+      + `<td><input type="text" placeholder="PORT" aria-label="Port ${i + 1} environment variable" data-port-field="env" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.env)}"/></td>`
+      + `<td><input type="number" placeholder="3000" aria-label="Port ${i + 1} default value" data-port-field="default" data-svc="${esc(svcName)}" data-idx="${i}" value="${esc(p.default)}"/></td>`
+      + `<td><button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-port="${esc(svcName)}" data-idx="${i}"`
+      + ` aria-label="Remove port ${i + 1}" title="Remove port ${i + 1}">&times;</button></td>`
       + `</tr>`
     )).join('');
     return `<table class="sub"><thead><tr><th>Name</th><th>Env</th><th>Default</th><th></th></tr></thead>`
       + `<tbody>${rows || ''}</tbody></table>`
-      + `<button class="secondary icon" data-add-port="${esc(svcName)}">+ Add port</button>`;
+      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-port="${esc(svcName)}">+ Add port</button>`;
   }
 
   function renderDependsOn(svcName, deps, otherNames) {
     if (!deps.length && !otherNames.length) {
       return '<div class="empty">No other runnable repositories to depend on.</div>'
-        + `<button class="secondary icon" data-add-dep="${esc(svcName)}" disabled>+ Add dependency</button>`;
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-dep="${esc(svcName)}" disabled title="No other runnable repositories to depend on">+ Add dependency</button>`;
     }
     const blocks = deps.map((d, i) => {
       const targetOpts = otherNames.map((n) =>
@@ -1701,33 +1758,36 @@
         `<option value="${esc(p.name)}" ${p.name === d.port ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
       const binds = (d.bind || []).map((b, bi) => (
         `<div class="bind-row">`
-        + `<input type="text" placeholder="env" data-bind-field="env" data-svc="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}" value="${esc(b.env)}"/>`
-        + `<input type="text" placeholder="template, e.g. http://{host}:{port}" data-bind-field="template" data-svc="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}" value="${esc(b.template)}"/>`
-        + `<button class="secondary icon" data-remove-bind="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}">&times;</button>`
+        + `<input type="text" placeholder="env" aria-label="Dependency ${i + 1} bind ${bi + 1} environment variable" data-bind-field="env" data-svc="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}" value="${esc(b.env)}"/>`
+        + `<input type="text" placeholder="template, e.g. http://{host}:{port}" aria-label="Dependency ${i + 1} bind ${bi + 1} template" data-bind-field="template" data-svc="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}" value="${esc(b.template)}"/>`
+        + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-bind="${esc(svcName)}" data-idx="${i}" data-bidx="${bi}"`
+        + ` aria-label="Remove bind ${bi + 1}" title="Remove bind ${bi + 1}">&times;</button>`
         + `</div>`
       )).join('');
       return `<div class="card" data-dep-card="${i}" style="margin-bottom:8px">`
         + `<div class="card-body" style="display:block;padding:10px">`
         + `<div class="row">`
-        + `<select data-dep-field="target" data-svc="${esc(svcName)}" data-idx="${i}">${targetOpts}</select>`
-        + `<select data-dep-field="port" data-svc="${esc(svcName)}" data-idx="${i}">${portOpts}</select>`
-        + `<button class="secondary icon fixed" data-remove-dep="${esc(svcName)}" data-idx="${i}">Remove</button>`
+        + `<select aria-label="Dependency ${i + 1} target repository" data-dep-field="target" data-svc="${esc(svcName)}" data-idx="${i}">${targetOpts}</select>`
+        + `<select aria-label="Dependency ${i + 1} port" data-dep-field="port" data-svc="${esc(svcName)}" data-idx="${i}">${portOpts}</select>`
+        + `<button type="button" class="k-btn k-btn--danger k-btn--sm fixed" data-remove-dep="${esc(svcName)}" data-idx="${i}">Remove</button>`
         + `</div>`
         + binds
-        + `<button class="secondary icon" data-add-bind="${esc(svcName)}" data-idx="${i}" style="margin-top:6px">+ Add bind</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-bind="${esc(svcName)}" data-idx="${i}" style="margin-top:6px">+ Add bind</button>`
         + `</div></div>`;
     }).join('');
     return blocks
-      + `<button class="secondary icon" data-add-dep="${esc(svcName)}">+ Add dependency</button>`;
+      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-dep="${esc(svcName)}">+ Add dependency</button>`;
   }
 
   function renderSignalChips(svcName, signals) {
     const chips = signals.map((s, i) => (
-      `<span class="chip">${esc(s)}<button data-remove-signal="${esc(svcName)}" data-idx="${i}">&times;</button></span>`
+      `<span class="chip">${esc(s)}`
+      + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-signal="${esc(svcName)}" data-idx="${i}"`
+      + ` aria-label="Remove signal ${esc(s)}" title="Remove signal ${esc(s)}">&times;</button></span>`
     )).join('');
     return `<div class="chips" data-signals="${esc(svcName)}">${chips}</div>`
       + `<div class="row">`
-      + `<input type="text" placeholder="add signal word, Enter to add" data-signal-input="${esc(svcName)}"/>`
+      + `<input type="text" placeholder="add signal word, Enter to add" aria-label="Add signal word for ${esc(svcName)}" data-signal-input="${esc(svcName)}"/>`
       + `</div>`;
   }
 
@@ -1782,7 +1842,7 @@
     if (!t.dataset) return;
 
     if (t.dataset.cmd !== undefined) {
-      post({ type: 'get-approach-command-body', approachId: t.dataset.approach, command: t.dataset.cmd });
+      postAction(t, 'get-approach-command-body', { approachId: t.dataset.approach, command: t.dataset.cmd });
       return;
     }
     if (t.dataset.removeService) {
@@ -1793,18 +1853,23 @@
       return;
     }
     if (t.dataset.browseRepoPath) {
-      post({ type: 'browse-repo-path', name: t.dataset.browseRepoPath });
+      postAction(t, 'browse-repo-path', { name: t.dataset.browseRepoPath });
       return;
     }
     // Placed before the accordion fallback at the bottom: without the early
-    // return, a click on this checkbox would ALSO expand/collapse the card it
-    // sits in, since it lives inside `.card-head[data-toggle]`.
+    // return, a click on the switch or Remove button would ALSO expand/
+    // collapse the card — though now that the disclosure is its own
+    // <button class="card-toggle">, not the whole `.card-head` row, this is
+    // belt-and-braces rather than load-bearing (they are siblings, not
+    // descendants, of the toggle).
     if (t.dataset.repoEnabled) {
       const name = t.dataset.repoEnabled;
+      const next = t.getAttribute('aria-checked') !== 'true';
       draft.repositories = {
         ...draft.repositories,
-        [name]: { ...draft.repositories[name], enabled: t.checked },
+        [name]: { ...draft.repositories[name], enabled: next },
       };
+      t.setAttribute('aria-checked', String(next));
       markDirty(); renderServices();
       return;
     }
@@ -1904,11 +1969,11 @@
       return;
     }
     if (t.dataset.install) {
-      post({ type: 'install-approach', id: t.dataset.install });
+      postAction(t, 'install-approach', { id: t.dataset.install });
       return;
     }
     if (t.dataset.uninstall) {
-      post({ type: 'uninstall-approach', id: t.dataset.uninstall });
+      postAction(t, 'uninstall-approach', { id: t.dataset.uninstall });
       return;
     }
     if (t.dataset.confirmInstall) {
@@ -1924,40 +1989,51 @@
     if (t.dataset.runInstall) {
       const id = t.dataset.runInstall;
       confirmInstallId = null;
-      post({ type: 'install-approach', id });
+      postAction(t, 'install-approach', { id });
       return;
     }
     if (t.dataset.saveAgent !== undefined) {
       const name = t.dataset.saveAgent;
       const ta = document.querySelector('textarea[data-agent-body="' + CSS.escape(name) + '"]');
-      post({ type: 'save-agent-file', name, body: ta ? ta.value : '' });
+      postAction(t, 'save-agent-file', { name, body: ta ? ta.value : '' });
       return;
     }
     if (t.dataset.deleteAgent !== undefined) {
-      post({ type: 'delete-agent', name: t.dataset.deleteAgent });
+      postAction(t, 'delete-agent', { name: t.dataset.deleteAgent });
       return;
     }
     if (t.dataset.manageApproach !== undefined) {
-      e.preventDefault();
       goToApproachesTab();
+      return;
+    }
+    // Mutating switches (§ docs/ui/DESIGN-SYSTEM.md §5.1 "set-*"): pending on
+    // click, settled by the host's action-result. aria-checked flips locally
+    // first — same immediacy a native checkbox already gave this control —
+    // and a subsequent `state` push (already unconditional after either call
+    // succeeds) is still the authoritative re-render.
+    if (t.dataset.approachEnabled !== undefined) {
+      const id = t.dataset.approachEnabled;
+      const next = t.getAttribute('aria-checked') !== 'true';
+      t.setAttribute('aria-checked', String(next));
+      postAction(t, 'set-approach-enabled', { id, enabled: next });
+      return;
+    }
+    if (t.dataset.agentEnabled !== undefined) {
+      const name = t.dataset.agentEnabled;
+      const next = t.getAttribute('aria-checked') !== 'true';
+      t.setAttribute('aria-checked', String(next));
+      postAction(t, 'set-agent-enabled', { name, enabled: next });
       return;
     }
 
     // Accordion toggle: LAST, so explicit action buttons above win first. Walk
-    // up from the clicked element to the `.card-head[data-toggle]` — clicking
+    // up from the clicked element to the `.card-toggle[data-toggle]` — clicking
     // the label text or chevron (children without the attr) must still expand.
-    // The name input (below) carries data-svc-name so we skip it here.
-    //
-    // The enabled toggle needs the same exemption, but by ANCESTOR rather than
-    // by attribute: its checkbox is visually hidden and the click usually lands
-    // on the `.dot` span, which carries no data-repo-enabled of its own and
-    // would otherwise fall through and expand/collapse the card as a side
-    // effect of flipping the switch.
-    const inEnabledToggle = t.closest && t.closest('.approach-toggle');
-    if (t.dataset.svcName === undefined && !inEnabledToggle) {
-      const head = t.closest && t.closest('[data-toggle]');
-      if (head) {
-        const name = head.dataset.toggle;
+    // The name input carries data-svc-name so we skip it here.
+    if (t.dataset.svcName === undefined) {
+      const toggle = t.closest && t.closest('[data-toggle]');
+      if (toggle) {
+        const name = toggle.dataset.toggle;
         if (openCards.has(name)) openCards.delete(name); else openCards.add(name);
         renderServices();
         return;
@@ -2022,14 +2098,9 @@
       markDirty(); renderServices();
       return;
     }
-    if (t.dataset.approachEnabled !== undefined) {
-      post({ type: 'set-approach-enabled', id: t.dataset.approachEnabled, enabled: t.checked });
-      return;
-    }
-    if (t.dataset.agentEnabled !== undefined) {
-      post({ type: 'set-agent-enabled', name: t.dataset.agentEnabled, enabled: t.checked });
-      return;
-    }
+    // set-approach-enabled / set-agent-enabled are handled in the `click`
+    // listener above: both switches are real <button role="switch"> controls
+    // now (UI-R24, R26), and a button never fires `change`.
   });
 
   document.addEventListener('keydown', (e) => {
@@ -2042,18 +2113,9 @@
       return;
     }
     const t = e.target;
-    if (t.dataset && t.dataset.cmd !== undefined && (e.key === 'Enter' || e.key === ' ')) {
-      post({ type: 'get-approach-command-body', approachId: t.dataset.approach, command: t.dataset.cmd });
-      e.preventDefault();
-      return;
-    }
-    if (t.dataset && t.dataset.manageApproach !== undefined && e.key === ' ') {
-      // Enter is handled natively by the <a href> (fires a click); Space needs
-      // an explicit handler since anchors don't activate on Space by default.
-      e.preventDefault();
-      goToApproachesTab();
-      return;
-    }
+    // Command chips and "manage in approach" are real <button>/<button
+    // class="k-btn--link"> elements now, so Enter/Space activation is native
+    // — no explicit key handling is needed for either (UI-R09).
     if (t.dataset && t.dataset.signalInput !== undefined && e.key === 'Enter') {
       const svc = t.dataset.signalInput;
       const val = t.value.trim();
@@ -2115,13 +2177,15 @@
     // installed (sourced) OR built-in (sourceless — nothing to install). Only a
     // sourced-but-not-installed approach has a dead toggle (install it first).
     const usable = isInstalled || !a.source;
+    const toggleLabel = usable ? 'Enable in create flow' : 'Install to enable';
     const toggle = (
-      `<label class="approach-toggle${usable ? '' : ' disabled'}" title="${usable ? 'Enable in create flow' : 'Install to enable'}">`
-      + `<input type="checkbox" data-approach-enabled="${esc(a.id)}" ${a.enabled !== false ? 'checked' : ''} ${usable ? '' : 'disabled'}/>`
-      + `<span class="dot"></span>`
-      + `</label>`
+      `<button type="button" class="k-switch" role="switch" aria-checked="${a.enabled !== false ? 'true' : 'false'}"`
+      + ` data-approach-enabled="${esc(a.id)}" ${usable ? '' : 'disabled'}`
+      + ` aria-label="${toggleLabel}" title="${toggleLabel}">`
+      + `<span class="k-switch-track"></span>`
+      + `</button>`
     );
-    const editBtn = `<button class="secondary icon" data-edit-approach="${esc(a.id)}">Edit</button>`;
+    const editBtn = `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-edit-approach="${esc(a.id)}">Edit</button>`;
     const source = approachSourceLink(a);
     return (
       `<div class="roster-card ${stateClass}">`
@@ -2177,8 +2241,8 @@
     if (!cmds.length) return '';
     const chip = (c) => {
       const isGenerated = c.startsWith('/karst:');
-      return `<span class="chip${isGenerated ? ' generated' : ''}" tabindex="0" role="button"`
-        + ` data-approach="${esc(id)}" data-cmd="${esc(c)}">${esc(c)}</span>`;
+      return `<button type="button" class="chip${isGenerated ? ' generated' : ''}"`
+        + ` data-approach="${esc(id)}" data-cmd="${esc(c)}">${esc(c)}</button>`;
     };
     const entryCmds = cmds.filter((c) => c.startsWith('/karst:'));
     const runCmds = cmds.filter((c) => !c.startsWith('/karst:'));
@@ -2203,7 +2267,8 @@
   function approachInstallAffordance(a) {
     if (!a.id) return '';
     if (installedIds.includes(a.id)) {
-      return `<button class="secondary icon approach-install" data-uninstall="${esc(a.id)}">Uninstall</button>`;
+      return `<button type="button" class="k-btn k-btn--danger k-btn--sm approach-install" data-uninstall="${esc(a.id)}"`
+        + ` title="Uninstall ${esc(a.id)} and remove its files">Uninstall</button>`;
     }
     if (!a.source) {
       return `<span class="approach-install builtin-tag">Built-in</span>`;
@@ -2214,16 +2279,16 @@
         `<span class="approach-install confirm-run">`
         + (isNpm ? `<span class="confirm-cmd">Runs: ${esc(a.source.command)}</span>` : '')
         + `<span class="confirm-actions">`
-        + `<button class="secondary icon" data-cancel-install="${esc(a.id)}">Cancel</button>`
-        + `<button class="icon" data-run-install="${esc(a.id)}">Run</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-cancel-install="${esc(a.id)}">Cancel</button>`
+        + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-run-install="${esc(a.id)}">Run</button>`
         + `</span>`
         + `</span>`
       );
     }
     if (a.source.type === 'npm') {
-      return `<button class="secondary icon approach-install" data-confirm-install="${esc(a.id)}">Install</button>`;
+      return `<button type="button" class="k-btn k-btn--secondary k-btn--sm approach-install" data-confirm-install="${esc(a.id)}">Install</button>`;
     }
-    return `<button class="secondary icon approach-install" data-install="${esc(a.id)}">Install</button>`;
+    return `<button type="button" class="k-btn k-btn--secondary k-btn--sm approach-install" data-install="${esc(a.id)}">Install</button>`;
   }
 
   el('addApproachBtn').addEventListener('click', () => {
@@ -2237,6 +2302,11 @@
   // would break an installed package's directory mapping; rename = delete + add).
   let approachDrawerMode = null;
   let approachDrawerEditId = null;
+  // The drawer's own in-flight save/delete request, settled explicitly from
+  // the domain `saved`/`error` messages — same reasoning as
+  // `topbarSaveRequestId` above (action-result's `ok` cannot distinguish a
+  // validation rejection from a real write for the `save` action).
+  let approachDrawerRequestId = null;
 
   // id-safety mirrors the host's assertSafeId (approaches/pkg.ts): reject a
   // path separator, a ".." segment, or an absolute path (posix or win-drive).
@@ -2302,6 +2372,11 @@
     el('approachFormDrawer').classList.remove('open');
     approachDrawerMode = null;
     approachDrawerEditId = null;
+    // A manual Cancel/Close while a save is still in flight must not let that
+    // request's eventual reply reach back into whatever the drawer is used for
+    // next (a stray inline error, or an unwanted close of a since-reopened
+    // drawer). The request itself already ran host-side either way.
+    approachDrawerRequestId = null;
   }
 
   // Validates in the drawer and, on success, builds the approach object
@@ -2372,6 +2447,7 @@
 
     draft.approaches = nextApproaches;
     markDirty();
+    renderApproaches();
     // Persist to disk NOW — a drawer Save must be a real save, not just an
     // in-memory draft edit that waits for the page-level Save button. Otherwise
     // the approach is absent from the manifest FILE that Install reads, and
@@ -2381,9 +2457,13 @@
     // sitting on General. The host merges it onto the file, validates the result,
     // reloads, and pushes fresh state (which re-renders the roster with the
     // persisted approach + refreshed installedIds), then a 'saved' ack.
-    post({ type: 'save', manifest: draft, section: 'approaches' });
-    renderApproaches();
-    closeApproachDrawer();
+    //
+    // The drawer stays open, Save pending, until that ack arrives (UI-R14b):
+    // closing unconditionally right here — the previous behavior — left a host
+    // validation failure with nowhere to render, behind an already-closed
+    // drawer. See the `saved`/`error` cases in the `message` handler below,
+    // which close it on success and render the failure inline on failure.
+    approachDrawerRequestId = postAction(el('approachDrawerSave'), 'save', { manifest: draft, section: 'approaches' });
   }
 
   // Blocked when the id is installed (an installed package would be orphaned)
@@ -2392,12 +2472,12 @@
     if (!approachDrawerEditId || installedIds.includes(approachDrawerEditId)) return;
     draft.approaches = (draft.approaches || []).filter((a) => a.id !== approachDrawerEditId);
     markDirty();
+    renderApproaches();
     // Persist immediately — same reasoning as submitApproachDrawer: a drawer
     // mutation must reach the manifest file, not linger as an unsaved draft
-    // (869e836xh, defect 1), and scoped to the one field the drawer owns.
-    post({ type: 'save', manifest: draft, section: 'approaches' });
-    renderApproaches();
-    closeApproachDrawer();
+    // (869e836xh, defect 1), and scoped to the one field the drawer owns. Stays
+    // open, Delete pending, until the ack (UI-R14b) — see the message handler.
+    approachDrawerRequestId = postAction(el('approachDrawerDelete'), 'save', { manifest: draft, section: 'approaches' });
   }
 
   el('approachDrawerClose').addEventListener('click', closeApproachDrawer);
@@ -2456,17 +2536,18 @@
   function renderAgentHero(enabledCount, total) {
     return `<div class="agent-hero">`
       + `<span class="stat"><b>${enabledCount}</b> / ${total}</span>`
-      + `<span class="cap">agents enabled in the <span style="font-family:var(--mono)">Direct implementation with a subagent</span> `
+      + `<span class="cap">agents enabled in the <span style="font-family:var(--k-font-mono)">Direct implementation with a subagent</span> `
       + `create flow. Toggle any agent to change what's offered there.</span>`
       + `</div>`;
   }
 
   function agentToggle(a) {
     const on = !!a.enabled;
-    return `<label class="approach-toggle" title="${on ? 'Disable in create flow' : 'Enable in create flow'}">`
-      + `<input type="checkbox" data-agent-enabled="${esc(a.name)}" ${on ? 'checked' : ''}/>`
-      + `<span class="dot"></span>`
-      + `</label>`;
+    const label = on ? 'Disable in create flow' : 'Enable in create flow';
+    return `<button type="button" class="k-switch" role="switch" aria-checked="${on ? 'true' : 'false'}"`
+      + ` data-agent-enabled="${esc(a.name)}" aria-label="${label}" title="${label}">`
+      + `<span class="k-switch-track"></span>`
+      + `</button>`;
   }
 
   // File agent: editable — name + switch + Delete on the roster row, an
@@ -2475,15 +2556,16 @@
   function renderFileAgentRow(a) {
     const on = !!a.enabled;
     return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
-      + `<span class="glyph">&#9638;</span>`
+      + `<span class="glyph" aria-hidden="true">&#9638;</span>`
       + `<span class="nm">${esc(a.name)}</span>`
       + `<span class="spacer"></span>`
       + agentToggle(a)
-      + `<button class="secondary icon" data-delete-agent="${esc(a.name)}">Delete</button>`
+      + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-delete-agent="${esc(a.name)}"`
+      + ` title="Delete the ${esc(a.name)} agent file">Delete</button>`
       + `</div>`
       + `<div class="agent-editor">`
-      + `<textarea data-agent-body="${esc(a.name)}"></textarea>`
-      + `<div class="footer-row"><button class="icon" data-save-agent="${esc(a.name)}">Save</button></div>`
+      + `<textarea aria-label="${esc(a.name)} body" data-agent-body="${esc(a.name)}"></textarea>`
+      + `<div class="footer-row"><button type="button" class="k-btn k-btn--primary k-btn--sm" data-save-agent="${esc(a.name)}">Save</button></div>`
       + `</div>`;
   }
 
@@ -2500,7 +2582,7 @@
         html += `<div class="agent-appr-head">`
           + `<span class="appr-id">${esc(currentId)}</span>`
           + `<span class="spacer"></span>`
-          + `<a class="agent-link" href="#" tabindex="0" data-manage-approach="${esc(currentId)}">manage in approach &#8599;</a>`
+          + `<button type="button" class="k-btn k-btn--link" data-manage-approach="${esc(currentId)}">manage in approach &#8599;</button>`
           + `</div>`;
       }
       html += renderApproachAgentRow(a);
@@ -2511,7 +2593,7 @@
   function renderApproachAgentRow(a) {
     const on = !!a.enabled;
     return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
-      + `<span class="glyph">&#9670;</span>`
+      + `<span class="glyph" aria-hidden="true">&#9670;</span>`
       + `<span class="nm">${esc(a.name)}</span>`
       + `<span class="owner">${esc(a.approachId)}</span>`
       + `<span class="spacer"></span>`
@@ -2531,7 +2613,7 @@
     const input = el('newAgentName');
     const name = (input.value || '').trim();
     if (!name) return;
-    post({ type: 'create-agent', name });
+    postAction(el('addAgentBtn'), 'create-agent', { name });
     input.value = '';
   });
 
@@ -2552,6 +2634,34 @@
   // prereqs met; guarded so a render loop or an error can't re-fire it.
   let listsRequested = false;
 
+  /**
+   * The two ClickUp fetches settle through their OWN replies
+   * (`ticket-lists`/`ticket-statuses` and their `-error` twins), not through
+   * `action-result` — they predate that channel and their failure belongs
+   * inline next to the control (UI-R25), not only in a toast. So pending is
+   * driven here rather than by `karstAction`, using the same runtime pieces:
+   * `karstBeginPending` still arms the watchdog, so a host that never replies
+   * cannot leave a Reload button spinning forever (UI-R14).
+   */
+  let listsRequestId = null;
+  let statusesRequestId = null;
+
+  function beginFetch(btnId, current) {
+    const btn = el(btnId);
+    // Re-entrancy guard: a second click while in flight is dropped, not queued
+    // (UI-R12). Also covers the auto-fetch firing while a manual one is open.
+    if (current || !btn || karstIsPending(btn)) return current;
+    const id = karstRequestId();
+    karstBeginPending(btn, id);
+    return id;
+  }
+
+  function endFetch(current, ok, message) {
+    if (!current) return null;
+    karstSettle(current, ok, message);
+    return null;
+  }
+
   function listPrereqsMet() {
     return Boolean(ticketingCfg().teamId) && tokenConfigured;
   }
@@ -2567,6 +2677,7 @@
     ticketLists = null;
     listHintText = 'Loading lists…';
     renderLists();
+    listsRequestId = beginFetch('refreshListsBtn', listsRequestId);
     post({ type: 'fetch-ticket-lists', teamId: cfg.teamId });
   }
 
@@ -2622,6 +2733,10 @@
     ticketStatuses = null;
     statusHintText = 'Loading statuses…';
     renderAdvance();
+    // Two buttons drive one fetch (start-status and ship-status rows); whichever
+    // is on screen gets the spinner, and one request id settles it.
+    statusesRequestId = beginFetch('refreshStatusesBtn', statusesRequestId)
+      || beginFetch('refreshStartStatusesBtn', statusesRequestId);
     post({ type: 'fetch-ticket-statuses', listId: cfg.listId, teamId: cfg.teamId });
   }
 
@@ -2803,9 +2918,14 @@
     el('providerMenu').classList.add('hidden');
     el('providerTrigger').setAttribute('aria-expanded', 'false');
   }
+  // Opening moves focus into the listbox, onto the currently selected option
+  // (or the first one) — the native <select> this replaces does the same, and
+  // it is what makes the ArrowUp/ArrowDown handling below reachable at all.
   function openProviderMenu() {
     el('providerMenu').classList.remove('hidden');
     el('providerTrigger').setAttribute('aria-expanded', 'true');
+    const opts = [...el('providerMenu').querySelectorAll('[data-value]')];
+    (opts.find((o) => o.getAttribute('aria-selected') === 'true') || opts[0])?.focus();
   }
   function pickProvider(id) {
     const cfg = ticketingCfg();
@@ -2832,6 +2952,17 @@
     if (opt) pickProvider(opt.dataset.value);
   });
   el('providerMenu').addEventListener('keydown', (e) => {
+    // Navigable like the native <select> it replaces: Up/Down move the
+    // listbox's own focus between options, wrapping at either end.
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const opts = [...el('providerMenu').querySelectorAll('[data-value]')];
+      if (!opts.length) return;
+      const idx = opts.indexOf(document.activeElement);
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      opts[(idx + dir + opts.length) % opts.length].focus();
+      return;
+    }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const opt = e.target.closest('[data-value]');
     if (opt) { e.preventDefault(); pickProvider(opt.dataset.value); }
@@ -2900,9 +3031,17 @@
     renderAll();
   }
 
+  // The topbar Save's own in-flight request — settled explicitly from the
+  // domain `saved`/`error` messages (§ the `message` handler below), because
+  // `save` reports `action-result: ok:true` even on a VALIDATION failure (it
+  // is a handled outcome, not a thrown one, and existing tests pin that it
+  // stays that way) — action-result alone cannot tell a rejected save from a
+  // written one.
+  let topbarSaveRequestId = null;
+
   function saveCurrentSection() {
     if (!valid || !currentSectionDirty()) return;
-    post({ type: 'save', manifest: draft, section: currentSection });
+    topbarSaveRequestId = postAction(el('saveBtn'), 'save', { manifest: draft, section: currentSection });
   }
 
   el('discardBtn').addEventListener('click', () => discardSection(currentSection));
@@ -3031,6 +3170,7 @@
         break;
       }
       case 'ticket-statuses': {
+        statusesRequestId = endFetch(statusesRequestId, true);
         ticketStatuses = msg.statuses;
         statusHintText = '';
         // Default to the first status so the common path is coherent immediately:
@@ -3049,6 +3189,7 @@
         break;
       }
       case 'ticket-statuses-error': {
+        statusesRequestId = endFetch(statusesRequestId, false, msg.message);
         ticketStatuses = null;
         statusHintText = msg.message;
         renderAdvance();
@@ -3056,12 +3197,14 @@
         break;
       }
       case 'ticket-lists': {
+        listsRequestId = endFetch(listsRequestId, true);
         ticketLists = msg.lists;
         listHintText = '';
         renderLists();
         break;
       }
       case 'ticket-lists-error': {
+        listsRequestId = endFetch(listsRequestId, false, msg.message);
         ticketLists = null;
         listHintText = msg.message;
         renderLists();
@@ -3072,6 +3215,23 @@
         // it — the user stays on the tab whose error they have to fix.
         navigateAfterSave = null;
         showError(msg.message);
+        // `action-result` alone cannot tell a rejected save from a written one
+        // (the `save` action never throws on a validation failure — it posts
+        // this message and returns), so the topbar Save and the approach
+        // drawer settle their OWN in-flight request here, with the real
+        // outcome, rather than trusting the generic ack below.
+        if (topbarSaveRequestId) {
+          karstSettle(topbarSaveRequestId, false, msg.message);
+          topbarSaveRequestId = null;
+        }
+        if (approachDrawerRequestId) {
+          karstSettle(approachDrawerRequestId, false, msg.message);
+          approachDrawerRequestId = null;
+          // Stays open; the failure renders INSIDE the drawer, next to the
+          // fields that caused it (UI-R14b) — not only the page banner above,
+          // which the user cannot see once a drawer has closed over it.
+          showApproachDrawerError(msg.message);
+        }
         break;
       }
       case 'saved': {
@@ -3084,6 +3244,15 @@
         el('savedMsg').classList.remove('hidden');
         setTimeout(() => el('savedMsg').classList.add('hidden'), 2000);
         updateSaveEnabled();
+        if (topbarSaveRequestId) {
+          karstSettle(topbarSaveRequestId, true);
+          topbarSaveRequestId = null;
+        }
+        if (approachDrawerRequestId) {
+          karstSettle(approachDrawerRequestId, true);
+          approachDrawerRequestId = null;
+          closeApproachDrawer();
+        }
         if (navigateAfterSave) {
           const target = navigateAfterSave;
           navigateAfterSave = null;
@@ -3093,6 +3262,15 @@
       }
       case 'approach-command-body': {
         openDrawer(msg.command, msg.body);
+        break;
+      }
+      // The single dispatch seam's terminal outcome for every OTHER action
+      // (§ docs/ui/DESIGN-SYSTEM.md §5.3, UI-R13): settles the clicked
+      // control's pending state. `save`'s own requestIds are already settled
+      // above with the real domain outcome, so this is a harmless no-op for
+      // them (karstSettle drops an unknown/already-cleared requestId).
+      case 'action-result': {
+        karstSettle(msg.requestId, msg.ok, msg.message);
         break;
       }
     }

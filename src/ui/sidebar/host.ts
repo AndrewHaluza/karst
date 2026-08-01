@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { SidebarView, SidebarViewHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
+import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { BadgeCache } from './badgeCache.js';
 
@@ -32,7 +33,7 @@ export const SIDEBAR_VIEW_ID = 'karst.tickets';
 export function makeSidebarViewHost(
   context: vscode.ExtensionContext,
 ): { host: SidebarViewHost; provider: vscode.WebviewViewProvider; badge: BadgeCache } {
-  const html = injectPalette(readFileSync(join(HERE, 'webview.html'), 'utf8'));
+  const html = injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8')));
   let onResolve: ((view: SidebarView) => void) | undefined;
   // The badge outlives any single resolve: VS Code re-resolves the view when it
   // is hidden and shown again, and in a cold window it may never resolve at all.

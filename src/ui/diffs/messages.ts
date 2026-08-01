@@ -1,3 +1,4 @@
+import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { TicketChangesState } from './snapshot.js';
 
 /** The only webview requests accepted by the ticket changes panel. */
@@ -14,16 +15,32 @@ export type ChangesWebviewMessage =
  */
 const HASH = /^[0-9a-f]{7,40}$/;
 
-/** Messages the host may send to the ticket changes webview. */
+/**
+ * Messages the host may send to the ticket changes webview. `action-result` is
+ * the single per-request terminal outcome (UI-R13). Today only `open-diff`
+ * ever carries a `requestId` that reaches it: `refresh` keeps settling through
+ * the existing `loading`/`state`/`error` broadcast — its terminal outcome IS
+ * the next state push, which the async contract explicitly allows
+ * (DESIGN-SYSTEM §5.1) — and `copy-hash` stays optimistic (UI-R15), so neither
+ * one attaches a `requestId` from the webview.
+ */
 export type ChangesHostMessage =
   | { type: 'loading'; state: TicketChangesState | null }
   | { type: 'state'; state: TicketChangesState }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | ActionResultMessage;
 
+/**
+ * Host-side side-effects a changes panel message can trigger. A `void` return
+ * acks the request as soon as it is accepted; a returned promise is awaited and
+ * its settlement (resolve/reject) becomes the terminal `action-result`
+ * (docs/ui/DESIGN-SYSTEM.md §5.3, UI-R13). This is a type widening from
+ * `() => void` — every existing implementation still satisfies it.
+ */
 export interface ChangesActions {
-  refresh(): void;
-  openDiff(changeId: string): void;
-  copyHash(hash: string): void;
+  refresh(): void | Promise<void>;
+  openDiff(changeId: string): void | Promise<void>;
+  copyHash(hash: string): void | Promise<void>;
 }
 
 /** Narrow untrusted webview data to the changes protocol. */
@@ -47,20 +64,20 @@ export function parseChangesMessage(raw: unknown): ChangesWebviewMessage | null 
   }
 }
 
-/** Parse then dispatch a changes message; malformed input deliberately does nothing. */
-export function routeChangesMessage(raw: unknown, actions: ChangesActions): void {
-  const message = parseChangesMessage(raw);
-  if (!message) return;
-
-  switch (message.type) {
+/**
+ * Dispatch an ALREADY-PARSED message to its action, returning whatever the
+ * action returns. The single dispatch seam (panel.ts) parses `raw` once, reads
+ * its `requestId` off the raw shape (which this narrower deliberately never
+ * sees), and wraps this call in `reportAction` so the caller can await a real
+ * outcome and report exactly one terminal `action-result` (UI-R13).
+ */
+export function routeChangesAction(msg: ChangesWebviewMessage, actions: ChangesActions): void | Promise<void> {
+  switch (msg.type) {
     case 'refresh':
-      actions.refresh();
-      return;
+      return actions.refresh();
     case 'open-diff':
-      actions.openDiff(message.changeId);
-      return;
+      return actions.openDiff(msg.changeId);
     case 'copy-hash':
-      actions.copyHash(message.hash);
-      return;
+      return actions.copyHash(msg.hash);
   }
 }

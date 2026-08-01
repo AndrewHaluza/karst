@@ -1,7 +1,14 @@
 import type { LogError } from '../../logging/logger.js';
-import { routeWelcomeAction, type WelcomeActions, type WelcomeHostMessage } from './messages.js';
+import {
+  parseWelcomeMessage,
+  routeWelcomeAction,
+  type WelcomeActions,
+  type WelcomeHostMessage,
+  type WelcomeMessage,
+} from './messages.js';
 import type { WelcomeState } from './state.js';
 import type { WelcomeActionsCtx, WelcomeActionsFactory } from './actions.js';
+import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /** The subset of a `vscode.WebviewPanel` the welcome manager touches. */
 export interface WelcomePanel {
@@ -43,19 +50,18 @@ export class WelcomeManager {
     const pushState = (): void => {
       panel.postMessage({ type: 'state', state: this.loadState() });
     };
-    const ctx: WelcomeActionsCtx = {
-      post: (message) => panel.postMessage(message),
-      pushState,
-    };
+    const ctx: WelcomeActionsCtx = { pushState };
     const actions: WelcomeActions = this.actionsFactory(ctx);
 
     panel.onDidReceiveMessage((raw) => {
-      try {
-        routeWelcomeAction(raw, actions);
-      } catch (err) {
-        // The message pump must never die on one bad message.
-        this.logError('karst: welcome action failed', err);
-      }
+      // The requestId is read off the RAW message, before parsing narrows it
+      // away (parseWelcomeMessage deliberately drops every field it does not
+      // model). `reportAction` never rejects, so the message pump is safe by
+      // construction; an unparsed message posts nothing (UI-R13).
+      const requestId = readRequestId(raw);
+      const msg = parseWelcomeMessage(raw);
+      if (!msg) return;
+      void reportAction(requestId, (m) => panel.postMessage(m), () => this.runAction(msg, actions));
     });
     panel.onDidDispose(() => (this.panel = undefined));
 
@@ -64,5 +70,22 @@ export class WelcomeManager {
 
   isOpen(): boolean {
     return this.panel !== undefined;
+  }
+
+  /** Dispatch one parsed message, logging (but still surfacing) any failure. */
+  private runAction(msg: WelcomeMessage, actions: WelcomeActions): void | Promise<void> {
+    try {
+      const result = routeWelcomeAction(msg, actions);
+      if (result && typeof (result as PromiseLike<void>).then === 'function') {
+        return (result as Promise<void>).catch((err: unknown) => {
+          this.logError('karst: welcome action failed', err);
+          throw err;
+        });
+      }
+      return result;
+    } catch (err) {
+      this.logError('karst: welcome action failed', err);
+      throw err;
+    }
   }
 }

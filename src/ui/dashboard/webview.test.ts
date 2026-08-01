@@ -32,11 +32,14 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/data-act="switch-agent"[^>]*data-(?:provider|model|ticket)/);
   });
 
-  it('styles the switch action only with semantic VS Code theme tokens', () => {
-    const rule = HTML.match(/\.switch-agent\{[^}]*\}/)?.[0] ?? '';
-    expect(rule).toContain('var(--vscode-button-secondaryBackground');
-    expect(rule).toContain('var(--vscode-button-secondaryForeground');
-    expect(rule).not.toMatch(/#[0-9a-f]{3,8}|\b(?:black|white)\b/i);
+  it('builds the switch action on the shared secondary button, not a bespoke style rule', () => {
+    // UI-R07: no local rule may restyle a <button> (background/border/padding/
+    // radius/font-size) — `.switch-agent` used to declare its own colors with
+    // a hex-adjacent VS Code fallback chain; it is now a layout-only class
+    // riding on `.k-btn--secondary`, which already resolves through the same
+    // secondaryBackground/secondaryForeground tokens.
+    expect(HTML).toMatch(/class="k-btn k-btn--secondary[^"]*switch-agent"[^>]*data-act="switch-agent"/);
+    expect(HTML).not.toMatch(/\.switch-agent\{[^}]*background/);
   });
 
   it('renders ticket changes as one accessible diff icon button', () => {
@@ -73,7 +76,8 @@ describe('dashboard webview.html', () => {
    * is what keeps them level whatever a header carries.
    */
   it('gives every panel header the same declared height', () => {
-    expect(HTML).toMatch(/--phead-h:\s*\d+px/);
+    // Composed from tokens rather than a bare 39px literal (UI-R04).
+    expect(HTML).toMatch(/--phead-h:calc\(var\(--k-control-h-lg\) \+ var\(--k-space-4\) \+ var\(--k-border-w\)\)/);
     expect(HTML).toMatch(/\.phead\{[^}]*min-height:var\(--phead-h\)/);
     // No per-panel override may reintroduce a second height.
     expect(HTML).not.toMatch(/\.svpanel \.phead\{[^}]*(?:min-)?height:/);
@@ -126,7 +130,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('const fixClass = STEP_CLASS[rail.branch.status]');
     expect(HTML).toContain('fixnode ${fixClass}');
     expect(HTML).toContain("rail.branch.status === 'passed'");
-    expect(HTML).toMatch(/\.loop \.fixnode\.done \.node\{[^}]*--stg-color:var\(--st-done\)/);
+    expect(HTML).toMatch(/\.loop \.fixnode\.done \.node\{[^}]*--stg-color:var\(--k-passed\)/);
   });
 
   it('hides the fix branch by default, behind an expand/collapse toggle', () => {
@@ -155,8 +159,15 @@ describe('dashboard webview.html', () => {
   });
 
   it('makes every stage node a real button, so the rail is keyboard-reachable', () => {
-    expect(HTML).toMatch(/<button class="node"/);
+    expect(HTML).toMatch(/<button type="button" class="node"/);
     expect(HTML).toContain('aria-pressed');
+  });
+
+  it('names every rail/fix node for a screen reader, not just a hover title', () => {
+    // Icon-only (a glyph or a spinner character, never text) — aria-label and
+    // title must carry the SAME string (UI-R21/R24).
+    expect(HTML).toMatch(/aria-label="\$\{nodeName\}" title="\$\{nodeName\}"/);
+    expect(HTML).toMatch(/aria-label="\$\{fixNodeName\}" title="\$\{fixNodeName\}"/);
   });
 
   it('keeps the selection beside the host state, never inside it', () => {
@@ -203,26 +214,33 @@ describe('dashboard webview.html', () => {
     // vertically too — and the nodes sit flush against its content top. Without
     // padding-top the selection ring (4px out) and focus outline (5px out) were
     // cut off flat and the selected node rendered as an open arc.
-    expect(HTML).toMatch(/\.railwrap\{[^}]*overflow-x:auto[^}]*padding-top:\s*(\d+)px/);
-    const pad = Number(HTML.match(/\.railwrap\{[^}]*padding-top:\s*(\d+)px/)?.[1]);
-    expect(pad, 'railwrap padding-top must clear the 5px focus outline').toBeGreaterThanOrEqual(5);
+    // --k-space-3 is 6px (DESIGN-SYSTEM.md §2.2), which clears the 5px reach —
+    // padding-top is now the token, not a raw literal (UI-R04).
+    expect(HTML).toMatch(/\.railwrap\{[^}]*overflow-x:auto[^}]*padding-top:var\(--k-space-3\)/);
   });
 
-  it('keeps --panel-bg opaque, because it is a mask and not just a tint', () => {
-    // The nodes fill with --panel-bg to mask the connector running under them,
-    // and the selection ring's inner gap is painted in it. A `transparent`
-    // fallback made both masks stop masking on any theme without
+  it('keeps the rail mask opaque, because it is a mask and not just a tint', () => {
+    // The nodes fill with the surface token to mask the connector running
+    // under them, and the selection ring's inner gap is painted in it. A
+    // `transparent` fallback made both masks stop masking on any theme without
     // editorWidget.background: the rail drew straight through the node.
-    expect(HTML).toContain('--panel-bg:var(--vscode-editorWidget-background,var(--vscode-editor-background))');
-    expect(HTML).not.toContain('--panel-bg:var(--vscode-editorWidget-background,transparent)');
+    // --k-surface (designTokens.ts) IS that value — no local --panel-bg
+    // re-declaration remains to drift from it (UI-R05).
+    expect(HTML).not.toMatch(/--panel-bg:/);
+    expect(HTML).toContain('.st .node{width:var(--k-control-h-lg);height:var(--k-control-h-lg);border-radius:var(--k-radius-circle);');
+    expect(HTML).toMatch(/\.st \.node\{[\s\S]*?background:var\(--k-surface\)/);
   });
 
   it('separates the focus outline from the selection ring by colour', () => {
     // Both were --st-sel at overlapping radii (ring 0–4px, outline 3–5px), so
     // they fused into one slab and focus was invisible on the selected node.
-    expect(HTML).toMatch(/\.st \.node:focus-visible\{outline:2px solid var\(--vscode-focusBorder\)/);
-    expect(HTML).toMatch(/\.fixnode \.node:focus-visible\{outline:2px solid var\(--vscode-focusBorder\)/);
-    expect(HTML, 'the selection ring is what keeps --st-sel').toContain('0 0 0 4px var(--st-sel)');
+    // Now token-built (UI-R04): outline width/offset are calc() combos of the
+    // base --k-focus-w/--k-focus-offset tokens, doubled off the standard
+    // 1px/1px every other focusable in this file uses.
+    expect(HTML).toMatch(/\.st \.node:focus-visible\{outline:calc\(var\(--k-focus-w\) \* 2\) solid var\(--k-focus\)/);
+    expect(HTML).toMatch(/\.fixnode \.node:focus-visible\{outline:calc\(var\(--k-focus-w\) \* 2\) solid var\(--k-focus\)/);
+    expect(HTML, 'the selection ring is what keeps --k-series-2').toContain('var(--k-series-2)');
+    expect(HTML).not.toMatch(/--st-sel/);
   });
 
   it('pulses the armed fix node by scale only, never opacity', () => {
@@ -277,11 +295,14 @@ describe('dashboard webview.html', () => {
     // ring) plus the "—" address keep it off colour alone.
     expect(HTML).toMatch(/class="glyph \$\{on \? 'on' : 'off'\}" role="img"/);
     expect(HTML).toMatch(/aria-label="\$\{status\}" title="\$\{status\}"/);
-    expect(HTML).toMatch(/\.glyph\.off\{[^}]*border:2px solid/);
+    expect(HTML).toMatch(/\.glyph\.off\{[^}]*border:calc\(var\(--k-border-w\) \* 2\) solid/);
   });
 
   it('names every icon-only action, since the icon is the whole label', () => {
-    expect(HTML).toMatch(/aria-label="\$\{esc\(label\)\}"/);
+    // aria-label and title carry the SAME string (UI-R21), including the
+    // disabled-reason case — a screen-reader user needs to know WHY an icon
+    // is greyed out exactly as much as a sighted one reading the tooltip.
+    expect(HTML).toMatch(/aria-label="\$\{esc\(disabledWhy \|\| label\)\}" title="\$\{esc\(disabledWhy \|\| label\)\}"/);
   });
 
   it('restacks nothing at narrow width — one service is one line at every size', () => {
@@ -382,7 +403,11 @@ describe('dashboard webview.html', () => {
   });
 
   it('wires the follow-up button to create-follow-up-ticket', () => {
-    expect(HTML).toContain("post({ type: 'create-follow-up-ticket' })");
+    // Posts through the generic delegated [data-act] handler (pending on
+    // click, non-re-triggerable, settled by action-result) rather than a
+    // bespoke fire-and-forget listener.
+    expect(HTML).toMatch(/id="followUpBtn"[^>]*data-act="create-follow-up-ticket"/);
+    expect(HTML).not.toContain("el('followUpBtn').addEventListener('click'");
   });
 
   /**
@@ -460,7 +485,10 @@ describe('dashboard webview.html', () => {
   });
 
   it('sends the repo along with the click, so the host can resolve the worktree', () => {
-    expect(HTML).toMatch(/post\(\{ type: act, repo: btn\.dataset\.repo \}\)/);
+    // Goes through the generic pending path (unlike merge-pr, resolve-conflicts
+    // is not one of the three long-running actions that settle from a state
+    // push), so it carries a requestId same as every other generic control.
+    expect(HTML).toMatch(/post\(\{ type: act, repo: btn\.dataset\.repo, requestId \}\)/);
   });
 
   /**
@@ -491,8 +519,9 @@ describe('dashboard webview.html', () => {
    * sweeps behind a slow remote.
    */
   it('shows the refresh as busy until the next state push clears it', () => {
-    expect(HTML).toMatch(/prRefreshing = true/);
-    expect(HTML).toMatch(/prRefreshing = false/);
+    expect(HTML).toMatch(/prRefreshId = karstRequestId\(\)/);
+    expect(HTML).toMatch(/karstSettle\(prRefreshId, true\)/);
+    expect(HTML).toMatch(/prRefreshId = null/);
   });
 
   it('resolves the ship to an explicit success flash', () => {
@@ -530,10 +559,30 @@ describe('dashboard webview.html', () => {
     // Merging is irreversible: a second click while the host's confirmation is up
     // must not post a second request, and the pending flag must not be able to
     // stick (the host pushes state on success, failure, AND cancel).
-    const pendingAt = HTML.indexOf('mergePending = { ...mergePending');
+    const pendingAt = HTML.indexOf('mergeRequests = { ...mergeRequests');
     expect(pendingAt).toBeGreaterThan(-1);
-    expect(HTML).toContain('if (!repo || mergePending[repo]) return;');
-    expect(HTML).toContain('mergePending = {};');
+    expect(HTML).toContain('if (!repo || mergeRequests[repo]) return;');
+    // Cleared unconditionally on every state push — resolveMergeOutcome() is
+    // called before this and settles each outstanding request first.
+    expect(HTML).toContain('mergeRequests = {};');
+    expect(HTML).toMatch(/function resolveMergeOutcome/);
+  });
+
+  it('settles a merge request from the fresh PR list, never as a false failure', () => {
+    // The only outcome the webview can verify over this channel is "merged".
+    // Anything else settles unknown (null), never false — a user who simply
+    // cancelled the host's confirmation dialog must not be told the merge
+    // failed (UI-R14: unknown is a different claim from failed).
+    const fn = HTML.match(/function resolveMergeOutcome[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(fn).toMatch(/merged \? true : null/);
+    expect(fn).not.toMatch(/karstSettle\([^)]*,\s*false/);
+  });
+
+  it('carries no requestId on the merge-pr wire payload — it settles from state', () => {
+    // UI-R37: merge-pr keeps posting only {type:'merge-pr', repo}. Attaching
+    // the generic requestId would make extension.ts's immediate (unawaited)
+    // ack settle the button long before the real merge finishes.
+    expect(HTML).toMatch(/post\(\{ type: act, repo \}\);/);
   });
 
   it('never lets the webview choose the merge strategy', () => {
@@ -541,6 +590,208 @@ describe('dashboard webview.html', () => {
     // may appear in the posted message.
     expect(HTML).not.toContain('--squash');
     expect(HTML).not.toMatch(/method:\s*'(squash|merge|rebase)'/);
+  });
+
+  // ── Task 3.6 remediation guards (docs/ui/UI-RULES.md) ──────────────────────
+
+  /**
+   * UI-R04: no raw hex/rgba/px/rem left in <style>. This is not a claim that
+   * NOTHING in the sheet is a literal — a handful of one-off component
+   * dimensions (a scroll cap, a column's minimum width, an @container/@media
+   * breakpoint) have no scale match and are exempt by the same reasoning
+   * `diffs/webview.html` already established for its own 440px breakpoint;
+   * every one of them carries an inline comment explaining why. What must be
+   * literally zero is hex and rgba() — those have no legitimate exception.
+   */
+  it('carries no hex or rgba() color literal in <style>', () => {
+    const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
+    expect(style).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    expect(style).not.toMatch(/rgba?\(/);
+  });
+
+  it('is a CLOSED, allowlisted set of raw px values left in <style>', () => {
+    // Everything else in the sheet is a --k-* token or a calc() of tokens.
+    // These ten are the deliberate UI-R04 exceptions: geometry with no scale
+    // match (a scroll cap, a column minimum, a rail offset), an
+    // @container/@media breakpoint (which cannot read a custom property at
+    // all), and two letter-spacing values (tracking is not in UI-R04's
+    // enumerated list of raw-value properties). Every one of them carries an
+    // explanatory comment in the file; this test pins the set so a NEW raw px
+    // cannot slip in silently, and shrinking the set (by adding a token) is
+    // always welcome.
+    const ALLOWED = ['560px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px'];
+    const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
+    const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
+    const found = [...withoutComments.matchAll(/[0-9]+(\.[0-9]+)?px/g)].map((m) => m[0]);
+    const remaining = [...found];
+    for (const allowed of ALLOWED) {
+      const at = remaining.indexOf(allowed);
+      if (at !== -1) remaining.splice(at, 1);
+    }
+    expect(remaining, `unexpected raw px value(s) in <style>: ${remaining.join(', ')}`).toEqual([]);
+  });
+
+  it('carries no bare numeric border-radius — every radius is a token or the 0/50% exemptions', () => {
+    const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
+    const radii = [...style.matchAll(/border-radius:\s*([^;{}]+)[;}]/g)].map((m) => m[1]!.trim());
+    for (const value of radii) {
+      // Every token/calc() reference is stripped first; what is left must be
+      // only whitespace, arithmetic operators, parens, digits that are
+      // exactly "0", or "50%" — never a bare Npx radius.
+      const stripped = value
+        .replace(/calc\(/g, '')
+        .replace(/var\(--[\w-]+\)/g, '')
+        .replace(/[+\-*/()]/g, ' ')
+        .replace(/\b0\b/g, '')
+        .replace(/50%/g, '')
+        .trim();
+      expect(stripped, `unexpected content in border-radius: "${value}"`).toBe('');
+    }
+  });
+
+  /**
+   * The three ad-hoc pending booleans this task replaces: `shipping`,
+   * `mergePending`, `prRefreshing`. `shipping` itself survives (it drives the
+   * ship-progress overlay content, which the task explicitly keeps) but is now
+   * PAIRED with `shipRequestId` for the runtime lifecycle; the other two are
+   * gone by name, replaced by requestId-keyed state that reports a real
+   * terminal outcome instead of clearing identically on every state push.
+   */
+  it('replaces the three ad-hoc pending booleans with the runtime lifecycle', () => {
+    expect(HTML).not.toMatch(/\bmergePending\b/);
+    expect(HTML).not.toMatch(/\bprRefreshing\b/);
+    expect(HTML).toMatch(/let mergeRequests = \{\}/);
+    expect(HTML).toMatch(/let prRefreshId = null/);
+    expect(HTML).toMatch(/let shipRequestId = null/);
+  });
+
+  it('gives merge the danger variant, ship and refresh the runtime pending lifecycle', () => {
+    expect(HTML).toMatch(/k-btn--danger k-btn--sm mgbtn" data-act="merge-pr"/);
+    expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
+    expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
+    expect(HTML).toMatch(/prRefreshId = karstRequestId\(\)/);
+    expect(HTML).toMatch(/karstBeginPending\(btn, prRefreshId\)/);
+  });
+
+  it('handles action-result in the message listener, settling through karstSettle', () => {
+    expect(HTML).toMatch(/msg\.type === 'action-result'/);
+    expect(HTML).toMatch(/karstSettle\(msg\.requestId, msg\.ok, msg\.message\)/);
+  });
+
+  it('routes every OTHER mutating/handoff control through the pending runtime with a requestId', () => {
+    // edit-ticket, create-follow-up-ticket, open-worktree-terminal,
+    // open-worktree-folder, resolve-conflicts, resume-ticket, stop-server,
+    // restart-server, spin-servers (row + panel), open-server, open-pr,
+    // open-ticket-link, open-stage-log, switch-agent — all fall through the
+    // generic branch of the delegated click handler, which begins pending and
+    // attaches a requestId before posting.
+    const generic = HTML.slice(
+      HTML.indexOf('// Every other posting control settles'),
+      HTML.indexOf('window.addEventListener'),
+    );
+    expect(generic).toMatch(/karstIsPending\(btn\)/);
+    expect(generic).toMatch(/karstBeginPending\(btn, requestId\)/);
+    expect(generic).toMatch(/requestId \}\)/);
+  });
+
+  /**
+   * Every `.k-iconbtn`/icon-only control in this file: the rail/fix nodes
+   * (glyph-only), the servers panel's `iact()`-built row actions, the panel
+   * header refresh/diff icons, and the copy-branch icon all carry a matching
+   * aria-label + title pair (UI-R19–R21, R24).
+   */
+  it('gives every icon-only control a matching aria-label and title', () => {
+    const iconOnlyBlocks = [
+      /aria-label="\$\{nodeName\}" title="\$\{nodeName\}"/, // rail node
+      /aria-label="\$\{fixNodeName\}" title="\$\{fixNodeName\}"/, // fix node
+      /aria-label="\$\{esc\(disabledWhy \|\| label\)\}" title="\$\{esc\(disabledWhy \|\| label\)\}"/, // iact()
+      /aria-label="Copy branch name" title="Copy branch name"/, // copy-worktree-branch
+      /aria-label="Show ticket changes"[\s\S]{0,80}title="Show ticket changes"/, // wtChanges
+      /aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now"/, // prRefresh (idle)
+    ];
+    for (const re of iconOnlyBlocks) {
+      expect(HTML, `missing matching aria-label/title for ${re}`).toMatch(re);
+    }
+    // The dynamic prRefresh busy-state pair — set together, from one string.
+    expect(HTML).toMatch(/refresh\.title = refreshName;\s*\n\s*refresh\.setAttribute\('aria-label', refreshName\)/);
+  });
+
+  it('titles every previously-untitled control named in the remediation brief', () => {
+    for (const title of [
+      'Return the strip to the stage the ticket is actually on', // .ghost[data-back]
+      "Open this stage's log file in an editor", // open-stage-log
+      "Switch this ticket\\'s live agent session", // .switch-agent (JS string literal, escaped apostrophe)
+      'Open a terminal in this worktree', // open-worktree-terminal
+      'Reveal this worktree in the file explorer', // open-worktree-folder
+      "Hand this repo's conflict to an agent session", // resolve-conflicts
+      'Open this pull request', // open-pr
+    ]) {
+      expect(HTML, `missing title: ${title}`).toContain(title);
+    }
+  });
+
+  it('keeps every STATIC title within the 80-character bound (UI-R20)', () => {
+    // Excludes titles built from an interpolated template literal (contain
+    // `${`) — their rendered length depends on runtime data (a PR number, a
+    // base ref name), so a static character count on the source text checks
+    // the wrong thing. Every literal, non-interpolated title in the file is
+    // checked here.
+    const titles = [...HTML.matchAll(/title="([^"][^"]*)"/g)]
+      .map((m) => m[1]!)
+      .filter((t) => !t.includes('${'));
+    expect(titles.length).toBeGreaterThan(0);
+    for (const t of titles) {
+      expect(t.length, `title too long (${t.length} chars): "${t}"`).toBeLessThanOrEqual(80);
+    }
+  });
+
+  it('marks the optimistic copy confirmation as such, and only for the copy actions (UI-R15)', () => {
+    expect(HTML).toMatch(/Optimistic \(UI-R15\)/);
+    expect(HTML).toMatch(/Optimistic feedback for the copy button \(UI-R15\)/);
+    // Never invoked from ship/merge/refresh — the three mutations this task
+    // wires to real terminal outcomes.
+    const shipBranch = HTML.slice(HTML.indexOf("if (act === 'ship-ticket')"), HTML.indexOf("if (act === 'merge-pr')"));
+    const mergeBranch = HTML.slice(HTML.indexOf("if (act === 'merge-pr')"), HTML.indexOf("if (act === 'refresh-prs')"));
+    expect(shipBranch).not.toContain('flashCopied');
+    expect(mergeBranch).not.toContain('flashCopied');
+  });
+
+  it('gives every rounded pill in the file the shared .k-chip primitive (UI-R08)', () => {
+    // keypill, fixtoggle, approach .aid / .none, and the PR status pill all
+    // build on one shared shape instead of four divergent bespoke radii.
+    expect(HTML).toMatch(/class="k-chip keypill/);
+    expect(HTML).toMatch(/class="k-chip fixtoggle/);
+    expect(HTML).toMatch(/class="k-chip aid"/);
+    expect(HTML).toMatch(/class="k-chip none"/);
+    expect(HTML).toMatch(/class="k-chip pst pst-/);
+  });
+
+  it('resolves the three purples (selection ring, merged badge, merged timestamp) to one token', () => {
+    expect(HTML).not.toMatch(/#8957e5|#a371f7|#8a63d2|#c297ff/);
+    expect(HTML).toMatch(/\.st\.sel \.node\{box-shadow:[^}]*var\(--k-series-2\)/);
+    expect(HTML).toMatch(/\.pr \.pst-merged\{background:var\(--k-series-2\)/);
+    expect(HTML).toMatch(/\.pmeta \.pmerged\{color:var\(--k-series-2\)/);
+  });
+
+  it('gives every native <summary> disclosure its own focus-visible ring', () => {
+    // <summary> is neither a <button> nor an <a>/<input>, so the primitives'
+    // generic :focus-visible rule never reaches it.
+    expect(HTML).toMatch(/\.approach > summary:focus-visible \.aid\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
+    expect(HTML).toMatch(/\.mgd summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
+    expect(HTML).toMatch(/\.pcms summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
+  });
+
+  it('makes the inert local key pill visibly non-interactive, never a real control', () => {
+    expect(HTML).toMatch(/class="k-chip keypill local"/);
+    expect(HTML).toMatch(/\.dhead \.keypill\.local\{border-style:dashed;color:var\(--k-text-dim\);\s*\n\s*background:transparent;cursor:default\}/);
+  });
+
+  it('leaves stop-driver unreachable from the rendered UI (tracked, not silently wired)', () => {
+    // No control in this file posts stop-driver — confirmed here so a future
+    // edit does not accidentally wire it up without updating the host/tests
+    // that assume it stays unreachable. See the remediation report for why
+    // this is left as-is rather than invented a control for it.
+    expect(HTML).not.toMatch(/data-act="stop-driver"/);
   });
 
 });
