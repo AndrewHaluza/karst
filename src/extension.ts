@@ -178,6 +178,7 @@ import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
 import { OnboardingManager } from './ui/onboarding/panel.js';
 import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -785,6 +786,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       reloadManifest,
       listInstalledIds: listInstalledApproachIds,
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+      storageDir: context.globalStorageUri.fsPath,
+      pickAttachment: async (): Promise<string[]> => {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectMany: true,
+          openLabel: 'Attach',
+          filters: {
+            Media: [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS],
+          },
+        });
+        return (picked ?? []).map((uri) => uri.fsPath);
+      },
+      openFile: (path: string) => {
+        void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
+      },
     }),
     listInstalledApproachIds,
     listAgents,

@@ -18,6 +18,15 @@ import {
 } from '../../workflow/classify/analyze.js';
 import type { OnboardingActions, TicketDraftFields } from './messages.js';
 import type { OnboardingActionsCtx, OnboardingActionsFactory } from './panel.js';
+import { ingestFile, ingestBytes, type IngestResult } from '../../attachments/ingest.js';
+import { unlinkAttachment } from '../../attachments/reap.js';
+import { attachmentPath } from '../../attachments/paths.js';
+import {
+  insertAttachment,
+  getAttachment,
+  deleteAttachment,
+  findAttachmentByStoredName,
+} from '../../store/attachments.js';
 
 /**
  * Host-side onboarding logic (§ onboarding), independent of `vscode`. It ties
@@ -82,6 +91,21 @@ export interface OnboardingActionsDeps {
   listInstalledIds: () => string[];
   /** Open a URL in the external browser (vscode.env.openExternal). */
   openUrl?: (url: string) => void | Promise<void>;
+  /**
+   * Global-storage root that attachment bytes are written under. Injected rather
+   * than derived so this module stays free of `vscode` and testable against a
+   * tmpdir.
+   */
+  storageDir: string;
+  /**
+   * Show the native file picker and resolve the chosen absolute paths (empty on
+   * cancel). Injected because it needs `vscode.window.showOpenDialog`. The HOST
+   * owns the dialog: the webview only asks for one, so a crafted message can
+   * neither choose a path nor pre-fill one.
+   */
+  pickAttachment: () => Promise<string[]>;
+  /** Reveal a file in the editor (real: `vscode.env.openExternal` / `vscode.open`). */
+  openFile: (path: string) => void;
 }
 
 function errorMessage(e: unknown): string {
@@ -155,7 +179,91 @@ function persistDraft(
 export function buildOnboardingActions(
   deps: OnboardingActionsDeps,
 ): OnboardingActionsFactory {
-  return (ctx: OnboardingActionsCtx): OnboardingActions => ({
+  return (ctx: OnboardingActionsCtx): OnboardingActions => {
+    /**
+     * Ensure this panel is bound to a persisted ticket, minting a draft if it is
+     * not. There is no attachment without a `ticket_id` — the directory is named
+     * by one. Reuses the exact persist-on-bind path `fetchSource` already walks,
+     * rather than inventing a staging area that would need its own move-on-submit
+     * lifecycle to get wrong.
+     */
+    const ensureTicket = (): number => {
+      if (ctx.ticketId !== undefined) return ctx.ticketId;
+      const draft = createTicketFlow(deps.store, {
+        key: '',
+        title: 'Untitled ticket',
+        projectId: deps.projectId,
+      });
+      ctx.bindTicket(draft.id);
+      deps.onChange(); // sidebar shows the new draft
+      return draft.id;
+    };
+
+    /**
+     * File the ingest result. A dedupe hit returns the EXISTING row rather than
+     * inserting a second one: identical bytes are one file, and a duplicate row
+     * would put two tiles over it — the second detach then unlinking the file the
+     * first still points at.
+     */
+    const record = (ticketId: number, result: IngestResult): boolean => {
+      if (!result.ok) {
+        ctx.post({ type: 'error', message: result.message });
+        return false;
+      }
+      const existing = findAttachmentByStoredName(
+        deps.store, ticketId, result.input.storedName,
+      );
+      if (!existing) insertAttachment(deps.store, result.input);
+      return true;
+    };
+
+    return {
+    attachPick: async (): Promise<void> => {
+      const paths = await deps.pickAttachment();
+      if (paths.length === 0) return; // cancelled — not an error, say nothing
+      const ticketId = ensureTicket();
+      let changed = false;
+      for (const path of paths) {
+        // Sequential, not Promise.all: each ingest hashes and copies, and a
+        // multi-select of large videos should not run N copies at once.
+        if (record(ticketId, await ingestFile(deps.storageDir, ticketId, path))) changed = true;
+      }
+      if (changed) ctx.pushState();
+    },
+
+    attachBytes: async (name: string, base64: string): Promise<void> => {
+      const ticketId = ensureTicket();
+      // Buffer.from silently DROPS invalid base64 characters rather than
+      // throwing, so a corrupt payload would otherwise be written as a
+      // truncated file that renders as a broken tile. Re-encoding and comparing
+      // is the check: a payload that does not round-trip was not valid base64.
+      const bytes = Buffer.from(base64, 'base64');
+      if (bytes.toString('base64') !== base64) {
+        ctx.post({ type: 'error', message: `${name} could not be decoded` });
+        return;
+      }
+      if (record(ticketId, await ingestBytes(deps.storageDir, ticketId, name, bytes))) {
+        ctx.pushState();
+      }
+    },
+
+    detachAttachment: async (id: number): Promise<void> => {
+      // Scoped to THIS panel's ticket. The id crosses an untrusted boundary, so
+      // an id belonging to another ticket must not let this panel unlink that
+      // ticket's file.
+      const row = getAttachment(deps.store, id);
+      if (!row || row.ticketId !== ctx.ticketId) return;
+      deleteAttachment(deps.store, id);
+      await unlinkAttachment(deps.storageDir, row.ticketId, row.storedName);
+      ctx.pushState();
+    },
+
+    openAttachment: async (id: number): Promise<void> => {
+      const row = getAttachment(deps.store, id);
+      if (!row || row.ticketId !== ctx.ticketId) return;
+      deps.openFile(attachmentPath(deps.storageDir, row.ticketId, row.storedName));
+    },
+
     async fetchSource(ref: string): Promise<void> {
       if (!deps.provider.fetchTicket) {
         ctx.post({ type: 'error', message: 'This provider cannot fetch tickets.' });
@@ -408,5 +516,6 @@ export function buildOnboardingActions(
     requestState(): void {
       ctx.pushState();
     },
-  });
+    };
+  };
 }
