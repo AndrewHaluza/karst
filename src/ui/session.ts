@@ -8,13 +8,6 @@ import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
  */
 export interface SessionTerminal {
   /**
-   * The terminal's title as the host actually shows it (real: `Terminal.name`).
-   * Read after creation rather than assumed: the host may fold a description
-   * into the name, and the durable identity registry has to record the title a
-   * revived terminal will report back, not the one karst asked for.
-   */
-  readonly name?: string;
-  /**
    * Reveal the terminal. `preserveFocus` leaves the keyboard where it is (real:
    * `Terminal.show(preserveFocus)`) — what the dashboard binding needs, since it
    * reveals this terminal beside a panel the user just clicked.
@@ -46,8 +39,8 @@ export const KARST_LAUNCH_ENV = 'KARST_LAUNCH_ID';
  *
  * This is EXACT but not durable: VS Code does not restore a reconnected
  * terminal's env, so it reads undefined for every karst terminal after a window
- * reload. `sessionTerminalRegistry.ts` holds the durable half (the recorded
- * title) and `resolveRestoredSession` is the lookup that combines them — this
+ * reload. `terminalIdentity.ts` holds the durable half (the pid recorded at
+ * launch) and `identifyTerminal` is the lookup that combines them — this
  * function is its first, preferred step, never the whole answer.
  */
 export function ticketIdFromTerminalEnv(
@@ -241,17 +234,6 @@ export class SessionManager {
       ticketId: number,
       options: OpenSessionOptions,
     ) => void,
-    /**
-     * Fired ONLY when this manager actually created a terminal, with the title
-     * and generation it used. Focusing an open session or adopting a revived one
-     * mints nothing, and reporting there would let a stale title overwrite the
-     * identity of the terminal that is really running (869ecmk6v).
-     */
-    private readonly onDidLaunchTerminal?: (
-      ticketId: number,
-      name: string,
-      launchId: string | undefined,
-    ) => void,
   ) {}
 
   private trackTerminal(
@@ -376,11 +358,6 @@ export class SessionManager {
       Boolean(resume),
       options,
     );
-    this.onDidLaunchTerminal?.(
-      ticketId,
-      terminal.name ?? terminalName,
-      hookChannel.launchId,
-    );
     if (options.reveal !== false) terminal.show();
   }
 
@@ -490,9 +467,16 @@ export class SessionManager {
    * Reveal an already-open session; no-op if the ticket has none. Never creates
    * one: the dashboard binding calls this on an ordinary panel activation, and
    * launching an agent must stay an explicit act.
+   *
+   * Returns whether a terminal was revealed. The binding needs to know: a reveal
+   * that happened raises an activation event, and one that did not raises
+   * nothing to wait for.
    */
-  focusSession(ticketId: number, preserveFocus?: boolean): void {
-    this.terminals.get(ticketId)?.terminal.show(preserveFocus);
+  focusSession(ticketId: number, preserveFocus?: boolean): boolean {
+    const tracked = this.terminals.get(ticketId);
+    if (!tracked) return false;
+    tracked.terminal.show(preserveFocus);
+    return true;
   }
 
   /** Whether a session terminal is currently open for a ticket. */

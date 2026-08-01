@@ -529,50 +529,6 @@ describe('SessionManager', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  // The durable identity registry is written from what karst ACTUALLY created:
-  // a focus or an adoption mints no terminal, and recording a title there would
-  // overwrite the live terminal's identity with one nothing answers to.
-  it('reports only a terminal it launched, with the title and generation it used', () => {
-    const { adapter } = fakeAdapter();
-    const { host } = fakeHost();
-    const launched: Array<{ ticketId: number; name: string; launchId?: string }> = [];
-    const mgr = new SessionManager(
-      host,
-      channelFor,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      (ticketId, name, id) => launched.push({ ticketId, name, launchId: id }),
-    );
-
-    mgr.openSession(adapter, 7, '/wt/a', { key: 'ABC-1', title: 'a title' });
-    mgr.openSession(adapter, 7, '/wt/a', { key: 'ABC-1', title: 'a title' });
-
-    expect(launched).toEqual([{ ticketId: 7, name: 'Karst: ABC-1', launchId }]);
-  });
-
-  it('reports no launch for a terminal it adopted from the host', () => {
-    const { adapter } = fakeAdapter();
-    const { host } = fakeHost([fakeRestored(7)]);
-    const launched: string[] = [];
-    const mgr = new SessionManager(
-      host,
-      channelFor,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      (_ticketId, name) => launched.push(name),
-    );
-
-    mgr.openSession(adapter, 7, '/wt/a', { key: 'ABC-1', title: 'a title' });
-
-    expect(launched).toEqual([]);
-  });
-
   // A revived terminal is the live agent; the map is only this host's bookkeeping
   // and is empty after a reload. Nudging had no adoption step, so a failed gate
   // opened a SECOND agent beside the one still sitting at its prompt.
