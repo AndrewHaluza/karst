@@ -26,7 +26,12 @@ describe('parseSidebarMessage', () => {
   });
 
   it('accepts row actions only with a finite numeric ticketId', () => {
+    expect(parseSidebarMessage({ type: 'open-ticket', ticketId: 17 })).toEqual({
+      type: 'open-ticket',
+      ticketId: 17,
+    });
     expect(parseSidebarMessage({ type: 'spin', ticketId: 3 })).toEqual({ type: 'spin', ticketId: 3 });
+    expect(parseSidebarMessage({ type: 'open-ticket', ticketId: '17' })).toBeNull();
     expect(parseSidebarMessage({ type: 'archive', ticketId: '3' })).toBeNull();
     expect(parseSidebarMessage({ type: 'delete', ticketId: NaN })).toBeNull();
     expect(parseSidebarMessage({ type: 'edit' })).toBeNull();
@@ -48,6 +53,7 @@ describe('routeSidebarAction', () => {
       requestState: vi.fn(),
       create: vi.fn(),
       openSettings: vi.fn(),
+      openTicket: vi.fn(),
       openDashboard: vi.fn(),
       spin: vi.fn(),
       openSession: vi.fn(),
@@ -62,12 +68,14 @@ describe('routeSidebarAction', () => {
     const a = makeActions();
     routeSidebarAction({ type: 'toggle-facet', facet: 'failed' }, a);
     routeSidebarAction({ type: 'set-filter', query: 'q' }, a);
+    routeSidebarAction({ type: 'open-ticket', ticketId: 17 }, a);
     routeSidebarAction({ type: 'spin', ticketId: 7 }, a);
     routeSidebarAction({ type: 'archive', ticketId: 8 }, a);
     routeSidebarAction({ type: 'create' }, a);
 
     expect(a.toggleFacet).toHaveBeenCalledWith('failed');
     expect(a.setFilter).toHaveBeenCalledWith('q');
+    expect(a.openTicket).toHaveBeenCalledWith(17);
     expect(a.spin).toHaveBeenCalledWith(7);
     expect(a.archive).toHaveBeenCalledWith(8);
     expect(a.create).toHaveBeenCalledOnce();
