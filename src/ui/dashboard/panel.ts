@@ -10,8 +10,9 @@ import {
   type DashboardState,
   type PathContext,
 } from './state.js';
-import { routeAction, type DashboardActions } from './messages.js';
+import { parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
+import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the manager touches. Modeling it as an
@@ -159,11 +160,29 @@ export class DashboardManager {
     // Message pump must never die on one bad message — routeAction validates,
     // and any downstream throw is contained so subsequent messages still flow.
     panel.onDidReceiveMessage((raw) => {
-      try {
-        routeAction(raw, actions);
-      } catch (err) {
-        this.logError('karst: dashboard action failed', err);
-      }
+      // Read the correlation id off the RAW message, before it is narrowed —
+      // `parseWebviewMessage` deliberately drops fields it does not model, and
+      // that dropping is the trust boundary (see readRequestId's own doc).
+      const requestId = readRequestId(raw);
+      // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
+      // no terminal outcome to report, and reporting one anyway would ack a
+      // message the host never acted on.
+      if (!parseWebviewMessage(raw)) return;
+      void reportAction(requestId, (message) => panel.postMessage(message), () => {
+        try {
+          const result = routeAction(raw, actions);
+          if (result && typeof (result as PromiseLike<void>).then === 'function') {
+            return (result as Promise<void>).catch((err: unknown) => {
+              this.logError('karst: dashboard action failed', err);
+              throw err;
+            });
+          }
+          return result;
+        } catch (err) {
+          this.logError('karst: dashboard action failed', err);
+          throw err;
+        }
+      });
     });
     panel.onDidChangeViewState((active) => this.binding?.onDidActivate(ticketId, active));
     panel.onDidDispose(() => {

@@ -1,12 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildWelcomeActions, type WelcomeActionsCtx } from './actions.js';
-import type { WelcomeHostMessage } from './messages.js';
 
 function makeCtx() {
-  const posted: WelcomeHostMessage[] = [];
   const pushState = vi.fn();
-  const ctx: WelcomeActionsCtx = { post: (m) => posted.push(m), pushState };
-  return { ctx, posted, pushState };
+  const ctx: WelcomeActionsCtx = { pushState };
+  return { ctx, pushState };
 }
 
 describe('buildWelcomeActions', () => {
@@ -19,12 +17,16 @@ describe('buildWelcomeActions', () => {
     expect(pushState).toHaveBeenCalledOnce();
   });
 
-  it('createManifest posts an error when the scaffold throws', async () => {
+  it('createManifest rejects (without pushing state) when the scaffold throws', async () => {
+    // No local try/catch any more: the rejection propagates to the single
+    // dispatch seam (panel.ts), which reports it as the terminal
+    // `action-result` instead of the old bespoke `{type:'error'}` push
+    // (UI-R13).
     const scaffoldManifest = vi.fn().mockRejectedValue(new Error('disk full'));
-    const { ctx, posted } = makeCtx();
+    const { ctx, pushState } = makeCtx();
     const actions = buildWelcomeActions({ scaffoldManifest, setDismissed: vi.fn(), runCommand: vi.fn() })(ctx);
-    await actions.createManifest();
-    expect(posted).toContainEqual({ type: 'error', message: 'disk full' });
+    await expect(actions.createManifest()).rejects.toThrow('disk full');
+    expect(pushState).not.toHaveBeenCalled();
   });
 
   it('recheckDeps re-pushes state', () => {

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { OnboardingPanel, OnboardingPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
+import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { attachmentsRoot } from '../../attachments/paths.js';
@@ -20,7 +21,9 @@ import { attachmentsRoot } from '../../attachments/paths.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 export function makeOnboardingPanelHost(context: vscode.ExtensionContext): OnboardingPanelHost {
-  const html = injectProviderIdentity(injectPalette(readFileSync(join(HERE, 'webview.html'), 'utf8')));
+  const html = injectProviderIdentity(
+    injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
+  );
   return {
     createPanel(title: string): OnboardingPanel {
       const panel = vscode.window.createWebviewPanel(

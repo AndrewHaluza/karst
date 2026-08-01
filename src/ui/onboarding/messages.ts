@@ -3,6 +3,7 @@ import type { ContextBrief } from '../../integrations/ticketing.js';
 import { isHttpUrl } from '../shared/url.js';
 import { isKnownProvider } from '../../agent/registry.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
+import type { ActionResultMessage } from '../../model/actionResult.js';
 
 /**
  * Onboarding webview ↔ host message protocol (§ onboarding). The webview is a
@@ -73,6 +74,15 @@ export type OnboardingMessage =
   | ({ type: 'save' } & TicketDraftFields)
   | { type: 'request-state' };
 
+/**
+ * The busy vocabulary is a CLOSED union (UI-R16), not `string`: the host used to
+ * post `what:'suggest'` against a webview `setBusy` switch that had no `'suggest'`
+ * case, so the Suggest button's pending state was silently swallowed and never
+ * rendered. Every member here has a matching case in the webview's `setBusy`;
+ * `webview.test.ts` pins the two together so they cannot drift apart again.
+ */
+export type OnboardingBusyKind = 'fetch' | 'suggest' | 'submit' | 'analyze' | 'save';
+
 /** Host → webview messages: state pushes + async results. */
 export type OnboardingHostMessage =
   | { type: 'state'; state: OnboardingState }
@@ -87,28 +97,40 @@ export type OnboardingHostMessage =
       ticketType: string;
     }
   | { type: 'error'; message: string }
-  | { type: 'busy'; what: string; on: boolean };
+  | { type: 'busy'; what: OnboardingBusyKind; on: boolean }
+  | ActionResultMessage;
 
-/** The host-side side-effects an onboarding page can trigger. */
+/**
+ * The host-side side-effects an onboarding page can trigger.
+ *
+ * Every method's return type is widened from `() => void` to
+ * `() => void | Promise<void>` (§ `docs/ui/DESIGN-SYSTEM.md` §5.3, UI-R13) — a
+ * TYPE WIDENING, so every existing implementation still satisfies it. The single
+ * dispatch seam in `panel.ts` reports the terminal outcome as `action-result`
+ * ONLY for a request that carried a `requestId`; the several actions here that
+ * already self-report via `busy`/`error` posts (fetch, suggest, analyze, submit,
+ * save) keep doing exactly that — their messages carry no `requestId`, so
+ * `reportAction` acks and says nothing further.
+ */
 export interface OnboardingActions {
-  fetchSource: (ref: string) => void;
-  suggestSignals: (service: string) => void;
-  saveSignals: (service: string, signals: string[]) => void;
-  setRepos: (repos: string[]) => void;
-  setApproach: (id: string) => void;
-  setAgent: (id: string) => void;
-  setModel: (id: string) => void;
-  setProvider: (id: string) => void;
-  setType: (id: string) => void;
-  analyze: (prompt: string) => void;
+  fetchSource: (ref: string) => void | Promise<void>;
+  suggestSignals: (service: string) => void | Promise<void>;
+  saveSignals: (service: string, signals: string[]) => void | Promise<void>;
+  setRepos: (repos: string[]) => void | Promise<void>;
+  setApproach: (id: string) => void | Promise<void>;
+  setAgent: (id: string) => void | Promise<void>;
+  setModel: (id: string) => void | Promise<void>;
+  setProvider: (id: string) => void | Promise<void>;
+  setType: (id: string) => void | Promise<void>;
+  analyze: (prompt: string) => void | Promise<void>;
   attachPick: () => Promise<void>;
   attachBytes: (name: string, base64: string) => Promise<void>;
   detachAttachment: (id: number) => Promise<void>;
   openAttachment: (id: number) => Promise<void>;
-  openTicketLink: (url: string) => void;
+  openTicketLink: (url: string) => void | Promise<void>;
   submit: (input: SubmitFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
-  requestState: () => void;
+  requestState: () => void | Promise<void>;
 }
 
 function isStringArray(v: unknown): v is string[] {

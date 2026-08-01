@@ -1,5 +1,6 @@
 import type { Manifest } from '../../manifest/types.js';
 import {
+  parseSettingsMessage,
   routeSettingsAction,
   type SettingsActions,
   type SettingsHostMessage,
@@ -12,6 +13,7 @@ import {
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
 import { compatibilityModelCatalog } from '../../agent/models.js';
+import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /** The subset of a `vscode.WebviewPanel` the manager touches (host-agnostic). */
 export interface SettingsPanel {
@@ -73,12 +75,33 @@ export class SettingsManager {
     });
 
     panel.onDidReceiveMessage((raw) => {
-      try {
-        routeSettingsAction(raw, actions);
-      } catch (err) {
-        // The message pump must never die on one bad message.
-        this.logError('karst: settings action failed', err);
-      }
+      // Read the correlation id off the RAW message, before it is narrowed —
+      // `parseSettingsMessage` deliberately drops fields it does not model, and
+      // that dropping is the trust boundary (see readRequestId's own doc).
+      const requestId = readRequestId(raw);
+      // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
+      // no terminal outcome to report, and reporting one anyway would ack a
+      // message the host never acted on.
+      if (!parseSettingsMessage(raw)) return;
+      void reportAction(requestId, (message) => panel.postMessage(message), () => {
+        // The message pump must never die on one bad message — log it either
+        // way, then rethrow so reportAction reports the real failure as
+        // `ok:false` rather than a silent ack. Kept synchronous when the
+        // matched action is synchronous, so an immediate ack stays immediate.
+        try {
+          const result = routeSettingsAction(raw, actions);
+          if (result && typeof (result as PromiseLike<void>).then === 'function') {
+            return (result as Promise<void>).catch((err: unknown) => {
+              this.logError('karst: settings action failed', err);
+              throw err;
+            });
+          }
+          return result;
+        } catch (err) {
+          this.logError('karst: settings action failed', err);
+          throw err;
+        }
+      });
     });
     panel.onDidDispose(() => (this.panel = undefined));
 

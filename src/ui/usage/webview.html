@@ -7,110 +7,100 @@
   It decides NOTHING. Every count arrives pre-formatted, every label
   pre-resolved, every share pre-computed — the same split the dashboard uses,
   because a number formatted here would be a second implementation of a rule
-  that already lives host-side. The only local state is which control has focus.
+  that already lives host-side (UI-R31). The only local state is which control
+  has focus.
 
-  Styles are the dashboard's: the same VS Code palette variables, the same panel
-  frame, the same mono numerals, so the two views read as one product.
+  Styles are the shared design system's (docs/ui/DESIGN-SYSTEM.md): the
+  `--k-*` tokens and `.k-*` primitives, so this view reads as one product with
+  every other webview rather than carrying its own palette and button shapes.
 -->
 <!--KARST_CSP-->
 <style>
-  :root{
-    --border:var(--vscode-panel-border);
-    --hover:var(--vscode-list-hoverBackground);
-    --text:var(--vscode-foreground);
-    --text-dim:var(--vscode-descriptionForeground,var(--vscode-foreground));
-    --text-faint:var(--vscode-disabledForeground,var(--vscode-descriptionForeground));
-    --link:var(--vscode-textLink-foreground);
-    --panel-bg:var(--vscode-editorWidget-background,var(--vscode-editor-background));
-    --accent:var(--vscode-charts-blue,#3794ff);
-    --accent-2:var(--vscode-charts-purple,#8a63d2);
-    --warn:var(--vscode-charts-yellow,#cca700);
-    --bad:var(--vscode-charts-red,#f14c4c);
-    --phead-h:39px;
-    --mono:var(--vscode-editor-font-family,"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace);
-    --ui:var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);
-  }
+  /*KARST_DS_CSS*/
+
   *{box-sizing:border-box}
-  body{margin:0;background:var(--vscode-editor-background);color:var(--text);
-    font-family:var(--ui);font-size:var(--vscode-font-size,13px);padding:22px 26px}
-  button{font-family:inherit;cursor:pointer;color:var(--vscode-button-foreground);
-    background:var(--vscode-button-background);border:none;border-radius:5px;padding:3px 9px;font-size:11px}
-  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
-  button:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
+  body{margin:0;background:var(--k-bg);color:var(--k-text);
+    font-family:var(--k-font-ui);font-size:var(--k-text-base);padding:var(--k-space-8) var(--k-space-9)}
   .hidden{display:none}
 
-  .uhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-  .uhead h1{font-size:17px;margin:0}
-  .uhead .sub{color:var(--text-dim);font-size:11.5px}
+  .uhead{display:flex;align-items:center;gap:var(--k-space-6);flex-wrap:wrap;margin-bottom:var(--k-space-6)}
+  .uhead h1{font-size:var(--k-text-xl);margin:0}
+  .uhead .sub{color:var(--k-text-dim);font-size:var(--k-text-sm)}
   /* The range picker sits at the right of the header for the same reason the
      dashboard's binding toggle does: it changes what every number below means,
      so it must be visible from anywhere on the page without scrolling. */
-  .ranges{margin-left:auto;display:flex;gap:4px}
-  .ranges button{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
-  .ranges button:hover{background:var(--hover);color:var(--text)}
-  .ranges button[aria-pressed="true"]{color:var(--vscode-button-foreground);
-    background:var(--vscode-button-background);border-color:transparent}
+  .ranges{margin-left:auto;display:flex;gap:var(--k-space-2)}
 
-  .err{border:1px solid var(--bad);border-radius:8px;padding:9px 12px;margin-bottom:14px;
-    color:var(--bad);font-size:12px}
+  .err{border:var(--k-border-w) solid var(--k-danger);border-radius:var(--k-radius-lg);
+    padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-6);
+    color:var(--k-danger);font-size:var(--k-text-md)}
 
-  /* Totals strip. Fixed minimum column so a 1.2M and a 3 sit in the same grid. */
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:18px}
-  .stat{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);padding:10px 12px}
-  .stat .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-dim)}
-  .stat .v{font-family:var(--mono);font-size:20px;margin-top:3px;line-height:1.15}
-  .stat .n{font-size:10.5px;color:var(--text-faint);margin-top:2px;min-height:13px}
-  .stat.flag .v{color:var(--warn)}
+  /* Totals strip. A wide-enough minimum column so a 1.2M and a 3 sit in the
+     same grid; expressed as token arithmetic rather than a raw breakpoint. */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 5),1fr));
+    gap:var(--k-space-5);margin-bottom:var(--k-space-8)}
+  .stat{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);padding:var(--k-space-5) var(--k-space-6)}
+  .stat .k{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
+  .stat .v{font-family:var(--k-font-mono);font-size:var(--k-text-2xl);margin-top:var(--k-space-2);
+    line-height:var(--k-leading-tight)}
+  .stat .n{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1);min-height:var(--k-space-6)}
+  .stat.flag .v{color:var(--k-warning)}
 
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
-  @media (max-width:720px){.grid{grid-template-columns:1fr}}
-  .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
-  .phead{min-height:var(--phead-h);display:flex;align-items:center;gap:8px;
-    padding:0 12px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600}
-  .phead .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-dim);font-weight:400}
-  .pbody{padding:6px 12px 10px}
+  /* Token-driven `auto-fit` collapses to one column on a narrow panel instead
+     of a hardcoded breakpoint — CSS media features cannot reference a --k-*
+     custom property, so this is the token-only equivalent. */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 12),1fr));
+    gap:var(--k-space-6);margin-bottom:var(--k-space-8)}
+  .panel{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);overflow:hidden}
+  .phead{display:flex;align-items:center;gap:var(--k-space-4);
+    padding:var(--k-space-5) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);
+    font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
+  .phead .count{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-xs);
+    color:var(--k-text-dim);font-weight:var(--k-weight-normal)}
+  .pbody{padding:var(--k-space-3) var(--k-space-6) var(--k-space-5)}
 
   /* One breakdown row: label, bar, count. The bar is the comparison; the number
      is the answer. Width comes from state.share — never computed here. */
-  .brow{padding:6px 0}
-  .brow + .brow{border-top:1px solid var(--border)}
-  .brow .line{display:flex;align-items:baseline;gap:8px}
+  .brow{padding:var(--k-space-3) 0}
+  .brow + .brow{border-top:var(--k-border-w) solid var(--k-border)}
+  .brow .line{display:flex;align-items:baseline;gap:var(--k-space-4)}
   .brow .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .brow .amt{margin-left:auto;font-family:var(--mono);font-size:12.5px;flex:none}
-  .brow .pct{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);flex:none;width:44px;text-align:right}
-  .bar{height:4px;border-radius:2px;background:var(--vscode-editor-background);margin-top:5px;overflow:hidden}
-  .bar > i{display:block;height:100%;background:var(--accent);border-radius:2px}
-  .panel.models .bar > i{background:var(--accent-2)}
-  .brow .meta{font-size:10.5px;color:var(--text-faint);margin-top:2px}
-  .est{color:var(--warn)}
+  .brow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
+  .brow .pct{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:none;
+    width:calc(var(--k-space-9) + var(--k-space-8));text-align:right}
+  .bar{height:var(--k-space-2);border-radius:var(--k-radius-xs);background:var(--k-surface-sunken);
+    margin-top:var(--k-space-2);overflow:hidden}
+  /* The two breakdown panels answer different questions (by-stage vs by-model)
+     and sit side by side, so they must not share a hue — that is what the
+     ordered `--k-series-*` tokens are for. They are categorical, NOT status:
+     `--k-info` means "running", and borrowing it for a chart series would make
+     one colour carry two claims. */
+  .bar > i{display:block;height:100%;background:var(--k-series-1);border-radius:var(--k-radius-xs)}
+  .panel.models .bar > i{background:var(--k-series-2)}
+  .brow .meta{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1)}
+  .est{color:var(--k-warning)}
 
-  table{width:100%;border-collapse:collapse;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:var(--k-text-md)}
   /* The table scrolls inside its own frame; the page never scrolls sideways. */
   .tscroll{overflow-x:auto}
-  th{text-align:left;font-weight:600;font-size:10.5px;text-transform:uppercase;
-    letter-spacing:.04em;color:var(--text-dim);padding:7px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-  th.num,td.num{text-align:right;font-family:var(--mono)}
-  th.sortable{cursor:pointer;user-select:none}
-  th.sortable:hover{color:var(--text)}
-  th[aria-sort]{color:var(--text)}
-  th[aria-sort]::after{content:" ↓"}
-  td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  th{text-align:left;font-weight:var(--k-weight-semibold);font-size:var(--k-text-2xs);text-transform:uppercase;
+    letter-spacing:.04em;color:var(--k-text-dim);padding:var(--k-space-4) var(--k-space-6);
+    border-bottom:var(--k-border-w) solid var(--k-border);white-space:nowrap}
+  th.num,td.num{text-align:right;font-family:var(--k-font-mono)}
+  th[aria-sort]{color:var(--k-text)}
+  th[aria-sort]::after{content:" \2193"}
+  td{padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);vertical-align:middle}
   tr:last-child td{border-bottom:none}
-  tbody tr:hover{background:var(--hover)}
+  tbody tr:hover{background:var(--k-surface-hover)}
   td.tkt{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  td.tkt button{background:transparent;color:var(--link);border:none;padding:0;font-size:12px;
-    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
-  td.tkt span.plain{color:var(--text-dim)}
+  td.tkt .k-btn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+  td.tkt span.plain{color:var(--k-text-dim)}
 
-  .pager{display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:11px;color:var(--text-dim)}
+  .pager{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-6);
+    font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .pager .spacer{margin-left:auto}
-  .pager button:disabled{opacity:.4;cursor:default}
-
-  /* Empty state. Not zeroes: a grid of 0s reads as "we measured, and it was
-     free", which is a different (and wrong) statement from "nothing recorded". */
-  .empty{border:1px dashed var(--border);border-radius:10px;padding:26px 20px;text-align:center;color:var(--text-dim)}
-  .empty .big{font-size:13px;color:var(--text);margin-bottom:5px}
-  .empty .hint{font-size:11.5px}
 </style>
 
 <div class="uhead">
@@ -145,12 +135,14 @@
   </div>
 </div>
 
-<div class="empty hidden" id="empty">
-  <div class="big">No AI token usage recorded yet</div>
-  <div class="hint" id="emptyHint"></div>
+<div class="k-empty hidden" id="empty">
+  <div class="k-empty-title">No AI token usage recorded yet</div>
+  <div class="k-empty-hint" id="emptyHint"></div>
 </div>
 
 <script>
+  /*KARST_DS_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
   const el = (id) => document.getElementById(id);
@@ -169,6 +161,9 @@
   ];
 
   let lastState = null;
+  // The last error string already surfaced through the toast, so a re-render
+  // of an unchanged rejected query does not re-announce it (UI-R27).
+  let lastErrorShown = null;
 
   /** An ISO stamp as the viewer's local date. The host sends the instant. */
   const localDate = (iso) => {
@@ -177,10 +172,16 @@
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
+  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
+  // bordered-button toggle: the same primitive `sidebar`'s facet pills use.
   const renderRanges = (state) => {
-    el('ranges').innerHTML = state.ranges.map((r) =>
-      `<button data-range="${esc(r.id)}" aria-pressed="${r.id === state.rangeId}">${esc(r.label)}</button>`,
+    const wrap = el('ranges');
+    wrap.innerHTML = state.ranges.map((r) =>
+      `<button type="button" class="k-chip" data-range="${esc(r.id)}" aria-pressed="${r.id === state.rangeId}">${esc(r.label)}</button>`,
     ).join('');
+    for (const btn of wrap.querySelectorAll('[data-range]')) {
+      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }));
+    }
   };
 
   const statCard = (label, value, note, flag) =>
@@ -218,19 +219,26 @@
   };
 
   const renderTable = (state) => {
-    el('thead').innerHTML = COLUMNS.map((c) => {
-      const cls = (c.num ? 'num' : '') + (c.sort ? ' sortable' : '');
-      const sorted = c.sort && c.sort === state.sort ? ' aria-sort="descending"' : '';
-      const attr = c.sort ? ` data-sort="${esc(c.sort)}"` : '';
-      return `<th class="${cls.trim()}"${attr}${sorted}>${esc(c.label)}</th>`;
+    const thead = el('thead');
+    thead.innerHTML = COLUMNS.map((c) => {
+      const cls = c.num ? ' class="num"' : '';
+      if (!c.sort) return `<th${cls}>${esc(c.label)}</th>`;
+      const sorted = c.sort === state.sort ? ' aria-sort="descending"' : '';
+      // A real, keyboard-reachable control inside the header cell — not a
+      // click handler on the <th> itself (UI-R09).
+      return `<th${cls}${sorted}><button type="button" class="k-btn k-btn--link" data-sort="${esc(c.sort)}">${esc(c.label)}</button></th>`;
     }).join('');
+    for (const btn of thead.querySelectorAll('[data-sort]')) {
+      karstAction(btn, (requestId) => post({ type: 'set-sort', sort: btn.dataset.sort, requestId }));
+    }
 
-    el('tbody').innerHTML = state.tickets.map((t) => {
+    const tbody = el('tbody');
+    tbody.innerHTML = state.tickets.map((t) => {
       // A row with no ticket is spend recorded before the ticket existed; it has
       // no dashboard to open, so it is plain text rather than a dead button.
       const name = t.ticketId === null
         ? `<span class="plain">${esc(t.label)}</span>`
-        : `<button data-ticket="${esc(t.ticketId)}" title="${esc(t.label)}">${esc(t.label)}</button>`;
+        : `<button type="button" class="k-btn k-btn--link" data-ticket="${esc(t.ticketId)}" title="${esc(t.label)}" aria-label="${esc(t.label)}">${esc(t.label)}</button>`;
       return '<tr>' +
         `<td class="tkt">${name}</td>` +
         `<td class="num">${esc(t.calls)}</td>` +
@@ -240,14 +248,28 @@
         `<td class="num">${esc(localDate(t.lastAt))}</td>` +
       '</tr>';
     }).join('');
+    for (const btn of tbody.querySelectorAll('[data-ticket]')) {
+      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }));
+    }
 
     const p = state.page;
     const first = p.groups === 0 ? 0 : p.offset + 1;
     const last = p.offset + state.tickets.length;
-    el('pager').innerHTML =
+    const prevOffset = Math.max(0, p.offset - p.limit);
+    const nextOffset = p.offset + p.limit;
+    // Disabled means "unavailable" (page bounds), not "loading" — no
+    // aria-busy on a statically disabled control, and a title says why
+    // (UI-R17, UI-R19).
+    const prevTitle = p.hasPrev ? 'Show the previous page of tickets' : 'No earlier page';
+    const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
+    const pager = el('pager');
+    pager.innerHTML =
       `<span>${first}–${last} of ${p.groups}</span><span class="spacer"></span>` +
-      `<button data-page="${Math.max(0, p.offset - p.limit)}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
-      `<button data-page="${p.offset + p.limit}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
+      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${prevOffset}" title="${prevTitle}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
+      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${nextOffset}" title="${nextTitle}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
+    for (const btn of pager.querySelectorAll('[data-page]')) {
+      karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }));
+    }
   };
 
   const render = (state) => {
@@ -257,6 +279,15 @@
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
+    // A rejected query is announced through the one shared live region
+    // (the toast) rather than a second live region on #err (UI-R27), and only
+    // once per distinct error so an unrelated re-render does not re-announce it.
+    if (state.error) {
+      if (state.error !== lastErrorShown) karstToast('error', state.error);
+      lastErrorShown = state.error;
+    } else {
+      lastErrorShown = null;
+    }
 
     const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
     el('sub').textContent = rangeLabel;
@@ -278,20 +309,11 @@
     renderTable(state);
   };
 
-  document.addEventListener('click', (e) => {
-    const range = e.target.closest('[data-range]');
-    if (range) { post({ type: 'set-range', range: range.dataset.range }); return; }
-    const th = e.target.closest('th[data-sort]');
-    if (th) { post({ type: 'set-sort', sort: th.dataset.sort }); return; }
-    const page = e.target.closest('[data-page]');
-    if (page && !page.disabled) { post({ type: 'set-page', offset: Number(page.dataset.page) }); return; }
-    const tkt = e.target.closest('[data-ticket]');
-    if (tkt) post({ type: 'open-dashboard', ticketId: Number(tkt.dataset.ticket) });
-  });
-
   window.addEventListener('message', (e) => {
     const msg = e.data;
-    if (msg && msg.type === 'state') render(msg.state);
+    if (!msg) return;
+    if (msg.type === 'state') render(msg.state);
+    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)

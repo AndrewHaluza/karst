@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
+import { injectDesignSystem } from '../../model/designSystem.js';
 import type {
   ChangedFileView,
   CommitView,
@@ -13,22 +14,50 @@ import type {
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
 /**
+ * The REAL design-system runtime injected exactly as the host does, so
+ * `karstAction`/`karstIsPending`/`karstBeginPending`/`karstSettle` in the
+ * tests below are the same code the webview ships with, not a second
+ * hand-rolled copy (STYLE-GUIDE §5.5, DESIGN-SYSTEM §5).
+ */
+const HYDRATED = injectDesignSystem(HTML);
+
+/**
  * The webview's rendering and filtering are executed, not pattern-matched:
- * the page's whole inline script is lifted into a `node:vm` context with DOM
- * and `acquireVsCodeApi` doubles, so the real `esc`, the real filter
- * predicates, and the real row builders are the code under test. Only the
+ * the page's whole inline script (with the design-system markers hydrated) is
+ * lifted into a `node:vm` context with DOM and `acquireVsCodeApi` doubles, so
+ * the real `esc`, the real filter predicates, the real row builders, AND the
+ * real shared pending/settle runtime are the code under test. Only the
  * handful of contracts that cannot be executed (the CSP placeholder, the
- * absence of a second post shape) remain source-level guards.
+ * absence of a second post shape) remain source-level guards against the raw
+ * `HTML`.
  *
  * Host-side git inspection, target resolution, and message validation are
  * covered in panel.test.ts.
  */
 
 function scriptSource(): string {
-  const open = HTML.indexOf('<script>');
-  const close = HTML.indexOf('</script>', open);
+  const open = HYDRATED.indexOf('<script>');
+  const close = HYDRATED.indexOf('</script>', open);
   if (open < 0 || close < 0) throw new Error('webview.html has no inline script');
-  return HTML.slice(open + '<script>'.length, close);
+  return HYDRATED.slice(open + '<script>'.length, close);
+}
+
+/** Raw (un-hydrated) `<style>` block — for text-level token/primitive guards. */
+function styleBlock(): string {
+  const start = HTML.indexOf('<style>');
+  const end = HTML.indexOf('</style>');
+  expect(start, '<style> not found').toBeGreaterThanOrEqual(0);
+  expect(end, '</style> not found').toBeGreaterThan(start);
+  return HTML.slice(start + '<style>'.length, end);
+}
+
+/** Raw (un-hydrated) `<script>` block — for text-level markup/wiring guards. */
+function scriptBlock(): string {
+  const start = HTML.indexOf('<script>');
+  const end = HTML.indexOf('</script>');
+  expect(start, '<script> not found').toBeGreaterThanOrEqual(0);
+  expect(end, '</script> not found').toBeGreaterThan(start);
+  return HTML.slice(start + '<script>'.length, end);
 }
 
 const EXPORTS = [
@@ -79,7 +108,7 @@ interface Harness {
   esc: (value: unknown) => string;
   status: Record<string, string>;
   summary: { textContent: string };
-  refresh: { disabled: boolean; textContent: string } & Listeners;
+  refresh: { disabled: boolean; attrs: Record<string, string> } & Listeners;
   filterBox: { value: string } & Listeners;
   repos: { innerHTML: string };
   notice: { textContent: string; hidden: boolean };
@@ -87,7 +116,9 @@ interface Harness {
   saved: unknown[];
   filterBy: (value: string) => void;
   clickRefresh: () => void;
-  clickRow: (changeId: string | null) => void;
+  clickRow: (changeId: string | null) => FileRowButtonDouble | null;
+  /** Re-fires the delegated click handler on an EXISTING row double — for a repeat click on the same row. */
+  clickButton: (button: FileRowButtonDouble) => void;
   clickCopy: (hash: string) => CopyButtonDouble;
   receive: (data: unknown) => void;
 }
@@ -124,17 +155,81 @@ function copyButton(hash: string): CopyButtonDouble & {
   return button;
 }
 
+/**
+ * The one node the delegated open-diff handler mutates. It has to behave
+ * enough like a real element for the REAL `karstBeginPending`/`karstSettle`
+ * (not a fake) to operate on it: attribute tracking plus a `classList`.
+ */
+interface FileRowButtonDouble {
+  dataset: Record<string, string>;
+  disabled: boolean;
+  attrs: Record<string, string>;
+  classes: string[];
+  classList: { add: (name: string) => void; remove: (name: string) => void };
+  setAttribute: (name: string, value: string) => void;
+  removeAttribute: (name: string) => void;
+  closest: (selector: string) => unknown;
+}
+
+function fileRowButton(changeId: string): FileRowButtonDouble {
+  const button: FileRowButtonDouble = {
+    dataset: { changeId },
+    disabled: false,
+    attrs: {},
+    classes: [],
+    classList: {
+      add: (name: string) => { button.classes.push(name); },
+      remove: (name: string) => { button.classes = button.classes.filter((n) => n !== name); },
+    },
+    setAttribute: (name: string, value: string) => { button.attrs[name] = value; },
+    removeAttribute: (name: string) => { delete button.attrs[name]; },
+    closest: (selector: string) => (selector === '[data-change-id]' ? button : null),
+  };
+  return button;
+}
+
+/** A minimal element double for whatever `document.createElement` mints (the toast node). */
+function elementDouble(): Record<string, unknown> {
+  const attrs: Record<string, string> = {};
+  const classes: string[] = [];
+  const el: Record<string, unknown> = {
+    textContent: '',
+    setAttribute: (name: string, value: string) => { attrs[name] = value; },
+    getAttribute: (name: string) => attrs[name],
+    appendChild: () => {},
+    classList: {
+      add: (name: string) => { classes.push(name); },
+      remove: (name: string) => {
+        const i = classes.indexOf(name);
+        if (i >= 0) classes.splice(i, 1);
+      },
+    },
+  };
+  return el;
+}
+
 function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
   const posted: unknown[] = [];
   const saved: unknown[] = [];
   const summary = { textContent: '' };
   const repos = { innerHTML: '' };
   const notice = { textContent: '', hidden: false };
-  const refresh = listenable({ disabled: false, textContent: '' });
+  const refreshAttrs: Record<string, string> = {};
+  const refresh = listenable({
+    disabled: false,
+    attrs: refreshAttrs,
+    setAttribute: (name: string, value: string) => { refreshAttrs[name] = value; },
+    getAttribute: (name: string) => refreshAttrs[name],
+  });
   const filterBox = listenable({ value: '' });
   const elements: Record<string, unknown> = { summary, repos, notice, refresh, filter: filterBox };
+  // `karstToastRoot` (the REAL runtime) looks up 'k-toast-root' then mints it
+  // via `createElement`/`body.appendChild` on a miss — both are needed for the
+  // executed script not to throw when a request settles with `ok:false`.
   const documentDouble = listenable({
     getElementById: (id: string) => elements[id] ?? null,
+    createElement: () => elementDouble(),
+    body: { appendChild: () => {} },
   });
   const windowDouble = listenable({});
 
@@ -167,7 +262,7 @@ function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
     esc: exported.esc as Harness['esc'],
     status: exported.STATUS as Record<string, string>,
     summary,
-    refresh,
+    refresh: refresh as Harness['refresh'],
     filterBox,
     repos,
     notice,
@@ -178,13 +273,22 @@ function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
       filterBox.fire('input');
     },
     clickRefresh: () => refresh.fire('click'),
-    clickRow: (changeId: string | null) =>
+    clickRow: (changeId: string | null) => {
+      const button = changeId === null ? null : fileRowButton(changeId);
       documentDouble.fire('click', {
         target: {
-          closest: (selector: string) =>
-            selector === '[data-change-id]' && changeId !== null ? { dataset: { changeId } } : null,
+          closest: (selector: string) => (selector === '[data-change-id]' && button ? button : null),
         },
-      }),
+      });
+      return button;
+    },
+    clickButton: (button: FileRowButtonDouble) => {
+      documentDouble.fire('click', {
+        target: {
+          closest: (selector: string) => (selector === '[data-change-id]' ? button : null),
+        },
+      });
+    },
     clickCopy: (hash: string) => {
       const button = copyButton(hash);
       documentDouble.fire('click', {
@@ -459,7 +563,7 @@ describe('ticket changes webview rows', () => {
   it('maps known statuses and falls back to M for an unknown one', () => {
     const { fileRow } = boot();
     const glyph = (status: string): string => {
-      const match = /<span class="status[^"]*">([^<]*)<\/span>/.exec(
+      const match = /<span class="status[^"]*"[^>]*>([^<]*)<\/span>/.exec(
         fileRow(fileView({ status: status as ChangedFileView['status'] })),
       );
       return match?.[1] ?? '';
@@ -470,6 +574,26 @@ describe('ticket changes webview rows', () => {
     expect(glyph('renamed')).toBe('R');
     expect(glyph('copied')).toBe('M');
     expect(glyph('')).toBe('M');
+  });
+
+  /**
+   * Colour is never the only carrier (UI-R28): the bare letter is decorative,
+   * so the span is `role="img"` with the status spelled out in words as its
+   * accessible name — the same shape as a `.k-dot`.
+   */
+  it('gives every status letter an accessible name in words, never colour alone', () => {
+    const { fileRow } = boot();
+    const label = (status: string): string | undefined => {
+      const match = /<span class="status[^"]*" role="img" aria-label="([^"]*)">/.exec(
+        fileRow(fileView({ status: status as ChangedFileView['status'] })),
+      );
+      return match?.[1];
+    };
+    expect(label('added')).toBe('Added');
+    expect(label('modified')).toBe('Modified');
+    expect(label('deleted')).toBe('Deleted');
+    expect(label('renamed')).toBe('Renamed');
+    expect(label('bogus')).toBe('Modified');
   });
 
   it('shows a rename as old → new and a plain path otherwise', () => {
@@ -490,12 +614,12 @@ describe('ticket changes webview empty states', () => {
     expect(harness.summary.textContent).toBe('No worktrees');
   });
 
-  it('shows the loading state while a first refresh is in flight', () => {
+  it('shows the loading state while a first refresh is in flight without changing the label (UI-R18)', () => {
     const harness = boot();
     harness.render(null, true);
     expect(harness.repos.innerHTML).toContain('Loading ticket worktrees…');
     expect(harness.refresh.disabled).toBe(true);
-    expect(harness.refresh.textContent).toBe('Refreshing…');
+    expect(harness.refresh.attrs['aria-busy']).toBe('true');
   });
 
   it('shows the all-clean banner above the repository rows', () => {
@@ -532,10 +656,52 @@ describe('ticket changes webview empty states', () => {
 });
 
 describe('ticket changes webview protocol', () => {
-  it('posts an opaque change id and nothing else when a file row is clicked', () => {
+  /**
+   * Opening a diff is a "handoff" async action (DESIGN-SYSTEM §5.1): a
+   * requestId now rides along so the host's action-result can settle THIS
+   * row specifically (UI-R11, UI-R13) — it carries no other payload.
+   */
+  it('posts an opaque change id and a requestId, and nothing else, when a file row is clicked', () => {
     const harness = boot();
     harness.clickRow('worktree-2:7');
-    expect(harness.posted).toEqual([{ type: 'open-diff', changeId: 'worktree-2:7' }]);
+    expect(harness.posted).toEqual([
+      { type: 'open-diff', changeId: 'worktree-2:7', requestId: expect.any(String) },
+    ]);
+  });
+
+  it('enters pending on the clicked row immediately, before any reply (UI-R11)', () => {
+    const harness = boot();
+    const button = harness.clickRow('worktree-2:7');
+    expect(button?.disabled).toBe(true);
+    expect(button?.attrs['aria-busy']).toBe('true');
+  });
+
+  it('drops a second click on the same row while it is pending, rather than posting again (UI-R12)', () => {
+    const harness = boot();
+    // Re-fire on the SAME row double both times: karstIsPending keys off
+    // element identity, exactly as two clicks on the same un-re-rendered DOM
+    // node would in the real webview.
+    const button = harness.clickRow('worktree-2:7')!;
+    harness.clickButton(button);
+    expect(harness.posted).toHaveLength(1);
+  });
+
+  it('settles the row and leaves it re-clickable on a successful action-result (UI-R13)', () => {
+    const harness = boot();
+    const button = harness.clickRow('worktree-2:7');
+    const requestId = (harness.posted[0] as { requestId: string }).requestId;
+    harness.receive({ type: 'action-result', requestId, ok: true });
+    expect(button?.disabled).toBe(false);
+    expect(button?.attrs['aria-busy']).toBeUndefined();
+  });
+
+  it('settles the row on a failed action-result without leaving it stuck pending (UI-R13, UI-R14)', () => {
+    const harness = boot();
+    const button = harness.clickRow('worktree-2:7');
+    const requestId = (harness.posted[0] as { requestId: string }).requestId;
+    harness.receive({ type: 'action-result', requestId, ok: false, message: 'Diff unavailable' });
+    expect(button?.disabled).toBe(false);
+    expect(button?.attrs['aria-busy']).toBeUndefined();
   });
 
   it('posts nothing when the click misses a file row', () => {
@@ -559,17 +725,21 @@ describe('ticket changes webview protocol', () => {
     expect(posts[0]).toContain("type: 'copy-hash'");
   });
 
-  it('posts the full hash and confirms the copy on the button itself', () => {
+  it('posts the full hash and confirms the copy on the button itself, optimistically (UI-R15)', () => {
     const harness = boot();
     const button = harness.clickCopy('9f1c2ab7d5e04416b3ca9f8e77d0a1c5b6e34210');
 
+    // No requestId: this is the one optimistic path (UI-R15), so it never
+    // enters the karstAction pending/action-result lifecycle.
     expect(harness.posted).toEqual([
       { type: 'copy-hash', hash: '9f1c2ab7d5e04416b3ca9f8e77d0a1c5b6e34210' },
     ]);
     expect(button.defaultPrevented).toBe(true);
     expect(button.textContent).toBe('✓');
     expect(button.label).toBe('Copied');
-    expect(button.classes).toContain('copied');
+    // Reuses the shared .is-success state class (designComponents.ts) rather
+    // than a bespoke "copied" one, so it also gets --k-success for free.
+    expect(button.classes).toContain('is-success');
   });
 
   it('renders the loading state immediately when refresh is clicked', () => {
@@ -635,5 +805,135 @@ describe('ticket changes webview protocol', () => {
 
   it('carries the CSP placeholder the host substitutes at load', () => {
     expect(HTML).toContain('<!--KARST_CSP-->');
+  });
+});
+
+/**
+ * Text-level design-system conformance guards (Task 3.3 of the UI remediation
+ * plan). These check the SOURCE (un-hydrated) markers and markup, same
+ * rationale as every other `webview.test.ts` in this repo (STYLE-GUIDE §5).
+ */
+describe('diffs webview design-system conformance', () => {
+  it('carries the design-system markers ahead of any file-local rule (UI-R03)', () => {
+    const style = styleBlock();
+    expect(style.trimStart().startsWith('/*KARST_DS_CSS*/')).toBe(true);
+    const script = scriptBlock();
+    expect(script.trimStart().startsWith('/*KARST_DS_JS*/')).toBe(true);
+    expect(HTML).toContain('<!--KARST_CSP-->');
+  });
+
+  it('declares no local :root block — tokens come from the injected design system (UI-R04, UI-R05)', () => {
+    expect(styleBlock()).not.toContain(':root');
+  });
+
+  it('contains no raw hex/rgb/px/rem style literal outside the injected tokens, except the one unavoidable media breakpoint (UI-R04)', () => {
+    const style = styleBlock();
+    const local = style.slice(style.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
+    // Comments are prose (they quote the exact numbers being replaced, for
+    // the next reader), not style values — strip them before scanning.
+    const withoutComments = local.replace(/\/\*[\s\S]*?\*\//g, '');
+    // @media conditions cannot read a custom property at all — the 440px
+    // breakpoint therefore has no token-based alternative. Only the
+    // CONDITION is excluded from the scan, not the ruleset it guards.
+    const withoutMediaConditions = withoutComments.replace(/@media\s*\([^)]*\)/g, '@media(...)');
+    const offenders = withoutMediaConditions.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
+    expect(offenders, JSON.stringify(offenders)).toBeNull();
+  });
+
+  it('does not restyle .file or .copy-hash with a local background/border/padding/border-radius rule (UI-R07)', () => {
+    // The old defect: .file was a <button> zeroed out with border:0;
+    // border-radius:0; background:none; text-align:left until it was
+    // unrecognizable as a control, and .copy-hash carried its own bespoke
+    // background/border/radius/font-size. Both now get their appearance
+    // entirely from a k- primitive; only grid placement stays local.
+    const style = styleBlock();
+    for (const selector of ['.file', '.copy-hash']) {
+      const rule = new RegExp(`${selector.replace('.', '\\.')}\\s*\\{([^}]*)\\}`).exec(style);
+      expect(rule, `${selector} rule not found`).not.toBeNull();
+      const body = rule![1]!;
+      expect(body, body).not.toMatch(/\bbackground\s*:/);
+      expect(body, body).not.toMatch(/\bborder(-\w+)?\s*:/);
+      expect(body, body).not.toMatch(/\bpadding\s*:/);
+      expect(body, body).not.toMatch(/\bborder-radius\s*:/);
+      expect(body, body).not.toMatch(/\bfont-size\s*:/);
+    }
+  });
+
+  it('gives .file the k-btn ghost primitive and .copy-hash the k-iconbtn primitive', () => {
+    const script = scriptBlock();
+    expect(script).toContain('class="k-btn k-btn--ghost file"');
+    expect(script).toContain('class="k-iconbtn copy-hash"');
+  });
+
+  it('every <button> in the file carries a k-btn or k-iconbtn primitive (UI-R07)', () => {
+    const classAttrs = [...HTML.matchAll(/<button\b[^>]*class="([^"]*)"[^>]*>/g)].map((m) => m[1]!);
+    expect(classAttrs.length).toBeGreaterThan(0);
+    for (const cls of classAttrs) {
+      expect(cls, cls).toMatch(/\bk-btn\b|\bk-iconbtn\b/);
+    }
+  });
+
+  it('every k-btn carries a real variant', () => {
+    const classAttrs = [...HTML.matchAll(/<button\b[^>]*class="([^"]*)"[^>]*>/g)].map((m) => m[1]!);
+    const kBtns = classAttrs.filter((cls) => /\bk-btn\b/.test(cls));
+    expect(kBtns.length).toBeGreaterThan(0);
+    for (const cls of kBtns) {
+      expect(cls, cls).toMatch(/k-btn--(primary|secondary|ghost|danger|link)/);
+    }
+  });
+
+  it('uses a real, explicitly-hidden chevron element instead of decorative ::before content', () => {
+    // A `content:` character on ::before has no way to carry aria-hidden and
+    // can be read aloud by some screen readers. The chevron is DOM now.
+    const style = styleBlock();
+    expect(style).not.toMatch(/summary::before/);
+    const script = scriptBlock();
+    expect(script).toContain('<span class="chev" aria-hidden="true">');
+  });
+
+  it('handles action-result by settling the pending control (UI-R13)', () => {
+    const script = scriptBlock();
+    expect(script).toContain("msg.type === 'action-result'");
+    expect(script).toContain('karstSettle(msg.requestId, msg.ok, msg.message)');
+  });
+
+  it('routes the delegated open-diff click through the shared pending mechanics, dropping a re-click (UI-R11, UI-R12)', () => {
+    const script = scriptBlock();
+    expect(script).toContain('karstIsPending(row)');
+    expect(script).toContain('karstBeginPending(row, requestId)');
+    expect(script).toMatch(/vscode\.postMessage\(\{\s*type:\s*'open-diff',\s*changeId:\s*row\.dataset\.changeId,\s*requestId\s*\}\)/);
+  });
+
+  it('documents the copy-hash flash as optimistic and why (UI-R15)', () => {
+    const script = scriptBlock();
+    expect(script).toMatch(/Optimistic \(UI-R15\)/);
+    // Never a requestId on this post — that is what keeps it out of the
+    // karstAction pending/action-result lifecycle and genuinely optimistic.
+    expect(script).toContain("vscode.postMessage({ type: 'copy-hash', hash: copy.dataset.copyHash });");
+  });
+
+  it('never changes the refresh button label while pending (UI-R18)', () => {
+    const script = scriptBlock();
+    expect(script).not.toContain('refresh.textContent =');
+    expect(script).toContain("refresh.setAttribute('aria-busy', loading ? 'true' : 'false')");
+  });
+
+  it('every icon-only control carries a matching title/aria-label pair (UI-R19, UI-R21, UI-R24)', () => {
+    const script = scriptBlock();
+    expect(script).toContain('aria-label="Copy commit hash" title="Copy commit hash"');
+  });
+
+  it('every title attribute is non-empty, period-free, and no longer than 80 characters (UI-R20)', () => {
+    const titles = [...HTML.matchAll(/title="([^"]*)"/g)].map((m) => m[1]!);
+    expect(titles.length).toBeGreaterThan(0);
+    for (const title of titles) {
+      expect(title.length, title).toBeGreaterThan(0);
+      expect(title.length, title).toBeLessThanOrEqual(80);
+      expect(title.endsWith('.'), title).toBe(false);
+    }
+  });
+
+  it('every static and JS-created button/input carries no forbidden pointer-events:none disable (UI-R17)', () => {
+    expect(styleBlock()).not.toMatch(/pointer-events\s*:\s*none/);
   });
 });

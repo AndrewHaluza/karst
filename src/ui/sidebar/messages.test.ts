@@ -64,7 +64,7 @@ describe('routeSidebarAction', () => {
     };
   }
 
-  it('dispatches each message to its action with the right arg', () => {
+  it('dispatches each already-parsed message to its action with the right arg', () => {
     const a = makeActions();
     routeSidebarAction({ type: 'toggle-facet', facet: 'failed' }, a);
     routeSidebarAction({ type: 'set-filter', query: 'q' }, a);
@@ -81,10 +81,14 @@ describe('routeSidebarAction', () => {
     expect(a.create).toHaveBeenCalledOnce();
   });
 
-  it('drops malformed messages without calling any action', () => {
+  it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {
+    // The single dispatch seam (panel.ts) wraps this in `reportAction`, which
+    // needs the underlying promise back to report a real terminal result
+    // instead of acking before the action finishes (UI-R13).
+    const pending = Promise.resolve();
     const a = makeActions();
-    routeSidebarAction({ type: 'spin', ticketId: 'x' }, a);
-    routeSidebarAction(null, a);
-    expect(a.spin).not.toHaveBeenCalled();
+    a.spin = vi.fn(() => pending);
+    expect(routeSidebarAction({ type: 'spin', ticketId: 7 }, a)).toBe(pending);
+    await pending;
   });
 });

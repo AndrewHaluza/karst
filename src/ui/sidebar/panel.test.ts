@@ -2,11 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { SidebarViewManager, type SidebarView, type SidebarViewHost } from './panel.js';
-import type { SidebarActions } from './messages.js';
+import type { SidebarActions, SidebarHostMessage } from './messages.js';
 import type { SidebarState } from './state.js';
 
 interface FakeView extends SidebarView {
+  /** Every posted `state` snapshot (kept separate for the pre-existing state-shaped assertions below). */
   posted: SidebarState[];
+  /** Every message posted, `state` included — needed to see `action-result`. */
+  postedRaw: SidebarHostMessage[];
   handlers: Array<(m: unknown) => void>;
   emit(m: unknown): void;
 }
@@ -17,8 +20,12 @@ function fakeHost(): { host: SidebarViewHost; resolve: () => FakeView } {
   const resolve = (): FakeView => {
     const view: FakeView = {
       posted: [],
+      postedRaw: [],
       handlers: [],
-      postMessage: (m) => view.posted.push(m.state),
+      postMessage: (m) => {
+        view.postedRaw.push(m);
+        if (m.type === 'state') view.posted.push(m.state);
+      },
       onDidReceiveMessage: (h) => view.handlers.push(h),
       emit: (m) => view.handlers.forEach((h) => h(m)),
     };
@@ -156,5 +163,77 @@ describe('SidebarViewManager', () => {
     const before = view.posted.length;
     expect(() => mgr.refresh()).not.toThrow();
     expect(view.posted.length).toBe(before + 1);
+  });
+
+  it('posts exactly one action-result per parsed request that carries a requestId (UI-R13)', async () => {
+    const spin = vi.fn();
+    const mgr = new SidebarViewManager(store, () => stubActions({ spin }));
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    view.emit({ type: 'spin', ticketId: 7, requestId: 'r1' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(spin).toHaveBeenCalledWith(7);
+    const results = view.postedRaw.filter((m) => m.type === 'action-result');
+    expect(results).toEqual([{ type: 'action-result', requestId: 'r1', ok: true }]);
+  });
+
+  it('posts no action-result for a message with no requestId (back-compat)', async () => {
+    const spin = vi.fn();
+    const mgr = new SidebarViewManager(store, () => stubActions({ spin }));
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    view.emit({ type: 'spin', ticketId: 7 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(spin).toHaveBeenCalledWith(7);
+    expect(view.postedRaw.some((m) => m.type === 'action-result')).toBe(false);
+  });
+
+  it('reports a rejected action as ok:false with its message, and logs it', async () => {
+    const logError = vi.fn();
+    const mgr = new SidebarViewManager(
+      store,
+      () => stubActions({ delete: vi.fn().mockRejectedValue(new Error('locked')) }),
+      undefined,
+      undefined,
+      logError,
+    );
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    view.emit({ type: 'delete', ticketId: 9, requestId: 'r2' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const results = view.postedRaw.filter((m) => m.type === 'action-result');
+    expect(results).toEqual([{ type: 'action-result', requestId: 'r2', ok: false, message: 'locked' }]);
+    expect(logError).toHaveBeenCalledWith('karst: sidebar action failed', expect.any(Error));
+  });
+
+  it('acks a void action synchronously (handoff kind)', async () => {
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    view.emit({ type: 'open-settings', requestId: 'r3' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(view.postedRaw).toContainEqual({ type: 'action-result', requestId: 'r3', ok: true });
+  });
+
+  it('routes messages to actions and survives a bad message without throwing or reporting', () => {
+    const spin = vi.fn();
+    const logError = vi.fn();
+    const mgr = new SidebarViewManager(store, () => stubActions({ spin }), undefined, undefined, logError);
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    expect(() => view.emit({ type: 'spin', ticketId: 3 })).not.toThrow();
+    expect(() => view.emit({ type: 'evil' })).not.toThrow();
+    expect(spin).toHaveBeenCalledWith(3);
+    expect(logError).not.toHaveBeenCalled();
   });
 });

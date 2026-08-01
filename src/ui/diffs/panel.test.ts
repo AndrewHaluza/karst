@@ -623,8 +623,11 @@ describe('TicketChangesManager', () => {
       await settle();
 
       expect(rejections).toEqual([]);
+      // The action-specific log line still fires first (from openTarget
+      // itself); this one is the generic dispatch-seam safety net that fires
+      // when THAT handler's own warn() throws on the way out.
       expect(logError).toHaveBeenCalledWith(
-        'karst: ticket changes open failed',
+        'karst: ticket changes action failed',
         expect.any(Error),
       );
     } finally {
@@ -663,5 +666,105 @@ describe('TicketChangesManager', () => {
     expect(signal?.aborted).toBe(true);
     expect(logError).not.toHaveBeenCalled();
     expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+  });
+
+  /**
+   * Phase 2 host wiring (UI-R13): the single dispatch seam reads a
+   * `requestId` off the raw message and reports exactly one `action-result`
+   * per parsed request that carried one. `refresh` and `copy-hash` never
+   * carry one from the real webview (covered throughout this file already,
+   * every `emit` above omits it and posts no `action-result`), so these
+   * cover the one message that does: `open-diff`.
+   */
+  describe('action-result reporting', () => {
+    it('reports ok:true for a successful open-diff request that carries a requestId', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {});
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-diff', changeId: 'current:1', requestId: 'req-1' });
+      await settle();
+
+      expect(panels[0]!.posted).toContainEqual({ type: 'action-result', requestId: 'req-1', ok: true });
+    });
+
+    it('reports ok:false with a capped one-line message for a failed open-diff request', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const manager = new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        async () => loaded,
+        async () => { throw new Error('Diff unavailable'); },
+        () => {},
+        () => {},
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-diff', changeId: 'current:1', requestId: 'req-2' });
+      await settle();
+
+      expect(panels[0]!.posted).toContainEqual({
+        type: 'action-result',
+        requestId: 'req-2',
+        ok: false,
+        message: 'Diff unavailable',
+      });
+    });
+
+    it('reports nothing when the webview omits a requestId, even on failure', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const manager = new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        async () => loaded,
+        async () => { throw new Error('Diff unavailable'); },
+        () => {},
+        () => {},
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-diff', changeId: 'current:1' });
+      await settle();
+
+      expect(panels[0]!.posted.some((m) => m.type === 'action-result')).toBe(false);
+    });
+
+    it('reports nothing for a message that fails to parse, even when it carries a requestId', async () => {
+      const { host, panels } = makeHost();
+      const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, async () => { throw new Error('unused'); }, async () => {}, () => {});
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-diff', requestId: 'req-3' }); // no changeId
+      await settle();
+
+      expect(panels[0]!.posted.some((m) => m.type === 'action-result')).toBe(false);
+    });
+
+    it('acks refresh immediately even when the webview attaches a requestId, since its outcome travels via the state broadcast', async () => {
+      const first = deferred<TicketChangesSnapshot>();
+      const second = deferred<TicketChangesSnapshot>();
+      const load = vi.fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      const { host, panels } = makeHost();
+      const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, load, async () => {}, () => {});
+
+      manager.open(41);
+      first.resolve(snapshot(41, 'first:1', target('src/first.ts')));
+      await settle();
+      panels[0]!.emit({ type: 'refresh', requestId: 'req-4' });
+      await settle();
+
+      expect(panels[0]!.posted).toContainEqual({ type: 'action-result', requestId: 'req-4', ok: true });
+      second.resolve(snapshot(41, 'second:1', target('src/second.ts')));
+      await settle();
+    });
   });
 });

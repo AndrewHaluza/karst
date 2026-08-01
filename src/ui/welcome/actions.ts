@@ -1,4 +1,4 @@
-import type { WelcomeActions, WelcomeHostMessage } from './messages.js';
+import type { WelcomeActions } from './messages.js';
 
 /**
  * Host-side welcome logic, independent of `vscode`. Ties the manifest scaffold,
@@ -8,7 +8,6 @@ import type { WelcomeActions, WelcomeHostMessage } from './messages.js';
  */
 
 export interface WelcomeActionsCtx {
-  post(message: WelcomeHostMessage): void;
   /** Rebuild + push fresh state (the panel binds this to a fresh loadState). */
   pushState(): void;
 }
@@ -24,19 +23,14 @@ export interface WelcomeActionsDeps {
   runCommand: (command: string) => void;
 }
 
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
 export function buildWelcomeActions(deps: WelcomeActionsDeps): WelcomeActionsFactory {
   return (ctx: WelcomeActionsCtx): WelcomeActions => ({
     async createManifest(): Promise<void> {
-      try {
-        await deps.scaffoldManifest();
-        ctx.pushState(); // manifest item flips to done without closing the panel
-      } catch (e) {
-        ctx.post({ type: 'error', message: errorMessage(e) });
-      }
+      // No local try/catch: a rejection here propagates to the single dispatch
+      // seam (panel.ts), which reports it as the terminal `action-result`
+      // (UI-R13) instead of the old bespoke `{type:'error'}` push.
+      await deps.scaffoldManifest();
+      ctx.pushState(); // manifest item flips to done without closing the panel
     },
     recheckDeps(): void {
       ctx.pushState();

@@ -1,9 +1,13 @@
 import type { LogError } from '../../logging/logger.js';
+import { readRequestId, reportAction } from '../../model/actionResult.js';
 import { diffViewColumn } from './diffColumn.js';
 import { StaleDiffTargetError, type DiffTarget } from './git.js';
 import {
-  routeChangesMessage,
+  parseChangesMessage,
+  routeChangesAction,
+  type ChangesActions,
   type ChangesHostMessage,
+  type ChangesWebviewMessage,
 } from './messages.js';
 import type { TicketChangesSnapshot } from './snapshot.js';
 
@@ -85,15 +89,22 @@ export class TicketChangesManager {
 
     panel.onDidReceiveMessage((raw) => {
       if (!this.isLive(ticketId, session)) return;
-      try {
-        routeChangesMessage(raw, {
-          refresh: () => this.refresh(ticketId, session),
-          openDiff: (changeId) => this.openTarget(ticketId, session, changeId),
-          copyHash: (hash) => this.copyHash(hash),
-        });
-      } catch (error) {
-        this.logError('karst: ticket changes action failed', error);
-      }
+      // The requestId is read off the RAW message, before parsing narrows it
+      // away (parseChangesMessage deliberately drops every field it does not
+      // model). `reportAction` never rejects, so the message pump is safe by
+      // construction; an unparsed message posts nothing (UI-R13). `refresh`
+      // and `copy-hash` never carry a requestId from the webview, so `send`
+      // inside `reportAction` is a no-op for them — their outcomes still
+      // reach the user through the existing broadcast / optimistic paths.
+      const requestId = readRequestId(raw);
+      const msg = parseChangesMessage(raw);
+      if (!msg) return;
+      const actions: ChangesActions = {
+        refresh: () => this.refresh(ticketId, session),
+        openDiff: (changeId) => this.openTarget(ticketId, session, changeId),
+        copyHash: (hash) => this.copyHash(hash),
+      };
+      void reportAction(requestId, (m) => panel.postMessage(m), () => this.runAction(msg, actions));
     });
     panel.onDidDispose(() => {
       session.disposed = true;
@@ -176,7 +187,17 @@ export class TicketChangesManager {
     });
   }
 
-  private openTarget(ticketId: number, session: PanelSession, changeId: string): void {
+  /**
+   * Unlike `refresh`, this one now RETURNS its outcome instead of swallowing
+   * it: opening a diff used to report failure only through the native VS Code
+   * toast (`warn`) with nothing said inside the webview itself. All the same
+   * side effects still happen in the same order — the native toast is not
+   * replaced, only joined by the in-webview `action-result` the dispatch seam
+   * derives from this promise (UI-R13). The one case that stays silent to the
+   * dispatch seam is a stale changeId / StaleDiffTargetError: those already
+   * self-heal (warn + refresh), so they resolve rather than reject.
+   */
+  private async openTarget(ticketId: number, session: PanelSession, changeId: string): Promise<void> {
     if (!this.isLive(ticketId, session)) return;
     const target = session.snapshot?.targets.get(changeId);
     if (!target) {
@@ -189,7 +210,9 @@ export class TicketChangesManager {
     // panel into another group since it opened, and the diff belongs beside
     // where the panel is now.
     const column = diffViewColumn(session.panel.viewColumn());
-    void Promise.resolve().then(() => this.openDiff(target, column)).catch((error: unknown) => {
+    try {
+      await this.openDiff(target, column);
+    } catch (error) {
       if (!this.isLive(ticketId, session)) return;
       if (error instanceof StaleDiffTargetError) {
         this.warn(error.message);
@@ -198,12 +221,8 @@ export class TicketChangesManager {
       }
       this.logError('karst: opening ticket change failed', error);
       this.warn(errorMessage(error));
-    }).catch((error: unknown) => {
-      // Same reason as the refresh chain: `warn` and `refresh` are injected and
-      // may throw from inside the handler above, which would otherwise reject
-      // the voided tail with nothing attached to it.
-      this.report('karst: ticket changes open failed', error);
-    });
+      throw error;
+    }
   }
 
   /**
@@ -217,6 +236,32 @@ export class TicketChangesManager {
     } catch (error) {
       this.logError('karst: copying a commit hash failed', error);
       this.warn(`Could not copy ${hash} to the clipboard.`);
+    }
+  }
+
+  /**
+   * Dispatch one parsed message, logging (but still surfacing) any failure so
+   * `reportAction` can turn it into a real `action-result` (UI-R13). Mirrors
+   * `welcome`'s `runAction`: this is the ONE place that logs a dispatch
+   * failure generically, on top of whatever action-specific log line the
+   * action itself already wrote (e.g. `openTarget`'s 'opening ticket change
+   * failed') — the two are deliberately not merged into one message, because
+   * the action-specific one is the useful one to grep for and this one is a
+   * structural safety net shared by every action.
+   */
+  private runAction(msg: ChangesWebviewMessage, actions: ChangesActions): void | Promise<void> {
+    try {
+      const result = routeChangesAction(msg, actions);
+      if (result && typeof (result as PromiseLike<void>).then === 'function') {
+        return (result as Promise<void>).catch((err: unknown) => {
+          this.logError('karst: ticket changes action failed', err);
+          throw err;
+        });
+      }
+      return result;
+    } catch (err) {
+      this.logError('karst: ticket changes action failed', err);
+      throw err;
     }
   }
 

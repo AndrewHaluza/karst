@@ -1,196 +1,196 @@
 <!--
   Karst ticket-list sidebar webview (§14 redesign). Replaces the native TreeView.
   Self-contained (webview CSP forbids external assets). Themed with VS Code's
-  `--vscode-*` variables so it inherits light/dark. Renders from the `state`
-  postMessage the host pushes (state.ts → SidebarState) and posts action messages
-  back (messages.ts → SidebarWebviewMessage). Row actions carry a numeric
-  ticketId; the host routes them to the existing karst.* commands.
+  `--vscode-*` variables (via the shared design system) so it inherits light/dark.
+  Renders from the `state` postMessage the host pushes (state.ts → SidebarState)
+  and posts action messages back (messages.ts → SidebarWebviewMessage). Row
+  actions carry a numeric ticketId; the host routes them to the existing karst.*
+  commands. Every posting control carries a `requestId` and settles through the
+  shared design-system runtime (docs/ui/DESIGN-SYSTEM.md §5, UI-R11–R14).
 -->
 <!--KARST_CSP-->
 <style>
-  :root{
-    --mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
-    --g-running:var(--vscode-charts-blue,#3794ff);
-    --g-input:var(--vscode-charts-yellow,#cca700);
-    --g-failed:var(--vscode-charts-red,#f14c4c);
-    --g-done:var(--vscode-charts-green,#4bb64b);
-    --g-gray:var(--vscode-descriptionForeground,#8b8b8b);
-  }
+  /*KARST_DS_CSS*/
+
   *{box-sizing:border-box}
   body{
     margin:0;padding:0;
     background:var(--vscode-sideBar-background,var(--vscode-editor-background));
-    color:var(--vscode-foreground);
-    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
-    font-size:var(--vscode-font-size,13px);
+    color:var(--k-text);
+    font-family:var(--k-font-ui);
+    font-size:var(--k-text-base);
   }
-  button{font-family:inherit;color:inherit;cursor:pointer;background:none;border:0}
 
   /* toolbar */
-  .toolbar{display:flex;align-items:center;gap:2px;padding:6px 8px;
-    border-bottom:1px solid var(--vscode-panel-border,transparent)}
+  .toolbar{display:flex;align-items:center;gap:var(--k-space-1);padding:var(--k-space-3) var(--k-space-4);
+    border-bottom:var(--k-border-w) solid var(--k-border)}
   .toolbar .sp{flex:1}
-  .tool{width:26px;height:24px;display:grid;place-items:center;border-radius:5px;
-    color:var(--vscode-icon-foreground,var(--vscode-foreground))}
-  .tool:hover{background:var(--vscode-toolbar-hoverBackground,rgba(127,127,127,.16))}
 
-  /* search + facets */
-  .search{display:flex;align-items:center;gap:6px;margin:8px 8px 6px;padding:4px 8px;
-    border-radius:4px;background:var(--vscode-input-background);
-    border:1px solid var(--vscode-input-border,var(--vscode-panel-border,transparent))}
-  .search:focus-within{border-color:var(--vscode-focusBorder)}
-  .search svg{color:var(--vscode-input-placeholderForeground,var(--g-gray));flex:0 0 auto}
-  .search input{flex:1;background:none;border:0;outline:none;color:var(--vscode-input-foreground);font-size:12px}
-  .search input::placeholder{color:var(--vscode-input-placeholderForeground,var(--g-gray))}
-  .facets{display:flex;gap:5px;flex-wrap:wrap;padding:0 8px 8px;
-    border-bottom:1px solid var(--vscode-panel-border,transparent)}
-  .facet{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:11px;font-size:11px;
-    border:1px solid var(--vscode-badge-background,rgba(127,127,127,.25));
-    background:transparent;color:var(--vscode-descriptionForeground)}
-  .facet:hover{background:var(--vscode-toolbar-hoverBackground,rgba(127,127,127,.12));color:var(--vscode-foreground)}
-  .facet.on{background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
-    border-color:var(--vscode-badge-background)}
-  /* Filled from the g-* class's `color` (the glyph classes set color, not
-     background, so the same token drives both this dot and the row logo). */
-  .facet .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
-  .facet .n{font-family:var(--mono);font-size:10px;opacity:.8}
+  /* search */
+  .search{position:relative;margin:var(--k-space-4) var(--k-space-4) var(--k-space-3)}
+  .search-icon{position:absolute;left:var(--k-space-3);top:50%;transform:translateY(-50%);
+    color:var(--k-text-faint)}
+  .search-input{width:100%;padding-left:var(--k-space-9)}
+
+  /* facets */
+  .facets{display:flex;gap:var(--k-space-3);flex-wrap:wrap;padding:0 var(--k-space-4) var(--k-space-4);
+    border-bottom:var(--k-border-w) solid var(--k-border)}
+  .facets .n{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.8}
 
   /* rows */
-  .list{padding:4px 0 12px}
-  .empty{padding:16px 12px;color:var(--vscode-descriptionForeground);font-size:12px}
-  .empty a{color:var(--vscode-textLink-foreground);cursor:pointer;text-decoration:none}
-  .empty a:hover{text-decoration:underline}
-  .ticket{margin:1px 4px;border-radius:6px}
+  .list{padding:var(--k-space-2) 0 var(--k-space-6)}
+  .ticket{margin:var(--k-space-1) var(--k-space-2);border-radius:var(--k-radius-md)}
   .ticket.arch{opacity:.6}
-  .row{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 4px;border-radius:6px;position:relative}
-  .row:hover{background:var(--vscode-list-hoverBackground)}
-  .chev{width:16px;flex:0 0 auto;color:var(--g-gray);display:grid;place-items:center;transition:transform .12s}
+  .row{display:flex;align-items:center;gap:var(--k-space-4);
+    padding:var(--k-space-3) var(--k-space-3) var(--k-space-3) var(--k-space-2);
+    border-radius:var(--k-radius-md);position:relative}
+  .row:hover{background:var(--k-surface-hover)}
+
+  .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   .ticket.open .chev{transform:rotate(90deg)}
+
+  /* The row's main click target — opens the ticket dashboard. A real <button>
+     wrapping only decorative content (glyph/name/stage), never another
+     interactive control, so it never nests inside another button (UI-R09).
+     `.rowacts` is its SIBLING, absolutely positioned over the row's right edge
+     on hover — not nested inside this button. Built on `.k-btn--link` (zero
+     chrome already) with only layout + colour overridden locally (UI-R07 does
+     not restrict colour). */
+  .rowopen{display:flex;align-items:center;gap:var(--k-space-4);flex:1;min-width:0;
+    text-align:left;color:inherit}
+  .rowopen:hover,.rowopen:focus-visible{color:inherit;text-decoration:none}
+
   /* The row marker is the karst logo tinted by the status glyph: the mark is
      drawn with stroke="currentColor", so the g-* classes below set `color` and
-     the palette stays the single source (no per-view hex). */
-  .glyph{width:13px;height:13px;flex:0 0 auto;display:grid;place-items:center;position:relative}
+     the palette stays the single source (no per-view hex). Sized by the SVG's
+     own width/height attributes, not CSS. */
+  .glyph{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
   .glyph svg{display:block}
-  /* Status dot on the mark: the tint alone is easy to miss at 13px against a
-     themed sidebar, so the state also gets a shape. Ringed in the sidebar
+  /* Status dot on the mark: the tint alone is easy to miss at this size against
+     a themed sidebar, so the state also gets a shape. Ringed in the sidebar
      background so it reads as an overlay, not part of the logo. */
-  .glyph .sdot{position:absolute;right:-3px;bottom:-3px;width:6px;height:6px;border-radius:50%;
-    background:currentColor;box-shadow:0 0 0 1.5px var(--vscode-sideBar-background,var(--vscode-editor-background))}
+  .glyph .sdot{position:absolute;right:calc(-1 * var(--k-space-2));bottom:calc(-1 * var(--k-space-2));
+    width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);
+    background:currentColor;
+    box-shadow:0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background,var(--vscode-editor-background))}
   /* Pending reads as absence: a hollow ring, not a filled dot. */
-  .glyph.g-gray .sdot{background:transparent;box-shadow:0 0 0 1.5px var(--vscode-sideBar-background,var(--vscode-editor-background));
-    border:1.5px solid currentColor}
-  .g-running{color:var(--g-running)}
-  .g-blue{color:var(--g-running)}
-  .g-input{color:var(--g-input)}
-  .g-amber{color:var(--g-input)}
-  .g-failed{color:var(--g-failed)}
-  .g-red{color:var(--g-failed)}
-  .g-done{color:var(--g-done)}
-  .g-green{color:var(--g-done)}
-  .g-gray{color:var(--g-gray)}
-  .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
+  .glyph.g-gray .sdot{background:transparent;
+    box-shadow:0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background,var(--vscode-editor-background));
+    border:calc(var(--k-border-w) * 1.5) solid currentColor}
+  .g-blue{color:var(--k-running)}
+  .g-amber{color:var(--k-attention)}
+  .g-red{color:var(--k-failed)}
+  .g-green{color:var(--k-passed)}
+  .g-gray{color:var(--k-pending)}
+
+  .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
   /* Follow-up marker: says "this is a sub-task of <key>" without stealing row width. */
-  .parentref{font-size:10px;color:var(--g-gray);flex:0 0 auto;margin-left:4px}
+  .parentref{font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:0 0 auto;margin-left:var(--k-space-2)}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. Uppercase + tracking so the chip
      text matches the rail's stage label letter-for-letter. */
-  .stage{font-size:10px;padding:1px 7px;border-radius:9px;flex:0 0 auto;font-weight:600;
-    text-transform:uppercase;letter-spacing:.06em;
+  .stage{font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-4);border-radius:var(--k-radius-lg);
+    flex:0 0 auto;font-weight:var(--k-weight-semibold);text-transform:uppercase;letter-spacing:.06em;
     background:color-mix(in srgb, currentColor 16%, transparent)}
   /* An unclassified stage (newer schema, or none yet) reads as a dashed outline
      rather than a solid chip, so "unknown" never masquerades as a real stage. */
-  .stage.stg-unknown{border:1px dashed currentColor}
+  .stage.stg-unknown{border:var(--k-border-w) dashed currentColor}
   /* Actions overlay the row's right edge on hover so showing them never reflows
      the row. The stage pill hides under them (same slot) to avoid overlap. */
-  .rowacts{display:flex;gap:1px;position:absolute;right:6px;top:50%;transform:translateY(-50%);
-    background:var(--vscode-list-hoverBackground);border-radius:5px;padding-left:4px;
-    opacity:0;pointer-events:none}
+  .rowacts{display:flex;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
+    transform:translateY(-50%);background:var(--k-surface-hover);border-radius:var(--k-radius-sm);
+    padding-left:var(--k-space-2);opacity:0;pointer-events:none}
   .row:hover .rowacts{opacity:1;pointer-events:auto}
   .row:hover .stage{opacity:0}
-  .ia{width:22px;height:20px;display:grid;place-items:center;border-radius:4px;color:var(--vscode-icon-foreground,var(--vscode-foreground))}
-  .ia:hover{background:var(--vscode-toolbar-hoverBackground,rgba(127,127,127,.18))}
-  .ia.danger:hover{background:var(--vscode-inputValidation-errorBackground,rgba(241,76,76,.2));color:var(--g-failed)}
 
   /* expanded body */
-  .body{display:none;padding:4px 8px 10px 28px}
+  .body{display:none;padding:var(--k-space-2) var(--k-space-4) var(--k-space-5) var(--k-space-9)}
   .ticket.open .body{display:block}
 
-  .nextact{font-size:11.5px;margin:3px 0 2px;color:var(--vscode-foreground)}
-  .nextact.warn{color:var(--g-failed)}
-  .nextact .att{color:var(--g-gray);font-family:var(--mono);font-size:10.5px;margin-left:4px}
+  .nextact{font-size:var(--k-text-sm);margin:var(--k-space-2) 0 var(--k-space-1);color:var(--k-text)}
+  .nextact.warn{color:var(--k-failed)}
+  .nextact .att{color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+    margin-left:var(--k-space-2)}
 
-  .activity{font-size:11px;color:var(--vscode-descriptionForeground);margin:2px 0}
-  .sess-sub{color:var(--vscode-foreground)}
+  .activity{font-size:var(--k-text-xs);color:var(--k-text-dim);margin:var(--k-space-1) 0}
+  .sess-sub{color:var(--k-text)}
 
-  .meta{font-size:10.5px;color:var(--vscode-descriptionForeground);
-    font-family:var(--mono);margin:4px 0 2px;word-break:break-word}
+  .meta{font-size:var(--k-text-2xs);color:var(--k-text-dim);
+    font-family:var(--k-font-mono);margin:var(--k-space-2) 0 var(--k-space-1);word-break:break-word}
 
-  .actions{display:flex;gap:6px;margin-top:8px}
-  .btn{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:4px;font-size:11.5px;
-    background:var(--vscode-button-secondaryBackground,rgba(127,127,127,.16));
-    color:var(--vscode-button-secondaryForeground,var(--vscode-foreground))}
-  .btn:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(127,127,127,.24))}
-  .btn.pri{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
-  .btn.pri:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+  .actions{display:flex;gap:var(--k-space-3);margin-top:var(--k-space-4)}
 </style>
 
 <div class="toolbar">
-  <button class="tool" id="btnNew" title="New ticket"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg></button>
+  <button type="button" class="k-iconbtn" data-act="create" aria-label="Create ticket" title="Create ticket"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg></button>
   <span class="sp"></span>
-  <button class="tool" id="btnSettings" title="Settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.1 1l.35 1.9c.42.14.82.31 1.19.53l1.6-1.08 1.42 1.42-1.08 1.6c.22.37.39.77.53 1.19L15 6.9v2l-1.9.35c-.14.42-.31.82-.53 1.19l1.08 1.6-1.42 1.42-1.6-1.08c-.37.22-.77.39-1.19.53L9.1 15h-2l-.35-1.9a5.5 5.5 0 0 1-1.19-.53l-1.6 1.08-1.42-1.42 1.08-1.6a5.5 5.5 0 0 1-.53-1.19L1 8.9v-2l1.9-.35c.14-.42.31-.82.53-1.19L2.35 3.76l1.42-1.42 1.6 1.08c.37-.22.77-.39 1.19-.53L6.9 1h2zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg></button>
+  <button type="button" class="k-iconbtn" data-act="open-settings" aria-label="Open settings" title="Open settings"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.1 1l.35 1.9c.42.14.82.31 1.19.53l1.6-1.08 1.42 1.42-1.08 1.6c.22.37.39.77.53 1.19L15 6.9v2l-1.9.35c-.14.42-.31.82-.53 1.19l1.08 1.6-1.42 1.42-1.6-1.08c-.37.22-.77.39-1.19.53L9.1 15h-2l-.35-1.9a5.5 5.5 0 0 1-1.19-.53l-1.6 1.08-1.42-1.42 1.08-1.6a5.5 5.5 0 0 1-.53-1.19L1 8.9v-2l1.9-.35c.14-.42.31-.82.53-1.19L2.35 3.76l1.42-1.42 1.6 1.08c.37-.22.77-.39 1.19-.53L6.9 1h2zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg></button>
 </div>
 
 <div class="search">
-  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-  <input id="search" placeholder="Search tickets…"/>
+  <svg aria-hidden="true" class="search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+  <input type="text" id="search" class="k-input search-input" aria-label="Search tickets" placeholder="Search tickets…"/>
 </div>
 <div class="facets" id="facets"></div>
 <div class="list" id="list"></div>
 
 <script>
+  /*KARST_DS_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
+  // `dotVariant` names a `.k-dot--<variant>` suffix (model/designComponents),
+  // not the facet's own key — "input" (needs you) maps to the shared
+  // "attention" status meaning, "done" to "passed".
   const FACET_META = [
-    { key:'all', label:'All', color:null },
-    { key:'running', label:'In progress', color:'running' },
-    { key:'input', label:'Needs you', color:'input' },
-    { key:'failed', label:'Blocked', color:'failed' },
-    { key:'done', label:'Done', color:'done' },
-    { key:'archived', label:'Archived', color:null },
+    { key:'all', label:'All', dotVariant:null },
+    { key:'running', label:'In progress', dotVariant:'running' },
+    { key:'input', label:'Needs you', dotVariant:'attention' },
+    { key:'failed', label:'Blocked', dotVariant:'failed' },
+    { key:'done', label:'Done', dotVariant:'passed' },
+    { key:'archived', label:'Archived', dotVariant:null },
   ];
+
+  // Status word for the glyph's role="img" aria-label — colour is never the
+  // only carrier of the ticket's state (UI-R28).
+  const GLYPH_WORD = { gray:'Pending', blue:'Running', amber:'Needs you', green:'Done', red:'Failed' };
 
   // Current state snapshot + which rows are expanded (kept across re-renders).
   // `facets` is the multi-select selection (lit chips); `['all']` = no filter.
   let state = { facets:['all'], filter:'', counts:{}, rows:[] };
   const open = new Set();
 
-  const chev = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>';
+  const chev = '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>';
   const ic = {
-    dash:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="1.5"/></svg>',
-    sess:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M4.5 7l2 1.5-2 1.5"/></svg>',
-    spin:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5 3.5l7 4.5-7 4.5z"/></svg>',
-    edit:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z"/></svg>',
-    arch:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="4" width="11" height="3"/><path d="M3.5 7v5.5h9V7M6.5 9.5h3"/></svg>',
-    unarch:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 12.5V6M5.5 8L8 5.5 10.5 8"/><rect x="2.5" y="11.5" width="11" height="2"/></svg>',
+    dash:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="1.5"/></svg>',
+    sess:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M4.5 7l2 1.5-2 1.5"/></svg>',
+    spin:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5 3.5l7 4.5-7 4.5z"/></svg>',
+    edit:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z"/></svg>',
+    arch:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="4" width="11" height="3"/><path d="M3.5 7v5.5h9V7M6.5 9.5h3"/></svg>',
+    unarch:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 12.5V6M5.5 8L8 5.5 10.5 8"/><rect x="2.5" y="11.5" width="11" height="2"/></svg>',
     // The karst mark (media/karst.svg at 24×24) — the status-tinted row marker.
-    mark:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/></svg>',
-    del:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/></svg>',
+    mark:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/></svg>',
+    del:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/></svg>',
   };
 
   function renderFacets() {
     // Multi-select: any number of status chips can be lit at once (their union).
-    // `all` is lit only when nothing else is; `aria-pressed` mirrors the toggle.
+    // `all` is lit only when nothing else is; `aria-pressed` mirrors the toggle
+    // AND drives the chip's "on" look via the primitive's own
+    // `[aria-pressed="true"]` rule — no local `.on` class needed anymore.
     const sel = new Set(state.facets || ['all']);
     el('facets').innerHTML = FACET_META.map((f) => {
       const n = state.counts[f.key] ?? 0;
-      const on = sel.has(f.key) ? ' on' : '';
-      const dot = f.color ? `<span class="dot g-${f.color}"></span>` : '';
-      return `<button class="facet${on}" data-facet="${f.key}" aria-pressed="${sel.has(f.key)}">${dot}${f.label} <span class="n">${n}</span></button>`;
+      const pressed = sel.has(f.key);
+      const dot = f.dotVariant
+        ? `<span class="k-dot k-dot--${f.dotVariant}" aria-hidden="true"></span>`
+        : '';
+      return `<button type="button" class="k-chip" data-facet="${f.key}" aria-pressed="${pressed}">${dot}${esc(f.label)} <span class="n">${n}</span></button>`;
     }).join('');
   }
 
@@ -234,12 +234,14 @@
   function renderList() {
     const L = el('list');
     if (!state.rows.length) {
-      L.innerHTML = state.filter
-        ? '<div class="empty">No tickets match.</div>'
-        : ((state.facets || []).includes('archived')
-            ? '<div class="empty">No archived tickets.</div>'
-            : '<div class="empty">No tickets yet. <a id="emptyNew">Create ticket</a></div>');
-      const a = el('emptyNew'); if (a) a.onclick = () => post({ type:'create' });
+      if (state.filter) {
+        L.innerHTML = '<div class="k-empty"><div class="k-empty-title">No tickets match</div></div>';
+      } else if ((state.facets || []).includes('archived')) {
+        L.innerHTML = '<div class="k-empty"><div class="k-empty-title">No archived tickets</div></div>';
+      } else {
+        L.innerHTML = '<div class="k-empty"><div class="k-empty-title">No tickets yet</div>'
+          + '<div class="k-empty-hint"><button type="button" class="k-btn k-btn--link" data-act="create">Create ticket</button></div></div>';
+      }
       return;
     }
     L.innerHTML = state.rows.map((row) => {
@@ -258,25 +260,38 @@
       // snapshot has no sessionAction, so fall back to "Start" rather than an
       // empty verb. The single, always-visible returning-user entry point.
       const sessVerb = (row.sessionAction && row.sessionAction.label) || 'Start';
+      const glyphWord = GLYPH_WORD[row.glyph] || 'Unknown';
+      const toggleLabel = isOpen ? 'Collapse ticket details' : 'Expand ticket details';
+
       const acts = row.archived
-        ? `<button class="ia" data-act="unarchive" data-id="${row.ticketId}" title="Unarchive">${ic.unarch}</button>`
-          + `<button class="ia danger" data-act="delete" data-id="${row.ticketId}" title="Delete permanently">${ic.del}</button>`
-        : `<button class="ia" data-act="spin" data-id="${row.ticketId}" title="Spin">${ic.spin}</button>`
-          + `<button class="ia" data-act="open-session" data-id="${row.ticketId}" title="${sessVerb} session">${ic.sess}</button>`
-          + `<button class="ia" data-act="edit" data-id="${row.ticketId}" title="Edit">${ic.edit}</button>`
-          + `<button class="ia" data-act="archive" data-id="${row.ticketId}" title="Archive">${ic.arch}</button>`;
+        ? `<button type="button" class="k-iconbtn" data-act="unarchive" data-id="${row.ticketId}" aria-label="Restore ticket to the active list" title="Restore ticket to the active list">${ic.unarch}</button>`
+          + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="delete" data-id="${row.ticketId}" aria-label="Delete ticket permanently" title="Delete ticket permanently">${ic.del}</button>`
+        : `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
+          + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
+          + `<button type="button" class="k-iconbtn" data-act="edit" data-id="${row.ticketId}" aria-label="Edit ticket" title="Edit ticket">${ic.edit}</button>`
+          + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="archive" data-id="${row.ticketId}" aria-label="Archive ticket, hiding it from the active list" title="Archive ticket, hiding it from the active list">${ic.arch}</button>`;
       const bodyActs = row.archived
-        ? `<button class="btn" data-act="unarchive" data-id="${row.ticketId}">${ic.unarch} Unarchive</button>`
-          + `<button class="btn" data-act="delete" data-id="${row.ticketId}">${ic.del} Delete</button>`
-        : `<button class="btn pri" data-act="open-dashboard" data-id="${row.ticketId}">${ic.dash} Open dashboard</button>`
-          + `<button class="btn" data-act="open-session" data-id="${row.ticketId}">${ic.sess} ${sessVerb} session</button>`;
-      return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
-        + `<div class="row"${row.archived ? '' : ` data-open="${row.ticketId}"`}>`
-        + `<span class="chev" data-toggle="${row.ticketId}">${chev}</span>`
-        + `<span class="glyph g-${esc(row.glyph)}" title="${esc(row.description)}">${ic.mark}<span class="sdot"></span></span>`
+        ? `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
+          + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
+        : `<button type="button" class="k-btn k-btn--primary" data-act="open-dashboard" data-id="${row.ticketId}" title="Open the ticket dashboard">${ic.dash} Open dashboard</button>`
+          + `<button type="button" class="k-btn k-btn--secondary" data-act="open-session" data-id="${row.ticketId}" title="${sessVerb} the ticket session">${ic.sess} ${sessVerb} session</button>`;
+
+      // Decorative content of the row's main click target — never another
+      // interactive control (UI-R09; see the `.rowopen` comment in <style>).
+      const rowContent = `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span></span>`
         + `<span class="name">${esc(row.label)}</span>`
         + (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : '')
-        + `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`
+        + `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`;
+      // Archived tickets have no dashboard action, so the wrapper is a plain,
+      // non-interactive span rather than a button with nothing to do.
+      const openControl = row.archived
+        ? `<span class="rowopen">${rowContent}</span>`
+        : `<button type="button" class="k-btn k-btn--link rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
+
+      return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
+        + `<div class="row">`
+        + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
+        + openControl
         + `<span class="rowacts">${acts}</span>`
         + `</div>`
         + `<div class="body">`
@@ -295,9 +310,6 @@
   }
 
   // ---- interactions ----
-  el('btnNew').onclick = () => post({ type:'create' });
-  el('btnSettings').onclick = () => post({ type:'open-settings' });
-
   let searchTimer;
   el('search').addEventListener('input', (e) => {
     clearTimeout(searchTimer);
@@ -305,13 +317,25 @@
     searchTimer = setTimeout(() => post({ type:'set-filter', query:q }), 150);
   });
 
+  // Every posting control is delegated here — rows render by full innerHTML
+  // replacement, so a per-element `karstAction` binding would go stale on the
+  // next render. `data-act`/`data-open` controls use the runtime's pending
+  // primitives directly (karstRequestId + karstBeginPending, the same pieces
+  // `karstAction` uses internally) so they get the same four properties:
+  // pending on click, non-re-triggerable, terminal result via `action-result`,
+  // and the watchdog (UI-R11–R14). `data-facet`/`data-toggle` stay immediate —
+  // their "settlement" is simply the next `state` push, not a tracked request.
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-act],[data-facet],[data-toggle],[data-open]');
+    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle]');
     if (!t) return;
-    if (t.dataset.act) {
+    if (t.dataset.act || t.dataset.open) {
       e.stopPropagation();
-      const id = Number(t.dataset.id);
-      post({ type: t.dataset.act, ticketId: id });
+      if (karstIsPending(t) || t.disabled) { e.preventDefault(); return; }
+      const type = t.dataset.act || 'open-ticket';
+      const requestId = karstRequestId();
+      karstBeginPending(t, requestId);
+      const idRaw = t.dataset.act ? t.dataset.id : t.dataset.open;
+      post(idRaw !== undefined ? { type, ticketId: Number(idRaw), requestId } : { type, requestId });
       return;
     }
     if (t.dataset.facet) {
@@ -324,26 +348,25 @@
       const id = Number(t.dataset.toggle);
       if (open.has(id)) open.delete(id); else open.add(id);
       renderList();
-      return;
-    }
-    if (t.dataset.open) {
-      const id = Number(t.dataset.open);
-      post({ type:'open-ticket', ticketId: id });
     }
   });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
-    if (!msg || msg.type !== 'state') return;
-    state = msg.state;
-    vscode.setState(state);
-    // Prune expanded ids that no longer exist so the set can't grow unbounded.
-    const ids = new Set(state.rows.map((r) => r.ticketId));
-    for (const id of [...open]) if (!ids.has(id)) open.delete(id);
-    // Keep the search box in sync only when the host changed the filter.
-    if (el('search').value !== state.filter) el('search').value = state.filter;
-    renderFacets();
-    renderList();
+    if (!msg) return;
+    if (msg.type === 'state') {
+      state = msg.state;
+      vscode.setState(state);
+      // Prune expanded ids that no longer exist so the set can't grow unbounded.
+      const ids = new Set(state.rows.map((r) => r.ticketId));
+      for (const id of [...open]) if (!ids.has(id)) open.delete(id);
+      // Keep the search box in sync only when the host changed the filter.
+      if (el('search').value !== state.filter) el('search').value = state.filter;
+      renderFacets();
+      renderList();
+    } else if (msg.type === 'action-result') {
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // Restore last snapshot immediately (view re-resolve), then ask for fresh.

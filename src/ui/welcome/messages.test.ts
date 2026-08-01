@@ -24,7 +24,7 @@ describe('parseWelcomeMessage', () => {
 });
 
 describe('routeWelcomeAction', () => {
-  it('dispatches each message to its action', () => {
+  it('dispatches each already-parsed message to its action', () => {
     const actions: WelcomeActions = {
       createManifest: vi.fn(),
       recheckDeps: vi.fn(),
@@ -47,16 +47,20 @@ describe('routeWelcomeAction', () => {
     expect(actions.requestState).toHaveBeenCalledOnce();
   });
 
-  it('ignores malformed messages', () => {
+  it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {
+    // The single dispatch seam (panel.ts) wraps this in `reportAction`, which
+    // needs the underlying promise back to report a real terminal result
+    // instead of acking before the action finishes (UI-R13).
+    const pending = Promise.resolve();
     const actions: WelcomeActions = {
-      createManifest: vi.fn(),
+      createManifest: vi.fn(() => pending),
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
     };
-    routeWelcomeAction({ type: 'evil' }, actions);
-    expect(actions.createManifest).not.toHaveBeenCalled();
+    expect(routeWelcomeAction({ type: 'create-manifest' }, actions)).toBe(pending);
+    await pending;
   });
 });

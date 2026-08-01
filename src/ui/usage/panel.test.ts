@@ -180,6 +180,44 @@ describe('UsagePanelManager', () => {
     expect(panel.posted.length).toBeGreaterThan(1);
   });
 
+  it('posts exactly one action-result per parsed request that carries a requestId (UI-R13)', () => {
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
+    mgr.open();
+    const panel = host.panels[0]!;
+    panel.emit({ type: 'set-range', range: '24h', requestId: 'r1' });
+    const results = panel.posted.filter((m) => m.type === 'action-result');
+    expect(results).toEqual([{ type: 'action-result', requestId: 'r1', ok: true }]);
+  });
+
+  it('posts no action-result for a message with no requestId (back-compat)', () => {
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
+    mgr.open();
+    const panel = host.panels[0]!;
+    panel.emit({ type: 'set-range', range: '24h' });
+    expect(panel.posted.some((m) => m.type === 'action-result')).toBe(false);
+  });
+
+  it('reports a thrown action as ok:false with its message, and logs it', () => {
+    const logError = vi.fn();
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, {
+      projectId: () => 1,
+      now: NOW,
+      logError,
+      openDashboard: () => {
+        throw new Error('boom');
+      },
+    });
+    mgr.open();
+    const panel = host.panels[0]!;
+    panel.emit({ type: 'open-dashboard', ticketId: 1, requestId: 'r2' });
+    const results = panel.posted.filter((m) => m.type === 'action-result');
+    expect(results).toEqual([{ type: 'action-result', requestId: 'r2', ok: false, message: 'boom' }]);
+    expect(logError).toHaveBeenCalledWith('karst: token-usage action failed', expect.any(Error));
+  });
+
   it('refresh before open is a safe no-op', () => {
     const host = fakeHost();
     const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });

@@ -1,12 +1,19 @@
 import type { Store } from '../../store/db.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildUsageState, type UsageState } from './state.js';
-import { routeUsageAction, type UsageActions, type UsageHostMessage } from './messages.js';
+import {
+  parseUsageMessage,
+  routeUsageAction,
+  type UsageActions,
+  type UsageHostMessage,
+  type UsageWebviewMessage,
+} from './messages.js';
 import {
   DEFAULT_USAGE_LIMIT,
   DEFAULT_USAGE_RANGE,
   type UsageSort,
 } from '../../store/tokenUsageQuery.js';
+import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
  * The token-usage panel (§ token consumption stats) — ONE per window, unlike the
@@ -69,12 +76,15 @@ export class UsagePanelManager {
       this.panel = undefined;
     });
     panel.onDidReceiveMessage((raw) => {
-      try {
-        routeUsageAction(raw, this.actions());
-      } catch (err) {
-        // The message pump must never die on one bad message.
-        this.log('karst: token-usage action failed', err);
-      }
+      // The requestId is read off the RAW message, before parsing narrows it
+      // away (parseUsageMessage deliberately drops every field it does not
+      // model). `reportAction` never rejects, so the message pump is safe by
+      // construction; an unparsed message posts nothing (UI-R13).
+      const requestId = readRequestId(raw);
+      const msg = parseUsageMessage(raw);
+      if (!msg) return;
+      const actions = this.actions();
+      void reportAction(requestId, (m) => panel.postMessage(m), () => this.runAction(msg, actions));
     });
     this.push();
   }
@@ -125,6 +135,23 @@ export class UsagePanelManager {
       this.panel.postMessage({ type: 'state', state: this.state() });
     } catch (err) {
       this.log('karst: token-usage push failed', err);
+    }
+  }
+
+  /** Dispatch one parsed message, logging (but still surfacing) any failure. */
+  private runAction(msg: UsageWebviewMessage, actions: UsageActions): void | Promise<void> {
+    try {
+      const result = routeUsageAction(msg, actions);
+      if (result && typeof (result as PromiseLike<void>).then === 'function') {
+        return (result as Promise<void>).catch((err: unknown) => {
+          this.log('karst: token-usage action failed', err);
+          throw err;
+        });
+      }
+      return result;
+    } catch (err) {
+      this.log('karst: token-usage action failed', err);
+      throw err;
     }
   }
 

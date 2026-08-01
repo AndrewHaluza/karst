@@ -3,6 +3,7 @@ import type { SettingsState } from './state.js';
 import type { TicketList } from '../../integrations/ticketing.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { isSettingsSection, type SettingsSection } from './sections.js';
+import type { ActionResultMessage } from '../../model/actionResult.js';
 
 /** Webview → host messages. The webview is untrusted; parse before use. */
 export type SettingsWebviewMessage =
@@ -48,42 +49,52 @@ export type SettingsHostMessage =
    * not yet saved — which, during first-time setup, is the provider itself.
    */
   | { type: 'token-state'; configured: boolean }
-  | { type: 'repo-path-picked'; name: string; path: string };
+  | { type: 'repo-path-picked'; name: string; path: string }
+  | ActionResultMessage;
 
-/** The host-side effects a settings panel can trigger. */
+/**
+ * The host-side effects a settings panel can trigger.
+ *
+ * Every method's return type is widened from `() => void` to
+ * `() => void | Promise<void>` (§ `docs/ui/DESIGN-SYSTEM.md` §5.3, UI-R13) — a
+ * TYPE WIDENING, so every existing implementation still satisfies it. The
+ * single dispatch seam in `panel.ts` awaits whatever comes back and reports the
+ * real terminal outcome as `action-result`; a method that keeps returning
+ * `void` keeps its exact current semantics (an immediate ack).
+ */
 export interface SettingsActions {
   /** Persist the draft; `section` narrows the write to that tab's fields. */
-  save(manifest: Manifest, section?: SettingsSection): void;
-  validate(manifest: Manifest): void;
-  installApproach(id: string): void;
-  uninstallApproach(id: string): void;
+  save(manifest: Manifest, section?: SettingsSection): void | Promise<void>;
+  validate(manifest: Manifest): void | Promise<void>;
+  installApproach(id: string): void | Promise<void>;
+  uninstallApproach(id: string): void | Promise<void>;
   /** Prompt (host-side) for and store the ClickUp token. Token never crosses the webview. */
-  setToken(): void;
+  setToken(): void | Promise<void>;
   /** Clear the stored ClickUp token. */
-  clearToken(): void;
+  clearToken(): void | Promise<void>;
   /** Flip an approach's `enabled` flag in the manifest and persist. */
-  setApproachEnabled(id: string, enabled: boolean): void;
+  setApproachEnabled(id: string, enabled: boolean): void | Promise<void>;
   /** Flip an agent's `enabled` flag (manifest `agents[name]`) and persist. */
-  setAgentEnabled(name: string, enabled: boolean): void;
+  setAgentEnabled(name: string, enabled: boolean): void | Promise<void>;
   /** Write an agent file's full body (create or overwrite). */
-  saveAgentFile(name: string, body: string): void;
+  saveAgentFile(name: string, body: string): void | Promise<void>;
   /** Create a new agent file from a starter template. */
-  createAgent(name: string): void;
+  createAgent(name: string): void | Promise<void>;
   /** Remove an agent file. */
-  deleteAgent(name: string): void;
-  requestState(): void;
+  deleteAgent(name: string): void | Promise<void>;
+  requestState(): void | Promise<void>;
   /** Read a command's markdown body (native command file or generated orchestrator). */
-  getApproachCommandBody(approachId: string, command: string): void;
+  getApproachCommandBody(approachId: string, command: string): void | Promise<void>;
   /**
    * Load the provider's status names for the settings draft's list. Takes the
    * ids from the DRAFT (not the saved manifest) so Refresh works before Save.
    */
-  fetchTicketStatuses(listId: string, teamId?: string): void;
+  fetchTicketStatuses(listId: string, teamId?: string): void | Promise<void>;
   /** Load the workspace's lists for the settings List picker, from the draft's
    *  teamId (so Refresh works before Save). */
-  fetchTicketLists(teamId: string): void;
+  fetchTicketLists(teamId: string): void | Promise<void>;
   /** Open a native folder picker for a repository's repoPath. */
-  browseRepoPath(name: string): void;
+  browseRepoPath(name: string): void | Promise<void>;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -162,58 +173,51 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
   }
 }
 
-/** Route an untrusted webview message to the matching action; ignore junk. */
-export function routeSettingsAction(raw: unknown, actions: SettingsActions): void {
+/**
+ * Route an untrusted webview message to the matching action; ignore junk.
+ *
+ * Returns whatever the matched action returns (`void` or a `Promise<void>`) so
+ * the single dispatch seam in `panel.ts` can await it and report one terminal
+ * `action-result`. An unparsed message returns `undefined` WITHOUT calling any
+ * action — `panel.ts` uses `parseSettingsMessage` itself to tell "dispatched,
+ * settled synchronously" apart from "never dispatched" before it decides
+ * whether to report anything at all.
+ */
+export function routeSettingsAction(raw: unknown, actions: SettingsActions): void | Promise<void> {
   const msg = parseSettingsMessage(raw);
   if (!msg) return;
   switch (msg.type) {
     case 'save':
-      actions.save(msg.manifest, msg.section);
-      return;
+      return actions.save(msg.manifest, msg.section);
     case 'validate':
-      actions.validate(msg.manifest);
-      return;
+      return actions.validate(msg.manifest);
     case 'install-approach':
-      actions.installApproach(msg.id);
-      return;
+      return actions.installApproach(msg.id);
     case 'uninstall-approach':
-      actions.uninstallApproach(msg.id);
-      return;
+      return actions.uninstallApproach(msg.id);
     case 'set-token':
-      actions.setToken();
-      return;
+      return actions.setToken();
     case 'clear-token':
-      actions.clearToken();
-      return;
+      return actions.clearToken();
     case 'set-approach-enabled':
-      actions.setApproachEnabled(msg.id, msg.enabled);
-      return;
+      return actions.setApproachEnabled(msg.id, msg.enabled);
     case 'set-agent-enabled':
-      actions.setAgentEnabled(msg.name, msg.enabled);
-      return;
+      return actions.setAgentEnabled(msg.name, msg.enabled);
     case 'save-agent-file':
-      actions.saveAgentFile(msg.name, msg.body);
-      return;
+      return actions.saveAgentFile(msg.name, msg.body);
     case 'create-agent':
-      actions.createAgent(msg.name);
-      return;
+      return actions.createAgent(msg.name);
     case 'delete-agent':
-      actions.deleteAgent(msg.name);
-      return;
+      return actions.deleteAgent(msg.name);
     case 'request-state':
-      actions.requestState();
-      return;
+      return actions.requestState();
     case 'get-approach-command-body':
-      actions.getApproachCommandBody(msg.approachId, msg.command);
-      return;
+      return actions.getApproachCommandBody(msg.approachId, msg.command);
     case 'fetch-ticket-statuses':
-      actions.fetchTicketStatuses(msg.listId, msg.teamId);
-      return;
+      return actions.fetchTicketStatuses(msg.listId, msg.teamId);
     case 'fetch-ticket-lists':
-      actions.fetchTicketLists(msg.teamId);
-      return;
+      return actions.fetchTicketLists(msg.teamId);
     case 'browse-repo-path':
-      actions.browseRepoPath(msg.name);
-      return;
+      return actions.browseRepoPath(msg.name);
   }
 }

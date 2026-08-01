@@ -5,11 +5,24 @@ function actions(): UsageActions & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    requestState: () => calls.push('requestState'),
-    setRange: (r) => calls.push(`setRange:${r}`),
-    setSort: (s) => calls.push(`setSort:${s}`),
-    setPage: (o) => calls.push(`setPage:${o}`),
-    openDashboard: (id) => calls.push(`openDashboard:${id}`),
+    // Braces, not an expression body: `calls.push` returns a number, and the
+    // action signature is now `void | Promise<void>` (widened so the dispatch
+    // seam can await a real outcome), which a number does not satisfy.
+    requestState: () => {
+      calls.push('requestState');
+    },
+    setRange: (r) => {
+      calls.push(`setRange:${r}`);
+    },
+    setSort: (s) => {
+      calls.push(`setSort:${s}`);
+    },
+    setPage: (o) => {
+      calls.push(`setPage:${o}`);
+    },
+    openDashboard: (id) => {
+      calls.push(`openDashboard:${id}`);
+    },
   };
 }
 
@@ -57,7 +70,7 @@ describe('parseUsageMessage', () => {
 });
 
 describe('routeUsageAction', () => {
-  it('routes each message to its action', () => {
+  it('dispatches each already-parsed message to its action', () => {
     const a = actions();
     routeUsageAction({ type: 'request-state' }, a);
     routeUsageAction({ type: 'set-range', range: '24h' }, a);
@@ -73,12 +86,19 @@ describe('routeUsageAction', () => {
     ]);
   });
 
-  it('drops a malformed message instead of acting on it', () => {
-    const a = actions();
-    const spy = vi.fn();
-    routeUsageAction({ type: 'set-range', range: 'forever' }, { ...a, setRange: spy });
-    routeUsageAction(undefined, a);
-    expect(spy).not.toHaveBeenCalled();
-    expect(a.calls).toEqual([]);
+  it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {
+    // The single dispatch seam (panel.ts) wraps this in `reportAction`, which
+    // needs the underlying promise back to report a real terminal result
+    // instead of acking before the action finishes (UI-R13).
+    const pending = Promise.resolve();
+    const a: UsageActions = {
+      requestState: vi.fn(),
+      setRange: vi.fn(() => pending),
+      setSort: vi.fn(),
+      setPage: vi.fn(),
+      openDashboard: vi.fn(),
+    };
+    expect(routeUsageAction({ type: 'set-range', range: '24h' }, a)).toBe(pending);
+    await pending;
   });
 });

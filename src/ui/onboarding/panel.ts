@@ -5,6 +5,7 @@ import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildOnboardingState, type OnboardingState } from './state.js';
 import {
+  parseOnboardingMessage,
   routeOnboardingAction,
   type OnboardingActions,
   type OnboardingHostMessage,
@@ -13,6 +14,7 @@ import {
   bundledModelCatalog,
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
+import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the onboarding manager touches. Modeled
@@ -238,17 +240,43 @@ export class OnboardingManager {
     this.modelRefreshers.add(pushState);
     const actions = this.actionsFactory(ctx);
 
-    panel.onDidReceiveMessage(async (raw) => {
-      try {
-        await routeOnboardingAction(raw, actions);
-      } catch (err) {
-        // The message pump must never die on one bad message.
-        this.logError('karst: onboarding action failed', err);
-        ctx.post({
-          type: 'error',
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
+    panel.onDidReceiveMessage((raw) => {
+      // Read the correlation id off the RAW message, before it is narrowed —
+      // `parseOnboardingMessage` deliberately drops fields it does not model,
+      // and that dropping is the trust boundary (see readRequestId's own doc).
+      const requestId = readRequestId(raw);
+      // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
+      // no terminal outcome to report.
+      if (!parseOnboardingMessage(raw)) return;
+      void reportAction(requestId, (message) => ctx.post(message), () => {
+        // The message pump must never die on one bad message — log it either
+        // way, then rethrow so reportAction reports the real failure as
+        // `ok:false` rather than a silent ack. Several actions here (fetch,
+        // suggest, analyze, submit, save) already self-report their own
+        // outcome via `busy`/`error` posts and carry no `requestId`, so this
+        // legacy fallback only fires for a request that opted OUT of the new
+        // `action-result` contract — preserving the pre-existing behaviour of
+        // an unconditional `{type:'error'}` post for those.
+        try {
+          const result = routeOnboardingAction(raw, actions);
+          if (result && typeof (result as PromiseLike<void>).then === 'function') {
+            return (result as Promise<void>).catch((err: unknown) => {
+              this.logError('karst: onboarding action failed', err);
+              if (requestId === undefined) {
+                ctx.post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+              }
+              throw err;
+            });
+          }
+          return result;
+        } catch (err) {
+          this.logError('karst: onboarding action failed', err);
+          if (requestId === undefined) {
+            ctx.post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+          }
+          throw err;
+        }
+      });
     });
     panel.onDidDispose(() => {
       disposed = true;

@@ -151,4 +151,57 @@ describe('SettingsManager', () => {
     panel().emit({ type: 'request-state' });
     expect(panel().posted.some((m) => m.type === 'saved')).toBe(true);
   });
+
+  // § docs/ui/DESIGN-SYSTEM.md §5.3, UI-R13 — the single dispatch seam.
+  describe('action-result', () => {
+    it('reports ok:true for a parsed request carrying a requestId', async () => {
+      const { mgr, panel } = make({ manifest: M, error: null });
+      await mgr.open();
+      panel().emit({ type: 'request-state', requestId: 'r1' });
+      const result = panel().posted.find((m) => m.type === 'action-result') as any;
+      expect(result).toEqual({ type: 'action-result', requestId: 'r1', ok: true });
+    });
+
+    it('posts nothing for an unparsed message, even one carrying a requestId', async () => {
+      const { mgr, panel } = make({ manifest: M, error: null });
+      await mgr.open();
+      panel().emit({ type: 'bogus', requestId: 'r2' });
+      expect(panel().posted.some((m) => m.type === 'action-result')).toBe(false);
+    });
+
+    it('reports ok:false when the routed action rejects', async () => {
+      let panel!: FakePanel;
+      const host = { createPanel: () => (panel = new FakePanel()) };
+      const mgr = new SettingsManager(
+        () => ({ manifest: M, error: null }),
+        () => '/tmp/karst.yml',
+        host,
+        () => ({
+          save: () => {},
+          validate: () => {},
+          installApproach: () => {},
+          uninstallApproach: () => {},
+          setToken: () => {},
+          clearToken: () => {},
+          setApproachEnabled: () => {},
+          setAgentEnabled: () => {},
+          saveAgentFile: () => {},
+          createAgent: () => {},
+          deleteAgent: () => {},
+          requestState: () => Promise.reject(new Error('boom')),
+          getApproachCommandBody: () => {},
+          fetchTicketStatuses: () => {},
+          fetchTicketLists: () => {},
+          browseRepoPath: () => {},
+        }),
+      );
+      await mgr.open();
+      panel.emit({ type: 'request-state', requestId: 'r3' });
+      // The rejection is awaited asynchronously — flush microtasks.
+      await Promise.resolve();
+      await Promise.resolve();
+      const result = panel.posted.find((m) => m.type === 'action-result') as any;
+      expect(result).toEqual({ type: 'action-result', requestId: 'r3', ok: false, message: 'boom' });
+    });
+  });
 });

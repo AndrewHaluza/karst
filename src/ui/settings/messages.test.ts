@@ -155,22 +155,22 @@ describe('routeSettingsAction', () => {
     };
     return {
       calls,
-      save: (m, section) => calls['save']!.push({ manifest: m, section }),
-      validate: (m) => calls['validate']!.push(m),
-      requestState: () => calls['requestState']!.push(true),
-      installApproach: (id) => calls['installApproach']!.push(id),
-      uninstallApproach: (id) => calls['uninstallApproach']!.push(id),
-      setToken: () => calls['setToken']!.push(true),
-      clearToken: () => calls['clearToken']!.push(true),
-      setApproachEnabled: (id, enabled) => calls['setApproachEnabled']!.push({ id, enabled }),
-      setAgentEnabled: (name, enabled) => calls['setAgentEnabled']!.push({ name, enabled }),
-      saveAgentFile: (name, body) => calls['saveAgentFile']!.push({ name, body }),
-      createAgent: (name) => calls['createAgent']!.push(name),
-      deleteAgent: (name) => calls['deleteAgent']!.push(name),
-      getApproachCommandBody: (approachId, command) => calls['getApproachCommandBody']!.push({ approachId, command }),
-      fetchTicketStatuses: (listId, teamId) => calls['fetchTicketStatuses']!.push({ listId, teamId }),
-      fetchTicketLists: (teamId) => calls['fetchTicketLists']!.push(teamId),
-      browseRepoPath: (name) => calls['browseRepoPath']!.push(name),
+      save: (m, section) => { calls['save']!.push({ manifest: m, section }); },
+      validate: (m) => { calls['validate']!.push(m); },
+      requestState: () => { calls['requestState']!.push(true); },
+      installApproach: (id) => { calls['installApproach']!.push(id); },
+      uninstallApproach: (id) => { calls['uninstallApproach']!.push(id); },
+      setToken: () => { calls['setToken']!.push(true); },
+      clearToken: () => { calls['clearToken']!.push(true); },
+      setApproachEnabled: (id, enabled) => { calls['setApproachEnabled']!.push({ id, enabled }); },
+      setAgentEnabled: (name, enabled) => { calls['setAgentEnabled']!.push({ name, enabled }); },
+      saveAgentFile: (name, body) => { calls['saveAgentFile']!.push({ name, body }); },
+      createAgent: (name) => { calls['createAgent']!.push(name); },
+      deleteAgent: (name) => { calls['deleteAgent']!.push(name); },
+      getApproachCommandBody: (approachId, command) => { calls['getApproachCommandBody']!.push({ approachId, command }); },
+      fetchTicketStatuses: (listId, teamId) => { calls['fetchTicketStatuses']!.push({ listId, teamId }); },
+      fetchTicketLists: (teamId) => { calls['fetchTicketLists']!.push(teamId); },
+      browseRepoPath: (name) => { calls['browseRepoPath']!.push(name); },
     };
   }
 
@@ -217,6 +217,21 @@ describe('routeSettingsAction', () => {
     expect(() => routeSettingsAction({ type: 'bogus' }, a)).not.toThrow();
     expect(a.calls.save).toEqual([]);
     expect(a.calls.installApproach).toEqual([]);
+  });
+
+  it('returns undefined without dispatching for an unparsed message (UI-R13)', () => {
+    const a = spies();
+    expect(routeSettingsAction({ type: 'bogus' }, a)).toBeUndefined();
+  });
+
+  it('returns the matched action’s return value so a caller can await it', async () => {
+    const a: SettingsActions = {
+      ...spies(),
+      requestState: () => Promise.resolve(),
+    };
+    const returned = routeSettingsAction({ type: 'request-state' }, a);
+    expect(returned).toBeInstanceOf(Promise);
+    await returned;
   });
 });
 

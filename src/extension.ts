@@ -219,6 +219,7 @@ import {
   type LogError,
 } from './logging/logger.js';
 import { injectPalette } from './model/palette.js';
+import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import {
@@ -1139,7 +1140,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       saveAgentFile: (name: string, body: string): void =>
         writeAgentFile(agentsDirOrThrow(), name, body),
-      deleteAgent: (name: string): void => removeAgentFile(agentsDirOrThrow(), name),
+      // Deleting an agent file is irreversible, so it is confirmed by a HOST
+      // modal, never by a webview dialog (UI-R33): a crafted `delete-agent`
+      // message must not be able to skip the confirmation. Returning the promise
+      // also lets the dispatch seam report a real terminal result — a cancelled
+      // confirmation settles the control as success-with-nothing-done rather
+      // than leaving it pending until the watchdog fires.
+      deleteAgent: async (name: string): Promise<void> => {
+        const choice = await vscode.window.showWarningMessage(
+          `Permanently delete the agent "${name}"? This cannot be undone.`,
+          { modal: true },
+          'Delete',
+        );
+        if (choice !== 'Delete') return;
+        removeAgentFile(agentsDirOrThrow(), name);
+      },
       createAgent: (name: string): void =>
         writeAgentFile(agentsDirOrThrow(), name, agentStarterTemplate(name)),
       listAgentRows,
@@ -2812,7 +2827,9 @@ function buildCliPhasePrefix(
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(context: vscode.ExtensionContext): PanelHost {
   const html = injectProviderIdentity(
-    injectPalette(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+    injectPalette(
+      injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+    ),
   );
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
@@ -2851,7 +2868,9 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
 
 /** Real token-usage panel, with a fresh CSP nonce for every panel. */
 function makeUsagePanelHost(context: vscode.ExtensionContext): UsagePanelHost {
-  const html = readFileSync(join(HERE, 'ui', 'usage', 'webview.html'), 'utf8');
+  const html = injectPalette(
+    injectDesignSystem(readFileSync(join(HERE, 'ui', 'usage', 'webview.html'), 'utf8')),
+  );
   return {
     createPanel(title): UsagePanel {
       const panel = vscode.window.createWebviewPanel(
@@ -2875,7 +2894,9 @@ function makeUsagePanelHost(context: vscode.ExtensionContext): UsagePanelHost {
 
 /** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
 function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHost {
-  const html = readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8');
+  const html = injectPalette(
+    injectDesignSystem(readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8')),
+  );
   return {
     createPanel(title, _ticketId): ChangesPanel {
       const panel = vscode.window.createWebviewPanel(

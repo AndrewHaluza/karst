@@ -7,92 +7,86 @@
 -->
 <!--KARST_CSP-->
 <style>
-  :root{
-    --gap:16px;
-    --mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
-  }
+  /*KARST_DS_CSS*/
+
   *{box-sizing:border-box}
   body{
-    margin:0;padding:22px 26px;
-    background:var(--vscode-editor-background);
-    color:var(--vscode-foreground);
-    font-family:var(--vscode-font-family,-apple-system,system-ui,sans-serif);
-    font-size:var(--vscode-font-size,13px);
+    margin:var(--k-space-0);padding:var(--k-space-8) var(--k-space-9);
+    background:var(--k-bg);
+    color:var(--k-text);
+    font-family:var(--k-font-ui);
+    font-size:var(--k-text-base);
   }
-  h1{font-size:18px;margin:0 0 4px}
-  h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:0 0 8px}
-  .sub{opacity:.6;font-size:12px;margin-bottom:20px}
+  h1{font-size:var(--k-text-xl);margin:var(--k-space-0) var(--k-space-0) var(--k-space-2)}
+  h2{font-size:var(--k-text-base);text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
+  .sub{opacity:.6;font-size:var(--k-text-md);margin-bottom:var(--k-space-8)}
   .card{
-    border:1px solid var(--vscode-panel-border);border-radius:8px;
-    padding:14px 16px;margin-bottom:var(--gap);
-    background:var(--vscode-editorWidget-background,transparent);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    padding:var(--k-space-6) var(--k-space-7);margin-bottom:var(--k-space-7);
+    background:var(--k-surface);
   }
   .hidden{display:none !important}
-  label{display:block;font-size:12px;opacity:.8;margin:10px 0 4px}
-  input[type=text],textarea,select{
-    width:100%;padding:6px 8px;border-radius:5px;
-    border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
-    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    font-family:inherit;font-size:13px;
-  }
-  textarea{resize:vertical;min-height:64px}
-  .row{display:flex;gap:8px;align-items:center}
+  label{display:block;font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
+  textarea.k-input{width:100%;resize:vertical;min-height:calc(var(--k-space-8) * 3.2)}
+  input.k-input[type=text]{width:100%}
+  select.k-input{width:100%}
+  .row{display:flex;gap:var(--k-space-4);align-items:center}
   .row input[type=text]{flex:1}
-  button{
-    font-family:inherit;font-size:12px;cursor:pointer;
-    background:var(--vscode-button-background);color:var(--vscode-button-foreground);
-    border:none;border-radius:5px;padding:5px 12px;
-  }
-  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
-  button.secondary{
-    background:var(--vscode-button-secondaryBackground,transparent);
-    color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));
-    border:1px solid var(--vscode-panel-border);
-  }
-  .svc{display:flex;align-items:center;gap:10px;padding:6px 4px}
-  .svc input.signals{font-family:var(--mono);font-size:12px;flex:1;width:auto}
-  .badge{font-size:10px;padding:1px 7px;border-radius:9px;
+
+  .svc{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-3) var(--k-space-2)}
+  .svc input.signals{font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:1;width:auto}
+  .badge{font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-6);border-radius:var(--k-radius-lg);
     background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
   .badge.ai{background:transparent;
-    color:var(--vscode-textLink-foreground);
-    border:1px solid var(--vscode-textLink-foreground);margin-right:2px}
-  .footer{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
-  .err{color:var(--vscode-errorForeground);font-size:12px;margin-top:8px}
-  .busy{opacity:.6;font-size:11px}
-  .empty{opacity:.5;font-size:12px;padding:6px 4px}
-  .attachrow{display:flex;align-items:center;gap:8px;margin-top:6px}
-  .attachstrip{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    color:var(--k-link);
+    border:var(--k-border-w) solid var(--k-link);margin-right:var(--k-space-1)}
+  /* Layout-only modifier for a badge riding beside chip text — see the repo
+     chip's "no service" badge (kept off the k-chip primitive's own rule). */
+  .chip-badge{margin-left:var(--k-space-3)}
+  .footer{display:flex;gap:var(--k-space-4);justify-content:flex-end;margin-top:var(--k-space-4)}
+  /* Local layout modifiers replacing what used to be inline `style="…"`
+     attributes (UI-R04 applies to the whole document, not only the
+     stylesheet — an inline style is the same defect wearing a different hat). */
+  .pullrow{margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
+  .footer-start{justify-content:flex-start;margin-top:var(--k-space-1)}
+
+  /* A single page-level bucket for failures that belong to no one field
+     (fetch/attach/host errors); "Title is required" ALSO marks the title
+     field itself via aria-invalid/aria-describedby (§ DESIGN-SYSTEM 4.5). */
+  .err{color:var(--k-danger);font-size:var(--k-text-md);margin-top:var(--k-space-4)}
+  .busy{opacity:.6;font-size:var(--k-text-xs)}
+  .empty{opacity:.5;font-size:var(--k-text-md);padding:var(--k-space-3) var(--k-space-2)}
+
+  .attachrow{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
+  .attachstrip{display:flex;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-4)}
   .attachstrip:empty{display:none}
-  .attachtile{position:relative;width:132px;border-radius:4px;overflow:hidden;
-    border:1px solid var(--vscode-panel-border,rgba(128,128,128,.35))}
-  .attachtile img,.attachtile video{display:block;width:100%;height:82px;object-fit:cover;
-    background:var(--vscode-editor-background,#1e1e1e)}
-  .attachmeta{padding:4px 6px;font-size:11px;line-height:1.3;
-    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.85}
+  .attachtile{position:relative;width:calc(var(--k-space-8) * 6.6);border-radius:var(--k-radius-sm);overflow:hidden;
+    border:var(--k-border-w) solid var(--k-border)}
+  .attachtile img,.attachtile video{display:block;width:100%;height:calc(var(--k-space-8) * 4.1);object-fit:cover;
+    background:var(--k-bg)}
+  .attachmeta{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);line-height:var(--k-leading-normal);
+    color:var(--k-text-dim);opacity:.85}
   .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .attachdetach{position:absolute;top:2px;right:2px;width:18px;height:18px;padding:0;
-    line-height:16px;border:none;border-radius:3px;cursor:pointer;
-    background:var(--vscode-editor-background,#1e1e1e);
-    color:var(--vscode-foreground);opacity:.75}
-  .attachdetach:hover{opacity:1}
-  .attachopen{display:block;width:100%;padding:4px 6px;border:0;border-top:1px solid
-    var(--vscode-panel-border,rgba(128,128,128,.35));cursor:pointer;text-align:left;
-    background:var(--vscode-button-secondaryBackground,var(--vscode-editor-background));
-    color:var(--vscode-button-secondaryForeground,var(--vscode-textLink-foreground))}
-  .attachopen:hover{background:var(--vscode-button-secondaryHoverBackground)}
+  /* .attachdetach/.attachopen are `.k-iconbtn`/`.k-btn` instances (UI-R07) —
+     only LAYOUT (position, size, border SIDE) stays local; the tile's own
+     `overflow:hidden` (above) clips the primitive's corner radius flush with
+     the tile edge, so nothing here needs to override it. */
+  .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1)}
+  .attachopen{display:flex;width:100%;justify-content:center;
+    border-top:var(--k-border-w) solid var(--k-border)}
 
   /* Card heading row: title on the left, provider chip pinned top-right. */
   .cardhead{display:flex;align-items:center;justify-content:space-between;
-    gap:10px;margin:0 0 8px}
-  .cardhead h2{margin:0}
-  .cardhead .provline{margin:0}
+    gap:var(--k-space-5);margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
+  .cardhead h2{margin:var(--k-space-0)}
+  .cardhead .provline{margin:var(--k-space-0)}
 
   /* Provider chip (top-right of the Ticket card): tells the user WHERE a fetch
      pulls from. The badge portion (icon + brand) is the shared provider-identity
      component (§ KARST_PROVIDER_CSS below); this just lays out the "Fetches
      from …" row around it. */
-  .provline{display:flex;align-items:center;gap:7px;font-size:11.5px;
-    opacity:.85;margin:0 0 8px;white-space:nowrap}
+  .provline{display:flex;align-items:center;gap:var(--k-space-4);font-size:var(--k-text-sm);
+    opacity:.85;margin:var(--k-space-0) var(--k-space-0) var(--k-space-4);white-space:nowrap}
   .provline.manual{opacity:.6}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
@@ -100,126 +94,104 @@
      ticket-link anchor below. */
   /*KARST_PROVIDER_CSS*/
 
-  /* Fetch button doubles as the status. Fixed min-width so Fetch → Fetching… →
-     ✓ Fetched never shifts the row. The done state is a quiet green outline. */
-  #fetchBtn{min-width:104px;display:inline-flex;align-items:center;
-    justify-content:center;gap:6px;white-space:nowrap}
-  #fetchBtn.done{background:transparent;cursor:default;
-    color:var(--k-passed);
-    border:1px solid var(--k-passed)}
-  #fetchBtn.done:hover{background:transparent}
+  /* Fetch button doubles as the status, via the `.k-btn` primitive's own
+     loading (`aria-busy`) and `.is-success` states — never by swapping the
+     label text (UI-R18: "Fetch" stays "Fetch"). Fixed min-width so the row
+     never shifts between states. */
+  #fetchBtn{min-width:calc(var(--k-space-8) * 5.2);white-space:nowrap}
+
   /* "Show details" link, shown next to the field once a brief exists. */
-  .detailslink{background:none;border:none;padding:2px 4px;
-    color:var(--vscode-textLink-foreground);text-decoration:underline;
-    font-size:11.5px}
-  .detailslink:hover{background:none}
+  .row2{display:flex;align-items:center;gap:var(--k-space-6);margin-top:var(--k-space-4)}
   /* External ticket link (opens the board): a distinct action from "Show
      details" (which reads the local brief), so it's pushed to the row's far
-     end rather than sitting flush beside it. Underline on hover only, matching
-     the dashboard's ticket-link convention. */
-  .row2{display:flex;align-items:center;gap:12px;margin-top:8px}
-  #ticketLink{margin-left:auto;font-size:11.5px;text-decoration:none;
-    color:var(--vscode-textLink-foreground);display:inline-flex;align-items:center;gap:4px}
-  #ticketLink:hover{text-decoration:underline}
+     end rather than sitting flush beside it. */
+  #ticketLink{margin-left:auto;font-size:var(--k-text-sm);display:inline-flex;align-items:center;gap:var(--k-space-2)}
 
   /* ── Phase 2: vertical stepper (repos → approach → create) ─────────────── */
-  .step{display:flex;align-items:center;gap:10px;margin:0 0 10px}
-  .step .dot{flex:none;width:22px;height:22px;border-radius:50%;
-    display:flex;align-items:center;justify-content:center;font-size:11px;
-    border:1px solid var(--vscode-panel-border);
-    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.75}
-  .step.active .dot{background:var(--vscode-button-background);
-    color:var(--vscode-button-foreground);border-color:var(--vscode-button-background);opacity:1}
+  .step{display:flex;align-items:center;gap:var(--k-space-5);margin:var(--k-space-0) var(--k-space-0) var(--k-space-5)}
+  .step .dot{flex:none;width:var(--k-space-9);height:var(--k-space-9);border-radius:var(--k-radius-circle);
+    display:flex;align-items:center;justify-content:center;font-size:var(--k-text-xs);
+    border:var(--k-border-w) solid var(--k-border);
+    color:var(--k-text-dim);opacity:.75}
+  .step.active .dot{background:var(--k-action-bg);
+    color:var(--k-action-fg);border-color:var(--k-action-bg);opacity:1}
   .step.done .dot{background:transparent;opacity:1;
-    color:var(--k-passed);
-    border-color:var(--k-passed)}
-  .step .st{font-size:12.5px;font-weight:600}
-  .step.pending .st{opacity:.55;font-weight:500}
-  .step .stcount{margin-left:6px;font-weight:500;opacity:.6;font-size:11.5px}
-  .step .stright{margin-left:auto;display:flex;align-items:center;gap:8px}
+    color:var(--k-success);
+    border-color:var(--k-success)}
+  .step .st{font-size:var(--k-text-sm);font-weight:var(--k-weight-semibold)}
+  .step.pending .st{opacity:.55;font-weight:var(--k-weight-medium)}
+  .step .stcount{margin-left:var(--k-space-3);font-weight:var(--k-weight-medium);opacity:.6;font-size:var(--k-text-sm)}
+  .step .stright{margin-left:auto;display:flex;align-items:center;gap:var(--k-space-4)}
   /* The rail: a left border joining each step body to the next dot. */
-  .stepbody{border-left:2px solid var(--vscode-panel-border);
-    margin-left:10px;padding:2px 0 16px 20px}
-  .stepbody.last{border-left-color:transparent;padding-bottom:0}
+  .stepbody{border-left:calc(var(--k-border-w) * 2) solid var(--k-border);
+    margin-left:var(--k-space-5);padding:var(--k-space-1) var(--k-space-0) var(--k-space-7) var(--k-space-8)}
+  .stepbody.last{border-left-color:transparent;padding-bottom:var(--k-space-0)}
 
-  /* Repos as toggle chips. */
-  .chips{display:flex;flex-wrap:wrap;gap:8px}
-  .chip{display:inline-flex;align-items:center;gap:7px;cursor:pointer;
-    padding:5px 11px;border-radius:16px;font-size:12px;user-select:none;
-    border:1px solid var(--vscode-panel-border);
-    background:transparent;color:var(--vscode-foreground)}
-  .chip.on{border-color:var(--vscode-focusBorder,var(--vscode-button-background));
-    background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
-  .chip .tick{font-size:10px;opacity:0}
-  .chip.on .tick{opacity:1}
-  .chip .score{font-family:var(--mono);font-size:10px;opacity:.6}
+  /* Repos as `.k-chip` toggle buttons — a real button element carrying aria-pressed (UI-R09,
+     R26). `.repochip` supplies only the tick/score layout the primitive does
+     not; the pressed look itself comes from `.k-chip[aria-pressed="true"]`. */
+  .chips{display:flex;flex-wrap:wrap;gap:var(--k-space-4)}
+  .repochip .tick{font-size:var(--k-text-2xs);opacity:0}
+  .repochip[aria-pressed="true"] .tick{opacity:1}
+  .repochip .score{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.6}
 
-  /* Approaches as selectable cards. */
-  .approaches{display:flex;flex-direction:column;gap:8px}
-  .acard{display:flex;gap:10px;align-items:flex-start;cursor:pointer;
-    padding:10px 12px;border-radius:7px;
-    border:1px solid var(--vscode-panel-border);background:transparent}
-  .acard.on{border-color:var(--vscode-focusBorder,var(--vscode-button-background));
-    background:var(--vscode-editorWidget-background,rgba(127,127,127,.06))}
-  .acard .radio{flex:none;width:14px;height:14px;border-radius:50%;margin-top:2px;
-    border:1.5px solid var(--vscode-descriptionForeground,var(--vscode-foreground))}
-  .acard.on .radio{border-color:var(--vscode-button-background);
-    background:radial-gradient(circle,var(--vscode-button-background) 42%,transparent 46%)}
-  .acard .amain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-  .acard .aname{font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-  .acard .adesc{opacity:.7;font-size:11.5px}
+  /* Approaches as a radiogroup of selectable cards (UI-R09, R26): a real
+     <button role="radio" aria-checked>, not `.k-btn` — a radio-card is a
+     genuinely different widget from a generic action button (§ STYLE-GUIDE.md
+     2), so its own chrome is declared here rather than restyling the primitive
+     (the same call settings.ts makes for `.card-toggle`). Values are tokens
+     throughout even though the shape itself is local. */
+  .approaches{display:flex;flex-direction:column;gap:var(--k-space-4)}
+  .acard{display:flex;gap:var(--k-space-5);align-items:flex-start;text-align:left;
+    width:100%;font:inherit;color:inherit;cursor:pointer;
+    padding:var(--k-space-5) var(--k-space-6);border-radius:var(--k-radius-md);
+    border:var(--k-border-w) solid var(--k-border);background:transparent}
+  .acard[aria-checked="true"]{border-color:var(--k-focus);
+    background:var(--k-surface-hover)}
+  .acard:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .acard .radio{flex:none;width:var(--k-space-6);height:var(--k-space-6);border-radius:var(--k-radius-circle);margin-top:var(--k-space-1);
+    border:calc(var(--k-border-w) * 1.5) solid var(--k-text-dim)}
+  .acard[aria-checked="true"] .radio{border-color:var(--k-action-bg);
+    background:radial-gradient(circle,var(--k-action-bg) 42%,transparent 46%)}
+  .acard .amain{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
+  .acard .aname{font-weight:var(--k-weight-semibold);display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
+  .acard .adesc{opacity:.7;font-size:var(--k-text-sm)}
 
   /* Inline prefill control (dirty-state model): an Auto-prefill switch, a status
      that flips ✓ in sync ↔ Δ <why>, and Regenerate — all beside the Prompt
      label. Interface STATE speaks in mono; the Δ badge names the divergence so
      the enabled/disabled flip is never a mystery. */
-  .labelrow{display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;
-    margin:12px 0 6px;min-height:26px}
-  .labelrow > label{margin:0}
-  .prefill-ctl{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .autopf{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;
-    cursor:pointer;user-select:none;opacity:.85;
-    color:var(--vscode-descriptionForeground,var(--vscode-foreground))}
-  .autopf .sw{width:26px;height:15px;border-radius:9px;flex:none;position:relative;
-    background:var(--vscode-panel-border);transition:background .15s}
-  .autopf .sw::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;
-    border-radius:50%;background:var(--vscode-foreground);opacity:.85;transition:transform .15s}
-  .autopf.on .sw{background:var(--vscode-button-background);opacity:1}
-  .autopf.on .sw::after{transform:translateX(11px);background:var(--vscode-button-foreground);opacity:1}
-  .synctag{font-family:var(--mono);font-size:11px;
-    color:var(--k-passed)}
+  .labelrow{display:flex;align-items:center;gap:var(--k-space-5) var(--k-space-6);flex-wrap:wrap;
+    margin:var(--k-space-6) var(--k-space-0) var(--k-space-3);min-height:var(--k-space-9)}
+  .labelrow > label{margin:var(--k-space-0)}
+  .prefill-ctl{margin-left:auto;display:flex;align-items:center;gap:var(--k-space-5);flex-wrap:wrap}
+  .synctag{font-family:var(--k-font-mono);font-size:var(--k-text-xs);
+    color:var(--k-success)}
   .synctag::before{content:"✓ "}
-  .delta{font-family:var(--mono);font-size:11px;white-space:nowrap;
-    color:var(--vscode-charts-yellow,#d7a740);
-    border:1px solid var(--vscode-charts-yellow,#d7a740);
-    border-radius:4px;padding:1px 6px;opacity:.9}
-  #analyzeBtn{display:inline-flex;align-items:center;gap:5px}
-  #analyzeBtn .rico{font-size:12px;line-height:1}
+  .delta{font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;
+    color:var(--k-warning);
+    border:var(--k-border-w) solid var(--k-warning);
+    border-radius:var(--k-radius-xs);padding:var(--k-space-1) var(--k-space-3);opacity:.9}
+  #analyzeBtn .rico{font-size:var(--k-text-md);line-height:1}
 
-  /* Slide-over brief drawer — the page's signature moment. Off-canvas by
-     default; `.open` slides it in. Scrim dims the form behind it. */
-  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);
-    opacity:0;pointer-events:none;z-index:10}
+  /* Slide-over brief drawer — the page's signature moment. `.k-scrim`/`.k-drawer`
+     supply the surface/shadow/border/z-index; the open/closed transform (the
+     primitive has no default-closed state to toggle) and the scrim's own
+     opacity fade stay local. */
+  .scrim{opacity:0;pointer-events:none;transition:opacity var(--k-dur-base) var(--k-ease-standard)}
   .scrim.open{opacity:1;pointer-events:auto}
-  .drawer{position:fixed;top:0;right:0;height:100%;
-    width:min(460px,86vw);z-index:11;display:flex;flex-direction:column;
-    transform:translateX(100%);
-    background:var(--vscode-editor-background);
-    border-left:1px solid var(--vscode-panel-border);
-    box-shadow:-8px 0 24px rgba(0,0,0,.28)}
-  .drawer.open{transform:translateX(0)}
-  @media (prefers-reduced-motion: no-preference){
-    .scrim{transition:opacity .18s ease}
-    .drawer{transition:transform .22s cubic-bezier(.2,.8,.2,1)}
+  @media (prefers-reduced-motion:reduce){
+    .scrim{transition:none}
   }
-  .drawer .head{display:flex;align-items:center;gap:10px;
-    padding:16px 18px 12px;border-bottom:1px solid var(--vscode-panel-border)}
-  .drawer .head h3{margin:0;font-size:14px;line-height:1.3;flex:1;min-width:0}
-  .drawer .head .close{flex:none;background:none;border:none;font-size:16px;
-    line-height:1;padding:2px 6px;color:var(--vscode-foreground);opacity:.7}
-  .drawer .head .close:hover{background:none;opacity:1}
-  .drawer .body{padding:14px 18px;overflow:auto;white-space:pre-wrap;
-    font-family:var(--mono);font-size:12px;line-height:1.55}
+  #drawer{width:min(calc(var(--k-space-8) * 23),86vw);display:flex;flex-direction:column;
+    transform:translateX(100%)}
+  #drawer.open{transform:translateX(0)}
+  .drawer-head{display:flex;align-items:center;gap:var(--k-space-5);
+    padding:var(--k-space-7) var(--k-space-7) var(--k-space-5);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .drawer-head h3{margin:var(--k-space-0);font-size:var(--k-text-lg);line-height:var(--k-leading-normal);flex:1;min-width:0}
+  .drawer-body{
+    flex:1 1 auto;margin:var(--k-space-0);padding:var(--k-space-6) var(--k-space-7);overflow:auto;white-space:pre-wrap;
+    font-family:var(--k-font-mono);font-size:var(--k-text-md);line-height:var(--k-leading-normal);color:var(--k-text)}
 </style>
 
 <h1 id="heading">New ticket</h1>
@@ -247,51 +219,51 @@
   </div>
   <label for="ref">Key</label>
   <div class="row">
-    <input type="text" id="ref" placeholder="PROJ-142  ·  a board id like CU-1234  ·  or leave it to the title" />
-    <button id="fetchBtn" class="secondary">Fetch</button>
+    <input type="text" class="k-input" id="ref" placeholder="PROJ-142  ·  a board id like CU-1234  ·  or leave it to the title" />
+    <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
   </div>
   <div class="row2">
-    <button class="detailslink hidden" id="detailsBtn">Show details</button>
-    <a href="#" class="hidden" id="ticketLink"></a>
+    <button type="button" class="k-btn k-btn--link k-btn--sm hidden" id="detailsBtn" aria-expanded="false" aria-controls="drawer">Show details</button>
+    <a href="#" class="k-link hidden" id="ticketLink"></a>
   </div>
 
   <label for="title">Title</label>
-  <input type="text" id="title" placeholder="Short summary" />
+  <input type="text" class="k-input" id="title" placeholder="Short summary" />
   <div class="labelrow">
     <label for="desc">Prompt</label>
     <span class="prefill-ctl">
-      <span class="autopf on" id="autoPrefill" role="switch" aria-checked="true"
-            tabindex="0" title="Run the AI prefill automatically after a fetch">
-        <span class="sw" aria-hidden="true"></span>Auto-prefill
-      </span>
+      <button type="button" class="k-switch" id="autoPrefill" role="switch" aria-checked="true"
+              title="Run the AI prefill automatically after a fetch">
+        <span class="k-switch-track" aria-hidden="true"></span>Auto-prefill
+      </button>
       <span class="synctag hidden" id="syncTag">in sync</span>
       <span class="delta hidden" id="deltaBadge"></span>
-      <button class="secondary" id="analyzeBtn"
+      <button type="button" class="k-btn k-btn--secondary" id="analyzeBtn"
               title="Fill the prompt, repositories &amp; approach together from the brief">
         <span class="rico" aria-hidden="true">⟳</span><span id="analyzeLbl">Prefill</span>
       </button>
       <span class="busy hidden" id="analyzeBusy">analyzing…</span>
     </span>
   </div>
-  <textarea id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
+  <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="attachrow">
-    <button type="button" id="attachBtn" class="ghost"
+    <button type="button" id="attachBtn" class="k-btn k-btn--ghost"
             title="Attach an image or video from disk">Attach…</button>
     <span class="hint">or paste a screenshot into the prompt</span>
   </div>
   <div id="attachments" class="attachstrip"></div>
-  <div class="err hidden" id="err"></div>
+  <div class="err hidden" id="err" role="alert"></div>
 </div>
 
 <!-- Slide-over brief drawer + scrim (the fetched context, on demand) -->
-<div class="scrim" id="scrim"></div>
-<aside class="drawer" id="drawer" role="dialog" aria-modal="true"
+<div class="k-scrim scrim" id="scrim"></div>
+<aside class="k-drawer" id="drawer" role="dialog" aria-modal="true"
        aria-labelledby="drawerTitle" aria-hidden="true">
-  <div class="head">
+  <div class="drawer-head">
     <h3 id="drawerTitle">Context brief</h3>
-    <button class="close" id="drawerClose" aria-label="Close details">✕</button>
+    <button type="button" class="k-iconbtn" id="drawerClose" aria-label="Close details" title="Close details">✕</button>
   </div>
-  <div class="body" id="drawerBody"></div>
+  <div class="drawer-body" id="drawerBody"></div>
 </aside>
 
 <!-- ── Phase 2: Configure — a guided vertical stepper (hidden until Phase 1
@@ -314,25 +286,25 @@
       <span class="st">Approach</span>
     </div>
     <div class="stepbody">
-      <div class="approaches" id="approachList"></div>
+      <div class="approaches" id="approachList" role="radiogroup" aria-label="Approach"></div>
       <div id="agentPicker" class="hidden">
         <label for="agentSelect">Subagent</label>
-        <select id="agentSelect"></select>
+        <select class="k-input" id="agentSelect"></select>
         <div class="empty hidden" id="agentEmpty">No agents available — add them in Settings.</div>
       </div>
       <div id="providerPicker">
         <label for="providerSelect">Agent core</label>
-        <select id="providerSelect"></select>
+        <select class="k-input" id="providerSelect"></select>
         <div class="sub hidden" id="providerLockHint">Locked while the session runs — close the terminal to change it.</div>
       </div>
       <div id="modelPicker">
         <label for="modelSelect">Model</label>
-        <select id="modelSelect"></select>
+        <select class="k-input" id="modelSelect"></select>
         <div class="sub hidden" id="modelLockHint">Locked while the session runs — close the terminal to change it.</div>
       </div>
       <div id="typePicker">
         <label for="typeSelect">Type</label>
-        <select id="typeSelect"></select>
+        <select class="k-input" id="typeSelect"></select>
         <div class="sub">Feeds {type} in the branch, commit and PR conventions (Settings → Git).</div>
       </div>
     </div>
@@ -346,22 +318,24 @@
       <!-- The worktree is cut from each repository's baseline branch, so an
            un-refreshed local base starts the ticket behind the team. On by
            default; the value left here is what the launch honors. -->
-      <div class="labelrow" style="margin:0 0 8px">
-        <span class="autopf on" id="pullBase" role="switch" aria-checked="true"
-              tabindex="0" title="Fetch each selected repository's base branch before its worktree is created">
-          <span class="sw" aria-hidden="true"></span>Pull base branch first
-        </span>
+      <div class="labelrow pullrow">
+        <button type="button" class="k-switch" id="pullBase" role="switch" aria-checked="true"
+                title="Fetch each selected repository's base branch before its worktree is created">
+          <span class="k-switch-track" aria-hidden="true"></span>Pull base branch first
+        </button>
       </div>
-      <div class="footer" style="justify-content:flex-start;margin-top:2px">
-        <button id="submitBtn">Create ticket</button>
-        <button class="secondary" id="saveBtn">Save</button>
-        <button class="secondary" id="cancelBtn">Cancel</button>
+      <div class="footer footer-start">
+        <button type="button" class="k-btn k-btn--primary" id="submitBtn">Create ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="saveBtn">Save</button>
+        <button type="button" class="k-btn k-btn--secondary" id="cancelBtn">Cancel</button>
       </div>
     </div>
   </div>
 </div>
 
 <script>
+  /*KARST_DS_JS*/
+
   // Shared ticketing-provider identity (icon + brand) — single source in
   // src/model/providerIdentity.ts, injected here at load (CSP forbids a
   // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
@@ -432,11 +406,15 @@
           + 'data-attach-id="' + esc(a.id) + '">';
       return '<div class="attachtile">'
         + media
-        + '<button type="button" class="attachdetach" data-attach-id="' + esc(a.id) + '" '
-        + 'title="Remove attachment">&times;</button>'
+        // Destructive (removes the attachment) → `.k-iconbtn--danger` (UI-R10b);
+        // aria-label matches the tooltip text exactly, since the glyph carries
+        // no accessible name of its own (UI-R21, R24).
+        + '<button type="button" class="k-iconbtn k-iconbtn--danger attachdetach" data-attach-id="' + esc(a.id) + '" '
+        + 'aria-label="Remove attachment" title="Remove attachment">'
+        + '<span aria-hidden="true">&times;</span></button>'
         + '<span class="attachmeta"><span class="attachname" title="' + esc(a.name) + '">'
         + esc(a.name) + '</span>' + esc(formatBytes(a.byteSize)) + '</span>'
-        + '<button type="button" class="attachopen" data-attach-id="' + esc(a.id) + '" '
+        + '<button type="button" class="k-btn k-btn--ghost k-btn--sm attachopen" data-attach-id="' + esc(a.id) + '" '
         + 'title="Open attachment" aria-label="Open ' + esc(a.name) + '">Open</button>'
         + '</div>';
     }).join('');
@@ -451,9 +429,8 @@
     el('subhead').textContent = state.mode === 'edit'
       ? (state.title || '(untitled)')
       : 'Name the ticket, write a prompt, pick an approach.';
-    // A state push mid-launch (submit binds the new ticket, which re-pushes)
-    // must not overwrite the busy label — stash it and let setSubmitBusy own the
-    // button text while a launch is in flight.
+    // The label text is set here, once per state push, and NEVER touched while
+    // busy (UI-R18) — setSubmitBusy only toggles aria-busy/disabled.
     submitLabel = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
     if (!submitBusy) el('submitBtn').textContent = submitLabel;
     renderProvider(state.provider);
@@ -514,11 +491,16 @@
     el('gateList').innerHTML = unclassified.map((svc) => (
       `<div class="svc">`
       + `<strong>${esc(svc)}</strong>`
-      + `<input type="text" class="signals" id="sig-${esc(svc)}"`
+      // A placeholder is not a label (UI-R25); the field has no room for a
+      // visible one beside the service name, so it carries an aria-label.
+      + `<input type="text" class="k-input signals" id="sig-${esc(svc)}"`
+      + ` aria-label="Signal words for ${esc(svc)}"`
       + ` placeholder="comma-separated words, e.g. vue, checkout"`
       + ` value="${esc(sigOf(svc))}"/>`
-      + `<button class="secondary" data-suggest="${esc(svc)}">Suggest</button>`
-      + `<button data-savesig="${esc(svc)}">Save</button>`
+      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-suggest="${esc(svc)}"`
+      + ` title="Suggest signal words from this repository's source">Suggest</button>`
+      + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-savesig="${esc(svc)}"`
+      + ` title="Save these signal words">Save</button>`
       + `</div>`
     )).join('');
   }
@@ -546,13 +528,29 @@
     el('fetchBtn').classList.remove('hidden');
   }
 
-  // The Fetch button doubles as its own status: idle | busy | done. Fixed width
-  // (CSS) means the row never shifts between states.
+  // The Fetch button doubles as its own status: idle | busy | done. The LABEL
+  // ("Fetch") never changes (UI-R18) — busy is `aria-busy` + the `.k-btn`
+  // primitive's own spinner; done is `disabled` + `.is-success` (the same
+  // primitive's built-in checkmark) with a title explaining why it's disabled
+  // (UI-R17). Fixed width (CSS) means the row never shifts between states.
   function setFetchState(s) {
     const btn = el('fetchBtn');
-    if (s === 'busy') { btn.textContent = 'Fetching…'; btn.disabled = true; btn.classList.remove('done'); }
-    else if (s === 'done') { btn.innerHTML = '<span aria-hidden="true">✓</span>Fetched'; btn.disabled = true; btn.classList.add('done'); }
-    else { btn.textContent = 'Fetch'; btn.disabled = false; btn.classList.remove('done'); }
+    if (s === 'busy') {
+      btn.setAttribute('aria-busy', 'true');
+      btn.disabled = true;
+      btn.classList.remove('is-success');
+      btn.removeAttribute('title');
+    } else if (s === 'done') {
+      btn.removeAttribute('aria-busy');
+      btn.disabled = true;
+      btn.classList.add('is-success');
+      btn.title = 'Already fetched — edit the key to fetch a different ticket';
+    } else {
+      btn.removeAttribute('aria-busy');
+      btn.disabled = false;
+      btn.classList.remove('is-success');
+      btn.removeAttribute('title');
+    }
   }
 
   // Stash the full brief for the drawer and flip the button to its done state.
@@ -622,9 +620,14 @@
 
   function renderRepos(repos) {
     lastRepos = repos || [];
-    if (!repos || !repos.length) { el('repoList').innerHTML = '<div class="empty">No repositories.</div>'; syncStepper(); return; }
-    // Toggle chips: the whole chip is a button; `data-repo` drives the click
-    // handler (delegated) which flips `draft.repos` and posts `set-repos`.
+    if (!repos || !repos.length) {
+      el('repoList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No repositories</div></div>';
+      syncStepper();
+      return;
+    }
+    // Toggle chips: a real button element carrying aria-pressed (UI-R09, R26) — `data-repo`
+    // drives the click handler (delegated) which flips `draft.repos` and posts
+    // `set-repos`.
     el('repoList').innerHTML = repos.map((r) => {
       const on = repoSelected(r);
       // The classifier score is a relevance hint, not user-facing data — keep it
@@ -636,11 +639,11 @@
       const titleText = [r.score ? `classifier score: ${r.score}` : '', hint]
         .filter(Boolean).join(' · ');
       const title = titleText ? ` title="${esc(titleText)}"` : '';
-      return `<span class="chip${on ? ' on' : ''}" role="button" tabindex="0" data-repo="${esc(r.service)}"${title}>`
+      return `<button type="button" class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"${title}>`
         + `<span class="tick" aria-hidden="true">✓</span>`
         + `<span>${esc(r.service)}</span>`
-        + (r.runnable === false ? `<span class="badge" style="margin-left:6px">no service</span>` : '')
-        + `</span>`;
+        + (r.runnable === false ? `<span class="badge chip-badge">no service</span>` : '')
+        + `</button>`;
     }).join('');
     syncStepper();
   }
@@ -648,16 +651,21 @@
   function renderApproaches(approaches, selected) {
     syncAnalyzeBtn();
     if (!approaches || !approaches.length) {
-      el('approachList').innerHTML = '<div class="empty">No approaches installed — add them in Settings.</div>'; syncStepper(); return;
+      el('approachList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No approaches installed</div>'
+        + '<div class="k-empty-hint">Add one in Settings.</div></div>';
+      syncStepper();
+      return;
     }
     const sel = draft.approach ?? selected;
     lastSelectedApproach = selected ?? null;
     lastApproaches = approaches;
-    // Selectable cards: the whole card is clickable (delegated handler reads
-    // `data-approach`), with a faux radio for affordance. Keeps Recommended +
-    // AI badges. A suggestion only badges its row — it never moves the pick.
+    // Selectable cards: a real <button role="radio" aria-checked> (UI-R09,
+    // R26) inside the `role="radiogroup"` container above. The whole card is
+    // clickable (delegated handler reads `data-approach`), with a faux radio
+    // dot for affordance. Keeps Recommended + AI badges. A suggestion only
+    // badges its row — it never moves the pick.
     el('approachList').innerHTML = approaches.map((a) => (
-      `<div class="acard${a.id===sel ? ' on' : ''}" role="button" tabindex="0" data-approach="${esc(a.id)}">`
+      `<button type="button" class="acard" role="radio" aria-checked="${a.id===sel}" data-approach="${esc(a.id)}">`
       + `<span class="radio" aria-hidden="true"></span>`
       + `<span class="amain">`
       + `<span class="aname">${esc(a.label)}${a.recommended ? ' <span class="badge">Recommended</span>' : ''}</span>`
@@ -666,7 +674,7 @@
           ? `<span class="adesc"><span class="badge ai">Recommend</span>: ${esc(aiSuggestion.reason || 'best fit for this ticket')}</span>`
           : '')
       + `</span>`
-      + `</div>`
+      + `</button>`
     )).join('');
     syncStepper();
   }
@@ -779,7 +787,8 @@
   }
 
   // Step rail state: repos done once ≥1 selected; approach active while
-  // choosing; create becomes active once an approach is picked.
+  // choosing; create becomes active once an approach is picked. `aria-current`
+  // marks the CURRENT step for assistive tech (UI-R26) — never the done ones.
   function syncStepper() {
     const repoN = lastRepos.filter(repoSelected).length;
     el('repoCount').textContent = repoN ? ` — ${repoN} selected` : '';
@@ -794,6 +803,8 @@
     const s = el(stepId);
     s.classList.remove('done', 'active', 'pending');
     s.classList.add(cls);
+    if (cls === 'active') s.setAttribute('aria-current', 'step');
+    else s.removeAttribute('aria-current');
     el(dotId).textContent = dotText;
   }
 
@@ -865,8 +876,13 @@
 
   // Trigger the analyzer for the current context (fetched brief + live prompt).
   // The host reasons over both and returns the coupled prompt/approach/repos.
+  // Pending is entered LOCALLY, before the round trip (UI-R11) — the `busy`
+  // message that follows only confirms/clears it.
   function triggerAnalyze() {
     if (!hasSuggestSignal() || approachBusy) return;
+    approachBusy = true;
+    el('analyzeBtn').setAttribute('aria-busy', 'true');
+    syncAnalyzeBtn();
     post({ type: 'analyze', prompt: el('desc').value });
   }
 
@@ -876,8 +892,8 @@
   let autoPrefillOn = true;
   function setAutoPrefill(on) {
     autoPrefillOn = on;
-    el('autoPrefill').classList.toggle('on', on);
-    el('autoPrefill').setAttribute('aria-checked', String(on));
+    const sw = el('autoPrefill');
+    sw.setAttribute('aria-checked', String(on));
   }
   function maybeAutoAnalyze() {
     if (!autoPrefillOn) return;
@@ -893,29 +909,45 @@
   let pullBaseOn = true;
   function setPullBase(on) {
     pullBaseOn = on;
-    el('pullBase').classList.toggle('on', on);
     el('pullBase').setAttribute('aria-checked', String(on));
   }
 
-  // Submit button busy lock. `submitLabel` is the idle text render() computed
-  // for the current mode, restored when the launch finishes (or fails).
+  // Submit button busy lock. The LABEL never changes while pending (UI-R18) —
+  // `render()` sets it once per state push (guarded by `submitBusy` so a
+  // mid-launch state push can't reset it); pending is carried by aria-busy
+  // and `disabled` alone, via the `.k-btn` primitive's own spinner.
   let submitBusy = false;
   let submitLabel = 'Create & Run session';
   function setSubmitBusy(on) {
     submitBusy = on;
     const btn = el('submitBtn');
     btn.disabled = on;
-    btn.textContent = on ? 'Starting session…' : submitLabel;
+    if (on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
   }
 
-  // Save button busy lock — no mode-dependent label (unlike submit), since
-  // save never launches anything.
+  // Save button busy lock — same stable-label contract as submit.
   let saveBusy = false;
   function setSaveBusy(on) {
     saveBusy = on;
     const btn = el('saveBtn');
     btn.disabled = on;
-    btn.textContent = on ? 'Saving…' : 'Save';
+    if (on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
+  }
+
+  // Field-level error for the one validation the page performs itself: a blank
+  // Title. Points `aria-describedby` at the shared `#err` bucket (the message
+  // text lives there — no duplicate copy) and marks the field invalid
+  // (UI-R25). Every OTHER failure (fetch/attach/host errors) belongs to no
+  // single field and stays purely in `#err`.
+  function setTitleInvalid(invalid) {
+    const input = el('title');
+    if (invalid) {
+      input.setAttribute('aria-invalid', 'true');
+      input.setAttribute('aria-describedby', 'err');
+    } else {
+      input.removeAttribute('aria-invalid');
+      input.removeAttribute('aria-describedby');
+    }
   }
 
   // ---- interactions ----
@@ -945,10 +977,12 @@
     // The key is optional everywhere: blank means "derive it from the title"
     // (persistDraft does, the field previews it). Title is the one hard field.
     if (!title) {
+      setTitleInvalid(true);
       showErr('Title is required.');
       return;
     }
     clearErr(); // a retry starts clean — the previous failure no longer applies
+    setTitleInvalid(false);
     // Effective repo set: a repo counts as selected if the user toggled it on,
     // or (untouched) it was scored-selected by default. Carry repos + approach
     // in the payload so create-mode picks persist onto the new ticket at submit.
@@ -967,6 +1001,9 @@
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
     const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
+    // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
+    // message that follows only confirms/clears it.
+    setSubmitBusy(true);
     post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType, pullBase: pullBaseOn });
   });
 
@@ -975,10 +1012,12 @@
     const key = el('ref').value.trim();
     const title = el('title').value.trim();
     if (!title) {
+      setTitleInvalid(true);
       showErr('Title is required.');
       return;
     }
     clearErr();
+    setTitleInvalid(false);
     const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
     // Same field-gathering as submit — save persists the identical draft, it
     // just never calls startTicket.
@@ -990,6 +1029,7 @@
         : null;
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
+    setSaveBusy(true);
     post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType });
   });
 
@@ -1002,6 +1042,9 @@
   });
   el('title').addEventListener('input', () => {
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
+    // Typing again is the retry — clear the field error the moment it's
+    // no longer blank, rather than waiting for the next submit attempt.
+    if (el('title').value.trim() !== '') setTitleInvalid(false);
     syncPhase2();
   });
   // Editing the Prompt is a context change: re-gate the control. It does NOT
@@ -1010,19 +1053,34 @@
   el('desc').addEventListener('input', syncAnalyzeBtn);
 
   el('attachBtn').addEventListener('click', function () {
-    post({ type: 'attach-pick' });
+    // `attach-pick`/`attach-bytes` (paste, below) share this control's pending
+    // state — both are "the attach machinery" from the user's point of view,
+    // and only one can usefully run at a time.
+    karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));
   });
 
   // Delegated: the strip is re-rendered on every state push, so per-tile
-  // listeners would be re-bound each time and leak.
+  // listeners would be re-bound each time and leak. Uses the runtime's pending
+  // primitives directly (karstRequestId + karstBeginPending, the same pieces
+  // `karstAction` uses internally) — the button clicked is the button that goes
+  // pending, and stays valid because a SUCCESSFUL detach removes the tile
+  // entirely on the next `state` push rather than leaving a stale reference.
   el('attachments').addEventListener('click', function (e) {
     const detach = e.target.closest('.attachdetach');
     if (detach) {
-      post({ type: 'detach-attachment', id: Number(detach.dataset.attachId) });
+      if (karstIsPending(detach) || detach.disabled) return;
+      const requestId = karstRequestId();
+      karstBeginPending(detach, requestId);
+      post({ type: 'detach-attachment', id: Number(detach.dataset.attachId), requestId });
       return;
     }
     const open = e.target.closest('.attachopen');
-    if (open) post({ type: 'open-attachment', id: Number(open.dataset.attachId) });
+    if (open) {
+      if (karstIsPending(open) || open.disabled) return;
+      const requestId = karstRequestId();
+      karstBeginPending(open, requestId);
+      post({ type: 'open-attachment', id: Number(open.dataset.attachId), requestId });
+    }
   });
 
   function postPastedFile(file) {
@@ -1051,7 +1109,13 @@
         reportReadFailure();
         return;
       }
-      post({ type: 'attach-bytes', name, base64: payload });
+      // Shares the Attach… button's pending state (UI-R11, R12) — same
+      // reasoning as the click handler above.
+      if (!karstIsPending(el('attachBtn'))) {
+        const requestId = karstRequestId();
+        karstBeginPending(el('attachBtn'), requestId);
+        post({ type: 'attach-bytes', name, base64: payload, requestId });
+      }
     };
     try {
       reader.readAsDataURL(file);
@@ -1072,18 +1136,13 @@
     }
   });
 
-  // Auto-prefill switch (default on). Click or Space/Enter toggles it.
+  // Auto-prefill switch (default on). A real <button role="switch"> gets
+  // Enter/Space activation natively — no custom keydown handler needed.
   el('autoPrefill').addEventListener('click', () => setAutoPrefill(!autoPrefillOn));
-  el('autoPrefill').addEventListener('keydown', (e) => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setAutoPrefill(!autoPrefillOn); }
-  });
 
-  // Pull-the-base switch (default on). Click or Space/Enter toggles it, same
-  // interaction as Auto-prefill above.
+  // Pull-the-base switch (default on). Same native-button activation as
+  // Auto-prefill above.
   el('pullBase').addEventListener('click', () => setPullBase(!pullBaseOn));
-  el('pullBase').addEventListener('keydown', (e) => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPullBase(!pullBaseOn); }
-  });
 
   el('cancelBtn').addEventListener('click', () => post({ type: 'request-state' }));
 
@@ -1100,12 +1159,14 @@
     el('scrim').classList.add('open');
     el('drawer').classList.add('open');
     el('drawer').setAttribute('aria-hidden', 'false');
+    el('detailsBtn').setAttribute('aria-expanded', 'true');
     el('drawerClose').focus();
   }
   function closeDrawer() {
     el('scrim').classList.remove('open');
     el('drawer').classList.remove('open');
     el('drawer').setAttribute('aria-hidden', 'true');
+    el('detailsBtn').setAttribute('aria-expanded', 'false');
     if (drawerTrigger && drawerTrigger.focus) drawerTrigger.focus();
   }
   el('detailsBtn').addEventListener('click', openDrawer);
@@ -1117,56 +1178,77 @@
 
   // Toggle a repo chip: flip its effective state, post the full selected set,
   // and re-render so the chip + stepper reflect it. Suggest re-gates (repos are
-  // part of the context fingerprint).
+  // part of the context fingerprint). Pending/result is reported through the
+  // shared runtime, bound to the whole list (`#repoList` survives the re-render
+  // that replaces the individual chip elements on every toggle).
   function toggleRepo(service) {
     const row = lastRepos.find((r) => r.service === service);
     const now = row ? !repoSelected(row) : true;
     draft.repos[service] = now;
     const repos = lastRepos.filter(repoSelected).map((r) => r.service);
-    post({ type: 'set-repos', repos });
+    const list = el('repoList');
+    const requestId = karstRequestId();
+    karstBeginPending(list, requestId);
+    post({ type: 'set-repos', repos, requestId });
     renderRepos(lastRepos);
     syncAnalyzeBtn();
   }
-  // Pick an approach card: record it, post, re-render (moves the `.on` ring).
-  // Also re-render the agent picker — its visibility depends on which
-  // approach is now current (only shown for single-subagent).
+  // Pick an approach card: record it, post, re-render (moves the checked
+  // radio). Also re-render the agent picker — its visibility depends on which
+  // approach is now current (only shown for single-subagent). Pending bound to
+  // the radiogroup container for the same reason as toggleRepo above.
   function pickApproach(id) {
     draft.approach = id;
-    post({ type: 'set-approach', id });
+    const list = el('approachList');
+    const requestId = karstRequestId();
+    karstBeginPending(list, requestId);
+    post({ type: 'set-approach', id, requestId });
     renderApproaches(lastApproaches, lastSelectedApproach);
     renderAgentPicker(lastAgents, lastSelectedAgent);
   }
 
   // Pick a subagent from the dropdown: record it, post the same way approach
-  // picks do.
+  // picks do. Pending binds directly to the (stable) <select> element.
   el('agentSelect').addEventListener('change', (e) => {
-    const id = e.target.value;
+    const select = e.target;
+    const id = select.value;
     draft.selectedAgent = id;
-    post({ type: 'set-agent', id });
+    const requestId = karstRequestId();
+    karstBeginPending(select, requestId);
+    post({ type: 'set-agent', id, requestId });
   });
 
   // Pick a model (or "Inherit", value ''): record + post. In create mode the
   // host no-ops the persist; submit carries the final value.
   el('modelSelect').addEventListener('change', (e) => {
-    const id = e.target.value;
+    const select = e.target;
+    const id = select.value;
     draft.selectedModel = id || null;
-    post({ type: 'set-model', id });
+    const requestId = karstRequestId();
+    karstBeginPending(select, requestId);
+    post({ type: 'set-model', id, requestId });
   });
 
   // Pick a provider (or "Inherit", value ''): record + post. In create mode the
   // host no-ops the persist; submit carries the final value.
   el('providerSelect').addEventListener('change', (e) => {
-    const id = e.target.value;
+    const select = e.target;
+    const id = select.value;
     draft.selectedAgentProvider = id || null;
-    post({ type: 'set-provider', id });
+    const requestId = karstRequestId();
+    karstBeginPending(select, requestId);
+    post({ type: 'set-provider', id, requestId });
   });
 
   // Pick a conventional type (or "Inherit", value ''): record + post, same
   // shape as the model picker. Create mode holds it in the draft until submit.
   el('typeSelect').addEventListener('change', (e) => {
-    const id = e.target.value;
+    const select = e.target;
+    const id = select.value;
     draft.ticketType = id || null;
-    post({ type: 'set-type', id });
+    const requestId = karstRequestId();
+    karstBeginPending(select, requestId);
+    post({ type: 'set-type', id, requestId });
   });
 
   document.addEventListener('click', (e) => {
@@ -1175,7 +1257,15 @@
     if (chip) { toggleRepo(chip.dataset.repo); return; }
     const card = t.closest && t.closest('[data-approach]');
     if (card) { pickApproach(card.dataset.approach); return; }
-    if (t.dataset && t.dataset.suggest) post({ type: 'suggest-signals', service: t.dataset.suggest });
+    if (t.dataset && t.dataset.suggest) {
+      // Pending is set here, locally, before the round trip (UI-R11); the
+      // `busy` what:'suggest' message that follows clears it on every
+      // `[data-suggest]` button (the host's message carries no per-service id
+      // to target just this one).
+      t.setAttribute('aria-busy', 'true');
+      t.disabled = true;
+      post({ type: 'suggest-signals', service: t.dataset.suggest });
+    }
     if (t.dataset && t.dataset.savesig) {
       const input = el('sig-' + t.dataset.savesig);
       const words = (input.value || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -1190,7 +1280,11 @@
     }
   });
 
-  // Keyboard: Enter/Space activates a focused chip or approach card.
+  // Keyboard: Enter/Space activates a focused chip or approach card. Both are
+  // now real button elements, so the browser already does this natively — this
+  // listener stays only as a defensive no-op path for the delegated click
+  // handler above (kept for the `[data-repo]`/`[data-approach]` selectors it
+  // shares, and to avoid a double-fire from a synthetic click).
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const t = e.target;
@@ -1202,7 +1296,36 @@
 
   function showErr(msg) { const e = el('err'); e.textContent = msg; e.classList.remove('hidden'); }
   function clearErr() { el('err').classList.add('hidden'); }
+  /**
+   * Watchdogs for the LEGACY `busy` channel (UI-R14).
+   *
+   * `fetch`/`suggest`/`submit`/`analyze`/`save` predate `action-result`: the
+   * host brackets each with `busy:true` / `busy:false`, so nothing settles them
+   * if the host never sends the closing half — a provider call that hangs, or a
+   * panel disposed mid-flight, left the button disabled forever. The shared
+   * runtime arms a watchdog for every control it owns; these are the ones it
+   * does not own, so they arm their own. Firing it reports UNKNOWN, not failure:
+   * the request may well have succeeded and simply never been acknowledged.
+   */
+  const busyWatchdogs = {};
+
+  function armBusyWatchdog(what) {
+    clearBusyWatchdog(what);
+    busyWatchdogs[what] = setTimeout(function () {
+      delete busyWatchdogs[what];
+      setBusy(what, false);
+      karstToast('warning', 'Still running \u2014 the result is unknown.');
+    }, KARST_WATCHDOG_MS);
+  }
+
+  function clearBusyWatchdog(what) {
+    if (busyWatchdogs[what] === undefined) return;
+    clearTimeout(busyWatchdogs[what]);
+    delete busyWatchdogs[what];
+  }
+
   function setBusy(what, on) {
+    if (on) armBusyWatchdog(what); else clearBusyWatchdog(what);
     // The fetch button carries its own busy state; a failed fetch (on→false with
     // no brief) resets it to idle so the user can retry.
     if (what === 'fetch' && !on && !briefText) setFetchState('idle');
@@ -1211,8 +1334,20 @@
     // is happening — on success the panel closes and the dashboard takes over.
     if (what === 'submit') setSubmitBusy(on);
     if (what === 'save') setSaveBusy(on);
+    // Suggest: the host's message carries no per-service id, so every
+    // `[data-suggest]` button in the (currently rendered) gate list toggles
+    // together. Previously this case did not exist at all — the button's
+    // pending state was silently swallowed (the defect UI-R16 names).
+    if (what === 'suggest') {
+      document.querySelectorAll('[data-suggest]').forEach(function (btn) {
+        if (on) { btn.setAttribute('aria-busy', 'true'); btn.disabled = true; }
+        else { btn.removeAttribute('aria-busy'); btn.disabled = false; }
+      });
+    }
     if (what === 'analyze') {
       el('analyzeBusy').classList.toggle('hidden', !on);
+      if (on) el('analyzeBtn').setAttribute('aria-busy', 'true');
+      else el('analyzeBtn').removeAttribute('aria-busy');
       approachBusy = on;
       syncAnalyzeBtn();
     }
@@ -1300,6 +1435,7 @@
       }
       case 'error': showErr(msg.message); break;
       case 'busy': setBusy(msg.what, msg.on); break;
+      case 'action-result': karstSettle(msg.requestId, msg.ok, msg.message); break;
     }
   });
 

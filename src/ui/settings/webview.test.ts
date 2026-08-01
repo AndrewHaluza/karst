@@ -385,9 +385,14 @@ describe('repository enabled toggle', () => {
     expect(fn![1]).toContain('enabled: false');
   });
 
-  it('renders an enabled pill toggle per repository card', () => {
+  it('renders a real k-switch per repository card, with a matching aria-label and title', () => {
+    // UI-R24/R26: role="switch" + aria-checked, not a hidden checkbox behind a
+    // decorative dot — and the accessible name (aria-label) matches the
+    // tooltip (title) exactly, since the control carries no visible text.
     expect(HTML).toContain('data-repo-enabled="${esc(name)}"');
-    expect(HTML).toContain('approach-toggle'); // reuses the existing pill style
+    expect(HTML).toMatch(/class="k-switch" role="switch" aria-checked="\$\{isEnabled \? 'true' : 'false'\}"/);
+    expect(HTML).toMatch(/aria-label="\$\{isEnabled \? 'Disable this repository' : 'Enable this repository'\}"/);
+    expect(HTML).toMatch(/title="\$\{isEnabled \? 'Disable this repository' : 'Enable this repository'\}"/);
   });
 
   it('shows a Draft label when a repository is disabled', () => {
@@ -396,15 +401,19 @@ describe('repository enabled toggle', () => {
   });
 
   it('does not expand the card when the toggle itself is clicked', () => {
-    // The visible part of the pill is a `.dot` span with no data attribute of
-    // its own, so the accordion fallback must exempt it by ancestor.
-    expect(HTML).toContain("t.closest('.approach-toggle')");
-    expect(HTML).toMatch(/t\.dataset\.svcName === undefined && !inEnabledToggle/);
+    // The disclosure is its own <button class="card-toggle" data-toggle>, and
+    // the switch is a SIBLING, never a descendant of it — so a click on the
+    // switch cannot bubble through `closest('[data-toggle]')` at all. No
+    // ancestor exemption is needed (or present) any more.
+    expect(HTML).toMatch(/class="card-toggle" data-toggle="\$\{esc\(name\)\}"/);
+    expect(HTML).toContain("t.closest && t.closest('[data-toggle]')");
   });
 
-  it('flips draft.repositories[name].enabled on toggle click', () => {
+  it('flips draft.repositories[name].enabled on toggle click, reading aria-checked', () => {
     expect(HTML).toContain('t.dataset.repoEnabled');
-    expect(HTML).toMatch(/enabled:\s*t\.checked/);
+    expect(HTML).toMatch(/next = t\.getAttribute\('aria-checked'\) !== 'true'/);
+    expect(HTML).toMatch(/enabled:\s*next/);
+    expect(HTML).toMatch(/t\.setAttribute\('aria-checked', String\(next\)\)/);
   });
 });
 
@@ -422,9 +431,12 @@ describe('repository field placeholders', () => {
 
 describe('chevron and invalid-field styling', () => {
   it('renders the chevron at a comfortably clickable size', () => {
-    const m = HTML.match(/\.card \.card-head \.chevron\{([^}]*)\}/);
-    expect(m, '.card .card-head .chevron rule not found').toBeTruthy();
-    expect(m![1]).toMatch(/font-size:1[4-9]px/); // at least 14px, up from 10px
+    // The disclosure is now a real <button class="card-toggle"> rather than the
+    // whole `.card-head` row, and its size comes from the type scale rather
+    // than a literal — the design system owns the value (UI-R04, UI-R09).
+    const m = HTML.match(/\.card \.card-toggle \.chevron\{([^}]*)\}/);
+    expect(m, '.card .card-toggle .chevron rule not found').toBeTruthy();
+    expect(m![1]).toMatch(/font-size:var\(--k-text-(lg|xl|2xl)\)/); // >= 14px, up from 10px
   });
 
   it('applies the error border to any invalid field, not just convention fields', () => {
@@ -461,7 +473,7 @@ describe('ticketing provider dropdown', () => {
   it('paints the menu above the cards that follow it', () => {
     const m = HTML.match(/\.provselect-menu\{([^}]*)\}/);
     expect(m, '.provselect-menu rule not found').toBeTruthy();
-    expect(m![1]).toMatch(/z-index:\d+/);
+    expect(m![1]).toMatch(/z-index:(?:\d+|var\(--k-z-[\w-]+\))/);
   });
 });
 
@@ -717,8 +729,11 @@ describe('settings unsaved-changes gate', () => {
   });
 
   it('posts a section with both drawer saves and the Save button', () => {
-    const saves = HTML.match(/post\(\{ type: 'save', manifest: draft[^}]*\}\)/g) ?? [];
-    expect(saves.length).toBeGreaterThan(0);
+    // All three go through `postAction`, not a bare `post()` — a save in
+    // flight must be pending/non-re-triggerable (UI-R11–R12), so a raw
+    // `post({type:'save',...})` call site here would be a regression.
+    const saves = HTML.match(/postAction\([^,]+, 'save', \{[^}]*\}\)/g) ?? [];
+    expect(saves.length).toBe(3); // topbar Save, approach drawer Save, approach drawer Delete
     for (const call of saves) expect(call, call).toContain('section');
   });
 });
@@ -777,6 +792,18 @@ function gateHarness(init: {
     return node;
   });
 
+  // Minimal fakes for the shared async-action runtime (designRuntime.ts):
+  // real behaviour is covered by designRuntime.test.ts against the emitted
+  // JS itself — this only needs enough surface for `postAction`/
+  // `updateSaveEnabled` to run without throwing, and for pending to actually
+  // gate a second click (UI-R12).
+  const karstPending = new Set<unknown>();
+  const karstIsPending = (control: unknown) => karstPending.has(control);
+  const karstBeginPending = (control: { disabled: boolean }) => {
+    karstPending.add(control);
+    control.disabled = true;
+  };
+
   const context: Record<string, unknown> = {
     ...init,
     currentSection: init.currentSection ?? 'general',
@@ -797,6 +824,10 @@ function gateHarness(init: {
       querySelectorAll: (sel: string) =>
         (sel === '.nav-btn' ? navButtons : sel === '.section' ? sections : []),
     },
+    karstIsPending,
+    karstBeginPending,
+    karstRequestId: () => 'r-test',
+    topbarSaveRequestId: null,
   };
 
   const modalHandlersStart = HTML.indexOf("el('leaveCancelBtn').addEventListener");
@@ -821,6 +852,7 @@ function gateHarness(init: {
     ${functionSource('openLeaveModal')}
     ${functionSource('closeLeaveModal')}
     ${functionSource('discardSection')}
+    ${functionSource('postAction')}
     ${functionSource('saveCurrentSection')}
     ${HTML.slice(modalHandlersStart, modalHandlersEnd)}
     markDirty();
@@ -893,10 +925,13 @@ describe('settings unsaved-changes gate — behavior', () => {
     h.navTo('git');
     h.click('leaveSaveBtn');
 
+    // Carries a requestId too (§ postAction, UI-R13) — the single dispatch
+    // seam correlates the host's terminal result back to this exact request.
     expect(h.posted).toContainEqual({
       type: 'save',
       manifest: { ...SAVED, host: '0.0.0.0' },
       section: 'general',
+      requestId: expect.any(String),
     });
     // Still on General: the nav is released by the `saved` ack, so a save the
     // host refuses leaves the user on the tab that needs fixing.
@@ -949,5 +984,176 @@ describe('settings unsaved-changes gate — behavior', () => {
     expect(h.context.dirtySections).toEqual(['general', 'services']);
     expect(h.el('unsavedHint').textContent).toBe('Unsaved on Repositories');
     expect(h.el('unsavedHint').classList.contains('hidden')).toBe(false);
+  });
+});
+
+// ── Task 3.7 remediation guards (docs/ui/UI-RULES.md) ───────────────────────
+
+describe('UI-R04 — no style literals remain', () => {
+  it('the <style> block contains no raw hex, rgb()/rgba(), or px/rem literal', () => {
+    const style = HTML.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+    expect(style.length).toBeGreaterThan(0);
+    const hits = style.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|[0-9]+(?:\.[0-9]+)?(?:px|rem)/g) ?? [];
+    expect(hits).toEqual([]);
+  });
+});
+
+describe('UI-R10b — destructive controls use the danger variant', () => {
+  // Every data-act/handler matching delete|remove|uninstall carries a danger
+  // variant class, never a plain secondary look-alike (the motivating defect:
+  // this screen had NO danger variant anywhere in its stylesheet).
+  const destructive = [
+    { attr: 'data-remove-service', variant: 'k-btn--danger' },
+    { attr: 'data-remove-port', variant: 'k-iconbtn--danger' },
+    { attr: 'data-remove-bind', variant: 'k-iconbtn--danger' },
+    { attr: 'data-remove-dep', variant: 'k-btn--danger' },
+    { attr: 'data-remove-signal', variant: 'k-iconbtn--danger' },
+    { attr: 'data-uninstall', variant: 'k-btn--danger' },
+    { attr: 'data-delete-agent', variant: 'k-btn--danger' },
+    { attr: 'id="approachDrawerDelete"', variant: 'k-btn--danger' },
+  ];
+  it.each(destructive)('$attr carries $variant', ({ attr, variant }) => {
+    const idx = HTML.indexOf(attr);
+    expect(idx, `${attr} not found`).toBeGreaterThanOrEqual(0);
+    const tagStart = HTML.lastIndexOf('<button', idx);
+    const tagEnd = HTML.indexOf('>', idx);
+    const tag = HTML.slice(tagStart, tagEnd);
+    expect(tag, tag).toContain(variant);
+  });
+});
+
+describe('UI-R09/R26 — card-head accordion is a real button with aria-expanded', () => {
+  it('renders a <button class="card-toggle" data-toggle aria-expanded>, not a clickable div', () => {
+    expect(HTML).toMatch(/<button type="button" class="card-toggle" data-toggle="\$\{esc\(name\)\}"/);
+    expect(HTML).toMatch(/aria-expanded="\$\{isOpen \? 'true' : 'false'\}"/);
+    // The old defect: a bare `<div class="card-head" data-toggle>` with no
+    // role/tabindex/keydown handler anywhere.
+    expect(HTML).not.toMatch(/<div class="card-head" data-toggle/);
+  });
+
+  it('the enable switch and Remove button are siblings of the toggle, never descendants', () => {
+    const openTag = HTML.indexOf('<button type="button" class="card-toggle"');
+    const closeTag = HTML.indexOf('</button>`', openTag);
+    const toggleMarkup = HTML.slice(openTag, closeTag);
+    expect(toggleMarkup).not.toContain('data-repo-enabled');
+    expect(toggleMarkup).not.toContain('data-remove-service');
+  });
+});
+
+describe('UI-R14b — the approach drawer does not close before its result', () => {
+  it('submitApproachDrawer / deleteApproachDrawer never call closeApproachDrawer directly', () => {
+    const submit = functionSource('submitApproachDrawer');
+    const del = functionSource('deleteApproachDrawer');
+    expect(submit).not.toContain('closeApproachDrawer()');
+    expect(del).not.toContain('closeApproachDrawer()');
+    // Both post through postAction and record the in-flight request instead.
+    expect(submit).toContain('approachDrawerRequestId = postAction(');
+    expect(del).toContain('approachDrawerRequestId = postAction(');
+  });
+
+  it('the drawer only closes from the saved ack, and shows the failure inline on error', () => {
+    const savedCase = HTML.slice(HTML.indexOf("case 'saved':"), HTML.indexOf("case 'approach-command-body':"));
+    expect(savedCase).toContain('closeApproachDrawer()');
+    const errorCase = HTML.slice(HTML.indexOf("case 'error':"), HTML.indexOf("case 'saved':"));
+    expect(errorCase).toContain('showApproachDrawerError(msg.message)');
+    expect(errorCase).not.toContain('closeApproachDrawer()');
+  });
+});
+
+describe('UI-R12 — Save is disabled while a save is in flight', () => {
+  it('updateSaveEnabled folds karstIsPending(saveBtn) into the disabled computation', () => {
+    const fn = functionSource('updateSaveEnabled');
+    expect(fn).toMatch(/saveBtn\.disabled\s*=\s*!valid \|\| !scopedDirty \|\| karstIsPending\(saveBtn\)/);
+  });
+
+  it('a double click on Save posts only one save message', () => {
+    const h = gateHarness({
+      draft: { host: 'x', repositories: {} },
+      lastSaved: { host: 'y', repositories: {} },
+    });
+    h.click('leaveSaveBtn'); // exercises saveCurrentSection() via postAction
+    h.click('leaveSaveBtn'); // a second immediate click must be dropped
+    const saves = h.posted.filter((m) => m.type === 'save');
+    expect(saves.length).toBe(1);
+  });
+});
+
+describe('UI-R25 — every input is labelled', () => {
+  it('every static <label for> id matches a real control id', () => {
+    const forIds = [...HTML.matchAll(/<label[^>]*\bfor="([^"$]+)"/g)].map((m) => m[1]);
+    expect(forIds.length).toBeGreaterThan(10);
+    for (const id of forIds) {
+      expect(HTML, `no control with id="${id}" for its <label for="${id}">`).toContain(`id="${id}"`);
+    }
+  });
+
+  it('every dynamically rendered field carries a <label for> or an aria-label', () => {
+    // Repository card fields: labelled via a per-repo <label for>.
+    expect(HTML).toMatch(/<label for="\$\{nameFieldId\}">Name<\/label>/);
+    expect(HTML).toMatch(/<label for="\$\{repoPathId\}">Repo path<\/label>/);
+    expect(HTML).toMatch(/<label style="margin:0" for="\$\{migrationsId\}">Has migrations<\/label>/);
+    expect(HTML).toMatch(/<label style="margin:0" for="\$\{runnableId\}">Runnable service<\/label>/);
+    // Ports / depends-on / signals: no per-row <label> is practical (rows are
+    // repeated and reordered), so each control carries its own aria-label.
+    expect(HTML).toContain('aria-label="Port ${i + 1} name"');
+    expect(HTML).toContain('aria-label="Port ${i + 1} environment variable"');
+    expect(HTML).toContain('aria-label="Dependency ${i + 1} target repository"');
+    expect(HTML).toContain('aria-label="Add signal word for ${esc(svcName)}"');
+    expect(HTML).toContain("aria-label=\"${esc(a.name)} body\"");
+    expect(HTML).toContain('aria-label="New agent name"');
+    expect(HTML).toContain('aria-label="Port range minimum"');
+    expect(HTML).toContain('aria-label="Port range maximum"');
+  });
+});
+
+describe('UI-R13 — action-result is handled', () => {
+  it('the host-message union includes action-result and the webview switch settles it', () => {
+    expect(HTML).toContain("case 'action-result': {");
+    const body = HTML.slice(
+      HTML.indexOf("case 'action-result': {"),
+      HTML.indexOf('break;', HTML.indexOf("case 'action-result': {")),
+    );
+    expect(body).toContain('karstSettle(msg.requestId, msg.ok, msg.message)');
+  });
+
+  it('messages.ts SettingsHostMessage includes ActionResultMessage', async () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'messages.ts'), 'utf8');
+    expect(src).toContain('| ActionResultMessage');
+    expect(src).toContain("from '../../model/actionResult.js'");
+  });
+});
+
+describe('ClickUp reload buttons', () => {
+  /**
+   * These two fetches predate `action-result` and settle through their own
+   * replies, so they are the one place a control could quietly keep the old
+   * text-only "Loading…" treatment with no pending state at all. They drive the
+   * runtime's pieces directly instead.
+   */
+  it('enters pending through the runtime, so the watchdog arms (UI-R11, R14)', () => {
+    expect(HTML).toContain('karstBeginPending');
+    expect(HTML).toMatch(/listsRequestId\s*=\s*beginFetch\('refreshListsBtn'/);
+    expect(HTML).toMatch(/beginFetch\('refreshStatusesBtn'/);
+  });
+
+  it('drops a second activation while a fetch is in flight (UI-R12)', () => {
+    expect(HTML).toContain('karstIsPending(btn)');
+  });
+
+  it('settles on both the success and the error reply (UI-R13)', () => {
+    for (const reply of [
+      'ticket-lists',
+      'ticket-lists-error',
+      'ticket-statuses',
+      'ticket-statuses-error',
+    ]) {
+      const at = HTML.indexOf(`case '${reply}': {`);
+      expect(at, `no handler for ${reply}`).toBeGreaterThan(0);
+      expect(HTML.slice(at, at + 220), `${reply} does not settle`).toContain('endFetch(');
+    }
+  });
+
+  it('carries the failure message into the settle rather than only the inline hint', () => {
+    expect(HTML).toMatch(/endFetch\((?:lists|statuses)RequestId,\s*false,\s*msg\.message\)/);
   });
 });
