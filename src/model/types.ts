@@ -15,6 +15,7 @@ export type StageKey =
   | 'review'
   | 'fix'
   | 'ship'
+  | 'merge'
   | 'done';
 
 /** Per-stage lifecycle status (§6 stages.status). */
@@ -44,6 +45,7 @@ export const STAGE_KEYS: readonly StageKey[] = [
   'review',
   'fix',
   'ship',
+  'merge',
   'done',
 ] as const;
 

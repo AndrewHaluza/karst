@@ -164,6 +164,60 @@ describe('buildNowLine', () => {
     });
   });
 
+  describe('the merge stage', () => {
+    const merge = cell({ stageKey: 'merge', status: 'pending' });
+
+    it('names how many repos are still to be merged', () => {
+      expect(
+        buildNowLine(merge, { mergeGate: { kind: 'awaiting', repos: ['api'] } }),
+      ).toEqual({
+        text: 'Now: shipped — waiting on 1 repo to be merged. Merge below to finish the ticket.',
+      });
+      expect(
+        buildNowLine(merge, { mergeGate: { kind: 'awaiting', repos: ['api', 'web'] } }).text,
+      ).toContain('waiting on 2 repos');
+    });
+
+    // The ticket's second ask: a conflict has to say so, in the same place the
+    // user is already looking, rather than hiding in a PR row.
+    it('says a branch no longer merges cleanly, and what else is left after it', () => {
+      expect(
+        buildNowLine(merge, {
+          mergeGate: { kind: 'conflicted', repos: ['api'], pending: ['web'] },
+        }),
+      ).toEqual({
+        text:
+          'Now: 1 repo no longer merges cleanly into the base. Resolve the conflicts below, '
+          + 'then merge. 1 repo still needs merging after that.',
+      });
+    });
+
+    it('does not trail a count when the conflict is the only thing left', () => {
+      expect(
+        buildNowLine(merge, { mergeGate: { kind: 'conflicted', repos: ['api'], pending: [] } }).text,
+      ).toBe('Now: 1 repo no longer merges cleanly into the base. Resolve the conflicts below, then merge.');
+    });
+
+    // Merging and resolving are both per-repo and both irreversible; a single
+    // button here would have to pick a repo on the user's behalf.
+    it('offers no action of its own, and no session button borrows the slot', () => {
+      expect(
+        buildNowLine(merge, {
+          mergeGate: { kind: 'awaiting', repos: ['api'] },
+          sessionAction: { kind: 'resume', label: 'Resume', detail: 'picks up at merge' },
+        }).action,
+      ).toBeUndefined();
+    });
+
+    // A gate nobody asked still has to produce a sentence — the panel renders
+    // this line unconditionally.
+    it('degrades to a plain waiting line when the gate was not read', () => {
+      expect(buildNowLine(merge)).toEqual({
+        text: 'Now: waiting for the pull requests to be merged.',
+      });
+    });
+  });
+
   it('never lets the session button override a stage that owns its action', () => {
     // Ship keeps its own confirm/retry action even when a sessionAction is passed.
     expect(

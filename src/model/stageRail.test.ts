@@ -41,7 +41,7 @@ describe('buildStageRail', () => {
   it('gives every stage a place — main and branch together cover the stepper', () => {
     const r = rail({});
     const placed = [...r.main.map((c) => c.stageKey), r.branch.stageKey];
-    expect(new Set(placed).size).toBe(7);
+    expect(new Set(placed).size).toBe(8);
   });
 
   it('derives the column geometry from MAIN_LINE rather than hardcoding it', () => {

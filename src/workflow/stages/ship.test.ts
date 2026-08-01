@@ -842,7 +842,7 @@ setTimeout(() => {
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
 
     const t = getTicket(store, id);
-    expect(t.stageCurrent).toBe('done');
+    expect(t.stageCurrent).toBe('merge');
     expect(t.stages.find((s) => s.stageKey === 'ship')!.verdict).toBeNull();
   });
 
@@ -862,7 +862,7 @@ setTimeout(() => {
 
       expect(args.some((a) => a[1] === 'create')).toBe(false);
       expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 18, url: URL }]);
-      expect(getTicket(store, id).stageCurrent).toBe('done');
+      expect(getTicket(store, id).stageCurrent).toBe('merge');
     });
 
     // The insert is what closes the permanence bug: it is why a later re-run is
@@ -946,7 +946,7 @@ setTimeout(() => {
           status: 'pass',
           detail: 'existing PR had no description — filled in',
         });
-        expect(getTicket(store, id).stageCurrent).toBe('done');
+        expect(getTicket(store, id).stageCurrent).toBe('merge');
       });
 
       // Whitespace is not a description a human wrote; it is the same emptiness
@@ -982,7 +982,7 @@ setTimeout(() => {
           status: 'note',
           detail: 'existing PR had no description — update failed: no write access',
         });
-        expect(getTicket(store, id).stageCurrent).toBe('done');
+        expect(getTicket(store, id).stageCurrent).toBe('merge');
       });
     });
 
@@ -1028,7 +1028,7 @@ setTimeout(() => {
         const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
 
         expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 18, url: URL }]);
-        expect(getTicket(store, id).stageCurrent).toBe('done');
+        expect(getTicket(store, id).stageCurrent).toBe('merge');
         expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!.verdict).toBeNull();
       });
 
@@ -1126,11 +1126,11 @@ setTimeout(() => {
     });
   });
 
-  it('advances the stage to done on success', async () => {
+  it('advances the stage to merge on success — an open PR is not a landing', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const { gh } = fakeGh();
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
-    expect(getTicket(store, id).stageCurrent).toBe('done');
+    expect(getTicket(store, id).stageCurrent).toBe('merge');
   });
 
   // Ship used to advance to `done` without ever asking whether the branch could
@@ -1172,7 +1172,7 @@ setTimeout(() => {
     // conflict fail the stage would park the ticket at `ship` forever — and a
     // retry cannot resolve a conflict, only a human rebase can. The PR exists, so
     // the ship succeeded; the conflict is recorded state, not a verdict.
-    it('a conflict does not fail the ship — the ticket still reaches done', async () => {
+    it('a conflict does not fail the ship — the ticket still reaches merge', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       const { gh } = fakeGh();
 
@@ -1186,7 +1186,7 @@ setTimeout(() => {
 
       expect(res.prs).toHaveLength(1);
       const t = getTicket(store, id);
-      expect(t.stageCurrent).toBe('done');
+      expect(t.stageCurrent).toBe('merge');
       expect(t.stages.find((s) => s.stageKey === 'ship')?.status).toBe('passed');
     });
 
@@ -1207,7 +1207,7 @@ setTimeout(() => {
       const [check] = listMergeChecksByTicket(store, id);
       expect(check?.state).toBe('unknown');
       expect(check?.reason).toContain("couldn't find remote ref develop");
-      expect(getTicket(store, id).stageCurrent).toBe('done');
+      expect(getTicket(store, id).stageCurrent).toBe('merge');
     });
 
     // The staleness requirement: the base moves under a PR nobody touched, so the
@@ -1241,7 +1241,7 @@ setTimeout(() => {
       const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
 
       expect(res.prs).toHaveLength(1);
-      expect(getTicket(store, id).stageCurrent).toBe('done');
+      expect(getTicket(store, id).stageCurrent).toBe('merge');
     });
 
     // A ship that never opened a PR has not shipped; there is nothing to report

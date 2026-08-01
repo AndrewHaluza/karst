@@ -10,6 +10,7 @@ import {
   type PrDetail,
   type PrStatus,
 } from '../integrations/github.js';
+import { settleMergeStage } from './mergeGate.js';
 
 /**
  * Merge one repo's PR for a ticket, from the ship stage, and record what actually
@@ -43,6 +44,16 @@ export interface MergeTicketPrResult {
   /** True only when the PR is confirmed merged afterwards. */
   ok: boolean;
   /**
+   * True when this merge was the LAST one outstanding and the ticket therefore
+   * advanced from `merge` to `done`. False on a multi-repo ticket with PRs still
+   * open — the ticket stays parked, which is the whole point of the merge stage.
+   *
+   * Reported rather than left for the caller to re-derive, so the post-merge
+   * provider status push fires exactly once, on the call that actually finished
+   * the ticket.
+   */
+  completedTicket: boolean;
+  /**
    * The PR's status as it now stands: the re-probed value when gh could see it,
    * else the last stored one. Null only when there was no PR to act on at all.
    */
@@ -60,6 +71,22 @@ async function probe(gh: GhRunner, url: string, cwd: string): Promise<PrDetail> 
   }
 }
 
+/**
+ * Let the merge gate re-read the ticket now that this PR has landed.
+ *
+ * Swallows, deliberately: the merge is done and undoable by nobody, so a
+ * bookkeeping failure must not be reported as a failed merge. The gate is
+ * idempotent and the background sweep runs it again on the next tick, so the
+ * ticket still reaches `done` — just later.
+ */
+function settle(store: Store, ticketId: number): boolean {
+  try {
+    return settleMergeStage(store, ticketId).advanced;
+  } catch {
+    return false;
+  }
+}
+
 export async function mergeTicketPr(
   store: Store,
   opts: MergeTicketPrOpts,
@@ -72,12 +99,18 @@ export async function mergeTicketPr(
     return {
       ok: false,
       status: null,
+      completedTicket: false,
       reason: `No pull request is recorded for "${opts.repo}" on this ticket — nothing to merge.`,
     };
   }
   // Already merged: the desired state, reached earlier. Not an error, and not a
-  // reason to run an irreversible command a second time.
-  if (pr.status === 'merged') return { ok: true, status: 'merged', reason: '' };
+  // reason to run an irreversible command a second time. Still settles: the
+  // ticket can be parked at `merge` because a DIFFERENT repo was the holdout, and
+  // a click on the landed one is as good a moment as any to notice it has caught
+  // up.
+  if (pr.status === 'merged') {
+    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId), reason: '' };
+  }
 
   const attempt = await mergePr(gh, pr.url, pr.cwd, opts.method);
   const detail = await probe(gh, pr.url, pr.cwd);
@@ -87,11 +120,14 @@ export async function mergeTicketPr(
   updatePrDetail(store, { ticketId: pr.ticketId, repo: pr.repo, url: pr.url, detail });
 
   const status = detail.status === 'unknown' ? pr.status : detail.status;
-  if (detail.status === 'merged') return { ok: true, status: 'merged', reason: '' };
-  if (!attempt.ok) return { ok: false, status, reason: attempt.reason };
+  if (detail.status === 'merged') {
+    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId), reason: '' };
+  }
+  if (!attempt.ok) return { ok: false, status, completedTicket: false, reason: attempt.reason };
   return {
     ok: false,
     status,
+    completedTicket: false,
     reason:
       detail.status === 'unknown'
         ? 'gh reported the merge succeeded, but karst could not confirm it on GitHub. Check the pull request before retrying.'

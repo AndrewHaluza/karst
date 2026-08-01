@@ -1,4 +1,5 @@
 import { FIX_ATTEMPT_CAP } from '../workflow/fixAttempts.js';
+import type { MergeGateState } from '../workflow/mergeGate.js';
 import type { SessionAction } from '../agent/sessionAction.js';
 import type { StepperCell } from './stepper.js';
 
@@ -79,9 +80,53 @@ function fixing(attempts: number, sessionAction?: SessionAction): NowLine {
  * `fixAttempts` is how many times a gate has already failed (`countFixAttempts`)
  * — the fix stage's own `attempt` is always 0, so the caller must supply it.
  */
+/**
+ * The merge stage's line. The stage row itself carries nothing to say here — it
+ * is parked pending, and a verdict written beside a pending status would read as
+ * a contradiction — so the wording comes from the gate's read of the PR rows and
+ * the merge checks, which are the current state of the thing being waited on.
+ *
+ * No action: merging and resolving are BOTH per-repo, and the buttons that do
+ * them already sit on the PR rows just below. A single button here would have to
+ * pick a repo on the user's behalf for an irreversible operation.
+ */
+function merging(state: MergeGateState | undefined): NowLine {
+  const count = (repos: readonly string[]): string =>
+    `${repos.length} ${repos.length === 1 ? 'repo' : 'repos'}`;
+
+  if (!state) return { text: 'Now: waiting for the pull requests to be merged.' };
+  switch (state.kind) {
+    case 'conflicted': {
+      const rest = state.pending.length
+        ? ` ${count(state.pending)} still ${state.pending.length === 1 ? 'needs' : 'need'} merging after that.`
+        : '';
+      return {
+        text: `Now: ${count(state.repos)} no longer ${
+          state.repos.length === 1 ? 'merges' : 'merge'
+        } cleanly into the base. Resolve the conflicts below, then merge.${rest}`,
+      };
+    }
+    case 'awaiting':
+      return {
+        text: `Now: shipped — waiting on ${count(state.repos)} to be merged. Merge below to finish the ticket.`,
+      };
+    // Both landed states mean the gate is about to advance the ticket (or already
+    // has, and this snapshot predates it). Say the truthful in-between thing
+    // rather than claiming it is still waiting on someone.
+    case 'merged':
+    case 'nothing-to-merge':
+      return { text: 'Now: everything is merged — finishing up.' };
+  }
+}
+
 export function buildNowLine(
   cell: StepperCell | null,
-  ctx: { fixAttempts?: number; sessionAction?: SessionAction } = {},
+  ctx: {
+    fixAttempts?: number;
+    sessionAction?: SessionAction;
+    /** The merge gate's current read — supplied only when it has been asked. */
+    mergeGate?: MergeGateState;
+  } = {},
 ): NowLine {
   // The returning-user entry point (§ start/continue): the verb rides on the
   // label ("Start session" / "Continue session"). Attached ONLY to the states
@@ -141,6 +186,8 @@ export function buildNowLine(
         return { text: 'Now: shipping — committing, pushing, and opening PRs for each hot repo.' };
       }
       return { text: 'Now: ready to ship. Confirm to open the PRs.', action: { kind: 'ship', label: 'Confirm ship' } };
+    case 'merge':
+      return merging(ctx.mergeGate);
     case 'done':
       return { text: 'Done.' };
   }

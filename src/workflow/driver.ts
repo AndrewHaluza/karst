@@ -46,6 +46,9 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
 
     // Human boundaries — stop without running.
     if (stage === 'ship') return finish(deps, ticketId, stage, 'blocked', 'ship-confirm');
+    // Merging is a human's click on GitHub (or a teammate's) — the driver has
+    // nothing to run here and must not spin waiting for one.
+    if (stage === 'merge') return finish(deps, ticketId, stage, 'blocked', 'awaiting-merge');
     if (stage === 'fix') return finish(deps, ticketId, stage, 'blocked', 'gate-failed');
     if (stage === 'impl') return finish(deps, ticketId, stage, 'blocked', 'awaiting-marker');
     if (stage === 'scope') return finish(deps, ticketId, stage, 'blocked', 'not-spun');

@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { openStore, type Store } from './db.js';
+import { createTicket } from './tickets.js';
+import { setStage } from './stages.js';
 
 const EXPECTED_TABLES = [
   'projects',
@@ -124,7 +126,7 @@ describe('openStore', () => {
   it('reports the current schema user_version', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
-    expect(store.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('tickets carries the v4 agent column', () => {
@@ -229,7 +231,7 @@ describe('openStore', () => {
       key: 'OLD-16',
       title: 'v16 row',
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('repairs an at-version attachment table and deduplicates before adding uniqueness', () => {
@@ -308,7 +310,7 @@ describe('openStore', () => {
       merged_at: null,
       comments: null,
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v14 DB to v15, adding tickets.type without touching rows', () => {
@@ -331,7 +333,7 @@ describe('openStore', () => {
     // Nothing is backfilled: a pre-v15 ticket has no conventional type to derive,
     // so it stays NULL and renders as the manifest default.
     expect(row).toEqual({ key: 'K-1', title: 'keep me', type: null });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a legacy v13 DB to v14, adding the parent_ticket_id column', () => {
@@ -358,7 +360,7 @@ describe('openStore', () => {
       .get('OLD-13') as { title: string; parent_ticket_id: number | null } | undefined;
     expect(row?.title).toBe('v13 row'); // data survived
     expect(row?.parent_ticket_id).toBeNull(); // nothing to backfill: not a follow-up
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('tickets carries the v13 session_provider column', () => {
@@ -402,7 +404,7 @@ describe('openStore', () => {
     expect(row?.title).toBe('v12 row'); // data survived
     expect(row?.session_id).toBe('sess-from-v12');
     expect(row?.session_provider).toBeNull();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a legacy v11 DB to v12, adding the agent_provider column', () => {
@@ -428,7 +430,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-11') as { title: string } | undefined;
     expect(row?.title).toBe('v11 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a legacy v4 DB to v5, adding the model column', () => {
@@ -454,7 +456,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-4') as { title: string } | undefined;
     expect(row?.title).toBe('v4 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v5 DB to v6, adding projects + project_id and leaving rows unassigned', () => {
@@ -485,7 +487,7 @@ describe('openStore', () => {
       .get('OLD-5') as { title: string; project_id: number | null } | undefined;
     expect(row?.title).toBe('v5 row');
     expect(row?.project_id).toBeNull();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v6 DB to v7, adding gate_runs without touching stages', () => {
@@ -516,7 +518,7 @@ describe('openStore', () => {
     // them would be the inference the no-inference guarantee forbids.
     const runs = migrated.db.prepare('SELECT * FROM gate_runs').all();
     expect(runs).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v7 DB to v8, adding phase_marks without touching stages', () => {
@@ -547,7 +549,7 @@ describe('openStore', () => {
     // inventing marks would be exactly the inference karst forbids.
     const marks = migrated.db.prepare('SELECT * FROM phase_marks').all();
     expect(marks).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v8 DB to v9, adding merge_checks without touching prs', () => {
@@ -579,7 +581,7 @@ describe('openStore', () => {
     // merge check until its next ship — never a manufactured "clean".
     const checks = migrated.db.prepare('SELECT * FROM merge_checks').all();
     expect(checks).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   // v10 is the first NON-additive step: a column rename. The values never
@@ -636,7 +638,7 @@ describe('openStore', () => {
       migrated.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
     ).toEqual({ repo: 'api' });
 
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   // The rename step is guarded on the CURRENT columns, so re-running it (a fresh
@@ -655,7 +657,7 @@ describe('openStore', () => {
     expect(
       reopened.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
     ).toEqual({ repo: 'api' });
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v10 DB to v11, adding worktree_archives', () => {
@@ -688,7 +690,7 @@ describe('openStore', () => {
     // worktree is actually archived; there is nothing to derive here.
     const archives = migrated.db.prepare('SELECT * FROM worktree_archives').all();
     expect(archives).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v18 DB to v19, adding token_usage and its aggregation indexes', () => {
@@ -725,7 +727,76 @@ describe('openStore', () => {
     expect(
       migrated.db.prepare('SELECT key FROM tickets WHERE id = ?').get(1),
     ).toEqual({ key: 'K-1' });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
+  });
+
+  it('migrates a v19 DB to v20, seeding the merge stage row every ticket now needs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT)');
+    legacy.exec(
+      `CREATE TABLE stages (
+         ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL, status TEXT NOT NULL,
+         attempt INTEGER NOT NULL DEFAULT 0, verdict TEXT, artifact_path TEXT,
+         started_at TEXT, ended_at TEXT, PRIMARY KEY (ticket_id, stage_key))`,
+    );
+    const ticket = legacy.prepare(
+      'INSERT INTO tickets (id, key, title, stage_current) VALUES (?, ?, ?, ?)',
+    );
+    ticket.run(1, 'K-1', 'shipped long ago', 'done');
+    ticket.run(2, 'K-2', 'mid flight', 'impl');
+    const stage = legacy.prepare(
+      'INSERT INTO stages (ticket_id, stage_key, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?)',
+    );
+    stage.run(1, 'ship', 'passed', '2026-07-01T10:00:00Z', '2026-07-01T10:05:00Z');
+    stage.run(1, 'done', 'passed', '2026-07-01T10:05:00Z', '2026-07-01T10:05:00Z');
+    stage.run(2, 'impl', 'running', '2026-07-02T10:00:00Z', null);
+    legacy.pragma('user_version = 19');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+
+    // Every ticket gains the row, or `setStage` (an UPDATE, by single-writer
+    // design) would silently write nothing and `transition` would throw the
+    // first time the ticket ships.
+    const rows = migrated.db
+      .prepare("SELECT ticket_id, status, started_at FROM stages WHERE stage_key = 'merge' ORDER BY ticket_id")
+      .all();
+    expect(rows).toEqual([
+      { ticket_id: 1, status: 'pending', started_at: null },
+      { ticket_id: 2, status: 'pending', started_at: null },
+    ]);
+
+    // A NULL `started_at` is "never entered" — what `deriveStageCurrent` skips —
+    // so a ticket already at `done` is not walked back to an unmerged state
+    // nothing in the registry has evidence for.
+    expect(
+      migrated.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(1),
+    ).toEqual({ stage_current: 'done' });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
+  });
+
+  it('re-seeding the merge stage is a no-op on a DB that already has it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const first = openStore(path);
+    const id = createTicket(first, { key: 'K-1', title: 'one' }).id;
+    setStage(first, id, 'merge', { status: 'passed' });
+    first.close();
+
+    // The guard is NOT EXISTS, so the seed must not overwrite a row the ticket
+    // has already moved through.
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(
+      reopened.db
+        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'merge'")
+        .all(id),
+    ).toEqual([{ status: 'passed' }]);
   });
 
   it('migrates a legacy v15 DB by adding the stage blocked columns', () => {
@@ -794,7 +865,7 @@ describe('openStore', () => {
       blocked_reason: null,
       blocked_at: null,
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
     migrated.close();
 
     // Idempotence: reopening an already-migrated DB must not error, re-alter
@@ -809,7 +880,7 @@ describe('openStore', () => {
     expect(reopenedCols.has('blocked_kind')).toBe(true);
     expect(reopenedCols.has('blocked_reason')).toBe(true);
     expect(reopenedCols.has('blocked_at')).toBe(true);
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(20);
     const reopenedRow = reopened.db
       .prepare(
         'SELECT status, attempt, verdict FROM stages WHERE ticket_id = ? AND stage_key = ?',
@@ -851,7 +922,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-2') as { title: string } | undefined;
     expect(row?.title).toBe('v2 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(19);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(20);
   });
 
   it('migrates a v1 DB to v2, adding columns and preserving rows', () => {

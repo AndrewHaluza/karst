@@ -706,7 +706,7 @@
   const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-  const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
+  const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', merge: 'Merge', done: 'Done' };
 
   // The last snapshot the host pushed, and which stage the user is looking at.
   // Selection is LOCAL: it is not in DashboardState and is never posted back.

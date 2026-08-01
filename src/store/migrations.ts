@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -428,6 +428,35 @@ export function migrate(db: Database): void {
     // History starts at the upgrade, and an empty range renders as the view's
     // empty state rather than as zero spend.
     db.exec(TOKEN_USAGE_DDL);
+  }
+
+  if (current < 20) {
+    // v20 adds the `merge` stage between ship and done (workflow/graph.ts), so
+    // every existing ticket needs the row the create path now seeds for it.
+    // Without it `setStage` — an UPDATE, by single-writer design — silently
+    // writes nothing and `transition` throws "ticket N has no stage 'merge'"
+    // the first time a ticket ships.
+    //
+    // Seeded `pending` with a NULL `started_at`, which is exactly "never
+    // entered": `deriveStageCurrent` skips such a row, so a ticket already
+    // sitting at `done` stays there and is NOT walked back to an unmerged
+    // state it has no evidence for. Migrations do not backfill what they
+    // cannot derive, and whether a long-shipped PR actually landed is a
+    // question only gh can answer — `prSync` asks it on the next tick.
+    //
+    // Guarded on the tables actually being there, like every other step: a
+    // partial registry (a legacy DB carrying only some of the schema) must
+    // upgrade rather than fault, and a `stages`-less DB has no ticket to seed a
+    // row for anyway.
+    if (tableColumns(db, 'stages').size > 0 && tableColumns(db, 'tickets').size > 0) {
+      db.exec(
+        `INSERT INTO stages (ticket_id, stage_key, status, attempt)
+           SELECT t.id, 'merge', 'pending', 0
+             FROM tickets t
+            WHERE NOT EXISTS (SELECT 1 FROM stages s
+                               WHERE s.ticket_id = t.id AND s.stage_key = 'merge')`,
+      );
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

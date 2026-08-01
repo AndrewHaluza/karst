@@ -85,9 +85,12 @@ describe('transition (stage machine core)', () => {
     expect(transition(store, ticketId, 'review', { kind: 'failed' })).toBe('fix');
   });
 
-  it('pass at review advances to ship, ship to done', () => {
+  it('pass at review advances to ship, ship to merge, merge to done', () => {
     expect(transition(store, ticketId, 'review', { kind: 'passed' })).toBe('ship');
-    expect(transition(store, ticketId, 'ship', { kind: 'passed' })).toBe('done');
+    // Ship ends where the PRs exist. `merge` owns the gap between that and the
+    // work having landed, so `done` is one more verdict away.
+    expect(transition(store, ticketId, 'ship', { kind: 'passed' })).toBe('merge');
+    expect(transition(store, ticketId, 'merge', { kind: 'passed' })).toBe('done');
   });
 
   // A terminal stage has no edges and nothing to run: no verdict will ever
@@ -96,6 +99,7 @@ describe('transition (stage machine core)', () => {
   it('entering the terminal stage completes it — arriving IS finishing', () => {
     transition(store, ticketId, 'review', { kind: 'passed' });
     transition(store, ticketId, 'ship', { kind: 'passed' });
+    transition(store, ticketId, 'merge', { kind: 'passed' });
 
     const done = stageOf(store, ticketId, 'done');
     expect(done.status).toBe('passed');
@@ -179,7 +183,13 @@ describe('transition (stage machine core)', () => {
       expect(stageBadge(getTicket(store, ticketId)).label).toBe('Shipping');
       expect(facetOf(getTicket(store, ticketId))).toBe('running');
 
+      // Shipping done does NOT mean shipped: the ticket parks at `merge`, which
+      // is a confirm stage, so it reads needs-you until the PRs actually land.
       transition(store, ticketId, 'ship', { kind: 'passed' });
+      expect(stageBadge(getTicket(store, ticketId)).label).toBe('Needs you');
+      expect(facetOf(getTicket(store, ticketId))).toBe('input');
+
+      transition(store, ticketId, 'merge', { kind: 'passed' });
       expect(stageBadge(getTicket(store, ticketId)).label).toBe('Done');
       expect(facetOf(getTicket(store, ticketId))).toBe('done');
     });

@@ -74,8 +74,12 @@ export function sessionAction(
       : act('start', 'Start', 're-seed from context');
   }
 
-  // Parked at a gate or ship: a fresh session picks up where the ticket sits.
-  if (stage === 'uat' || stage === 'review' || stage === 'ship') {
+  // Parked at a gate, ship or merge: a fresh session picks up where the ticket
+  // sits. `merge` belongs here rather than with `done` — the PRs are open but
+  // nothing has landed, so a session that opens still has work in front of it
+  // (a conflict to resolve, most often), and "Reopen · shipped" would claim an
+  // outcome the ticket has not reached.
+  if (stage === 'uat' || stage === 'review' || stage === 'ship' || stage === 'merge') {
     return act('resume', 'Resume', `picks up at ${stage}`);
   }
 

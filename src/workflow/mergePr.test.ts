@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket } from '../store/tickets.js';
+import { createTicket, getTicket } from '../store/tickets.js';
+import { transition } from './machine.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import type { GhRunner } from '../integrations/github.js';
 import { mergeTicketPr } from './mergePr.js';
@@ -55,7 +56,7 @@ describe('mergeTicketPr', () => {
 
     const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
 
-    expect(r).toEqual({ ok: true, status: 'merged', reason: '' });
+    expect(r).toEqual({ ok: true, status: 'merged', completedTicket: false, reason: '' });
     expect(calls[0]).toEqual(['pr', 'merge', PR12, '--squash']);
     // The stored row reflects the REAL state, re-read from gh — never assumed
     // from the exit code.
@@ -131,8 +132,48 @@ describe('mergeTicketPr', () => {
 
     const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
 
-    expect(r).toEqual({ ok: true, status: 'merged', reason: '' });
+    expect(r).toEqual({ ok: true, status: 'merged', completedTicket: false, reason: '' });
     expect(listPrsByTicket(store, a.id)[0]!.mergedAt).toBe('2026-07-28T09:30:00Z');
+  });
+
+  // Landing the last PR is what makes a ticket done — the whole point of the
+  // merge stage. Reported on the result so the host pushes the provider's
+  // post-delivery status exactly once, from the call that actually finished it.
+  it('completes a ticket parked at merge when its last PR lands', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    for (const from of ['scope', 'impl', 'uat', 'review', 'ship'] as const) {
+      transition(store, a.id, from, { kind: 'passed' });
+    }
+    seedPr(store, a.id, 'api', 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    const { gh } = ghFake({ view: { state: 'MERGED', mergedAt: '2026-07-28T09:30:00Z' } });
+
+    const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
+
+    expect(r.ok).toBe(true);
+    expect(r.completedTicket).toBe(true);
+    expect(getTicket(store, a.id).stageCurrent).toBe('done');
+  });
+
+  // A multi-repo ticket is not done because ONE repo landed. Saying otherwise is
+  // the bug the merge stage exists to prevent, one repo further along.
+  it('does not complete a ticket whose other repo is still open', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    for (const from of ['scope', 'impl', 'uat', 'review', 'ship'] as const) {
+      transition(store, a.id, from, { kind: 'passed' });
+    }
+    seedPr(store, a.id, 'api', 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(a.id, 'web', 13, 'https://github.com/o/r/pull/13', 'open');
+    const { gh } = ghFake({ view: { state: 'MERGED' } });
+
+    const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
+
+    expect(r.ok).toBe(true);
+    expect(r.completedTicket).toBe(false);
+    expect(getTicket(store, a.id).stageCurrent).toBe('merge');
   });
 
   it('never runs gh when the ticket has no PR for that repo', async () => {
@@ -158,7 +199,7 @@ describe('mergeTicketPr', () => {
 
     const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
 
-    expect(r).toEqual({ ok: true, status: 'merged', reason: '' });
+    expect(r).toEqual({ ok: true, status: 'merged', completedTicket: false, reason: '' });
     expect(calls).toEqual([]);
   });
 
