@@ -57,15 +57,17 @@ describe('buildDashboardState', () => {
 
     const state = buildDashboardState(store, t.id);
 
-    expect(state.mergeChecks).toEqual([
-      {
-        repo: 'api',
-        state: 'conflicted',
-        // Rendered host-side: the webview must never phrase a verdict of its own.
-        summary: 'conflicted (1 file: src/a.ts)',
-        checkedAt: '2026-07-28T12:00:00.000Z',
-      },
-    ]);
+    // Fully worded host-side: the webview must never phrase a verdict of its own,
+    // and the age is relative to the push, so only the fixed parts are pinned.
+    expect(state.mergeChecks).toHaveLength(1);
+    const row = state.mergeChecks[0]!;
+    expect(row.repo).toBe('api');
+    expect(row.state).toBe('conflicted');
+    expect(row.headline).toMatch(/^conflicted · 1 file · vs main · /);
+    expect(row.detailsLabel).toBe('1 conflicting file');
+    expect(row.files).toEqual(['src/a.ts']);
+    expect(row.reason).toBe('');
+    expect(row.checkedTitle).not.toBe('');
   });
 
   it('throws for an unknown ticket', () => {

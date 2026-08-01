@@ -353,12 +353,62 @@ describe('dashboard webview.html', () => {
    * nothing ever re-asked — a PR that stopped being mergeable an hour later read
    * as fine until a human hit the merge button.
    */
-  it('renders each PR’s merge verdict from the host-rendered summary', () => {
-    // The wording is `summarizeMergeCheck`'s, host-side and shared with the ship
-    // strip and the CLI context. A verdict phrased in the webview would be a
-    // fourth voice describing the same three-valued fact.
+  it('renders each PR’s merge verdict from the host-rendered headline', () => {
+    // The wording is `buildMergeCheckPanelRows`', host-side. A verdict phrased in
+    // the webview would be a fourth voice describing the same three-valued fact.
     expect(HTML).toMatch(/renderPrs\(state\.prs,\s*state\.mergeChecks/);
-    expect(HTML).toMatch(/\bm\.summary\b/);
+    expect(HTML).toContain('esc(m.headline)');
+    // The old single-line summary is gone, not merely unused.
+    expect(HTML).not.toContain('m.summary');
+  });
+
+  /**
+   * `mgwrap`'s `mg-${state}` class is the SOLE driver of the dot colour and the
+   * red conflicted text (`.mg-conflicted .mgdot` / `.mg-conflicted .mgtext`
+   * above). Nothing else in this suite pinned it before, so a future edit that
+   * dropped the class, moved it back onto `.mg`, or emitted `<details>` outside
+   * `.mgwrap` would render a colourless dot for a real conflict and this suite
+   * would stay green.
+   */
+  it('pins the state class to the wrapper, not just anywhere in the row', () => {
+    expect(HTML).toContain('class="mgwrap mg-${esc(m.state)}"');
+  });
+
+  it('opens the conflict list only when the host supplied a label for it', () => {
+    // '' means "there is nothing to open" — it must render no disclosure at all,
+    // not an empty one.
+    expect(HTML).toContain('m.detailsLabel');
+    expect(HTML).toContain('<details class="mgd"');
+  });
+
+  it('escapes the paths and git’s prose, which both come from outside karst', () => {
+    expect(HTML).toContain('esc(m.reason)');
+    expect(HTML).toContain('esc(f)');
+    expect(HTML).not.toContain('${m.reason}');
+    expect(HTML).not.toContain('${m.headline}');
+  });
+
+  it('hangs the absolute stamp off the headline as its tooltip', () => {
+    // The relative age drifts between state pushes; this is the part that stays
+    // true when it has. Pinned to the exact element and attribute — asserting
+    // only that `m.checkedTitle` appears somewhere would still pass if the
+    // tooltip moved onto the wrong node.
+    expect(HTML).toContain('<span class="mgtext"${title}>');
+    expect(HTML).toContain('title="checked ${esc(m.checkedTitle)}"');
+  });
+
+  it('keeps an open merge disclosure open across a re-render, like the stage selection', () => {
+    // render() replaces #prs wholesale on every `state` push AND every
+    // ship-progress tick ("pushState fires on every driver progress tick",
+    // above) — a user reading a long conflict list mid-ship must not have it
+    // snap shut under them. So which disclosures are open is local view state,
+    // exactly like `selectedStage`: never inside DashboardState, never
+    // round-tripped through the host, toggled only by a delegated listener.
+    expect(HTML).toMatch(/let openMergeRepos = new Set\(\)/);
+    expect(HTML).toContain('openMergeRepos.has(m.repo)');
+    expect(HTML).toMatch(/addEventListener\('toggle'/);
+    // render() itself must never reset the set — only the toggle listener may.
+    expect((HTML.match(/openMergeRepos\s*=\s*new Set\(\)/g) || []).length).toBe(1);
   });
 
   it('offers Resolve conflicts only on a repo the host called conflicted', () => {
