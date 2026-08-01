@@ -1,6 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
-import { setMergeCheck, listMergeChecksByTicket, type MergeCheckInput } from './mergeChecks.js';
+import {
+  setMergeCheck,
+  getMergeCheck,
+  listMergeChecksByTicket,
+  type MergeCheckInput,
+} from './mergeChecks.js';
+
+function seedPr(
+  store: Store,
+  over: { ticketId?: number; repo?: string; number?: number; status?: string } = {},
+): void {
+  const number = over.number ?? 1;
+  store.db
+    .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+    .run(
+      over.ticketId ?? 1,
+      over.repo ?? 'web',
+      number,
+      `https://github.com/o/r/pull/${number}`,
+      over.status ?? 'open',
+    );
+}
 
 function input(over: Partial<MergeCheckInput> = {}): MergeCheckInput {
   return {
@@ -128,5 +149,55 @@ describe('mergeChecks', () => {
     store.db.prepare('UPDATE merge_checks SET state = ? WHERE ticket_id = ?').run('rebasing', 1);
 
     expect(listMergeChecksByTicket(store, 1)[0]?.state).toBe('unknown');
+  });
+
+  // Once the PR has landed, nothing can ever refresh the row again — the merge
+  // sweep skips merged PRs on purpose — so the last pre-merge verdict would sit
+  // on the panel forever, beside a PR row that reads "merged".
+  describe('once the repo’s PR is merged', () => {
+    it('reports no current merge state for that repo', () => {
+      setMergeCheck(store, input({ state: 'conflicted', files: ['CLAUDE.md'] }));
+      seedPr(store, { status: 'merged' });
+
+      expect(listMergeChecksByTicket(store, 1)).toEqual([]);
+      expect(getMergeCheck(store, 1, 'web')).toBeNull();
+    });
+
+    it('leaves every other repo on the ticket alone', () => {
+      setMergeCheck(store, input({ repo: 'web', state: 'conflicted', files: ['a.ts'] }));
+      setMergeCheck(store, input({ repo: 'api', state: 'conflicted', files: ['b.ts'] }));
+      seedPr(store, { repo: 'web', status: 'merged' });
+
+      expect(listMergeChecksByTicket(store, 1).map((r) => r.repo)).toEqual(['api']);
+    });
+
+    // Ship inserts a fresh PR row rather than reusing a terminal one, so a repo
+    // re-shipped after a merge carries both. The open one is the current PR, and
+    // its mergeability is a live question.
+    it('still reports the state when a newer PR is open', () => {
+      setMergeCheck(store, input({ state: 'conflicted', files: ['a.ts'] }));
+      seedPr(store, { number: 1, status: 'merged' });
+      seedPr(store, { number: 2, status: 'open' });
+
+      expect(listMergeChecksByTicket(store, 1).map((r) => r.state)).toEqual(['conflicted']);
+      expect(getMergeCheck(store, 1, 'web')?.state).toBe('conflicted');
+    });
+  });
+
+  // A check is recorded per worktree, whether or not opening the PR succeeded.
+  // No PR row is not a merged PR, and must not blank a real verdict.
+  it('reports the state for a repo that has no PR recorded at all', () => {
+    setMergeCheck(store, input({ state: 'conflicted', files: ['a.ts'] }));
+
+    expect(listMergeChecksByTicket(store, 1).map((r) => r.state)).toEqual(['conflicted']);
+  });
+
+  it('reports the state while the PR is still open or closed', () => {
+    setMergeCheck(store, input({ repo: 'web', state: 'conflicted', files: ['a.ts'] }));
+    setMergeCheck(store, input({ repo: 'api', state: 'clean' }));
+    seedPr(store, { repo: 'web', status: 'open' });
+    seedPr(store, { repo: 'api', status: 'closed' });
+
+    expect(listMergeChecksByTicket(store, 1).map((r) => r.repo)).toEqual(['api', 'web']);
   });
 });

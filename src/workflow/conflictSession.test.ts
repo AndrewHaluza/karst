@@ -72,6 +72,21 @@ describe('buildConflictBrief', () => {
     expect(buildConflictBrief(store, t.id, 'api')).toBeNull();
   });
 
+  // The panel can still be carrying the pre-merge verdict when the click lands.
+  // A landed branch has nothing to resolve, and the session would be opened
+  // against a base the work is already part of.
+  it('refuses a repo whose PR has since merged', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    seedWorktree(store, t.id, 'api', '/wt/api');
+    seedPr(store, t.id, 'api', 12);
+    conflict(store, t.id, 'api', ['src/a.ts']);
+    store.db
+      .prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ? AND repo = ?")
+      .run(t.id, 'api');
+
+    expect(buildConflictBrief(store, t.id, 'api')).toBeNull();
+  });
+
   it('refuses a repo that was never checked', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
     seedWorktree(store, t.id, 'api', '/wt/api');
