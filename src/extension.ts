@@ -16,6 +16,8 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
+import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -1201,6 +1203,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       enabled: () => binder.enabled(),
       onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
     },
+    (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
   );
 
   binder = new TerminalDashboardBinder({
@@ -2713,6 +2716,22 @@ function makeDashboardActions(
   // ticket: the panel is asking for a fresher answer, not a narrower one.
   refreshPrs: () => Promise<void>,
 ): DashboardActions {
+  const worktreeActions = makeWorktreeActions(
+    {
+      createTerminal: (options) => vscode.window.createTerminal(options),
+      revealInExplorer: async (path) => {
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path));
+      },
+      expandExplorer: async () => {
+        await vscode.commands.executeCommand('list.expand');
+      },
+      writeClipboard: async (text) => {
+        await vscode.env.clipboard.writeText(text);
+      },
+    },
+    logError,
+  );
+
   return {
     stopServer: (serverId) => {
       stopServer(store, serverId);
@@ -2759,10 +2778,7 @@ function makeDashboardActions(
       afterServerChange();
     },
     showChanges,
-    // Open folder → reveal the worktree in the Explorer (navigate there), not
-    // the OS file manager.
-    openWorktreeFolder: (path) =>
-      void vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path)),
+    ...worktreeActions,
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,

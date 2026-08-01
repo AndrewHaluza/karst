@@ -24,9 +24,31 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('a.detail');
   });
 
-  it('offers one ticket-level Changes action and no per-worktree Diff action', () => {
+  it('renders ticket changes as one accessible diff icon button', () => {
     expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
+    expect(HTML).toMatch(/id="wtChanges"[^>]*aria-label="Show ticket changes"/);
+    expect(HTML).toMatch(/id="wtChanges"[^>]*title="Show ticket changes"/);
+    expect(HTML).toContain('href="#i-diff"');
+    expect(HTML).not.toMatch(/id="wtChanges"[^>]*>Changes<\/button>/);
     expect(HTML).not.toContain('diff-worktree');
+  });
+
+  it('renders terminal, branch-copy, and reveal actions for each worktree', () => {
+    expect(HTML).toContain('data-act="open-worktree-terminal"');
+    expect(HTML).toContain('data-act="copy-worktree-branch"');
+    expect(HTML).toContain('data-branch="${esc(w.branch)}"');
+    expect(HTML).toContain('data-copy');
+    expect(HTML).toContain('Open Terminal');
+    expect(HTML).toContain('Reveal in Explorer');
+    expect(HTML).not.toContain('>Open folder</button>');
+  });
+
+  it('renders ephemeral additions and deletions by host-owned repo identity', () => {
+    expect(HTML).toMatch(/worktreeStats\[w\.repo\]/);
+    expect(HTML).toContain("msg.type === 'worktree-stats'");
+    expect(HTML).toContain('stats.additions');
+    expect(HTML).toContain('stats.deletions');
+    expect(HTML).toContain('worktreeStats = {}');
   });
 
   /**
