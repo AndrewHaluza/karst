@@ -1625,12 +1625,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
           resumeFix: (id, _gate, attempts) => resumeFixSession(id, attempts),
-          // Reuses the ticket-stack diff surface already wired above
-          // (`TicketChangesManager` → `openTicketDiff` → `vscode.diff`) rather
-          // than authoring a second one. The panel already aggregates every
-          // worktree for a ticket, so revealing it by ticket id covers every
-          // affected target review calls this for; `cwd` names nothing further
-          // to open.
+          // Reveals the ticket's Changes panel (`TicketChangesManager`,
+          // already wired above) — it does NOT itself call `openTicketDiff`/
+          // `vscode.diff`; that only fires once the human clicks a file row
+          // inside the panel. That distinction is deliberate: `vscode.diff`
+          // compares exactly two documents, `openTicketDiff` is scoped to one
+          // file at a time, and a review's affected set is an unbounded list
+          // of changed files across N targets — auto-opening a diff editor
+          // per file per target would fling open an unbounded, unprompted
+          // stack of tabs with no way for the user to decline. The Changes
+          // panel is the surface this codebase already has for presenting a
+          // ticket's full change set to a human without doing that, and
+          // reaching a specific file's real diff from it is one click away.
+          // `reviewInside`/the persisted 'changes' evidence are worded to
+          // match this exactly — "changes panel opened", never "diff
+          // opened". The panel aggregates every worktree for a ticket, so
+          // revealing it by ticket id covers every affected target review
+          // calls this for; `cwd` names nothing further to open.
           openDiff: (id) => changes.open(id),
           log: (message) => logger.info(message),
         },

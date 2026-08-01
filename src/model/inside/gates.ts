@@ -88,29 +88,35 @@ export function reviewInside(
   const batch = latestBatch(runs, 'review');
   const ops = gateOps(REVIEW_GATES, batch, running || cell.status === 'pending');
 
-  // The diff row states what happened, never what review merely intended to
-  // do. `openDiff` is an optional host dependency (`DriveTicketDeps.openDiff`)
-  // — absent, it opens nothing — so the row is driven by a recorded 'diff'
+  // This row states what happened, never what review merely intended to do.
+  // `openDiff` is an optional host dependency (`DriveTicketDeps.openDiff`) —
+  // absent, it opens nothing — so the row is driven by a recorded 'changes'
   // gate_run, evidence written in the SAME append-only place as every other
   // gate row, alongside the review batch it belongs to. A live boolean on a
   // `ReviewOutcome` would read correctly for one render and then be gone on
   // the next window reload; this survives it, the same as every other row
   // here. Never derived from `ops.length > 0` alone: that only proved this
-  // batch belongs to review, not that a diff opened for it.
-  const diffRun = batch.find((r) => r.gateName === 'diff');
+  // batch belongs to review, not that the changes surface opened for it.
+  //
+  // Named and worded as "changes", not "diff": the host implementation
+  // reveals the ticket's Changes panel — it does not itself invoke
+  // `vscode.diff` (that only fires once a human clicks a file row inside the
+  // panel). Claiming "diff opened" here would assert a control the run never
+  // performed, the exact defect this row exists to close.
+  const changesRun = batch.find((r) => r.gateName === 'changes');
   if (running) {
     ops.push({
       status: 'note',
-      name: 'diff',
-      detail: 'opens for you when the gate finishes, pass or fail',
+      name: 'changes',
+      detail: 'the changes panel opens for you when the gate finishes, pass or fail',
       duration: '',
     });
-  } else if (finished && diffRun) {
+  } else if (finished && changesRun) {
     ops.push({
       status: 'pass',
-      name: 'diff',
-      detail: 'opened for review',
-      duration: formatDuration(diffRun.startedAt, diffRun.endedAt),
+      name: 'changes',
+      detail: 'changes panel opened for review',
+      duration: formatDuration(changesRun.startedAt, changesRun.endedAt),
     });
   }
 

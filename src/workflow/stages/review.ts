@@ -28,7 +28,14 @@ export type { GateResult };
 /** Runs the review gates (lint/typecheck/test); injected for unit tests. */
 export type GateRunner = (cwd: string) => Promise<GateResult[]>;
 
-/** Opens the ticket's diff for the human (real: `vscode.diff`); injected. */
+/**
+ * Surfaces a target's changes for a human to review; injected. The host's real
+ * implementation reveals the ticket's Changes panel (`TicketChangesManager`,
+ * itself backed by `vscode.diff` — but only once the human clicks a file row
+ * inside it). This function does not itself guarantee a diff editor opened,
+ * only that the review surface did — `reviewInside` and the persisted
+ * 'changes' evidence describe it that way, deliberately.
+ */
 export type OpenDiff = (ticketId: number, cwd: string) => void;
 
 export interface RunReviewOpts {
@@ -152,16 +159,17 @@ export async function runReview(
     ? await selectReviewTargets(opts.manifest, listWorktreesByTicket(store, opts.ticketId), git)
     : [{ repo: opts.cwd, path: opts.cwd, baseRef: null, names: [] }];
   const targetRuns: { label: string; gates: GateResult[] }[] = [];
-  // Tracked so the transition below can record whether a diff genuinely
-  // opened — never assumed from "the loop ran", since only a real `openDiff`
-  // (not the absence of one) actually shows the human anything.
+  // Tracked so the transition below can record whether the changes surface
+  // genuinely opened — never assumed from "the loop ran", since only a real
+  // `openDiff` (not the absence of one) actually shows the human anything.
   let diffOpened = false;
   for (const target of targets) {
     targetRuns.push({
       label: target.names.join(', ') || target.repo,
       gates: await runner(target.path),
     });
-    // A human diff is useful for exactly the same affected target set.
+    // Surfacing the changes is useful for exactly the same affected target
+    // set.
     if (openDiff) {
       openDiff(opts.ticketId, target.path);
       diffOpened = true;
@@ -248,20 +256,24 @@ export async function runReview(
         endedAt: g.endedAt ?? null,
       })),
     });
-    // The diff is evidence exactly like a gate, recorded ONLY when a real
-    // `openDiff` actually ran — a separate batch call, deliberately never
-    // folded into `gates` above, so it can never touch REVIEW_GATES' verdict
-    // math or artifact report (that stays the deterministic-gate computation
-    // it always was). This is what lets `reviewInside` read "did a diff
-    // open" back out of the store after a reload, instead of a live
-    // `ReviewOutcome` boolean that a reload would lose.
+    // The changes surface is evidence exactly like a gate, recorded ONLY when
+    // a real `openDiff` actually ran — a separate batch call, deliberately
+    // never folded into `gates` above, so it can never touch REVIEW_GATES'
+    // verdict math or artifact report (that stays the deterministic-gate
+    // computation it always was). This is what lets `reviewInside` read "did
+    // the changes surface open" back out of the store after a reload,
+    // instead of a live `ReviewOutcome` boolean that a reload would lose.
+    // Named 'changes', not 'diff': the host implementation reveals the
+    // Changes panel, it does not itself open a diff editor (that only
+    // happens once a human clicks a file row inside it) — the evidence must
+    // say exactly what ran, not the stronger claim its old name implied.
     if (diffOpened) {
       recordGateRun(store, {
         ticketId: opts.ticketId,
         stageKey: 'review',
         attempt,
         runAt,
-        gates: [{ gateName: 'diff', exitCode: 0 }],
+        gates: [{ gateName: 'changes', exitCode: 0 }],
       });
     }
   });

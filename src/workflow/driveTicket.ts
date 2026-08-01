@@ -56,12 +56,15 @@ export interface DriveTicketDeps {
   /** Called only when a fix attempt remains; the host owns how it resumes. */
   resumeFix: (ticketId: number, gate: GateStageKey, attempts: number) => void;
   /**
-   * Opens the ticket's diff for a human to review. Absent means nothing does
-   * — review then records no diff evidence for that run, and `reviewInside`
-   * shows no diff row rather than claim one nobody performed. The host wires
-   * its existing ticket-stack diff surface here (`TicketChangesManager.open`,
-   * itself backed by the `vscode.diff` call already in `extension.ts`);
-   * `driveTicket` never authors a second diff surface of its own.
+   * Surfaces the ticket's changes for a human to review. Absent means nothing
+   * does — review then records no 'changes' evidence for that run, and
+   * `reviewInside` shows no row rather than claim one nobody performed. The
+   * host wires its existing ticket-stack surface here
+   * (`TicketChangesManager.open`); that panel is itself backed by the
+   * `openTicketDiff`/`vscode.diff` call already in `extension.ts`, but only
+   * once a human clicks a file row inside it — this call alone does not open
+   * a diff editor, only the panel. `driveTicket` never authors a second
+   * surface of its own.
    */
   openDiff?: OpenDiff;
   log: (message: string) => void;
