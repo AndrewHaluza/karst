@@ -119,7 +119,11 @@ describe('collectMetadata', () => {
     expect(serialized).toContain('[REDACTED:authorization]')
     expect(serialized.match(/repo_1/g)?.length).toBeGreaterThanOrEqual(4)
     expect(statements.length).toBeGreaterThan(0)
-    expect(statements.every((sql) => /^\s*SELECT\b/i.test(sql))).toBe(true)
+    // Reads only. `PRAGMA <name>` with no `=` is a query, not a setting — the
+    // registry section reads `user_version` to report whether the DB migrated.
+    expect(
+      statements.every((sql) => /^\s*(?:SELECT\b|PRAGMA\s+\w+\s*$)/i.test(sql)),
+    ).toBe(true)
     for (const forbidden of [
       'FORBIDDEN_TITLE',
       'FORBIDDEN_DESCRIPTION',

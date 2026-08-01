@@ -1,10 +1,12 @@
 import type { Ticket } from '../store/tickets.js'
+import { buildIssuePrefill, hookLines } from './issuePrefill.js'
 import type { FinalizedDiagnosticReport } from './types.js'
 
 export const DISCLOSURE = Object.freeze({
   included:
     'Included now — diagnostic metadata: runtime, report-local correlation references, '
-    + 'stages, gates, phases, effective configuration and bounded sanitized Karst logs.',
+    + 'stages, gates, phases, effective configuration, hook-channel counters, registry '
+    + 'schema version and row counts, and bounded sanitized Karst logs.',
   notIncluded:
     'Not included — session context: ticket description, brief and other prompt-like text.',
   alwaysExcluded:
@@ -62,10 +64,15 @@ export function buildReviewSummary(snapshot: FinalizedDiagnosticReport): string 
     })
   const redactions = Object.entries(snapshot.report.redactions)
     .map(([category, count]) => `${category}: ${count}`)
+  // Hook counters are surfaced at review time, not only inside the report: an
+  // agent that keeps printing `hook exited with code 1` is the reason many of
+  // these reports are opened, and the reviewer should see it before exporting.
+  const hooks = hookLines(snapshot)
   return [
     context,
     'This is a point-in-time snapshot and may contain only the latest session reference.',
     `Checksum: ${snapshot.checksum}`,
+    ...(hooks.length ? ['Hook channel:', ...hooks] : []),
     ...(notices.length ? ['Section notices:', ...notices] : []),
     ...(redactions.length ? ['Redactions:', ...redactions] : ['Redactions: none']),
   ].join('\n')
@@ -73,23 +80,21 @@ export function buildReviewSummary(snapshot: FinalizedDiagnosticReport): string 
 
 const GITHUB_ISSUES = 'https://github.com/AndrewHaluza/karst/issues/new'
 
+/**
+ * The handoff form, prefilled from the reviewed snapshot.
+ *
+ * Only the finalized report is read — never the draft and never the optional
+ * session context — so the form can disclose nothing the reviewed bytes did not
+ * already contain. The report itself is still not uploaded.
+ */
 export function buildGitHubIssueUrl(
   snapshot: FinalizedDiagnosticReport,
   extensionVersion: string,
 ): string {
+  const prefill = buildIssuePrefill(snapshot, extensionVersion)
   const url = new URL(GITHUB_ISSUES)
-  url.searchParams.set('title', '[Karst] ')
-  url.searchParams.set('body', [
-    'Describe what happened and what you expected.',
-    '',
-    `Karst version: ${extensionVersion}`,
-    `Report schema: v${snapshot.report.reportVersion}`,
-    `Report reference: ${snapshot.report.reportId}`,
-    `Checksum: ${snapshot.checksum}`,
-    '',
-    'Karst did not upload diagnostics. After reviewing this form, paste or attach the '
-      + 'diagnostic report and submit the issue in GitHub.',
-  ].join('\n'))
+  url.searchParams.set('title', prefill.title)
+  url.searchParams.set('body', prefill.body)
   return url.toString()
 }
 

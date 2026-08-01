@@ -10,10 +10,10 @@ import {
 } from './session.js';
 import { planSessionRecovery, type RecoveryCandidate } from './sessionRecovery.js';
 import {
-  rememberTerminalTag,
-  terminalIdentity,
-  type TerminalTag,
-} from './terminalTags.js';
+  identifyTerminal,
+  rememberSessionTerminal,
+  type SessionTerminalRecord,
+} from './terminalIdentity.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 
 const adapter: AgentAdapter = {
@@ -27,12 +27,13 @@ const adapter: AgentAdapter = {
  * A terminal as the WINDOW sees it, which is not what the launching code passed
  * in: VS Code revives a persisted terminal by reattaching to its process, and
  * the handle it hands the extension host is rebuilt from that process alone —
- * the tab keeps its name and loses `creationOptions.env` entirely. A fixture
- * that carried the env across a reload is the reason this bug shipped twice, so
- * `reload()` below drops it exactly the way the host does.
+ * the pty keeps running under the same pid and `creationOptions.env` is gone
+ * entirely. A fixture that carried the env across a reload is the reason this
+ * bug shipped twice, so `reload()` below drops it exactly the way the host does.
  */
 interface WindowTerminal {
   name: string;
+  pid: number;
   env?: Record<string, string>;
   handle: FakeTerminal;
 }
@@ -64,10 +65,11 @@ function fakeTerminal(): FakeTerminal {
   return terminal;
 }
 
-/** The window: terminals plus the tag registry, mirroring `makeTerminalHost`. */
+/** The window: terminals plus the pid registry, mirroring `makeTerminalHost`. */
 class FakeWindow {
   readonly terminals: WindowTerminal[] = [];
-  tags: TerminalTag[] = [];
+  records: SessionTerminalRecord[] = [];
+  private nextPid = 4100;
 
   host(): TerminalHost {
     return {
@@ -75,13 +77,14 @@ class FakeWindow {
         const name = opts.description ? `${opts.name} — ${opts.description}` : opts.name;
         const handle = fakeTerminal();
         handle.name = name;
-        this.terminals.push({ name, env: { ...opts.env }, handle });
+        const pid = this.nextPid++;
+        this.terminals.push({ name, pid, env: { ...opts.env }, handle });
         const ticketId = ticketIdFromTerminalEnv(opts.env);
         if (ticketId !== undefined) {
           const launchId = opts.env[KARST_LAUNCH_ENV];
-          this.tags = rememberTerminalTag(this.tags, {
+          this.records = rememberSessionTerminal(this.records, {
             ticketId,
-            name,
+            pid,
             ...(launchId ? { launchId } : {}),
           });
         }
@@ -89,7 +92,10 @@ class FakeWindow {
       },
       restoredSessions: (): RestoredSession[] =>
         this.terminals.flatMap((terminal) => {
-          const identity = terminalIdentity(terminal.env, terminal.name, this.tags);
+          const identity = identifyTerminal(
+            { env: terminal.env, pid: terminal.pid },
+            this.records,
+          );
           if (!identity) return [];
           return [
             {
@@ -124,7 +130,7 @@ const candidate = (id: number): RecoveryCandidate => ({
 });
 
 describe('sessions that are still running after an IDE reload', () => {
-  it('adopts them by launch name instead of launching a second agent', () => {
+  it('adopts them by launch pid instead of launching a second agent', () => {
     const win = new FakeWindow();
     const before = new SessionManager(win.host(), channelFor('launch-7'));
     before.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, {
@@ -182,7 +188,7 @@ describe('sessions that are still running after an IDE reload', () => {
   });
 
   it('will not adopt a terminal this window never launched', () => {
-    // The tag registry is the evidence. Without it a same-named tab is just a
+    // The pid registry is the evidence. Without it a revived tab is just a
     // terminal, and adopting one would hand a stranger the ticket's prompts.
     const win = new FakeWindow();
     const before = new SessionManager(win.host(), channelFor('launch-7'));
@@ -190,7 +196,7 @@ describe('sessions that are still running after an IDE reload', () => {
       name: 'Karst: ABC-1',
     });
     win.reload();
-    win.tags = [];
+    win.records = [];
 
     const after = new SessionManager(win.host(), channelFor('launch-next'));
 

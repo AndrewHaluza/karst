@@ -4,6 +4,7 @@ import { join, dirname, basename } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { PortAllocator } from '../resolver/allocator.js';
 import { prepareCommand } from './command.js';
+import { KARST_EXCLUDE_RULES } from './karstExcludes.js';
 
 export interface WorktreeRecord {
   ticketId: number;
@@ -21,7 +22,6 @@ export interface WorktreeRecord {
   adopted: boolean;
 }
 
-const EXCLUDE_RULE = '/.karst/';
 
 function git(cwd: string, args: string[]): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -101,19 +101,24 @@ export function worktreeRegisteredAt(repoPath: string, path: string): boolean {
 }
 
 /**
- * Ignore `.karst/` via `.git/info/exclude` — the untracked, per-clone ignore
- * file — so we never mutate the repo's tracked `.gitignore` (default, §8.1).
- * Idempotent: the rule is appended only if absent.
+ * Ignore everything karst generates via `.git/info/exclude` — the untracked,
+ * per-clone ignore file — so we never mutate the repo's tracked `.gitignore`
+ * (default, §8.1). The file lives in the common git dir, so one write covers the
+ * repository and every linked worktree cut from it.
+ *
+ * Idempotent AND additive: only the missing rules are appended, so a repository
+ * whose exclude file predates a rule gains it without the older rules being
+ * rewritten or duplicated.
  */
 function ensureKarstExcluded(repoPath: string): void {
   const excludePath = join(repoPath, '.git', 'info', 'exclude');
   let contents = '';
   if (existsSync(excludePath)) contents = readFileSync(excludePath, 'utf8');
-  const has = contents.split('\n').some((line) => line.trim() === EXCLUDE_RULE);
-  if (!has) {
-    const sep = contents.length && !contents.endsWith('\n') ? '\n' : '';
-    writeFileSync(excludePath, `${contents}${sep}${EXCLUDE_RULE}\n`);
-  }
+  const present = new Set(contents.split('\n').map((line) => line.trim()));
+  const missing = KARST_EXCLUDE_RULES.filter((rule) => !present.has(rule));
+  if (missing.length === 0) return;
+  const sep = contents.length && !contents.endsWith('\n') ? '\n' : '';
+  writeFileSync(excludePath, `${contents}${sep}${missing.join('\n')}\n`);
 }
 
 /**
@@ -155,6 +160,11 @@ export function createWorktree(
   // leave the ticket with a git worktree the store can't see (session launch then
   // reports "no worktree yet"). In that case INSERT the missing row.
   if (worktreeRegisteredAt(repoPath, path)) {
+    // Re-ensure before the early return: a worktree cut by an older karst
+    // carries only the rules that karst knew, and everything the newer rules
+    // cover is still being written into it on every launch. Without this a
+    // resumed ticket keeps shipping the leavings the rules were added to stop.
+    ensureKarstExcluded(repoPath);
     const existing = store.db
       .prepare('SELECT branch, base_ref, deps_mode FROM worktrees WHERE ticket_id = ? AND path = ?')
       .get(ticketId, path) as

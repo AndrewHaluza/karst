@@ -35,10 +35,18 @@
     border-right:1px solid var(--vscode-panel-border);
   }
   .nav button{
-    display:block;width:100%;text-align:left;margin-bottom:2px;
+    display:block;position:relative;width:100%;text-align:left;margin-bottom:2px;
     background:transparent;color:var(--vscode-foreground);border:none;
-    border-radius:5px;padding:7px 10px;font-size:12.5px;cursor:pointer;
+    border-radius:5px;padding:7px 22px 7px 10px;font-size:12.5px;cursor:pointer;
   }
+  /* Per-tab marker: unsaved changes, or (red, and it wins) a validation error on
+     that tab. Without it, tab-scoped Save would hide unsaved work behind a tab. */
+  .nav button.has-changes::after,.nav button.has-error::after{
+    content:'';position:absolute;right:9px;top:50%;transform:translateY(-50%);
+    width:7px;height:7px;border-radius:50%;
+    background:var(--vscode-charts-yellow,#cca700);
+  }
+  .nav button.has-error::after{background:var(--vscode-errorForeground,#f14c4c)}
   .nav button:hover{background:var(--vscode-list-hoverBackground)}
   .nav button.active{
     background:var(--vscode-list-activeSelectionBackground,var(--vscode-list-hoverBackground));
@@ -58,6 +66,28 @@
   }
   .topbar .spacer{flex:1}
   .saved-msg{font-size:12px;opacity:.7}
+  .topbar-section{font-weight:normal;opacity:.6}
+  .unsaved-hint{
+    font-size:11.5px;color:var(--vscode-descriptionForeground,var(--vscode-foreground));
+    opacity:.85;margin-right:4px;
+  }
+
+  /* ---- unsaved-changes modal (leaving a dirty tab) ---- */
+  .modal-backdrop{
+    position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.45);
+  }
+  .modal{
+    width:min(430px,88vw);padding:18px 20px;border-radius:8px;
+    background:var(--vscode-editorWidget-background,var(--vscode-editor-background));
+    border:1px solid var(--vscode-panel-border);
+    box-shadow:0 10px 34px rgba(0,0,0,.4);
+  }
+  .modal h2{margin:0 0 8px;text-transform:none;letter-spacing:0;font-size:14px;opacity:1}
+  .modal p{margin:0;font-size:12.5px;line-height:1.5;
+    color:var(--vscode-descriptionForeground,var(--vscode-foreground))}
+  .modal .modal-error{margin-top:10px;font-size:11.5px;color:var(--vscode-errorForeground)}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
   /* Live preview + variable hint for the ticket-label template field. */
   .label-preview{margin-top:6px;font-size:12px;
     color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.85}
@@ -404,10 +434,13 @@
 
 <div class="main">
   <div class="topbar">
-    <span class="dirty-dot hidden" id="dirtyDot" title="Unsaved changes"></span>
-    <h1>Settings</h1>
-    <span class="saved-msg hidden" id="savedMsg">Saved</span>
+    <span class="dirty-dot hidden" id="dirtyDot" title="Unsaved changes on this tab"></span>
+    <!-- Names the tab Save now acts on — the scope of the button is not obvious
+         from a bare "Settings" heading. -->
+    <h1>Settings <span class="topbar-section" id="topbarSection"></span></h1>
+    <span class="saved-msg hidden" id="savedMsg" role="status" aria-live="polite">Saved</span>
     <span class="spacer"></span>
+    <span class="unsaved-hint hidden" id="unsavedHint"></span>
     <button class="secondary" id="discardBtn" disabled>Discard</button>
     <button id="saveBtn" disabled>Save</button>
   </div>
@@ -645,6 +678,26 @@
   </div>
 </div>
 
+<!-- Unsaved-changes gate. Save is tab-scoped, so leaving a dirty tab without an
+     answer would quietly mean "discard" — this is where the user gets to choose.
+     A page-local dialog, not a host modal: it guards navigation inside the page,
+     not an irreversible host action. -->
+<div class="modal-backdrop hidden" id="leaveModal" role="dialog" aria-modal="true"
+     aria-labelledby="leaveModalTitle" aria-describedby="leaveModalBody">
+  <div class="modal">
+    <h2 id="leaveModalTitle">Unsaved changes</h2>
+    <p id="leaveModalBody"></p>
+    <p class="modal-error hidden" id="leaveModalError">
+      These changes cannot be saved yet — fix the validation error first, or discard them.
+    </p>
+    <div class="modal-actions">
+      <button class="secondary" id="leaveCancelBtn">Cancel</button>
+      <button class="secondary" id="leaveDiscardBtn">Discard changes</button>
+      <button id="leaveSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Command-body drawer (Approaches tab): opened by clicking a command chip.
      Hidden by default (no .open class); host round-trips the markdown body
      via `approach-command-body`, rendered here as text (never HTML). -->
@@ -872,7 +925,15 @@
   // Discard. Both start equal (from the initial `state` push).
   let draft = emptyManifest();
   let lastSaved = emptyManifest();
-  let dirty = false;
+  // Which tabs hold uncommitted edits, and which tab is on screen. Save/Discard
+  // are scoped to `currentSection`; leaving a dirty tab asks first.
+  let dirtySections = [];
+  let currentSection = 'general';
+  // The tab a confirmed leave should land on, held while the modal is open.
+  let pendingSection = null;
+  // Set when "Save & continue" fired the save: the nav happens on its ack, so a
+  // save that fails validation leaves the user on the tab that needs fixing.
+  let navigateAfterSave = null;
   let valid = false;
   let validateTimer = null;
   let openCards = new Set(); // repository names currently expanded
@@ -962,12 +1023,89 @@
     },
   ];
 
+  // Mirrors src/ui/settings/sections.ts — the webview cannot import TypeScript.
+  // webview.test.ts pins both mirrors AND runs overlaySections against the host's
+  // mergeSection, because a drift here would save a different set of fields than
+  // the host writes.
+  const SETTINGS_SECTIONS = ['general', 'git', 'services', 'approaches', 'agents', 'ticketing'];
+  const SECTION_LABELS = {
+    general: 'General',
+    git: 'Git',
+    services: 'Repositories',
+    approaches: 'Approaches',
+    agents: 'Agents',
+    ticketing: 'Ticketing',
+  };
+  const SECTION_FIELDS = {
+    general: [
+      'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
+      'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
+    ],
+    git: ['conventions'],
+    services: ['repositories'],
+    approaches: ['approaches'],
+    agents: ['agents'],
+    ticketing: ['ticketing'],
+  };
+
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
-  function manifestsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+
+  // `base` with each named section's fields taken from `source`; a field absent
+  // from `source` is REMOVED, exactly as the host's mergeSection does it.
+  function overlaySections(base, source, sections) {
+    const merged = { ...base };
+    for (const section of sections) {
+      for (const field of SECTION_FIELDS[section] || []) {
+        if (Object.prototype.hasOwnProperty.call(source, field)) merged[field] = source[field];
+        else delete merged[field];
+      }
+    }
+    return merged;
+  }
+
+  function sectionFieldsEqual(a, b, section) {
+    for (const field of SECTION_FIELDS[section] || []) {
+      const hasA = Object.prototype.hasOwnProperty.call(a, field);
+      const hasB = Object.prototype.hasOwnProperty.call(b, field);
+      if (hasA !== hasB) return false;
+      if (hasA && JSON.stringify(a[field]) !== JSON.stringify(b[field])) return false;
+    }
+    return true;
+  }
+
+  /** Which tabs the draft has uncommitted edits on, in nav order. */
+  function dirtySectionsOf(draftManifest, baseManifest) {
+    return SETTINGS_SECTIONS.filter((s) => !sectionFieldsEqual(draftManifest, baseManifest, s));
+  }
+
+  // Which tab a validation error belongs to, for the nav marker and the banner
+  // prefix. Display only — validateManifest stays the authority on WHETHER the
+  // manifest is valid; this only decides where to point. An unmatched message
+  // returns null and is shown unattributed rather than blamed on a wrong tab.
+  function sectionForError(raw) {
+    const msg = manifestFaultDetail(raw);
+    if (!msg) return null;
+    // Order matters: the repository/convention forms embed field names the
+    // general test would also match ("repository \"api\".baselineBranch"), so the
+    // qualified prefixes are decided first and the bare field names last.
+    if (/^repositor(y|ies)\b/.test(msg)) return 'services';
+    if (/^conventions\b|\bconventions\./.test(msg)) return 'git';
+    if (/^ticketing\b/.test(msg)) return 'ticketing';
+    if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
+    if (/^agents?\b/.test(msg)) return 'agents';
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel)\b/.test(msg)) {
+      return 'general';
+    }
+    return null;
+  }
+
+  /** Exactly what a Save on `section` would write: the baseline with that tab's edits. */
+  function saveCandidate(section) {
+    return overlaySections(lastSaved, draft, [section]);
+  }
 
   function markDirty() {
-    dirty = !manifestsEqual(draft, lastSaved);
-    el('dirtyDot').classList.toggle('hidden', !dirty);
+    dirtySections = dirtySectionsOf(draft, lastSaved);
     el('savedMsg').classList.add('hidden');
     updateSaveEnabled();
     scheduleValidate();
@@ -976,21 +1114,77 @@
   function scheduleValidate() {
     if (validateTimer) clearTimeout(validateTimer);
     validateTimer = setTimeout(() => {
-      post({ type: 'validate', manifest: draft });
+      // Validate the CANDIDATE, not the whole draft: it is what Save would write,
+      // so a half-finished edit parked on another tab can never block this one.
+      post({ type: 'validate', manifest: saveCandidate(currentSection) });
     }, 150);
   }
 
+  function currentSectionDirty() {
+    return dirtySections.includes(currentSection);
+  }
+
   function updateSaveEnabled() {
-    // Save needs real, valid changes; Discard needs something to throw away.
-    el('saveBtn').disabled = !valid || !dirty;
-    el('discardBtn').disabled = !dirty;
+    // Save and Discard are TAB-SCOPED: both act on the section on screen, so both
+    // read the dirty state of that section alone.
+    const scopedDirty = currentSectionDirty();
+    const label = SECTION_LABELS[currentSection] || 'changes';
+    el('topbarSection').textContent = SECTION_LABELS[currentSection] ? '› ' + label : '';
+    const saveBtn = el('saveBtn');
+    saveBtn.disabled = !valid || !scopedDirty;
+    saveBtn.textContent = 'Save ' + label;
+    saveBtn.title = !scopedDirty
+      ? 'No unsaved changes on ' + label
+      : (!valid ? 'Fix the error above before saving' : 'Save ' + label + ' (⌘S / Ctrl+S)');
+    const discardBtn = el('discardBtn');
+    discardBtn.disabled = !scopedDirty;
+    discardBtn.title = 'Discard the unsaved changes on ' + label;
+    el('dirtyDot').classList.toggle('hidden', !scopedDirty);
+    renderNavMarkers();
+    renderUnsavedHint();
+  }
+
+  /** Per-tab dot in the left nav: an unsaved-changes marker, or an error marker. */
+  function renderNavMarkers() {
+    const errorSection = sectionForError(lastValidationError);
+    document.querySelectorAll('.nav-btn').forEach((btn) => {
+      const section = btn.dataset.section;
+      const hasChanges = dirtySections.includes(section);
+      const hasError = errorSection === section;
+      btn.classList.toggle('has-changes', hasChanges && !hasError);
+      btn.classList.toggle('has-error', hasError);
+      const label = SECTION_LABELS[section] || section;
+      btn.title = hasError
+        ? label + ' has a validation error'
+        : (hasChanges ? label + ' has unsaved changes' : '');
+    });
+  }
+
+  /** Names the OTHER tabs holding unsaved edits, so they are never invisible. */
+  function renderUnsavedHint() {
+    const others = dirtySections.filter((s) => s !== currentSection);
+    const hint = el('unsavedHint');
+    if (!others.length) { hint.classList.add('hidden'); hint.textContent = ''; return; }
+    hint.textContent = 'Unsaved on ' + others.map((s) => SECTION_LABELS[s] || s).join(', ');
+    hint.classList.remove('hidden');
+  }
+
+  // A ManifestError reaches the webview as its full `message`, which carries an
+  // `Invalid karst.yml: ` prefix (plus the file path once the loader attached
+  // one). Every mapping below matches the FAULT, so the prefix comes off exactly
+  // once, here — while it was left on, the anchored patterns never matched and
+  // the inline repository-field messages simply never appeared.
+  function manifestFaultDetail(msg) {
+    if (!msg) return '';
+    return String(msg).replace(/^Invalid karst\.yml(?: \([^)]*\))?:\s*/, '');
   }
 
   // Maps a single ManifestError string to the one repository field it names, if
   // any. validateManifest throws on the FIRST fault, so only one field is ever
   // mappable at a time — this is a display concern layered on top of that
   // existing single-error architecture, not a change to it.
-  function parseRepoFieldError(msg) {
+  function parseRepoFieldError(raw) {
+    const msg = manifestFaultDetail(raw);
     if (!msg) return null;
     let m = msg.match(/^repository "([^"]+)"\.(repoPath|baselineBranch)\b/);
     if (m) return { key: m[1] + '.' + m[2] };
@@ -1063,13 +1257,85 @@
     return names[shown];
   }
 
-  document.querySelectorAll('.nav-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const shown = showSection(btn.dataset.section);
-      document.querySelectorAll('.nav-btn').forEach((b) => {
-        b.classList.toggle('active', b.dataset.section === shown);
-      });
+  /** Switch tabs unconditionally. The unsaved-changes gate is `requestSection`. */
+  function goToSection(target) {
+    const shown = showSection(target);
+    if (!shown) return;
+    currentSection = shown;
+    document.querySelectorAll('.nav-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.section === shown);
     });
+    updateSaveEnabled();
+    // Validity is per-tab (§ scheduleValidate), so re-ask for the tab now shown —
+    // otherwise Save here would be gated on the previous tab's answer.
+    scheduleValidate();
+  }
+
+  /**
+   * Leaving a tab with unsaved edits asks first. Without this, Save being
+   * tab-scoped would quietly turn a tab switch into a discard: the edits stay in
+   * the draft but nothing ever writes them, which is the "not saved will not take
+   * effect" trap. The modal is the one place the user can still choose.
+   */
+  function requestSection(target) {
+    if (target === currentSection) return;
+    if (!currentSectionDirty()) { goToSection(target); return; }
+    pendingSection = target;
+    openLeaveModal();
+  }
+
+  document.querySelectorAll('.nav-btn').forEach((btn) => {
+    btn.addEventListener('click', () => requestSection(btn.dataset.section));
+  });
+
+  // ---- unsaved-changes modal ----
+  function openLeaveModal() {
+    const from = SECTION_LABELS[currentSection] || currentSection;
+    const to = SECTION_LABELS[pendingSection] || pendingSection;
+    el('leaveModalBody').textContent =
+      'You have unsaved changes on ' + from + '. They will not take effect until you save.'
+      + ' Save them before going to ' + to + '?';
+    const saveBtn = el('leaveSaveBtn');
+    saveBtn.textContent = 'Save ' + from;
+    saveBtn.disabled = !valid;
+    el('leaveModalError').classList.toggle('hidden', valid);
+    el('leaveModal').classList.remove('hidden');
+    (valid ? saveBtn : el('leaveDiscardBtn')).focus();
+  }
+
+  function closeLeaveModal() {
+    el('leaveModal').classList.add('hidden');
+    pendingSection = null;
+  }
+
+  el('leaveCancelBtn').addEventListener('click', closeLeaveModal);
+
+  el('leaveDiscardBtn').addEventListener('click', () => {
+    const target = pendingSection;
+    discardSection(currentSection);
+    closeLeaveModal();
+    if (target) goToSection(target);
+  });
+
+  el('leaveSaveBtn').addEventListener('click', () => {
+    if (!valid) return;
+    navigateAfterSave = pendingSection;
+    el('leaveModal').classList.add('hidden');
+    pendingSection = null;
+    saveCurrentSection();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el('leaveModal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeLeaveModal();
+      return;
+    }
+    // ⌘S / Ctrl+S saves the tab on screen — the same scope the button has.
+    if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      if (valid && currentSectionDirty()) saveCurrentSection();
+    }
   });
 
   // ---- General ----
@@ -2110,10 +2376,12 @@
     // in-memory draft edit that waits for the page-level Save button. Otherwise
     // the approach is absent from the manifest FILE that Install reads, and
     // Install fails with "Unknown approach" until a second, separate save
-    // (869e836xh, defect 1). The host validates the whole draft, writes it,
+    // (869e836xh, defect 1). Scoped to `approaches`: the drawer owns that field
+    // and nothing else, so a drawer Save must not also commit an in-progress edit
+    // sitting on General. The host merges it onto the file, validates the result,
     // reloads, and pushes fresh state (which re-renders the roster with the
     // persisted approach + refreshed installedIds), then a 'saved' ack.
-    post({ type: 'save', manifest: draft });
+    post({ type: 'save', manifest: draft, section: 'approaches' });
     renderApproaches();
     closeApproachDrawer();
   }
@@ -2126,8 +2394,8 @@
     markDirty();
     // Persist immediately — same reasoning as submitApproachDrawer: a drawer
     // mutation must reach the manifest file, not linger as an unsaved draft
-    // (869e836xh, defect 1).
-    post({ type: 'save', manifest: draft });
+    // (869e836xh, defect 1), and scoped to the one field the drawer owns.
+    post({ type: 'save', manifest: draft, section: 'approaches' });
     renderApproaches();
     closeApproachDrawer();
   }
@@ -2624,20 +2892,21 @@
   }
 
   // ---- top bar ----
-  el('discardBtn').addEventListener('click', () => {
-    draft = clone(lastSaved);
-    dirty = false;
-    el('dirtyDot').classList.add('hidden');
-    updateSaveEnabled();
-    openCards = new Set();
+  /** Roll ONE tab's fields back to the baseline; other tabs' edits survive. */
+  function discardSection(section) {
+    draft = overlaySections(draft, lastSaved, [section]);
+    if (section === 'services') openCards = new Set();
+    markDirty();
     renderAll();
-    post({ type: 'validate', manifest: draft });
-  });
+  }
 
-  el('saveBtn').addEventListener('click', () => {
-    if (!valid) return;
-    post({ type: 'save', manifest: draft });
-  });
+  function saveCurrentSection() {
+    if (!valid || !currentSectionDirty()) return;
+    post({ type: 'save', manifest: draft, section: currentSection });
+  }
+
+  el('discardBtn').addEventListener('click', () => discardSection(currentSection));
+  el('saveBtn').addEventListener('click', saveCurrentSection);
 
   function renderAll() {
     renderGeneral();
@@ -2661,10 +2930,16 @@
     }
   }
 
+  // Names the owning tab when the fault is not on the tab being read — the file
+  // is validated whole, so a broken Repositories entry blocks a General save and
+  // the banner is the only place that can say where to go and fix it.
   function showError(msg) {
     const banner = el('errBanner');
     if (!msg) { banner.classList.add('hidden'); return; }
-    banner.textContent = msg;
+    const owner = sectionForError(msg);
+    banner.textContent = owner && owner !== currentSection
+      ? (SECTION_LABELS[owner] || owner) + ': ' + msg
+      : msg;
     banner.classList.remove('hidden');
   }
 
@@ -2696,9 +2971,15 @@
     if (!msg) return;
     switch (msg.type) {
       case 'state': {
-        draft = clone(msg.state.manifest);
-        lastSaved = clone(msg.state.manifest);
-        dirty = false;
+        // A state push is the FILE's current content. Adopt it as the baseline,
+        // but keep whatever the user is still editing on a dirty tab — a push
+        // arrives after every out-of-band write (agent toggle, approach install),
+        // and replacing the whole draft with the file silently threw those away.
+        const incoming = clone(msg.state.manifest);
+        const keep = dirtySectionsOf(draft, lastSaved);
+        draft = overlaySections(incoming, draft, keep);
+        lastSaved = clone(incoming);
+        dirtySections = dirtySectionsOf(draft, lastSaved);
         installedIds = msg.state.installedIds || [];
         tokenConfigured = !!msg.state.tokenConfigured;
         implementedProviders = msg.state.implementedProviders || ['claude'];
@@ -2707,10 +2988,9 @@
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
         confirmInstallId = null;
-        el('dirtyDot').classList.add('hidden');
         valid = !msg.state.error;
+        lastValidationError = msg.state.error; // before updateSaveEnabled: nav markers read it
         updateSaveEnabled();
-        lastValidationError = msg.state.error;
         showError(shouldShowBanner(msg.state.error) ? msg.state.error : null);
         renderAll(); // → renderServices() re-applies the inline field message
         showConventionValidation(msg.state.error);
@@ -2723,8 +3003,8 @@
       }
       case 'validation': {
         valid = msg.ok;
+        lastValidationError = msg.ok ? null : msg.error; // before updateSaveEnabled (nav markers)
         updateSaveEnabled();
-        lastValidationError = msg.ok ? null : msg.error;
         showError(shouldShowBanner(lastValidationError) ? lastValidationError : null);
         showConventionValidation(msg.ok ? null : msg.error);
         applyFieldValidationUI(lastValidationError);
@@ -2788,15 +3068,27 @@
         break;
       }
       case 'error': {
+        // A save that never landed must not release a leave that was waiting on
+        // it — the user stays on the tab whose error they have to fix.
+        navigateAfterSave = null;
         showError(msg.message);
         break;
       }
       case 'saved': {
-        lastSaved = clone(draft);
-        dirty = false;
-        el('dirtyDot').classList.add('hidden');
+        // The baseline was already re-adopted from the `state` push that precedes
+        // this ack, so this only reports what happened — and releases a leave that
+        // was waiting on the save actually succeeding.
+        dirtySections = dirtySectionsOf(draft, lastSaved);
+        const savedLabel = msg.section ? (SECTION_LABELS[msg.section] || msg.section) : '';
+        el('savedMsg').textContent = savedLabel ? savedLabel + ' saved' : 'Saved';
         el('savedMsg').classList.remove('hidden');
         setTimeout(() => el('savedMsg').classList.add('hidden'), 2000);
+        updateSaveEnabled();
+        if (navigateAfterSave) {
+          const target = navigateAfterSave;
+          navigateAfterSave = null;
+          goToSection(target);
+        }
         break;
       }
       case 'approach-command-body': {
@@ -2818,14 +3110,17 @@
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};
     valid = !prev.error;
+    dirtySections = dirtySectionsOf(draft, lastSaved);
+    lastValidationError = prev.error; // before updateSaveEnabled (nav markers)
     updateSaveEnabled();
-    lastValidationError = prev.error;
     // Restored state has no touched fields yet, so a field-mapped error stays
     // silent here for the same reason it does on a fresh add.
     showError(shouldShowBanner(prev.error) ? prev.error : null);
     renderAll();
     showConventionValidation(prev.error);
   }
+  // Label the tab-scoped buttons even when there is no restored state to render.
+  updateSaveEnabled();
   post({ type: 'request-state' });
 </script>
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, mkdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { makePortAllocator } from '../resolver/allocator.js';
 import { createWorktree, removeWorktree, reinstallDeps, ticketIdForWorktreePath } from './worktree.js';
@@ -186,6 +186,81 @@ describe('worktree lifecycle', () => {
     const exclude = readFileSync(join(repo.path, '.git', 'info', 'exclude'), 'utf8');
     const count = (exclude.match(/^\/\.karst\/$/gm) ?? []).length;
     expect(count).toBe(1);
+  });
+
+  // Ship commits whatever the worktree holds (`git add -A`), so anything karst
+  // writes into it and leaves stageable becomes a commit, a push and a PR with
+  // no code in it. `.karst/` was excluded; the adapter-materialized approach
+  // dirs were not.
+  it('leaves nothing karst writes into the worktree stageable', () => {
+    const rec = createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'PROJ-9',
+      baseRef: 'develop',
+    });
+
+    for (const rel of [
+      '.karst/logs/api.log',
+      '.karst-plugin/rpi/.claude-plugin/plugin.json',
+      '.agents/plugins/rpi/plugin.json',
+      '.agents/skills/karst-rpi-implement/SKILL.md',
+      '.codex/karst/session.json',
+    ]) {
+      const target = join(rec.path, rel);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, 'generated\n');
+    }
+
+    expect(git(rec.path, 'status', '--porcelain').trim()).toBe('');
+  });
+
+  // A repository's own tree at one of those paths is NOT karst's — git ignore
+  // rules never apply to tracked files, which is what keeps this safe for a repo
+  // that checks in its own plugin/skill dirs (karst's own does).
+  it('still reports changes to a repository that tracks those paths itself', () => {
+    const tracked = join(repo.path, '.agents', 'skills', 'karst-rpi', 'SKILL.md');
+    mkdirSync(dirname(tracked), { recursive: true });
+    writeFileSync(tracked, 'theirs\n');
+    git(repo.path, 'add', '-A', '-f');
+    git(repo.path, 'commit', '-q', '-m', 'repo owns its skills');
+
+    const rec = createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'PROJ-10',
+      baseRef: 'develop',
+    });
+    writeFileSync(join(rec.path, '.agents', 'skills', 'karst-rpi', 'SKILL.md'), 'edited\n');
+
+    expect(git(rec.path, 'status', '--porcelain')).toMatch(/\.agents\/skills\/karst-rpi\/SKILL\.md/);
+  });
+
+  // A worktree created by an older karst carries only the rules that karst knew.
+  // Adoption returns early, so without re-ensuring here the resumed ticket keeps
+  // shipping the leavings the new rules were added to stop.
+  it('re-ensures the exclude rules when adopting an existing worktree', () => {
+    const rec = createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'PROJ-11',
+      baseRef: 'develop',
+    });
+    // Roll the exclude file back to what an older karst would have written.
+    writeFileSync(join(repo.path, '.git', 'info', 'exclude'), '/.karst/\n');
+
+    const again = createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'PROJ-11',
+      baseRef: 'develop',
+    });
+    expect(again.adopted).toBe(true);
+
+    const target = join(rec.path, '.agents', 'skills', 'karst-rpi-implement', 'SKILL.md');
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, 'generated\n');
+    expect(git(rec.path, 'status', '--porcelain').trim()).toBe('');
   });
 
   it('removeWorktree cleans up the dir and releases the ticket\'s ports [L5]', () => {
