@@ -93,6 +93,8 @@ import {
 } from './store/ticketLabelTemplate.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
+import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
+import { brandIconUri } from './ui/panelIcon.js';
 import { glyphThemeColorKey } from './model/glyphColor.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
@@ -250,6 +252,27 @@ import { buildWelcomeState } from './ui/welcome/state.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+/** The shipped karst mark. `HERE` is `dist/`, so the asset sits one level up. */
+const BRAND_SVG = join(HERE, '..', 'media', 'karst.svg');
+
+/**
+ * The status-free karst mark for every panel tab, materialized once per window.
+ * A panel that also carries a ticket (dashboard, bound onboarding) repaints over
+ * it with the status-tinted glyph; the rest keep this. An unreadable asset
+ * degrades to "no icon", never a throw — an unbranded tab is not worth failing
+ * activation over.
+ */
+function brandTabIcon(context: vscode.ExtensionContext): BrandIconPaths | undefined {
+  try {
+    return brandIconPaths({
+      storageDir: context.globalStorageUri.fsPath,
+      assetSvgPath: BRAND_SVG,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 /** Per-workspace flag: the user dismissed the fresh-install welcome panel. */
 const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
 /**
@@ -358,6 +381,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const hookChannelRecorder = createHookChannelRecorder();
   const activatedAt = Date.now();
   logger.info('Karst activated');
+
+  // The karst mark every panel tab wears. Materialized once per window and
+  // handed to each panel host — a tab that carries no ticket has no glyph to
+  // derive an icon from, and would otherwise be indistinguishable from a file.
+  const brandIcon = brandTabIcon(context);
 
   /**
    * A base branch that could not be refreshed before its worktree was cut
@@ -627,7 +655,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const welcome = new WelcomeManager(
     loadWelcomeState,
-    makeWelcomePanelHost(context),
+    makeWelcomePanelHost(context, brandIcon),
     buildWelcomeActions({
       scaffoldManifest,
       setDismissed: () => void context.workspaceState.update(WELCOME_DISMISSED_KEY, true),
@@ -880,7 +908,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const t = getTicket(localStore, ticketId);
       return glyphIconPath(ticketGlyph(t), {
         storageDir: context.globalStorageUri.fsPath,
-        assetSvgPath: join(HERE, '..', 'media', 'karst.svg'),
+        assetSvgPath: BRAND_SVG,
       });
     } catch {
       return undefined;
@@ -890,7 +918,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onboarding = new OnboardingManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
-    makeOnboardingPanelHost(context),
+    makeOnboardingPanelHost(context, brandIcon),
     buildOnboardingActions({
       store: localStore,
       // These read the manifest at call time so a manifest resolved on open (or
@@ -1075,7 +1103,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const settings = new SettingsManager(
     loadSettingsState,
     () => manifestPathOrThrow(),
-    makeSettingsPanelHost(context),
+    makeSettingsPanelHost(context, brandIcon),
     buildSettingsActions({
       writeManifest,
       reloadManifest,
@@ -1292,7 +1320,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const changes = new TicketChangesManager(
-    makeChangesPanelHost(context),
+    makeChangesPanelHost(context, brandIcon),
     (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
     async (ticketId, signal) => {
       const pathContext = worktreePathContext(currentManifest(), logger.warn);
@@ -1367,7 +1395,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // One token-usage panel per window (§ token consumption stats). Project-scoped
   // like every other query: the DB is global storage, shared by every window.
-  const tokenUsagePanel = new UsagePanelManager(localStore, makeUsagePanelHost(context), {
+  const tokenUsagePanel = new UsagePanelManager(localStore, makeUsagePanelHost(context, brandIcon), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
@@ -1376,7 +1404,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const dashboard = new DashboardManager(
     localStore,
-    makePanelHost(context),
+    makePanelHost(context, brandIcon),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -2181,7 +2209,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
         iconPath: glyphIconPath(glyph, {
           storageDir: context.globalStorageUri.fsPath,
-          assetSvgPath: join(HERE, '..', 'media', 'karst.svg'),
+          assetSvgPath: BRAND_SVG,
         }),
         color: glyphThemeColorKey(glyph),
       };
@@ -2825,7 +2853,10 @@ function buildCliPhasePrefix(
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
-function makePanelHost(context: vscode.ExtensionContext): PanelHost {
+function makePanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): PanelHost {
   const html = injectProviderIdentity(
     injectPalette(
       injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
@@ -2841,6 +2872,9 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
         { viewColumn: vscode.ViewColumn.Active, preserveFocus: preserveFocus === true },
         { enableScripts: true, retainContextWhenHidden: true },
       );
+      // The brand mark until the first state push repaints it with the ticket's
+      // status glyph — a dashboard tab is never unmarked, not even for a frame.
+      panel.iconPath = brandIconUri(brandIcon);
       // Nonce per panel, not per host (the html above is built once and reused).
       panel.webview.html = injectCsp(html, newNonce());
       return {
@@ -2867,7 +2901,10 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
 }
 
 /** Real token-usage panel, with a fresh CSP nonce for every panel. */
-function makeUsagePanelHost(context: vscode.ExtensionContext): UsagePanelHost {
+function makeUsagePanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): UsagePanelHost {
   const html = injectPalette(
     injectDesignSystem(readFileSync(join(HERE, 'ui', 'usage', 'webview.html'), 'utf8')),
   );
@@ -2880,6 +2917,8 @@ function makeUsagePanelHost(context: vscode.ExtensionContext): UsagePanelHost {
         { enableScripts: true, retainContextWhenHidden: true },
       );
       context.subscriptions.push(panel);
+      // Spend across every ticket — no single ticket's status to carry.
+      panel.iconPath = brandIconUri(brandIcon);
       panel.webview.html = injectCsp(html, newNonce());
       return {
         reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
@@ -2893,7 +2932,10 @@ function makeUsagePanelHost(context: vscode.ExtensionContext): UsagePanelHost {
 }
 
 /** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
-function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHost {
+function makeChangesPanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): ChangesPanelHost {
   const html = injectPalette(
     injectDesignSystem(readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8')),
   );
@@ -2909,6 +2951,7 @@ function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHos
       // outlives extension unload with no owner. VS Code tolerates a second
       // dispose of an already-closed panel.
       context.subscriptions.push(panel);
+      panel.iconPath = brandIconUri(brandIcon);
       panel.webview.html = injectCsp(html, newNonce());
       const listeners = new DisposableBag();
       return {

@@ -8,6 +8,8 @@ import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { attachmentsRoot } from '../../attachments/paths.js';
+import type { BrandIconPaths } from '../brandIcon.js';
+import { brandIconUri } from '../panelIcon.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -20,7 +22,10 @@ import { attachmentsRoot } from '../../attachments/paths.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export function makeOnboardingPanelHost(context: vscode.ExtensionContext): OnboardingPanelHost {
+export function makeOnboardingPanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): OnboardingPanelHost {
   const html = injectProviderIdentity(
     injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
   );
@@ -40,6 +45,10 @@ export function makeOnboardingPanelHost(context: vscode.ExtensionContext): Onboa
           ],
         },
       );
+      // The brand mark up front: a create-mode page has no ticket, so `setIcon`
+      // never fires for it and the tab would otherwise stay unmarked for its
+      // whole life. A bound panel repaints over this with its status glyph.
+      panel.iconPath = brandIconUri(brandIcon);
       // Nonce per panel, not per host (the html above is built once and reused).
       panel.webview.html = injectCsp(html, newNonce(), panel.webview.cspSource);
       return {
