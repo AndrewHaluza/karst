@@ -168,4 +168,22 @@ describe('onboarding webview.html', () => {
     const saveBlock = HTML.slice(HTML.indexOf("el('saveBtn').addEventListener"));
     expect(saveBlock.slice(0, 800)).toContain('agentProvider');
   });
+
+  // The pull switch (§ scope): ON by default, and the value the user left it on
+  // is what submit carries. Save carries none — it launches nothing, so there is
+  // no base to branch from and no choice to honor.
+  it('ships the pull switch on by default and carries the live value into submit only', () => {
+    const markup = HTML.slice(HTML.indexOf('id="pullBase"') - 400, HTML.indexOf('id="pullBase"') + 400);
+    expect(markup).toContain('role="switch"');
+    expect(markup).toContain('aria-checked="true"'); // default ON
+    expect(HTML).toMatch(/let pullBaseOn = true;/);
+
+    const submitBlock = HTML.slice(
+      HTML.indexOf("el('submitBtn').addEventListener"),
+      HTML.indexOf("el('saveBtn').addEventListener"),
+    );
+    expect(submitBlock).toContain('pullBase: pullBaseOn');
+    const saveBlock = HTML.slice(HTML.indexOf("el('saveBtn').addEventListener"));
+    expect(saveBlock.slice(0, 1200)).not.toContain('pullBase');
+  });
 });
