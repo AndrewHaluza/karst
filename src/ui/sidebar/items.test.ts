@@ -27,8 +27,8 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     projectId: null,
     parentTicketId: null,
     stages: [
-      { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null },
-      { ticketId: 1, stageKey: 'impl', status: 'running', attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null },
+      { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
+      { ticketId: 1, stageKey: 'impl', status: 'running', attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
     ],
     ...over,
   };
@@ -119,14 +119,14 @@ describe('buildTicketNodes', () => {
   it('failed current stage => red; passed => green; unknown current => gray', () => {
     const failed = buildTicketNodes([
       ticket({ stageCurrent: 'scope', agentState: 'none', stages: [
-        { ticketId: 1, stageKey: 'scope', status: 'failed', attempt: 0, verdict: 'failed', artifactPath: null, startedAt: null, endedAt: null },
+        { ticketId: 1, stageKey: 'scope', status: 'failed', attempt: 0, verdict: 'failed', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
       ] }),
     ])[0]!;
     expect(failed.glyph).toBe('red');
 
     const passed = buildTicketNodes([
       ticket({ stageCurrent: 'scope', agentState: 'none', stages: [
-        { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null },
+        { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
       ] }),
     ])[0]!;
     expect(passed.glyph).toBe('green');
@@ -169,7 +169,7 @@ describe('buildTicketNodes', () => {
       ticket({
         stageCurrent: 'impl',
         stages: [
-          { ticketId: 1, stageKey: 'impl', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: '2026-07-22T10:00:00Z', endedAt: '2026-07-22T10:05:00Z' },
+          { ticketId: 1, stageKey: 'impl', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: '2026-07-22T10:00:00Z', endedAt: '2026-07-22T10:05:00Z', blockedKind: null, blockedReason: null, blockedAt: null },
         ],
       }),
     ])[0]!;
@@ -179,7 +179,7 @@ describe('buildTicketNodes', () => {
       ticket({
         stageCurrent: 'impl',
         stages: [
-          { ticketId: 1, stageKey: 'impl', status: 'running', attempt: 0, verdict: null, artifactPath: null, startedAt: '2026-07-22T10:00:00Z', endedAt: null },
+          { ticketId: 1, stageKey: 'impl', status: 'running', attempt: 0, verdict: null, artifactPath: null, startedAt: '2026-07-22T10:00:00Z', endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
         ],
       }),
     ])[0]!;
@@ -199,7 +199,7 @@ describe('buildTicketNodes', () => {
       ticket({
         stageCurrent: 'uat',
         stages: [
-          { ticketId: 1, stageKey: 'uat', status: 'failed', attempt: 2, verdict: '2 tests red', artifactPath: null, startedAt: null, endedAt: null },
+          { ticketId: 1, stageKey: 'uat', status: 'failed', attempt: 2, verdict: '2 tests red', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
         ],
       }),
     ])[0]!;
@@ -211,7 +211,7 @@ describe('buildTicketNodes', () => {
       ticket({
         stageCurrent: 'uat',
         stages: [
-          { ticketId: 1, stageKey: 'uat', status: 'failed', attempt: 3, verdict: null, artifactPath: null, startedAt: null, endedAt: null },
+          { ticketId: 1, stageKey: 'uat', status: 'failed', attempt: 3, verdict: null, artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
         ],
       }),
     ])[0]!;

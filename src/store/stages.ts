@@ -1,5 +1,5 @@
 import type { Store } from './db.js';
-import type { StageKey, StageStatus } from '../model/types.js';
+import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
 
 export interface Stage {
   ticketId: number;
@@ -10,6 +10,9 @@ export interface Stage {
   artifactPath: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  blockedKind: BlockerKind | null;
+  blockedReason: string | null;
+  blockedAt: string | null;
 }
 
 /** Fields a caller may patch on a stage. Omitted fields are left untouched. */
@@ -20,6 +23,9 @@ export interface StagePatch {
   artifactPath?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
+  blockedKind?: BlockerKind | null;
+  blockedReason?: string | null;
+  blockedAt?: string | null;
 }
 
 interface StageRow {
@@ -31,6 +37,9 @@ interface StageRow {
   artifact_path: string | null;
   started_at: string | null;
   ended_at: string | null;
+  blocked_kind: string | null;
+  blocked_reason: string | null;
+  blocked_at: string | null;
 }
 
 export function rowToStage(r: StageRow): Stage {
@@ -43,6 +52,9 @@ export function rowToStage(r: StageRow): Stage {
     artifactPath: r.artifact_path,
     startedAt: r.started_at,
     endedAt: r.ended_at,
+    blockedKind: (r.blocked_kind as BlockerKind | null) ?? null,
+    blockedReason: r.blocked_reason,
+    blockedAt: r.blocked_at,
   };
 }
 
@@ -54,6 +66,9 @@ const COLUMN: Record<keyof StagePatch, string> = {
   artifactPath: 'artifact_path',
   startedAt: 'started_at',
   endedAt: 'ended_at',
+  blockedKind: 'blocked_kind',
+  blockedReason: 'blocked_reason',
+  blockedAt: 'blocked_at',
 };
 
 /**

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { transition } from './machine.js';
+import { createTicketFlow } from './stages/create.js';
 import { setStage, type Stage } from '../store/stages.js';
 import type { StageKey } from '../model/types.js';
 import { stageBadge } from '../model/stageBadge.js';
@@ -49,8 +50,8 @@ describe('transition (stage machine core)', () => {
     expect(stageOf(store, ticketId, 'review').verdict).toBe('lint broke');
   });
 
-  it('fix pass re-enters review (revalidate loop)', () => {
-    expect(transition(store, ticketId, 'fix', { kind: 'passed' })).toBe('review');
+  it('fix pass re-enters uat (revalidate loop)', () => {
+    expect(transition(store, ticketId, 'fix', { kind: 'passed' })).toBe('uat');
   });
 
   // `stages` is keyed (ticket_id, stage_key), so a retry OVERWRITES the row —
@@ -61,7 +62,14 @@ describe('transition (stage machine core)', () => {
   // has to guess which half is true.
   it('re-entering a stage clears the reason its previous attempt recorded', () => {
     transition(store, ticketId, 'review', { kind: 'failed', reason: 'gates failed: lint' });
+    // Every fix revalidates from uat (graph.ts), so uat is what re-enters first —
+    // and it must not carry a reason either.
     transition(store, ticketId, 'fix', { kind: 'passed' });
+    expect(stageOf(store, ticketId, 'uat').status).toBe('running');
+    expect(stageOf(store, ticketId, 'uat').verdict).toBeNull();
+
+    // review is re-entered one step later; its own stale reason clears there.
+    transition(store, ticketId, 'uat', { kind: 'passed' });
     expect(stageOf(store, ticketId, 'review').status).toBe('running');
     expect(stageOf(store, ticketId, 'review').verdict).toBeNull();
   });
@@ -203,10 +211,21 @@ describe('transition (stage machine core)', () => {
 
   it('a repeated fix loop climbs attempt each time', () => {
     transition(store, ticketId, 'uat', { kind: 'failed' }); // attempt 1
-    transition(store, ticketId, 'fix', { kind: 'passed' }); // back to review
+    transition(store, ticketId, 'fix', { kind: 'passed' }); // back to uat
     transition(store, ticketId, 'review', { kind: 'failed' }); // review attempt 1
     transition(store, ticketId, 'fix', { kind: 'passed' });
     transition(store, ticketId, 'uat', { kind: 'failed' }); // uat attempt 2
     expect(stageOf(store, ticketId, 'uat').attempt).toBe(2);
   });
+});
+
+it('a review failure re-validates through uat, not straight back to review', () => {
+  const store = openStore(':memory:');
+  const id = createTicketFlow(store, { key: 'T-9', title: 't' }).id;
+  transition(store, id, 'scope', { kind: 'passed' });
+  transition(store, id, 'impl', { kind: 'passed' });
+  transition(store, id, 'uat', { kind: 'passed' });
+  expect(transition(store, id, 'review', { kind: 'failed' })).toBe('fix');
+  expect(transition(store, id, 'fix', { kind: 'passed' })).toBe('uat');
+  store.close();
 });

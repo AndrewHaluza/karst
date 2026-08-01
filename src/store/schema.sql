@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS stages (
   artifact_path TEXT,
   started_at    TEXT,
   ended_at      TEXT,
+  -- v17 blocked columns (kept in sync with migrations.ts v17 ALTERs).
+  -- A block is karst saying it could not ASK the question — distinct from a
+  -- `failed` verdict, which says the code is wrong. NULL kind = not blocked, so
+  -- there is nothing to backfill and no status value had to change.
+  blocked_kind   TEXT,                -- BlockerKind; NULL = not blocked
+  blocked_reason TEXT,                -- the specific text a human needs
+  blocked_at     TEXT,
   PRIMARY KEY (ticket_id, stage_key)
 );
 

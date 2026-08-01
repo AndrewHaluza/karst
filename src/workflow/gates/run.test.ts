@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCommand } from './run.js';
+import { runCommand, runProcess } from './run.js';
 
 function waitForPidFile(path: string): boolean {
   const readiness = new Int32Array(new SharedArrayBuffer(4));
@@ -205,5 +205,52 @@ describe('runCommand', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('runProcess', () => {
+  it('reports a clean exit as completed with its code', async () => {
+    const out = await runProcess('node', ['-e', 'process.exit(3)'], process.cwd());
+    expect(out).toMatchObject({ kind: 'completed', exitCode: 3 });
+  });
+
+  it('reports a missing binary as spawnFailed, never as a nonzero gate', async () => {
+    const out = await runProcess('karst-no-such-binary-xyz', [], process.cwd());
+    expect(out.kind).toBe('spawnFailed');
+  });
+
+  // spawn() validates synchronously and THROWS for a structurally invalid
+  // command (empty string) rather than emitting the async 'error' event a
+  // missing-but-well-formed binary gets above. Without a try/catch around the
+  // spawn call this rejects the returned promise instead of resolving
+  // spawnFailed — an unhandled rejection, not a reported outcome.
+  it('reports an empty command as spawnFailed instead of throwing', async () => {
+    const out = await runProcess('', [], process.cwd());
+    expect(out.kind).toBe('spawnFailed');
+  });
+
+  it('reports an aborted child as aborted, not as a failing gate', async () => {
+    const controller = new AbortController();
+    const started = runProcess(
+      'node',
+      ['-e', 'setTimeout(() => {}, 60_000)'],
+      process.cwd(),
+      { signal: controller.signal },
+    );
+    controller.abort();
+    const out = await started;
+    expect(out.kind).toBe('aborted');
+  });
+
+  it('resolves aborted immediately when the signal is already aborted', async () => {
+    const out = await runProcess('node', ['-e', ''], process.cwd(), {
+      signal: AbortSignal.abort(),
+    });
+    expect(out.kind).toBe('aborted');
+  });
+
+  it('runCommand still reduces a spawn failure to exit 1', async () => {
+    const r = await runCommand('karst-no-such-binary-xyz', [], process.cwd());
+    expect(r.exitCode).toBe(1);
   });
 });

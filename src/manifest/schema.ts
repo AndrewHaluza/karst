@@ -20,6 +20,7 @@ import {
 import { validateRepository } from './validate/repository.js';
 import { assertSharedRepoBaselineBranches } from './baselineBranch.js';
 import { validateGraph } from './validate/graph.js';
+import { validateUat } from './validate/uat.js';
 import {
   validateArtifactTemplate,
   type ArtifactConventionName,
@@ -415,5 +416,6 @@ export function validateManifest(raw: unknown): Manifest {
     ticketing: validateTicketing(raw.ticketing),
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),
+    uat: validateUat(raw.uat),
   };
 }

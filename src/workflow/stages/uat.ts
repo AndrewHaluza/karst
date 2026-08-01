@@ -1,131 +1,318 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
-import type { Verdict } from '../../model/types.js';
+import type { BlockerKind, StageRunResult, Verdict } from '../../model/types.js';
+import type { Manifest, UatConfig } from '../../manifest/types.js';
 import { setStage, stageAttempt } from '../../store/stages.js';
-import { recordGateRun } from '../../store/gateRuns.js';
+import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
+import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
 import { transition } from '../machine.js';
 import { nowIso } from '../../model/time.js';
-import { UAT_GATE, readPackageScripts } from '../gates/scripts.js';
-import { runCommand } from '../gates/run.js';
+import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
+import { probeScripts, type ScriptProbe } from '../gates/probe.js';
+import { REVIEW_GATES } from '../gates/scripts.js';
+import { planUatTargets, type UatTarget } from '../uat/targets.js';
+import {
+  resolveUatGates,
+  runUatGates,
+  type GateResolution,
+  type ResolvedGate,
+} from '../uat/gates.js';
+import { aggregateUat, type AggregateEntry, type GateIdentity } from '../uat/aggregate.js';
 
 /**
- * UAT stage (§T4.3, §5.4, §11). Runs the project's test command in the ticket's
- * worktree and reduces to a verdict on the **exit code** — never an agent
- * self-report. Output is captured to an artifact file for the record, then the
- * verdict drives the machine (pass → review, fail → fix).
+ * UAT stage — orchestration only.
+ *
+ * Plan the affected repositories, resolve each one's gate list (explicit config
+ * else a package.json probe), run them, and reduce. The verdict conjunction lives
+ * in `uat/aggregate.ts` and the gate mechanics in `uat/gates.ts`, because this
+ * file was 134 lines and would be 600–900 if every mechanism landed in it.
+ *
+ * Returns `StageRunResult`: a run that could not ask its question parks durably
+ * (`parkGateStage`) rather than transitioning or throwing, and consumes no
+ * attempt — nothing about the code was learned.
  */
-
-export interface TestResult {
-  /**
-   * The suite's exit code, or null when it did not run because the repo defines
-   * no test script. Null is not a number the code earned — karst had no question
-   * to ask, so the suite says nothing about the ticket either way.
-   */
-  exitCode: number | null;
-  output: string;
-  /**
-   * When the suite started and ended. Both absent when it never ran — it has no
-   * duration, and stamping one would read as a zero-length run.
-   */
-  startedAt?: string;
-  endedAt?: string;
-}
-
-/** Runs the test command; injected so the stage is unit-testable without a suite. */
-export type TestRunner = (cwd: string) => Promise<TestResult>;
 
 export interface RunUatOpts {
   ticketId: number;
-  cwd: string; // the ticket's worktree
-  artifactDir: string; // where to persist captured suite output
+  /** The ticket's primary worktree; used only when no manifest is supplied. */
+  cwd: string;
+  artifactDir: string;
+  manifest?: Manifest;
+  /** One signal for the whole run, so a Stop reaches the gate in flight. */
+  signal?: AbortSignal;
 }
 
-export interface UatOutcome {
-  verdict: Exclude<Verdict, null>;
-  artifactPath: string;
+export interface UatDeps {
+  planTargets?: typeof planUatTargets;
+  probe?: (cwd: string) => ScriptProbe;
+  runGates?: typeof runUatGates;
+  git?: GitRunner;
+  now?: () => string;
+}
+
+/** What the run decided, before any of it is written down. */
+type RunOutcome =
+  | { kind: 'verdict'; verdict: Exclude<Verdict, null> }
+  | { kind: 'blocked'; blocker: BlockerKind; reason: string }
+  | { kind: 'stopped' };
+
+/** Review's gate identities for one target — what UAT must not merely duplicate. */
+function reviewIdentitiesFor(target: UatTarget): GateIdentity[] {
+  // `target.repo` verbatim on both sides. `sameIdentity` compares `repo` with
+  // `===`, so normalising one side (trailing slash, realpath) and not the other
+  // would make overlap detection silently never match.
+  return REVIEW_GATES.map((gate) => ({
+    repo: target.repo,
+    command: 'npm',
+    args: gate.args,
+  }));
+}
+
+/** What a gate invocation IS, as a dedup key: the command, not the label on it. */
+function identityKey(gate: ResolvedGate): string {
+  return [gate.command, ...gate.args].join('\u0000');
 }
 
 /**
- * Spawns an explicit command as the suite, capturing combined output. Async so
- * the extension host's event loop keeps serving hooks and webviews while the
- * suite runs (see `gates/run.ts`); a spawn failure reduces to `exit 1`, because
- * the caller named this command and its absence IS a failure of the repo's setup.
- */
-export function makeTestRunner(command: string, args: string[]): TestRunner {
-  return async (cwd) => {
-    // Stamped around the await so the pair measures the suite's wall-clock life.
-    // `makeNpmTestRunner` returns early — without stamps — when the repo defines
-    // no test script: that gate never ran, so it has no duration.
-    const startedAt = nowIso();
-    const r = await runCommand(command, args, cwd);
-    return { ...r, startedAt, endedAt: nowIso() };
-  };
-}
-
-/**
- * Default runner: `npm test`, but only when the repo defines a test script.
+ * The gates for ONE target, which may back several manifest entries.
  *
- * Without the check, `npm test` in a repo with no test script exits 1 with
- * "Missing script: test" — a fact about the repo's configuration, not the
- * ticket's code — and the driver reads it as a failing suite and parks the ticket
- * at fix forever. The agent cannot fix code that is not broken.
+ * `planUatTargets` collapses entries sharing a `repoPath` into one worktree, and
+ * `resolveUatGates` is keyed by a single repository NAME — so reading only the
+ * first name would silently drop the second entry's `uat.repositories.<name>.gates`
+ * override. Every name is resolved and the results unioned.
+ *
+ * Deduplicated by invocation identity, not by gate name: two entries in one
+ * directory declaring `npm run e2e` are one question asked twice, and the same
+ * identity is what `aggregate.ts` reduces over. A duplicate that is `required`
+ * anywhere stays required — a configured gate whose script is missing must fail
+ * rather than be skipped.
+ *
+ * Unavailable is only the answer when NO name produced a gate: a repository with
+ * one runnable entry can still be asked something. The first unavailability wins,
+ * since one probe backs every name and they therefore agree.
  */
-export function makeNpmTestRunner(): TestRunner {
-  return async (cwd) => {
-    const scripts = readPackageScripts(cwd);
-    if (scripts[UAT_GATE.script] === undefined) {
-      return { exitCode: null, output: `no "${UAT_GATE.script}" script in package.json` };
+function resolveTargetGates(
+  probe: ScriptProbe,
+  config: UatConfig | undefined,
+  names: readonly string[],
+): GateResolution {
+  const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
+  const byIdentity = new Map<string, ResolvedGate>();
+  let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
+
+  for (const name of keys) {
+    const resolved = resolveUatGates(probe, config, name);
+    if (resolved.kind === 'unavailable') {
+      unavailable ??= resolved;
+      continue;
     }
-    return makeTestRunner('npm', [...UAT_GATE.args])(cwd);
-  };
+    for (const gate of resolved.gates) {
+      const key = identityKey(gate);
+      const existing = byIdentity.get(key);
+      if (existing === undefined) byIdentity.set(key, gate);
+      else if (gate.required && !existing.required) {
+        byIdentity.set(key, { ...existing, required: true });
+      }
+    }
+  }
+
+  const gates = [...byIdentity.values()];
+  if (gates.length > 0) return { kind: 'gates', gates };
+  // Zero gates and no unavailability is the malformed-package.json case, which
+  // the caller turns into a named failure rather than a park.
+  return unavailable ?? { kind: 'gates', gates: [] };
+}
+
+/**
+ * Why there was nothing to run against.
+ *
+ * A worktree whose repo path is absent from the manifest is dropped by
+ * `planUatTargets`, so "affected but unmapped" and "nothing to test" would be the
+ * same silence. Naming the worktrees is what makes them different.
+ */
+function noTargetsReason(worktrees: readonly { repo: string }[]): string {
+  if (worktrees.length === 0) {
+    return 'no worktree is registered for this ticket, so there is no repository to run UAT against';
+  }
+  return (
+    "none of this ticket's worktrees resolved to a manifest repository with changes: " +
+    `${worktrees.map((w) => w.repo).join(', ')} — a repository karst cannot map to a manifest ` +
+    'entry is not the same as nothing to test'
+  );
+}
+
+/**
+ * The ONE place a UAT run is written down. Evidence and outcome commit together
+ * on every path, because a stopped or blocked run still produced gate rows worth
+ * keeping and `gate_runs` is the project's only append-only evidence table.
+ */
+function commitOutcome(
+  store: Store,
+  ticketId: number,
+  runAt: string,
+  artifactPath: string,
+  gates: readonly GateRunInput[],
+  outcome: RunOutcome,
+): StageRunResult {
+  if (outcome.kind === 'blocked') {
+    parkGateStage(store, {
+      ticketId,
+      stageKey: 'uat',
+      kind: outcome.blocker,
+      reason: outcome.reason,
+      runAt,
+      gates,
+      artifactPath,
+    });
+    return { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason };
+  }
+
+  if (outcome.kind === 'stopped') {
+    // No verdict, no attempt, no block — but whatever finished still happened.
+    const apply = store.db.transaction(() => {
+      if (gates.length > 0) {
+        recordGateRun(store, {
+          ticketId,
+          stageKey: 'uat',
+          attempt: stageAttempt(store, ticketId, 'uat'),
+          runAt,
+          gates,
+        });
+      }
+      setStage(store, ticketId, 'uat', { artifactPath });
+    });
+    apply();
+    return { kind: 'stopped' };
+  }
+
+  const next = transition(store, ticketId, 'uat', outcome.verdict, () => {
+    setStage(store, ticketId, 'uat', { artifactPath });
+    // A run that reached a verdict answers whatever blocked a previous one.
+    clearStageBlock(store, ticketId, 'uat');
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      // Read before the machine bumps it on a failure: these gates belong to the
+      // attempt that RAN, not to the one its failure creates.
+      attempt: stageAttempt(store, ticketId, 'uat'),
+      runAt,
+      gates,
+    });
+  });
+  return { kind: 'advanced', next };
 }
 
 export async function runUat(
   store: Store,
   opts: RunUatOpts,
-  runner: TestRunner = makeNpmTestRunner(),
-): Promise<UatOutcome> {
-  const { exitCode, output, startedAt, endedAt } = await runner(opts.cwd);
+  deps: UatDeps = {},
+): Promise<StageRunResult> {
+  const now = deps.now ?? nowIso;
+  const planTargets = deps.planTargets ?? planUatTargets;
+  const probe = deps.probe ?? probeScripts;
+  const runGates = deps.runGates ?? runUatGates;
+  const git = deps.git ?? defaultGitRunner;
+  const runAt = now();
 
-  mkdirSync(opts.artifactDir, { recursive: true });
-  const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}.log`);
-  // Say plainly that nothing ran. A passed uat with an empty log otherwise reads
-  // as "the suite was green", which it was not — there was no suite.
-  writeFileSync(artifactPath, exitCode === null ? `# uat (did not run)\n${output}` : output);
+  const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
+  const targets: UatTarget[] = opts.manifest
+    ? await planTargets(opts.manifest, worktrees, git)
+    : [{ repo: opts.cwd, path: opts.cwd, names: [] }];
 
-  // Verdict is the exit code alone — output text is evidence, not the signal. A
-  // suite that never ran (null) passes for the same reason a skipped review gate
-  // does: it is not a pass the code earned, but failing on it is a claim karst
-  // cannot support, and it strands the ticket in an unwinnable loop.
-  const verdict: Exclude<Verdict, null> =
-    exitCode === null || exitCode === 0
-      ? { kind: 'passed' }
-      : { kind: 'failed', reason: `exit ${exitCode}` };
+  const entries: AggregateEntry[] = [];
+  const reviewIdentities: GateIdentity[] = [];
+  const sections: string[] = [];
 
-  // Record the artifact and the gate row on the uat stage *inside* the transition
-  // transaction, so the evidence and the verdict commit atomically (never one
-  // without the other).
-  const runAt = nowIso();
-  transition(store, opts.ticketId, 'uat', verdict, () => {
-    setStage(store, opts.ticketId, 'uat', { artifactPath });
-    recordGateRun(store, {
-      ticketId: opts.ticketId,
-      stageKey: 'uat',
-      // Read before the machine bumps it on a failure: this suite belongs to the
-      // attempt that ran, not to the one its failure creates.
-      attempt: stageAttempt(store, opts.ticketId, 'uat'),
-      runAt,
-      gates: [
-        {
-          gateName: UAT_GATE.name,
-          exitCode,
-          startedAt: startedAt ?? null,
-          endedAt: endedAt ?? null,
+  /** Write the log and commit the outcome with everything collected so far. */
+  const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
+    mkdirSync(opts.artifactDir, { recursive: true });
+    const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}.log`);
+    writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    const gates = entries.map<GateRunInput>((entry) => ({
+      gateName: entry.result.name,
+      exitCode: entry.result.exitCode,
+      startedAt: entry.result.startedAt ?? null,
+      endedAt: entry.result.endedAt ?? null,
+    }));
+    return commitOutcome(store, opts.ticketId, runAt, artifactPath, gates, outcome);
+  };
+
+  if (targets.length === 0) {
+    const reason = noTargetsReason(worktrees);
+    return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+  }
+
+  for (const target of targets) {
+    const label = target.names.join(', ') || target.repo;
+    const scriptProbe = probe(target.path);
+    const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names);
+
+    // Environmental: karst could not ask this repository anything. Park rather
+    // than reduce — a block is not a verdict about the ticket's code. Earlier
+    // targets already ran, so their rows go down with the park.
+    if (resolution.kind === 'unavailable') {
+      const reason = `${label}: ${resolution.reason}`;
+      return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
+    }
+
+    // A malformed package.json resolves to zero gates and IS a failure about the
+    // repository — an agent can fix it, so it must reach a verdict.
+    if (resolution.gates.length === 0 && scriptProbe.kind === 'malformed') {
+      entries.push({
+        result: {
+          name: `package.json (${label})`,
+          exitCode: 1,
+          output: `${label}: package.json is malformed — ${scriptProbe.message}`,
+          startedAt: runAt,
+          endedAt: runAt,
         },
-      ],
-    });
-  });
+        identity: { repo: target.repo, command: 'node', args: ['--parse-package-json'] },
+      });
+      sections.push(`# package.json (${label}, exit 1)\n${scriptProbe.message}`);
+      continue;
+    }
 
-  return { verdict, artifactPath };
+    reviewIdentities.push(...reviewIdentitiesFor(target));
+
+    const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
+    const run = await runGates(resolution.gates, target.path, {
+      signal: opts.signal,
+      now,
+      scriptsAvailable: (script) => scripts[script] !== undefined,
+    });
+
+    for (const [index, result] of run.results.entries()) {
+      // Zipped by POSITION: `runUatGates` emits one result per gate in order, and
+      // two manifest entries sharing a worktree can declare the same gate name,
+      // so a name lookup would attach the wrong identity to the row.
+      const gate = resolution.gates[index];
+      entries.push({
+        result: { ...result, name: `${result.name} (${label})` },
+        identity: {
+          repo: target.repo,
+          command: gate?.command ?? result.name,
+          args: gate?.args ?? [],
+        },
+      });
+      sections.push(
+        `# ${result.name} (${label}, ${result.exitCode === null ? 'skipped' : `exit ${result.exitCode}`})\n${result.output}`,
+      );
+    }
+
+    // A Stop yields no verdict and no attempt. What already finished is still
+    // recorded — discarding it would make work that really happened unrecoverable.
+    if (run.kind === 'stopped') {
+      return finish({ kind: 'stopped' }, ['stopped before every gate finished']);
+    }
+  }
+
+  const outcome = aggregateUat(entries, reviewIdentities);
+  if (outcome.kind === 'blocked') {
+    return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
+      outcome.reason,
+    ]);
+  }
+  return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
 }

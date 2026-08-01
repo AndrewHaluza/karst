@@ -22,6 +22,7 @@ import type {
   PortSlot,
   RepositoryDef,
   ServiceDef,
+  UatConfig,
 } from './types.js';
 
 /** A port slot. `default` is the baseline / non-hot value. */
@@ -92,6 +93,19 @@ export function manifest(
     portRange: [4000, 4999],
     baselineBranch: 'develop',
     repositories,
+    ...over,
+  };
+}
+
+/** A uat block. Defaults match `validateUat({})` so tests start from the real default. */
+export function uat(over: Partial<UatConfig> = {}): UatConfig {
+  return {
+    maxFixAttempts: 3,
+    env: {},
+    secrets: [],
+    passthrough: [],
+    origins: [],
+    repositories: {},
     ...over,
   };
 }

@@ -217,6 +217,43 @@ export interface TicketingConfig {
   startStatus?: string;
 }
 
+export type UatGateKind = 'script' | 'command';
+export interface UatGateDef {
+  name: string;
+  kind: UatGateKind;
+  script?: string; // kind: 'script' — the package.json script
+  command?: string; // kind: 'command' — the binary, spawned without a shell
+  args?: string[]; // kind: 'command'
+  repo?: string; // manifest repository name; absent = every target
+  report?: string; // repo-relative report path, inert in Phase 1
+}
+export interface UatAuthBootstrap {
+  path: string;
+  secrets: string[];
+}
+export interface UatAuthor {
+  agent?: string;
+  enabled: boolean;
+}
+export interface UatRepositoryOverride {
+  env?: Record<string, string>;
+  secrets?: string[];
+  gates?: UatGateDef[];
+  testDir?: string;
+}
+export interface UatConfig {
+  testDir?: string;
+  maxFixAttempts: number;
+  gates?: UatGateDef[];
+  env: Record<string, string>;
+  secrets: string[];
+  passthrough: string[];
+  origins: string[];
+  authBootstrap?: UatAuthBootstrap;
+  author?: UatAuthor;
+  repositories: Record<string, UatRepositoryOverride>;
+}
+
 export interface Manifest {
   /**
    * Stable project identity (§ projects / multi-window). Scopes tickets to a
@@ -275,4 +312,11 @@ export interface Manifest {
    * normalized to undefined at validation.
    */
   defaultModel?: string;
+  /**
+   * UAT gates, credentials and (Phase 2) authored-step config. Absent yields the
+   * default pipeline: karst probes package.json for known scripts. `origins` and
+   * `authBootstrap` are validated at load but inert until Phase 2, so declaring
+   * them early is harmless.
+   */
+  uat?: UatConfig;
 }
