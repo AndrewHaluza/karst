@@ -16,7 +16,7 @@ const now = () => '2026-07-30T10:00:00.000Z';
 function deps(over: Partial<UatDeps> = {}): UatDeps {
   return {
     now,
-    planTargets: async () => [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+    planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }] }),
     probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
     runGates: async (gates) => ({
       kind: 'ran',
@@ -146,10 +146,13 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
       deps({
-        planTargets: async () => [
-          { repo: '/web', path: '/wt/web', names: ['web'] },
-          { repo: '/api', path: '/wt/api', names: ['api'] },
-        ],
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
         runGates: async (gates, cwd) => {
           ran.push(cwd);
           return {
@@ -206,10 +209,13 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
       deps({
-        planTargets: async () => [
-          { repo: '/web', path: '/wt/web', names: ['web'] },
-          { repo: '/api', path: '/wt/api', names: ['api'] },
-        ],
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
         probe: (cwd) =>
           cwd === '/wt/web'
             ? { kind: 'ok', scripts: { test: 'vitest' } }
@@ -255,7 +261,7 @@ describe('runUat', () => {
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => [] }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
     expect(res).toMatchObject({ reason: expect.stringContaining('/unmapped') });
@@ -267,7 +273,7 @@ describe('runUat', () => {
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => [] }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
     expect(res).toMatchObject({ reason: expect.stringContaining('no worktree') });
@@ -296,7 +302,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -331,7 +337,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -367,7 +373,12 @@ describe('runUat', () => {
           },
         ),
       },
-      deps({ planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        }),
+      }),
     );
     // `npm test` duplicates review; `npx pw` does not, so the run asked something new.
     expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).not.toContain(
@@ -382,10 +393,13 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, signal: controller.signal, manifest: manifest({}) },
       deps({
-        planTargets: async () => [
-          { repo: '/web', path: '/wt/web', names: ['web'] },
-          { repo: '/api', path: '/wt/api', names: ['api'] },
-        ],
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
         runGates: async (gates, _cwd, opts) => {
           seen.push(opts?.signal);
           return {

@@ -155,9 +155,18 @@ export async function runReview(
   openDiff?: OpenDiff,
   git: GitRunner = defaultGitRunner,
 ): Promise<ReviewOutcome> {
-  const targets = opts.manifest
+  // Review has no `{kind:'blocked'}` path yet (Task 6): a git probe failure that
+  // `selectReviewTargets` now reports as `{kind:'unavailable', ...}` rather than
+  // throwing is re-thrown here, verbatim, so the ticket parks exactly as it did
+  // before this task — at `review`, uncaught, escaping to the host's generic
+  // log. Task 6 replaces this throw with a real `parkGateStage` park.
+  const selection = opts.manifest
     ? await selectReviewTargets(opts.manifest, listWorktreesByTicket(store, opts.ticketId), git)
-    : [{ repo: opts.cwd, path: opts.cwd, baseRef: null, names: [] }];
+    : { kind: 'targets' as const, targets: [{ repo: opts.cwd, path: opts.cwd, baseRef: null, names: [] }] };
+  if (selection.kind === 'unavailable') {
+    throw new Error(selection.reason);
+  }
+  const targets = selection.targets;
   const targetRuns: { label: string; gates: GateResult[] }[] = [];
   // Tracked so the transition below can record whether the changes surface
   // genuinely opened — never assumed from "the loop ran", since only a real

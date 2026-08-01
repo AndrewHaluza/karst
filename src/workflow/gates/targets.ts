@@ -1,5 +1,6 @@
 import type { Manifest } from '../../manifest/types.js';
 import type { GitRunner } from '../../integrations/git.js';
+import type { BlockerKind } from '../../model/types.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 
 export interface ReviewWorktree {
@@ -14,17 +15,34 @@ export interface ReviewTarget extends ReviewWorktree {
   names: string[];
 }
 
-async function hasReviewChanges(git: GitRunner, cwd: string, base: string): Promise<boolean> {
+/**
+ * What `selectReviewTargets` resolved: the affected targets, or that karst
+ * could not even ask which targets are affected. `unavailable` is
+ * environmental (an unreachable remote, a broken git) — never a verdict about
+ * the ticket's code — so a caller must route it to a park, not a pass or fail.
+ */
+export type TargetSelection =
+  | { kind: 'targets'; targets: ReviewTarget[] }
+  | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
+
+/** Whether one worktree changed, or that karst could not determine it. */
+type ChangeProbe =
+  | { kind: 'changed'; changed: boolean }
+  | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
+
+async function hasReviewChanges(git: GitRunner, cwd: string, base: string): Promise<ChangeProbe> {
   // Agents are allowed to leave implementation work uncommitted until ship.
   // Porcelain includes staged, unstaged, and untracked files, so review cannot
   // pass merely because HEAD itself has not moved yet.
   const status = await git(['status', '--porcelain'], cwd);
   if (status.exitCode !== 0) {
-    throw new Error(
-      `cannot determine review changes in ${cwd}: ${status.stderr || status.stdout || `git status exited ${status.exitCode}`}`,
-    );
+    return {
+      kind: 'unavailable',
+      blocker: 'capability-missing',
+      reason: `cannot determine review changes in ${cwd}: ${status.stderr || status.stdout || `git status exited ${status.exitCode}`}`,
+    };
   }
-  if (status.stdout.trim().length > 0) return true;
+  if (status.stdout.trim().length > 0) return { kind: 'changed', changed: true };
 
   // Prefer the fresh remote baseline. If fetch is unavailable, the local branch
   // is still a deterministic comparison when it exists; unlike ship's
@@ -32,12 +50,14 @@ async function hasReviewChanges(git: GitRunner, cwd: string, base: string): Prom
   const fetched = await git(['fetch', 'origin', base], cwd);
   const compare = fetched.exitCode === 0 ? `origin/${base}` : base;
   const diff = await git(['diff', '--quiet', `${compare}...HEAD`], cwd);
-  if (diff.exitCode === 0) return false;
-  if (diff.exitCode === 1) return true;
+  if (diff.exitCode === 0) return { kind: 'changed', changed: false };
+  if (diff.exitCode === 1) return { kind: 'changed', changed: true };
   const reason = diff.stderr || diff.stdout || fetched.stderr || fetched.stdout;
-  throw new Error(
-    `cannot determine review changes in ${cwd}: ${reason || `git diff exited ${diff.exitCode}`}`,
-  );
+  return {
+    kind: 'unavailable',
+    blocker: 'capability-missing',
+    reason: `cannot determine review changes in ${cwd}: ${reason || `git diff exited ${diff.exitCode}`}`,
+  };
 }
 
 /**
@@ -52,7 +72,7 @@ export async function selectReviewTargets(
   manifest: Manifest,
   worktrees: readonly ReviewWorktree[],
   git: GitRunner,
-): Promise<ReviewTarget[]> {
+): Promise<TargetSelection> {
   const namesByPath = new Map<string, string[]>();
   for (const [name, repository] of Object.entries(manifest.repositories)) {
     if (repository.enabled === false) continue;
@@ -65,7 +85,11 @@ export async function selectReviewTargets(
   for (const worktree of worktrees) {
     const names = namesByPath.get(worktree.repo) ?? [];
     const base = resolveBaselineBranchForPath(manifest, worktree.repo);
-    if (await hasReviewChanges(git, worktree.path, base)) {
+    const probe = await hasReviewChanges(git, worktree.path, base);
+    if (probe.kind === 'unavailable') {
+      return { kind: 'unavailable', blocker: probe.blocker, reason: probe.reason };
+    }
+    if (probe.changed) {
       for (const name of names) changed.add(name);
     }
   }
@@ -83,8 +107,11 @@ export async function selectReviewTargets(
     }
   }
 
-  return worktrees.flatMap((worktree) => {
-    const names = namesByPath.get(worktree.repo) ?? [];
-    return names.some((name) => affected.has(name)) ? [{ ...worktree, names }] : [];
-  });
+  return {
+    kind: 'targets',
+    targets: worktrees.flatMap((worktree) => {
+      const names = namesByPath.get(worktree.repo) ?? [];
+      return names.some((name) => affected.has(name)) ? [{ ...worktree, names }] : [];
+    }),
+  };
 }

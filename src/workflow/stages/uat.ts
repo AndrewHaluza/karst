@@ -217,9 +217,6 @@ export async function runUat(
   const runAt = now();
 
   const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
-  const targets: UatTarget[] = opts.manifest
-    ? await planTargets(opts.manifest, worktrees, git)
-    : [{ repo: opts.cwd, path: opts.cwd, names: [] }];
 
   const entries: AggregateEntry[] = [];
   const reviewIdentities: GateIdentity[] = [];
@@ -238,6 +235,21 @@ export async function runUat(
     }));
     return commitOutcome(store, opts.ticketId, runAt, artifactPath, gates, outcome);
   };
+
+  const planned = opts.manifest
+    ? await planTargets(opts.manifest, worktrees, git)
+    : { kind: 'targets' as const, targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }] };
+
+  // Environmental: karst could not even determine which repositories are
+  // affected (an unreachable remote, a broken git) — never a verdict about the
+  // ticket's code, so this parks rather than transitioning or throwing. Nothing
+  // has run yet, so there is no partial evidence to keep.
+  if (planned.kind === 'unavailable') {
+    return finish({ kind: 'blocked', blocker: planned.blocker, reason: planned.reason }, [
+      planned.reason,
+    ]);
+  }
+  const targets: UatTarget[] = planned.targets;
 
   if (targets.length === 0) {
     const reason = noTargetsReason(worktrees);

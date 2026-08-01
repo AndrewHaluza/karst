@@ -289,6 +289,37 @@ describe('runReview', () => {
       expect(getTicket(store, id).stageCurrent).toBe('review'); // never reached ship
     });
 
+    // `selectReviewTargets` reports a git failure as `{kind:'unavailable', ...}`
+    // rather than throwing (G4). Review has no `{kind:'blocked'}` path yet
+    // (Task 6), so it re-throws with the same message a caller would have seen
+    // before this task — carrying the failure OUT of the stage exactly as
+    // before, rather than silently treating "could not ask" as "nothing
+    // changed" and passing vacuously.
+    it('re-throws a git failure with the same message, rather than passing vacuously', async () => {
+      seed('/repos/api', '/wt/api');
+      const runner = vi.fn(PASS_GATES);
+      const failing: GitRunner = async (args) => ({
+        stdout: '',
+        stderr: args[0] === 'status' ? '' : 'baseline unavailable',
+        exitCode: args[0] === 'status' ? 0 : 128,
+      });
+
+      await expect(
+        runReview(
+          store,
+          { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
+          runner,
+          openDiff as never,
+          failing,
+        ),
+      ).rejects.toThrow(/cannot determine review changes.*baseline unavailable/);
+
+      expect(runner).not.toHaveBeenCalled();
+      expect(openDiff).not.toHaveBeenCalled();
+      expect(listGateRuns(store, id)).toEqual([]);
+      expect(getTicket(store, id).stageCurrent).toBe('review'); // parked, not passed
+    });
+
     it('checks a directly changed repo and each relation-impacted dependent only', async () => {
       seed('/repos/api', '/wt/api');
       seed('/repos/web', '/wt/web');
