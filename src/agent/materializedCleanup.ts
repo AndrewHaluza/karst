@@ -1,7 +1,14 @@
 import { rmSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-const OWNED_PREFIXES = [
+/**
+ * The only path shapes an adapter may claim — and therefore the only ones
+ * session close will delete. Deliberately narrower than `KARST_EXCLUDE_RULES`
+ * (which also covers `/.karst/`, the directory holding the worktrees
+ * themselves): every deletable path must be excluded, never the reverse.
+ * `karstExcludes.test.ts` pins that direction.
+ */
+export const OWNED_PREFIXES = [
   `${sep}.agents${sep}skills${sep}karst-`,
   `${sep}.codex${sep}karst${sep}`,
   `${sep}.karst-plugin${sep}`,
