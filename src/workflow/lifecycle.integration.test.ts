@@ -13,6 +13,7 @@ import { runFix } from './stages/fix.js';
 import { shipTicket } from './stages/ship.js';
 import { advanceTicketOnShip } from './stages/done.js';
 import { transition } from './machine.js';
+import { settleMergeStage } from './mergeGate.js';
 import { reconcileOnStart, deriveStageCurrent } from '../recovery/reconcile.js';
 import type { TicketingProvider } from '../integrations/ticketing.js';
 import type { AgentAdapter } from '../agent/adapter.js';
@@ -114,7 +115,7 @@ describe('MVP lifecycle (workflow spine)', () => {
     await runReview(store, { ticketId: id, cwd: '/wt', artifactDir: dir }, GATES_PASS);
     expect(getTicket(store, id).stageCurrent).toBe('ship');
 
-    // ship (one hot repo) -> done
+    // ship (one hot repo) -> merge -> done
     store.db
       .prepare(
         "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/repo/fe', ?, 'b', 'develop', 'inherited')",
@@ -129,6 +130,14 @@ describe('MVP lifecycle (workflow spine)', () => {
     });
     const shipRes = await shipTicket(store, { ticketId: id }, gh, adapter, git);
     expect(shipRes.prs).toHaveLength(1);
+    // Shipping opens the PR; it does NOT land it. The ticket parks at `merge`
+    // until the PR reads merged — that is the whole point of the stage.
+    expect(getTicket(store, id).stageCurrent).toBe('merge');
+    expect(settleMergeStage(store, id).advanced).toBe(false);
+
+    // the PR lands (here: a teammate merged it, which the PR sweep would record)
+    store.db.prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ?").run(id);
+    expect(settleMergeStage(store, id).advanced).toBe(true);
     expect(getTicket(store, id).stageCurrent).toBe('done');
 
     // update the external ticket status via the provider seam — addressed by the

@@ -3,6 +3,7 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
+import { settleMergeStage } from '../mergeGate.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
 import {
@@ -473,8 +474,24 @@ export async function shipTicket(
   // not a ship failure, and this must not reach the catch that parks the ticket.
   await recordMergeChecks(store, opts.ticketId, worktrees, git, onProgress, opts.manifest);
 
-  // PRs opened → ship passes → done. Unaffected by merge state, by design.
+  // PRs opened → ship passes → `merge`, the stage that owns the gap between "the
+  // PR exists" and "the work landed". Ship's own job ends here and its verdict is
+  // still unaffected by merge state: a conflicted branch is a shipped branch.
   transition(store, opts.ticketId, 'ship', { kind: 'passed' });
+
+  // A ticket that delivered no diff in any repo has nothing to land, so it would
+  // otherwise park at `merge` forever waiting for a PR that will never exist.
+  // Settling here — rather than leaving it to the next sweep — also means the
+  // click that shipped it is the click that finishes it, when it can be finished.
+  //
+  // Swallowed for the same reason `recordMergeChecks` is: the PRs are open, the
+  // irreversible part succeeded, and this is bookkeeping over state already
+  // stored. The gate is idempotent, so the background sweep settles it later.
+  try {
+    settleMergeStage(store, opts.ticketId);
+  } catch {
+    // Left parked at `merge`, which is the honest state anyway.
+  }
 
   return { prs };
 }

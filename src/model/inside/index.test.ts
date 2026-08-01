@@ -112,6 +112,82 @@ describe('buildStageInside', () => {
     });
   });
 
+  describe('merge', () => {
+    // The stage parks as pending the moment it is entered, so status alone
+    // cannot separate "not reached yet" from "reached, nothing to land".
+    const entered = (rows: StepperStageRow[] = []) =>
+      buildStepper([{ stageKey: 'merge', status: 'pending', startedAt: NOW }, ...rows]);
+
+    it('says nothing before the stage is reached — the blurb answers instead', () => {
+      expect(build({ ship: 'pending' }).merge.ops).toEqual([]);
+    });
+
+    it('states outright that a ticket with no PR had nothing to land', () => {
+      expect(build({}, { stepper: entered() }).merge.ops).toEqual([
+        {
+          status: 'note',
+          name: 'merge',
+          detail: 'nothing was delivered — no pull request to merge',
+          duration: '',
+        },
+      ]);
+    });
+
+    it('marks a landed PR passed and one still open as waiting', () => {
+      const prs = [
+        { ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'merged', mergedAt: NOW },
+        { ticketId: 1, repo: 'web', number: 13, url: 'https://x/13', status: 'open' },
+      ];
+      expect(build({}, { stepper: entered(), prs }).merge.ops).toEqual([
+        { status: 'pass', name: 'merged', detail: 'api #12', duration: '' },
+        { status: 'wait', name: 'open', detail: 'web #13 · not merged yet', duration: '' },
+      ]);
+    });
+
+    // The one row on this strip a person has to act on.
+    it('fails the row for a repo whose branch no longer merges cleanly', () => {
+      const prs = [{ ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' }];
+      const ops = build({}, {
+        stepper: entered(),
+        prs,
+        mergeChecks: [check('api', { state: 'conflicted', files: ['src/a.ts'] })],
+      }).merge.ops;
+      expect(ops).toHaveLength(1);
+      expect(ops[0]!.status).toBe('fail');
+      expect(ops[0]!.name).toBe('conflict');
+      expect(ops[0]!.detail).toContain('api #12');
+    });
+
+    // A repo re-shipped after a merge carries both rows; answering twice for one
+    // repo is what the ship strip does (a log of what it did) and what this strip
+    // must not (an answer to "has this landed").
+    it('reports one row per repo, for the current PR', () => {
+      const prs = [
+        { ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'merged', mergedAt: NOW },
+        { ticketId: 1, repo: 'api', number: 14, url: 'https://x/14', status: 'open' },
+      ];
+      expect(build({}, { stepper: entered(), prs }).merge.ops).toEqual([
+        { status: 'wait', name: 'open', detail: 'api #14 · not merged yet', duration: '' },
+      ]);
+    });
+
+    it('names the repo the way every other surface does (display path)', () => {
+      const prs = [
+        {
+          ticketId: 1,
+          repo: '/abs/repo/api',
+          repoDisplay: 'api',
+          number: 12,
+          url: 'https://x/12',
+          status: 'open',
+        },
+      ];
+      expect(build({}, { stepper: entered(), prs }).merge.ops[0]!.detail).toBe(
+        'api #12 · not merged yet',
+      );
+    });
+  });
+
   describe('ship', () => {
     it('reports one row per PR it opened', () => {
       const prs = [

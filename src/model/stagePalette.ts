@@ -38,6 +38,11 @@ export const STAGE_COLORS: Readonly<Record<StageKey, StageColor>> = {
   review: { dark: '#2ea8b5', light: '#0e7490' },
   fix: { dark: '#f14c4c', light: '#c93636' },
   ship: { dark: '#d162c4', light: '#bf3989' },
+  // A deeper step along ship's own hue rather than a new one: ship and merge are
+  // two halves of the same delivery, and an unrelated color would read as a
+  // change of subject rather than as the last leg of one. Kept clear of `scope`'s
+  // violet, which is the neighbour it could actually be confused with.
+  merge: { dark: '#c14bb4', light: '#a1319a' },
   // Exactly the status ramp's green (#4bb64b), not a second one: [[palette]]
   // asserts the product ships one green, and `done` is the case where the stage
   // and the status mean the same thing.

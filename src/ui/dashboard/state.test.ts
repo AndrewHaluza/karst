@@ -30,7 +30,7 @@ describe('buildDashboardState', () => {
     expect(state.stepper[0]!.stageKey).toBe('scope');
     expect(state.stepper[0]!.status).toBe('passed');
     expect(state.stepper.map((s) => s.stageKey)).toEqual([
-      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'done',
+      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'merge', 'done',
     ]);
     expect(state.servers).toHaveLength(1);
     expect(state.servers[0]!.port).toBe(5173);

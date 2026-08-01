@@ -11,6 +11,30 @@ describe('extension activation', () => {
     expect(pkg.activationEvents).toContain('onStartupFinished');
   });
 
+  // A ticket reaches `done` only when its PRs have landed, and the landing can
+  // happen where no click in this window can see it — a teammate merging on
+  // GitHub. The PR sweep is the only path that notices, so the wiring is pinned
+  // here: without it a merged ticket sits at `merge` until someone reopens the
+  // dashboard, and its provider status is never pushed at all.
+  it('settles the merge gate on the PR sweep, and pushes the status of what landed', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('settleMergeGates(localStore, { projectId: project.id })');
+    expect(source).toContain('for (const id of landed) void pushDoneStatus(id, false);');
+  });
+
+  // The provider's post-delivery status used to be pushed the moment the PRs
+  // opened, which is exactly the claim this ticket exists to stop making. It now
+  // fires from whichever path actually moved the ticket to `done`.
+  it('pushes the provider status only for a ticket that actually reached done', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // Ship: only the nothing-to-merge case walks straight through to done.
+    expect(source).toContain("if (getTicket(store, ticketId).stageCurrent === 'done') {");
+    // Merge: only the merge that finished the ticket.
+    expect(source).toContain('if (result.completedTicket) await onTicketCompleted();');
+  });
+
   it('reconciles terminals VS Code revives after the activation scan', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'extension.ts'),

@@ -8,7 +8,7 @@ describe('buildStepper', () => {
       { stageKey: 'scope', status: 'passed' },
     ]);
     expect(cells.map((c) => c.stageKey)).toEqual([
-      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'done',
+      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'merge', 'done',
     ]);
     expect(cells[0]).toEqual({ stageKey: 'scope', status: 'passed' });
     expect(cells[1]).toEqual({ stageKey: 'impl', status: 'running' });
@@ -21,7 +21,7 @@ describe('buildStepper', () => {
 
   it('returns all pending for an empty ticket', () => {
     const cells = buildStepper([]);
-    expect(cells).toHaveLength(7);
+    expect(cells).toHaveLength(8);
     expect(cells.every((c) => c.status === 'pending')).toBe(true);
   });
 

@@ -120,6 +120,55 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
  */
 export const CURRENT_PR_ORDER = `ORDER BY CASE WHEN p.status = 'open' THEN 0 ELSE 1 END, p.number DESC`;
 
+/** One repo's CURRENT PR on a ticket, reduced to what the merge gate asks about. */
+export interface CurrentPr {
+  repo: string;
+  number: number | null;
+  url: string;
+  status: string | null;
+}
+
+/**
+ * One row per repo — the repo's CURRENT PR — for every repo this ticket opened a
+ * PR in.
+ *
+ * The merge gate asks "has everything this ticket delivered landed", and the only
+ * honest way to answer it is per REPO: `listPrsByTicket` returns every row a repo
+ * ever accumulated, so a repo re-shipped after a merge would answer twice, and
+ * the merged half would say yes for a branch still open. `CURRENT_PR_ORDER` is
+ * the same rule `findTicketPr` and `mergeChecks` apply, so all three agree on
+ * which PR a repo means.
+ *
+ * Deliberately NOT joined to `worktrees` (unlike `findTicketPr`/`listSyncablePrs`,
+ * which need a cwd to run gh in): a merged PR whose worktree has since been
+ * archived is still merged, and dropping it would make a fully-landed ticket look
+ * like it had delivered nothing.
+ */
+export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentPr[] {
+  const rows = store.db
+    .prepare(
+      `SELECT pr.repo, pr.number, pr.url, pr.status
+         FROM prs pr
+        WHERE pr.ticket_id = ?
+          AND pr.url IS NOT NULL
+          AND pr.rowid = (SELECT p.rowid
+                            FROM prs p
+                           WHERE p.ticket_id = pr.ticket_id
+                             AND p.repo = pr.repo
+                             AND p.url IS NOT NULL
+                           ${CURRENT_PR_ORDER}
+                           LIMIT 1)
+        ORDER BY pr.repo`,
+    )
+    .all(ticketId) as Array<{
+      repo: string;
+      number: number | null;
+      url: string;
+      status: string | null;
+    }>;
+  return rows.map((r) => ({ repo: r.repo, number: r.number, url: r.url, status: r.status }));
+}
+
 /** One repo's PR on a ticket, with the worktree path gh must run in. */
 export interface TicketPr {
   ticketId: number;

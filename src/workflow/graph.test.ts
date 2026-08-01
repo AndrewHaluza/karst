@@ -22,7 +22,7 @@ describe('branch stages', () => {
 
   it('MAIN_LINE is STAGE_KEYS minus the branches, in order', () => {
     expect(MAIN_LINE).toEqual(STAGE_KEYS.filter((k) => !isBranch(k)));
-    expect(MAIN_LINE).toEqual(['scope', 'impl', 'uat', 'review', 'ship', 'done']);
+    expect(MAIN_LINE).toEqual(['scope', 'impl', 'uat', 'review', 'ship', 'merge', 'done']);
   });
 
   it('every stage is either on the main line or a branch, never neither', () => {
@@ -71,6 +71,6 @@ describe('the fix return edge', () => {
   it('leaves fix a branch and the main line unchanged', () => {
     expect(isBranch('fix')).toBe(true);
     expect(isBranch('uat')).toBe(false);
-    expect(MAIN_LINE).toEqual(['scope', 'impl', 'uat', 'review', 'ship', 'done']);
+    expect(MAIN_LINE).toEqual(['scope', 'impl', 'uat', 'review', 'ship', 'merge', 'done']);
   });
 });

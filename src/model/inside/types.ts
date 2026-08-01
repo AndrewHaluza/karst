@@ -50,6 +50,7 @@ export const STAGE_TITLES: Readonly<Record<StageKey, string>> = {
   review: 'Review',
   fix: 'Fix',
   ship: 'Ship',
+  merge: 'Merge',
   done: 'Done',
 };
 
@@ -67,6 +68,8 @@ export const STAGE_BLURBS: Readonly<Record<StageKey, string>> = {
     'Runs lint, typecheck and test. Every gate the repo can answer must exit 0. The diff opens for you either way.',
   fix: 'Resumes the captured session so the agent keeps its context, then re-enters the uat gate.',
   ship: 'Commits, pushes, and opens one PR per hot repo with an agent-written description.',
+  merge:
+    'Waits until every pull request this ticket opened is merged. karst never merges on its own — you click Merge on each PR, or a teammate lands it and the PR sweep notices. A branch that stops merging cleanly is reported here, and the ticket is not done until they all land.',
   done: 'Terminal. Nothing runs here — arriving is completing.',
 };
 

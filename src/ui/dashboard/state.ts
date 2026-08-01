@@ -18,6 +18,7 @@ import { buildStageInside, type StageInside } from '../../model/inside/index.js'
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import { mergeGateState } from '../../workflow/mergeGate.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
@@ -193,6 +194,10 @@ export function buildDashboardState(
         ticket,
         resolvedProvider,
       ),
+      // Read from the same two tables the PR panel and the merge rows below
+      // render, so the sentence at the top of the panel and the buttons under it
+      // can never disagree about which repo is holding the ticket up.
+      mergeGate: mergeGateState(store, ticketId),
     }),
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only

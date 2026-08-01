@@ -28,6 +28,8 @@ export interface ShipPrView {
   /** The repository as displayed (path-display preference). Falls back to `repo`. */
   repoDisplay?: string;
   number: number | null;
+  /** `open` | `merged` | `closed` | … as `prs.status` holds it, when known. */
+  status?: string | null;
   headRef?: string | null;
   baseRef?: string | null;
   mergedAt?: string | null;
@@ -194,6 +196,86 @@ function shipInside(
   return inside(cell, now, ops);
 }
 
+/**
+ * One PR per repo — the CURRENT one — mirroring `store/prs.ts`'s
+ * `CURRENT_PR_ORDER`: an open PR wins, otherwise the highest number.
+ *
+ * A repo re-shipped after a merge carries both rows (`ship` inserts a fresh one
+ * rather than reusing a terminal one). Ship's strip shows every PR it ever
+ * opened, which is right for a log of what it did; this strip answers "has this
+ * repo landed", and a stale `merged` beside a live `open` answers it twice.
+ */
+function currentPerRepo(prs: readonly ShipPrView[]): ShipPrView[] {
+  const byRepo = new Map<string, ShipPrView>();
+  for (const pr of prs) {
+    const held = byRepo.get(pr.repo);
+    if (!held) {
+      byRepo.set(pr.repo, pr);
+      continue;
+    }
+    if (held.status === 'open') continue;
+    if (pr.status === 'open' || (pr.number ?? -1) > (held.number ?? -1)) byRepo.set(pr.repo, pr);
+  }
+  return [...byRepo.values()];
+}
+
+/**
+ * Merge's evidence is one row per repo saying whether that repo's PR has landed
+ * — and, for one that has not, whether it still merges cleanly.
+ *
+ * Deliberately per-REPO and not a single summary line: the ticket is held by
+ * whichever repo has not landed, and naming it is the difference between "go
+ * merge something" and "go merge this". A repo whose PR is merged is `pass` and
+ * says so; an open one is `wait`, which is the honest reading of a step that is
+ * neither working nor finished. A conflict downgrades the row to `fail` — nothing
+ * is wrong with the code, but the branch cannot land as it stands, and that is
+ * the one thing on this strip a person has to act on.
+ */
+function mergeInside(
+  cell: StepperCell,
+  prs: readonly ShipPrView[],
+  mergeChecks: readonly MergeCheckRow[],
+  now: string,
+): StageInside {
+  // No PR at all. Which of two things that means depends entirely on whether the
+  // stage has been ENTERED: before ship runs there is simply nothing to say yet
+  // (the blurb answers "what happens here"), while after it there really is
+  // nothing to land — and saying so is the difference between a finished ticket
+  // and a strip that looks like karst forgot to check. `startedAt` is what
+  // separates the two; a confirm stage parks as pending the moment it is entered,
+  // so status alone cannot.
+  if (prs.length === 0) {
+    if (!cell.startedAt) return inside(cell, now, []);
+    return inside(cell, now, [
+      {
+        status: 'note',
+        name: 'merge',
+        detail: 'nothing was delivered — no pull request to merge',
+        duration: '',
+      },
+    ]);
+  }
+  const checksByRepo = new Map(mergeChecks.map((c) => [c.repo, c]));
+  const ops = currentPerRepo(prs).map((pr): StageOp => {
+    const label = pr.repoDisplay || pr.repo;
+    const name = pr.number ? `${label} #${pr.number}` : label;
+    if (pr.status === 'merged' || pr.mergedAt) {
+      return { status: 'pass', name: 'merged', detail: name, duration: '' };
+    }
+    const check = checksByRepo.get(pr.repo);
+    if (check && check.state === 'conflicted') {
+      return {
+        status: 'fail',
+        name: 'conflict',
+        detail: `${name} · ${summarizeMergeCheck(check)}`,
+        duration: '',
+      };
+    }
+    return { status: 'wait', name: 'open', detail: `${name} · not merged yet`, duration: '' };
+  });
+  return inside(cell, now, ops);
+}
+
 function stripFor(key: StageKey, cell: StepperCell, input: StageInsideInput): StageInside {
   switch (key) {
     case 'scope':
@@ -208,6 +290,8 @@ function stripFor(key: StageKey, cell: StepperCell, input: StageInsideInput): St
       return fixInside(cell, input.session.sessionId, input.fixAttempts, input.now);
     case 'ship':
       return shipInside(cell, input.prs, input.mergeChecks ?? [], input.selectedRepos, input.now);
+    case 'merge':
+      return mergeInside(cell, input.prs, input.mergeChecks ?? [], input.now);
     case 'done':
       // Terminal: the machine stamps started_at === ended_at, so the duration is
       // structurally zero and there is no step to report. Arriving IS the event.

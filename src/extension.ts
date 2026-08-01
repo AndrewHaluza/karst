@@ -114,6 +114,7 @@ import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
+import { settleMergeGates } from './workflow/mergeGate.js';
 import { findTicketPr } from './store/prs.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
@@ -153,7 +154,6 @@ import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
   AgentProvider,
   ApproachDef,
-  TicketingConfig,
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { recordTokenUsage } from './store/tokenUsage.js';
@@ -207,7 +207,7 @@ import {
   clearToken,
   hasToken,
 } from './extension/secrets.js';
-import { makeTicketingProvider, type TicketingProvider } from './integrations/ticketing.js';
+import { makeTicketingProvider } from './integrations/ticketing.js';
 import { SettingsManager, type LoadedManifest } from './ui/settings/panel.js';
 import { buildSettingsActions } from './ui/settings/actions.js';
 import type { SettingsState } from './ui/settings/state.js';
@@ -1303,6 +1303,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
 
+  /**
+   * Push the configured post-delivery status to the ticketing provider, for a
+   * ticket that has just reached `done`.
+   *
+   * Window-scoped rather than per-dashboard because a ticket can reach `done`
+   * from three unrelated places — the ship click (nothing to merge), a merge
+   * click, or the background PR sweep noticing a teammate's merge — and the
+   * status must be pushed once, by whichever of them actually moved it, with no
+   * dashboard open required.
+   *
+   * Never throws and never blocks: the merge already happened, and a provider
+   * that is down must not turn a landed ticket into an error the user has to
+   * clear. `warn` is off for the sweep, which runs unattended — a toast nobody
+   * asked for, once a minute, is noise.
+   */
+  const pushDoneStatus = async (ticketId: number, warn: boolean): Promise<void> => {
+    try {
+      const res = await advanceTicketOnShip(
+        localStore,
+        ticketId,
+        currentManifest()?.ticketing,
+        makeTicketingProvider(currentManifest()?.ticketing, fetch, makeTokenProvider(context)),
+      );
+      if (!res.advanced && res.reason === 'no-ref') {
+        logError(
+          `ticket #${ticketId} completed without a status update: no provider ref`,
+          undefined,
+        );
+      }
+    } catch (e) {
+      logError('ticket status update failed', e);
+      if (warn) {
+        void vscode.window.showWarningMessage(
+          `Ticket merged, but the status update failed: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+    }
+  };
+
   // Declared before the manager because the two reference each other: the
   // manager asks the binder how the toggle sits, and the binder reveals through
   // the manager. Assigned immediately below, and neither direction is read
@@ -1336,13 +1377,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logError,
         guardCapability,
         currentManifest,
-        () => currentManifest()?.ticketing,
-        () =>
-          makeTicketingProvider(
-            currentManifest()?.ticketing,
-            fetch,
-            makeTokenProvider(context),
-          ),
+        () => pushDoneStatus(ticketId, true),
         (event) => dashboard.postShipProgress(ticketId, event),
         // A live session already owns the worktrees: nudge it and reveal the
         // terminal so the user sees the agent take the job. With none open,
@@ -1767,9 +1802,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // discard them or stop the next tick.
         logError('karst: merge check sync failed', e);
       }
+      // A PR the sweep just found merged may have been the last one a ticket was
+      // waiting on — including one a teammate landed on GitHub, which no click in
+      // this window will ever report. This is the only path that notices, so the
+      // ticket reaches `done` (and pushes its provider status) without anyone
+      // having to reopen the dashboard.
+      let landed: number[] = [];
+      try {
+        landed = settleMergeGates(localStore, { projectId: project.id });
+        for (const id of landed) void pushDoneStatus(id, false);
+      } catch (e) {
+        // Bookkeeping over state that is already stored: the next tick retries.
+        logError('karst: merge gate settle failed', e);
+      }
       // A forced sweep pushes unconditionally: "nothing changed" is the answer
       // the user asked for, and it is also what clears the panel's spinner.
-      if (force || changed > 0 || mergeChanged > 0) {
+      if (force || changed > 0 || mergeChanged > 0 || landed.length > 0) {
         provider.refresh();
         dashboard.pushAll();
       }
@@ -3058,10 +3106,12 @@ function makeDashboardActions(
   // Read fresh when the user confirms ship so a mid-session branch edit
   // controls the PR target and convention edits apply without a window reload.
   manifest: () => Manifest | undefined,
-  // Read fresh at call time so a status saved in settings applies without a
-  // window reload — same getter pattern as the onboarding provider.
-  ticketing: () => TicketingConfig | undefined,
-  ticketingProvider: () => TicketingProvider,
+  // Push the configured post-delivery status for THIS ticket, now that it has
+  // reached `done`. A callback rather than the ticketing config + provider,
+  // because reaching done is no longer something the ship click can conclude on
+  // its own: the same push has to fire from the merge click and from the
+  // background sweep, so the decision and the reporting live in one host helper.
+  onTicketCompleted: () => Promise<void>,
   // Stream structured per-repo/per-step progress to the dashboard while
   // `shipTicket` runs, so the confirm-ship click has visible progress instead
   // of a frozen button.
@@ -3172,28 +3222,12 @@ function makeDashboardActions(
       )
         .then(async () => {
           // The PRs are open and the branch is pushed — the irreversible part
-          // succeeded, and ship.ts already transitioned to done. So a failed
-          // status push warns; it never drags a shipped ticket back to red.
-          try {
-            const res = await advanceTicketOnShip(
-              store,
-              ticketId,
-              ticketing(),
-              ticketingProvider(),
-            );
-            if (!res.advanced && res.reason === 'no-ref') {
-              logError(
-                `ticket #${ticketId} shipped without a status update: no provider ref`,
-                undefined,
-              );
-            }
-          } catch (e) {
-            logError('ticket status update failed', e);
-            void vscode.window.showWarningMessage(
-              `Ticket shipped, but the status update failed: ${
-                e instanceof Error ? e.message : String(e)
-              }`,
-            );
+          // succeeded, and ship.ts has transitioned to `merge`. The ticket is
+          // NOT done yet unless it had nothing to merge, in which case ship's own
+          // settle already walked it through to `done`; that is the one case the
+          // status push fires from here. Everything else waits for the merge.
+          if (getTicket(store, ticketId).stageCurrent === 'done') {
+            await onTicketCompleted();
           }
           afterServerChange();
         })
@@ -3300,8 +3334,15 @@ function makeDashboardActions(
           });
           if (result.ok) {
             void vscode.window.showInformationMessage(
-              `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
+              result.completedTicket
+                ? `Merged pull request${pr.number ? ` #${pr.number}` : ''} — ticket done.`
+                : `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
             );
+            // `done` is reached here, not at ship: this is where the work has
+            // actually landed, so this is where the provider's status is pushed.
+            // Only the merge that finished the ticket does it — a multi-repo
+            // ticket with PRs still open is not done.
+            if (result.completedTicket) await onTicketCompleted();
             return;
           }
           // The reason is gh's own words where there are any. `mergeTicketPr` has

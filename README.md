@@ -2,8 +2,8 @@
 
 Orchestrate AI-agent ticket workflows across a multi-repo stack — a VS Code
 extension that drives a ticket from **scope → implement → UAT → review → ship →
-done**, spinning up the runnable services each ticket touches and gating every
-stage on a deterministic verdict.
+merge → done**, spinning up the runnable services each ticket touches and gating
+every stage on a deterministic verdict.
 
 > **Status:** MVP (M0–M4) implemented. 215 tests, typecheck-clean.
 
@@ -27,10 +27,15 @@ Given a ticket and a manifest describing your stack, Karst:
    exit 0. Never an agent self-report.
 5. **Loops fixes** — a UAT/review failure routes to `fix`, which re-gates through
    `review` until it passes.
-6. **Ships** — creates a fallback commit when needed, opens one PR per hot repo
-   via `gh`, and marks the ticket done. Project conventions can template the
-   ticket branch, the Karst-created commit, the PR title, and the PR
-   description.
+6. **Ships** — creates a fallback commit when needed and opens one PR per hot
+   repo via `gh`. Project conventions can template the ticket branch, the
+   Karst-created commit, the PR title, and the PR description.
+7. **Waits for the merge** — an open PR is not a delivery. The ticket parks at
+   `merge`, reading **Needs you**, until every PR it opened is merged (yours or a
+   teammate's — the PR sweep notices either). A branch that stops merging cleanly
+   is reported there. Only then is the ticket marked **done** and its status
+   pushed to the ticketing provider. A ticket whose work produced no diff has
+   nothing to land and passes straight through.
 
 SQLite is the source of truth; on reopen the board is re-derived from it, so a
 crash never loses a ticket's stage.
@@ -68,7 +73,7 @@ src/
 A verdict-keyed graph (not a line), with a `fix → review` revalidation loop:
 
 ```
-scope ──▶ impl ──▶ uat ──▶ review ──▶ ship ──▶ done
+scope ──▶ impl ──▶ uat ──▶ review ──▶ ship ──▶ merge ──▶ done
                     │         │
                     └──▶ fix ◀┘   (fail → fix; fix pass → review)
 ```
@@ -81,6 +86,11 @@ Invariants:
   no-ops).
 - `impl → uat` is an **explicit marker** (`markImplementDone`), never inferred
   from a session ending.
+- `ship → merge → done`: shipping opens the PRs, it does not land them.
+  `merge → done` fires only when every PR reads merged upstream (`mergeGate.ts`),
+  so `done` is never claimed for unmerged work.
+- `ship` and `merge` are **confirm stages**: karst never opens or lands a PR on
+  its own, so both park as `pending` — which is what makes them read *Needs you*.
 - Every stage mutation goes through `setStage`; `agent_state` through
   `setAgentState` (single-writer discipline).
 - Stage + `stage_current` move in **one transaction**; artifact writes are folded
