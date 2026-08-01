@@ -86,11 +86,32 @@ describe('sidebar webview.html', () => {
 
   it('opens the ticket via a real <button data-open>, dispatched through the shared delegated handler', () => {
     // UI-R09: the old `.row` div with a bare `data-open` click handler is gone.
-    expect(HTML).toContain('<button type="button" class="k-btn k-btn--link rowopen" data-open="${row.ticketId}"');
+    expect(HTML).toContain(
+      '<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}"',
+    );
     // The delegated handler falls back to the literal 'open-ticket' type for a
     // data-open target — this is what used to be a literal `post({type:'open-ticket'...})`
     // inline at the row.
     expect(HTML).toContain("const type = t.dataset.act || 'open-ticket';");
+  });
+
+  /**
+   * Opening a ticket is a handoff: the dashboard panel appearing IS the answer.
+   * The button-shaped success flash added a check glyph in the row's leading
+   * slot and a --k-success border around it, so every click on a list item
+   * animated a badge in and shifted the glyph/name/stage sideways. The row
+   * variant keeps the flash and makes it the row's own highlight.
+   */
+  it('flashes an opened row as a row highlight, not a check badge with a border', () => {
+    expect(HTML).toContain('k-btn--row');
+    expect(HTML).toContain('.row:has(.rowopen.is-success)');
+    expect(HTML).toContain('var(--k-surface-selected)');
+  });
+
+  it('lets the pending spinner take the glyph’s slot rather than widen the row', () => {
+    // Inserted ahead of the marker, the spinner shifted the name and stage pill
+    // right and back again on every click.
+    expect(HTML).toContain('.rowopen[aria-busy="true"] .glyph{display:none}');
   });
 
   it('labels the session button with the continue-or-start verb, not a generic word', () => {

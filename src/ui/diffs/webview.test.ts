@@ -861,8 +861,23 @@ describe('diffs webview design-system conformance', () => {
 
   it('gives .file the k-btn ghost primitive and .copy-hash the k-iconbtn primitive', () => {
     const script = scriptBlock();
-    expect(script).toContain('class="k-btn k-btn--ghost file"');
+    expect(script).toContain('class="k-btn k-btn--ghost k-btn--row file"');
     expect(script).toContain('class="k-iconbtn copy-hash"');
+  });
+
+  /**
+   * The success flash on a file row used to be the button-shaped one: a check
+   * glyph auto-placed into the row's two-column grid — which put it on a second
+   * line, immediately after the status letter, so a modified file read "M ✓" —
+   * inside a --k-success border. The row variant makes the flash the row's own
+   * highlight instead (UI-R13 still requires the outcome to be visible).
+   */
+  it('flashes a clicked file row as a highlight, never a check badge beside its status letter', () => {
+    // The status letter is the row's only glyph, and it stays.
+    const { fileRow } = boot();
+    const row = fileRow(fileView({ status: 'modified' }));
+    expect(row).toContain('>M</span>');
+    expect(row).not.toContain('✓');
   });
 
   it('every <button> in the file carries a k-btn or k-iconbtn primitive (UI-R07)', () => {

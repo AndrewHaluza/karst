@@ -12,6 +12,7 @@ describe('design tokens', () => {
     for (const required of [
       '--k-bg',
       '--k-surface',
+      '--k-surface-selected',
       '--k-border',
       '--k-text',
       '--k-text-dim',
@@ -56,6 +57,16 @@ describe('design tokens', () => {
     expect(DESIGN_TOKENS['--k-warning']).toBe('var(--k-attention)');
     expect(DESIGN_TOKENS['--k-danger']).toBe('var(--k-failed)');
     expect(DESIGN_TOKENS['--k-info']).toBe('var(--k-running)');
+  });
+
+  it('routes the row highlight onto the platform list selection, never a status colour', () => {
+    // A row that was just acted on is SELECTED, not "passed": borrowing
+    // --k-success there is what put a green box (and a check badge) around a
+    // clicked file row. The inactive selection wash is the one VS Code themes
+    // guarantee readable against the default foreground.
+    expect(DESIGN_TOKENS['--k-surface-selected']).toContain('--vscode-list-inactiveSelectionBackground');
+    expect(DESIGN_TOKENS['--k-surface-selected']).not.toContain('--k-passed');
+    expect(DESIGN_TOKENS['--k-surface-selected']).not.toContain('--k-success');
   });
 
   it('never redeclares a status or stage token it only consumes', () => {

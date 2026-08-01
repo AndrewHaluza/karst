@@ -507,6 +507,23 @@ describe('onboarding webview.html — UI-RULES.md remediation', () => {
     expect(script).toContain("if (!submitBusy) el('submitBtn').textContent = submitLabel;");
   });
 
+  /**
+   * The Prefill button already carries its pending state the way every other
+   * control does — `aria-busy` plus the primitive's own spinner (UI-R11/R18).
+   * The `analyzing…` note beside it was a SECOND rendering of that one state,
+   * so the toolbar read "⟳ Prefill analyzing…" and the row reflowed as the
+   * word appeared and vanished. One state, one expression.
+   */
+  it('states the analyze pending once, on the button, with no second note beside it', () => {
+    // Rendered text, not the source: the comment that records the defect is
+    // allowed to name it.
+    expect(HTML, 'the note is still rendered').not.toMatch(/>\s*analyzing/i);
+    expect(HTML, 'the note element survives').not.toContain('analyzeBusy');
+    expect(HTML, 'analyze no longer marks the button busy').toContain(
+      "el('analyzeBtn').setAttribute('aria-busy', 'true')",
+    );
+  });
+
   it('the busy vocabulary is closed and every member (including "suggest") is handled (UI-R16)', () => {
     const script = scriptBlock();
     const fnMatch = script.match(/function setBusy\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
