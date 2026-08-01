@@ -17,6 +17,7 @@ import {
   listTickets,
   listArchivedTickets,
   setSessionId,
+  clearApproachFromTickets,
   type Ticket,
 } from './tickets.js';
 import { setStage } from './stages.js';
@@ -510,5 +511,58 @@ describe('project scoping', () => {
     expect(a.id).not.toBe(b.id);
     expect(getTicketByKey(store, 'PROJ-1', { projectId: PROJ_A })?.id).toBe(a.id);
     expect(getTicketByKey(store, 'PROJ-1', { projectId: PROJ_B })?.id).toBe(b.id);
+  });
+});
+
+/**
+ * Uninstalling an approach removes the package directory, so every ticket still
+ * pointing at that approach holds a dangling reference — and a launch from one
+ * of those tickets is exactly what produces the "produced no method prompt or
+ * loadable artifacts" warning. Clearing the reference is part of the uninstall,
+ * not a display concern (869eckp0x).
+ */
+describe('clearApproachFromTickets', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const PROJ_A = 1;
+  const PROJ_B = 2;
+
+  it('clears the reference from every ticket bound to the approach', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    const b = createTicket(store, { key: 'A-2', title: 'b', projectId: PROJ_A });
+    updateTicketOnboarding(store, a.id, { approach: 'superpowers:writing-plans' });
+    updateTicketOnboarding(store, b.id, { approach: 'superpowers:writing-plans' });
+
+    expect(clearApproachFromTickets(store, 'superpowers:writing-plans', { projectId: PROJ_A })).toBe(2);
+    expect(getTicket(store, a.id).approach).toBeNull();
+    expect(getTicket(store, b.id).approach).toBeNull();
+  });
+
+  it('leaves tickets on other approaches untouched', () => {
+    const keep = createTicket(store, { key: 'A-1', title: 'keep', projectId: PROJ_A });
+    updateTicketOnboarding(store, keep.id, { approach: 'direct' });
+
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(0);
+    expect(getTicket(store, keep.id).approach).toBe('direct');
+  });
+
+  it('is project-scoped — another window’s tickets are never touched', () => {
+    const mine = createTicket(store, { key: 'A-1', title: 'mine', projectId: PROJ_A });
+    const theirs = createTicket(store, { key: 'B-1', title: 'theirs', projectId: PROJ_B });
+    updateTicketOnboarding(store, mine.id, { approach: 'rpi' });
+    updateTicketOnboarding(store, theirs.id, { approach: 'rpi' });
+
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(1);
+    expect(getTicket(store, mine.id).approach).toBeNull();
+    expect(getTicket(store, theirs.id).approach).toBe('rpi');
+  });
+
+  it('is idempotent — a repeat uninstall clears nothing more', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    updateTicketOnboarding(store, a.id, { approach: 'rpi' });
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(1);
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(0);
   });
 });

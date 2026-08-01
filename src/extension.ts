@@ -185,6 +185,7 @@ import {
   setAgentState,
   setSessionId,
   updateTicketOnboarding,
+  clearApproachFromTickets,
   archiveTicket,
   unarchiveTicket,
 } from './store/tickets.js';
@@ -1109,6 +1110,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         } catch {
           return false;
         }
+      },
+      // The ticket half of an uninstall (869eckp0x). Project-scoped: the DB is
+      // shared by every IDE window, so an uninstall here must never rewrite
+      // another project's tickets — with no bound project, clear nothing rather
+      // than everything. The count is reported because the user is losing a
+      // choice they made; a silent rewrite of N tickets is not acceptable.
+      clearApproachFromTickets: (id: string): number => {
+        const projectId = currentProject()?.id;
+        if (projectId === undefined) return 0;
+        const cleared = clearApproachFromTickets(localStore, id, { projectId });
+        if (cleared > 0) {
+          provider.refresh();
+          void vscode.window.showInformationMessage(
+            `Uninstalled "${id}" — cleared it from ${cleared} ticket${cleared === 1 ? '' : 's'}. ` +
+              `Pick an approach again for those tickets after reinstalling.`,
+          );
+        }
+        return cleared;
       },
       listInstalledIds: listInstalledApproachIds,
       // Token entered host-side via a password input box; the raw token never

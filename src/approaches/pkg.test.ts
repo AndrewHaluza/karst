@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -327,6 +327,32 @@ describe('readPromptBody', () => {
 });
 
 describe('writeApproachArtifacts / structure-preserving package', () => {
+  /**
+   * A reinstall must land the source's CURRENT contents and nothing else. The
+   * writer used to overlay onto whatever was already there, so a file the
+   * previous install fetched and this one did not survived — and it was not
+   * inert: `materializeApproach` copies a skill's whole FOLDER into the launch
+   * plugin, so a stale sibling reached the agent (869eckp0x).
+   */
+  it('replaces the package dir — no file from a previous install survives', () => {
+    const base = makeBaseDir();
+    const pkg = (artifacts: ApproachArtifact[]): ApproachPackage => ({
+      id: 'sp', label: 'SP', entrypoint: 'writing-plans', prompts: [], artifacts,
+    });
+    writeApproachArtifacts(base, pkg([{ kind: 'skill', relPath: 'skills/writing-plans/SKILL.md' }]), [
+      { relPath: 'skills/writing-plans/SKILL.md', body: 'v1' },
+      { relPath: 'skills/writing-plans/removed-in-v2.md', body: 'stale' },
+    ]);
+
+    writeApproachArtifacts(base, pkg([{ kind: 'skill', relPath: 'skills/writing-plans/SKILL.md' }]), [
+      { relPath: 'skills/writing-plans/SKILL.md', body: 'v2' },
+    ]);
+
+    const dir = approachDir(base, 'sp');
+    expect(readFileSync(join(dir, 'skills', 'writing-plans', 'SKILL.md'), 'utf8')).toBe('v2');
+    expect(existsSync(join(dir, 'skills', 'writing-plans', 'removed-in-v2.md'))).toBe(false);
+  });
+
   it('writes files at their relPath under <id>/ and records typed artifacts', () => {
     const base = makeBaseDir();
     const artifacts: ApproachArtifact[] = [
