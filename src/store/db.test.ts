@@ -170,6 +170,35 @@ describe('openStore', () => {
     }
   });
 
+  it('migrates a v16 DB to v17, adding the attachment table and index without touching rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT)');
+    legacy.prepare('INSERT INTO tickets (key, title) VALUES (?, ?)').run('OLD-16', 'v16 row');
+    legacy.pragma('user_version = 16');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(
+      migrated.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(
+        'ticket_attachments',
+      ),
+    ).toEqual({ name: 'ticket_attachments' });
+    expect(
+      migrated.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(
+        'idx_ticket_attachments_ticket',
+      ),
+    ).toEqual({ name: 'idx_ticket_attachments_ticket' });
+    expect(migrated.db.prepare('SELECT key, title FROM tickets').get()).toEqual({
+      key: 'OLD-16',
+      title: 'v16 row',
+    });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(17);
+  });
+
   it('migrates a v15 DB to v16, adding the prs metadata columns without touching rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
