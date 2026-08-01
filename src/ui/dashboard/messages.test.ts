@@ -22,6 +22,7 @@ function actions(): DashboardActions {
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
     mergePr: vi.fn(),
+    refreshPrs: vi.fn(),
     toggleBind: vi.fn(),
   };
 }
@@ -226,6 +227,18 @@ describe('routeAction', () => {
       type: 'merge-pr',
       repo: 'api',
     });
+  });
+
+  // The panel's refresh icon. Payload-free like the other panel-level controls:
+  // WHICH ticket's PRs get re-probed is the host's to know, so a companion
+  // `repo`/`projectId` is dropped rather than honoured.
+  it('dispatches refresh-prs, carrying no target of its own', () => {
+    expect(parseWebviewMessage({ type: 'refresh-prs', repo: 'api' })).toEqual({
+      type: 'refresh-prs',
+    });
+    const a = actions();
+    routeAction({ type: 'refresh-prs' }, a);
+    expect(a.refreshPrs).toHaveBeenCalledOnce();
   });
 
   it('dispatches toggle-bind, carrying no state of its own', () => {

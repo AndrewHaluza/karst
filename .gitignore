@@ -20,3 +20,8 @@ coverage/
 # Per-ticket RPI planning scratch (REQUEST/RESEARCH/PLAN/pm/ux/eng/IMPLEMENT) —
 # working notes for a single ticket's implementation, not project documentation.
 rpi/
+# Supervised-process output. These are written to `.karst/logs/` now
+# (src/runtime/serverLog.ts), but karst is developed in the repo it also drives,
+# so a run from an older build can still drop one here — and one already reached
+# main (`Karst-extention.log`, one line of a service's stdout).
+*.log

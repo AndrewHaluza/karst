@@ -40,18 +40,31 @@ function reasonFrom(stderr: string, stdout: string, exitCode: number): string {
 }
 
 /**
- * `merge-tree --name-only` prints blank-line-separated sections: the tree OID,
- * then the conflicted paths, then informational messages. Parsed defensively —
- * an unrecognised shape yields no paths, and the caller keeps the `conflicted`
- * verdict rather than downgrading to clean on a parsing surprise.
+ * `merge-tree --write-tree --name-only` prints the tree OID on the first line,
+ * the conflicted paths on the lines immediately after it, then a BLANK line, then
+ * git's informational messages ("Auto-merging x", "CONFLICT (content): …").
+ *
+ * The OID and the paths are consecutive — there is no blank line between them —
+ * so the sections are not uniformly blank-separated and cannot be split as if
+ * they were. Reading section 1 of a blank-line split returned the informational
+ * messages, which then travelled to the panel and into the "Resolve conflicts"
+ * brief as if they were filenames.
+ *
+ * Parsed defensively — an unrecognised shape yields no paths, and the caller
+ * keeps the `conflicted` verdict rather than downgrading to clean on a parsing
+ * surprise.
  */
 function parseConflictedPaths(stdout: string): string[] {
-  const sections = stdout.split(/\n[ \t]*\n/);
-  const fileSection = sections[1] ?? '';
-  return fileSection
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+  // Drop the tree OID: it always heads the output and is never a path.
+  const [, ...rest] = stdout.split('\n');
+  const paths: string[] = [];
+  for (const raw of rest) {
+    const line = raw.trim();
+    // The first blank line ends the file section; everything past it is prose.
+    if (line.length === 0) break;
+    paths.push(line);
+  }
+  return paths;
 }
 
 export async function checkMergeable(

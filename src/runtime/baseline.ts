@@ -7,6 +7,7 @@ import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
 import { startHot, type ServerRecord } from './supervisor.js';
 import { renderHealthUrl } from './healthUrl.js';
+import { serverLogPath } from './serverLog.js';
 
 interface RunningRow {
   id: number;
@@ -111,7 +112,7 @@ export async function ensureBaseline(
     host: manifest.host,
     port,
     healthUrl,
-    logPath: join(checkout, `${service}.baseline.log`),
+    logPath: serverLogPath(checkout, `${service}.baseline`),
   });
 }
 

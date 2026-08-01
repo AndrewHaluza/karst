@@ -33,9 +33,19 @@ function scriptedGit(
 
 const HEALTHY = { fetch: { exitCode: 0 }, 'rev-parse': { stdout: 'abc1234\n' } };
 const CLEAN = { ...HEALTHY, 'merge-tree': { exitCode: 0 } };
+/**
+ * `git merge-tree --write-tree --name-only` as git actually prints it: the tree
+ * OID, then the conflicted paths on the very next lines, then a blank line, then
+ * git's informational messages. Verbatim from git 2.50 — a fixture that invents
+ * a friendlier layout is what let a parser that read the messages as filenames
+ * pass its own tests.
+ */
+const MERGE_TREE_CONFLICT =
+  '9f2c\nsrc/a.ts\nsrc/b.ts\n\nAuto-merging src/a.ts\n' +
+  'CONFLICT (content): Merge conflict in src/a.ts\n';
 const CONFLICTED = {
   ...HEALTHY,
-  'merge-tree': { exitCode: 1, stdout: '9f2c\n\nsrc/a.ts\nsrc/b.ts\n' },
+  'merge-tree': { exitCode: 1, stdout: MERGE_TREE_CONFLICT },
 };
 
 describe('syncMergeChecks', () => {
