@@ -477,7 +477,17 @@ export async function shipTicket(
   // PRs opened → ship passes → `merge`, the stage that owns the gap between "the
   // PR exists" and "the work landed". Ship's own job ends here and its verdict is
   // still unaffected by merge state: a conflicted branch is a shipped branch.
-  transition(store, opts.ticketId, 'ship', { kind: 'passed' });
+  //
+  // Guarded the same way `settleMergeStage` guards its own transition: the work
+  // above (PR adoption, merge-check refresh) is idempotent by design (§5.3) and
+  // safe to redo on a crash-recovery re-run, but blindly re-transitioning is
+  // not — a re-run that lands here after an earlier call already advanced the
+  // ticket past `ship` must not re-park `merge` (or worse, whatever stage the
+  // ticket has since reached) out from under it. Only the run that finds the
+  // ticket still AT ship is the one that should advance it.
+  if (getTicket(store, opts.ticketId).stageCurrent === 'ship') {
+    transition(store, opts.ticketId, 'ship', { kind: 'passed' });
+  }
 
   // A ticket that delivered no diff in any repo has nothing to land, so it would
   // otherwise park at `merge` forever waiting for a PR that will never exist.
