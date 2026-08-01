@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -316,6 +316,31 @@ export function migrate(db: Database): void {
         if (!cols.has(col)) db.exec(`ALTER TABLE prs ADD COLUMN ${col} TEXT`);
       }
     }
+  }
+
+  if (current < 17) {
+    // v17 adds prompt attachments (images/video). Purely additive and a
+    // CREATE TABLE IF NOT EXISTS, so a fresh DB (already carrying it from
+    // schema.sql) skips it and a re-open is a no-op.
+    //
+    // Nothing is backfilled — there are no pre-v17 attachments to derive. The
+    // bytes live on disk under <globalStorage>/attachments/, which a migration
+    // has no business reaching into; the table indexes them, and the host owns
+    // the directory's lifecycle.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ticket_attachments (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL,
+        kind          TEXT NOT NULL,
+        stored_name   TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        byte_size     INTEGER NOT NULL,
+        created_at    TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket ON ticket_attachments(ticket_id, id)',
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

@@ -196,3 +196,29 @@ CREATE TABLE IF NOT EXISTS merge_checks (
   checked_at    TEXT NOT NULL,
   PRIMARY KEY (ticket_id, repo)
 );
+
+-- Images and video attached to a ticket's prompt. An INDEX of bytes that live on
+-- disk under <globalStorage>/attachments/<ticket_id>/<stored_name>, never the
+-- bytes themselves: a 200 MB mp4 in a row would be read by every query that
+-- selects *, and the agent needs a real file path regardless.
+--
+-- `kind` is resolved ONCE at ingest, against the whitelist in
+-- attachments/kinds.ts, and stored. Nothing re-derives it from a filename later,
+-- so a row's kind cannot drift from the value that was actually validated.
+--
+-- `stored_name` is content-addressed (<sha256[0..16]>.<ext>) and is the ONLY
+-- name that touches the filesystem. `original_name` is what the user called the
+-- file; it is display-only and is never joined into a path, which is what makes
+-- a crafted name like '../../../.ssh/id_rsa' inert rather than dangerous.
+CREATE TABLE IF NOT EXISTS ticket_attachments (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL,     -- -> tickets.id
+  kind          TEXT NOT NULL,        -- image | video
+  stored_name   TEXT NOT NULL,        -- <sha256[0..16]>.<ext>; the on-disk name
+  original_name TEXT NOT NULL,        -- display only; never a path component
+  byte_size     INTEGER NOT NULL,
+  created_at    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket
+  ON ticket_attachments(ticket_id, id);
