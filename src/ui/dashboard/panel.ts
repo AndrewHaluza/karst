@@ -4,8 +4,14 @@ import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
-import { buildDashboardState, type PathContext } from './state.js';
+import {
+  buildDashboardState,
+  type DashboardAgentContext,
+  type DashboardState,
+  type PathContext,
+} from './state.js';
 import { routeAction, type DashboardActions } from './messages.js';
+import type { WorktreeStatsLoader } from './worktreeStats.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the manager touches. Modeling it as an
@@ -79,6 +85,8 @@ export type ActionsFactory = (ticketId: number) => DashboardActions;
  */
 export class DashboardManager {
   private readonly panels = new Map<number, DashboardPanel>();
+  private readonly statsRequests = new Map<number, number>();
+  private readonly statsControllers = new Map<number, AbortController>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -122,6 +130,10 @@ export class DashboardManager {
      * activation is not reported, which is exactly the pre-binding behavior.
      */
     private readonly binding?: DashboardBinding,
+    /** Live session/model context for the dashboard's agent switch affordance. */
+    private readonly agentContext?: () => DashboardAgentContext,
+    /** Live Git totals, delivered separately from the synchronous store state. */
+    private readonly loadStats?: WorktreeStatsLoader,
   ) {}
 
   /**
@@ -154,7 +166,13 @@ export class DashboardManager {
       }
     });
     panel.onDidChangeViewState((active) => this.binding?.onDidActivate(ticketId, active));
-    panel.onDidDispose(() => this.panels.delete(ticketId));
+    panel.onDidDispose(() => {
+      if (this.panels.get(ticketId) !== panel) return;
+      this.statsControllers.get(ticketId)?.abort();
+      this.panels.delete(ticketId);
+      this.statsRequests.delete(ticketId);
+      this.statsControllers.delete(ticketId);
+    });
 
     this.refreshIcon(ticketId, panel);
     this.pushState(ticketId);
@@ -187,9 +205,42 @@ export class DashboardManager {
       this.approachPhases,
       this.isRepoRunnable,
       this.defaultProvider?.(),
+      this.agentContext?.(),
     );
     panel.postMessage({ type: 'state', state });
+    this.pushWorktreeStats(ticketId, panel, state.worktrees);
     this.refreshIcon(ticketId, panel);
+  }
+
+  /**
+   * Load supplemental filesystem facts without making the store-backed state
+   * builder async. Only the latest request for the still-live panel may post.
+   */
+  private pushWorktreeStats(
+    ticketId: number,
+    panel: DashboardPanel,
+    worktrees: DashboardState['worktrees'],
+  ): void {
+    if (!this.loadStats) return;
+    this.statsControllers.get(ticketId)?.abort();
+    const controller = new AbortController();
+    this.statsControllers.set(ticketId, controller);
+    const request = (this.statsRequests.get(ticketId) ?? 0) + 1;
+    this.statsRequests.set(ticketId, request);
+    void this.loadStats(worktrees, controller.signal).then(
+      (stats) => {
+        if (this.panels.get(ticketId) !== panel) return;
+        if (this.statsRequests.get(ticketId) !== request) return;
+        this.statsControllers.delete(ticketId);
+        panel.postMessage({ type: 'worktree-stats', stats });
+      },
+      (error) => {
+        if (this.panels.get(ticketId) !== panel) return;
+        if (this.statsRequests.get(ticketId) !== request) return;
+        this.statsControllers.delete(ticketId);
+        this.logError('karst: dashboard worktree stats failed', error);
+      },
+    );
   }
 
   /**

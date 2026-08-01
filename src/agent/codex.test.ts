@@ -723,12 +723,25 @@ describe('CodexAdapter headless execution', () => {
     );
     await expect(
       adapter.runHeadless({ cwd: '/wt', prompt: 'go' }),
-    ).rejects.toThrow(/codex exited 2/);
+    ).rejects.toThrow(/Codex failed \(exit 2\)/);
     try {
       await adapter.runHeadless({ cwd: '/wt', prompt: 'go' });
     } catch (error) {
       expect((error as Error).message.length).toBeLessThan(9_000);
     }
+  });
+
+  it('names a usage limit instead of echoing the CLI failure', async () => {
+    const adapter = new CodexAdapter(
+      fakeSpawn({
+        stdout: '',
+        stderr: 'stream error: exceeded retry limit, last status: 429',
+        exitCode: 1,
+      }),
+    );
+    await expect(
+      adapter.runHeadless({ cwd: '/wt', prompt: 'go' }),
+    ).rejects.toThrow(/Codex usage limit reached/);
   });
 });
 

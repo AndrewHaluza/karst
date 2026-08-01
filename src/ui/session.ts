@@ -80,6 +80,13 @@ export interface OpenSessionOptions {
   reveal?: boolean;
   recovery?: boolean;
   /**
+   * Host-only fresh-launch signal. Agent switches set this false so a rapid
+   * A→B→A cannot resume A's retired conversation before B reports SessionStart.
+   */
+  allowResume?: boolean;
+  /** Host-only proof that this launch already passed async provider readiness. */
+  providerReady?: boolean;
+  /**
    * Replaces the seed the host would compose for this launch. Set only by a
    * caller that already knows the ONE thing the session is for — the merge
    * brief behind "Resolve conflicts" — where a generic ticket seed would open

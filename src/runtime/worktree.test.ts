@@ -202,6 +202,34 @@ describe('worktree lifecycle', () => {
     expect(ports.n).toBe(0); // released
   });
 
+  // A refreshed base (see `pullBaseRef`) may live under a different ref than the
+  // recorded one — `origin/develop` when the local branch could not be
+  // fast-forwarded. The worktree must be cut from THAT, while `base_ref` keeps
+  // the plain branch name every other consumer (mergeCheck, the diff views)
+  // re-derives its own remote ref from.
+  it('branches from an explicit start point while still recording the plain base ref', () => {
+    git(repo.path, 'checkout', '-q', '-b', 'ahead');
+    writeFileSync(join(repo.path, 'newer.js'), 'later\n');
+    git(repo.path, 'add', '.');
+    git(repo.path, 'commit', '-q', '-m', 'ahead of develop');
+    git(repo.path, 'checkout', '-q', 'develop');
+
+    const rec = createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'PROJ-9',
+      baseRef: 'develop',
+      startPoint: 'ahead',
+    });
+
+    expect(existsSync(join(rec.path, 'newer.js'))).toBe(true); // cut from `ahead`
+    expect(rec.baseRef).toBe('develop');
+    const row = store.db
+      .prepare('SELECT base_ref FROM worktrees WHERE ticket_id = 1')
+      .get() as { base_ref: string };
+    expect(row.base_ref).toBe('develop');
+  });
+
   it('reinstallDeps flips deps_mode inherited -> local', () => {
     const rec = createWorktree(store, { ticketId: 1, repoPath: repo.path, slug: 'x', baseRef: 'develop' });
     expect(rec.depsMode).toBe('inherited');

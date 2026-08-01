@@ -13,8 +13,11 @@ import { openStore, type Store } from './store/db.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
+import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
+import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -61,6 +64,7 @@ import {
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
+import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -139,6 +143,7 @@ import {
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
   ApproachDef,
+  AgentProvider,
   TicketingConfig,
 } from './manifest/types.js';
 import {
@@ -169,6 +174,7 @@ import {
   listArchivedTickets,
   setAgentState,
   setSessionId,
+  updateTicketOnboarding,
   archiveTicket,
   unarchiveTicket,
 } from './store/tickets.js';
@@ -176,7 +182,11 @@ import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
 import { OnboardingManager } from './ui/onboarding/panel.js';
-import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
+import {
+  buildOnboardingActions,
+  type StartTicketResult,
+  type StartTicketOptions,
+} from './ui/onboarding/actions.js';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
 import { reapAttachments } from './attachments/reap.js';
 import { deleteTicketPermanently } from './runtime/deleteTicket.js';
@@ -211,6 +221,7 @@ import {
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
+import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { WelcomeManager } from './ui/welcome/panel.js';
 import { buildWelcomeActions } from './ui/welcome/actions.js';
@@ -317,6 +328,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
   logger.info('Karst activated');
+
+  /**
+   * A base branch that could not be refreshed before its worktree was cut
+   * (§ pull switch). Deliberately a warning, not an error: the ticket exists and
+   * is usable — it just starts from what this clone already had, which the user
+   * must be told rather than left to discover in a diff. The reason is git's own
+   * first line, already bounded by `pullBaseRef`.
+   */
+  const warnBaseNotPulled = (repoPath: string, baseRef: string, reason: string): void => {
+    const message = `Could not refresh ${baseRef} in ${repoPath} — the worktree was created from the local branch: ${reason}`;
+    logger.warn(message);
+    void vscode.window.showWarningMessage(message);
+  };
   let modelCatalog = bundledModelCatalog();
   const modelCatalogCache = makeMementoCatalogCache(context.globalState);
 
@@ -331,6 +355,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     requestState: () => mgr.refresh(),
     create: () => void vscode.commands.executeCommand('karst.createTicket'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
+    openTicket: (id) => openTicketFromList(localStore, id, {
+      edit: (ticketId) => vscode.commands.executeCommand('karst.editTicket', ticketId),
+      openDashboard: (ticketId) =>
+        vscode.commands.executeCommand('karst.openDashboard', ticketId),
+      onError: (error) => logError(`ticket-list navigation failed for ticket ${id}`, error),
+    }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
     openSession: (id) => void vscode.commands.executeCommand('karst.openSession', id),
@@ -581,13 +611,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * doesn't vary by agent provider, and passing it needlessly risks a
    * `getTicket` throw on a since-deleted ticket.
    */
-  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
-    const ticketProvider =
-      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+  const guardProviderCapability = (
+    capability: Capability,
+    agentProvider: AgentProvider,
+    silent = false,
+  ): boolean => {
     const faults = ensureCapability(
       capability,
-      dependencyRegistry(provider),
+      dependencyRegistry(agentProvider),
       binaryExists,
       commandSucceeds,
     );
@@ -606,6 +637,103 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     }
     return false;
+  };
+
+  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+    const ticketProvider =
+      ticketId === undefined ? undefined : getTicket(localStore, ticketId).agentProvider;
+    return guardProviderCapability(
+      capability,
+      resolveProvider(ticketProvider, currentManifest()?.agentProvider),
+      silent,
+    );
+  };
+
+  /**
+   * Switch-only provider probe. Unlike the activation and ordinary action
+   * guards, this runs from an open dashboard and must never block the shared
+   * extension-host event loop while a candidate CLI answers (or hangs).
+   */
+  const guardProviderCapabilityAsync = async (
+    capability: Capability,
+    agentProvider: AgentProvider,
+  ): Promise<boolean> => {
+    const faults = await ensureCapabilityAsync(capability, dependencyRegistry(agentProvider));
+    if (faults.length === 0) return true;
+    for (const fault of faults) logger.warn(`blocked: '${fault.dep.binary}' is ${fault.state}`);
+    const message = faults
+      .map((fault) => renderDependencyFault(fault.dep, fault.state))
+      .filter((text): text is string => text !== null)
+      .join(' ');
+    void vscode.window.showErrorMessage(message, 'Open setup checklist').then((choice) => {
+      if (choice === 'Open setup checklist') welcome.open();
+    });
+    return false;
+  };
+
+  const switchAgentSession = async (ticketId: number): Promise<void> => {
+    try {
+      const outcome = await runAgentSwitchFlow({
+        read: () => {
+          const ticket = getTicket(localStore, ticketId);
+          return {
+            stageCurrent: ticket.stageCurrent,
+            provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+            ticketModel: ticket.model,
+            defaultModel: currentManifest()?.defaultModel ?? null,
+          };
+        },
+        isSessionOpen: () => sessions.isOpen(ticketId),
+        pickProvider: async (choices, current) => {
+          const picked = await vscode.window.showQuickPick(
+            choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
+            { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
+          );
+          return picked?.provider;
+        },
+        isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
+        pickModel: async (provider, choices) => vscode.window.showQuickPick(
+          choices.map((choice) => ({ ...choice, label: choice.label })),
+          { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
+        ),
+        confirm: async ({ from, to }) => {
+          const choice = await vscode.window.showWarningMessage(
+            `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
+            {
+              modal: true,
+              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+            },
+            'Switch and continue',
+          );
+          return choice === 'Switch and continue';
+        },
+        persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
+          agentProvider: provider,
+          model: model ?? '',
+        }),
+        dispose: () => sessions.disposeSession(ticketId),
+        launch: async (options) => {
+          await vscode.commands.executeCommand('karst.openSession', ticketId, options);
+        },
+      }, modelCatalog);
+
+      if (outcome.kind === 'stale') {
+        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+      } else if (outcome.kind === 'launch-failed') {
+        void vscode.window.showErrorMessage(
+          `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+        );
+      }
+    } catch (error) {
+      logError('agent session switch failed', error);
+      void vscode.window.showErrorMessage(
+        `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
+      );
+    } finally {
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      showStatusFor(ticketId);
+    }
   };
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates
@@ -734,7 +862,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Finish handoff: scope the ticket's selected repos (worktrees, no
       // servers) and open the agent session seeded with its chosen approach.
       // Servers stay deferred — they come up only when a stage needs to verify.
-      startTicket: async (ticketId: number): Promise<StartTicketResult> => {
+      startTicket: async (
+        ticketId: number,
+        { pullBase }: StartTicketOptions,
+      ): Promise<StartTicketResult> => {
         const t = getTicket(localStore, ticketId);
         const hot = t.selectedRepos;
         // Nothing to scope → the ticket stays pending. Report it so onboarding
@@ -744,7 +875,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const manifest = currentManifest() ?? emptyManifest();
         try {
-          confirmScope(localStore, manifest, ticketId, hot);
+          // `pullBase` is the page's switch, honored as given. A pull that could
+          // not happen is REPORTED, never fatal — the worktree still exists, it
+          // just starts from what this clone already had.
+          await confirmScope(localStore, manifest, ticketId, hot, {
+            pullBase,
+            onPullFailed: warnBaseNotPulled,
+          });
           // Scope is complete the moment its worktrees exist (scope has only a
           // pass edge → impl; it is not a gate). Pass it so the ticket advances
           // to impl running — the agent session opens in the impl worktree.
@@ -1145,6 +1282,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         },
         () => changes.open(ticketId),
+        () => void switchAgentSession(ticketId),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
@@ -1185,6 +1323,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       enabled: () => binder.enabled(),
       onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
     },
+    () => ({
+      defaultModel: currentManifest()?.defaultModel ?? null,
+      modelCatalog,
+      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
+    }),
+    (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
   );
 
   binder = new TerminalDashboardBinder({
@@ -1657,7 +1801,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const adapter = currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!guardCapability('sessions', ticketId)) return;
+      if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -1678,7 +1822,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
         try {
-          confirmScope(localStore, currentManifest() ?? emptyManifest(), ticketId, draft.selectedRepos);
+          // No page to ask here (this is Start on a saved draft), so the pull
+          // takes its default: ON, the same as the onboarding switch ships.
+          await confirmScope(
+            localStore,
+            currentManifest() ?? emptyManifest(),
+            ticketId,
+            draft.selectedRepos,
+            { onPullFailed: warnBaseNotPulled },
+          );
           // Scope has only a pass edge → impl (it is not a gate), so pass it: the
           // session then opens in the impl worktree, and the dashboard reads impl.
           transition(localStore, ticketId, 'scope', { kind: 'passed' });
@@ -1806,6 +1958,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessionProvider: t.sessionProvider,
         stageCurrent: t.stageCurrent as StageKey,
         provider: launchProvider,
+        allowResume: options.allowResume,
       })
         ? (t.sessionId ?? undefined)
         : undefined;
@@ -2697,6 +2850,9 @@ function makeDashboardActions(
   // Open the host-owned, whole-ticket changes explorer. The dashboard action
   // carries no path because this closure already owns the ticket id.
   showChanges: () => void,
+  // Switch the open session through native VS Code pickers. The closure owns
+  // the ticket id so the webview cannot select a different session.
+  switchAgent: () => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -2705,6 +2861,22 @@ function makeDashboardActions(
   // ticket: the panel is asking for a fresher answer, not a narrower one.
   refreshPrs: () => Promise<void>,
 ): DashboardActions {
+  const worktreeActions = makeWorktreeActions(
+    {
+      createTerminal: (options) => vscode.window.createTerminal(options),
+      revealInExplorer: async (path) => {
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path));
+      },
+      expandExplorer: async () => {
+        await vscode.commands.executeCommand('list.expand');
+      },
+      writeClipboard: async (text) => {
+        await vscode.env.clipboard.writeText(text);
+      },
+    },
+    logError,
+  );
+
   return {
     stopServer: (serverId) => {
       stopServer(store, serverId);
@@ -2751,10 +2923,8 @@ function makeDashboardActions(
       afterServerChange();
     },
     showChanges,
-    // Open folder → reveal the worktree in the Explorer (navigate there), not
-    // the OS file manager.
-    openWorktreeFolder: (path) =>
-      void vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path)),
+    switchAgent,
+    ...worktreeActions,
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,

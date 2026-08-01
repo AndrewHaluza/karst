@@ -29,6 +29,21 @@ export interface TicketDraftFields {
   ticketType: string | null;
 }
 
+/**
+ * What `submit` carries beyond the persisted draft: the launch-only pull
+ * switch. It is NOT a draft field — nothing about it is stored on the ticket —
+ * because it decides only what THIS launch branches from. `save` launches
+ * nothing, so it carries no switch.
+ */
+export interface SubmitFields extends TicketDraftFields {
+  /**
+   * Refresh each scoped repository's baseline branch from the remote before its
+   * worktree is cut. Absent = ON: the default is to start from fresh code, and
+   * only an explicit opt-out skips it (see `parseDraftFields`' caller).
+   */
+  pullBase?: boolean;
+}
+
 export type OnboardingMessage =
   | { type: 'fetch-source'; ref: string }
   | { type: 'suggest-signals'; service: string }
@@ -52,7 +67,7 @@ export type OnboardingMessage =
   | { type: 'detach-attachment'; id: number }
   | { type: 'open-attachment'; id: number }
   | { type: 'open-ticket-link'; url: string }
-  | ({ type: 'submit' } & TicketDraftFields)
+  | ({ type: 'submit' } & TicketDraftFields & { pullBase: boolean })
   // Persists the ticket like `submit`, but never calls startTicket — no
   // worktrees, no agent launch. The "save without a run" path.
   | ({ type: 'save' } & TicketDraftFields)
@@ -91,7 +106,7 @@ export interface OnboardingActions {
   detachAttachment: (id: number) => Promise<void>;
   openAttachment: (id: number) => Promise<void>;
   openTicketLink: (url: string) => void;
-  submit: (input: TicketDraftFields) => void | Promise<void>;
+  submit: (input: SubmitFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
   requestState: () => void;
 }
@@ -225,7 +240,10 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'submit': {
       const fields = parseDraftFields(m);
-      return fields ? { type: 'submit', ...fields } : null;
+      // Default ON: only an explicit `false` opts out. An absent or non-boolean
+      // value is not a choice, and reading one as "skip the pull" would let a
+      // stale page (or a crafted message) silently branch off old code.
+      return fields ? { type: 'submit', ...fields, pullBase: m.pullBase !== false } : null;
     }
     case 'save': {
       const fields = parseDraftFields(m);
@@ -304,6 +322,7 @@ export function routeOnboardingAction(
         model: msg.model,
         agentProvider: msg.agentProvider,
         ticketType: msg.ticketType,
+        pullBase: msg.pullBase,
       });
       return;
     case 'save':

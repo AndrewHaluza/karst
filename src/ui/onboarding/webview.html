@@ -343,6 +343,15 @@
       <span class="st">Create the ticket</span>
     </div>
     <div class="stepbody last">
+      <!-- The worktree is cut from each repository's baseline branch, so an
+           un-refreshed local base starts the ticket behind the team. On by
+           default; the value left here is what the launch honors. -->
+      <div class="labelrow" style="margin:0 0 8px">
+        <span class="autopf on" id="pullBase" role="switch" aria-checked="true"
+              tabindex="0" title="Fetch each selected repository's base branch before its worktree is created">
+          <span class="sw" aria-hidden="true"></span>Pull base branch first
+        </span>
+      </div>
       <div class="footer" style="justify-content:flex-start;margin-top:2px">
         <button id="submitBtn">Create ticket</button>
         <button class="secondary" id="saveBtn">Save</button>
@@ -877,6 +886,17 @@
     triggerAnalyze();
   }
 
+  // Pull-the-base switch (default on): refresh each selected repository's
+  // baseline branch before its worktree is cut, so the ticket starts from what
+  // the team has. Page-local — nothing about it is persisted on the ticket; it
+  // rides `submit`, which is the only message that launches anything.
+  let pullBaseOn = true;
+  function setPullBase(on) {
+    pullBaseOn = on;
+    el('pullBase').classList.toggle('on', on);
+    el('pullBase').setAttribute('aria-checked', String(on));
+  }
+
   // Submit button busy lock. `submitLabel` is the idle text render() computed
   // for the current mode, restored when the launch finishes (or fails).
   let submitBusy = false;
@@ -947,7 +967,7 @@
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
     const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType });
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType, pullBase: pullBaseOn });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -1056,6 +1076,13 @@
   el('autoPrefill').addEventListener('click', () => setAutoPrefill(!autoPrefillOn));
   el('autoPrefill').addEventListener('keydown', (e) => {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setAutoPrefill(!autoPrefillOn); }
+  });
+
+  // Pull-the-base switch (default on). Click or Space/Enter toggles it, same
+  // interaction as Auto-prefill above.
+  el('pullBase').addEventListener('click', () => setPullBase(!pullBaseOn));
+  el('pullBase').addEventListener('keydown', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPullBase(!pullBaseOn); }
   });
 
   el('cancelBtn').addEventListener('click', () => post({ type: 'request-state' }));
