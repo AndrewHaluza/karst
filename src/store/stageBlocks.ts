@@ -18,6 +18,12 @@ export interface ParkGateStageInput {
   runAt: string;
   /** Whatever partial evidence exists. Empty is legitimate — nothing ran. */
   gates: GateRunBatch['gates'];
+  /**
+   * The run's log, when it wrote one. Set here rather than by a follow-up
+   * `setStage` so the block, its evidence and the place to read that evidence
+   * land in ONE transaction — a park is an outcome, and an outcome has one writer.
+   */
+  artifactPath?: string;
 }
 
 /**
@@ -55,6 +61,9 @@ export function parkGateStage(store: Store, input: ParkGateStageInput): void {
       blockedKind: input.kind,
       blockedReason: input.reason,
       blockedAt: input.runAt,
+      // Absent leaves the stored path alone (`setStage` skips undefined keys),
+      // so a park that wrote no log never erases the last run's.
+      artifactPath: input.artifactPath,
     });
   });
   apply();

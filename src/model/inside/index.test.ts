@@ -255,7 +255,9 @@ describe('buildStageInside', () => {
       { uat: 'running', review: 'running', impl: 'running', fix: 'running' },
       { session: { sessionId: 'abc', agentState: 'running', model: 'm' } },
     );
-    expect(all.uat.ops.map((o) => o.name)).toContain('test');
+    // uat has no static gate list to name — it resolves one per repository at
+    // run time — so a running stage with no rows yet says exactly that.
+    expect(all.uat.ops.map((o) => o.name)).toContain('gates');
     expect(all.review.ops.map((o) => o.name)).toContain('lint');
     expect(all.impl.ops.map((o) => o.name)).toContain('phases');
     expect(all.fix.ops.map((o) => o.name)).toContain('returns');

@@ -1019,14 +1019,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             dashboard.pushState(id);
           },
           shouldContinue: () => driver.shouldContinue(ticketId),
-          // TODO(later task): runUat/runReview don't yet return StageRunResult
-          // themselves — they still always transition, so wrap them as
-          // 'advanced' with the ticket's post-transition stage. A later task
-          // rewrites the runners to report 'blocked'/'stopped' directly.
+          // `runUat` reports its own StageRunResult now, so it is passed through
+          // verbatim: wrapping a park as 'advanced' at the ticket's unchanged
+          // stage would send the driver round the same blocked gate forever.
+          // (Fuller wiring — the manifest-driven boot stack and a Stop signal —
+          // is the next task.)
           runUat: (id, cwd) =>
-            runUat(localStore, { ticketId: id, cwd, artifactDir: artifactDirFor(id) }).then(
-              () => ({ kind: 'advanced' as const, next: getTicket(localStore, id).stageCurrent as StageKey }),
-            ),
+            runUat(localStore, {
+              ticketId: id,
+              cwd,
+              artifactDir: artifactDirFor(id),
+              manifest: currentManifest(),
+            }),
+          // TODO(later task): runReview doesn't yet return StageRunResult itself
+          // — it still always transitions, so wrap it as 'advanced' with the
+          // ticket's post-transition stage.
           runReview: (id, cwd) =>
             runReview(localStore, {
               ticketId: id,

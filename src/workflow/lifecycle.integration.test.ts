@@ -7,7 +7,7 @@ import { getTicket, updateTicketOnboarding } from '../store/tickets.js';
 import { createTicketFlow } from './stages/create.js';
 import { scopeTicket } from './stages/scope.js';
 import { markImplementDone } from './stages/implement.js';
-import { runUat, type TestRunner } from './stages/uat.js';
+import { runUat, type UatDeps } from './stages/uat.js';
 import { runReview, type GateRunner } from './stages/review.js';
 import { runFix } from './stages/fix.js';
 import { shipTicket } from './stages/ship.js';
@@ -28,8 +28,22 @@ import { manifest as buildManifest, runnableRepo } from '../manifest/fixtures.js
  * spin.integration.test.ts; this proves the workflow spine end to end.
  */
 
-const PASS: TestRunner = async () => ({ exitCode: 0, output: 'green' });
-const FAIL: TestRunner = async () => ({ exitCode: 1, output: 'red' });
+/**
+ * UAT's gates are resolved per repository at runtime, so the spine fakes the
+ * probe (which scripts exist) and the runner (what they exit with) and leaves the
+ * real resolution, aggregation and transition in the path.
+ */
+function uatDeps(exitCode: number): UatDeps {
+  return {
+    probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
+    runGates: async (gates) => ({
+      kind: 'ran',
+      results: gates.map((g) => ({ name: g.name, exitCode, output: exitCode === 0 ? 'green' : 'red' })),
+    }),
+  };
+}
+const PASS = uatDeps(0);
+const FAIL = uatDeps(1);
 const GATES_PASS: GateRunner = async () => [
   { name: 'lint', exitCode: 0, output: 'ok' },
   { name: 'typecheck', exitCode: 0, output: 'ok' },

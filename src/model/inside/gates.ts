@@ -1,4 +1,4 @@
-import { REVIEW_GATES, UAT_GATES, type GateSpec } from '../../workflow/gates/scripts.js';
+import { REVIEW_GATES, type GateSpec } from '../../workflow/gates/scripts.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
@@ -108,8 +108,34 @@ export function reviewInside(
   return inside(cell, now, ops);
 }
 
+/**
+ * UAT's gate set is resolved at RUNTIME — per repository, from `uat.gates` else a
+ * package.json probe — so the recorded rows ARE the list. Review can name its
+ * gates before they run because `REVIEW_GATES` is a static constant; UAT cannot,
+ * and matching runtime rows against a constant showed every gate as pending
+ * forever once the row names started carrying their repository label.
+ */
 export function uatInside(cell: StepperCell, runs: readonly GateRun[], now: string): StageInside {
-  const showPending = cell.status === 'running' || cell.status === 'pending';
-  const ops = gateOps(UAT_GATES, latestBatch(runs, 'uat'), showPending);
+  const batch = latestBatch(runs, 'uat');
+  const ops = batch.map<StageOp>((run) => ({
+    status: run.exitCode === null ? 'note' : run.exitCode === 0 ? 'pass' : 'fail',
+    name: run.gateName,
+    // No command to quote: the row keeps the gate's name and its exit code, not
+    // the argv that produced it.
+    detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}`,
+    duration: formatDuration(run.startedAt, run.endedAt),
+  }));
+
+  // Before any row exists the list is genuinely unknown, so say that rather than
+  // show an empty strip on a stage that is plainly doing something.
+  if (ops.length === 0 && (cell.status === 'running' || cell.status === 'pending')) {
+    ops.push({
+      status: 'pending',
+      name: 'gates',
+      detail: 'resolved per repository when the stage runs',
+      duration: '',
+    });
+  }
+
   return inside(cell, now, ops);
 }
