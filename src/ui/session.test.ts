@@ -325,6 +325,35 @@ describe('SessionManager', () => {
     expect(terminals[0]!.description).toBeUndefined();
   });
 
+  it('launches the agent under the terminal display name, so both read alike', () => {
+    const { adapter, calls } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(
+      adapter,
+      1,
+      '/wt/a',
+      { key: 'PROJ-42', title: 'Fix login' },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { name: 'Karst: PROJ-42 — Fix login' },
+    );
+    expect(calls[0]!.sessionName).toBe('Karst: PROJ-42 — Fix login');
+    expect(calls[0]!.sessionName).toBe(terminals[0]!.name);
+  });
+
+  it('names the agent session from the fallback terminal name when no naming bag is given', () => {
+    const { adapter, calls } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 1, '/wt/a', { key: 'PROJ-42', title: 'Fix login' });
+    expect(calls[0]!.sessionName).toBe(terminals[0]!.name);
+  });
+
   it('falls back to #id in the name when no key is given', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();

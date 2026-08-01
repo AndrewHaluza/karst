@@ -29,6 +29,13 @@ export interface InteractiveCommandOpts {
   initialPrompt?: string; // seed prompt for the session (e.g. an approach entrypoint)
   model?: string; // resolved launch model id (§ model selection); omitted → agent CLI default
   /**
+   * The session's display name — the SAME rendered string the terminal tab
+   * shows, so the session is findable by ticket in the agent's resume picker.
+   * Untrusted ticket prose: an adapter that forwards it MUST pass it through
+   * `sanitizeSessionName`. An agent CLI with no naming flag ignores it.
+   */
+  sessionName?: string;
+  /**
    * Agent-specific launch additions produced by `materializeApproach` (e.g.
    * `--plugin-dir <dir>`). Opaque to the launcher; appended by the adapter.
    */

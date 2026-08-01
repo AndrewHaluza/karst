@@ -14,6 +14,7 @@ import type {
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
 import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { sanitizeSessionName } from './sessionName.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
@@ -117,6 +118,12 @@ export class ClaudeAdapter implements AgentAdapter {
       // Continue a previously-captured session instead of a cold start (§5.3).
       args.push('--resume', opts.resume);
     }
+    // The terminal's rendered display name, threaded as claude's `-n/--name` so
+    // the session shows the ticket in the `/resume` picker instead of a summary
+    // of its first message. Passed on a resume too: the ticket may have been
+    // renamed since, and a stale label is the thing this is meant to fix.
+    const sessionName = sanitizeSessionName(opts.sessionName);
+    if (sessionName) args.push('--name', sessionName);
     if (opts.model && opts.model.length > 0) {
       // Per-ticket (or manifest-default) launch model. Absent → the CLI picks
       // its own default. An option, so it goes before the `--`/positional seed.

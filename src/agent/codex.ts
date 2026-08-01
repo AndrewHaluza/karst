@@ -414,6 +414,8 @@ export class CodexAdapter implements AgentAdapter {
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
+  // `opts.sessionName` is deliberately dropped: codex names sessions only after
+  // the fact (`codex archive <name>`), with no launch-time flag to set one.
   buildInteractiveCommand(
     opts: InteractiveCommandOpts,
   ): InteractiveCommand {
