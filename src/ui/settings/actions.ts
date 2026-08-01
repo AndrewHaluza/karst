@@ -7,6 +7,7 @@ import type { LoadedManifest } from './panel.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { mergeSection, type SettingsSection } from './sections.js';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
 export interface SettingsActionsCtx {
@@ -128,20 +129,34 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         }
       },
 
-      async save(manifest: Manifest): Promise<void> {
+      /**
+       * A named `section` writes ONLY that tab's fields, overlaid on the manifest
+       * as it is on disk RIGHT NOW — not on the webview's baseline. Two things
+       * follow, and both are the point: an in-progress edit on another tab is not
+       * committed by a Save the user aimed at this one, and an out-of-band write
+       * (setAgentEnabled, setApproachEnabled, an approach drawer save) that landed
+       * after the draft was loaded is not reverted by a stale copy of it.
+       *
+       * The merged result — never the raw draft — is what validation guards, so
+       * validity is judged on exactly what would reach the file.
+       */
+      async save(manifest: Manifest, section?: SettingsSection): Promise<void> {
+        const next = section
+          ? mergeSection(deps.loadState().manifest, manifest, section)
+          : manifest;
         try {
-          validateManifest(manifest); // guard before touching disk
+          validateManifest(next); // guard before touching disk
         } catch (e) {
           if (!(e instanceof ManifestError)) throw e;
           ctx.post({ type: 'error', message: errorMessage(e) });
           return;
         }
         try {
-          deps.writeManifest(ctx.manifestPath, manifest);
+          deps.writeManifest(ctx.manifestPath, next);
           deps.reloadManifest(); // refresh host's live copy BEFORE state push
           deps.onChange();
           await pushStateWithInstalled();
-          ctx.post({ type: 'saved' });
+          ctx.post({ type: 'saved', ...(section ? { section } : {}) });
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

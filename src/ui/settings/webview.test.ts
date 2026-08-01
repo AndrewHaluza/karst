@@ -7,6 +7,15 @@ import { CONVENTION_PRESETS } from '../../workflow/conventionPresets.js';
 import { TICKET_TYPES } from '../../store/ticketTypes.js';
 import { TRANSFORM_NAMES, applyTransforms } from '../../template/transforms.js';
 import { parseTokenBody } from '../../template/token.js';
+import {
+  SETTINGS_SECTIONS,
+  SECTION_FIELDS,
+  SECTION_LABELS,
+  mergeSection,
+} from './sections.js';
+import { validateManifest } from '../../manifest/schema.js';
+import type { Manifest } from '../../manifest/types.js';
+import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -236,7 +245,9 @@ describe('settings artifact conventions', () => {
   });
 
   it('keeps host manifest validation authoritative', () => {
-    expect(HTML).toContain("post({ type: 'validate', manifest: draft })");
+    // Validates the tab-scoped candidate — what Save would actually write — but
+    // still round-trips it to the host: nothing here decides validity locally.
+    expect(HTML).toContain("post({ type: 'validate', manifest: saveCandidate(currentSection) })");
     expect(HTML).not.toContain('function validateArtifactTemplate');
     expect(HTML).not.toContain('function validateBranchTemplate');
     expect(HTML).toContain('function showConventionValidation(error)');
@@ -325,10 +336,34 @@ describe('repository field validation UX', () => {
   });
 
   it('parses a repoPath error to a repo/field key', () => {
-    const fn = HTML.match(/function parseRepoFieldError\(msg\)\s*{([\s\S]*?)\n {2}}/);
-    expect(fn, 'parseRepoFieldError not found').toBeTruthy();
-    expect(fn![1]).toContain('repoPath');
-    expect(fn![1]).toContain('service\\.(start|health)');
+    const parse = runInNewContext(`
+      ${functionSource('manifestFaultDetail')}
+      ${functionSource('parseRepoFieldError')}
+      parseRepoFieldError
+    `, {}) as (msg: string | null) => { key: string } | null;
+
+    expect(parse('repository "api".repoPath must be a string')).toEqual({ key: 'api.repoPath' });
+    expect(parse('repository "api" service.start must be a non-empty string'))
+      .toEqual({ key: 'api.start' });
+    expect(parse('repository "api" service.ports[0].env must be a non-empty string'))
+      .toEqual({ key: 'api.ports.0.env' });
+    expect(parse('portRange must be a [min, max] number pair')).toBeNull();
+  });
+
+  it('maps an error that still carries its ManifestError prefix', () => {
+    // The webview receives `error.message`, not `error.detail`, so the prefix is
+    // always there. While it was not stripped, every anchored pattern below
+    // missed and no inline field message ever rendered.
+    const parse = runInNewContext(`
+      ${functionSource('manifestFaultDetail')}
+      ${functionSource('parseRepoFieldError')}
+      parseRepoFieldError
+    `, {}) as (msg: string | null) => { key: string } | null;
+
+    expect(parse('Invalid karst.yml: repository "api".repoPath must be a string'))
+      .toEqual({ key: 'api.repoPath' });
+    expect(parse('Invalid karst.yml (/w/.karst/karst.yml): repository "api".repoPath must be a string'))
+      .toEqual({ key: 'api.repoPath' });
   });
 
   it('suppresses the banner for an untouched mapped field error', () => {
@@ -529,5 +564,390 @@ describe('settings placeholder-transform mirror', () => {
       const expected = applyTransforms(value, parseTokenBody(body).transforms);
       expect(mirror(value, body), `${String(value)} | ${body}`).toBe(expected);
     }
+  });
+});
+
+// ---- tab-scoped Save ----------------------------------------------------
+
+/** The mirrored section vocabulary, lifted verbatim from the page's script. */
+function sectionMirrorSource(): string {
+  const start = HTML.indexOf('const SETTINGS_SECTIONS =');
+  const end = HTML.indexOf('function clone(v)');
+  if (start < 0 || end < 0) throw new Error('section mirror not found');
+  return HTML.slice(start, end);
+}
+
+function sectionHelpers(): {
+  SETTINGS_SECTIONS: string[];
+  SECTION_LABELS: Record<string, string>;
+  SECTION_FIELDS: Record<string, string[]>;
+  overlaySections: (base: unknown, source: unknown, sections: string[]) => Record<string, unknown>;
+  dirtySectionsOf: (draft: unknown, base: unknown) => string[];
+  sectionForError: (msg: string | null) => string | null;
+} {
+  return runInNewContext(`
+    ${sectionMirrorSource()}
+    ${functionSource('overlaySections')}
+    ${functionSource('sectionFieldsEqual')}
+    ${functionSource('dirtySectionsOf')}
+    ${functionSource('manifestFaultDetail')}
+    ${functionSource('sectionForError')}
+    ({ SETTINGS_SECTIONS, SECTION_LABELS, SECTION_FIELDS,
+       overlaySections, dirtySectionsOf, sectionForError })
+  `, {}) as ReturnType<typeof sectionHelpers>;
+}
+
+describe('settings tab-scoped save', () => {
+  it('mirrors the host section vocabulary exactly', () => {
+    const mirror = sectionHelpers();
+    expect(mirror.SETTINGS_SECTIONS).toEqual([...SETTINGS_SECTIONS]);
+    expect(mirror.SECTION_LABELS).toEqual(SECTION_LABELS);
+    for (const section of SETTINGS_SECTIONS) {
+      expect(mirror.SECTION_FIELDS[section], section).toEqual([...SECTION_FIELDS[section]]);
+    }
+  });
+
+  it('labels every nav tab with the label the mirror uses', () => {
+    const { SECTION_LABELS: labels } = sectionHelpers();
+    for (const [section, label] of Object.entries(labels)) {
+      expect(HTML).toContain(`data-section="${section}">${label}<`);
+    }
+  });
+
+  it('overlays a section exactly as the host merges it', () => {
+    const { overlaySections } = sectionHelpers();
+    const base = {
+      host: 'localhost',
+      portRange: [4000, 4999],
+      baselineBranch: 'main',
+      ticketLabelTemplate: '{key}',
+      repositories: { api: { repoPath: '../api', hasMigrations: false } },
+      conventions: { branchName: 'karst/{slug}' },
+    } as unknown as Manifest;
+    const drafts: Manifest[] = [
+      { ...base, host: '0.0.0.0', repositories: {} } as unknown as Manifest,
+      { ...base, conventions: { branchName: 'x/{slug}' } } as unknown as Manifest,
+      // A CLEARED optional field: absent, not undefined — both renderers must
+      // remove it rather than carry the baseline's value forward.
+      (() => {
+        const { ticketLabelTemplate: _drop, ...rest } = base;
+        return rest as Manifest;
+      })(),
+    ];
+    for (const section of SETTINGS_SECTIONS) {
+      for (const draft of drafts) {
+        expect(overlaySections(base, draft, [section]), section).toEqual(
+          mergeSection(base, draft, section),
+        );
+      }
+    }
+  });
+
+  it('reports only the tabs whose own fields changed', () => {
+    const { dirtySectionsOf } = sectionHelpers();
+    const base = {
+      host: 'localhost',
+      repositories: { api: { repoPath: '../api' } },
+      conventions: { branchName: 'karst/{slug}' },
+    };
+    expect(dirtySectionsOf(base, base)).toEqual([]);
+    expect(dirtySectionsOf({ ...base, host: '0.0.0.0' }, base)).toEqual(['general']);
+    expect(dirtySectionsOf({ ...base, host: '0.0.0.0', repositories: {} }, base)).toEqual([
+      'general',
+      'services',
+    ]);
+    // A key the UI does not own must never make a tab look dirty.
+    expect(dirtySectionsOf({ ...base, uat: { maxFixAttempts: 3 } }, base)).toEqual([]);
+  });
+
+  it('treats a cleared optional field as a change', () => {
+    const { dirtySectionsOf } = sectionHelpers();
+    const base = { host: 'localhost', ticketLabelTemplate: '{key}' };
+    expect(dirtySectionsOf({ host: 'localhost' }, base)).toEqual(['general']);
+  });
+
+  it('attributes real validation errors to the tab that owns them', () => {
+    const { sectionForError } = sectionHelpers();
+    const valid = buildManifest(
+      { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
+      { portRange: [4000, 4999], approaches: [], agents: {}, ticketing: { provider: 'manual' } },
+    );
+    const broken: [string, Partial<Manifest>][] = [
+      ['general', { portRange: [9000, 1000] as [number, number] }],
+      ['general', { worktreePathDisplay: 'sideways' as never }],
+      ['general', { agentProvider: 'nope' as never }],
+      ['services', { repositories: {} }],
+      ['services', { repositories: { api: { repoPath: 42 as never, hasMigrations: false } } }],
+      ['git', { conventions: { branchName: '{nope}' } }],
+      ['git', { conventions: { commitMessage: '{nope}' } }],
+      ['ticketing', { ticketing: { provider: 'clickup', advanceOnShip: true } }],
+      ['approaches', { approaches: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }] }],
+      ['agents', { agents: 'nope' as never }],
+    ];
+    for (const [expected, patch] of broken) {
+      let message = '';
+      try {
+        validateManifest({ ...valid, ...patch });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message, JSON.stringify(patch)).not.toBe('');
+      expect(sectionForError(message), message).toBe(expected);
+    }
+  });
+
+  it('leaves an unattributable error unblamed', () => {
+    const { sectionForError } = sectionHelpers();
+    expect(sectionForError('top level must be a mapping')).toBeNull();
+    expect(sectionForError(null)).toBeNull();
+  });
+});
+
+describe('settings unsaved-changes gate', () => {
+  it('renders a modal offering save, discard and cancel', () => {
+    expect(HTML).toContain('id="leaveModal"');
+    expect(HTML).toContain('id="leaveSaveBtn"');
+    expect(HTML).toContain('id="leaveDiscardBtn"');
+    expect(HTML).toContain('id="leaveCancelBtn"');
+    expect(HTML).toContain('aria-modal="true"');
+  });
+
+  it('routes every nav click through the gate, never straight to showSection', () => {
+    expect(HTML).toContain("btn.addEventListener('click', () => requestSection(btn.dataset.section))");
+  });
+
+  it('posts a section with both drawer saves and the Save button', () => {
+    const saves = HTML.match(/post\(\{ type: 'save', manifest: draft[^}]*\}\)/g) ?? [];
+    expect(saves.length).toBeGreaterThan(0);
+    for (const call of saves) expect(call, call).toContain('section');
+  });
+});
+
+/**
+ * Runs the real tab-switch gate — the extracted functions plus the modal's own
+ * click handlers — against fake DOM elements. There is no DOM library in this
+ * project, so `el`/`document` are stubbed just richly enough for these paths.
+ */
+function gateHarness(init: {
+  draft: Record<string, unknown>;
+  lastSaved: Record<string, unknown>;
+  currentSection?: string;
+  valid?: boolean;
+}) {
+  const posted: Record<string, unknown>[] = [];
+  const handlers = new Map<string, Map<string, () => void>>();
+
+  function fakeEl(id: string) {
+    const classes = new Set<string>(id === 'leaveModal' ? ['hidden'] : []);
+    return {
+      id,
+      classList: {
+        add: (c: string) => classes.add(c),
+        remove: (c: string) => classes.delete(c),
+        contains: (c: string) => classes.has(c),
+        toggle: (c: string, on?: boolean) => (on ? classes.add(c) : classes.delete(c)),
+      },
+      classes,
+      dataset: {} as Record<string, string>,
+      textContent: '',
+      title: '',
+      disabled: false,
+      focus: () => {},
+      addEventListener: (type: string, fn: () => void) => {
+        if (!handlers.has(id)) handlers.set(id, new Map());
+        handlers.get(id)!.set(type, fn);
+      },
+    };
+  }
+
+  const elements = new Map<string, ReturnType<typeof fakeEl>>();
+  const el = (id: string) => {
+    if (!elements.has(id)) elements.set(id, fakeEl(id));
+    return elements.get(id)!;
+  };
+
+  const navButtons = SETTINGS_SECTIONS.map((section) => {
+    const btn = fakeEl('nav-' + section);
+    btn.dataset.section = section;
+    return btn;
+  });
+  const sections = SETTINGS_SECTIONS.map((section) => {
+    const node = fakeEl('section-' + section);
+    if (section !== 'general') node.classList.add('hidden');
+    return node;
+  });
+
+  const context: Record<string, unknown> = {
+    ...init,
+    currentSection: init.currentSection ?? 'general',
+    valid: init.valid ?? true,
+    dirtySections: [],
+    pendingSection: null,
+    navigateAfterSave: null,
+    lastValidationError: null,
+    validateTimer: null,
+    openCards: new Set<string>(),
+    el,
+    post: (m: Record<string, unknown>) => posted.push(m),
+    renderAll: () => {},
+    console,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    document: {
+      querySelectorAll: (sel: string) =>
+        (sel === '.nav-btn' ? navButtons : sel === '.section' ? sections : []),
+    },
+  };
+
+  const modalHandlersStart = HTML.indexOf("el('leaveCancelBtn').addEventListener");
+  const modalHandlersEnd = HTML.indexOf("document.addEventListener('keydown'");
+  const source = `
+    ${sectionMirrorSource()}
+    ${functionSource('overlaySections')}
+    ${functionSource('sectionFieldsEqual')}
+    ${functionSource('dirtySectionsOf')}
+    ${functionSource('manifestFaultDetail')}
+    ${functionSource('sectionForError')}
+    ${functionSource('saveCandidate')}
+    ${functionSource('markDirty')}
+    ${functionSource('scheduleValidate')}
+    ${functionSource('currentSectionDirty')}
+    ${functionSource('updateSaveEnabled')}
+    ${functionSource('renderNavMarkers')}
+    ${functionSource('renderUnsavedHint')}
+    ${functionSource('showSection')}
+    ${functionSource('goToSection')}
+    ${functionSource('requestSection')}
+    ${functionSource('openLeaveModal')}
+    ${functionSource('closeLeaveModal')}
+    ${functionSource('discardSection')}
+    ${functionSource('saveCurrentSection')}
+    ${HTML.slice(modalHandlersStart, modalHandlersEnd)}
+    markDirty();
+  `;
+  runInNewContext(source, context);
+
+  return {
+    posted,
+    el,
+    context,
+    state: () => context as { currentSection: string; draft: Record<string, unknown> },
+    modalOpen: () => !el('leaveModal').classList.contains('hidden'),
+    click: (id: string) => handlers.get(id)?.get('click')?.(),
+    navTo: (section: string) =>
+      runInNewContext(`requestSection(${JSON.stringify(section)})`, context),
+  };
+}
+
+describe('settings unsaved-changes gate — behavior', () => {
+  const SAVED = {
+    host: 'localhost',
+    repositories: { api: { repoPath: '../api' } },
+    conventions: { branchName: 'karst/{slug}' },
+  };
+
+  it('switches straight away when the tab on screen is clean', () => {
+    const h = gateHarness({ draft: { ...SAVED }, lastSaved: { ...SAVED } });
+    h.navTo('git');
+
+    expect(h.modalOpen()).toBe(false);
+    expect(h.state().currentSection).toBe('git');
+  });
+
+  it('blocks the switch and asks when the tab on screen is dirty', () => {
+    const h = gateHarness({ draft: { ...SAVED, host: '0.0.0.0' }, lastSaved: { ...SAVED } });
+    h.navTo('git');
+
+    expect(h.modalOpen()).toBe(true);
+    expect(h.state().currentSection).toBe('general'); // still here
+    expect(h.el('leaveModalBody').textContent).toContain('General');
+    expect(h.el('leaveModalBody').textContent).toContain('Git');
+  });
+
+  it('does not ask about a dirty tab the user is leaving alone', () => {
+    // Dirty on Repositories, standing on General: switching to Git touches
+    // neither, so there is nothing to decide.
+    const h = gateHarness({ draft: { ...SAVED, repositories: {} }, lastSaved: { ...SAVED } });
+    h.navTo('git');
+
+    expect(h.modalOpen()).toBe(false);
+    expect(h.state().currentSection).toBe('git');
+  });
+
+  it('discards only the tab being left, then navigates', () => {
+    const h = gateHarness({
+      draft: { ...SAVED, host: '0.0.0.0', repositories: {} },
+      lastSaved: { ...SAVED },
+    });
+    h.navTo('git');
+    h.click('leaveDiscardBtn');
+
+    expect(h.state().draft.host).toBe('localhost'); // General rolled back
+    expect(h.state().draft.repositories).toEqual({}); // Repositories edit survives
+    expect(h.state().currentSection).toBe('git');
+    expect(h.modalOpen()).toBe(false);
+  });
+
+  it('saves the tab being left and waits for the ack before navigating', () => {
+    const h = gateHarness({ draft: { ...SAVED, host: '0.0.0.0' }, lastSaved: { ...SAVED } });
+    h.navTo('git');
+    h.click('leaveSaveBtn');
+
+    expect(h.posted).toContainEqual({
+      type: 'save',
+      manifest: { ...SAVED, host: '0.0.0.0' },
+      section: 'general',
+    });
+    // Still on General: the nav is released by the `saved` ack, so a save the
+    // host refuses leaves the user on the tab that needs fixing.
+    expect(h.state().currentSection).toBe('general');
+    expect(h.context.navigateAfterSave).toBe('git');
+  });
+
+  it('offers only discard or cancel while the draft cannot be saved', () => {
+    const h = gateHarness({
+      draft: { ...SAVED, host: '0.0.0.0' },
+      lastSaved: { ...SAVED },
+      valid: false,
+    });
+    h.navTo('git');
+
+    expect(h.el('leaveSaveBtn').disabled).toBe(true);
+    expect(h.el('leaveModalError').classList.contains('hidden')).toBe(false);
+    h.click('leaveSaveBtn');
+    expect(h.posted).toEqual([]);
+  });
+
+  it('cancel keeps both the tab and the edits', () => {
+    const h = gateHarness({ draft: { ...SAVED, host: '0.0.0.0' }, lastSaved: { ...SAVED } });
+    h.navTo('git');
+    h.click('leaveCancelBtn');
+
+    expect(h.modalOpen()).toBe(false);
+    expect(h.state().currentSection).toBe('general');
+    expect(h.state().draft.host).toBe('0.0.0.0');
+  });
+
+  it('scopes the Save button to the tab on screen and names it', () => {
+    const h = gateHarness({
+      draft: { ...SAVED, repositories: {} },
+      lastSaved: { ...SAVED },
+      currentSection: 'services',
+    });
+
+    expect(h.el('saveBtn').textContent).toBe('Save Repositories');
+    expect(h.el('saveBtn').disabled).toBe(false);
+    expect(h.el('discardBtn').disabled).toBe(false);
+  });
+
+  it('marks the tabs that hold unsaved edits and names the ones off screen', () => {
+    const h = gateHarness({
+      draft: { ...SAVED, host: '0.0.0.0', repositories: {} },
+      lastSaved: { ...SAVED },
+    });
+
+    expect(h.context.dirtySections).toEqual(['general', 'services']);
+    expect(h.el('unsavedHint').textContent).toBe('Unsaved on Repositories');
+    expect(h.el('unsavedHint').classList.contains('hidden')).toBe(false);
   });
 });
