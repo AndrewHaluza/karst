@@ -53,6 +53,19 @@ describe('agent switch presentation', () => {
       modelId: 'codex-x', modelLabel: 'Codex X', canSwitch: true,
     });
   });
+
+  it('uses the selected provider label when model ids are shared', () => {
+    const catalog: ModelCatalog = {
+      claude: [{ id: 'shared', label: 'Claude Shared', providers: ['claude'] }],
+      codex: [{ id: 'shared', label: 'Codex Shared', providers: ['codex'] }],
+      antigravity: [],
+    };
+
+    expect(buildAgentSessionView({
+      provider: 'codex', ticketModel: null, defaultModel: 'shared',
+      catalog, stageCurrent: 'impl', sessionOpen: true,
+    }).modelLabel).toBe('Codex Shared');
+  });
 });
 
 function flow(overrides: Partial<AgentSwitchFlowDeps> = {}) {

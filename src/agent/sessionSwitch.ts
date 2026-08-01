@@ -78,9 +78,9 @@ export type AgentSwitchOutcome =
   | { kind: 'stale' }
   | { kind: 'launch-failed'; error: unknown };
 
-function labelForModel(id: string | undefined, catalog: ModelCatalog): string {
+function labelForModel(provider: AgentProvider, id: string | undefined, catalog: ModelCatalog): string {
   if (!id) return 'Agent default';
-  return Object.values(catalog).flat().find((model) => model.id === id)?.label ?? id;
+  return modelsForProvider(provider, catalog).find((model) => model.id === id)?.label ?? id;
 }
 
 export function canSwitchAgentSession(stageCurrent: string | null, sessionOpen: boolean): boolean {
@@ -104,7 +104,7 @@ export function agentSwitchModelChoices(input: AgentSwitchModelChoicesInput): Ag
   return [
     {
       model: null,
-      label: inherited ? `Inherit (settings: ${labelForModel(inherited, catalog)})` : 'Agent default',
+      label: inherited ? `Inherit (settings: ${labelForModel(provider, inherited, catalog)})` : 'Agent default',
       description: inherited ?? 'Let the agent choose',
       picked: compatibleTicket === null,
     },
@@ -125,7 +125,7 @@ export function buildAgentSessionView(input: AgentSessionViewInput): AgentSessio
     provider: input.provider,
     providerLabel: PROVIDER_LABELS[input.provider],
     modelId: modelId ?? null,
-    modelLabel: labelForModel(modelId, input.catalog),
+    modelLabel: labelForModel(input.provider, modelId, input.catalog),
     canSwitch: canSwitchAgentSession(input.stageCurrent, input.sessionOpen),
   };
 }
