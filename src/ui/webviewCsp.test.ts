@@ -66,13 +66,22 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
     expect(out).not.toMatch(/<script(?![^>]*\bnonce=)/);
   });
 
-  // The policy is only this tight because nothing loads externally. If a webview
-  // ever gains a <link>/<img>/url()/fetch(), default-src 'none' silently breaks
-  // it — better to fail here, at the assumption, than to debug a blank panel.
+  // The policy is only this tight because nothing loads externally. Onboarding
+  // is the narrow exception: its attachment renderer emits img/video elements,
+  // and its panel alone receives the media-source CSP grant. If another webview
+  // gains a <link>/<img>/<video>/url()/fetch(), default-src 'none' silently
+  // breaks it — better to fail here, at the assumption, than to debug a blank
+  // panel.
   it('loads nothing externally, which is what default-src none assumes', () => {
     const html = read(name);
     expect(html).not.toMatch(/<link\b/);
-    expect(html).not.toMatch(/<img\b/);
+    if (name === 'onboarding') {
+      expect(html).toMatch(/<img\b/);
+      expect(html).toMatch(/<video\b/);
+    } else {
+      expect(html).not.toMatch(/<img\b/);
+      expect(html).not.toMatch(/<video\b/);
+    }
     expect(html).not.toMatch(/\burl\(\s*['"]?(?:https?:)?\/\//);
     expect(html).not.toMatch(/@font-face/);
     expect(html).not.toMatch(/\bfetch\(/);

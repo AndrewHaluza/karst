@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { slugifyTitleKey, TITLE_KEY_MAX } from '../../store/titleKey.js';
+import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -167,5 +168,81 @@ describe('onboarding webview.html', () => {
     expect(submitBlock).toContain('agentProvider');
     const saveBlock = HTML.slice(HTML.indexOf("el('saveBtn').addEventListener"));
     expect(saveBlock.slice(0, 800)).toContain('agentProvider');
+  });
+});
+
+describe('attachment strip', () => {
+  const render = (list: unknown): string =>
+    loadFunction('renderAttachments', {
+      formatBytes: loadFunction('formatBytes'),
+    })(list) as string;
+
+  it('renders nothing when there are no attachments', () => {
+    expect(render([]).trim()).toBe('');
+  });
+
+  it('renders an image tile with an img element pointing at the src', () => {
+    const html = render([
+      { id: 1, kind: 'image', name: 'login-error.png', byteSize: 4096, src: 'webview://a.png' },
+    ]);
+    expect(html).toContain('<img');
+    expect(html).toContain('src="webview://a.png"');
+    expect(html).toContain('login-error.png');
+  });
+
+  it('renders a video tile with a controllable video element', () => {
+    const html = render([
+      { id: 2, kind: 'video', name: 'repro.mov', byteSize: 1048576, src: 'webview://b.mp4' },
+    ]);
+    expect(html).toContain('<video');
+    expect(html).toContain('controls');
+    expect(html).toContain('preload="metadata"');
+    expect(html).toContain('src="webview://b.mp4"');
+  });
+
+  it('carries the row id on the detach and open controls', () => {
+    const html = render([
+      { id: 7, kind: 'image', name: 'a.png', byteSize: 1, src: 'webview://a.png' },
+    ]);
+    expect(html).toContain('data-attach-id="7"');
+  });
+
+  // The strip renders values that came from a ticket the user did not author.
+  // esc() is the primary defense; the CSP is only the backstop under it.
+  it('escapes the original filename', () => {
+    const html = render([
+      {
+        id: 1, kind: 'image', byteSize: 1, src: 'webview://a.png',
+        name: '<img src=x onerror="alert(1)">.png',
+      },
+    ]);
+    expect(html).not.toContain('onerror="alert(1)"');
+    expect(html).toContain('&lt;img src=x');
+  });
+
+  it('escapes the src', () => {
+    const html = render([
+      { id: 1, kind: 'image', name: 'a.png', byteSize: 1, src: 'x" onerror="alert(1)' },
+    ]);
+    expect(html).not.toContain('onerror="alert(1)"');
+  });
+});
+
+describe('formatBytes', () => {
+  const formatBytes = loadFunction('formatBytes') as (n: number) => string;
+
+  it('renders bytes, KB and MB', () => {
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(4096)).toBe('4 KB');
+    expect(formatBytes(1048576)).toBe('1 MB');
+  });
+});
+
+// The host re-checks this. The page's copy exists so the user is told BEFORE a
+// large paste crosses postMessage, not after the host silently drops it — so the
+// two values must be the same number.
+describe('paste cap mirror', () => {
+  it('matches the host cap exactly', () => {
+    expect(htmlConstNumber('MAX_PASTE_BYTES')).toBe(MAX_PASTE_BYTES);
   });
 });
