@@ -41,18 +41,18 @@ describe('buildDashboardState', () => {
   // The merge verdicts already feed the ship strip; the PR panel needs them at
   // the top level too, because that is where the conflict is acted on and the
   // webview cannot query the store.
-  it("exposes each repo’s current merge verdict alongside the PRs", () => {
-    const t = createTicket(store, { key: "PROJ-1", title: "thing" });
+  it('exposes each repo’s current merge verdict alongside the PRs', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
     setMergeCheck(store, {
       ticketId: t.id,
-      repo: "api",
-      state: "conflicted",
-      files: ["src/a.ts"],
+      repo: 'api',
+      state: 'conflicted',
+      files: ['src/a.ts'],
       reason: null,
-      headSha: "h",
-      baseSha: "b",
-      baseRef: "main",
-      checkedAt: "2026-07-28T12:00:00.000Z",
+      headSha: 'h',
+      baseSha: 'b',
+      baseRef: 'main',
+      checkedAt: '2026-07-28T12:00:00.000Z',
     });
 
     const state = buildDashboardState(store, t.id);
@@ -61,13 +61,13 @@ describe('buildDashboardState', () => {
     // and the age is relative to the push, so only the fixed parts are pinned.
     expect(state.mergeChecks).toHaveLength(1);
     const row = state.mergeChecks[0]!;
-    expect(row.repo).toBe("api");
-    expect(row.state).toBe("conflicted");
+    expect(row.repo).toBe('api');
+    expect(row.state).toBe('conflicted');
     expect(row.headline).toMatch(/^conflicted · 1 file · vs main · /);
-    expect(row.detailsLabel).toBe("1 conflicting file");
-    expect(row.files).toEqual(["src/a.ts"]);
-    expect(row.reason).toBe("");
-    expect(row.checkedTitle).not.toBe("");
+    expect(row.detailsLabel).toBe('1 conflicting file');
+    expect(row.files).toEqual(['src/a.ts']);
+    expect(row.reason).toBe('');
+    expect(row.checkedTitle).not.toBe('');
   });
 
   it('throws for an unknown ticket', () => {

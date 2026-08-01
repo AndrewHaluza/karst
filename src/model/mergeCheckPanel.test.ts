@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import type { MergeCheckRow } from '../store/mergeChecks.js';
 import { formatPrStamp } from './prPanelView.js';
 import { buildMergeCheckPanelRows } from './mergeCheckPanel.js';
+// Import only — `mergeCheckView.ts` must not be modified by this plan.
+import { summarizeMergeCheck } from './mergeCheckView.js';
 
 const NOW = '2026-08-01T12:00:00.000Z';
 
@@ -111,4 +113,28 @@ describe('buildMergeCheckPanelRows', () => {
     expect(out.map((r) => r.repo)).toEqual(['/repos/api', '/repos/web']);
     expect(out.map((r) => r.state)).toEqual(['clean', 'conflicted']);
   });
+
+  // Drift guard, not a redundant assertion: this panel and `mergeCheckView.ts`
+  // (the shared one-liner for the ship strip and the `karst context` CLI) each
+  // independently word `check.state`. Both read the same field today, so they
+  // cannot drift *now* — but nothing stops a future vocabulary rename (e.g.
+  // `conflicted` -> `cannot merge`) from landing in one and not the other, which
+  // is exactly the drift `mergeCheckView.ts`'s own docstring says sharing it is
+  // meant to prevent. This test pins the two renderers' opening word together
+  // without merging the modules, which stay deliberately separate (see both
+  // docstrings): the panel has room for a second line and says more; the shared
+  // one-liner does not.
+  it.each(['clean', 'conflicted', 'unknown'] as const)(
+    'opens with the same state word as the shared one-liner for %s',
+    (state) => {
+      const files = state === 'conflicted' ? ['a.ts'] : [];
+      const reason = state === 'unknown' ? 'fatal: not a valid object name develop' : null;
+
+      const panelWord = buildMergeCheckPanelRows([row({ state, files, reason })], NOW)[0]!.headline
+        .split(' · ')[0];
+      const viewWord = summarizeMergeCheck({ state, files, reason }).split(' ')[0];
+
+      expect(panelWord).toBe(viewWord);
+    },
+  );
 });

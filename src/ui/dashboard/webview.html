@@ -708,6 +708,14 @@
   // a one-shot host round trip, and a flag restored from a reload would claim a
   // merge is underway that nobody is running. Cleared on every state push.
   let mergePending = {};
+  // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
+  // state, exactly like `selectedStage`: render() replaces #prs wholesale on
+  // every `state` push AND every ship-progress tick, so a disclosure that is
+  // open only in the DOM — and the reader's scroll position inside it — would
+  // snap shut on the very next one. Never in DashboardState, never
+  // round-tripped through the host; only the `toggle` listener below mutates
+  // it, and render() itself must never reset it.
+  let openMergeRepos = new Set();
   // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
   // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
   // in which a button with no busy state looks inert and gets pressed again.
@@ -1162,8 +1170,11 @@
     const body = m.reason
       ? `<div class="mgreason">${esc(m.reason)}</div>`
       : (m.files || []).map((f) => `<div class="mgfile">${esc(f)}</div>`).join('');
+    // Re-open exactly the disclosures the user had open before this render —
+    // see `openMergeRepos` above.
+    const openAttr = openMergeRepos.has(m.repo) ? ' open' : '';
     const details = m.detailsLabel
-      ? `<details class="mgd"><summary>${esc(m.detailsLabel)}</summary>`
+      ? `<details class="mgd"${openAttr} data-repo="${esc(m.repo)}"><summary>${esc(m.detailsLabel)}</summary>`
         + `<div class="mgdbody">${body}</div></details>`
       : '';
     return `<div class="mgwrap mg-${esc(m.state)}">`
@@ -1369,6 +1380,20 @@
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
   });
+
+  // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired
+  // by a state push or a ship-progress tick, not by this click — restores
+  // exactly the ones the user had open. Listens in the CAPTURE phase: `toggle`
+  // does not bubble in every engine, so a bubble-phase delegate on `#prs` could
+  // silently miss it.
+  document.addEventListener('toggle', (e) => {
+    const node = e.target && e.target.closest && e.target.closest('.mgd');
+    if (!node || !node.dataset.repo) return;
+    const next = new Set(openMergeRepos);
+    if (node.open) next.add(node.dataset.repo);
+    else next.delete(node.dataset.repo);
+    openMergeRepos = next;
+  }, true);
 
   // Optimistic feedback for the copy button — the host does the actual clipboard
   // write; the webview just confirms it so the click feels responsive.
