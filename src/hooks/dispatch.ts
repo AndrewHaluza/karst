@@ -3,6 +3,10 @@ import { setAgentState, setSessionId } from '../store/tickets.js';
 import { ticketIdForWorktreePath } from '../runtime/worktree.js';
 import type { AgentState } from '../model/types.js';
 import type { AgentProvider } from '../manifest/types.js';
+import type {
+  HookChannelRecorder,
+  HookDispatchOutcome,
+} from '../diagnostics/hookChannel.js';
 
 /**
  * Claude Code hook payload (M0/T0.2 §143): JSON with `session_id`, `cwd`
@@ -120,14 +124,32 @@ export function dispatchHook(
   notify?: NotifyTicket,
   shouldApplyState?: ShouldApplyHookState,
   sessionProviderFor?: SessionProviderFor,
+  recorder?: HookChannelRecorder,
 ): void {
-  if (!payload.cwd) return;
+  // Observation only — a recorder defect may not change what a hook does.
+  const observe = (outcome: HookDispatchOutcome): void => {
+    try {
+      recorder?.record(outcome, payload.hook_event_name);
+    } catch {
+      // Diagnostics are best-effort.
+    }
+  };
+  if (!payload.cwd) {
+    observe('unknown-worktree');
+    return;
+  }
   const ticketId = ticketIdForWorktreePath(store, payload.cwd);
-  if (ticketId === null) return;
+  if (ticketId === null) {
+    observe('unknown-worktree');
+    return;
+  }
   // Generation ownership guards every lifecycle mutation, including session_id.
   // Checking only before agent_state let a rejected stale SessionStart replace
   // the current conversation id even though its running state was ignored.
-  if (shouldApplyState && !shouldApplyState(ticketId, payload)) return;
+  if (shouldApplyState && !shouldApplyState(ticketId, payload)) {
+    observe('stale-generation');
+    return;
+  }
 
   // Persist the session on its first event so resume (§5.3) has a target. Only
   // SessionStart carries the authoritative id for a fresh session; later events
@@ -144,8 +166,12 @@ export function dispatchHook(
   }
 
   const state = nextAgentState(payload);
-  if (state === null) return;
+  if (state === null) {
+    observe('no-signal');
+    return;
+  }
 
   setAgentState(store, ticketId, state);
+  observe('applied');
   notify?.(ticketId, payload);
 }

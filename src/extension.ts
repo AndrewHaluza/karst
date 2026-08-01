@@ -98,6 +98,7 @@ import {
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
+import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
@@ -324,6 +325,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
+  // Hook-channel observation for the issue report. A failed agent-side hook says
+  // only "exited with code 1"; these counters are the host's half of that.
+  const hookChannelRecorder = createHookChannelRecorder();
+  const activatedAt = Date.now();
   logger.info('Karst activated');
 
   /**
@@ -534,6 +539,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         documents: diagnosticDocuments,
         currentProject,
         currentManifest,
+        hookChannel: () => hookChannelRecorder.snapshot(),
+        activatedAt,
       }),
     ),
   );
@@ -1615,6 +1622,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getTicket(localStore, ticketId).agentProvider,
         currentManifest()?.agentProvider,
       ),
+    { recorder: hookChannelRecorder },
   );
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);

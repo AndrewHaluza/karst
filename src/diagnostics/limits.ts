@@ -4,6 +4,8 @@ export const DIAGNOSTIC_LIMITS = Object.freeze({
   maxReportLogEntries: 200,
   maxReportLogBytes: 128 * 1024,
   maxRowsPerSection: 500,
+  /** Verbatim bridge failures kept; the outcome totals still cover every line. */
+  maxHookFailures: 50,
   maxAgeMs: 7 * 24 * 60 * 60 * 1000,
   maxFieldBytes: 32 * 1024,
   maxSectionBytes: 1024 * 1024,

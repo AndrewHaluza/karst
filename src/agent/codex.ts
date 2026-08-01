@@ -28,6 +28,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { hookFailureLogPath } from './hookFailureLog.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -228,9 +229,9 @@ function appendHookArgs(
   ) {
     throw new Error(`karst: refusing non-loopback hook endpoint ${endpointUrl}`);
   }
-  const bridgeDir = join(configDir, 'codex');
+  const diagnosticsPath = hookFailureLogPath(configDir);
+  const bridgeDir = dirname(diagnosticsPath);
   const bridgePath = join(bridgeDir, 'bridge.cjs');
-  const diagnosticsPath = join(bridgeDir, 'hook-failures.jsonl');
   mkdirSync(bridgeDir, { recursive: true });
   const current = existsSync(bridgePath)
     ? readFileSync(bridgePath, 'utf8')

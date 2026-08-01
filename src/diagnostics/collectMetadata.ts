@@ -10,6 +10,13 @@ import type { Pseudonymizer } from './pseudonymize.js'
 import { sanitizeText } from './redact.js'
 import { createRepositoryAliases, type RepositoryAliases } from './repositoryAliases.js'
 import {
+  hooksSection,
+  registrySection,
+  runtimeSection,
+  type HookDiagnosticInput,
+  type RuntimeDiagnosticInput,
+} from './hostEvidence.js'
+import {
   readGateRuns,
   readMergeChecks,
   readPhaseMarks,
@@ -26,15 +33,7 @@ import type {
   JsonValue,
 } from './types.js'
 
-export interface RuntimeDiagnosticInput {
-  readonly extensionVersion: string
-  readonly editorVersion: string
-  readonly platform: string
-  readonly arch: string
-  readonly remoteNamePresent: boolean
-  readonly uiKind: string
-  readonly developmentMode: boolean
-}
+export type { RuntimeDiagnosticInput } from './hostEvidence.js'
 
 export interface MetadataSources {
   readonly store: Store
@@ -46,6 +45,8 @@ export interface MetadataSources {
   readonly reportId: string
   readonly generatedAt: string
   readonly aliases: Pseudonymizer
+  /** Hook-channel counters and the Codex bridge's own failure log. */
+  readonly hooks?: HookDiagnosticInput
   /** Polled at every yield point so a cancel click stops the read sequence. */
   readonly isCancelled?: () => boolean
 }
@@ -179,15 +180,9 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
     values.map(repositories.byName)
 
   const metadata: Partial<Record<DiagnosticSectionName, DiagnosticSection>> = {
-    runtime: available({
-      extensionVersion: safe(input.runtime.extensionVersion),
-      editorVersion: safe(input.runtime.editorVersion),
-      platform: safe(input.runtime.platform),
-      arch: safe(input.runtime.arch),
-      remoteNamePresent: input.runtime.remoteNamePresent,
-      uiKind: safe(input.runtime.uiKind),
-      developmentMode: input.runtime.developmentMode,
-    }),
+    runtime: runtimeSection(input.runtime, safe),
+    registry: registrySection(input.store, input.project.id),
+    hooks: hooksSection(input.hooks ?? {}, DIAGNOSTIC_LIMITS.maxHookFailures),
     ticket: available({
       ticketRef: input.aliases.ticket(String(ticket.id)),
       keyRef: ticket.key ? input.aliases.ticket(ticket.key) : null,
@@ -298,15 +293,9 @@ export async function collectProjectMetadata(
     generatedAt: input.generatedAt,
     contextStatus: 'not-requested',
     metadata: {
-      runtime: available({
-        extensionVersion: safe(input.runtime.extensionVersion),
-        editorVersion: safe(input.runtime.editorVersion),
-        platform: safe(input.runtime.platform),
-        arch: safe(input.runtime.arch),
-        remoteNamePresent: input.runtime.remoteNamePresent,
-        uiKind: safe(input.runtime.uiKind),
-        developmentMode: input.runtime.developmentMode,
-      }),
+      runtime: runtimeSection(input.runtime, safe),
+      registry: registrySection(input.store, input.project.id),
+      hooks: hooksSection(input.hooks ?? {}, DIAGNOSTIC_LIMITS.maxHookFailures),
       effectiveConfig: available(projectEffectiveConfig(input.manifest, {
         projectIdentity: input.manifest.id ?? input.project.slug,
         selectedRepos: repositories,
