@@ -36,4 +36,14 @@ describe('extension activation', () => {
       'const project = currentProject();\n    if (!project) return;',
     );
   });
+
+  it('binds dashboard agent switching to native pickers, confirmation, and the normal launch path', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toContain('runAgentSwitchFlow(');
+    expect(source).toContain('vscode.window.showQuickPick');
+    expect(source).toContain("modal: true");
+    expect(source).toContain("guardProviderCapability('sessions', provider)");
+    expect(source).toContain('sessions.disposeSession(ticketId)');
+    expect(source).toContain("vscode.commands.executeCommand('karst.openSession', ticketId)");
+  });
 });

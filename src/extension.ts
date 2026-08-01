@@ -61,6 +61,7 @@ import {
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
+import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -139,6 +140,7 @@ import {
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
   ApproachDef,
+  AgentProvider,
   TicketingConfig,
 } from './manifest/types.js';
 import {
@@ -169,6 +171,7 @@ import {
   listArchivedTickets,
   setAgentState,
   setSessionId,
+  updateTicketOnboarding,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
@@ -596,13 +599,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * doesn't vary by agent provider, and passing it needlessly risks a
    * `getTicket` throw on a since-deleted ticket.
    */
-  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
-    const ticketProvider =
-      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+  const guardProviderCapability = (
+    capability: Capability,
+    agentProvider: AgentProvider,
+    silent = false,
+  ): boolean => {
     const faults = ensureCapability(
       capability,
-      dependencyRegistry(provider),
+      dependencyRegistry(agentProvider),
       binaryExists,
       commandSucceeds,
     );
@@ -621,6 +625,73 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     }
     return false;
+  };
+
+  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+    const ticketProvider =
+      ticketId === undefined ? undefined : getTicket(localStore, ticketId).agentProvider;
+    return guardProviderCapability(
+      capability,
+      resolveProvider(ticketProvider, currentManifest()?.agentProvider),
+      silent,
+    );
+  };
+
+  const switchAgentSession = async (ticketId: number): Promise<void> => {
+    const outcome = await runAgentSwitchFlow({
+      read: () => {
+        const ticket = getTicket(localStore, ticketId);
+        return {
+          stageCurrent: ticket.stageCurrent,
+          provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+          ticketModel: ticket.model,
+          defaultModel: currentManifest()?.defaultModel ?? null,
+        };
+      },
+      isSessionOpen: () => sessions.isOpen(ticketId),
+      pickProvider: async (choices, current) => {
+        const picked = await vscode.window.showQuickPick(
+          choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
+          { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
+        );
+        return picked?.provider;
+      },
+      isProviderReady: (provider) => guardProviderCapability('sessions', provider),
+      pickModel: async (provider, choices) => vscode.window.showQuickPick(
+        choices.map((choice) => ({ ...choice, label: choice.label })),
+        { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
+      ),
+      confirm: async ({ from, to }) => {
+        const choice = await vscode.window.showWarningMessage(
+          `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
+          {
+            modal: true,
+            detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+          },
+          'Switch and continue',
+        );
+        return choice === 'Switch and continue';
+      },
+      persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
+        agentProvider: provider,
+        model: model ?? '',
+      }),
+      dispose: () => sessions.disposeSession(ticketId),
+      launch: async () => {
+        await vscode.commands.executeCommand('karst.openSession', ticketId);
+      },
+    }, modelCatalog);
+
+    if (outcome.kind === 'stale') {
+      void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+    } else if (outcome.kind === 'launch-failed') {
+      void vscode.window.showErrorMessage(
+        `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+      );
+    }
+    provider.refresh();
+    dashboard.pushState(ticketId);
+    showStatusFor(ticketId);
   };
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates
@@ -1154,6 +1225,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         },
         () => changes.open(ticketId),
+        () => void switchAgentSession(ticketId),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
@@ -1194,6 +1266,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       enabled: () => binder.enabled(),
       onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
     },
+    () => ({
+      defaultModel: currentManifest()?.defaultModel ?? null,
+      modelCatalog,
+      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
+    }),
   );
 
   binder = new TerminalDashboardBinder({
@@ -2698,6 +2775,9 @@ function makeDashboardActions(
   // Open the host-owned, whole-ticket changes explorer. The dashboard action
   // carries no path because this closure already owns the ticket id.
   showChanges: () => void,
+  // Switch the open session through native VS Code pickers. The closure owns
+  // the ticket id so the webview cannot select a different session.
+  switchAgent: () => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -2752,6 +2832,7 @@ function makeDashboardActions(
       afterServerChange();
     },
     showChanges,
+    switchAgent,
     // Open folder → reveal the worktree in the Explorer (navigate there), not
     // the OS file manager.
     openWorktreeFolder: (path) =>
