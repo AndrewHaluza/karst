@@ -108,7 +108,22 @@ describe('AntigravityAdapter', () => {
 
       await expect(
         adapter.runHeadless({ prompt: 'do', cwd: '/test' })
-      ).rejects.toThrow(/agy exited 1: boom/);
+      ).rejects.toThrow(/Antigravity failed \(exit 1\): boom/);
+    });
+
+    it('names a usage limit instead of echoing the CLI failure', async () => {
+      const spawner = vi.fn(
+        fakeSpawn({
+          stdout: '',
+          stderr: 'Error: RESOURCE_EXHAUSTED: Quota exceeded for metric generate_requests',
+          exitCode: 1,
+        }),
+      );
+      const adapter = new AntigravityAdapter(spawner);
+
+      await expect(
+        adapter.runHeadless({ prompt: 'do', cwd: '/test' })
+      ).rejects.toThrow(/Antigravity usage limit reached/);
     });
   });
 
