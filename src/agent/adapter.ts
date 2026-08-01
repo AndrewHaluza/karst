@@ -7,6 +7,21 @@
  * rewrite. MVP ships one implementation (ClaudeAdapter).
  */
 
+import type { AiCallSite } from './aiCallSites.js';
+import type { TokenUsage } from './tokenUsage.js';
+
+/**
+ * What a call site declares so its spend can be attributed (§ token consumption
+ * stats). This is the ENTIRE cost of covering a new AI integration: the
+ * recording happens in `instrumentedAdapter.ts`, never at the call site. Absent
+ * → the call is filed under `unknown` rather than dropped.
+ */
+export interface UsageTracking {
+  callSite: AiCallSite;
+  /** The ticket the spend belongs to; absent for a not-yet-saved draft. */
+  ticketId?: number | null;
+}
+
 export interface RunHeadlessOpts {
   prompt: string;
   cwd: string;
@@ -14,12 +29,20 @@ export interface RunHeadlessOpts {
   permissionMode?: string;
   resume?: string; // session_id to continue
   model?: string;
+  tracking?: UsageTracking;
 }
 
 export interface HeadlessResult {
   sessionId: string;
   verdict: unknown;
   raw: string;
+  /**
+   * Token counts the core reported for this run, parsed by the adapter from the
+   * SAME stdout it read the answer out of. Absent means the core said nothing —
+   * the instrumented wrapper decides whether that is worth an estimate. It is
+   * never a zero: a zero would read as a measured free call.
+   */
+  usage?: TokenUsage;
 }
 
 export interface InteractiveCommandOpts {

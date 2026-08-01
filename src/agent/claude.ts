@@ -15,6 +15,7 @@ import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename }
 import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { sanitizeSessionName } from './sessionName.js';
+import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
@@ -288,13 +289,18 @@ export class ClaudeAdapter implements AgentAdapter {
       // The whole `--output-format json` envelope used to land on the stage
       // verdict; a 429 read as an internal crash. `describeHeadlessFailure`
       // unwraps it (shared by every agent core) — see cliFailure.ts.
-      throw new Error(
-        describeHeadlessFailure({
-          tool: 'Claude',
-          exitCode: r.exitCode,
-          stdout: r.stdout,
-          stderr: r.stderr,
-        }),
+      // The counts ride out on the rejection: a 429 is reported AFTER the
+      // provider has already billed the input (§ token consumption stats).
+      throw attachUsage(
+        new Error(
+          describeHeadlessFailure({
+            tool: 'Claude',
+            exitCode: r.exitCode,
+            stdout: r.stdout,
+            stderr: r.stderr,
+          }),
+        ),
+        extractTokenUsage(r.stdout),
       );
     }
 
@@ -305,10 +311,15 @@ export class ClaudeAdapter implements AgentAdapter {
       throw new Error(`claude output was not valid JSON: ${(e as Error).message}`);
     }
 
+    // Read from the SAME stdout the answer came out of — the `usage` block is
+    // part of the `--output-format json` envelope, so this costs no extra call.
+    const usage = extractTokenUsage(r.stdout);
+
     return {
       sessionId: parsed.session_id ?? '',
       verdict: null,
       raw: parsed.result ?? '',
+      ...(usage ? { usage } : {}),
     };
   }
 }

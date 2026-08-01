@@ -28,6 +28,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -553,16 +554,22 @@ export class CodexAdapter implements AgentAdapter {
     }
     const result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd);
     if (result.exitCode !== 0) {
-      throw new Error(
-        describeHeadlessFailure({
-          tool: 'Codex',
-          exitCode: result.exitCode,
-          stdout: result.stdout,
-          stderr: result.stderr,
-        }),
+      // The counts ride out on the rejection — a run that died mid-stream still
+      // burned everything up to the cut (§ token consumption stats).
+      throw attachUsage(
+        new Error(
+          describeHeadlessFailure({
+            tool: 'Codex',
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+          }),
+        ),
+        extractTokenUsage(result.stdout),
       );
     }
     const parsed = parseCodexJsonl(result.stdout);
-    return { ...parsed, verdict: null };
+    const usage = extractTokenUsage(result.stdout);
+    return { ...parsed, verdict: null, ...(usage ? { usage } : {}) };
   }
 }

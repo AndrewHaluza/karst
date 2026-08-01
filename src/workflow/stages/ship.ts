@@ -80,10 +80,12 @@ async function describePr(
   adapter: AgentAdapter,
   cwd: string,
   title: string,
+  ticketId: number,
 ): Promise<string> {
   const r = await adapter.runHeadless({
     prompt: buildPrDescriptionPrompt(title),
     cwd,
+    tracking: { callSite: 'pr-description', ticketId },
   });
   return sanitizePrDescription(r.raw, title);
 }
@@ -374,7 +376,7 @@ export async function shipTicket(
           let description = prTitle;
           if (usesDescription(descriptionTemplate) && adapter) {
             onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-            description = await describePr(adapter, wt.path, prTitle);
+            description = await describePr(adapter, wt.path, prTitle, opts.ticketId);
             onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
           }
           return renderArtifactTemplate(
@@ -385,7 +387,7 @@ export async function shipTicket(
         }
         if (adapter) {
           onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-          const generated = await describePr(adapter, wt.path, prTitle);
+          const generated = await describePr(adapter, wt.path, prTitle, opts.ticketId);
           onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
           return generated;
         }

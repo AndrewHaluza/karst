@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -49,6 +49,34 @@ function ticketColumns(db: Database): Set<string> {
  * date or json type). Mirror schema.sql for fresh DBs.
  */
 const V16_PR_COLUMNS = ['head_ref', 'base_ref', 'created_at', 'merged_at', 'comments'] as const;
+
+/**
+ * v17's token_usage table + aggregation indexes, for a legacy DB being upgraded.
+ * Kept byte-identical in intent to the schema.sql block it mirrors (see the
+ * comments there); every statement is IF NOT EXISTS so a fresh DB skips it.
+ */
+const TOKEN_USAGE_DDL = `
+CREATE TABLE IF NOT EXISTS token_usage (
+  id                 INTEGER PRIMARY KEY,
+  project_id         INTEGER,
+  ticket_id          INTEGER,
+  call_site          TEXT NOT NULL,
+  provider           TEXT,
+  model              TEXT,
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens       INTEGER NOT NULL DEFAULT 0,
+  estimated          INTEGER NOT NULL DEFAULT 0,
+  outcome            TEXT NOT NULL,
+  recorded_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_token_usage_project_time ON token_usage(project_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_token_usage_ticket ON token_usage(ticket_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_token_usage_site ON token_usage(project_id, call_site, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, model, recorded_at);
+`;
 
 /** Tables whose `service` column became `repo` in v10. */
 const V10_RENAMED_TABLES = ['servers', 'port_allocations', 'baseline_refs'] as const;
@@ -387,6 +415,20 @@ export function migrate(db: Database): void {
     );
   });
   repairAttachments();
+
+  if (current < 19) {
+    // v19 adds the append-only token_usage table plus its aggregation indexes
+    // (§ token consumption stats). A whole new table, so the step is the same
+    // DDL as schema.sql rather than an ALTER, and every statement is IF NOT
+    // EXISTS — a fresh DB (already carrying it) and a re-open are both no-ops.
+    //
+    // Nothing is backfilled. Token counts live in the provider's response to a
+    // call that already happened and was never captured; a migration cannot
+    // reach them, and inventing them would put fabricated spend in the totals.
+    // History starts at the upgrade, and an empty range renders as the view's
+    // empty state rather than as zero spend.
+    db.exec(TOKEN_USAGE_DDL);
+  }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
