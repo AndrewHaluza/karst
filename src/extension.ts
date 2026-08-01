@@ -1129,6 +1129,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         () => changes.open(ticketId),
         () => binder.toggle(),
+        // Declared below with the sweep it forces (like `binder`, the two are
+        // mutually referential); read only when a panel is actually open, which
+        // is long after activation has run.
+        () => runPrSync(true),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
@@ -1499,11 +1503,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Scoped to this window's project (projects invariant). Async spawn only — gh
   // runs off the event loop, and a re-entrancy guard drops a tick that lands
   // while a slow sweep is still going, so a dead remote can never pile up sweeps.
+  //
+  // `force` is the panel's refresh icon: same sweep, but the mergeability age
+  // floor is dropped (the user is asking BECAUSE the stored answer looks stale)
+  // and the dashboard is pushed even when nothing moved, so the icon's spinner
+  // always has an end. A forced request that lands mid-sweep is not dropped like
+  // a timer tick — it re-runs once the in-flight one finishes, because the answer
+  // that sweep is producing may predate whatever the user just pushed.
   let prSyncRunning = false;
-  const runPrSync = async (): Promise<void> => {
+  let forceQueued = false;
+  const runPrSync = async (force = false): Promise<void> => {
     const project = currentProject();
     if (!project) return;
-    if (prSyncRunning) return;
+    if (prSyncRunning) {
+      forceQueued ||= force;
+      return;
+    }
     prSyncRunning = true;
     try {
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
@@ -1518,7 +1533,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         mergeChanged = await syncMergeChecks(localStore, defaultGitRunner, {
           scope: { projectId: project.id },
-          minAgeMs: MERGE_SYNC_MIN_AGE_MS,
+          minAgeMs: force ? 0 : MERGE_SYNC_MIN_AGE_MS,
           baseRefFor: (repo) => {
             const m = currentManifest();
             return m ? resolveBaselineBranchForPath(m, repo) : null;
@@ -1529,7 +1544,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // discard them or stop the next tick.
         logError('karst: merge check sync failed', e);
       }
-      if (changed > 0 || mergeChanged > 0) {
+      // A forced sweep pushes unconditionally: "nothing changed" is the answer
+      // the user asked for, and it is also what clears the panel's spinner.
+      if (force || changed > 0 || mergeChanged > 0) {
         provider.refresh();
         dashboard.pushAll();
       }
@@ -1537,6 +1554,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError('karst: PR status sync failed', e);
     } finally {
       prSyncRunning = false;
+      if (forceQueued) {
+        forceQueued = false;
+        void runPrSync(true);
+      }
     }
   };
   void runPrSync();
@@ -2646,6 +2667,10 @@ function makeDashboardActions(
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
+  // Force an immediate PR/mergeability sweep, ignoring the freshness floor the
+  // background tick respects. Project-scoped like the tick itself, so it takes no
+  // ticket: the panel is asking for a fresher answer, not a narrower one.
+  refreshPrs: () => Promise<void>,
 ): DashboardActions {
   return {
     stopServer: (serverId) => {
@@ -2862,6 +2887,22 @@ function makeDashboardActions(
           void vscode.window.showErrorMessage(
             `Merge failed: ${e instanceof Error ? e.message : String(e)}`,
           );
+        } finally {
+          afterServerChange();
+        }
+      })();
+    },
+    // Re-probe PR status and mergeability on demand, from the panel's refresh
+    // icon. The background sweep runs once a minute behind a five-minute
+    // freshness floor, so after pushing a conflict fix a user could watch a stale
+    // "conflicted" for minutes with no way to ask again.
+    //
+    // Errors are the sweep's own to log — this only has to guarantee the panel
+    // gets a push either way, or the icon spins forever.
+    refreshPrs: () => {
+      void (async () => {
+        try {
+          await refreshPrs();
         } finally {
           afterServerChange();
         }

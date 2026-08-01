@@ -376,6 +376,38 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/post\(\{ type: act, repo: btn\.dataset\.repo \}\)/);
   });
 
+  /**
+   * The PR panel's refresh icon. The complaint: PR status and mergeability only
+   * move on a 60s sweep behind a 5-minute freshness floor, so after pushing a fix
+   * a user watches a stale panel for minutes with no way to ask again.
+   */
+  it('offers a refresh control on the Pull requests panel header', () => {
+    expect(HTML).toContain('id="prRefresh"');
+    expect(HTML).toContain('data-act="refresh-prs"');
+    // An icon, per the request — and a titled, labelled one, because an icon
+    // with no accessible name is a button a screen reader cannot announce.
+    expect(HTML).toMatch(/id="prRefresh"[^>]*aria-label=/);
+  });
+
+  it('carries no target on the refresh click — the host owns which ticket it is', () => {
+    // The delegated handler picks its payload from the button's dataset, so
+    // carrying none of `data-id`/`data-path`/`data-url`/`data-repo` is what makes
+    // the post `{ type: 'refresh-prs' }` and nothing else.
+    const btn = /<button id="prRefresh"[\s\S]*?>/.exec(HTML)?.[0] ?? '';
+    expect(btn).toContain('data-act="refresh-prs"');
+    expect(btn).not.toMatch(/data-(id|path|url|repo)=/);
+  });
+
+  /**
+   * A refresh runs `gh` and a `git fetch` per repo: seconds, not milliseconds.
+   * Without a pending state the click is silent and gets pressed again, queueing
+   * sweeps behind a slow remote.
+   */
+  it('shows the refresh as busy until the next state push clears it', () => {
+    expect(HTML).toMatch(/prRefreshing = true/);
+    expect(HTML).toMatch(/prRefreshing = false/);
+  });
+
   it('resolves the ship to an explicit success flash', () => {
     // On completion the indicator settles to a clear success beat, distinct from
     // the idle and processing states.

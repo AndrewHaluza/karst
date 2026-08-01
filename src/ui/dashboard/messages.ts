@@ -33,6 +33,12 @@ export type WebviewMessage =
    */
   | { type: 'merge-pr'; repo: string }
   /**
+   * Re-probe this ticket's PRs and their mergeability NOW, instead of waiting for
+   * the background sweep. Payload-free: which ticket (and which project) is the
+   * host's to know, so a message cannot aim the probe at anything else.
+   */
+  | { type: 'refresh-prs' }
+  /**
    * Flip the terminal↔dashboard binding. Carries no value on purpose: the host
    * holds the preference and the webview only renders what it is pushed, so the
    * two can never disagree about which way the toggle currently sits.
@@ -90,6 +96,12 @@ export interface DashboardActions {
    * the webview cannot name an arbitrary pull request to merge.
    */
   mergePr: (repo: string) => void;
+  /**
+   * Re-probe this ticket's PR statuses and mergeability immediately, bypassing
+   * the sweep's freshness floor, and push the result. Takes nothing: the closure
+   * already owns the ticket, and the panel is asking for "again", not "this one".
+   */
+  refreshPrs: () => void;
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void;
 }
@@ -154,6 +166,11 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return typeof m.repo === 'string' && m.repo.length > 0
         ? { type: 'merge-pr', repo: m.repo }
         : null;
+    // Payload-free like the panel-level server controls: a companion `repo` or
+    // ticket id is dropped, so the refresh can only ever re-probe the ticket the
+    // host already opened this panel for.
+    case 'refresh-prs':
+      return { type: 'refresh-prs' };
     // Payload-free like the panel-level server controls: a companion `enabled`
     // is dropped rather than honored, so the host's value stays authoritative.
     case 'toggle-bind':
@@ -228,6 +245,9 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'merge-pr':
       actions.mergePr(msg.repo);
+      return;
+    case 'refresh-prs':
+      actions.refreshPrs();
       return;
     case 'toggle-bind':
       actions.toggleBind();

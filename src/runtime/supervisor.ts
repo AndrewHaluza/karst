@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { openSync, closeSync, readFileSync, existsSync } from 'node:fs';
+import { openSync, closeSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
 import { isServing, waitForHealth } from './health.js';
 import { killTree } from './processTree.js';
@@ -85,6 +86,10 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     );
   }
 
+  // Logs live in a subdirectory (`serverLogPath`), and a freshly created
+  // worktree has none of it yet. Without this the ENOENT from `openSync` reads
+  // as "the server failed to start", which is a lie about the server.
+  mkdirSync(dirname(opts.logPath), { recursive: true });
   const logFd = openSync(opts.logPath, 'a');
 
   let child;

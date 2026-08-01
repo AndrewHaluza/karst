@@ -39,12 +39,21 @@ describe('checkMergeable', () => {
 
   // Exit 1 is merge-tree's "conflicted", not an error. The paths are the payload —
   // without them the user has a verdict they cannot act on.
+  //
+  // The stdout below is git's REAL layout, captured from `git merge-tree
+  // --write-tree --name-only` (git 2.50): the tree OID and the conflicted paths
+  // are consecutive lines, and the FIRST blank line is what separates them from
+  // the informational messages. A fixture that put a blank line after the OID
+  // instead is what let the parser ship reading the messages as the file list.
   it('reports conflicted with the conflicting paths when merge-tree exits 1', async () => {
     const { git } = scriptedGit({
       ...HEALTHY_PREAMBLE,
       'merge-tree': {
         exitCode: 1,
-        stdout: '9f2c1a0b\n\nsrc/store/db.ts\nsrc/workflow/machine.ts\n',
+        stdout:
+          '9f2c1a0b\nsrc/store/db.ts\nsrc/workflow/machine.ts\n\n' +
+          'Auto-merging src/store/db.ts\n' +
+          'CONFLICT (content): Merge conflict in src/store/db.ts\n',
       },
     });
 
@@ -53,6 +62,38 @@ describe('checkMergeable', () => {
     expect(r.state).toBe('conflicted');
     expect(r.files).toEqual(['src/store/db.ts', 'src/workflow/machine.ts']);
     expect(r.reason).toBeNull();
+  });
+
+  // The failure this parser had: git's own chatter reported as conflicting
+  // paths. The list is what the "Resolve conflicts" brief hands an agent, so a
+  // message read as a filename sends it looking for a file that cannot exist.
+  it('never reports git’s informational messages as conflicting paths', async () => {
+    const { git } = scriptedGit({
+      ...HEALTHY_PREAMBLE,
+      'merge-tree': {
+        exitCode: 1,
+        stdout:
+          '744ed15\nf.txt\n\nAuto-merging f.txt\nCONFLICT (content): Merge conflict in f.txt\n',
+      },
+    });
+
+    const r = await checkMergeable(git, '/wt/fe', 'main');
+
+    expect(r.files).toEqual(['f.txt']);
+  });
+
+  // The tree OID heads every `--write-tree` run, conflicted or not. Emitting it
+  // as a path would put a 40-hex string at the top of the conflict list.
+  it('never reports the tree OID as a conflicting path', async () => {
+    const { git } = scriptedGit({
+      ...HEALTHY_PREAMBLE,
+      'merge-tree': { exitCode: 1, stdout: '744ed15\n\nCONFLICT (modify/delete): f.txt\n' },
+    });
+
+    const r = await checkMergeable(git, '/wt/fe', 'main');
+
+    expect(r.state).toBe('conflicted');
+    expect(r.files).toEqual([]);
   });
 
   // The whole point of the three-valued result: a check that could not run must

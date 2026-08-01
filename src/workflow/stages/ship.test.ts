@@ -101,6 +101,20 @@ function mutating<T extends { args: string[] }>(calls: T[]): T[] {
 }
 
 /**
+ * `git merge-tree --write-tree --name-only` as git actually prints it: the tree
+ * OID, then the conflicted paths on the very next lines, then a blank line, then
+ * git's informational messages. Verbatim from git 2.50 — a fixture that invents
+ * a friendlier layout is what let a parser that read the messages as filenames
+ * pass its own tests.
+ */
+const MERGE_TREE_CONFLICT =
+  '9f2c1a0\nsrc/a.ts\nsrc/b.ts\n\nAuto-merging src/a.ts\n' +
+  'CONFLICT (content): Merge conflict in src/a.ts\n';
+const MERGE_TREE_CONFLICT_ONE =
+  '9f2c1a0\nsrc/a.ts\n\nAuto-merging src/a.ts\n' +
+  'CONFLICT (content): Merge conflict in src/a.ts\n';
+
+/**
  * git that answers the merge probe: fetch works, both refs resolve, merge-tree
  * reports the given outcome. Everything else (status/add/commit/push) succeeds.
  */
@@ -1146,7 +1160,7 @@ setTimeout(() => {
         { ticketId: id },
         gh,
         fakeAdapter(),
-        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\nsrc/b.ts\n' }),
+        gitWithMergeProbe({ exitCode: 1, stdout: MERGE_TREE_CONFLICT }),
       );
 
       const [check] = listMergeChecksByTicket(store, id);
@@ -1167,7 +1181,7 @@ setTimeout(() => {
         { ticketId: id },
         gh,
         fakeAdapter(),
-        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\n' }),
+        gitWithMergeProbe({ exitCode: 1, stdout: MERGE_TREE_CONFLICT_ONE }),
       );
 
       expect(res.prs).toHaveLength(1);
@@ -1210,7 +1224,7 @@ setTimeout(() => {
         { ticketId: id },
         gh,
         fakeAdapter(),
-        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\n' }),
+        gitWithMergeProbe({ exitCode: 1, stdout: MERGE_TREE_CONFLICT_ONE }),
       );
 
       const checks = listMergeChecksByTicket(store, id);
@@ -1369,7 +1383,7 @@ setTimeout(() => {
         { ticketId: id },
         fakeGh().gh,
         fakeAdapter(),
-        gitWithMergeProbe({ exitCode: 1, stdout: '9f2c1a0\n\nsrc/a.ts\n' }),
+        gitWithMergeProbe({ exitCode: 1, stdout: MERGE_TREE_CONFLICT_ONE }),
         (e) => events.push(e),
       );
 

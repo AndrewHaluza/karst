@@ -380,6 +380,18 @@
   .phead{display:flex;align-items:center;gap:8px;min-height:var(--phead-h);padding:8px 14px;
     border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600}
   .phead .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-faint);font-weight:400}
+  /* An icon-only panel control. Quiet until hovered — it sits in a header, not a
+     row of actions, and a filled button there reads as the panel's subject. The
+     hit area stays 22px square regardless of the 13px glyph inside it. */
+  .phead .iconbtn{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;
+    width:22px;height:22px;padding:0;border:none;border-radius:5px;background:transparent;
+    color:var(--text-dim);cursor:pointer}
+  .phead .iconbtn:hover:not(:disabled){background:var(--hover);color:var(--text)}
+  .phead .iconbtn:disabled{opacity:.6;cursor:default}
+  /* Busy: the same glyph, turning — not a swapped-in spinner, which would resize
+     the header mid-refresh. */
+  .phead .iconbtn.busy svg{animation:spin .9s linear infinite}
+  @media (prefers-reduced-motion: reduce){.phead .iconbtn.busy svg{animation:none}}
   .pbody{padding:6px 8px 10px}
   .empty{padding:16px 14px;color:var(--text-faint);font-size:12px}
 
@@ -632,7 +644,10 @@
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
   <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" data-act="show-changes" type="button">Changes</button></div><div class="pbody" id="worktrees"></div></div>
-  <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span></div><div class="pbody" id="prs"></div></div>
+  <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="iconbtn" data-act="refresh-prs" type="button"
+    aria-label="Refresh pull requests" title="Re-check pull request status and mergeability now">
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914l1.09-.508A6.2 6.2 0 1 1 8 1.8V0l3 2.4-3 2.4V3Z"/></svg>
+  </button></div><div class="pbody" id="prs"></div></div>
 </div>
 
 <script>
@@ -683,6 +698,12 @@
   // a one-shot host round trip, and a flag restored from a reload would claim a
   // merge is underway that nobody is running. Cleared on every state push.
   let mergePending = {};
+  // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
+  // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
+  // in which a button with no busy state looks inert and gets pressed again.
+  // Cleared by the next state push (the host always sends one when the refresh
+  // settles, including when nothing moved), so it can never stick.
+  let prRefreshing = false;
   // The window's terminal binding. UNLIKE the view state above, this is NOT a
   // webview concern: it is one host-owned preference shared by every open
   // dashboard, so it is never persisted here — a stored copy could only go
@@ -1178,6 +1199,14 @@
     const byRepo = {};
     for (const m of (mergeChecks || [])) byRepo[m.repo] = m;
     el('prCount').textContent = prs.length ? `${prs.length}` : '';
+    // The refresh stays live even with zero PRs: "none yet" is exactly the answer
+    // a user wants to re-ask right after a ship.
+    const refresh = el('prRefresh');
+    refresh.classList.toggle('busy', prRefreshing);
+    refresh.disabled = prRefreshing;
+    refresh.title = prRefreshing
+      ? 'Re-checking pull requests…'
+      : 'Re-check pull request status and mergeability now';
     el('prs').innerHTML = prs.length ? prs.map((p) => (
       `<div class="prrow"><div class="pr"><span class="pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
       // The DISPLAY path, per the worktree path-display preference — the same
@@ -1367,6 +1396,13 @@
       mergePending = { ...mergePending, [repo]: true };
       render(lastState);
     }
+    // Same reason as the two above: the work is a slow host round trip (gh per
+    // PR, git fetch per repo), so show it landed and stop it repeating.
+    if (act === 'refresh-prs') {
+      if (prRefreshing) return;
+      prRefreshing = true;
+      if (lastState) render(lastState);
+    }
     if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
     else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
     else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
@@ -1407,6 +1443,9 @@
       // or a cancelled confirmation (the host pushes either way). Clearing here is
       // what stops a button sticking on "Merging…" forever.
       mergePending = {};
+      // Likewise the refresh icon: the host pushes state when the sweep settles
+      // even if no verdict moved, precisely so the spin has an end.
+      prRefreshing = false;
       // Never touches selectedStage, so a full re-render preserves the user's
       // selection for free — including during a run, when pushes are frequent.
       render(msg.state);

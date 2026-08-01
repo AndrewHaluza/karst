@@ -436,6 +436,33 @@ describe('server supervisor', () => {
 
     stopServer(store, rec.id);
   });
+
+  // Logs live in a subdirectory now (`<cwd>/.karst/logs/`, which git is told to
+  // ignore) rather than at the working-tree root, and a fresh worktree has no
+  // such directory. `openSync` on a missing parent is ENOENT, so the server that
+  // was about to start would fail to start at all.
+  it('creates the log directory when it does not exist yet', async () => {
+    const port = nextPort();
+    const logPath = join(dir, '.karst', 'logs', 'svc.log');
+    expect(existsSync(join(dir, '.karst', 'logs'))).toBe(false);
+
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath,
+    });
+
+    expect(readFileSync(logPath, 'utf8')).toMatch(/booting on/);
+
+    stopServer(store, rec.id);
+  });
 });
 
 describe('pruneOrphanServers', () => {
