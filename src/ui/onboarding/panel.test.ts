@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import { insertAttachment } from '../../store/attachments.js';
 import { OnboardingManager } from './panel.js';
 import type { OnboardingPanel, OnboardingPanelHost, OnboardingActionsCtx } from './panel.js';
 import type { OnboardingActions } from './messages.js';
+import type { AttachmentView, OnboardingState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import {
@@ -54,6 +56,7 @@ function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
         handlers: [],
         reveal: () => (panel.revealed += 1),
         setIcon: (p) => panel.icons.push(p),
+        toWebviewUri: (p: string) => `webview://${p}`,
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => panel.handlers.push(h),
         onDidDispose: (h) => (panel.disposeHandler = h),
@@ -330,5 +333,75 @@ describe('OnboardingManager', () => {
     panels[0]!.dispose();
     mgr.openCreate();
     expect(panels).toHaveLength(2);
+  });
+});
+
+describe('attachment URI mapping', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  function attachmentPanel(): FakePanel {
+    const ticket = createTicket(store, { key: 'P-ATTACH', title: 'attachments' });
+    insertAttachment(store, {
+      ticketId: ticket.id,
+      kind: 'image',
+      storedName: 'aaaa.png',
+      originalName: 'a.png',
+      byteSize: 4,
+    });
+    insertAttachment(store, {
+      ticketId: ticket.id,
+      kind: 'video',
+      storedName: 'bbbb.mp4',
+      originalName: 'b.mov',
+      byteSize: 8,
+    });
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const manager = new OnboardingManager(
+      store,
+      () => MANIFEST,
+      host,
+      factory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      '/storage',
+    );
+    manager.openEdit(ticket.id);
+    return panels[0]!;
+  }
+
+  function stateAttachments(panel: FakePanel): AttachmentView[] {
+    const state = panel.posted.at(-1) as { type: 'state'; state: OnboardingState };
+    return state.state.attachments;
+  }
+
+  it('maps every attachment src through the panel before posting state', () => {
+    expect(stateAttachments(attachmentPanel())).toEqual([
+      { id: 1, kind: 'image', name: 'a.png', byteSize: 4, src: 'webview:///storage/attachments/1/aaaa.png' },
+      { id: 2, kind: 'video', name: 'b.mov', byteSize: 8, src: 'webview:///storage/attachments/1/bbbb.mp4' },
+    ]);
+  });
+
+  it('maps attachment sources on a request-state refresh too', () => {
+    const panel = attachmentPanel();
+    panel.emit({ type: 'request-state' });
+    expect(stateAttachments(panel).map((attachment) => attachment.src)).toEqual([
+      'webview:///storage/attachments/1/aaaa.png',
+      'webview:///storage/attachments/1/bbbb.mp4',
+    ]);
+  });
+
+  it('posts an empty attachment list unchanged', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+
+    manager.openCreate();
+    expect(stateAttachments(panels[0]!)).toEqual([]);
   });
 });

@@ -40,6 +40,7 @@ export function makeOnboardingPanelHost(context: vscode.ExtensionContext): Onboa
         setIcon: (p: string) => {
           panel.iconPath = vscode.Uri.file(p);
         },
+        toWebviewUri: (p: string) => panel.webview.asWebviewUri(vscode.Uri.file(p)).toString(),
       };
     },
   };

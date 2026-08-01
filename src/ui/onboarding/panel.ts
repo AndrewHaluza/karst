@@ -28,6 +28,15 @@ export interface OnboardingPanel {
   dispose(): void;
   /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
   setIcon(path: string): void;
+  /**
+   * Convert an absolute filesystem path into a URI this webview may load.
+   *
+   * Required because only a real `vscode.Webview` can mint one (`asWebviewUri`),
+   * while `state.ts` — which produces the paths — is host-agnostic and imports no
+   * `vscode`. Same shape as `setIcon(path)`: the manager hands over a path, the
+   * adapter knows what to do with it. Test fakes return the path unchanged.
+   */
+  toWebviewUri(path: string): string;
 }
 
 /** Factory the manager uses to mint panels (real: `createWebviewPanel`). */
@@ -122,6 +131,8 @@ export class OnboardingManager {
     private readonly iconFor?: (ticketId: number) => string | undefined,
     /** Current launch-model catalog, refreshed independently of the manifest. */
     private readonly modelCatalog: () => ModelCatalog = bundledModelCatalog,
+    /** Global storage root used to construct attachment paths for state pushes. */
+    private readonly storageDir?: string,
   ) {}
 
   /**
@@ -174,8 +185,20 @@ export class OnboardingManager {
         boundId,
         this.isSessionOpen,
         this.modelCatalog(),
+        this.storageDir,
       );
-      panel.postMessage({ type: 'state', state });
+      // The state builder emits filesystem paths; only the panel can turn one
+      // into a URI the webview is allowed to load. Mapped here, at the last
+      // moment before the message leaves, so everything upstream stays
+      // host-agnostic.
+      const withWebviewUris: OnboardingState = {
+        ...state,
+        attachments: state.attachments.map((a) => ({
+          ...a,
+          src: panel.toWebviewUri(a.src),
+        })),
+      };
+      panel.postMessage({ type: 'state', state: withWebviewUris });
       // Re-point the tab icon at the bound ticket's live glyph. A create panel
       // stays iconless until `bindTicket` gives it an id.
       const icon = boundId === undefined ? undefined : this.iconFor?.(boundId);
