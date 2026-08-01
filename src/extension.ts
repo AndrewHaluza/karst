@@ -64,6 +64,7 @@ import {
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
+import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -142,6 +143,7 @@ import {
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
   ApproachDef,
+  AgentProvider,
   TicketingConfig,
 } from './manifest/types.js';
 import {
@@ -172,6 +174,7 @@ import {
   listArchivedTickets,
   setAgentState,
   setSessionId,
+  updateTicketOnboarding,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
@@ -216,6 +219,7 @@ import {
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
+import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { WelcomeManager } from './ui/welcome/panel.js';
 import { buildWelcomeActions } from './ui/welcome/actions.js';
@@ -605,13 +609,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * doesn't vary by agent provider, and passing it needlessly risks a
    * `getTicket` throw on a since-deleted ticket.
    */
-  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
-    const ticketProvider =
-      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+  const guardProviderCapability = (
+    capability: Capability,
+    agentProvider: AgentProvider,
+    silent = false,
+  ): boolean => {
     const faults = ensureCapability(
       capability,
-      dependencyRegistry(provider),
+      dependencyRegistry(agentProvider),
       binaryExists,
       commandSucceeds,
     );
@@ -630,6 +635,103 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     }
     return false;
+  };
+
+  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+    const ticketProvider =
+      ticketId === undefined ? undefined : getTicket(localStore, ticketId).agentProvider;
+    return guardProviderCapability(
+      capability,
+      resolveProvider(ticketProvider, currentManifest()?.agentProvider),
+      silent,
+    );
+  };
+
+  /**
+   * Switch-only provider probe. Unlike the activation and ordinary action
+   * guards, this runs from an open dashboard and must never block the shared
+   * extension-host event loop while a candidate CLI answers (or hangs).
+   */
+  const guardProviderCapabilityAsync = async (
+    capability: Capability,
+    agentProvider: AgentProvider,
+  ): Promise<boolean> => {
+    const faults = await ensureCapabilityAsync(capability, dependencyRegistry(agentProvider));
+    if (faults.length === 0) return true;
+    for (const fault of faults) logger.warn(`blocked: '${fault.dep.binary}' is ${fault.state}`);
+    const message = faults
+      .map((fault) => renderDependencyFault(fault.dep, fault.state))
+      .filter((text): text is string => text !== null)
+      .join(' ');
+    void vscode.window.showErrorMessage(message, 'Open setup checklist').then((choice) => {
+      if (choice === 'Open setup checklist') welcome.open();
+    });
+    return false;
+  };
+
+  const switchAgentSession = async (ticketId: number): Promise<void> => {
+    try {
+      const outcome = await runAgentSwitchFlow({
+        read: () => {
+          const ticket = getTicket(localStore, ticketId);
+          return {
+            stageCurrent: ticket.stageCurrent,
+            provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+            ticketModel: ticket.model,
+            defaultModel: currentManifest()?.defaultModel ?? null,
+          };
+        },
+        isSessionOpen: () => sessions.isOpen(ticketId),
+        pickProvider: async (choices, current) => {
+          const picked = await vscode.window.showQuickPick(
+            choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
+            { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
+          );
+          return picked?.provider;
+        },
+        isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
+        pickModel: async (provider, choices) => vscode.window.showQuickPick(
+          choices.map((choice) => ({ ...choice, label: choice.label })),
+          { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
+        ),
+        confirm: async ({ from, to }) => {
+          const choice = await vscode.window.showWarningMessage(
+            `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
+            {
+              modal: true,
+              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+            },
+            'Switch and continue',
+          );
+          return choice === 'Switch and continue';
+        },
+        persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
+          agentProvider: provider,
+          model: model ?? '',
+        }),
+        dispose: () => sessions.disposeSession(ticketId),
+        launch: async (options) => {
+          await vscode.commands.executeCommand('karst.openSession', ticketId, options);
+        },
+      }, modelCatalog);
+
+      if (outcome.kind === 'stale') {
+        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+      } else if (outcome.kind === 'launch-failed') {
+        void vscode.window.showErrorMessage(
+          `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+        );
+      }
+    } catch (error) {
+      logError('agent session switch failed', error);
+      void vscode.window.showErrorMessage(
+        `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
+      );
+    } finally {
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      showStatusFor(ticketId);
+    }
   };
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates
@@ -1163,6 +1265,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         },
         () => changes.open(ticketId),
+        () => void switchAgentSession(ticketId),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
@@ -1203,6 +1306,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       enabled: () => binder.enabled(),
       onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
     },
+    () => ({
+      defaultModel: currentManifest()?.defaultModel ?? null,
+      modelCatalog,
+      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
+    }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
   );
 
@@ -1676,7 +1784,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const adapter = currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!guardCapability('sessions', ticketId)) return;
+      if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -1828,6 +1936,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessionProvider: t.sessionProvider,
         stageCurrent: t.stageCurrent as StageKey,
         provider: launchProvider,
+        allowResume: options.allowResume,
       })
         ? (t.sessionId ?? undefined)
         : undefined;
@@ -2708,6 +2817,9 @@ function makeDashboardActions(
   // Open the host-owned, whole-ticket changes explorer. The dashboard action
   // carries no path because this closure already owns the ticket id.
   showChanges: () => void,
+  // Switch the open session through native VS Code pickers. The closure owns
+  // the ticket id so the webview cannot select a different session.
+  switchAgent: () => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -2778,6 +2890,7 @@ function makeDashboardActions(
       afterServerChange();
     },
     showChanges,
+    switchAgent,
     ...worktreeActions,
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),

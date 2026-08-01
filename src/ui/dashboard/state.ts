@@ -24,8 +24,17 @@ import type { StageKey } from '../../model/types.js';
 import { countFixAttempts } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { bundledModelCatalog } from '../../agent/modelCatalog.js';
+import { buildAgentSessionView, type AgentSessionView } from '../../agent/sessionSwitch.js';
 
 export type { PathContext, StepperCell, NowLine, StageRail, StageInside, PrPanelRow, MergeCheckPanelRow };
+
+export interface DashboardAgentContext {
+  defaultModel?: string | null;
+  modelCatalog?: ModelCatalog;
+  isSessionOpen?: (ticketId: number) => boolean;
+}
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
@@ -34,6 +43,8 @@ export interface DashboardState {
   title: string | null;
   stageCurrent: string | null;
   agentState: string | null;
+  /** Resolved running-session identity and whether an in-place switch is safe. */
+  agentSession: AgentSessionView;
   stepper: StepperCell[];
   /**
    * The stepper cell the ticket currently sits on — the one the "Now" line and
@@ -125,8 +136,19 @@ export function buildDashboardState(
    * "Continue" that would die on a foreign `--resume`).
    */
   defaultProvider?: AgentProvider,
+  /** Live session/model context, injected by the extension host. */
+  agentContext: DashboardAgentContext = {},
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
+  const resolvedProvider = resolveProvider(ticket.agentProvider, defaultProvider);
+  const agentSession = buildAgentSessionView({
+    provider: resolvedProvider,
+    ticketModel: ticket.model,
+    defaultModel: agentContext.defaultModel ?? null,
+    catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
+    stageCurrent: ticket.stageCurrent,
+    sessionOpen: agentContext.isSessionOpen?.(ticketId) ?? false,
+  });
   const stepper = buildStepper(ticket.stages);
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
@@ -158,13 +180,14 @@ export function buildDashboardState(
     title: ticket.title,
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
+    agentSession,
     stepper,
     currentStage,
     now: buildNowLine(currentStage, {
       fixAttempts,
       sessionAction: sessionAction(
         ticket,
-        resolveProvider(ticket.agentProvider, defaultProvider),
+        resolvedProvider,
       ),
     }),
     servers: listServersByTicket(store, ticketId),

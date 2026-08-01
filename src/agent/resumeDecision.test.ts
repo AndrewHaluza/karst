@@ -71,4 +71,19 @@ describe('shouldResumeSession', () => {
       }),
     ).toBe(false);
   });
+
+  // A switch launch must be fresh even if an earlier conversation belongs to
+  // the newly selected provider. Otherwise A→B→A before B's SessionStart can
+  // resurrect the retired A conversation from the still-captured session id.
+  it('honors a host-only fresh-launch signal without changing ordinary continue behavior', () => {
+    const sameProviderSession = {
+      sessionId: 'retired-claude-session',
+      sessionProvider: 'claude' as const,
+      stageCurrent: 'impl' as const,
+      provider: 'claude' as const,
+    };
+
+    expect(shouldResumeSession(sameProviderSession)).toBe(true);
+    expect(shouldResumeSession({ ...sameProviderSession, allowResume: false })).toBe(false);
+  });
 });

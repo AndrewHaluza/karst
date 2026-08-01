@@ -368,6 +368,13 @@
     border-top:1px solid var(--border);font-size:12px;color:var(--text)}
   .now .ntext{flex:1}
   .now .now-sub{flex-basis:100%;font-size:11px;color:var(--text-dim)}
+  .now .switch-agent{
+    color:var(--vscode-button-secondaryForeground,var(--vscode-button-foreground));
+    background:var(--vscode-button-secondaryBackground,var(--vscode-button-background));
+  }
+  .now .switch-agent:hover{
+    background:var(--vscode-button-secondaryHoverBackground,var(--vscode-button-hoverBackground));
+  }
   /* The ship-in-progress spinner rides in the Now line at the gate-node size.
      .spin is display:block, so it needs an explicit box here. */
   .now .spin{width:13px;height:13px;flex:none;color:var(--st-running)}
@@ -979,7 +986,7 @@
   // is a label concern only — the button always reaches the one entry point.
   const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket', session: 'resume-ticket' };
 
-  function renderNow(now) {
+  function renderNow(now, agentSession) {
     // While a ship is in flight, the real per-step progress lives in the Inside
     // block; this line is a static sentence, never a spinner label — and no
     // button, since the confirm click already happened (no second one to make).
@@ -991,14 +998,23 @@
     const a = line.action;
     const type = a && NOW_MESSAGE[a.kind];
     const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
+    const switchAction = agentSession && agentSession.canSwitch
+      ? '<button class="switch-agent" data-act="switch-agent">Switch agent…</button>'
+      : '';
+    const identity = agentSession
+      ? `${agentSession.providerLabel} · ${agentSession.modelLabel}`
+      : '';
     // A brief success flash beside the settled line once a ship resolves — the
     // clear "it worked" beat before the dashboard shows the done state.
     const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
-    const sub = a && a.kind === 'session' && a.detail
-      ? `<div class="now-sub">${esc(a.detail)}</div>`
+    const detail = a && a.kind === 'session' && a.detail ? a.detail : '';
+    const subtitle = [detail, identity].filter(Boolean).join(' · ');
+    const sub = subtitle
+      ? `<div class="now-sub">${esc(subtitle)}</div>`
       : '';
     el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
       + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '')
+      + switchAction
       + sub;
   }
 
@@ -1347,7 +1363,7 @@
     renderInside(shippingView(state, sel), sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
-    renderNow(state.now);
+    renderNow(state.now, state.agentSession);
     renderServers(state);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
