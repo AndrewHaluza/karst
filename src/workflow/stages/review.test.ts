@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
-import { runReview, type GateRunner } from './review.js';
+import { runReview, makeGateRunner, ReviewAskedNothingError, type GateRunner } from './review.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
 import type { GitRunner } from '../../integrations/git.js';
@@ -83,8 +83,12 @@ describe('runReview', () => {
   });
 
   it('the artifact says a gate was skipped rather than claiming it passed', async () => {
+    // A skipped gate alongside one that ran — an all-skipped run is its own
+    // case (`ReviewAskedNothingError`, see below), so this fixture keeps one
+    // gate answered to isolate the artifact-formatting behavior under test.
     const gates: GateRunner = async () => [
       { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
+      { name: 'typecheck', exitCode: 0, output: 'ok' },
     ];
     const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
     expect(readFileSync(res.artifactPath, 'utf8')).toContain('# lint (skipped)');
@@ -124,8 +128,11 @@ describe('runReview', () => {
   });
 
   it('records a skipped gate as null, never as a pass', async () => {
+    // Same reasoning as above: keep one gate answered so this exercises a
+    // *mixed* skip, not the all-skipped case `ReviewAskedNothingError` covers.
     const gates: GateRunner = async () => [
       { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
+      { name: 'typecheck', exitCode: 0, output: 'ok' },
     ];
     await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
     expect(listGateRuns(store, id)[0]!.exitCode).toBeNull();
@@ -150,6 +157,45 @@ describe('runReview', () => {
     // zero-length run rather than as "karst had nothing to ask".
     expect(test!.startedAt).toBeNull();
     expect(test!.endedAt).toBeNull();
+  });
+
+  it('refuses to pass when every gate was skipped', async () => {
+    // G1: a run whose gates are all `null` learned nothing about the ticket's
+    // code and must not report a green verdict.
+    const gates: GateRunner = async () => [
+      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
+      { name: 'typecheck', exitCode: null, output: 'no "typecheck" script in package.json' },
+      { name: 'test', exitCode: null, output: 'no "test" script in package.json' },
+    ];
+    await expect(
+      runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never),
+    ).rejects.toThrow(ReviewAskedNothingError);
+    expect(getTicket(store, id).stageCurrent).toBe('review'); // never advanced
+    expect(listGateRuns(store, id)).toEqual([]); // no evidence for a run that asked nothing
+  });
+
+  it('fails, rather than skips, when package.json is malformed', async () => {
+    // G2: `readPackageScripts` used to collapse a malformed package.json into
+    // `{}` — the same answer as "no scripts defined" — so a repository defect
+    // an agent could actually fix silently skipped every gate instead of
+    // failing. `probeScripts` distinguishes the two; review must surface it.
+    const cwd = mkdtempSync(join(tmpdir(), 'karst-review-malformed-'));
+    writeFileSync(join(cwd, 'package.json'), '{ not json');
+    try {
+      const res = await runReview(
+        store,
+        { ticketId: id, cwd, artifactDir },
+        makeGateRunner(),
+        openDiff as never,
+      );
+      expect(res.verdict.kind).toBe('failed');
+      expect(res.gates).toEqual([
+        expect.objectContaining({ name: 'package.json', exitCode: 1 }),
+      ]);
+      expect(getTicket(store, id).stageCurrent).toBe('fix');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('leaves no gate rows behind when the transition throws', async () => {
@@ -196,23 +242,29 @@ describe('runReview', () => {
       });
     }
 
-    it('runs no checks when no repo changed and no relation is affected', async () => {
+    it('refuses to pass when no target resolved', async () => {
+      // OLD ASSERTION (pinned the bug, G1): this test used to assert
+      // `result.verdict` equalled `{ kind: 'passed' }` with the runner never
+      // called — i.e. it locked in that a review touching zero repositories
+      // ships as green. That is exactly the vacuous pass this task closes:
+      // "asked nothing" must never read as "passed".
       seed('/repos/api', '/wt/api');
       seed('/repos/web', '/wt/web');
       const runner = vi.fn(PASS_GATES);
 
-      const result = await runReview(
-        store,
-        { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
-        runner,
-        openDiff as never,
-        changed(),
-      );
+      await expect(
+        runReview(
+          store,
+          { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
+          runner,
+          openDiff as never,
+          changed(),
+        ),
+      ).rejects.toThrow(ReviewAskedNothingError);
 
       expect(runner).not.toHaveBeenCalled();
       expect(openDiff).not.toHaveBeenCalled();
-      expect(result.gates).toEqual([]);
-      expect(result.verdict).toEqual({ kind: 'passed' });
+      expect(getTicket(store, id).stageCurrent).toBe('review'); // never reached ship
     });
 
     it('checks a directly changed repo and each relation-impacted dependent only', async () => {

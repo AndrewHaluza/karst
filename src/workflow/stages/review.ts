@@ -6,7 +6,8 @@ import { setStage, stageAttempt } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { transition } from '../machine.js';
 import { nowIso } from '../../model/time.js';
-import { REVIEW_GATES, readPackageScripts } from '../gates/scripts.js';
+import { REVIEW_GATES } from '../gates/scripts.js';
+import { probeScripts } from '../gates/probe.js';
 import { runCommand } from '../gates/run.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -49,15 +50,60 @@ export interface ReviewOutcome {
 }
 
 /**
+ * Review asked no question about this ticket's code: every gate came back
+ * `null` (nothing changed, no relation was affected, or the repo defines none
+ * of the review scripts), so there is nothing a `passed` verdict could mean.
+ *
+ * Thrown, not returned — deliberately and temporarily. `runReview` still
+ * returns `ReviewOutcome` for every other path (this task predates the
+ * `StageRunResult` refactor); a thrown error is louder than a silent green in
+ * the meantime. Task 6 converts this into `{kind:'blocked',
+ * blocker:'nothing-to-run', reason}` once `runReview` itself returns
+ * `StageRunResult`, and deletes this class — it is exported now only so that
+ * task can catch it by type.
+ */
+export class ReviewAskedNothingError extends Error {
+  constructor(
+    public readonly ticketId: number,
+    reason: string,
+  ) {
+    super(`review asked nothing about ticket ${ticketId}: ${reason}`);
+    this.name = 'ReviewAskedNothingError';
+  }
+}
+
+/**
  * Default gate runner: lint, typecheck, tests — each via npm scripts, and each
  * run ONLY if the repo defines that script. A gate whose script is absent is
  * skipped, not failed: `npm run lint` in a repo with no lint script exits 1 with
  * "Missing script", which would park every such ticket at fix forever — an
  * unwinnable loop, since the agent cannot fix code that is not broken.
+ *
+ * A malformed package.json is different: unlike "no lint script", it is a
+ * repository defect an agent CAN fix, so it must fail rather than skip — it
+ * short-circuits the whole gate list (there is no script list to trust) and
+ * reports as its own `package.json` gate, exit 1 (mirrors `uat.ts`'s
+ * malformed-package.json handling).
  */
 export function makeGateRunner(): GateRunner {
   return async (cwd) => {
-    const scripts = readPackageScripts(cwd);
+    const probe = probeScripts(cwd);
+    if (probe.kind === 'malformed') {
+      const at = nowIso();
+      return [
+        {
+          name: 'package.json',
+          exitCode: 1,
+          output: `package.json is malformed — ${probe.message}`,
+          startedAt: at,
+          endedAt: at,
+        },
+      ];
+    }
+    // `absent` and `io-error` both fall through to "no scripts": a missing
+    // file is normal, and an unreadable one is environmental — neither is a
+    // code defect an agent can act on, unlike `malformed`.
+    const scripts = probe.kind === 'ok' ? probe.scripts : {};
     // Sequential, not `Promise.all`: three npm scripts racing in one worktree
     // fight over the same node_modules/build output, and their interleaved
     // output would land in one artifact log unreadable. Each still runs async,
@@ -111,10 +157,17 @@ export async function runReview(
     openDiff(opts.ticketId, target.path);
   }
 
-  // Evidence remains one row per conventional gate name. When several affected
-  // repositories answer the same gate, any failure fails that gate and their
-  // outputs are grouped in its artifact section.
-  const gates = REVIEW_GATES.flatMap(({ name }) => {
+  // Evidence remains one row per gate name. When several affected repositories
+  // answer the same gate, any failure fails that gate and their outputs are
+  // grouped in its artifact section. The name set is REVIEW_GATES plus
+  // whatever else a target reported (e.g. `makeGateRunner`'s `package.json`
+  // row for a malformed manifest) — a fixed REVIEW_GATES-only list would
+  // silently drop that row from evidence and the verdict alike.
+  const gateNames = [
+    ...REVIEW_GATES.map(({ name }) => name),
+    ...new Set(targetRuns.flatMap((run) => run.gates.map((gate) => gate.name))),
+  ].filter((name, index, names) => names.indexOf(name) === index);
+  const gates = gateNames.flatMap((name) => {
     const answers = targetRuns.flatMap((run) =>
       run.gates
         .filter((gate) => gate.name === name)
@@ -131,6 +184,21 @@ export async function runReview(
       endedAt: [...ran].reverse().map(({ gate }) => gate.endedAt).find((value) => value !== undefined),
     }];
   });
+
+  // G1/G3(c): a run that asked nothing — no target resolved at all, or every
+  // gate every target reported came back `null` — must never reach a verdict.
+  // A green here would mean "ship it" about code review never looked at.
+  // Checked before any side effect (artifact file, gate evidence, attempt)
+  // so a run that asked nothing leaves none behind. Task 6 turns this throw
+  // into `{kind:'blocked', blocker:'nothing-to-run', reason}`.
+  if (gates.every((g) => g.exitCode === null)) {
+    throw new ReviewAskedNothingError(
+      opts.ticketId,
+      gates.length === 0
+        ? 'no target resolved — nothing changed and no relation is affected'
+        : 'every gate was skipped',
+    );
+  }
 
   mkdirSync(opts.artifactDir, { recursive: true });
   const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
