@@ -6,6 +6,7 @@ import type { OnboardingPanel, OnboardingPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
+import { attachmentsRoot } from '../../attachments/paths.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -26,10 +27,18 @@ export function makeOnboardingPanelHost(context: vscode.ExtensionContext): Onboa
         'karst.onboarding',
         title,
         vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true },
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          // The HTML is inlined, so attachment media is the only local content
+          // this panel needs. Keep the grant narrower than VS Code's defaults.
+          localResourceRoots: [
+            vscode.Uri.file(attachmentsRoot(context.globalStorageUri.fsPath)),
+          ],
+        },
       );
       // Nonce per panel, not per host (the html above is built once and reused).
-      panel.webview.html = injectCsp(html, newNonce());
+      panel.webview.html = injectCsp(html, newNonce(), panel.webview.cspSource);
       return {
         reveal: () => panel.reveal(),
         postMessage: (message) => void panel.webview.postMessage(message),

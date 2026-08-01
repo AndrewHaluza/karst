@@ -179,6 +179,7 @@ import { resolveProjectSlug } from './project/slug.js';
 import { OnboardingManager } from './ui/onboarding/panel.js';
 import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
+import { reapAttachments } from './attachments/reap.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -808,6 +809,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError,
     tabIconFor,
     () => modelCatalog,
+    context.globalStorageUri.fsPath,
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -2096,6 +2098,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (choice !== 'Delete') return;
       deleteTicket(localStore, ticketId);
+      // Attachment rows cascade with the ticket; their bytes are outside the
+      // store and are removed asynchronously by the activation layer.
+      void reapAttachments(context.globalStorageUri.fsPath, ticketId).catch((err: unknown) =>
+        logger.warn(`could not remove attachments for ticket ${ticketId}: ${String(err)}`),
+      );
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {
