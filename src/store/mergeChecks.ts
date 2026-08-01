@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { CURRENT_PR_ORDER } from './prs.js';
 import type { MergeCheck, MergeState } from '../workflow/mergeCheck.js';
 
 /**
@@ -8,7 +9,7 @@ import type { MergeCheck, MergeState } from '../workflow/mergeCheck.js';
  * state, not evidence of a past event. A merge check answers "can this land
  * today", and both refs it depends on keep moving, so an old row is not weaker
  * evidence — it is a wrong answer stated with full confidence. Re-checking
- * overwrites.
+ * overwrites, and a row whose PR has landed is not read at all (`PR_NOT_MERGED`).
  */
 export interface MergeCheckRow {
   ticketId: number;
@@ -68,6 +69,43 @@ function parseState(raw: string): MergeState {
   return STATES.includes(raw as MergeState) ? (raw as MergeState) : 'unknown';
 }
 
+/**
+ * Keep only the repos whose merge state is still a live question.
+ *
+ * A merged PR is the one state that ends the question for good, and it also ends
+ * this row's ability to answer it: `syncMergeChecks` refreshes through
+ * `listSyncablePrs`, which drops merged PRs on purpose (a merged PR cannot move
+ * again), so the last pre-merge verdict is frozen the moment it stops being true.
+ * Nothing overwrites it and nothing ever will — the dashboard went on showing
+ * `conflicted · 2 files · Resolve conflicts` beside a PR row reading `merged`,
+ * and the Resolve button opened a session to rebase a branch already landed.
+ *
+ * Filtered on READ rather than deleted when the PR merges, and both halves of
+ * that matter. A delete only fires on the transition, so every row already
+ * stranded in a user's DB — the ones that produced the bug report — would stay;
+ * this heals them on the next refresh, and migrations may not backfill state they
+ * cannot derive. It also cannot go stale itself: `prs.status` is re-probed, so the
+ * answer is recomputed from current state every time it is asked.
+ *
+ * Absence, not a substitute verdict: a landed branch has no mergeability, and
+ * every consumer already renders a missing row as nothing rather than as `clean`.
+ * The repo's PR row is what states the outcome.
+ *
+ * Scoped to the repo's CURRENT PR (`CURRENT_PR_ORDER`, the same rule
+ * `findTicketPr` applies), so a repo re-shipped after a merge — which holds both
+ * the merged row and a new open one — keeps reporting for the open PR. A repo
+ * with no PR at all is NOT a merged repo: `ship` records a check per worktree
+ * whether or not opening the PR succeeded, and that verdict must survive.
+ */
+const PR_NOT_MERGED = `
+    COALESCE((SELECT p.status
+                FROM prs p
+               WHERE p.ticket_id = merge_checks.ticket_id
+                 AND p.repo = merge_checks.repo
+                 AND p.url IS NOT NULL
+               ${CURRENT_PR_ORDER}
+               LIMIT 1), '') <> 'merged'`;
+
 function rowToMergeCheck(r: MergeCheckDbRow): MergeCheckRow {
   return {
     ticketId: r.ticket_id,
@@ -124,31 +162,39 @@ export function setMergeCheck(store: Store, check: MergeCheckInput): void {
 }
 
 /**
- * One repo's current merge state, or null when it was never checked.
+ * One repo's current merge state, or null when there is none to state.
  *
- * Null is the honest answer for "never asked" and must stay distinguishable from
- * a recorded verdict: the post-ship sweep reads this to decide whether a stored
- * answer is fresh enough to skip, and treating a missing row as `clean` would
- * skip the very repo nobody has ever probed.
+ * Null is the honest answer both for "never asked" and for a repo whose PR has
+ * landed (see `PR_NOT_MERGED`), and it must stay distinguishable from a recorded
+ * verdict: the post-ship sweep reads this to decide whether a stored answer is
+ * fresh enough to skip, and treating a missing row as `clean` would skip the very
+ * repo nobody has ever probed. The sweep never reaches a merged PR anyway —
+ * `listSyncablePrs` drops it before this is asked.
  */
 export function getMergeCheck(store: Store, ticketId: number, repo: string): MergeCheckRow | null {
   const row = store.db
     .prepare(
       `SELECT ticket_id, repo, state, files, reason, head_sha, base_sha, base_ref, checked_at
          FROM merge_checks
-        WHERE ticket_id = ? AND repo = ?`,
+        WHERE ticket_id = ? AND repo = ?
+          AND ${PR_NOT_MERGED}`,
     )
     .get(ticketId, repo) as MergeCheckDbRow | undefined;
   return row ? rowToMergeCheck(row) : null;
 }
 
-/** Every repo's current merge state for a ticket, ordered by repo for stable rendering. */
+/**
+ * Every repo's current merge state for a ticket, ordered by repo for stable
+ * rendering. Repos whose PR has landed are absent, not `clean` — see
+ * `PR_NOT_MERGED`.
+ */
 export function listMergeChecksByTicket(store: Store, ticketId: number): MergeCheckRow[] {
   return store.db
     .prepare(
       `SELECT ticket_id, repo, state, files, reason, head_sha, base_sha, base_ref, checked_at
          FROM merge_checks
         WHERE ticket_id = ?
+          AND ${PR_NOT_MERGED}
         ORDER BY repo`,
     )
     .all(ticketId)

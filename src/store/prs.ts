@@ -108,6 +108,18 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
     );
 }
 
+/**
+ * Which of a repo's PR rows is the CURRENT one.
+ *
+ * A repo can hold several: `ship` inserts a fresh row rather than reusing a
+ * terminal one, so a repo re-shipped after a merge carries both the merged PR and
+ * the new open one. An open PR is the current one; otherwise the newest number
+ * wins. Shared so that "which PR is this repo's PR" has exactly one answer —
+ * `mergeChecks.ts` asks the same question to decide whether its stored verdict
+ * still describes anything.
+ */
+export const CURRENT_PR_ORDER = `ORDER BY CASE WHEN p.status = 'open' THEN 0 ELSE 1 END, p.number DESC`;
+
 /** One repo's PR on a ticket, with the worktree path gh must run in. */
 export interface TicketPr {
   ticketId: number;
@@ -137,7 +149,7 @@ export function findTicketPr(store: Store, ticketId: number, repo: string): Tick
          FROM prs p
          JOIN worktrees w ON w.ticket_id = p.ticket_id AND w.repo = p.repo
         WHERE p.ticket_id = ? AND p.repo = ? AND p.url IS NOT NULL
-        ORDER BY CASE WHEN p.status = 'open' THEN 0 ELSE 1 END, p.number DESC
+        ${CURRENT_PR_ORDER}
         LIMIT 1`,
     )
     .get(ticketId, repo) as
