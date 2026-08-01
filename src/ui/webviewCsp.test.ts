@@ -98,3 +98,39 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
     expect(nonceOf(injectCsp(html, newNonce()))).not.toBe(nonceOf(injectCsp(html, newNonce())));
   });
 });
+
+describe('media source', () => {
+  const SOURCE = 'vscode-resource://karst';
+
+  it('omits img-src and media-src when no media source is given', () => {
+    const html = injectCsp(read('onboarding'), newNonce());
+    expect(html).not.toContain('img-src');
+    expect(html).not.toContain('media-src');
+  });
+
+  it('grants img-src and media-src to exactly the given source', () => {
+    const html = injectCsp(read('onboarding'), newNonce(), SOURCE);
+    expect(html).toContain(`img-src ${SOURCE};`);
+    expect(html).toContain(`media-src ${SOURCE};`);
+  });
+
+  // Widening for attachments must not weaken anything else. default-src stays
+  // 'none' and script-src stays nonce-only — an img-src grant is not a reason to
+  // let a script in.
+  it('leaves the rest of the policy untouched when widened', () => {
+    const nonce = newNonce();
+    const html = injectCsp(read('onboarding'), nonce, SOURCE);
+    expect(html).toContain("default-src 'none';");
+    expect(html).toContain(`script-src 'nonce-${nonce}';`);
+    expect(html).not.toContain("script-src 'unsafe-inline'");
+    expect(html).not.toContain("default-src 'self'");
+  });
+
+  it('never widens a webview that was not given a source', () => {
+    for (const name of WEBVIEWS) {
+      const html = injectCsp(read(name), newNonce());
+      expect(html, name).not.toContain('img-src');
+      expect(html, name).not.toContain('media-src');
+    }
+  });
+});
