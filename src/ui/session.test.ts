@@ -529,6 +529,40 @@ describe('SessionManager', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  // A revived terminal is the live agent; the map is only this host's bookkeeping
+  // and is empty after a reload. Nudging had no adoption step, so a failed gate
+  // opened a SECOND agent beside the one still sitting at its prompt.
+  it('nudges a revived terminal this host has not tracked yet', () => {
+    const revived = fakeRestored(7);
+    const { host } = fakeHost([revived]);
+    const adopted: Array<[number, string | undefined]> = [];
+    const mgr = new SessionManager(
+      host,
+      channelFor,
+      undefined,
+      undefined,
+      undefined,
+      (ticketId, id) => adopted.push([ticketId, id]),
+    );
+
+    expect(mgr.nudge(7, 'the uat gate failed')).toBe(true);
+    expect(revived.terminal.sent).toEqual(['the uat gate failed']);
+    // The nudge is automated: it must never yank the user out of what they are doing.
+    expect(revived.terminal.shown).toBe(0);
+    expect(mgr.isOpen(7)).toBe(true);
+    expect(adopted).toEqual([[7, undefined]]);
+  });
+
+  it('does not nudge a revived terminal whose agent already exited', () => {
+    const revived = { ...fakeRestored(7), exited: true };
+    const { host } = fakeHost([revived]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.nudge(7, 'the uat gate failed')).toBe(false);
+    expect(revived.terminal.sent).toEqual([]);
+    expect(mgr.isOpen(7)).toBe(false);
+  });
+
   it('nudge sends one line — a newline would submit the prompt half-typed', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
