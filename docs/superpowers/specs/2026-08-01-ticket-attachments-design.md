@@ -78,6 +78,12 @@ must resolve the same attachment.
   write, and return the row to insert. Failures are named, never silent.
 - **`reap.ts`** — recursive removal of a ticket's attachment directory.
 
+Every fs call in these modules is **async** (`node:fs/promises`, streamed
+hashing). This is not stylistic: a several-hundred-megabyte video hashed and
+copied synchronously would block the extension host's event loop, which the hook
+endpoint, every webview, and the whole UI share — the same invariant that bans
+`spawnSync` on the gate path.
+
 `src/store/attachments.ts` holds the SQL — `listAttachments`,
 `insertAttachment`, `deleteAttachment`. Driver-agnostic: positional `?` only,
 no named params, no `.pluck()`, because the `karst context` CLI reads this table
