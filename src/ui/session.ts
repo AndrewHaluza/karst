@@ -456,9 +456,16 @@ export class SessionManager {
    * Reveal an already-open session; no-op if the ticket has none. Never creates
    * one: the dashboard binding calls this on an ordinary panel activation, and
    * launching an agent must stay an explicit act.
+   *
+   * Returns whether a terminal was revealed. The binding needs to know: a reveal
+   * that happened raises an activation event, and one that did not raises
+   * nothing to wait for.
    */
-  focusSession(ticketId: number, preserveFocus?: boolean): void {
-    this.terminals.get(ticketId)?.terminal.show(preserveFocus);
+  focusSession(ticketId: number, preserveFocus?: boolean): boolean {
+    const tracked = this.terminals.get(ticketId);
+    if (!tracked) return false;
+    tracked.terminal.show(preserveFocus);
+    return true;
   }
 
   /** Whether a session terminal is currently open for a ticket. */
