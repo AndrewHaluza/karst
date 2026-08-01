@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -105,6 +105,27 @@ describe('runContextCommand', () => {
     expect(md).toContain('## Attachments');
     expect(md).toContain(
       join('/storage', 'attachments', String(ticketId), 'aaaa1111bbbb2222.png'),
+    );
+  });
+
+  it('resolves attachment paths when the registry file path is relative', () => {
+    const ticketId = createTicket(store, { key: 'K-relative', title: 'has media' }).id;
+    insertAttachment(store, {
+      ticketId,
+      kind: 'image',
+      storedName: 'aaaa1111bbbb2222.png',
+      originalName: 'shot.png',
+      byteSize: 12,
+    });
+
+    const md = runContextCommand(
+      store,
+      undefined,
+      { key: 'K-relative', format: 'md' },
+      'karst.db',
+    );
+    expect(md).toContain(
+      join(resolve('.'), 'attachments', String(ticketId), 'aaaa1111bbbb2222.png'),
     );
   });
 

@@ -38,3 +38,31 @@
 ## Concerns
 
 None. The full suite emitted its existing Node SQLite experimental warnings and legacy-manifest migration warnings, but all tests passed.
+
+## Fix round 1/5
+
+### Change
+
+- Resolved the CLI registry directory with `resolve(dirname(dbPath))` before passing it to the shared ticket-context builder. A relative `--db karst.db` therefore produces absolute attachment paths rooted at the current working directory, preserving the `TicketContextAttachment.path` contract.
+- Added the CLI regression test for a relative database path.
+
+### Covering test
+
+- `src/cli/context.test.ts` — `resolves attachment paths when the registry file path is relative`.
+
+### Evidence
+
+1. RED: `npx vitest run src/cli/context.test.ts`
+   - The new test failed: rendered path was `attachments/1/aaaa1111bbbb2222.png` instead of an absolute path.
+2. GREEN: `npx vitest run src/cli/context.test.ts src/context/ticketContext.test.ts && npm run typecheck`
+   - 2 files passed, 34 tests passed; typecheck passed.
+3. Full verification: `npm test && npm run typecheck && git diff --check`
+   - 210 files passed, 2,857 tests passed; typecheck and diff check passed.
+
+### Self-review
+
+- `resolve` is applied only to the storage root at the CLI boundary. The builder and renderer remain shared by CLI and extension, and absolute database paths retain their existing output.
+
+### Concerns
+
+None. The full suite emitted its existing Node SQLite experimental warnings and legacy-manifest migration warnings, but all tests passed.

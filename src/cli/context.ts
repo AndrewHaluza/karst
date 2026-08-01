@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { resolveTicketByKey } from './resolveTicket.js';
@@ -77,7 +77,7 @@ export function runContextCommand(
   if (!ticket) {
     throw new Error(`no ticket found for key '${parsed.key}'`);
   }
-  const storageDir = dbPath === undefined ? undefined : dirname(dbPath);
+  const storageDir = dbPath === undefined ? undefined : resolve(dirname(dbPath));
   const ctx = buildTicketContext(store, manifest, ticket.id, storageDir);
   return parsed.format === 'md' ? renderTicketContext(ctx) : JSON.stringify(ctx, null, 2);
 }
