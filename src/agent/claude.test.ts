@@ -165,6 +165,44 @@ describe('buildInteractiveCommand initialPrompt', () => {
     expect(cmd.args).toEqual(['--plugin-dir', '/plug', '--', 'go']);
   });
 
+  it('threads --name so the agent session matches the terminal display name', () => {
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      sessionName: 'Karst: PROJ-42 — Fix login',
+      initialPrompt: 'go',
+    });
+    expect(cmd.args).toEqual(['--name', 'Karst: PROJ-42 — Fix login', '--', 'go']);
+  });
+
+  it('sanitizes an unbounded ticket title before it reaches --name', () => {
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      sessionName: 'Karst: PROJ-42 — line one\nline two',
+    });
+    expect(cmd.args).toEqual(['--name', 'Karst: PROJ-42 — line one line two']);
+  });
+
+  it('omits --name when no session name is given (or it is blank)', () => {
+    expect(adapter.buildInteractiveCommand({ cwd: '/wt' }).args).not.toContain('--name');
+    expect(
+      adapter.buildInteractiveCommand({ cwd: '/wt', sessionName: '  ' }).args,
+    ).not.toContain('--name');
+  });
+
+  it('names a resumed session too, so a renamed ticket does not keep a stale label', () => {
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      resume: 'sess-1',
+      sessionName: 'Karst: PROJ-42 — Fix login',
+    });
+    expect(cmd.args).toEqual([
+      '--resume',
+      'sess-1',
+      '--name',
+      'Karst: PROJ-42 — Fix login',
+    ]);
+  });
+
   it('threads --model when a model is given (before the positional seed)', () => {
     const cmd = adapter.buildInteractiveCommand({
       cwd: '/wt',

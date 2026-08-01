@@ -1,0 +1,300 @@
+<!--
+  Karst token-usage webview (§ token consumption stats). Self-contained: no
+  external assets (the webview CSP forbids them). Renders from the `state`
+  postMessage the host pushes (state.ts → UsageState) and posts filter intent
+  back (messages.ts → UsageWebviewMessage).
+
+  It decides NOTHING. Every count arrives pre-formatted, every label
+  pre-resolved, every share pre-computed — the same split the dashboard uses,
+  because a number formatted here would be a second implementation of a rule
+  that already lives host-side. The only local state is which control has focus.
+
+  Styles are the dashboard's: the same VS Code palette variables, the same panel
+  frame, the same mono numerals, so the two views read as one product.
+-->
+<!--KARST_CSP-->
+<style>
+  :root{
+    --border:var(--vscode-panel-border);
+    --hover:var(--vscode-list-hoverBackground);
+    --text:var(--vscode-foreground);
+    --text-dim:var(--vscode-descriptionForeground,var(--vscode-foreground));
+    --text-faint:var(--vscode-disabledForeground,var(--vscode-descriptionForeground));
+    --link:var(--vscode-textLink-foreground);
+    --panel-bg:var(--vscode-editorWidget-background,var(--vscode-editor-background));
+    --accent:var(--vscode-charts-blue,#3794ff);
+    --accent-2:var(--vscode-charts-purple,#8a63d2);
+    --warn:var(--vscode-charts-yellow,#cca700);
+    --bad:var(--vscode-charts-red,#f14c4c);
+    --phead-h:39px;
+    --mono:var(--vscode-editor-font-family,"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace);
+    --ui:var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--vscode-editor-background);color:var(--text);
+    font-family:var(--ui);font-size:var(--vscode-font-size,13px);padding:22px 26px}
+  button{font-family:inherit;cursor:pointer;color:var(--vscode-button-foreground);
+    background:var(--vscode-button-background);border:none;border-radius:5px;padding:3px 9px;font-size:11px}
+  button:hover{background:var(--vscode-button-hoverBackground,var(--vscode-button-background))}
+  button:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
+  .hidden{display:none}
+
+  .uhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .uhead h1{font-size:17px;margin:0}
+  .uhead .sub{color:var(--text-dim);font-size:11.5px}
+  /* The range picker sits at the right of the header for the same reason the
+     dashboard's binding toggle does: it changes what every number below means,
+     so it must be visible from anywhere on the page without scrolling. */
+  .ranges{margin-left:auto;display:flex;gap:4px}
+  .ranges button{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
+  .ranges button:hover{background:var(--hover);color:var(--text)}
+  .ranges button[aria-pressed="true"]{color:var(--vscode-button-foreground);
+    background:var(--vscode-button-background);border-color:transparent}
+
+  .err{border:1px solid var(--bad);border-radius:8px;padding:9px 12px;margin-bottom:14px;
+    color:var(--bad);font-size:12px}
+
+  /* Totals strip. Fixed minimum column so a 1.2M and a 3 sit in the same grid. */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:18px}
+  .stat{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);padding:10px 12px}
+  .stat .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-dim)}
+  .stat .v{font-family:var(--mono);font-size:20px;margin-top:3px;line-height:1.15}
+  .stat .n{font-size:10.5px;color:var(--text-faint);margin-top:2px;min-height:13px}
+  .stat.flag .v{color:var(--warn)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+  @media (max-width:720px){.grid{grid-template-columns:1fr}}
+  .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
+  .phead{min-height:var(--phead-h);display:flex;align-items:center;gap:8px;
+    padding:0 12px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600}
+  .phead .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-dim);font-weight:400}
+  .pbody{padding:6px 12px 10px}
+
+  /* One breakdown row: label, bar, count. The bar is the comparison; the number
+     is the answer. Width comes from state.share — never computed here. */
+  .brow{padding:6px 0}
+  .brow + .brow{border-top:1px solid var(--border)}
+  .brow .line{display:flex;align-items:baseline;gap:8px}
+  .brow .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .brow .amt{margin-left:auto;font-family:var(--mono);font-size:12.5px;flex:none}
+  .brow .pct{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);flex:none;width:44px;text-align:right}
+  .bar{height:4px;border-radius:2px;background:var(--vscode-editor-background);margin-top:5px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:var(--accent);border-radius:2px}
+  .panel.models .bar > i{background:var(--accent-2)}
+  .brow .meta{font-size:10.5px;color:var(--text-faint);margin-top:2px}
+  .est{color:var(--warn)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  /* The table scrolls inside its own frame; the page never scrolls sideways. */
+  .tscroll{overflow-x:auto}
+  th{text-align:left;font-weight:600;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--text-dim);padding:7px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+  th.num,td.num{text-align:right;font-family:var(--mono)}
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:hover{color:var(--text)}
+  th[aria-sort]{color:var(--text)}
+  th[aria-sort]::after{content:" ↓"}
+  td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--hover)}
+  td.tkt{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  td.tkt button{background:transparent;color:var(--link);border:none;padding:0;font-size:12px;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+  td.tkt span.plain{color:var(--text-dim)}
+
+  .pager{display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:11px;color:var(--text-dim)}
+  .pager .spacer{margin-left:auto}
+  .pager button:disabled{opacity:.4;cursor:default}
+
+  /* Empty state. Not zeroes: a grid of 0s reads as "we measured, and it was
+     free", which is a different (and wrong) statement from "nothing recorded". */
+  .empty{border:1px dashed var(--border);border-radius:10px;padding:26px 20px;text-align:center;color:var(--text-dim)}
+  .empty .big{font-size:13px;color:var(--text);margin-bottom:5px}
+  .empty .hint{font-size:11.5px}
+</style>
+
+<div class="uhead">
+  <h1>Token usage</h1>
+  <span class="sub" id="sub"></span>
+  <div class="ranges" id="ranges"></div>
+</div>
+
+<div class="err hidden" id="err"></div>
+
+<div id="body" class="hidden">
+  <div class="stats" id="stats"></div>
+  <div class="grid">
+    <div class="panel stages">
+      <div class="phead">By stage<span class="count" id="stageCount"></span></div>
+      <div class="pbody" id="stages"></div>
+    </div>
+    <div class="panel models">
+      <div class="phead">By model<span class="count" id="modelCount"></span></div>
+      <div class="pbody" id="models"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="phead">By ticket<span class="count" id="tktCount"></span></div>
+    <div class="tscroll">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="pager" id="pager"></div>
+  </div>
+</div>
+
+<div class="empty hidden" id="empty">
+  <div class="big">No AI token usage recorded yet</div>
+  <div class="hint" id="emptyHint"></div>
+</div>
+
+<script>
+  const vscode = acquireVsCodeApi();
+  const post = (msg) => vscode.postMessage(msg);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  // Columns of the per-ticket table. `sort` is the key posted back when the
+  // header is clicked; a column without one is not sortable. The set matches
+  // USAGE_SORTS host-side — an unknown key is rejected there, never applied.
+  const COLUMNS = [
+    { key: 'ticket', label: 'Ticket' },
+    { key: 'calls', label: 'Calls', sort: 'calls', num: true },
+    { key: 'input', label: 'Input', sort: 'input', num: true },
+    { key: 'output', label: 'Output', sort: 'output', num: true },
+    { key: 'total', label: 'Total', sort: 'total', num: true },
+    { key: 'last', label: 'Last call', sort: 'recent', num: true },
+  ];
+
+  let lastState = null;
+
+  /** An ISO stamp as the viewer's local date. The host sends the instant. */
+  const localDate = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+
+  const renderRanges = (state) => {
+    el('ranges').innerHTML = state.ranges.map((r) =>
+      `<button data-range="${esc(r.id)}" aria-pressed="${r.id === state.rangeId}">${esc(r.label)}</button>`,
+    ).join('');
+  };
+
+  const statCard = (label, value, note, flag) =>
+    `<div class="stat${flag ? ' flag' : ''}"><div class="k">${esc(label)}</div>` +
+    `<div class="v">${esc(value)}</div><div class="n">${esc(note || '')}</div></div>`;
+
+  const renderStats = (t) => {
+    el('stats').innerHTML = [
+      statCard('Total tokens', t.totalDisplay, t.totalExact),
+      statCard('Input', t.inputDisplay, ''),
+      statCard('Output', t.outputDisplay, ''),
+      statCard('Cache read', t.cacheReadDisplay, ''),
+      statCard('Calls', String(t.calls), t.erroredCalls ? `${t.erroredCalls} failed` : ''),
+      // Estimated calls get their own tile rather than a footnote: whether the
+      // headline number was measured or approximated changes how it may be used.
+      statCard('Estimated', String(t.estimatedCalls), t.estimatedCalls ? 'counts approximated' : 'all measured', t.estimatedCalls > 0),
+    ].join('');
+  };
+
+  const renderBreakdown = (node, rows) => {
+    if (!rows.length) { node.innerHTML = '<div class="brow"><div class="meta">nothing in this range</div></div>'; return; }
+    node.innerHTML = rows.map((r) =>
+      '<div class="brow">' +
+        '<div class="line">' +
+          `<span class="lbl" title="${esc(r.label)}">${esc(r.label)}</span>` +
+          `<span class="amt" title="${esc(r.totalExact)} tokens">${esc(r.totalDisplay)}</span>` +
+          `<span class="pct">${esc(r.share)}%</span>` +
+        '</div>' +
+        `<div class="bar"><i style="width:${Number(r.share) || 0}%"></i></div>` +
+        `<div class="meta">${esc(r.calls)} call${r.calls === 1 ? '' : 's'} · in ${esc(r.inputDisplay)} · out ${esc(r.outputDisplay)}` +
+          (r.estimated ? ' · <span class="est">estimated</span>' : '') +
+        '</div>' +
+      '</div>',
+    ).join('');
+  };
+
+  const renderTable = (state) => {
+    el('thead').innerHTML = COLUMNS.map((c) => {
+      const cls = (c.num ? 'num' : '') + (c.sort ? ' sortable' : '');
+      const sorted = c.sort && c.sort === state.sort ? ' aria-sort="descending"' : '';
+      const attr = c.sort ? ` data-sort="${esc(c.sort)}"` : '';
+      return `<th class="${cls.trim()}"${attr}${sorted}>${esc(c.label)}</th>`;
+    }).join('');
+
+    el('tbody').innerHTML = state.tickets.map((t) => {
+      // A row with no ticket is spend recorded before the ticket existed; it has
+      // no dashboard to open, so it is plain text rather than a dead button.
+      const name = t.ticketId === null
+        ? `<span class="plain">${esc(t.label)}</span>`
+        : `<button data-ticket="${esc(t.ticketId)}" title="${esc(t.label)}">${esc(t.label)}</button>`;
+      return '<tr>' +
+        `<td class="tkt">${name}</td>` +
+        `<td class="num">${esc(t.calls)}</td>` +
+        `<td class="num">${esc(t.inputDisplay)}</td>` +
+        `<td class="num">${esc(t.outputDisplay)}</td>` +
+        `<td class="num" title="${esc(t.totalExact)} tokens">${esc(t.totalDisplay)}${t.estimated ? ' <span class="est">≈</span>' : ''}</td>` +
+        `<td class="num">${esc(localDate(t.lastAt))}</td>` +
+      '</tr>';
+    }).join('');
+
+    const p = state.page;
+    const first = p.groups === 0 ? 0 : p.offset + 1;
+    const last = p.offset + state.tickets.length;
+    el('pager').innerHTML =
+      `<span>${first}–${last} of ${p.groups}</span><span class="spacer"></span>` +
+      `<button data-page="${Math.max(0, p.offset - p.limit)}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
+      `<button data-page="${p.offset + p.limit}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
+  };
+
+  const render = (state) => {
+    if (!state) return;
+    lastState = state;
+    renderRanges(state);
+
+    el('err').textContent = state.error || '';
+    el('err').classList.toggle('hidden', !state.error);
+
+    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
+    el('sub').textContent = rangeLabel;
+
+    // An error is not an empty range: showing the empty state under a rejected
+    // query would claim nothing was spent when nothing was asked.
+    const showEmpty = state.empty && !state.error;
+    el('empty').classList.toggle('hidden', !showEmpty);
+    el('emptyHint').textContent = `Nothing was recorded for ${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).`;
+    el('body').classList.toggle('hidden', state.empty || !!state.error);
+    if (state.empty || state.error) return;
+
+    renderStats(state.totals);
+    el('stageCount').textContent = state.byStage.length;
+    el('modelCount').textContent = state.byModel.length;
+    el('tktCount').textContent = state.page.groups;
+    renderBreakdown(el('stages'), state.byStage);
+    renderBreakdown(el('models'), state.byModel);
+    renderTable(state);
+  };
+
+  document.addEventListener('click', (e) => {
+    const range = e.target.closest('[data-range]');
+    if (range) { post({ type: 'set-range', range: range.dataset.range }); return; }
+    const th = e.target.closest('th[data-sort]');
+    if (th) { post({ type: 'set-sort', sort: th.dataset.sort }); return; }
+    const page = e.target.closest('[data-page]');
+    if (page && !page.disabled) { post({ type: 'set-page', offset: Number(page.dataset.page) }); return; }
+    const tkt = e.target.closest('[data-ticket]');
+    if (tkt) post({ type: 'open-dashboard', ticketId: Number(tkt.dataset.ticket) });
+  });
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (msg && msg.type === 'state') render(msg.state);
+  });
+
+  // The host pushes on open, but a webview that was restored (or reloaded)
+  // missed it — ask, rather than render a blank page.
+  post({ type: 'request-state' });
+</script>
