@@ -89,13 +89,45 @@ describe('issue report UI model', () => {
     expect(summary).toContain('latest session reference')
   })
 
+  it('surfaces hook-channel counters at review time, before anything is exported', () => {
+    const value = snapshot()
+    const withHooks: FinalizedDiagnosticReport = {
+      ...value,
+      report: {
+        ...value.report,
+        metadata: {
+          ...value.report.metadata,
+          hooks: {
+            status: 'available',
+            data: {
+              channel: { requests: 12, outcomes: { accepted: 6, 'not-found': 6 } },
+              bridge: { present: true, failures: 6, byOutcome: { 'http-error': 6 } },
+            },
+          },
+        },
+      },
+    }
+    const summary = buildReviewSummary(withHooks)
+    expect(summary).toContain('Hook channel:')
+    expect(summary).toContain('Endpoint: 12 request(s) — accepted 6, not-found 6')
+    expect(summary).toContain('Codex bridge: 6 failure(s) — http-error 6')
+    // Absent counters stay absent rather than printing an empty heading.
+    expect(buildReviewSummary(value)).not.toContain('Hook channel:')
+  })
+
   it('builds a fixed safe GitHub handoff URL without diagnostics', () => {
     const value = snapshot()
     const url = new URL(buildGitHubIssueUrl(value, '1.2.3'))
     expect(url.origin + url.pathname).toBe('https://github.com/AndrewHaluza/karst/issues/new')
+    // Prefilled from the reviewed snapshot: the form is never blank metadata.
+    expect(url.searchParams.get('title')).toBe('[Karst 1.2.3] ')
     expect(url.searchParams.get('body')).toContain('Report reference: report-safe-1')
     expect(url.searchParams.get('body')).toContain(`Checksum: ${'a'.repeat(64)}`)
+    expect(url.searchParams.get('body')).toContain('stages truncated (2 omitted by rows)')
+    expect(url.searchParams.get('body')).toContain('Redactions: token 3')
     expect(url.searchParams.get('body')).toContain('paste or attach')
+    // The report itself is still not uploaded — only what the reporter reviewed
+    // as metadata is described, never the report bytes.
     expect(url.toString()).not.toContain('exact+reviewed+bytes')
   })
 

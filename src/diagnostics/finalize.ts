@@ -62,6 +62,8 @@ const SECTION_NAMES = new Set([
   'topology',
   'pullRequest',
   'effectiveConfig',
+  'hooks',
+  'registry',
   'logs',
 ])
 

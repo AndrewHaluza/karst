@@ -25,6 +25,8 @@ export type DiagnosticSectionName =
   | 'topology'
   | 'pullRequest'
   | 'effectiveConfig'
+  | 'hooks'
+  | 'registry'
   | 'logs'
 export type DiagnosticSections = Readonly<
   Partial<Record<DiagnosticSectionName, DiagnosticSection>>

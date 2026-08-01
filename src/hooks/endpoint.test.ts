@@ -7,6 +7,7 @@ import {
   type HookEndpoint,
 } from './endpoint.js';
 import { connect, type Socket } from 'node:net';
+import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 
 async function post(url: string, body: unknown): Promise<number> {
   const res = await fetch(url, {
@@ -228,6 +229,64 @@ describe('startHookEndpoint', () => {
 
     expect(await post(ep.url, { hook_event_name: 'SessionStart', cwd: WT })).toBe(204);
     expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('records every request outcome so a failed agent-side hook has a host-side reason', async () => {
+    // The agent only ever renders `hook exited with code 1`; the status this
+    // endpoint returned is the half of the story the report has to carry.
+    const recorder = createHookChannelRecorder();
+    const observed = await startHookEndpoint(
+      store,
+      0,
+      undefined,
+      () => {},
+      undefined,
+      undefined,
+      { recorder },
+    );
+    try {
+      const id = ticketAt();
+      expect(await post(observed.url, { hook_event_name: 'Stop', cwd: WT })).toBe(204);
+      expect(await post(observed.url, { hook_event_name: 'Stop', cwd: '/elsewhere' })).toBe(204);
+      expect(await post(observed.url, 'not-an-object')).toBe(204);
+      expect(await rawRequest(observed.port, '/nope')).toBe(404);
+      expect(await rawRequest(observed.port, '/hooks?karstLaunch=bogus')).toBe(400);
+      expect(getTicket(store, id).agentState).toBe('idle');
+
+      const snapshot = recorder.snapshot();
+      expect(snapshot.outcomes).toEqual({
+        accepted: 2,
+        applied: 1,
+        'unknown-worktree': 1,
+        'malformed-body': 1,
+        'not-found': 1,
+        'bad-request': 1,
+      });
+      expect(snapshot.events.Stop).toBe(4)
+      expect(snapshot.firstAt).not.toBeNull();
+    } finally {
+      await observed.close();
+    }
+  });
+
+  it('keeps serving hooks when the recorder throws', async () => {
+    const broken = await startHookEndpoint(store, 0, undefined, () => {}, undefined, undefined, {
+      recorder: {
+        record: () => {
+          throw new Error('recorder defect');
+        },
+        snapshot: () => {
+          throw new Error('recorder defect');
+        },
+      },
+    });
+    try {
+      const id = ticketAt();
+      expect(await post(broken.url, { hook_event_name: 'SessionStart', cwd: WT })).toBe(204);
+      expect(getTicket(store, id).agentState).toBe('running');
+    } finally {
+      await broken.close();
+    }
   });
 
   it('close is awaitable, idempotent, and settles after the port stops accepting connections', async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { dispatchHook, parseHookPayload } from './dispatch.js';
+import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 
 /** Register a worktree row directly so a payload cwd resolves to a ticket. */
 function seedWorktree(store: Store, ticketId: number, path: string): void {
@@ -29,6 +30,24 @@ describe('dispatchHook', () => {
     const id = ticketAt();
     dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
     expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('records why a delivered hook changed nothing', () => {
+    // "The hook fired and the board did not move" has four distinct causes; the
+    // report has to name which one, not just that a request arrived.
+    const recorder = createHookChannelRecorder();
+    ticketAt();
+    dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, undefined, undefined, recorder);
+    dispatchHook(store, { hook_event_name: 'Stop', cwd: '/elsewhere' }, undefined, undefined, undefined, recorder);
+    dispatchHook(store, { hook_event_name: 'Stop' }, undefined, undefined, undefined, recorder);
+    dispatchHook(store, { hook_event_name: 'PreToolUse', cwd: WT }, undefined, undefined, undefined, recorder);
+    dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, () => false, undefined, recorder);
+    expect(recorder.snapshot().outcomes).toEqual({
+      applied: 1,
+      'unknown-worktree': 2,
+      'no-signal': 1,
+      'stale-generation': 1,
+    });
   });
 
   it('SessionEnd flips agent_state to idle', () => {

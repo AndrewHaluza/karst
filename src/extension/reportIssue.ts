@@ -29,6 +29,8 @@ import {
   type ReportFlowPorts,
 } from '../diagnostics/reportFlow.js'
 import type { DiagnosticDraft, FinalizedDiagnosticReport } from '../diagnostics/types.js'
+import type { HookChannelSnapshot } from '../diagnostics/hookChannel.js'
+import { hookFailureLogPath } from '../agent/hookFailureLog.js'
 
 const SCHEME = 'karst-diagnostic'
 
@@ -58,6 +60,14 @@ export interface ReportIssueDependencies {
   readonly documents: DiagnosticDocumentProvider
   readonly currentProject: () => Project | undefined
   readonly currentManifest: () => Manifest | undefined
+  /**
+   * Hook-channel counters for this activation. Read through a callback, not a
+   * captured snapshot: the report describes the moment Collect ran, and the
+   * command handler outlives every request the endpoint has served so far.
+   */
+  readonly hookChannel?: () => HookChannelSnapshot | undefined
+  /** `Date.now()` at activation — separates a cold-start defect from drift. */
+  readonly activatedAt?: number
 }
 
 function ticketIdArg(value: unknown): number | undefined {
@@ -198,11 +208,28 @@ function makePorts(
             runtime: {
               extensionVersion: String(deps.context.extension.packageJSON.version ?? 'unknown'),
               editorVersion: vscode.version,
+              appName: vscode.env.appName,
+              appHost: vscode.env.appHost,
+              language: vscode.env.language,
               platform: process.platform,
               arch: process.arch,
+              // The native `better-sqlite3` addon loads by ABI; without these
+              // three a post-upgrade "nothing works" report is unanswerable.
+              nodeVersion: process.versions.node,
+              electronVersion: process.versions.electron ?? null,
+              nodeAbi: process.versions.modules,
               remoteNamePresent: vscode.env.remoteName !== undefined,
               uiKind: vscode.env.uiKind === vscode.UIKind.Web ? 'web' : 'desktop',
               developmentMode: deps.context.extensionMode === vscode.ExtensionMode.Development,
+              ...(deps.activatedAt === undefined
+                ? {}
+                : { uptimeMs: Math.max(0, Date.now() - deps.activatedAt) }),
+            },
+            hooks: {
+              channel: deps.hookChannel?.(),
+              // Global storage is where the launcher writes the Codex bridge,
+              // so the same directory names its failure log.
+              failureLogPath: hookFailureLogPath(deps.context.globalStorageUri.fsPath),
             },
           }
           const draft = selection === 'project'

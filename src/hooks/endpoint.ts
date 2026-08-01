@@ -9,6 +9,10 @@ import {
 } from './dispatch.js';
 import { hookUrl } from '../agent/settings.js';
 import type { LogError } from '../logging/logger.js';
+import type {
+  HookChannelOutcome,
+  HookChannelRecorder,
+} from '../diagnostics/hookChannel.js';
 
 /** Cap the accepted hook body — a local sender can't grow host memory unbounded. */
 const MAX_BODY_BYTES = 64 * 1024;
@@ -47,6 +51,12 @@ export interface HookEndpoint {
 
 export interface HookEndpointOptions {
   requestTimeoutMs?: number;
+  /**
+   * Observation only. The agent renders a failed hook as `exited with code 1`
+   * and nothing else; the status this endpoint returned is the other half of
+   * that story, so every request outcome is counted for the issue report.
+   */
+  recorder?: HookChannelRecorder;
 }
 
 /**
@@ -74,15 +84,29 @@ export function startHookEndpoint(
   return new Promise((resolve, reject) => {
     const requestTimeoutMs =
       options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    // Counting is observational and must never affect the hook contract: a
+    // recorder defect may not turn a fast 2xx into a stalled agent.
+    const observe = (
+      outcome: HookChannelOutcome,
+      event?: string,
+    ): void => {
+      try {
+        options.recorder?.record(outcome, event);
+      } catch {
+        // Diagnostics are best-effort.
+      }
+    };
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // Only the POST /hooks contract is served; anything else gets a fast 404.
       if (req.method !== 'POST') {
+        observe('not-found');
         res.writeHead(404);
         res.end();
         return;
       }
       const target = parseHookRequestTarget(req.url);
       if (target.kind !== 'ok') {
+        observe(target.kind === 'not-found' ? 'not-found' : 'bad-request');
         res.writeHead(target.kind === 'not-found' ? 404 : 400);
         res.end();
         return;
@@ -91,7 +115,10 @@ export function startHookEndpoint(
 
       let body = '';
       let settled = false;
-      const deadline = setTimeout(() => finish(408, true), requestTimeoutMs);
+      const deadline = setTimeout(() => {
+        observe('timeout');
+        finish(408, true);
+      }, requestTimeoutMs);
 
       function cleanup(): void {
         clearTimeout(deadline);
@@ -122,12 +149,14 @@ export function startHookEndpoint(
       function onAborted(): void {
         if (settled) return;
         settled = true;
+        observe('aborted');
         cleanup();
       }
 
       function onData(chunk: Buffer | string): void {
         body += chunk.toString();
         if (body.length > MAX_BODY_BYTES) {
+          observe('too-large');
           finish(413, true);
         }
       }
@@ -148,6 +177,7 @@ export function startHookEndpoint(
             launchId === undefined
               ? payload
               : { ...payload, launchId };
+          observe('accepted', payload.hook_event_name);
           // Dispatch failures are real bugs (bad SQL, store error), not a
           // malformed body — surface them instead of silently swallowing.
           try {
@@ -157,10 +187,14 @@ export function startHookEndpoint(
               notify,
               shouldApplyState,
               sessionProviderFor,
+              options.recorder,
             );
           } catch (err) {
+            observe('dispatch-failed', payload.hook_event_name);
             logError('karst: hook dispatch failed', err);
           }
+        } else {
+          observe('malformed-body');
         }
 
         finish(204); // fast empty 2xx
