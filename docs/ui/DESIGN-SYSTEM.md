@@ -81,6 +81,7 @@ Colors are **semantic**, never literal. `--k-danger` — never `--k-red`.
 | `--k-bg` | `var(--vscode-editor-background)` | page background |
 | `--k-surface` | `var(--vscode-editorWidget-background, var(--vscode-editor-background))` | panels, cards, drawers |
 | `--k-surface-hover` | `var(--vscode-list-hoverBackground)` | row/control hover wash |
+| `--k-surface-selected` | `var(--vscode-list-inactiveSelectionBackground, var(--k-surface-hover))` | a row that is selected, or that was just acted on (the `.k-btn--row` success flash) |
 | `--k-surface-sunken` | `var(--vscode-editor-background)` | wells, progress tracks |
 | `--k-border` | `var(--vscode-panel-border, rgba(128,128,128,.35))` | default 1px hairline |
 | `--k-border-strong` | `var(--vscode-contrastBorder, var(--vscode-panel-border))` | emphasis / high-contrast themes |
@@ -294,6 +295,20 @@ The default interactive control. Always a real `<button>`.
 | `danger` | `--k-danger` border + text; filled `--k-danger` on hover | irreversible (merge, delete, archive) |
 | `link` | no chrome, `--k-link`, underline on hover | navigation rendered as a button |
 
+**Modifier** — `.k-btn--row`, composed *with* a variant, never instead of one
+(`k-btn k-btn--ghost k-btn--row`). It marks a control that is a **row in a
+list**: full width, left-aligned, and its success state is the selection wash
+(`--k-surface-selected`) rather than the check glyph + `--k-success` border.
+
+A row is not button-shaped — it is full width, usually its own grid, and its
+content is the data. The badge was auto-placed into that grid: on a diff file
+row it landed beside the status letter, reading `M ✓`, and pushed the path onto
+a second line; on a sidebar ticket row it shifted the glyph, name and stage pill
+sideways. Both then sat inside a green box. Success still has to be visible
+(UI-R13), but for these rows the action is a handoff — an editor or a panel
+opens — so the flash only has to say *which* row, which is what a selection wash
+already means.
+
 > `.ghost` currently exists in `onboarding/webview.html` as a class with **no CSS
 > rule at all** — `#attachBtn.ghost` renders as a primary button. `.k-btn--ghost`
 > is the real thing.
@@ -312,7 +327,7 @@ The default interactive control. Always a real `<button>`.
 | loading | `aria-busy="true"`, `disabled`, leading `.k-spinner` replaces any leading icon, label unchanged |
 | disabled | `disabled`, `opacity:.45`, `cursor:default`, label unchanged |
 | error | returns to default; the failure is reported by a toast or inline message, **not** by recolouring the button |
-| success | `.k-btn.is-success` for `--k-dur-flash-done` — check glyph + `--k-success` — then default |
+| success | `.k-btn.is-success` for `--k-dur-flash-done` — check glyph + `--k-success` — then default; on `.k-btn--row`, the `--k-surface-selected` wash instead |
 
 The label **must not change** between default and loading. "Save" stays "Save";
 the spinner carries the pending meaning. A label swap (`Save` → `Saving…`) moves

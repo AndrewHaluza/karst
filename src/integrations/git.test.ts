@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   commitAllIfDirty,
   pushBranch,
@@ -7,6 +11,51 @@ import {
   runGitBytes,
   type GitRunner,
 } from './git.js';
+
+/**
+ * Both process-tree tests need a grandchild that is DEMONSTRABLY alive before
+ * the thing under test (a timeout, an abort) fires — otherwise they race the
+ * spawn chain (git → shell alias → node → node) and the whole point is lost.
+ *
+ * Reading that pid off the run's stdout cannot give them this: stdout is only
+ * readable once the run has SETTLED, i.e. after the kill already happened. A
+ * fixed `setTimeout(abort, 100)` was standing in for "the tree is up", and on a
+ * loaded machine — the gate runs 254 files at once — the chain takes longer
+ * than that, so the abort landed before anything was printed, `parseInt('')`
+ * returned NaN, and the test failed on `Number.isInteger`. Worse, the sibling
+ * timeout test passes VACUOUSLY in that case: `process.kill(NaN, 0)` throws,
+ * which `expectProcessDead` reads as "already dead".
+ *
+ * The pid goes to a file instead, and the test waits for the file. The wait is
+ * bounded and its expiry is a failure, not a silent skip.
+ */
+function pidFilePath(name: string): string {
+  return join(tmpdir(), `karst-git-${name}-${process.pid}-${randomUUID()}.pid`);
+}
+
+/** A git alias body that spawns a detached child, records its pid, and hangs. */
+function hangTreeScript(pidFile: string): string {
+  return (
+    `const{spawn}=require('node:child_process');` +
+    `const{writeFileSync}=require('node:fs');` +
+    `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
+    `writeFileSync('${pidFile}',String(c.pid));` +
+    `process.stdout.write(String(c.pid)+'\\\\n');setInterval(()=>{},1000)`
+  );
+}
+
+async function readPidWhenSpawned(pidFile: string): Promise<number> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    try {
+      const pid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
+      if (Number.isInteger(pid)) return pid;
+    } catch {
+      /* not written yet */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect.fail(`the git process tree never recorded a pid in ${pidFile}`);
+}
 
 async function expectProcessDead(pid: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -136,23 +185,28 @@ describe('defaultGitRunner', () => {
   it.runIf(process.platform !== 'win32')(
     'waits for close and terminates descendants after timeout',
     async () => {
-    const script =
-      `const{spawn}=require('node:child_process');` +
-      `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
-      `process.stdout.write(String(c.pid)+'\\\\n');setInterval(()=>{},1000)`;
-    const r = await runGit(
-      ['-c', `alias.hangtree=!${process.execPath} -e "${script}"`, 'hangtree'],
-      process.cwd(),
-      100,
-      1024,
-      500,
-    );
-    const grandchildPid = Number.parseInt(r.stdout, 10);
+      const pidFile = pidFilePath('timeout');
+      try {
+        // The timeout is the SUBJECT here, so it cannot be deferred until the
+        // tree is up — it is given enough room for the spawn chain instead. At
+        // 100ms a loaded machine reaped git before its own child had spawned,
+        // and the test then asserted a NaN pid was dead, which it always is.
+        const r = await runGit(
+          ['-c', `alias.hangtree=!${process.execPath} -e "${hangTreeScript(pidFile)}"`, 'hangtree'],
+          process.cwd(),
+          2_000,
+          1024,
+          500,
+        );
+        const grandchildPid = await readPidWhenSpawned(pidFile);
 
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain('timed out after 100ms');
-    expect(Number.isInteger(grandchildPid)).toBe(true);
-    await expectProcessDead(grandchildPid);
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr).toContain('timed out after 2000ms');
+        expect(Number.isInteger(grandchildPid)).toBe(true);
+        await expectProcessDead(grandchildPid);
+      } finally {
+        rmSync(pidFile, { force: true });
+      }
     },
   );
 
@@ -160,27 +214,31 @@ describe('defaultGitRunner', () => {
     'aborts a detached git process tree and settles with an abort reason',
     async () => {
       const controller = new AbortController();
-      const script =
-        `const{spawn}=require('node:child_process');` +
-        `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
-        `process.stdout.write(String(c.pid)+'\\\\n');setInterval(()=>{},1000)`;
-      const pending = runGit(
-        ['-c', `alias.hangtree=!${process.execPath} -e "${script}"`, 'hangtree'],
-        process.cwd(),
-        10_000,
-        1024,
-        500,
-        controller.signal,
-      );
+      const pidFile = pidFilePath('abort');
+      try {
+        const pending = runGit(
+          ['-c', `alias.hangtree=!${process.execPath} -e "${hangTreeScript(pidFile)}"`, 'hangtree'],
+          process.cwd(),
+          10_000,
+          1024,
+          500,
+          controller.signal,
+        );
 
-      setTimeout(() => controller.abort(), 100);
-      const result = await pending;
-      const grandchildPid = Number.parseInt(result.stdout, 10);
+        // Abort once the tree demonstrably EXISTS, never on a fixed delay: the
+        // claim is that abort kills a live descendant, and a delay that expires
+        // first tests nothing while looking like it passed.
+        const grandchildPid = await readPidWhenSpawned(pidFile);
+        controller.abort();
+        const result = await pending;
 
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toMatch(/aborted/i);
-      expect(Number.isInteger(grandchildPid)).toBe(true);
-      await expectProcessDead(grandchildPid);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toMatch(/aborted/i);
+        expect(Number.isInteger(grandchildPid)).toBe(true);
+        await expectProcessDead(grandchildPid);
+      } finally {
+        rmSync(pidFile, { force: true });
+      }
     },
   );
 

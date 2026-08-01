@@ -45,6 +45,22 @@
     padding:var(--k-space-3) var(--k-space-3) var(--k-space-3) var(--k-space-2);
     border-radius:var(--k-radius-md);position:relative}
   .row:hover{background:var(--k-surface-hover)}
+  /* Opening a ticket is a handoff — the dashboard panel IS the answer — so the
+     success flash only has to say "that one". `.k-btn--row` already replaces the
+     check badge with the selection wash, but `.rowopen` is only the middle of
+     the row (the chevron sits left of it, the hover actions overlay its right),
+     so tinting the BUTTON alone would paint a bar across part of a row. The
+     wash moves to the row and the button stays clear of it — one surface, no
+     second translucent layer stacking on top of the first. */
+  .row:has(.rowopen.is-success){background:var(--k-surface-selected)}
+  .rowopen.is-success{background:transparent}
+  /* The pending spinner REPLACES the row marker instead of being inserted ahead
+     of it. Inserted, it pushed the glyph, name and stage pill sideways for the
+     length of the round trip and let them snap back — a jump on every click,
+     from a state whose whole job is to be reassuring. Same trick as the diff
+     view's status letter: the spinner stands in for the glyph that shares its
+     slot, so the row's width never changes. */
+  .rowopen[aria-busy="true"] .glyph{display:none}
 
   .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   .ticket.open .chev{transform:rotate(90deg)}
@@ -286,7 +302,7 @@
       // non-interactive span rather than a button with nothing to do.
       const openControl = row.archived
         ? `<span class="rowopen">${rowContent}</span>`
-        : `<button type="button" class="k-btn k-btn--link rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
+        : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
 
       return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
         + `<div class="row">`
