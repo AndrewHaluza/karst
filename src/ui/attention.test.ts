@@ -18,6 +18,9 @@ const stage = (key: StageKey, status: StageStatus): TicketWithStages['stages'][n
   artifactPath: null,
   startedAt: null,
   endedAt: null,
+  blockedKind: null,
+  blockedReason: null,
+  blockedAt: null,
 });
 
 function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {

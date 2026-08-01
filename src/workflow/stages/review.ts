@@ -12,6 +12,9 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import type { Manifest } from '../../manifest/types.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { selectReviewTargets } from '../gates/targets.js';
+import type { GateResult } from '../gates/result.js';
+
+export type { GateResult };
 
 /**
  * Review stage (§T4.4, §11). MVP gates on the **deterministic signal** — every
@@ -20,24 +23,6 @@ import { selectReviewTargets } from '../gates/targets.js';
  * verdict is purely `passed iff every gate exits 0`. The diff is opened for the
  * human regardless of verdict, so they always see what changed.
  */
-
-export interface GateResult {
-  name: string;
-  /**
-   * The gate's exit code, or null when it did not run because the repo does not
-   * define its script. Null is not a number the code earned — it means karst had
-   * no question to ask, so the gate says nothing about the ticket either way.
-   */
-  exitCode: number | null;
-  output: string;
-  /**
-   * When the gate's process started and ended. Both absent for a gate that never
-   * ran — it has no duration, and stamping one would read as a zero-length run
-   * rather than as "karst had no question to ask".
-   */
-  startedAt?: string;
-  endedAt?: string;
-}
 
 /** Runs the review gates (lint/typecheck/test); injected for unit tests. */
 export type GateRunner = (cwd: string) => Promise<GateResult[]>;

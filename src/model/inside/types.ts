@@ -65,7 +65,7 @@ export const STAGE_BLURBS: Readonly<Record<StageKey, string>> = {
   uat: "Runs the repo's own test script in the ticket's worktree. The exit code is the verdict; nothing self-reported counts.",
   review:
     'Runs lint, typecheck and test. Every gate the repo can answer must exit 0. The diff opens for you either way.',
-  fix: 'Resumes the captured session so the agent keeps its context, then re-enters the review gate.',
+  fix: 'Resumes the captured session so the agent keeps its context, then re-enters the uat gate.',
   ship: 'Commits, pushes, and opens one PR per hot repo with an agent-written description.',
   done: 'Terminal. Nothing runs here — arriving is completing.',
 };

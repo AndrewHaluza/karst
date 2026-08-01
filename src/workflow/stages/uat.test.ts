@@ -1,17 +1,33 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
-import { runUat, makeNpmTestRunner, type TestRunner } from './uat.js';
 import { listGateRuns } from '../../store/gateRuns.js';
+import { stageBlock } from '../../store/stageBlocks.js';
+import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
+import { runUat, type UatDeps } from './uat.js';
 
-function walkToUat(store: Store, id: number): void {
-  transition(store, id, 'scope', { kind: 'passed' });
-  transition(store, id, 'impl', { kind: 'passed' });
+const now = () => '2026-07-30T10:00:00.000Z';
+
+function deps(over: Partial<UatDeps> = {}): UatDeps {
+  return {
+    now,
+    planTargets: async () => [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+    probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
+    runGates: async (gates) => ({
+      kind: 'ran',
+      results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })),
+    }),
+    ...over,
+  };
+}
+
+function uatStage(store: Store, id: number) {
+  return getTicket(store, id).stages.find((s) => s.stageKey === 'uat')!;
 }
 
 describe('runUat', () => {
@@ -22,7 +38,8 @@ describe('runUat', () => {
   beforeEach(() => {
     store = openStore(':memory:');
     id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
-    walkToUat(store, id);
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
     artifactDir = mkdtempSync(join(tmpdir(), 'karst-uat-'));
   });
   afterEach(() => {
@@ -30,121 +47,382 @@ describe('runUat', () => {
     rmSync(artifactDir, { recursive: true, force: true });
   });
 
-  it('a passing suite (exit 0) -> passed verdict and advances to review', async () => {
-    const runner: TestRunner = async () => ({ exitCode: 0, output: 'all green\n' });
-    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-    expect(res.verdict).toEqual({ kind: 'passed' });
+  it('all gates green -> advances to review and records one row per gate', async () => {
+    const res = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(getTicket(store, id).stageCurrent).toBe('review');
+    // Every row carries repository identity, or a failure names no place. With no
+    // manifest the target is the bare cwd, so the label is the path.
+    expect(listGateRuns(store, id).map((r) => r.gateName).sort()).toEqual([
+      'e2e (/wt/web)',
+      'test (/wt/web)',
+    ]);
   });
 
-  it('a failing suite (nonzero exit) -> failed verdict and routes to fix', async () => {
-    const runner: TestRunner = async () => ({ exitCode: 1, output: '1 failing\n' });
-    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-    expect(res.verdict.kind).toBe('failed');
+  it('a failing gate -> routes to fix and files evidence under the attempt that ran', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({
+            name: g.name,
+            exitCode: g.name === 'e2e' ? 1 : 0,
+            output: 'boom',
+            startedAt: now(),
+            endedAt: now(),
+          })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(getTicket(store, id).stageCurrent).toBe('fix');
+    expect(listGateRuns(store, id).every((r) => r.attempt === 0)).toBe(true);
+    expect(uatStage(store, id).attempt).toBe(1);
   });
 
-  it('writes the suite output to an artifact file and records its path', async () => {
-    const runner: TestRunner = async () => ({ exitCode: 0, output: 'captured output\n' });
-    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-    expect(readFileSync(res.artifactPath, 'utf8')).toContain('captured output');
-    const uat = getTicket(store, id).stages.find((s) => s.stageKey === 'uat');
-    expect(uat?.artifactPath).toBe(res.artifactPath);
+  it('nothing to run -> blocks, does not transition, consumes no attempt', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'ok', scripts: { build: 'tsc' } }) }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('nothing-to-run');
   });
 
-  it('the verdict comes from the exit code, not the output text', async () => {
-    // Output literally says "passed" but exit code is nonzero -> still failed.
-    const runner: TestRunner = async () => ({ exitCode: 2, output: 'tests passed!\n' });
-    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-    expect(res.verdict.kind).toBe('failed');
+  it('an unreadable repository -> blocks capability-missing', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'io-error', message: 'EACCES' }) }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
   });
 
-  // A suite that never ran is not a suite that failed. `npm test` in a repo with
-  // no test script exits 1 with "Missing script", which said nothing about the
-  // ticket's code and parked it at fix forever — the agent cannot fix code that
-  // is not broken. Same bug the review gates had (e962485).
-  it('a suite that did not run (null) -> passed, and never routes to fix', async () => {
-    const runner: TestRunner = async () => ({ exitCode: null, output: 'no test script\n' });
-    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-    expect(res.verdict).toEqual({ kind: 'passed' });
+  it('a stopped run yields no verdict and no attempt', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ runGates: async () => ({ kind: 'stopped', results: [] }) }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+  });
+
+  it('writes the overlap warning into the artifact when nothing is independent', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }),
+      }),
+    );
+    const path = uatStage(store, id).artifactPath!;
+    expect(readFileSync(path, 'utf8')).toContain('asked no question review does not');
+  });
+
+  it('clears a previous block when a fresh run reaches a verdict', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'ok', scripts: { build: 'tsc' } }) }),
+    );
+    expect(stageBlock(store, id, 'uat')).not.toBeNull();
+    await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+  });
+
+  // `planTargets` is consulted ONLY when a manifest is supplied — without one
+  // there is nothing to resolve repository names against, so runUat falls back to
+  // the single cwd. Passing a manifest here is what puts the planner in the path.
+  it('runs every target and aggregates only after all of them complete', async () => {
+    const ran: string[] = [];
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => [
+          { repo: '/web', path: '/wt/web', names: ['web'] },
+          { repo: '/api', path: '/wt/api', names: ['api'] },
+        ],
+        runGates: async (gates, cwd) => {
+          ran.push(cwd);
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(ran.sort()).toEqual(['/wt/api', '/wt/web']);
     expect(getTicket(store, id).stageCurrent).toBe('review');
   });
 
-  it('records that the suite did not run, so the pass is not mistaken for a green suite', async () => {
-    const runner: TestRunner = async () => ({ exitCode: null, output: 'no test script\n' });
-    const res = await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-    expect(readFileSync(res.artifactPath, 'utf8')).toContain('did not run');
+  // A malformed package.json is a repository defect an agent CAN fix, so it must
+  // reach a verdict rather than park — `resolveUatGates` returns zero gates for it
+  // and only the stage can turn that into a named failure.
+  it('a malformed package.json -> a failing verdict naming the file, not a block', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'malformed', message: 'Unexpected token }' }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    const rows = listGateRuns(store, id);
+    expect(rows.map((r) => r.gateName)).toEqual(['package.json (/wt/web)']);
+    expect(rows[0]!.exitCode).toBe(1);
+    expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).toContain('Unexpected token }');
   });
 
-  it('records one gate row for the suite it ran', async () => {
-    const runner: TestRunner = async () => ({
-      exitCode: 0,
-      output: 'ok',
-      startedAt: '2026-07-20T12:00:00.000Z',
-      endedAt: '2026-07-20T12:00:42.100Z',
-    });
-    await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-
-    const runs = listGateRuns(store, id);
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({
-      stageKey: 'uat',
-      gateName: 'test',
-      exitCode: 0,
-      attempt: 0,
-      startedAt: '2026-07-20T12:00:00.000Z',
-      endedAt: '2026-07-20T12:00:42.100Z',
-    });
+  // `gate_runs` is the only append-only evidence table. A Stop that discarded the
+  // gates that already finished would make work that really happened unrecoverable.
+  it('persists the gates that finished before a Stop landed', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async () => ({
+          kind: 'stopped',
+          results: [{ name: 'test', exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() }],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    const rows = listGateRuns(store, id);
+    expect(rows.map((r) => r.gateName)).toEqual(['test (/wt/web)']);
+    expect(rows[0]!.attempt).toBe(0);
+    expect(uatStage(store, id).attempt).toBe(0);
+    expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).toContain('ok');
   });
 
-  it('records a suite that did not run as null, even though the verdict passes', async () => {
-    // The stage passes (failing on it would strand the ticket), but the gate row
-    // must not claim a green suite — there was no suite.
-    const runner: TestRunner = async () => ({ exitCode: null, output: 'no test script\n' });
-    await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
-    expect(listGateRuns(store, id)[0]!.exitCode).toBeNull();
+  it('keeps the evidence of completed targets when a later one cannot be asked', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => [
+          { repo: '/web', path: '/wt/web', names: ['web'] },
+          { repo: '/api', path: '/wt/api', names: ['api'] },
+        ],
+        probe: (cwd) =>
+          cwd === '/wt/web'
+            ? { kind: 'ok', scripts: { test: 'vitest' } }
+            : { kind: 'io-error', message: 'EACCES' },
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['test (web)']);
+    expect(listGateRuns(store, id)[0]!.attempt).toBe(0);
   });
 
-  it('files a failing suite under the attempt it ran as', async () => {
-    const runner: TestRunner = async () => ({ exitCode: 3, output: 'boom' });
-    await runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner);
+  it('records the gate rows of a run that resolved to a block', async () => {
+    // Every gate reported null: karst asked, and nothing answered. That is a park,
+    // and the rows proving each gate said nothing must survive it.
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: null, output: 'nothing to run' })),
+        }),
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(listGateRuns(store, id).map((r) => r.gateName).sort()).toEqual([
+      'e2e (/wt/web)',
+      'test (/wt/web)',
+    ]);
+    expect(listGateRuns(store, id).every((r) => r.exitCode === null)).toBe(true);
+    expect(uatStage(store, id).artifactPath).not.toBeNull();
+  });
 
-    expect(listGateRuns(store, id).map((r) => r.attempt)).toEqual([0]);
-    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'uat')?.attempt).toBe(1);
+  // A worktree whose repoPath is absent from the manifest is dropped by
+  // `planUatTargets`, so "affected but unmapped" would otherwise be
+  // indistinguishable from "nothing to test" — a silent absence.
+  it('no target at all -> blocks with a reason naming the ticket worktrees', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/unmapped', '/wt/unmapped', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => [] }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(res).toMatchObject({ reason: expect.stringContaining('/unmapped') });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+  });
+
+  it('says so plainly when the ticket has no worktree at all', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => [] }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(res).toMatchObject({ reason: expect.stringContaining('no worktree') });
+  });
+
+  // Two `repositories:` entries sharing a repoPath collapse to ONE target, so a
+  // per-repository override on the second entry has no other chance to be honoured.
+  it('honours the gate override of every manifest entry sharing one worktree', async () => {
+    const ran: string[] = [];
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/mono',
+        artifactDir,
+        manifest: manifest(
+          {},
+          {
+            uat: uatConfig({
+              repositories: {
+                web: { gates: [{ name: 'e2e-web', kind: 'command', command: 'npx', args: ['pw', 'web'] }] },
+                admin: { gates: [{ name: 'e2e-admin', kind: 'command', command: 'npx', args: ['pw', 'admin'] }] },
+              },
+            }),
+          },
+        ),
+      },
+      deps({
+        planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        runGates: async (gates) => {
+          ran.push(...gates.map((g) => g.name));
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(ran.sort()).toEqual(['e2e-admin', 'e2e-web']);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+  });
+
+  it('asks one shared worktree the same question once, however many entries declare it', async () => {
+    const ran: string[] = [];
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/mono',
+        artifactDir,
+        manifest: manifest(
+          {},
+          {
+            uat: uatConfig({
+              repositories: {
+                web: { gates: [{ name: 'e2e', kind: 'script', script: 'e2e' }] },
+                admin: { gates: [{ name: 'e2e', kind: 'script', script: 'e2e' }] },
+              },
+            }),
+          },
+        ),
+      },
+      deps({
+        planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        runGates: async (gates) => {
+          ran.push(...gates.map((g) => g.name));
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(ran).toEqual(['e2e']);
+  });
+
+  // Two entries in one worktree may declare the same gate NAME for different
+  // commands, so a result must be attributed by position. Matching by name gives
+  // both rows the first gate's identity, and the independent one disappears into
+  // review's set — a spurious "asked no question review does not" warning.
+  it('attributes each result to the gate that produced it, not to the first of that name', async () => {
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/mono',
+        artifactDir,
+        manifest: manifest(
+          {},
+          {
+            uat: uatConfig({
+              repositories: {
+                web: { gates: [{ name: 'g', kind: 'script', script: 'test' }] },
+                admin: { gates: [{ name: 'g', kind: 'command', command: 'npx', args: ['pw'] }] },
+              },
+            }),
+          },
+        ),
+      },
+      deps({ planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
+    );
+    // `npm test` duplicates review; `npx pw` does not, so the run asked something new.
+    expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).not.toContain(
+      'asked no question review does not',
+    );
+  });
+
+  it('threads one abort signal into every gate invocation, so Stop reaches a running gate', async () => {
+    const controller = new AbortController();
+    const seen: (AbortSignal | undefined)[] = [];
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, signal: controller.signal, manifest: manifest({}) },
+      deps({
+        planTargets: async () => [
+          { repo: '/web', path: '/wt/web', names: ['web'] },
+          { repo: '/api', path: '/wt/api', names: ['api'] },
+        ],
+        runGates: async (gates, _cwd, opts) => {
+          seen.push(opts?.signal);
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(seen).toEqual([controller.signal, controller.signal]);
+  });
+
+  it('tells the gate runner which scripts the repository actually defines', async () => {
+    let available: ((script: string) => boolean) | undefined;
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
+        runGates: async (gates, _cwd, opts) => {
+          available = opts?.scriptsAvailable;
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(available?.('test')).toBe(true);
+    expect(available?.('lint')).toBe(false);
   });
 
   it('leaves no gate rows behind when the transition throws', async () => {
     store.db.prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?').run(id, 'uat');
-    const runner: TestRunner = async () => ({ exitCode: 0, output: 'ok' });
-
     await expect(
-      runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, runner),
+      runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps()),
     ).rejects.toThrow(/has no stage 'uat'/);
-
     expect(listGateRuns(store, id)).toEqual([]);
-  });
-});
-
-describe('makeNpmTestRunner', () => {
-  let cwd: string;
-  beforeEach(() => {
-    cwd = mkdtempSync(join(tmpdir(), 'karst-uat-repo-'));
-  });
-  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
-
-  it('reports null — did not run — when the repo defines no test script', async () => {
-    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
-    const r = await makeNpmTestRunner()(cwd);
-    expect(r.exitCode).toBeNull();
-    expect(r.output).toContain('no "test" script');
-  });
-
-  it('reports null when there is no package.json at all', async () => {
-    expect((await makeNpmTestRunner()(cwd)).exitCode).toBeNull();
-  });
-
-  it('runs the suite when the repo defines one', async () => {
-    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'exit 3' } }));
-    expect((await makeNpmTestRunner()(cwd)).exitCode).toBe(3);
   });
 });

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -319,11 +319,25 @@ export function migrate(db: Database): void {
   }
 
   if (current < 17) {
-    // v17 adds prompt attachments (images/video). Purely additive and a
+    // v17 gives a gate stage a durable "karst could not ask" state. Purely
+    // additive and guarded on the CURRENT columns, so a fresh DB (already carrying
+    // them from schema.sql) skips the step and a re-open is a no-op. Nothing is
+    // backfilled: absence IS "not blocked", which is the correct reading of every
+    // existing row.
+    const cols = tableColumns(db, 'stages');
+    if (cols.size > 0) {
+      if (!cols.has('blocked_kind')) db.exec('ALTER TABLE stages ADD COLUMN blocked_kind TEXT');
+      if (!cols.has('blocked_reason')) db.exec('ALTER TABLE stages ADD COLUMN blocked_reason TEXT');
+      if (!cols.has('blocked_at')) db.exec('ALTER TABLE stages ADD COLUMN blocked_at TEXT');
+    }
+  }
+
+  if (current < 18) {
+    // v18 adds prompt attachments (images/video). Purely additive and a
     // CREATE TABLE IF NOT EXISTS, so a fresh DB (already carrying it from
     // schema.sql) skips it and a re-open is a no-op.
     //
-    // Nothing is backfilled — there are no pre-v17 attachments to derive. The
+    // Nothing is backfilled — there are no pre-v18 attachments to derive. The
     // bytes live on disk under <globalStorage>/attachments/, which a migration
     // has no business reaching into; the table indexes them, and the host owns
     // the directory's lifecycle.
@@ -345,8 +359,9 @@ export function migrate(db: Database): void {
     );
   }
 
-  // v17 was strengthened before release. A development registry may already
-  // report user_version=17 while carrying the earlier table, so repair the
+  // The attachment table was strengthened before release. A development registry
+  // may already report a current user_version while carrying the earlier table
+  // (it shipped as v17 before the UAT stage claimed that number), so repair the
   // CURRENT shape outside the version gate instead of stranding it without the
   // conflict target the atomic attachment upsert requires.
   const repairAttachments = db.transaction(() => {

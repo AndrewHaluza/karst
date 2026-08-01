@@ -21,7 +21,7 @@ import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
-import { countFixAttempts } from '../../workflow/fixAttempts.js';
+import { countFixAttempts, lastFailedGate } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
@@ -157,7 +157,11 @@ export function buildDashboardState(
     repoDisplay: repoDisplayPath(w.repo, pathContext),
   }));
 
-  const fixAttempts = countFixAttempts(ticket.stages);
+  // The fix loop's displayed count is whichever gate actually sent the ticket
+  // there — the rail/now-line only ever narrate `fix`, so with no failed gate
+  // there is nothing to report yet (0, same as before any gate has failed).
+  const failedGate = lastFailedGate(ticket.stages);
+  const fixAttempts = failedGate ? countFixAttempts(ticket.stages, failedGate) : 0;
   // Rendered through the SAME path-display preference as the worktree rows: the
   // ship stage names the same directories, and two formats for one path is the
   // bug this replaces.

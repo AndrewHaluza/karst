@@ -16,26 +16,46 @@ export function shouldStartDriver(stage: StageKey): boolean {
 }
 
 /**
- * Select the ticket ids the driver should resume — those parked at a deterministic
- * gate. Used by the activation + terminal-close sweeps so a gate-stranded ticket
- * recovers even when the hook that would normally kick the driver never arrived
- * (dead/stale hook port, session closed without a reachable SessionEnd). Pure of
- * vscode + the store, so it is unit-testable.
+ * Select the ticket ids the driver should resume — those parked at a
+ * deterministic gate that is NOT blocked.
+ *
+ * The blocked check is what makes parking durable. Without it a blocked ticket is
+ * re-selected on every window activation and the whole failed stage runs again to
+ * park in the same place, forever.
  */
 export function ticketsToSweep(
-  tickets: readonly { id: number; stageCurrent: string | null }[],
+  tickets: readonly {
+    id: number;
+    stageCurrent: string | null;
+    stages: readonly { stageKey: string; blockedKind: string | null }[];
+  }[],
 ): number[] {
-  return tickets.filter((t) => shouldStartDriver(t.stageCurrent as StageKey)).map((t) => t.id);
+  return tickets
+    .filter((t) => {
+      if (!shouldStartDriver(t.stageCurrent as StageKey)) return false;
+      const current = t.stages.find((s) => s.stageKey === t.stageCurrent);
+      return !current?.blockedKind;
+    })
+    .map((t) => t.id);
 }
 
 /**
  * Per-ticket run bookkeeping for the host seam: single-flight guard (no two
- * drivers on one ticket) and a Stop flag the driver reads via `shouldContinue`.
+ * drivers on one ticket), a Stop flag the driver reads via `shouldContinue`, and
+ * the abort signal that carries the same Stop into a gate ALREADY running.
  * Pure of vscode so it is unit-testable.
  */
 export class DriverController {
   private readonly running = new Set<number>();
   private readonly stopping = new Set<number>();
+  /**
+   * One controller per run, created by `begin` and dropped by `end`.
+   *
+   * `shouldContinue` is only polled between stages, so on its own Stop is a
+   * button that does nothing for the length of a UAT gate — up to `npm test`
+   * plus e2e. The signal is what reaches the child process.
+   */
+  private readonly aborts = new Map<number, AbortController>();
 
   isRunning(ticketId: number): boolean {
     return this.running.has(ticketId);
@@ -46,19 +66,30 @@ export class DriverController {
     if (this.running.has(ticketId)) return false;
     this.running.add(ticketId);
     this.stopping.delete(ticketId); // fresh run clears any stale stop flag
+    // A fresh controller per run, never a reset one: an AbortSignal cannot be
+    // un-aborted, so reusing it would make every gate after a Stop refuse to
+    // spawn.
+    this.aborts.set(ticketId, new AbortController());
     return true;
   }
 
   end(ticketId: number): void {
     this.running.delete(ticketId);
     this.stopping.delete(ticketId);
+    this.aborts.delete(ticketId);
   }
 
   requestStop(ticketId: number): void {
     this.stopping.add(ticketId);
+    this.aborts.get(ticketId)?.abort();
   }
 
   shouldContinue(ticketId: number): boolean {
     return !this.stopping.has(ticketId);
+  }
+
+  /** The running run's abort signal, or undefined when nothing is in flight. */
+  signalFor(ticketId: number): AbortSignal | undefined {
+    return this.aborts.get(ticketId)?.signal;
   }
 }

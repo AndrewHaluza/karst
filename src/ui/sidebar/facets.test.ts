@@ -36,14 +36,36 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     projectId: null,
     parentTicketId: null,
     stages: [
-      { ticketId: 1, stageKey: 'impl', status: 'running', attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null },
+      {
+        ticketId: 1,
+        stageKey: 'impl',
+        status: 'running',
+        attempt: 0,
+        verdict: null,
+        artifactPath: null,
+        startedAt: null,
+        endedAt: null,
+        blockedKind: null,
+        blockedReason: null,
+        blockedAt: null,
+      },
     ],
     ...over,
   };
 }
 
 const stage = (key: StageKey, status: TicketWithStages['stages'][number]['status']) => ({
-  ticketId: 1, stageKey: key, status, attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null,
+  ticketId: 1,
+  stageKey: key,
+  status,
+  attempt: 0,
+  verdict: null,
+  artifactPath: null,
+  startedAt: null,
+  endedAt: null,
+  blockedKind: null,
+  blockedReason: null,
+  blockedAt: null,
 });
 
 describe('facetOf', () => {

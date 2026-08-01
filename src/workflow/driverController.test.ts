@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { shouldStartDriver, ticketsToSweep, DriverController } from './driverController.js';
 
 describe('ticketsToSweep', () => {
-  const at = (id: number, stageCurrent: string | null) => ({ id, stageCurrent });
+  const at = (id: number, stageCurrent: string | null) => ({ id, stageCurrent, stages: [] });
 
   it('selects gate-stage tickets regardless of any open session', () => {
     const tickets = [at(1, 'uat'), at(2, 'review'), at(3, 'impl'), at(4, 'done')];
@@ -16,6 +16,39 @@ describe('ticketsToSweep', () => {
 
   it('returns empty for an empty ticket list', () => {
     expect(ticketsToSweep([])).toEqual([]);
+  });
+});
+
+describe('ticketsToSweep with blocked stages', () => {
+  it('selects a ticket parked at an unblocked gate', () => {
+    expect(
+      ticketsToSweep([
+        { id: 1, stageCurrent: 'uat', stages: [{ stageKey: 'uat', blockedKind: null }] },
+      ]),
+    ).toEqual([1]);
+  });
+
+  it('does NOT select a ticket whose current gate is blocked', () => {
+    expect(
+      ticketsToSweep([
+        { id: 1, stageCurrent: 'uat', stages: [{ stageKey: 'uat', blockedKind: 'nothing-to-run' }] },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('ignores a block recorded on a stage the ticket has moved past', () => {
+    expect(
+      ticketsToSweep([
+        {
+          id: 1,
+          stageCurrent: 'review',
+          stages: [
+            { stageKey: 'uat', blockedKind: 'nothing-to-run' },
+            { stageKey: 'review', blockedKind: null },
+          ],
+        },
+      ]),
+    ).toEqual([1]);
   });
 });
 
@@ -48,5 +81,35 @@ describe('DriverController', () => {
     c.end(1);
     c.begin(1);
     expect(c.shouldContinue(1)).toBe(true); // stop flag cleared on new run
+  });
+
+  it('requestStop aborts the run signal, so Stop reaches a gate already running', () => {
+    const c = new DriverController();
+    c.begin(1);
+    const signal = c.signalFor(1);
+    expect(signal?.aborted).toBe(false);
+    c.requestStop(1);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('gives each run a fresh signal, so a stopped run never poisons the next', () => {
+    const c = new DriverController();
+    c.begin(1);
+    const first = c.signalFor(1);
+    c.requestStop(1);
+    c.end(1);
+    c.begin(1);
+    const second = c.signalFor(1);
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+    expect(second?.aborted).toBe(false);
+  });
+
+  it('has no signal for a ticket with no run in flight', () => {
+    const c = new DriverController();
+    expect(c.signalFor(1)).toBeUndefined();
+    c.begin(1);
+    c.end(1);
+    expect(c.signalFor(1)).toBeUndefined();
   });
 });
