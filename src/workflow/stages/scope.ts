@@ -2,6 +2,8 @@ import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { createWorktree, type WorktreeRecord } from '../../runtime/worktree.js';
+import { pullBaseRef } from '../../runtime/pullBase.js';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { getTicket } from '../../store/tickets.js';
 import { ticketWorktreeNames } from '../../runtime/ticketBranch.js';
 
@@ -42,18 +44,43 @@ export function scopeTicket(manifest: Manifest, hot: string[]): ScopeResult {
   return { warnings };
 }
 
+export interface ConfirmScopeOptions {
+  /**
+   * Refresh each repository's baseline branch from the remote before branching
+   * (§ pull switch). ON by default — a worktree cut from a stale local base
+   * starts the ticket behind the team — but the caller's explicit choice is
+   * honored, so `false` means "branch from what this clone already has".
+   */
+  pullBase?: boolean;
+  /** Injected git runner (real: `defaultGitRunner`); tests supply a fake. */
+  git?: GitRunner;
+  /**
+   * A pull that did not happen, per repository. A REPORT, not an error: the
+   * worktree is created either way, so the host surfaces the reason rather than
+   * turning an unreachable remote into a failed ticket creation.
+   */
+  onPullFailed?: (repoPath: string, baseRef: string, reason: string) => void;
+}
+
 /**
  * Confirm the scope: create one worktree per hot repository off `baselineBranch`.
  * The slug ties the branch/worktree to the ticket. Deduplicates repo paths so a
  * ticket scoping two repository entries at one repoPath (a monorepo with two
- * runnable processes) makes a single worktree.
+ * runnable processes) makes a single worktree — and so it pulls once per
+ * repoPath, not once per manifest entry.
+ *
+ * Async because the pull talks to a remote: this runs in the extension host, so
+ * the fetch goes through the async `GitRunner`, never a sync spawn.
  */
-export function confirmScope(
+export async function confirmScope(
   store: Store,
   manifest: Manifest,
   ticketId: number,
   hot: string[],
-): WorktreeRecord[] {
+  opts: ConfirmScopeOptions = {},
+): Promise<WorktreeRecord[]> {
+  const pullBase = opts.pullBase !== false;
+  const git = opts.git ?? defaultGitRunner;
   const seen = new Set<string>();
   const records: WorktreeRecord[] = [];
   const { slug, branch } = ticketWorktreeNames(getTicket(store, ticketId), manifest);
@@ -66,13 +93,24 @@ export function confirmScope(
     if (seen.has(repo.repoPath)) continue;
     seen.add(repo.repoPath);
 
+    const baseRef = resolveBaselineBranch(manifest, repo);
+    let startPoint = baseRef;
+    if (pullBase) {
+      const pulled = await pullBaseRef(git, repo.repoPath, baseRef);
+      startPoint = pulled.startPoint;
+      if (!pulled.refreshed && pulled.reason) {
+        opts.onPullFailed?.(repo.repoPath, baseRef, pulled.reason);
+      }
+    }
+
     records.push(
       createWorktree(store, {
         ticketId,
         repoPath: repo.repoPath,
         slug,
         branch,
-        baseRef: resolveBaselineBranch(manifest, repo),
+        baseRef,
+        startPoint,
       }),
     );
   }

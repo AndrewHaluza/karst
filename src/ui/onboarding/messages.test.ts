@@ -46,7 +46,7 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
     });
     // repos + approach + agent + model + agentProvider carried through when present
     expect(
@@ -54,7 +54,7 @@ describe('parseOnboardingMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, pullBase: true,
     });
   });
 
@@ -84,13 +84,32 @@ describe('parseOnboardingMessage', () => {
     expect(
       parseOnboardingMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
     });
     expect(
       parseOnboardingMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
       type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
+  });
+
+  // The pull switch (§ scope) rides `submit` only — it decides what the launch
+  // branches from, and `save` launches nothing. ON unless the page explicitly
+  // said false, so an older webview (or a stripped message) still refreshes.
+  it('carries the pull switch on submit, defaulting ON for anything but an explicit false', () => {
+    const base = { type: 'submit', key: 'P-1', title: 't', description: 'd' };
+    expect(parseOnboardingMessage({ ...base, pullBase: false })).toMatchObject({
+      type: 'submit',
+      pullBase: false,
+    });
+    expect(parseOnboardingMessage({ ...base, pullBase: true })).toMatchObject({ pullBase: true });
+    expect(parseOnboardingMessage(base)).toMatchObject({ pullBase: true });
+    // A non-boolean is not a choice — it must not read as "skip the pull".
+    expect(parseOnboardingMessage({ ...base, pullBase: 'no' })).toMatchObject({ pullBase: true });
+    // `save` never launches, so it carries no switch at all.
+    expect(parseOnboardingMessage({ ...base, type: 'save', pullBase: false })).not.toHaveProperty(
+      'pullBase',
+    );
   });
 
   it('accepts a well-formed set-agent message', () => {
@@ -147,7 +166,7 @@ describe('parseOnboardingMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
     });
     expect(
       parseOnboardingMessage({
@@ -221,7 +240,7 @@ describe('routeOnboardingAction', () => {
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, pullBase: true,
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
@@ -229,6 +248,9 @@ describe('routeOnboardingAction', () => {
     expect(actions.setProvider).toHaveBeenCalledWith('antigravity');
     expect(actions.setType).toHaveBeenCalledWith('fix');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
+    // set-provider must not also drive setType (a missing `return` in the
+    // switch made a provider pick write the provider id as the ticket TYPE).
+    expect(actions.setType).toHaveBeenCalledTimes(1);
   });
 
   it('routes a valid save message to the save action', () => {

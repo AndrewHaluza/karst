@@ -38,6 +38,16 @@ import type { OnboardingActionsCtx, OnboardingActionsFactory } from './panel.js'
  */
 export type StartTicketResult = { ok: true } | { ok: false; message: string };
 
+/** Per-launch choices the onboarding page makes for a start it is triggering. */
+export interface StartTicketOptions {
+  /**
+   * Refresh each scoped repository's baseline branch from the remote before its
+   * worktree is cut (§ pull switch). The page's switch is ON by default; this
+   * carries what the user actually left it on, not the default.
+   */
+  pullBase: boolean;
+}
+
 export interface OnboardingActionsDeps {
   store: Store;
   manifest: Manifest;
@@ -59,7 +69,10 @@ export interface OnboardingActionsDeps {
    * once the ticket is actually running, so `submit` knows when to hand the user
    * off to the dashboard.
    */
-  startTicket: (ticketId: number) => StartTicketResult | Promise<StartTicketResult>;
+  startTicket: (
+    ticketId: number,
+    opts: StartTicketOptions,
+  ) => StartTicketResult | Promise<StartTicketResult>;
   /**
    * Reveal the ticket's dashboard — the surface that owns a ticket once it is
    * running. Injected (real: the `karst.openDashboard` command).
@@ -370,7 +383,10 @@ export function buildOnboardingActions(
       // handoff only happens once the ticket is really running.
       ctx.post({ type: 'busy', what: 'submit', on: true });
       try {
-        const result = await deps.startTicket(ticketId);
+        // Only an explicit `false` opts out of the pull — an older page that
+        // sends no switch still gets the default (fresh base), same rule the
+        // message parser applies at the trust boundary.
+        const result = await deps.startTicket(ticketId, { pullBase: input.pullBase !== false });
         if (!result.ok) {
           ctx.post({ type: 'error', message: result.message });
           ctx.pushState(); // the ticket exists now — re-seed the page for a retry

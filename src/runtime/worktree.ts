@@ -131,9 +131,19 @@ export function createWorktree(
     baseRef: string;
     /** Rendered branch name; omitted → `karst/<slug>` (see `worktreePaths`). */
     branch?: string;
+    /**
+     * Ref to cut the new branch FROM, when it differs from `baseRef` — a
+     * just-refreshed `origin/<base>` whose local branch could not be
+     * fast-forwarded (see `pullBaseRef`). `base_ref` still records the plain
+     * `baseRef`: every other consumer (mergeCheck, the diff views, archive)
+     * re-derives its own remote ref from that name, so storing `origin/…` here
+     * would have them ask git about `origin/origin/develop`.
+     */
+    startPoint?: string;
   },
 ): WorktreeRecord {
   const { ticketId, repoPath, slug, baseRef } = opts;
+  const startPoint = opts.startPoint && opts.startPoint.trim() !== '' ? opts.startPoint : baseRef;
   const { path, branch } = worktreePaths(repoPath, slug, opts.branch);
 
   // Adopt on retry: a prior spin that died after this step left the git worktree
@@ -176,11 +186,12 @@ export function createWorktree(
   // Reuse a leftover branch (prior aborted spin / teardown that kept the branch)
   // by attaching to it instead of failing. `-b` CREATES a branch and errors if it
   // exists; without `-b` we check out the existing one — and git forbids a
-  // start-point (baseRef) when the branch already exists, so omit it too.
+  // start-point (baseRef) when the branch already exists, so omit it too — which
+  // is also why a refreshed `startPoint` only applies on the create path.
   if (branchExists(repoPath, branch)) {
     git(repoPath, ['worktree', 'add', '-q', path, branch]);
   } else {
-    git(repoPath, ['worktree', 'add', '-q', '-b', branch, path, baseRef]);
+    git(repoPath, ['worktree', 'add', '-q', '-b', branch, path, startPoint]);
   }
 
   const record: WorktreeRecord = {

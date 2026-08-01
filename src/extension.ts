@@ -177,7 +177,11 @@ import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
 import { OnboardingManager } from './ui/onboarding/panel.js';
-import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
+import {
+  buildOnboardingActions,
+  type StartTicketResult,
+  type StartTicketOptions,
+} from './ui/onboarding/actions.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -315,6 +319,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
   logger.info('Karst activated');
+
+  /**
+   * A base branch that could not be refreshed before its worktree was cut
+   * (§ pull switch). Deliberately a warning, not an error: the ticket exists and
+   * is usable — it just starts from what this clone already had, which the user
+   * must be told rather than left to discover in a diff. The reason is git's own
+   * first line, already bounded by `pullBaseRef`.
+   */
+  const warnBaseNotPulled = (repoPath: string, baseRef: string, reason: string): void => {
+    const message = `Could not refresh ${baseRef} in ${repoPath} — the worktree was created from the local branch: ${reason}`;
+    logger.warn(message);
+    void vscode.window.showWarningMessage(message);
+  };
   let modelCatalog = bundledModelCatalog();
   const modelCatalogCache = makeMementoCatalogCache(context.globalState);
 
@@ -732,7 +749,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Finish handoff: scope the ticket's selected repos (worktrees, no
       // servers) and open the agent session seeded with its chosen approach.
       // Servers stay deferred — they come up only when a stage needs to verify.
-      startTicket: async (ticketId: number): Promise<StartTicketResult> => {
+      startTicket: async (
+        ticketId: number,
+        { pullBase }: StartTicketOptions,
+      ): Promise<StartTicketResult> => {
         const t = getTicket(localStore, ticketId);
         const hot = t.selectedRepos;
         // Nothing to scope → the ticket stays pending. Report it so onboarding
@@ -742,7 +762,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const manifest = currentManifest() ?? emptyManifest();
         try {
-          confirmScope(localStore, manifest, ticketId, hot);
+          // `pullBase` is the page's switch, honored as given. A pull that could
+          // not happen is REPORTED, never fatal — the worktree still exists, it
+          // just starts from what this clone already had.
+          await confirmScope(localStore, manifest, ticketId, hot, {
+            pullBase,
+            onPullFailed: warnBaseNotPulled,
+          });
           // Scope is complete the moment its worktrees exist (scope has only a
           // pass edge → impl; it is not a gate). Pass it so the ticket advances
           // to impl running — the agent session opens in the impl worktree.
@@ -1661,7 +1687,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
         try {
-          confirmScope(localStore, currentManifest() ?? emptyManifest(), ticketId, draft.selectedRepos);
+          // No page to ask here (this is Start on a saved draft), so the pull
+          // takes its default: ON, the same as the onboarding switch ships.
+          await confirmScope(
+            localStore,
+            currentManifest() ?? emptyManifest(),
+            ticketId,
+            draft.selectedRepos,
+            { onPullFailed: warnBaseNotPulled },
+          );
           // Scope has only a pass edge → impl (it is not a gate), so pass it: the
           // session then opens in the impl worktree, and the dashboard reads impl.
           transition(localStore, ticketId, 'scope', { kind: 'passed' });
