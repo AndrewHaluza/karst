@@ -64,8 +64,12 @@ export function attentionItems(tickets: readonly TicketWithStages[]): AttentionI
   rows.sort((a, b) => {
     const byKind = KIND_ORDER[a.item.kind] - KIND_ORDER[b.item.kind];
     if (byKind !== 0) return byKind;
-    // A missing timestamp is UNKNOWN, not ancient — it must not jump the queue
-    // ahead of a ticket we know has been waiting.
+    // `updated_at` is NOT bumped when a ticket enters the attention set
+    // (`setAgentState`/`setStage` don't touch it) — it's not "how long has this
+    // been waiting", just a stable, approximate recency tiebreaker within a kind
+    // so the ordering isn't arbitrary. `null` shouldn't occur in practice
+    // (schema default fills it), but is handled defensively for legacy/unknown
+    // rows — sorted last within its kind rather than jumping the queue.
     if (a.updatedAt === b.updatedAt) return a.item.ticketId - b.item.ticketId;
     if (a.updatedAt === null) return 1;
     if (b.updatedAt === null) return -1;
@@ -105,7 +109,7 @@ export function attentionSummary(items: readonly AttentionItem[]): AttentionSumm
   return {
     count,
     text: `$(bell) ${count} ${count === 1 ? 'needs' : 'need'} you`,
-    tooltip: lines.join('\n'),
+    tooltip: lines.join('\n\n'),
     warning: items.some((i) => i.kind === 'failed'),
     badgeTooltip: `${count} ${count === 1 ? 'ticket needs' : 'tickets need'} your input`,
   };

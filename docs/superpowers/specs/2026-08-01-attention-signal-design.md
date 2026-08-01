@@ -152,8 +152,10 @@ carried by the status item's warning background and by the tooltip text.
 ### Status item — `src/extension.ts`
 
 A second `vscode.StatusBarItem`, `StatusBarAlignment.Left`, priority `50`:
-between the deps item (`0`) and the focused-ticket item (`100`). Left to right
-that reads: tools broken → what needs you → where you are.
+between the deps item (`0`) and the focused-ticket item (`100`). For
+`StatusBarAlignment.Left`, higher priority renders further left, so left to
+right that reads: where you are (`100`) → what needs you (`50`) → tools broken
+(`0`).
 
 - `text`: `$(bell) 2 need you`
 - `backgroundColor`: `statusBarItem.warningBackground` only when a `failed` item

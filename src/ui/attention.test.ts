@@ -89,7 +89,7 @@ describe('attentionItems', () => {
     expect(items[0]).toMatchObject({ key: '#1', title: '' });
   });
 
-  it('sorts failed before input, then longest-waiting first', () => {
+  it('sorts failed before input, then by updated_at as a recency tiebreaker', () => {
     const items = attentionItems([
       ticket({ id: 1, key: 'A-1', agentState: 'waiting', updatedAt: '2026-07-30T00:00:00Z' }),
       ticket({ id: 2, key: 'A-2', agentState: 'waiting', updatedAt: '2026-07-28T00:00:00Z' }),
@@ -146,7 +146,7 @@ describe('attentionSummary', () => {
       item({ key: 'A-3', kind: 'failed', reason: 'uat failed' }),
       item({ ticketId: 2, key: 'A-1' }),
     ]);
-    expect(s?.tooltip).toBe('A-3 · uat failed\nA-1 · agent asked a question');
+    expect(s?.tooltip).toBe('A-3 · uat failed\n\nA-1 · agent asked a question');
   });
 
   it('warns only when something is actually blocked', () => {
@@ -158,7 +158,7 @@ describe('attentionSummary', () => {
     const many = Array.from({ length: 13 }, (_, i) =>
       item({ ticketId: i + 1, key: `A-${i + 1}` }),
     );
-    const lines = attentionSummary(many)!.tooltip.split('\n');
+    const lines = attentionSummary(many)!.tooltip.split('\n\n');
     expect(lines).toHaveLength(11);
     expect(lines[10]).toBe('…and 3 more');
     expect(attentionSummary(many)?.count).toBe(13);
@@ -206,7 +206,11 @@ describe('AttentionManager', () => {
     const host = fakeHost();
     new AttentionManager(host).render([item(), item({ ticketId: 2, key: 'A-2' })]);
     expect(host.status).toEqual([
-      ['$(bell) 2 need you', 'A-1 · agent asked a question\nA-2 · agent asked a question', false],
+      [
+        '$(bell) 2 need you',
+        'A-1 · agent asked a question\n\nA-2 · agent asked a question',
+        false,
+      ],
     ]);
     expect(host.badges).toEqual([[2, '2 tickets need your input']]);
   });

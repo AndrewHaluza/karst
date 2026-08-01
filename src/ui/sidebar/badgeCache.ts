@@ -38,4 +38,14 @@ export class BadgeCache {
     this.target = target;
     target.setBadge(this.current);
   }
+
+  /**
+   * Unbind the live view (call on webview disposal). The cached VALUE is kept —
+   * only the target is cleared — so a later `attach` still replays the current
+   * badge; without this, `set`/`clear` after disposal would write to a dead
+   * `WebviewView` and the cache would hold onto it forever.
+   */
+  detach(): void {
+    this.target = undefined;
+  }
 }

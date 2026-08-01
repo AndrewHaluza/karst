@@ -52,4 +52,25 @@ describe('BadgeCache', () => {
       cache.clear();
     }).not.toThrow();
   });
+
+  it('does not touch the old target after detach', () => {
+    const cache = new BadgeCache();
+    const target = fakeTarget();
+    cache.attach(target);
+    cache.detach();
+    cache.set(5, 'five');
+    cache.clear();
+    expect(target.applied).toEqual([undefined]);
+  });
+
+  it('replays the current value onto a new target after detach then re-attach', () => {
+    const cache = new BadgeCache();
+    const oldTarget = fakeTarget();
+    cache.attach(oldTarget);
+    cache.set(4, 'four');
+    cache.detach();
+    const newTarget = fakeTarget();
+    cache.attach(newTarget);
+    expect(newTarget.applied).toEqual([{ value: 4, tooltip: 'four' }]);
+  });
 });

@@ -1210,8 +1210,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The needs-you channel, and the reason the activity-bar logo carries state at
   // all: this must reach the user with the Karst panel CLOSED. Priority 50 sits
-  // between the deps item (0) and the focused-ticket item (100), so the bar
-  // reads left to right as: tools broken → what needs you → where you are.
+  // between the deps item (0) and the focused-ticket item (100); for
+  // StatusBarAlignment.Left, HIGHER priority renders further LEFT, so the bar
+  // reads left to right as: where you are (100) → what needs you (50) → tools
+  // broken (0).
   const attnItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   attnItem.command = 'karst.showAttention';
   context.subscriptions.push(attnItem);
@@ -1232,24 +1234,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /**
    * The tickets needing this window's user. SCOPED: the store lives in global
    * storage and every IDE window shares it, so an unscoped read would badge this
-   * window with another project's waiting tickets.
+   * window with another project's waiting tickets. When no project is bound
+   * (no workspace folder, or `bindProject` threw) there is no scope to read
+   * safely, so this returns empty rather than issuing an unscoped query.
    */
-  const currentAttention = (): AttentionItem[] =>
-    attentionItems(listTickets(localStore, { projectId: currentProject()?.id }));
+  const currentAttention = (): AttentionItem[] => {
+    const projectId = currentProject()?.id;
+    return projectId === undefined ? [] : attentionItems(listTickets(localStore, { projectId }));
+  };
 
   /** Repaint both surfaces. Never throws: a failed repaint must not break the
    * sidebar push that just succeeded, and a store closed during shutdown reads
-   * as "nothing needs you" rather than an error. */
+   * as "nothing needs you" rather than an error. The fallback render is itself
+   * guarded — `attention.render([])` touches vscode objects and can throw too
+   * (e.g. mid-teardown), and that must not escape either. */
   const refreshAttention = (): void => {
     try {
       attention.render(currentAttention());
     } catch (err) {
       logError('karst: attention refresh failed', err);
-      attention.render([]);
+      try {
+        attention.render([]);
+      } catch (fallbackErr) {
+        logError('karst: attention fallback render failed', fallbackErr);
+      }
     }
   };
 
-  provider.onRefresh(refreshAttention);
+  // Coalesce bursts of `provider.onRefresh` — every live agent's PostToolUse
+  // hook lands here via `provider.refresh()`, and `refreshAttention` is a full
+  // ticket scan. CLAUDE.md bans blocking the extension host, so a scan per hook
+  // POST is out; collapse everything within a tick into one repaint instead.
+  // The timer is disposed on deactivation so a pending repaint never fires
+  // after teardown, and the leading call below runs inline (unscheduled) so
+  // first paint isn't delayed by a tick.
+  let attentionRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleAttentionRefresh = (): void => {
+    if (attentionRefreshTimer !== undefined) return;
+    attentionRefreshTimer = setTimeout(() => {
+      attentionRefreshTimer = undefined;
+      refreshAttention();
+    }, 0);
+  };
+  context.subscriptions.push({
+    dispose: () => {
+      if (attentionRefreshTimer !== undefined) clearTimeout(attentionRefreshTimer);
+    },
+  });
+
+  provider.onRefresh(scheduleAttentionRefresh);
   refreshAttention();
 
   // Where the auto-driver persists its gate-run evidence (§11/§12), mirroring

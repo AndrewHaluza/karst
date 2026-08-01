@@ -49,6 +49,9 @@ export function makeSidebarViewHost(
           webviewView.badge = value;
         },
       });
+      // The view is re-resolved on next show; detach now so a `set`/`clear` in
+      // between doesn't write to this dead view (and so it isn't retained).
+      webviewView.onDidDispose(() => badge.detach());
       const view: SidebarView = {
         postMessage: (message) => void webviewView.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>
