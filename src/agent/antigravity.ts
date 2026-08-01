@@ -20,6 +20,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
 const AGY_BIN = 'agy';
 
@@ -221,20 +222,30 @@ export class AntigravityAdapter implements AgentAdapter {
 
     const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd);
     if (r.exitCode !== 0) {
-      throw new Error(
-        describeHeadlessFailure({
-          tool: 'Antigravity',
-          exitCode: r.exitCode,
-          stdout: r.stdout,
-          stderr: r.stderr,
-        }),
+      throw attachUsage(
+        new Error(
+          describeHeadlessFailure({
+            tool: 'Antigravity',
+            exitCode: r.exitCode,
+            stdout: r.stdout,
+            stderr: r.stderr,
+          }),
+        ),
+        extractTokenUsage(r.stdout),
       );
     }
+
+    // `agy -p` prints bare prose, so this is usually null and the instrumented
+    // wrapper falls back to a MARKED estimate (§ token consumption stats). It is
+    // still attempted: a future `agy` that reports counts must be believed over
+    // any estimate, without another change here.
+    const usage = extractTokenUsage(r.stdout);
 
     return {
       sessionId: '', // agy -p doesn't emit a parseable sessionId in stdout
       verdict: null,
       raw: r.stdout,
+      ...(usage ? { usage } : {}),
     };
   }
 }

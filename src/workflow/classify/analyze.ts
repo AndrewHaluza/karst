@@ -46,6 +46,12 @@ export interface AnalyzeInput {
   services: AnalyzeServiceInput[];
   /** Enabled + available approaches to choose from. */
   approaches: ApproachDef[];
+  /**
+   * Ticket this analysis is for, when it already exists. Onboarding runs the
+   * analyzer on a DRAFT, so it is usually absent — the call is still recorded,
+   * unattributed, because it is real spend (§ token consumption stats).
+   */
+  ticketId?: number | null;
 }
 
 export interface TicketAnalysis {
@@ -182,7 +188,11 @@ export async function analyzeTicket(
   adapter: AgentAdapter,
   input: AnalyzeInput,
 ): Promise<TicketAnalysis> {
-  const result = await adapter.runHeadless({ prompt: buildPrompt(input), cwd: '.' });
+  const result = await adapter.runHeadless({
+    prompt: buildPrompt(input),
+    cwd: '.',
+    tracking: { callSite: 'ticket-analysis', ticketId: input.ticketId ?? null },
+  });
   const parsed = parse(result.raw);
 
   const knownServices = new Set(input.services.map((s) => s.name));

@@ -36,6 +36,7 @@ export async function runFix(
     prompt: 'Address the failing review gates, then stop.',
     cwd: opts.cwd,
     resume: ticket.sessionId,
+    tracking: { callSite: 'fix-resume', ticketId: opts.ticketId },
   });
 
   // Revalidate: fix pass re-enters uat (the deterministic re-gate).

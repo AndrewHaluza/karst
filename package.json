@@ -99,6 +99,11 @@
         "icon": "$(bell)"
       },
       {
+        "command": "karst.openTokenUsage",
+        "title": "Karst: Token Usage Stats",
+        "icon": "$(graph)"
+      },
+      {
         "command": "karst.showLogs",
         "title": "Karst: Show Logs",
         "icon": "$(output)"

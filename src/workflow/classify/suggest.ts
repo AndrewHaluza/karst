@@ -15,6 +15,12 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 export interface SuggestInput {
   service: string;
   repoPath: string;
+  /**
+   * Ticket to attribute the spend to, when one exists. This call runs once per
+   * SERVICE, not per ticket, so it is normally unattributed — recorded all the
+   * same (§ token consumption stats).
+   */
+  ticketId?: number | null;
 }
 
 /**
@@ -100,6 +106,7 @@ export async function suggestSignals(
   const result = await adapter.runHeadless({
     prompt: buildPrompt(input),
     cwd: input.repoPath,
+    tracking: { callSite: 'signal-suggestion', ticketId: input.ticketId ?? null },
   });
   const arr = extractArray(result.raw);
   return arr ? normalize(arr) : [];
