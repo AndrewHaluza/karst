@@ -8,6 +8,13 @@ import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
  */
 export interface SessionTerminal {
   /**
+   * The terminal's title as the host actually shows it (real: `Terminal.name`).
+   * Read after creation rather than assumed: the host may fold a description
+   * into the name, and the durable identity registry has to record the title a
+   * revived terminal will report back, not the one karst asked for.
+   */
+  readonly name?: string;
+  /**
    * Reveal the terminal. `preserveFocus` leaves the keyboard where it is (real:
    * `Terminal.show(preserveFocus)`) — what the dashboard binding needs, since it
    * reveals this terminal beside a panel the user just clicked.
@@ -31,12 +38,17 @@ export const KARST_TICKET_ENV = 'KARST_TICKET_ID';
 export const KARST_LAUNCH_ENV = 'KARST_LAUNCH_ID';
 
 /**
- * The ticket a terminal was launched for, read back out of its environment —
- * the one and only terminal→ticket lookup. A terminal's env is the sole durable
- * link (`SessionManager`'s map is ticket→terminal and does not survive a reload),
- * and both consumers — session recovery and the dashboard binding — reach every
+ * The ticket a terminal was launched for, read back out of its environment.
+ * `SessionManager`'s map is ticket→terminal and does not survive a reload, and
+ * both consumers — session recovery and the dashboard binding — reach every
  * terminal in the window, karst's or not. Anything but a positive integer id
  * resolves to undefined rather than a coerced number.
+ *
+ * This is EXACT but not durable: VS Code does not restore a reconnected
+ * terminal's env, so it reads undefined for every karst terminal after a window
+ * reload. `sessionTerminalRegistry.ts` holds the durable half (the recorded
+ * title) and `resolveRestoredSession` is the lookup that combines them — this
+ * function is its first, preferred step, never the whole answer.
  */
 export function ticketIdFromTerminalEnv(
   env: Readonly<Record<string, string | undefined>> | undefined,
@@ -229,6 +241,17 @@ export class SessionManager {
       ticketId: number,
       options: OpenSessionOptions,
     ) => void,
+    /**
+     * Fired ONLY when this manager actually created a terminal, with the title
+     * and generation it used. Focusing an open session or adopting a revived one
+     * mints nothing, and reporting there would let a stale title overwrite the
+     * identity of the terminal that is really running (869ecmk6v).
+     */
+    private readonly onDidLaunchTerminal?: (
+      ticketId: number,
+      name: string,
+      launchId: string | undefined,
+    ) => void,
   ) {}
 
   private trackTerminal(
@@ -353,6 +376,11 @@ export class SessionManager {
       Boolean(resume),
       options,
     );
+    this.onDidLaunchTerminal?.(
+      ticketId,
+      terminal.name ?? terminalName,
+      hookChannel.launchId,
+    );
     if (options.reveal !== false) terminal.show();
   }
 
@@ -444,9 +472,15 @@ export class SessionManager {
    * agent already sitting at its prompt — `openSession` would only focus that
    * terminal and never deliver the brief, leaving the ticket parked at fix with
    * nothing happening.
+   *
+   * A revived terminal counts as live, exactly as it does on the open path: the
+   * map is this host's bookkeeping and is empty after a reload, while the agent
+   * it forgot is still running. Without this adoption the fallback launched a
+   * SECOND agent beside it (869ecmk6v). Adoption never reveals the terminal —
+   * an automated continuation must not yank the user out of what they are doing.
    */
   nudge(ticketId: number, prompt: string): boolean {
-    const tracked = this.terminals.get(ticketId);
+    const tracked = this.terminals.get(ticketId) ?? this.adoptRevivedSession(ticketId);
     if (!tracked) return false;
     tracked.terminal.sendText(toSingleLine(prompt));
     return true;
