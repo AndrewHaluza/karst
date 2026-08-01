@@ -86,6 +86,8 @@ export type OnboardingActionsFactory = (ctx: OnboardingActionsCtx) => Onboarding
  */
 export class OnboardingManager {
   private readonly panels = new Map<number, OnboardingPanel>();
+  /** Live ticket binding for every edit or draft-bound create panel. */
+  private readonly ticketByPanel = new Map<OnboardingPanel, number>();
   private readonly modelRefreshers = new Set<() => void>();
   /** Next unbound-create sentinel; decrements so create panels never collide. */
   private nextCreateKey = -1;
@@ -164,6 +166,7 @@ export class OnboardingManager {
         : ticketLabel(getTicket(this.store, ticketId!), this.manifest().ticketLabelTemplate);
     const panel = this.host.createPanel(title);
     this.panels.set(key, panel);
+    if (ticketId !== undefined) this.ticketByPanel.set(panel, ticketId);
 
     // Mutable so persist-on-fetch can bind a create panel to its new draft
     // ticket without re-opening. `pushState`/`ctx` read this live.
@@ -217,6 +220,7 @@ export class OnboardingManager {
       },
       bindTicket: (id: number) => {
         boundId = id;
+        this.ticketByPanel.set(panel, id);
         // Once bound, this panel IS the ticket's edit panel — re-key it so
         // `openEdit(id)` reveals it rather than opening a second one. If an
         // edit panel for that ticket already exists, leave the keys alone.
@@ -249,6 +253,7 @@ export class OnboardingManager {
     panel.onDidDispose(() => {
       disposed = true;
       this.panels.delete(panelKey);
+      this.ticketByPanel.delete(panel);
       this.modelRefreshers.delete(pushState);
     });
 
@@ -258,6 +263,16 @@ export class OnboardingManager {
   /** Push the current catalog to every onboarding panel that is still live. */
   refreshModels(): void {
     for (const refresh of this.modelRefreshers) refresh();
+  }
+
+  /**
+   * Dispose every local onboarding panel bound to a ticket being hard-deleted.
+   * Snapshot first because `dispose()` synchronously unregisters the panel.
+   */
+  closeTicket(ticketId: number): void {
+    for (const [panel, boundId] of [...this.ticketByPanel]) {
+      if (boundId === ticketId) panel.dispose();
+    }
   }
 
   /**

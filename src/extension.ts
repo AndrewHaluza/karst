@@ -171,7 +171,6 @@ import {
   setSessionId,
   archiveTicket,
   unarchiveTicket,
-  deleteTicket,
 } from './store/tickets.js';
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
@@ -180,6 +179,7 @@ import { OnboardingManager } from './ui/onboarding/panel.js';
 import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
 import { reapAttachments } from './attachments/reap.js';
+import { deleteTicketPermanently } from './runtime/deleteTicket.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -2097,12 +2097,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Delete',
       );
       if (choice !== 'Delete') return;
-      deleteTicket(localStore, ticketId);
-      // Attachment rows cascade with the ticket; their bytes are outside the
-      // store and are removed asynchronously by the activation layer.
-      void reapAttachments(context.globalStorageUri.fsPath, ticketId).catch((err: unknown) =>
-        logger.warn(`could not remove attachments for ticket ${ticketId}: ${String(err)}`),
-      );
+      try {
+        await deleteTicketPermanently(localStore, ticketId, {
+          closePanel: (id) => onboarding.closeTicket(id),
+          reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+        });
+      } catch (err) {
+        const message =
+          `Karst could not finish permanently deleting "${label}". ` +
+          `Attachment cleanup may be incomplete: ${String(err)}`;
+        logger.warn(message);
+        await vscode.window.showErrorMessage(message);
+      }
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {

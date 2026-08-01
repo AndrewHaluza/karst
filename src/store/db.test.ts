@@ -62,6 +62,24 @@ describe('openStore', () => {
     expect(() => insert.run(2, 'backend', 'PORT', 47201)).toThrow(/UNIQUE/i);
   });
 
+  it('enforces one attachment row per content-addressed name and ticket', () => {
+    const store = openStore(':memory:');
+    cleanups.push(() => store.close());
+    const insert = store.db.prepare(
+      `INSERT INTO ticket_attachments
+         (ticket_id, kind, stored_name, original_name, byte_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    insert.run(1, 'image', 'same.png', 'first.png', 4, '2026-08-01T00:00:00.000Z');
+
+    expect(() =>
+      insert.run(1, 'image', 'same.png', 'second.png', 4, '2026-08-01T00:00:01.000Z'),
+    ).toThrow(/UNIQUE/i);
+    expect(() =>
+      insert.run(2, 'image', 'same.png', 'other-ticket.png', 4, '2026-08-01T00:00:02.000Z'),
+    ).not.toThrow();
+  });
+
   it('enables WAL journal mode for on-disk DBs', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -170,7 +188,7 @@ describe('openStore', () => {
     }
   });
 
-  it('migrates a v16 DB to v17, adding the attachment table and index without touching rows', () => {
+  it('migrates a v16 DB to v17 with attachment lookup and dedupe indexes without touching rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
@@ -192,11 +210,69 @@ describe('openStore', () => {
         'idx_ticket_attachments_ticket',
       ),
     ).toEqual({ name: 'idx_ticket_attachments_ticket' });
+    expect(
+      migrated.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(
+        'idx_ticket_attachments_ticket_stored_name',
+      ),
+    ).toEqual({ name: 'idx_ticket_attachments_ticket_stored_name' });
+    const insertAttachment = migrated.db.prepare(
+      `INSERT INTO ticket_attachments
+         (ticket_id, kind, stored_name, original_name, byte_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    insertAttachment.run(1, 'image', 'same.png', 'first.png', 4, '2026-08-01T00:00:00.000Z');
+    expect(() =>
+      insertAttachment.run(1, 'image', 'same.png', 'second.png', 4, '2026-08-01T00:00:01.000Z'),
+    ).toThrow(/UNIQUE/i);
     expect(migrated.db.prepare('SELECT key, title FROM tickets').get()).toEqual({
       key: 'OLD-16',
       title: 'v16 row',
     });
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(17);
+  });
+
+  it('repairs an intermediate v17 attachment table and deduplicates before adding uniqueness', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const intermediate = new Database(path);
+    intermediate.exec(`
+      CREATE TABLE ticket_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        stored_name TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        byte_size INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    const insert = intermediate.prepare(
+      `INSERT INTO ticket_attachments
+         (ticket_id, kind, stored_name, original_name, byte_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    insert.run(7, 'image', 'same.png', 'first.png', 4, '2026-08-01T00:00:00.000Z');
+    insert.run(7, 'image', 'same.png', 'duplicate.png', 4, '2026-08-01T00:00:01.000Z');
+    intermediate.pragma('user_version = 17');
+    intermediate.close();
+
+    const repaired = openStore(path);
+    cleanups.push(() => repaired.close());
+    const columns = repaired.db
+      .prepare("PRAGMA table_info('ticket_attachments')")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(columns).toContain('operation_token');
+    expect(columns).toContain('detach_token');
+    expect(repaired.db.prepare(
+      'SELECT id, original_name FROM ticket_attachments ORDER BY id',
+    ).all()).toEqual([{ id: 1, original_name: 'first.png' }]);
+    expect(
+      repaired.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(
+        'idx_ticket_attachments_ticket_stored_name',
+      ),
+    ).toEqual({ name: 'idx_ticket_attachments_ticket_stored_name' });
   });
 
   it('migrates a v15 DB to v16, adding the prs metadata columns without touching rows', () => {

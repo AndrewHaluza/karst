@@ -335,13 +335,43 @@ export function migrate(db: Database): void {
         stored_name   TEXT NOT NULL,
         original_name TEXT NOT NULL,
         byte_size     INTEGER NOT NULL,
-        created_at    TEXT NOT NULL
+        created_at    TEXT NOT NULL,
+        operation_token TEXT,
+        detach_token    TEXT
       )
     `);
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket ON ticket_attachments(ticket_id, id)',
     );
   }
+
+  // v17 was strengthened before release. A development registry may already
+  // report user_version=17 while carrying the earlier table, so repair the
+  // CURRENT shape outside the version gate instead of stranding it without the
+  // conflict target the atomic attachment upsert requires.
+  const repairAttachments = db.transaction(() => {
+    const attachmentCols = tableColumns(db, 'ticket_attachments');
+    if (attachmentCols.size === 0) return;
+    if (!attachmentCols.has('operation_token')) {
+      db.exec('ALTER TABLE ticket_attachments ADD COLUMN operation_token TEXT');
+    }
+    if (!attachmentCols.has('detach_token')) {
+      db.exec('ALTER TABLE ticket_attachments ADD COLUMN detach_token TEXT');
+    }
+    // Pre-index builds could race two identical rows into a development DB.
+    // They reference the same content-addressed file, so retaining the oldest
+    // row restores the specified no-duplicate-tile model without losing bytes.
+    db.exec(`
+      DELETE FROM ticket_attachments
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM ticket_attachments GROUP BY ticket_id, stored_name
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name ON ticket_attachments(ticket_id, stored_name)',
+    );
+  });
+  repairAttachments();
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

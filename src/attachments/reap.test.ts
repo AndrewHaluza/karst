@@ -1,8 +1,22 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { reapAttachments, unlinkAttachment } from './reap.js';
+import {
+  discardStagedAttachment,
+  reapAttachments,
+  restoreStagedAttachment,
+  stageAttachmentRemoval,
+  unlinkAttachment,
+} from './reap.js';
 import { attachmentDir, attachmentPath } from './paths.js';
 
 const dirs: string[] = [];
@@ -50,5 +64,62 @@ describe('unlinkAttachment', () => {
   it('is a no-op when the file is already gone', async () => {
     const storage = storageWithFile(12, 'a.png');
     await expect(unlinkAttachment(storage, 12, 'missing.png')).resolves.toBeUndefined();
+  });
+});
+
+describe('staged attachment removal', () => {
+  it('can restore a file after moving it out of its published path', async () => {
+    const storage = storageWithFile(12, 'a.png');
+    const destination = attachmentPath(storage, 12, 'a.png');
+
+    const staged = await stageAttachmentRemoval(storage, 12, 'a.png');
+    expect(staged).not.toBeNull();
+    expect(existsSync(destination)).toBe(false);
+
+    await restoreStagedAttachment(staged);
+    expect(readFileSync(destination, 'utf8')).toBe('DATA');
+    expect(readdirSync(attachmentDir(storage, 12))).toEqual(['a.png']);
+  });
+
+  it('never overwrites bytes a concurrent attach published before restore', async () => {
+    const storage = storageWithFile(12, 'a.png');
+    const destination = attachmentPath(storage, 12, 'a.png');
+    const staged = await stageAttachmentRemoval(storage, 12, 'a.png');
+    writeFileSync(destination, 'NEW DATA');
+
+    await restoreStagedAttachment(staged);
+
+    expect(readFileSync(destination, 'utf8')).toBe('NEW DATA');
+    expect(readdirSync(attachmentDir(storage, 12))).toEqual(['a.png']);
+  });
+
+  it('discards the staged link only after publication has moved aside', async () => {
+    const storage = storageWithFile(12, 'a.png');
+    const staged = await stageAttachmentRemoval(storage, 12, 'a.png');
+
+    await discardStagedAttachment(staged);
+
+    expect(readdirSync(attachmentDir(storage, 12))).toEqual([]);
+  });
+
+  it('rediscovers a retained staged file from the persisted detach token', async () => {
+    const storage = storageWithFile(12, 'a.png');
+    const token = 'detach:123:11111111-2222-3333-4444-555555555555';
+    const first = await stageAttachmentRemoval(storage, 12, 'a.png', token);
+
+    const resumed = await stageAttachmentRemoval(storage, 12, 'a.png', token);
+
+    expect(resumed).toEqual(first);
+    await discardStagedAttachment(resumed);
+    expect(readdirSync(attachmentDir(storage, 12))).toEqual([]);
+  });
+
+  it('rejects a directory instead of recursively deleting it', async () => {
+    const storage = storageWithFile(12, 'a.png');
+    const directory = attachmentPath(storage, 12, 'folder.png');
+    mkdirSync(directory);
+
+    await expect(stageAttachmentRemoval(storage, 12, 'folder.png')).rejects.toThrow(/directory/);
+    expect(existsSync(directory)).toBe(true);
   });
 });

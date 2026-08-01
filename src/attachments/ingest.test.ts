@@ -1,5 +1,16 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_PASTE_BYTES, ingestFile, ingestBytes } from './ingest.js';
@@ -55,6 +66,21 @@ describe('ingestBytes', () => {
     expect(a.ok && b.ok).toBe(true);
     if (!a.ok || !b.ok) return;
     expect(a.input.storedName).toBe(b.input.storedName);
+  });
+
+  it('publishes identical pasted bytes once without rewriting the destination', async () => {
+    const storage = freshStorage();
+    const first = await ingestBytes(storage, 12, 'one.png', Buffer.from('SAME'));
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const destination = attachmentPath(storage, 12, first.input.storedName);
+    utimesSync(destination, 1, 1);
+
+    const second = await ingestBytes(storage, 12, 'two.png', Buffer.from('SAME'));
+
+    expect(second.ok).toBe(true);
+    expect(statSync(destination).mtimeMs).toBe(1000);
+    expect(readdirSync(attachmentDir(storage, 12))).toEqual([first.input.storedName]);
   });
 
   it('gives different bytes different stored names', async () => {
@@ -142,6 +168,24 @@ describe('ingestFile', () => {
     if (!result.ok) return;
     expect(result.input.storedName).toBe(storedName);
     expect(readFileSync(existing, 'utf8')).toBe('MOVDATA');
+  });
+
+  it('does not republish changed picker contents under the original content address', async () => {
+    const storage = freshStorage();
+    const src = sourceFile('repro.mov', 'ORIGINAL');
+    const first = await ingestFile(storage, 5, src);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    rmSync(attachmentPath(storage, 5, first.input.storedName));
+    writeFileSync(src, 'CHANGED');
+
+    const retry = await ingestFile(storage, 5, src, first.input.storedName);
+
+    expect(retry).toEqual({
+      ok: false,
+      message: 'repro.mov changed before it could be saved',
+    });
+    expect(readdirSync(attachmentDir(storage, 5))).toEqual([]);
   });
 
   it('rejects a non-whitelisted type with a named reason', async () => {

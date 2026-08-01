@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket, getTicketByKey, listTickets, updateTicketOnboarding } from '../../store/tickets.js';
+import {
+  createTicket,
+  deleteTicket,
+  getTicket,
+  getTicketByKey,
+  listTickets,
+  updateTicketOnboarding,
+} from '../../store/tickets.js';
 import {
   buildOnboardingActions,
   type OnboardingActionsDeps,
@@ -20,7 +27,8 @@ import {
   insertAttachment,
   listAttachments,
 } from '../../store/attachments.js';
-import { attachmentPath } from '../../attachments/paths.js';
+import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
+import { attachmentDir, attachmentPath } from '../../attachments/paths.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -1034,6 +1042,36 @@ describe('buildOnboardingActions', () => {
       });
     });
 
+    it('rejects an unsupported pasted filename before binding a create-mode draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+
+      await actions.attachBytes('notes.pdf', Buffer.from('%PDF').toString('base64'));
+
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(listTickets(deps.store)).toEqual([]);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({
+          type: 'error',
+          message: expect.stringContaining('not a supported attachment'),
+        }),
+      );
+    });
+
+    it('rejects the largest encoded payload that decodes over the cap before binding a draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      const maximumEncodedPayload = Buffer.alloc(MAX_PASTE_BYTES + 1).toString('base64');
+      expect(maximumEncodedPayload).toHaveLength(Math.ceil(MAX_PASTE_BYTES / 3) * 4);
+      expect(Buffer.from(maximumEncodedPayload, 'base64').byteLength).toBe(MAX_PASTE_BYTES + 1);
+
+      await actions.attachBytes('edge.png', maximumEncodedPayload);
+
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(listTickets(deps.store)).toEqual([]);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('too large') }),
+      );
+    });
+
     // Identical bytes are one file, so a second attach must not add a second tile
     // pointing at it — and must certainly not leave a row whose file a later
     // detach would unlink out from under the first.
@@ -1045,6 +1083,22 @@ describe('buildOnboardingActions', () => {
       expect(listAttachments(deps.store, ticketId!)).toHaveLength(1);
     });
 
+    it('removes bytes when an in-flight attach loses its parent ticket', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+
+      const attaching = actions.attachBytes('late.png', Buffer.from('LATE').toString('base64'));
+      deleteTicket(deps.store, ticketId!);
+      await attaching;
+
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      const directory = attachmentDir(deps.storageDir, ticketId!);
+      expect(existsSync(directory) ? readdirSync(directory) : []).toEqual([]);
+      expect(ctx.posted).toContainEqual({
+        type: 'error',
+        message: 'This ticket was deleted before the attachment could be saved.',
+      });
+    });
+
     it('detaches an attachment and unlinks its file', async () => {
       const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
       await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
@@ -1052,6 +1106,37 @@ describe('buildOnboardingActions', () => {
       const path = attachmentPath(deps.storageDir, ticketId!, row.storedName);
       expect(existsSync(path)).toBe(true);
       await actions.detachAttachment(row.id);
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      expect(existsSync(path)).toBe(false);
+    });
+
+    it('keeps shared bytes until a deliberately seeded duplicate row is the last reference', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      await actions.attachBytes('shot.png', Buffer.from('SHARED').toString('base64'));
+      const first = listAttachments(deps.store, ticketId!)[0]!;
+      const path = attachmentPath(deps.storageDir, ticketId!, first.storedName);
+      deps.store.db.exec('DROP INDEX idx_ticket_attachments_ticket_stored_name');
+      const info = deps.store.db.prepare(
+        `INSERT INTO ticket_attachments
+           (ticket_id, kind, stored_name, original_name, byte_size, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        ticketId!,
+        first.kind,
+        first.storedName,
+        'legacy-copy.png',
+        first.byteSize,
+        '2026-08-01T00:00:00.000Z',
+      );
+      const duplicateId = Number(info.lastInsertRowid);
+
+      await actions.detachAttachment(first.id);
+
+      expect(getAttachment(deps.store, duplicateId)).not.toBeNull();
+      expect(existsSync(path)).toBe(true);
+
+      await actions.detachAttachment(duplicateId);
+
       expect(listAttachments(deps.store, ticketId!)).toEqual([]);
       expect(existsSync(path)).toBe(false);
     });
@@ -1089,6 +1174,8 @@ describe('buildOnboardingActions', () => {
       const foreign = insertAttachment(deps.store, {
         ticketId: other, kind: 'image', storedName: 'x.png', originalName: 'x.png', byteSize: 1,
       });
+      expect(foreign).not.toBeNull();
+      if (!foreign) return;
       await actions.detachAttachment(foreign.id);
       expect(getAttachment(deps.store, foreign.id)).not.toBeNull();
       expect(ticketId).not.toBe(other);
@@ -1131,6 +1218,8 @@ describe('buildOnboardingActions', () => {
       const foreign = insertAttachment(deps.store, {
         ticketId: other, kind: 'image', storedName: 'x.png', originalName: 'x.png', byteSize: 1,
       });
+      expect(foreign).not.toBeNull();
+      if (!foreign) return;
       await actions.openAttachment(foreign.id);
       expect(opened).toEqual([]);
     });

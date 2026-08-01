@@ -18,10 +18,37 @@ export type IngestResult =
   | { ok: true; input: AttachmentInput }
   | { ok: false; message: string };
 
+export type AttachmentValidation =
+  | { ok: true; kind: NonNullable<ReturnType<typeof attachmentKind>>; extension: string }
+  | { ok: false; message: string };
+
 const SUPPORTED = `images: ${IMAGE_EXTENSIONS.join(', ')}; video: ${VIDEO_EXTENSIONS.join(', ')}`;
 
-function unsupported(name: string): IngestResult {
+function unsupported(name: string): AttachmentValidation {
   return { ok: false, message: `${name} is not a supported attachment (${SUPPORTED})` };
+}
+
+/**
+ * Validate the user-facing name and, for pasted bytes, the exact decoded size.
+ * Host actions call this before binding a create-mode draft; ingest calls the
+ * same helper again at the filesystem boundary so the messages cannot drift.
+ */
+export function validateAttachment(
+  originalName: string,
+  pastedByteSize?: number,
+): AttachmentValidation {
+  const kind = attachmentKind(originalName);
+  const extension = attachmentExtension(originalName);
+  if (kind === null || extension === null) return unsupported(originalName);
+
+  if (pastedByteSize !== undefined && pastedByteSize > MAX_PASTE_BYTES) {
+    const mb = Math.round(MAX_PASTE_BYTES / (1024 * 1024));
+    return {
+      ok: false,
+      message: `${originalName} is too large to paste (limit ${mb} MB). Use Attach to add it from disk.`,
+    };
+  }
+  return { ok: true, kind, extension };
 }
 
 function shortHash(digest: string): string {
@@ -53,11 +80,12 @@ export async function ingestFile(
   storageDir: string,
   ticketId: number,
   sourcePath: string,
+  expectedStoredName?: string,
 ): Promise<IngestResult> {
   const originalName = basename(sourcePath);
-  const kind = attachmentKind(originalName);
-  const ext = attachmentExtension(originalName);
-  if (kind === null || ext === null) return unsupported(originalName);
+  const validation = validateAttachment(originalName);
+  if (!validation.ok) return validation;
+  const { kind, extension: ext } = validation;
 
   const directory = attachmentDir(storageDir, ticketId);
   const temporaryPath = attachmentPath(storageDir, ticketId, `.${randomUUID()}.tmp`);
@@ -67,6 +95,9 @@ export async function ingestFile(
     const { size } = await stat(temporaryPath);
     const hash = await hashFile(temporaryPath);
     const storedName = `${hash}.${ext}`;
+    if (expectedStoredName !== undefined && storedName !== expectedStoredName) {
+      return { ok: false, message: `${originalName} changed before it could be saved` };
+    }
     const destination = attachmentPath(storageDir, ticketId, storedName);
 
     try {
@@ -87,6 +118,27 @@ export async function ingestFile(
   }
 }
 
+/** Whether the content-addressed destination is currently a regular file. */
+export async function attachmentExists(
+  storageDir: string,
+  ticketId: number,
+  storedName: string,
+): Promise<boolean> {
+  try {
+    return (await stat(attachmentPath(storageDir, ticketId, storedName))).isFile();
+  } catch (error) {
+    if (
+      typeof error === 'object'
+      && error !== null
+      && 'code' in error
+      && error.code === 'ENOENT'
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 /** Write webview-pasted bytes after enforcing the transport size ceiling. */
 export async function ingestBytes(
   storageDir: string,
@@ -94,27 +146,35 @@ export async function ingestBytes(
   originalName: string,
   bytes: Buffer,
 ): Promise<IngestResult> {
-  const kind = attachmentKind(originalName);
-  const ext = attachmentExtension(originalName);
-  if (kind === null || ext === null) return unsupported(originalName);
+  const validation = validateAttachment(originalName, bytes.byteLength);
+  if (!validation.ok) return validation;
+  const { kind, extension: ext } = validation;
 
-  if (bytes.byteLength > MAX_PASTE_BYTES) {
-    const mb = Math.round(MAX_PASTE_BYTES / (1024 * 1024));
-    return {
-      ok: false,
-      message: `${originalName} is too large to paste (limit ${mb} MB). Use Attach to add it from disk.`,
-    };
-  }
-
+  const temporaryPath = attachmentPath(storageDir, ticketId, `.${randomUUID()}.tmp`);
   try {
-    const storedName = `${hashBytes(bytes)}.${ext}`;
+    const hash = hashBytes(bytes);
+    const storedName = `${hash}.${ext}`;
     await mkdir(attachmentDir(storageDir, ticketId), { recursive: true });
-    await writeFile(attachmentPath(storageDir, ticketId, storedName), bytes);
+    await writeFile(temporaryPath, bytes, { flag: 'wx' });
+    const destination = attachmentPath(storageDir, ticketId, storedName);
+    try {
+      await link(temporaryPath, destination);
+    } catch (error) {
+      if (!isAlreadyExists(error) || (await hashFile(destination)) !== hash) {
+        throw error;
+      }
+    }
     return {
       ok: true,
       input: { ticketId, kind, storedName, originalName, byteSize: bytes.byteLength },
     };
   } catch {
     return { ok: false, message: `${originalName} could not be saved` };
+  } finally {
+    try {
+      await rm(temporaryPath, { force: true });
+    } catch {
+      // A failed cleanup must not turn a completed ingest into an exception.
+    }
   }
 }

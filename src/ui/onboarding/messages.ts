@@ -116,6 +116,12 @@ function isRowId(v: unknown): v is number {
  */
 const MAX_BASE64_CHARS = Math.ceil(MAX_PASTE_BYTES / 3) * 4;
 
+/** Exact decoded size for a canonical-or-nearly-canonical base64 payload. */
+function decodedBase64ByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
 /** Validate the shared draft-persist fields (submit and save both carry these). */
 function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null {
   const str = (k: string): boolean => typeof m[k] === 'string' && (m[k] as string).length > 0;
@@ -202,6 +208,10 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       if (typeof m.name !== 'string' || m.name.length === 0) return null;
       if (typeof m.base64 !== 'string' || m.base64.length === 0) return null;
       if (m.base64.length > MAX_BASE64_CHARS) return null;
+      // Encoded length alone is not exact at the boundary: because the cap is
+      // 1 mod 3, cap and cap+1 have the same base64 length and differ only in
+      // padding. Keep the cheap character ceiling above, then inspect padding.
+      if (decodedBase64ByteLength(m.base64) > MAX_PASTE_BYTES) return null;
       return { type: 'attach-bytes', name: m.name, base64: m.base64 };
     }
     case 'detach-attachment':

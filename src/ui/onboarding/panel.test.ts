@@ -230,6 +230,33 @@ describe('OnboardingManager', () => {
     expect(panels[0]!.revealed).toBeGreaterThan(0);
   });
 
+  it('closes the local edit panel when its ticket is permanently deleted', () => {
+    const ticket = createTicket(store, { key: 'P-DELETE', title: 'deleted' });
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+    manager.openEdit(ticket.id);
+
+    manager.closeTicket(ticket.id);
+    manager.openEdit(ticket.id);
+
+    expect(panels).toHaveLength(2);
+  });
+
+  it('closes a create panel that became bound to the deleted ticket', () => {
+    const ticket = createTicket(store, { key: 'P-DRAFT-DELETE', title: 'deleted draft' });
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+    manager.openCreate();
+    seen[0]!.bindTicket(ticket.id);
+
+    manager.closeTicket(ticket.id);
+    manager.openEdit(ticket.id);
+
+    expect(panels).toHaveLength(2);
+  });
+
   it('routes a request-state message back through the ctx pushState', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();

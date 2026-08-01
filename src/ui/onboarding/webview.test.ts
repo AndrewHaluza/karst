@@ -200,11 +200,34 @@ describe('attachment strip', () => {
     expect(html).toContain('src="webview://b.mp4"');
   });
 
-  it('carries the row id on the detach and open controls', () => {
+  it('carries the image row id on its media, detach control, and explicit open control', () => {
     const html = render([
       { id: 7, kind: 'image', name: 'a.png', byteSize: 1, src: 'webview://a.png' },
     ]);
-    expect(html).toContain('data-attach-id="7"');
+    expect(html).toMatch(/<img[^>]*data-attach-id="7"/);
+    expect(html).toMatch(/<button[^>]*class="attachdetach"[^>]*data-attach-id="7"/);
+    expect(html).toMatch(/<button[^>]*class="attachopen"[^>]*data-attach-id="7"/);
+    expect(html).toContain('aria-label="Open a.png"');
+  });
+
+  it('carries the video row id on its media, detach control, and explicit open control', () => {
+    const html = render([
+      { id: 8, kind: 'video', name: 'b.mov', byteSize: 1, src: 'webview://b.mp4' },
+    ]);
+    expect(html).toMatch(/<video[^>]*data-attach-id="8"/);
+    expect(html).toMatch(/<button[^>]*class="attachdetach"[^>]*data-attach-id="8"/);
+    expect(html).toMatch(/<button[^>]*class="attachopen"[^>]*data-attach-id="8"/);
+    expect(html).toContain('aria-label="Open b.mov"');
+  });
+
+  it('opens only from the explicit button so native video controls stay independent', () => {
+    const handler = HTML.slice(
+      HTML.indexOf("el('attachments').addEventListener('click'"),
+      HTML.indexOf('// Clipboard images have no path'),
+    );
+    expect(handler).toContain("closest('.attachopen')");
+    expect(handler).not.toContain("closest('video");
+    expect(handler).not.toContain("closest('img");
   });
 
   // The strip renders values that came from a ticket the user did not author.
@@ -245,4 +268,59 @@ describe('paste cap mirror', () => {
   it('matches the host cap exactly', () => {
     expect(htmlConstNumber('MAX_PASTE_BYTES')).toBe(MAX_PASTE_BYTES);
   });
+});
+
+describe('pasted file reader', () => {
+  function readerHarness() {
+    const posted: unknown[] = [];
+    const errors: string[] = [];
+    let reader: {
+      result: unknown;
+      onload?: () => void;
+      onerror?: () => void;
+      onabort?: () => void;
+      readAsDataURL(file: unknown): void;
+    } | undefined;
+    class FakeFileReader {
+      result: unknown = null;
+      onload?: () => void;
+      onerror?: () => void;
+      onabort?: () => void;
+      constructor() {
+        reader = this;
+      }
+      readAsDataURL(): void {}
+    }
+    const read = loadFunction('postPastedFile', {
+      FileReader: FakeFileReader,
+      MAX_PASTE_BYTES,
+      post: (message: unknown) => posted.push(message),
+      showErr: (message: string) => errors.push(message),
+    }) as (file: { name: string; size: number }) => void;
+    read({ name: 'broken.png', size: 4 });
+    if (!reader) throw new Error('FileReader was not constructed');
+    return { reader, posted, errors };
+  }
+
+  it.each(['onerror', 'onabort'] as const)('reports FileReader %s without posting bytes', (event) => {
+    const harness = readerHarness();
+
+    harness.reader[event]?.();
+
+    expect(harness.errors).toEqual(['broken.png could not be read from the clipboard.']);
+    expect(harness.posted).toEqual([]);
+  });
+
+  it.each([null, 'not-a-data-url', 'data:image/png;base64,'])(
+    'reports malformed FileReader result %j without posting bytes',
+    (result) => {
+      const harness = readerHarness();
+      harness.reader.result = result;
+
+      harness.reader.onload?.();
+
+      expect(harness.errors).toEqual(['broken.png could not be read from the clipboard.']);
+      expect(harness.posted).toEqual([]);
+    },
+  );
 });

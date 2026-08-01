@@ -66,7 +66,7 @@
   .attachtile{position:relative;width:132px;border-radius:4px;overflow:hidden;
     border:1px solid var(--vscode-panel-border,rgba(128,128,128,.35))}
   .attachtile img,.attachtile video{display:block;width:100%;height:82px;object-fit:cover;
-    background:var(--vscode-editor-background,#1e1e1e);cursor:pointer}
+    background:var(--vscode-editor-background,#1e1e1e)}
   .attachmeta{padding:4px 6px;font-size:11px;line-height:1.3;
     color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.85}
   .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -75,6 +75,11 @@
     background:var(--vscode-editor-background,#1e1e1e);
     color:var(--vscode-foreground);opacity:.75}
   .attachdetach:hover{opacity:1}
+  .attachopen{display:block;width:100%;padding:4px 6px;border:0;border-top:1px solid
+    var(--vscode-panel-border,rgba(128,128,128,.35));cursor:pointer;text-align:left;
+    background:var(--vscode-button-secondaryBackground,var(--vscode-editor-background));
+    color:var(--vscode-button-secondaryForeground,var(--vscode-textLink-foreground))}
+  .attachopen:hover{background:var(--vscode-button-secondaryHoverBackground)}
 
   /* Card heading row: title on the left, provider chip pinned top-right. */
   .cardhead{display:flex;align-items:center;justify-content:space-between;
@@ -422,6 +427,8 @@
         + 'title="Remove attachment">&times;</button>'
         + '<span class="attachmeta"><span class="attachname" title="' + esc(a.name) + '">'
         + esc(a.name) + '</span>' + esc(formatBytes(a.byteSize)) + '</span>'
+        + '<button type="button" class="attachopen" data-attach-id="' + esc(a.id) + '" '
+        + 'title="Open attachment" aria-label="Open ' + esc(a.name) + '">Open</button>'
         + '</div>';
     }).join('');
   }
@@ -994,9 +1001,44 @@
       post({ type: 'detach-attachment', id: Number(detach.dataset.attachId) });
       return;
     }
-    const media = e.target.closest('img[data-attach-id]');
-    if (media) post({ type: 'open-attachment', id: Number(media.dataset.attachId) });
+    const open = e.target.closest('.attachopen');
+    if (open) post({ type: 'open-attachment', id: Number(open.dataset.attachId) });
   });
+
+  function postPastedFile(file) {
+    const name = file.name || ('pasted-' + Date.now() + '.png');
+    if (file.size > MAX_PASTE_BYTES) {
+      // showErr is the page's existing inline-error display. Told here rather
+      // than after the host drops it, so the user learns why nothing appeared.
+      showErr(name + ' is too large to paste (limit 10 MB). Use Attach… to add it from disk.');
+      return;
+    }
+    const reader = new FileReader();
+    const reportReadFailure = function () {
+      showErr(name + ' could not be read from the clipboard.');
+    };
+    reader.onerror = reportReadFailure;
+    reader.onabort = reportReadFailure;
+    reader.onload = function () {
+      if (typeof reader.result !== 'string') {
+        reportReadFailure();
+        return;
+      }
+      const marker = ';base64,';
+      const markerAt = reader.result.indexOf(marker);
+      const payload = markerAt < 0 ? '' : reader.result.slice(markerAt + marker.length);
+      if (!reader.result.startsWith('data:') || markerAt < 5 || payload.length === 0) {
+        reportReadFailure();
+        return;
+      }
+      post({ type: 'attach-bytes', name, base64: payload });
+    };
+    try {
+      reader.readAsDataURL(file);
+    } catch {
+      reportReadFailure();
+    }
+  }
 
   // Clipboard images have no path, so bytes are the only thing available — this
   // is why the paste path exists at all. Text pastes fall through untouched:
@@ -1006,26 +1048,7 @@
     if (!files || files.length === 0) return;
     e.preventDefault();
     for (let i = 0; i < files.length; i += 1) {
-      const file = files[i];
-      if (file.size > MAX_PASTE_BYTES) {
-        // showErr is the page's existing inline-error display (webview.html:1149,
-        // where the host's {type:'error'} message lands). Told here rather than
-        // after the host drops it, so the user learns why nothing appeared.
-        showErr(file.name + ' is too large to paste (limit 10 MB). Use Attach… to add it from disk.');
-        continue;
-      }
-      const reader = new FileReader();
-      reader.onload = function () {
-        // reader.result is a data: URL; the payload is after the comma.
-        const comma = String(reader.result).indexOf(',');
-        if (comma < 0) return;
-        post({
-          type: 'attach-bytes',
-          name: file.name || ('pasted-' + Date.now() + '.png'),
-          base64: String(reader.result).slice(comma + 1),
-        });
-      };
-      reader.readAsDataURL(file);
+      postPastedFile(files[i]);
     }
   });
 

@@ -319,6 +319,12 @@ describe('attachment messages', () => {
     expect(actions.attachBytes).not.toHaveBeenCalled();
   });
 
+  it('ignores attach-bytes with an empty base64 payload', () => {
+    const actions = spyActions();
+    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: '' }, actions);
+    expect(actions.attachBytes).not.toHaveBeenCalled();
+  });
+
   // The webview caps this too. Re-checked here because argv from a webview is
   // never trusted on the grounds that the webview already checked it — the same
   // rule the CLI's stage/phase split exists for.
@@ -328,6 +334,19 @@ describe('attachment messages', () => {
     const oversize = 'A'.repeat(Math.ceil((MAX_PASTE_BYTES + 1024) / 3) * 4);
     routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: oversize }, actions);
     expect(actions.attachBytes).not.toHaveBeenCalled();
+  });
+
+  it('uses decoded size when cap and cap-plus-one have the same encoded length', () => {
+    const actions = spyActions();
+    const atCap = Buffer.alloc(MAX_PASTE_BYTES).toString('base64');
+    const overCap = Buffer.alloc(MAX_PASTE_BYTES + 1).toString('base64');
+    expect(atCap).toHaveLength(overCap.length);
+
+    routeOnboardingAction({ type: 'attach-bytes', name: 'edge.png', base64: atCap }, actions);
+    routeOnboardingAction({ type: 'attach-bytes', name: 'over.png', base64: overCap }, actions);
+
+    expect(actions.attachBytes).toHaveBeenCalledTimes(1);
+    expect(actions.attachBytes).toHaveBeenCalledWith('edge.png', atCap);
   });
 
   it('routes detach-attachment and open-attachment with a numeric id', () => {

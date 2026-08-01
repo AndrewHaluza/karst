@@ -217,8 +217,16 @@ CREATE TABLE IF NOT EXISTS ticket_attachments (
   stored_name   TEXT NOT NULL,        -- <sha256[0..16]>.<ext>; the on-disk name
   original_name TEXT NOT NULL,        -- display only; never a path component
   byte_size     INTEGER NOT NULL,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  operation_token TEXT,               -- transient attach cross-window claim
+  detach_token    TEXT                -- detach handshake; attach waits for its release
 );
 
 CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket
   ON ticket_attachments(ticket_id, id);
+
+-- Global storage is shared across IDE windows. Let SQLite, rather than a
+-- process-local find-then-insert check, arbitrate two windows attaching the
+-- same content-addressed file at once.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name
+  ON ticket_attachments(ticket_id, stored_name);

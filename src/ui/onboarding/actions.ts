@@ -18,14 +18,31 @@ import {
 } from '../../workflow/classify/analyze.js';
 import type { OnboardingActions, TicketDraftFields } from './messages.js';
 import type { OnboardingActionsCtx, OnboardingActionsFactory } from './panel.js';
-import { ingestFile, ingestBytes, type IngestResult } from '../../attachments/ingest.js';
-import { unlinkAttachment } from '../../attachments/reap.js';
+import {
+  ingestFile,
+  ingestBytes,
+  attachmentExists,
+  validateAttachment,
+  type IngestResult,
+} from '../../attachments/ingest.js';
+import {
+  discardStagedAttachment,
+  restoreStagedAttachment,
+  stageAttachmentRemoval,
+  unlinkAttachment,
+  type StagedAttachmentRemoval,
+} from '../../attachments/reap.js';
 import { attachmentPath } from '../../attachments/paths.js';
 import {
-  insertAttachment,
+  abortAttachmentWrite,
+  attachmentWriteState,
+  beginAttachmentWrite,
+  finalizeAttachmentDetach,
+  finalizeAttachmentWrite,
   getAttachment,
-  deleteAttachment,
-  findAttachmentByStoredName,
+  prepareAttachmentDetach,
+  releaseAttachmentDetach,
+  releaseAttachmentOperation,
 } from '../../store/attachments.js';
 
 /**
@@ -205,16 +222,111 @@ export function buildOnboardingActions(
      * would put two tiles over it — the second detach then unlinking the file the
      * first still points at.
      */
-    const record = (ticketId: number, result: IngestResult): boolean => {
+    const record = async (
+      ticketId: number,
+      result: IngestResult,
+      republish: (expectedStoredName: string) => Promise<IngestResult>,
+    ): Promise<boolean> => {
       if (!result.ok) {
         ctx.post({ type: 'error', message: result.message });
         return false;
       }
-      const existing = findAttachmentByStoredName(
-        deps.store, ticketId, result.input.storedName,
-      );
-      if (!existing) insertAttachment(deps.store, result.input);
-      return true;
+      const deadline = Date.now() + 30_000;
+      for (;;) {
+        let attempt = beginAttachmentWrite(deps.store, result.input);
+        while (attempt?.kind === 'busy' && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          attempt = beginAttachmentWrite(deps.store, result.input);
+        }
+        if (attempt?.kind === 'busy') {
+          throw new Error('Timed out waiting for another window to finish attaching this file.');
+        }
+        if (!attempt) {
+          // The conditional insert proves the parent is gone, so no row can
+          // still reference these just-published bytes.
+          await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+          ctx.post({
+            type: 'error',
+            message: 'This ticket was deleted before the attachment could be saved.',
+          });
+          return false;
+        }
+        const claim = attempt;
+        let rolledBack = false;
+        const rollback = async (): Promise<void> => {
+          if (rolledBack) return;
+          // Keep the attach token while removing bytes for a row this operation
+          // inserted. A waiting writer cannot claim/check the path until the DB
+          // row is then deleted, so it cannot miss this cleanup race.
+          if (claim.inserted) {
+            await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+          }
+          abortAttachmentWrite(deps.store, claim);
+          rolledBack = true;
+        };
+
+        try {
+          // If this attach arrived during a detach, wait for that operation to
+          // acknowledge cancellation (or finish deletion) before checking the
+          // destination. The separate detach token is the handshake that closes
+          // the check-then-rename race across two extension-host processes.
+          let state = attachmentWriteState(deps.store, claim.row.id, claim.token);
+          while (state === 'waiting-for-detach' && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            state = attachmentWriteState(deps.store, claim.row.id, claim.token);
+          }
+          if (state === 'waiting-for-detach') {
+            throw new Error('Timed out waiting for another window to finish detaching the attachment.');
+          }
+          if (state === 'superseded') continue;
+          if (state === 'missing') {
+            await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+            ctx.post({
+              type: 'error',
+              message: 'This ticket was deleted before the attachment could be saved.',
+            });
+            return false;
+          }
+
+          // A detach can move the destination aside after ingest publishes but
+          // before SQLite records this attach. Holding the attach token blocks a
+          // newer detach while this post-claim check repairs that narrow window.
+          if (!await attachmentExists(
+            deps.storageDir,
+            ticketId,
+            result.input.storedName,
+          )) {
+            const retry = await republish(result.input.storedName);
+            if (!retry.ok || retry.input.storedName !== result.input.storedName) {
+              await rollback();
+              ctx.post({
+                type: 'error',
+                message: retry.ok
+                  ? `${result.input.originalName} changed before it could be saved`
+                  : retry.message,
+              });
+              return false;
+            }
+          }
+
+          const finalized = finalizeAttachmentWrite(deps.store, claim.row.id, claim.token);
+          if (finalized === 'superseded') continue;
+          if (finalized === 'missing') {
+            await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+            ctx.post({
+              type: 'error',
+              message: 'This ticket was deleted before the attachment could be saved.',
+            });
+            return false;
+          }
+          return true;
+        } catch (error) {
+          await rollback();
+          throw error;
+        } finally {
+          releaseAttachmentOperation(deps.store, claim.row.id, claim.token);
+        }
+      }
     };
 
     return {
@@ -227,7 +339,13 @@ export function buildOnboardingActions(
         for (const path of paths) {
           // Sequential, not Promise.all: each ingest hashes and copies, and a
           // multi-select of large videos should not run N copies at once.
-          if (record(ticketId, await ingestFile(deps.storageDir, ticketId, path))) changed = true;
+          if (await record(
+            ticketId,
+            await ingestFile(deps.storageDir, ticketId, path),
+            (expected) => ingestFile(deps.storageDir, ticketId, path, expected),
+          )) {
+            changed = true;
+          }
         }
         if (changed) ctx.pushState();
       } catch (e) {
@@ -248,8 +366,17 @@ export function buildOnboardingActions(
           ctx.post({ type: 'error', message: `${name} could not be decoded` });
           return;
         }
+        const validation = validateAttachment(name, bytes.byteLength);
+        if (!validation.ok) {
+          ctx.post({ type: 'error', message: validation.message });
+          return;
+        }
         const ticketId = ensureTicket();
-        if (record(ticketId, await ingestBytes(deps.storageDir, ticketId, name, bytes))) {
+        if (await record(
+          ticketId,
+          await ingestBytes(deps.storageDir, ticketId, name, bytes),
+          () => ingestBytes(deps.storageDir, ticketId, name, bytes),
+        )) {
           ctx.pushState();
         }
       } catch (e) {
@@ -262,12 +389,45 @@ export function buildOnboardingActions(
         // Scoped to THIS panel's ticket. The id crosses an untrusted boundary, so
         // an id belonging to another ticket must not let this panel unlink that
         // ticket's file.
-        const row = getAttachment(deps.store, id);
-        if (!row || row.ticketId !== ctx.ticketId) return;
-        // Preserve the row until the file is gone. A failed unlink stays
-        // retryable instead of silently orphaning bytes with no database handle.
-        await unlinkAttachment(deps.storageDir, row.ticketId, row.storedName);
-        deleteAttachment(deps.store, id);
+        if (ctx.ticketId === undefined) return;
+        const decision = prepareAttachmentDetach(deps.store, id, ctx.ticketId);
+        if (!decision) return;
+        const { row } = decision;
+        if (!decision.needsUnlink) {
+          ctx.pushState();
+          return;
+        }
+        // Keep a DB-visible detach claim across the async filesystem operation.
+        // Moving aside first makes a failed unlink reversible; final row delete
+        // is conditional on this detach still owning the token, so a concurrent
+        // same-content attach cancels it rather than losing its publication.
+        let staged: StagedAttachmentRemoval | null = null;
+        try {
+          staged = await stageAttachmentRemoval(
+            deps.storageDir,
+            row.ticketId,
+            row.storedName,
+            decision.token,
+          );
+        } catch (error) {
+          releaseAttachmentDetach(deps.store, row.id, decision.token);
+          throw error;
+        }
+        try {
+          await discardStagedAttachment(staged);
+        } catch (error) {
+          // Keep waiters/new detaches behind the handshake until rollback has
+          // restored the destination (without replacing a newer publication).
+          // If restoration itself fails, retain the token rather than exposing
+          // a live row whose destination is still absent.
+          await restoreStagedAttachment(staged);
+          releaseAttachmentDetach(deps.store, row.id, decision.token);
+          throw error;
+        }
+        // From here the published bytes are gone. If SQLite finalization throws,
+        // deliberately retain detach_token: the row is durable retry metadata,
+        // and prepareAttachmentDetach resumes that token on the next click.
+        finalizeAttachmentDetach(deps.store, row.id, decision.token);
         ctx.pushState();
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });
