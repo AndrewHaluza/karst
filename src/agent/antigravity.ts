@@ -19,6 +19,7 @@ import type {
   HeadlessResult,
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME } from './workflowCommand.js';
+import { describeHeadlessFailure } from './cliFailure.js';
 
 const AGY_BIN = 'agy';
 
@@ -220,7 +221,14 @@ export class AntigravityAdapter implements AgentAdapter {
 
     const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd);
     if (r.exitCode !== 0) {
-      throw new Error(`agy exited ${r.exitCode}: ${r.stderr || r.stdout}`);
+      throw new Error(
+        describeHeadlessFailure({
+          tool: 'Antigravity',
+          exitCode: r.exitCode,
+          stdout: r.stdout,
+          stderr: r.stderr,
+        }),
+      );
     }
 
     return {

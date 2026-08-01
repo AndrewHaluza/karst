@@ -13,6 +13,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
 import { writeHookSettings } from './settings.js';
+import { describeHeadlessFailure } from './cliFailure.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
@@ -277,7 +278,17 @@ export class ClaudeAdapter implements AgentAdapter {
 
     const r = await this.spawnHeadless(CLAUDE_BIN, args, opts.cwd);
     if (r.exitCode !== 0) {
-      throw new Error(`claude exited ${r.exitCode}: ${r.stderr || r.stdout}`);
+      // The whole `--output-format json` envelope used to land on the stage
+      // verdict; a 429 read as an internal crash. `describeHeadlessFailure`
+      // unwraps it (shared by every agent core) — see cliFailure.ts.
+      throw new Error(
+        describeHeadlessFailure({
+          tool: 'Claude',
+          exitCode: r.exitCode,
+          stdout: r.stdout,
+          stderr: r.stderr,
+        }),
+      );
     }
 
     let parsed: { session_id?: string; result?: string };

@@ -528,6 +528,25 @@ describe('ClaudeAdapter.runHeadless', () => {
     await expect(adapter.runHeadless({ prompt: 'go', cwd: '/wt/a' })).rejects.toThrow(/boom|exit/i);
   });
 
+  it('renders a 429 envelope as a usage-limit sentence, not the raw JSON', async () => {
+    const envelope = JSON.stringify({
+      is_error: true,
+      session_id: 'sess-9',
+      api_error_status: 429,
+      usage: { cache_read_input_tokens: 15912 },
+      result:
+        "You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message",
+    });
+    const adapter = new ClaudeAdapter(fakeSpawn({ stdout: envelope, exitCode: 1 }));
+    const error = await adapter
+      .runHeadless({ prompt: 'go', cwd: '/wt/a' })
+      .then(() => null, (e: Error) => e);
+    expect(error?.message).toContain('Claude usage limit reached');
+    expect(error?.message).toContain("You've hit your monthly spend limit");
+    expect(error?.message).not.toContain('session_id');
+    expect(error?.message).not.toContain('cache_read_input_tokens');
+  });
+
   it('rejects when stdout is not valid JSON', async () => {
     const adapter = new ClaudeAdapter(fakeSpawn({ stdout: 'not json', exitCode: 0 }));
     await expect(adapter.runHeadless({ prompt: 'go', cwd: '/wt/a' })).rejects.toThrow(/JSON/i);
