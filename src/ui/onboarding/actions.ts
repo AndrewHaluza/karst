@@ -105,7 +105,7 @@ export interface OnboardingActionsDeps {
    */
   pickAttachment: () => Promise<string[]>;
   /** Reveal a file in the editor (real: `vscode.env.openExternal` / `vscode.open`). */
-  openFile: (path: string) => void;
+  openFile: (path: string) => void | Promise<void>;
 }
 
 function errorMessage(e: unknown): string {
@@ -219,49 +219,69 @@ export function buildOnboardingActions(
 
     return {
     attachPick: async (): Promise<void> => {
-      const paths = await deps.pickAttachment();
-      if (paths.length === 0) return; // cancelled — not an error, say nothing
-      const ticketId = ensureTicket();
-      let changed = false;
-      for (const path of paths) {
-        // Sequential, not Promise.all: each ingest hashes and copies, and a
-        // multi-select of large videos should not run N copies at once.
-        if (record(ticketId, await ingestFile(deps.storageDir, ticketId, path))) changed = true;
+      try {
+        const paths = await deps.pickAttachment();
+        if (paths.length === 0) return; // cancelled — not an error, say nothing
+        const ticketId = ensureTicket();
+        let changed = false;
+        for (const path of paths) {
+          // Sequential, not Promise.all: each ingest hashes and copies, and a
+          // multi-select of large videos should not run N copies at once.
+          if (record(ticketId, await ingestFile(deps.storageDir, ticketId, path))) changed = true;
+        }
+        if (changed) ctx.pushState();
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
       }
-      if (changed) ctx.pushState();
     },
 
     attachBytes: async (name: string, base64: string): Promise<void> => {
-      const ticketId = ensureTicket();
-      // Buffer.from silently DROPS invalid base64 characters rather than
-      // throwing, so a corrupt payload would otherwise be written as a
-      // truncated file that renders as a broken tile. Re-encoding and comparing
-      // is the check: a payload that does not round-trip was not valid base64.
-      const bytes = Buffer.from(base64, 'base64');
-      if (bytes.toString('base64') !== base64) {
-        ctx.post({ type: 'error', message: `${name} could not be decoded` });
-        return;
-      }
-      if (record(ticketId, await ingestBytes(deps.storageDir, ticketId, name, bytes))) {
-        ctx.pushState();
+      try {
+        // Buffer.from silently DROPS invalid base64 characters rather than
+        // throwing, so a corrupt payload would otherwise be written as a
+        // truncated file that renders as a broken tile. Re-encoding and comparing
+        // is the check: a payload that does not round-trip was not valid base64.
+        // Validate BEFORE ensureTicket: rejected bytes are not a real attach and
+        // must not persist or bind an otherwise-empty create panel.
+        const bytes = Buffer.from(base64, 'base64');
+        if (bytes.toString('base64') !== base64) {
+          ctx.post({ type: 'error', message: `${name} could not be decoded` });
+          return;
+        }
+        const ticketId = ensureTicket();
+        if (record(ticketId, await ingestBytes(deps.storageDir, ticketId, name, bytes))) {
+          ctx.pushState();
+        }
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
       }
     },
 
     detachAttachment: async (id: number): Promise<void> => {
-      // Scoped to THIS panel's ticket. The id crosses an untrusted boundary, so
-      // an id belonging to another ticket must not let this panel unlink that
-      // ticket's file.
-      const row = getAttachment(deps.store, id);
-      if (!row || row.ticketId !== ctx.ticketId) return;
-      deleteAttachment(deps.store, id);
-      await unlinkAttachment(deps.storageDir, row.ticketId, row.storedName);
-      ctx.pushState();
+      try {
+        // Scoped to THIS panel's ticket. The id crosses an untrusted boundary, so
+        // an id belonging to another ticket must not let this panel unlink that
+        // ticket's file.
+        const row = getAttachment(deps.store, id);
+        if (!row || row.ticketId !== ctx.ticketId) return;
+        // Preserve the row until the file is gone. A failed unlink stays
+        // retryable instead of silently orphaning bytes with no database handle.
+        await unlinkAttachment(deps.storageDir, row.ticketId, row.storedName);
+        deleteAttachment(deps.store, id);
+        ctx.pushState();
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      }
     },
 
     openAttachment: async (id: number): Promise<void> => {
-      const row = getAttachment(deps.store, id);
-      if (!row || row.ticketId !== ctx.ticketId) return;
-      deps.openFile(attachmentPath(deps.storageDir, row.ticketId, row.storedName));
+      try {
+        const row = getAttachment(deps.store, id);
+        if (!row || row.ticketId !== ctx.ticketId) return;
+        await deps.openFile(attachmentPath(deps.storageDir, row.ticketId, row.storedName));
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      }
     },
 
     async fetchSource(ref: string): Promise<void> {

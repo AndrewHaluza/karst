@@ -86,10 +86,10 @@ export interface OnboardingActions {
   setProvider: (id: string) => void;
   setType: (id: string) => void;
   analyze: (prompt: string) => void;
-  attachPick: () => void;
-  attachBytes: (name: string, base64: string) => void;
-  detachAttachment: (id: number) => void;
-  openAttachment: (id: number) => void;
+  attachPick: () => Promise<void>;
+  attachBytes: (name: string, base64: string) => Promise<void>;
+  detachAttachment: (id: number) => Promise<void>;
+  openAttachment: (id: number) => Promise<void>;
   openTicketLink: (url: string) => void;
   submit: (input: TicketDraftFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
@@ -233,7 +233,10 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
  * boundary; unknown/malformed shapes are ignored so a stray message can't crash
  * the host.
  */
-export function routeOnboardingAction(raw: unknown, actions: OnboardingActions): void {
+export function routeOnboardingAction(
+  raw: unknown,
+  actions: OnboardingActions,
+): void | Promise<void> {
   const msg = parseOnboardingMessage(raw);
   if (!msg) return;
   switch (msg.type) {
@@ -268,17 +271,13 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
       actions.analyze(msg.prompt);
       return;
     case 'attach-pick':
-      actions.attachPick();
-      return;
+      return actions.attachPick();
     case 'attach-bytes':
-      actions.attachBytes(msg.name, msg.base64);
-      return;
+      return actions.attachBytes(msg.name, msg.base64);
     case 'detach-attachment':
-      actions.detachAttachment(msg.id);
-      return;
+      return actions.detachAttachment(msg.id);
     case 'open-attachment':
-      actions.openAttachment(msg.id);
-      return;
+      return actions.openAttachment(msg.id);
     case 'open-ticket-link':
       actions.openTicketLink(msg.url);
       return;

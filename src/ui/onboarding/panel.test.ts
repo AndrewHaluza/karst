@@ -38,9 +38,9 @@ interface FakePanel extends OnboardingPanel {
   revealed: number;
   posted: unknown[];
   icons: string[];
-  handlers: Array<(m: unknown) => void>;
+  handlers: Array<(m: unknown) => void | Promise<void>>;
   disposeHandler?: () => void;
-  emit(m: unknown): void;
+  emit(m: unknown): Promise<void>;
   dispose(): void;
 }
 
@@ -60,7 +60,9 @@ function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => panel.handlers.push(h),
         onDidDispose: (h) => (panel.disposeHandler = h),
-        emit: (m) => panel.handlers.forEach((h) => h(m)),
+        emit: async (m) => {
+          await Promise.all(panel.handlers.map((h) => h(m)));
+        },
         dispose: () => panel.disposeHandler?.(),
       };
       panels.push(panel);
@@ -71,7 +73,10 @@ function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
 }
 
 /** A no-op actions factory that records the ctx it was built with. */
-function recordingFactory(seen: OnboardingActionsCtx[] = []) {
+function recordingFactory(
+  seen: OnboardingActionsCtx[] = [],
+  overrides: Partial<OnboardingActions> = {},
+) {
   const factory = (ctx: OnboardingActionsCtx): OnboardingActions => {
     seen.push(ctx);
     return {
@@ -85,14 +90,15 @@ function recordingFactory(seen: OnboardingActionsCtx[] = []) {
       setProvider: () => {},
       setType: () => {},
       analyze: () => {},
-      attachPick: () => {},
-      attachBytes: () => {},
-      detachAttachment: () => {},
-      openAttachment: () => {},
+      attachPick: async () => {},
+      attachBytes: async () => {},
+      detachAttachment: async () => {},
+      openAttachment: async () => {},
       openTicketLink: () => {},
       submit: () => {},
       save: () => {},
       requestState: () => ctx.pushState(),
+      ...overrides,
     };
   };
   return { factory, seen };
@@ -234,6 +240,34 @@ describe('OnboardingManager', () => {
     panels[0]!.emit({ type: 'request-state' });
     const pushed = panels[0]!.posted.at(-1) as { type: string };
     expect(pushed.type).toBe('state');
+  });
+
+  it('awaits a rejected attachment action and reports it inline', async () => {
+    const { host, panels } = fakeHost();
+    const rejected = Promise.reject(new Error('attachment action failed'));
+    // Keep the pre-fix implementation from surfacing an unhandled rejection;
+    // the assertion below still proves the panel itself did not observe it.
+    void rejected.catch(() => {});
+    const { factory } = recordingFactory([], { attachPick: () => rejected });
+    const mgr = new OnboardingManager(
+      store,
+      () => MANIFEST,
+      host,
+      factory,
+      undefined,
+      undefined,
+      undefined,
+      () => {},
+    );
+
+    mgr.openCreate();
+    panels[0]!.posted.length = 0;
+    await panels[0]!.emit({ type: 'attach-pick' });
+
+    expect(panels[0]!.posted).toContainEqual({
+      type: 'error',
+      message: 'attachment action failed',
+    });
   });
 
   it('rebinds a create panel to a ticket so the next pushState is edit mode', () => {

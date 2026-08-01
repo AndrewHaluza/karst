@@ -22,7 +22,7 @@ import {
 export interface OnboardingPanel {
   reveal(): void;
   postMessage(message: OnboardingHostMessage): void;
-  onDidReceiveMessage(handler: (message: unknown) => void): void;
+  onDidReceiveMessage(handler: (message: unknown) => void | Promise<void>): void;
   onDidDispose(handler: () => void): void;
   /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
   dispose(): void;
@@ -234,12 +234,16 @@ export class OnboardingManager {
     this.modelRefreshers.add(pushState);
     const actions = this.actionsFactory(ctx);
 
-    panel.onDidReceiveMessage((raw) => {
+    panel.onDidReceiveMessage(async (raw) => {
       try {
-        routeOnboardingAction(raw, actions);
+        await routeOnboardingAction(raw, actions);
       } catch (err) {
         // The message pump must never die on one bad message.
         this.logError('karst: onboarding action failed', err);
+        ctx.post({
+          type: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
     });
     panel.onDidDispose(() => {

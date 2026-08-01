@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -976,6 +976,20 @@ describe('buildOnboardingActions', () => {
       expect(ctx.posted.filter((m) => m.type === 'error')).toEqual([]);
     });
 
+    it('reports a picker rejection inline without binding a draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      deps.pickAttachment = async () => {
+        throw new Error('picker failed');
+      };
+      const outcome = await actions.attachPick().then(
+        () => 'resolved',
+        () => 'rejected',
+      );
+      expect(outcome).toBe('resolved');
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(ctx.posted).toContainEqual({ type: 'error', message: 'picker failed' });
+    });
+
     it('ingests every file the picker returns', async () => {
       const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
       deps.pickAttachment = async () => [sourceImage('a.png'), sourceImage('b.png')];
@@ -1009,6 +1023,17 @@ describe('buildOnboardingActions', () => {
       expect(ctx.posted).toContainEqual(expect.objectContaining({ type: 'error' }));
     });
 
+    it('rejects invalid base64 before binding a create-mode draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      await actions.attachBytes('shot.png', '!!!not-base64!!!');
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(listTickets(deps.store)).toEqual([]);
+      expect(ctx.posted).toContainEqual({
+        type: 'error',
+        message: 'shot.png could not be decoded',
+      });
+    });
+
     // Identical bytes are one file, so a second attach must not add a second tile
     // pointing at it — and must certainly not leave a row whose file a later
     // detach would unlink out from under the first.
@@ -1029,6 +1054,26 @@ describe('buildOnboardingActions', () => {
       await actions.detachAttachment(row.id);
       expect(listAttachments(deps.store, ticketId!)).toEqual([]);
       expect(existsSync(path)).toBe(false);
+    });
+
+    it('reports an unlink failure inline and keeps the row retryable', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+      await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
+      const row = listAttachments(deps.store, ticketId!)[0]!;
+      const path = attachmentPath(deps.storageDir, ticketId!, row.storedName);
+      rmSync(path);
+      mkdirSync(path);
+
+      const outcome = await actions.detachAttachment(row.id).then(
+        () => 'resolved',
+        () => 'rejected',
+      );
+
+      expect(getAttachment(deps.store, row.id)).not.toBeNull();
+      expect(outcome).toBe('resolved');
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('directory') }),
+      );
     });
 
     it('ignores a detach for an unknown id', async () => {
@@ -1052,17 +1097,36 @@ describe('buildOnboardingActions', () => {
     it('opens an attachment by its absolute path', async () => {
       const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
       const opened: string[] = [];
-      deps.openFile = (p: string) => opened.push(p);
+      deps.openFile = (p: string) => {
+        opened.push(p);
+      };
       await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
       const row = listAttachments(deps.store, ticketId!)[0]!;
       await actions.openAttachment(row.id);
       expect(opened).toEqual([attachmentPath(deps.storageDir, ticketId!, row.storedName)]);
     });
 
+    it('reports an asynchronous open failure inline', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+      const rejected = Promise.reject(new Error('open failed'));
+      // Avoid an unhandled rejection in the pre-fix implementation, which
+      // discards this promise instead of awaiting it.
+      void rejected.catch(() => {});
+      deps.openFile = () => rejected;
+      await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
+      const row = listAttachments(deps.store, ticketId!)[0]!;
+
+      await actions.openAttachment(row.id);
+
+      expect(ctx.posted).toContainEqual({ type: 'error', message: 'open failed' });
+    });
+
     it('does not open an attachment belonging to another ticket', async () => {
       const { actions, deps } = makeActions({ mode: 'edit' });
       const opened: string[] = [];
-      deps.openFile = (p: string) => opened.push(p);
+      deps.openFile = (p: string) => {
+        opened.push(p);
+      };
       const other = createTicket(deps.store, { key: 'OTHER-2', title: 'other' }).id;
       const foreign = insertAttachment(deps.store, {
         ticketId: other, kind: 'image', storedName: 'x.png', originalName: 'x.png', byteSize: 1,

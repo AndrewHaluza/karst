@@ -338,6 +338,28 @@ describe('attachment messages', () => {
     expect(actions.openAttachment).toHaveBeenCalledWith(7);
   });
 
+  it('returns each attachment action promise to the panel', () => {
+    const actions = spyActions();
+    const pick = Promise.resolve();
+    const bytes = Promise.resolve();
+    const detach = Promise.resolve();
+    const open = Promise.resolve();
+    actions.attachPick = vi.fn(() => pick);
+    actions.attachBytes = vi.fn(() => bytes);
+    actions.detachAttachment = vi.fn(() => detach);
+    actions.openAttachment = vi.fn(() => open);
+
+    expect(routeOnboardingAction({ type: 'attach-pick' }, actions)).toBe(pick);
+    expect(
+      routeOnboardingAction(
+        { type: 'attach-bytes', name: 'shot.png', base64: 'AAAA' },
+        actions,
+      ),
+    ).toBe(bytes);
+    expect(routeOnboardingAction({ type: 'detach-attachment', id: 7 }, actions)).toBe(detach);
+    expect(routeOnboardingAction({ type: 'open-attachment', id: 7 }, actions)).toBe(open);
+  });
+
   it('ignores a detach/open whose id is not a positive integer', () => {
     const actions = spyActions();
     for (const id of ['7', 0, -1, 1.5, NaN, null, undefined]) {

@@ -797,8 +797,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
         return (picked ?? []).map((uri) => uri.fsPath);
       },
-      openFile: (path: string) => {
-        void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
+      openFile: async (path: string) => {
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
       },
     }),
     listInstalledApproachIds,
