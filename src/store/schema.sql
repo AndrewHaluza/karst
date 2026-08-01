@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS stages (
   artifact_path TEXT,
   started_at    TEXT,
   ended_at      TEXT,
-  -- v16 blocked columns (kept in sync with migrations.ts v16 ALTERs).
+  -- v17 blocked columns (kept in sync with migrations.ts v17 ALTERs).
   -- A block is karst saying it could not ASK the question — distinct from a
   -- `failed` verdict, which says the code is wrong. NULL kind = not blocked, so
   -- there is nothing to backfill and no status value had to change.
@@ -160,12 +160,23 @@ CREATE TABLE IF NOT EXISTS servers (
   started_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- One PR per (ticket, repo). `status` and every v16 metadata column below are
+-- CURRENT STATE, not evidence: they are re-probed from gh and overwritten, for
+-- the same reason merge_checks is not append-only — a stale "open" for a merged
+-- PR is a wrong answer stated confidently. Every metadata column is nullable
+-- because it is gh's answer, not ours: a probe that could not see the PR leaves
+-- NULL, and NULL renders as "not stated" rather than as a blank or a guess.
 CREATE TABLE IF NOT EXISTS prs (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
   repo          TEXT NOT NULL,
   number        INTEGER,
   url           TEXT,
-  status        TEXT
+  status        TEXT,
+  head_ref      TEXT,                 -- v16: source branch (gh headRefName)
+  base_ref      TEXT,                 -- v16: target branch (gh baseRefName)
+  created_at    TEXT,                 -- v16: PR creation stamp, ISO-8601 from gh
+  merged_at     TEXT,                 -- v16: merge stamp; NULL until actually merged
+  comments      TEXT                  -- v16: JSON array of {author,at,body}; see store/prComments.ts
 );
 
 -- Whether a ticket's branch still merges into its base, per repo, as of the last

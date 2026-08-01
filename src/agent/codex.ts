@@ -27,6 +27,7 @@ import type {
   RunHeadlessOpts,
 } from './adapter.js';
 import { renderWorkflowCommand } from './workflowCommand.js';
+import { describeHeadlessFailure } from './cliFailure.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -551,9 +552,12 @@ export class CodexAdapter implements AgentAdapter {
     const result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd);
     if (result.exitCode !== 0) {
       throw new Error(
-        `codex exited ${result.exitCode}: ${diagnostic(
-          result.stderr || result.stdout,
-        )}`,
+        describeHeadlessFailure({
+          tool: 'Codex',
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        }),
       );
     }
     const parsed = parseCodexJsonl(result.stdout);

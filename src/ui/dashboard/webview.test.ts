@@ -24,6 +24,71 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('a.detail');
   });
 
+  it('shows the live core/model and a payload-free switch action beside Now', () => {
+    expect(HTML).toContain('agentSession.providerLabel');
+    expect(HTML).toContain('agentSession.modelLabel');
+    expect(HTML).toContain('data-act="switch-agent"');
+    expect(HTML).toMatch(/agentSession\.canSwitch[\s\S]*switch-agent/);
+    expect(HTML).not.toMatch(/data-act="switch-agent"[^>]*data-(?:provider|model|ticket)/);
+  });
+
+  it('styles the switch action only with semantic VS Code theme tokens', () => {
+    const rule = HTML.match(/\.switch-agent\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('var(--vscode-button-secondaryBackground');
+    expect(rule).toContain('var(--vscode-button-secondaryForeground');
+    expect(rule).not.toMatch(/#[0-9a-f]{3,8}|\b(?:black|white)\b/i);
+  });
+
+  it('renders ticket changes as one accessible diff icon button', () => {
+    expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
+    expect(HTML).toMatch(/id="wtChanges"[^>]*aria-label="Show ticket changes"/);
+    expect(HTML).toMatch(/id="wtChanges"[^>]*title="Show ticket changes"/);
+    expect(HTML).toContain('href="#i-diff"');
+    expect(HTML).not.toMatch(/id="wtChanges"[^>]*>Changes<\/button>/);
+    expect(HTML).not.toContain('diff-worktree');
+  });
+
+  it('renders terminal, branch-copy, and reveal actions for each worktree', () => {
+    expect(HTML).toContain('data-act="open-worktree-terminal"');
+    expect(HTML).toContain('data-act="copy-worktree-branch"');
+    expect(HTML).toContain('data-branch="${esc(w.branch)}"');
+    expect(HTML).toContain('data-copy');
+    expect(HTML).toContain('Open Terminal');
+    expect(HTML).toContain('Reveal in Explorer');
+    expect(HTML).not.toContain('>Open folder</button>');
+  });
+
+  it('renders ephemeral additions and deletions by host-owned repo identity', () => {
+    expect(HTML).toMatch(/worktreeStats\[w\.repo\]/);
+    expect(HTML).toContain("msg.type === 'worktree-stats'");
+    expect(HTML).toContain('stats.additions');
+    expect(HTML).toContain('stats.deletions');
+    expect(HTML).toContain('worktreeStats = {}');
+  });
+
+  /**
+   * The panels sit side by side in one grid row: a header that sizes itself to
+   * its own contents puts its body on a different line from its neighbour's,
+   * which is what made the Worktrees block read as drifted. One declared height
+   * is what keeps them level whatever a header carries.
+   */
+  it('gives every panel header the same declared height', () => {
+    expect(HTML).toMatch(/--phead-h:\s*\d+px/);
+    expect(HTML).toMatch(/\.phead\{[^}]*min-height:var\(--phead-h\)/);
+    // No per-panel override may reintroduce a second height.
+    expect(HTML).not.toMatch(/\.svpanel \.phead\{[^}]*(?:min-)?height:/);
+    expect(HTML).not.toMatch(/\.svpanel \.phead\{[^}]*padding:/);
+  });
+
+  /**
+   * `.count` earns its position from `margin-left:auto` against .phead's flex
+   * line. Wrapped in a span it had nothing to push against and printed flush
+   * against the label.
+   */
+  it('keeps the worktrees count a direct child of its panel header', () => {
+    expect(HTML).toContain('<div class="phead">Worktrees<span class="count" id="wtCount"></span>');
+  });
+
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
     // markers are load-bearing at runtime (renderKeyPill calls providerIconHtml,
@@ -243,6 +308,24 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/srvFilter:\s*srvFilter/);
   });
 
+  it('offers the terminal binding as a real pressed-state toggle', () => {
+    // Icon-free text button, but still a toggle: screen readers need the pressed
+    // state, since "Bind" alone does not say whether it is currently on.
+    expect(HTML).toContain('data-act="toggle-bind"');
+    expect(HTML).toMatch(/id="bindBtn"[^>]*aria-pressed/);
+  });
+
+  it('renders the binding from the host push, never from its own memory', () => {
+    // The binding is window-wide and host-owned: two dashboards are open at
+    // once, so a webview that remembered its own value would drift from the
+    // other panel and from the host after a toggle.
+    expect(HTML).toMatch(/'bind'|"bind"/);
+    expect(HTML).toMatch(/bindEnabled\s*=\s*[^;]*\bmsg\b/);
+    // Not persisted beside the snapshot, unlike sel/fixExpanded/srvFilter —
+    // the host re-pushes it on every open, so a stored copy could only be stale.
+    expect(HTML).not.toMatch(/setState\(\{ state:[^}]*bindEnabled/);
+  });
+
   it('no longer carries the removed impl-phase strip', () => {
     expect(HTML).not.toContain('renderSubsteps');
     expect(HTML).not.toContain('implPhases');
@@ -274,7 +357,7 @@ describe('dashboard webview.html', () => {
     // Every push still reads the ship stage as "ready" (it sits at running), so
     // renderNow must short-circuit to a static sentence while shipping, and the
     // resolution must key off host stage truth — not the button copy.
-    expect(HTML).toMatch(/function renderNow\(now\) \{[\s\S]*?if \(shipping\)/);
+    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipping\)/);
     expect(HTML).toMatch(/stageCurrent === 'ship'/);
     expect(HTML).toMatch(/status === 'failed'/);
   });
@@ -302,10 +385,162 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain("post({ type: 'create-follow-up-ticket' })");
   });
 
+  /**
+   * Mergeability on the PR panel. The bug: ship probed once, said "clean", and
+   * nothing ever re-asked — a PR that stopped being mergeable an hour later read
+   * as fine until a human hit the merge button.
+   */
+  it('renders each PR’s merge verdict from the host-rendered headline', () => {
+    // The wording is `buildMergeCheckPanelRows`', host-side. A verdict phrased in
+    // the webview would be a fourth voice describing the same three-valued fact.
+    expect(HTML).toMatch(/renderPrs\(state\.prs,\s*state\.mergeChecks/);
+    expect(HTML).toContain('esc(m.headline)');
+    // The old single-line summary is gone, not merely unused.
+    expect(HTML).not.toContain('m.summary');
+  });
+
+  /**
+   * `mgwrap`'s `mg-${state}` class is the SOLE driver of the dot colour and the
+   * red conflicted text (`.mg-conflicted .mgdot` / `.mg-conflicted .mgtext`
+   * above). Nothing else in this suite pinned it before, so a future edit that
+   * dropped the class, moved it back onto `.mg`, or emitted `<details>` outside
+   * `.mgwrap` would render a colourless dot for a real conflict and this suite
+   * would stay green.
+   */
+  it('pins the state class to the wrapper, not just anywhere in the row', () => {
+    expect(HTML).toContain('class="mgwrap mg-${esc(m.state)}"');
+  });
+
+  it('opens the conflict list only when the host supplied a label for it', () => {
+    // '' means "there is nothing to open" — it must render no disclosure at all,
+    // not an empty one.
+    expect(HTML).toContain('m.detailsLabel');
+    expect(HTML).toContain('<details class="mgd"');
+  });
+
+  it('escapes the paths and git’s prose, which both come from outside karst', () => {
+    expect(HTML).toContain('esc(m.reason)');
+    expect(HTML).toContain('esc(f)');
+    expect(HTML).not.toContain('${m.reason}');
+    expect(HTML).not.toContain('${m.headline}');
+  });
+
+  it('hangs the absolute stamp off the headline as its tooltip', () => {
+    // The relative age drifts between state pushes; this is the part that stays
+    // true when it has. Pinned to the exact element and attribute — asserting
+    // only that `m.checkedTitle` appears somewhere would still pass if the
+    // tooltip moved onto the wrong node.
+    expect(HTML).toContain('<span class="mgtext"${title}>');
+    expect(HTML).toContain('title="checked ${esc(m.checkedTitle)}"');
+  });
+
+  it('keeps an open merge disclosure open across a re-render, like the stage selection', () => {
+    // render() replaces #prs wholesale on every `state` push AND every
+    // ship-progress tick ("pushState fires on every driver progress tick",
+    // above) — a user reading a long conflict list mid-ship must not have it
+    // snap shut under them. So which disclosures are open is local view state,
+    // exactly like `selectedStage`: never inside DashboardState, never
+    // round-tripped through the host, toggled only by a delegated listener.
+    expect(HTML).toMatch(/let openMergeRepos = new Set\(\)/);
+    expect(HTML).toContain('openMergeRepos.has(m.repo)');
+    expect(HTML).toMatch(/addEventListener\('toggle'/);
+    // render() itself must never reset the set — only the toggle listener may.
+    expect((HTML.match(/openMergeRepos\s*=\s*new Set\(\)/g) || []).length).toBe(1);
+  });
+
+  it('offers Resolve conflicts only on a repo the host called conflicted', () => {
+    // Not disabled-when-clean: a button that can never apply is a dead
+    // affordance. It exists only for the conflicted row, and carries the repo —
+    // never a path, which would let the webview name a directory to open a
+    // session in.
+    expect(HTML).toMatch(/m\.state === 'conflicted'/);
+    expect(HTML).toContain('data-act="resolve-conflicts"');
+    expect(HTML).toContain('data-repo=');
+    expect(HTML).not.toMatch(/data-act="resolve-conflicts"[^>]*data-path=/);
+  });
+
+  it('sends the repo along with the click, so the host can resolve the worktree', () => {
+    expect(HTML).toMatch(/post\(\{ type: act, repo: btn\.dataset\.repo \}\)/);
+  });
+
+  /**
+   * The PR panel's refresh icon. The complaint: PR status and mergeability only
+   * move on a 60s sweep behind a 5-minute freshness floor, so after pushing a fix
+   * a user watches a stale panel for minutes with no way to ask again.
+   */
+  it('offers a refresh control on the Pull requests panel header', () => {
+    expect(HTML).toContain('id="prRefresh"');
+    expect(HTML).toContain('data-act="refresh-prs"');
+    // An icon, per the request — and a titled, labelled one, because an icon
+    // with no accessible name is a button a screen reader cannot announce.
+    expect(HTML).toMatch(/id="prRefresh"[^>]*aria-label=/);
+  });
+
+  it('carries no target on the refresh click — the host owns which ticket it is', () => {
+    // The delegated handler picks its payload from the button's dataset, so
+    // carrying none of `data-id`/`data-path`/`data-url`/`data-repo` is what makes
+    // the post `{ type: 'refresh-prs' }` and nothing else.
+    const btn = /<button id="prRefresh"[\s\S]*?>/.exec(HTML)?.[0] ?? '';
+    expect(btn).toContain('data-act="refresh-prs"');
+    expect(btn).not.toMatch(/data-(id|path|url|repo)=/);
+  });
+
+  /**
+   * A refresh runs `gh` and a `git fetch` per repo: seconds, not milliseconds.
+   * Without a pending state the click is silent and gets pressed again, queueing
+   * sweeps behind a slow remote.
+   */
+  it('shows the refresh as busy until the next state push clears it', () => {
+    expect(HTML).toMatch(/prRefreshing = true/);
+    expect(HTML).toMatch(/prRefreshing = false/);
+  });
+
   it('resolves the ship to an explicit success flash', () => {
     // On completion the indicator settles to a clear success beat, distinct from
     // the idle and processing states.
     expect(HTML).toMatch(/shipDone = 'success'/);
     expect(HTML).toContain('✓ Shipped');
   });
+  it('renders the PR path through the host’s display form, never the raw path', () => {
+    // The path-display preference (relative/absolute) is resolved host-side into
+    // repoDisplay. Rendering `p.repo` here would print an absolute path in a
+    // workspace set to relative — the bug this replaces.
+    expect(HTML).toContain('p.repoDisplay || p.repo');
+  });
+
+  it('renders PR metadata from host-rendered strings only', () => {
+    // Each part is '' when the fact is absent, so the webview can place them
+    // without formatting a date or counting a thread — no Date() in this file.
+    for (const field of ['p.branches', 'p.opened', 'p.merged', 'p.commentsLabel']) {
+      expect(HTML, `missing PR metadata field: ${field}`).toContain(field);
+    }
+    // A comment stamp is likewise pre-formatted (`c.when`), never parsed here.
+    expect(HTML).toContain('c.when');
+  });
+
+  it('offers merge from the host’s verdict, and disables it with the host’s reason', () => {
+    expect(HTML).toContain('data-act="merge-pr"');
+    expect(HTML).toContain('p.canMerge');
+    expect(HTML).toContain('p.mergeBlockedReason');
+    // A merged PR gets no control at all — there is nothing left to do to it.
+    expect(HTML).toContain("p.status === 'merged'");
+  });
+
+  it('guards the merge click against a double fire and clears it on the next state', () => {
+    // Merging is irreversible: a second click while the host's confirmation is up
+    // must not post a second request, and the pending flag must not be able to
+    // stick (the host pushes state on success, failure, AND cancel).
+    const pendingAt = HTML.indexOf('mergePending = { ...mergePending');
+    expect(pendingAt).toBeGreaterThan(-1);
+    expect(HTML).toContain('if (!repo || mergePending[repo]) return;');
+    expect(HTML).toContain('mergePending = {};');
+  });
+
+  it('never lets the webview choose the merge strategy', () => {
+    // The method is the host's question to the user (a modal), so no strategy flag
+    // may appear in the posted message.
+    expect(HTML).not.toContain('--squash');
+    expect(HTML).not.toMatch(/method:\s*'(squash|merge|rebase)'/);
+  });
+
 });

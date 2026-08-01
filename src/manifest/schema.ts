@@ -27,6 +27,7 @@ import {
 } from '../workflow/artifactConventions.js';
 import { validateBranchTemplate } from '../runtime/branchName.js';
 import { isTicketType, TICKET_TYPES } from '../store/ticketTypes.js';
+import { validateLabelTemplate } from '../store/ticketLabelTemplate.js';
 
 // Re-exported so the many existing `from './schema.js'` importers keep working.
 export { ManifestError } from './error.js';
@@ -273,20 +274,35 @@ function validateWorktreePathDisplay(raw: unknown): WorktreePathDisplay {
  * can't erase every ticket label.
  */
 function validateTicketLabelTemplate(raw: unknown): string | undefined {
-  if (raw === undefined) return undefined;
-  if (typeof raw !== 'string') {
-    throw new ManifestError('ticketLabelTemplate must be a string');
-  }
-  return raw.trim() === '' ? undefined : raw;
+  return parseLabelTemplateField('ticketLabelTemplate', raw);
 }
 
 /** Parse `terminalNameTemplate` — string or throw; blank → undefined (default). */
 function validateTerminalNameTemplate(raw: unknown): string | undefined {
+  return parseLabelTemplateField('terminalNameTemplate', raw);
+}
+
+/**
+ * Shared parse for the two label-style template fields. Unknown VARIABLES stay
+ * legal (the renderer degrades them to empty), but placeholder transforms are
+ * checked HERE — a typo must surface where the template was entered, not as a
+ * label that quietly reverts to the default.
+ */
+function parseLabelTemplateField(
+  field: 'ticketLabelTemplate' | 'terminalNameTemplate',
+  raw: unknown,
+): string | undefined {
   if (raw === undefined) return undefined;
   if (typeof raw !== 'string') {
-    throw new ManifestError('terminalNameTemplate must be a string');
+    throw new ManifestError(`${field} must be a string`);
   }
-  return raw.trim() === '' ? undefined : raw;
+  if (raw.trim() === '') return undefined;
+  try {
+    validateLabelTemplate(field, raw);
+  } catch (error) {
+    throw new ManifestError(error instanceof Error ? error.message : String(error));
+  }
+  return raw;
 }
 
 /** Parse and strictly validate independently optional artifact conventions. */

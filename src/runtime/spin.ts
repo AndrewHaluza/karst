@@ -15,6 +15,7 @@ import {
   type ServerRecord,
 } from './supervisor.js';
 import { renderHealthUrl } from './healthUrl.js';
+import { serverLogPath } from './serverLog.js';
 import { preflightSpin } from './preflight.js';
 import { getTicket } from '../store/tickets.js';
 import { ticketWorktreeNames } from './ticketBranch.js';
@@ -221,7 +222,7 @@ export async function spinTicket(
         host: manifest.host,
         port: ownPort,
         healthUrl,
-        logPath: join(cwd, `${name}.log`),
+        logPath: serverLogPath(cwd, name),
         signal,
       });
       servers.push(rec);

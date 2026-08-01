@@ -6,7 +6,6 @@ import {
   listPrsByTicket,
   type ServerView,
   type WorktreeView,
-  type PrView,
 } from '../../store/dashboard.js';
 import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
@@ -19,12 +18,23 @@ import { buildStageInside, type StageInside } from '../../model/inside/index.js'
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import { countFixAttempts, lastFailedGate } from '../../workflow/fixAttempts.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
+import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { bundledModelCatalog } from '../../agent/modelCatalog.js';
+import { buildAgentSessionView, type AgentSessionView } from '../../agent/sessionSwitch.js';
 
-export type { PathContext, StepperCell, NowLine, StageRail, StageInside };
+export type { PathContext, StepperCell, NowLine, StageRail, StageInside, PrPanelRow, MergeCheckPanelRow };
+
+export interface DashboardAgentContext {
+  defaultModel?: string | null;
+  modelCatalog?: ModelCatalog;
+  isSessionOpen?: (ticketId: number) => boolean;
+}
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
@@ -33,6 +43,8 @@ export interface DashboardState {
   title: string | null;
   stageCurrent: string | null;
   agentState: string | null;
+  /** Resolved running-session identity and whether an in-place switch is safe. */
+  agentSession: AgentSessionView;
   stepper: StepperCell[];
   /**
    * The stepper cell the ticket currently sits on — the one the "Now" line and
@@ -49,7 +61,23 @@ export interface DashboardState {
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;
   worktrees: WorktreeView[];
-  prs: PrView[];
+  /**
+   * The pull requests, already worded: from-to branches, opened/merged stamps,
+   * comments, and whether merging is offered (`model/prPanelView.ts`). Rendered
+   * host-side like every other piece of dashboard copy — the webview is
+   * standalone HTML and cannot import the formatter, so a webview-side format
+   * would be untested and would drift from the ship strip's.
+   */
+  prs: PrPanelRow[];
+  /**
+   * Current mergeability per repo — the same verdicts the ship strip renders,
+   * lifted to the top level because the PR panel is where a conflict is acted on
+   * and a standalone webview cannot read the store. Fully worded here
+   * (`model/mergeCheckPanel.ts`) so the panel cannot phrase a verdict of its own.
+   * A repo with no row was never checked; absence renders as nothing, never as
+   * clean.
+   */
+  mergeChecks: MergeCheckPanelRow[];
   /** Configured ticketing provider ('clickup' | 'manual'); null when unknown. */
   provider: string | null;
   /** The board ref the ticket was fetched from, or null. */
@@ -108,8 +136,19 @@ export function buildDashboardState(
    * "Continue" that would die on a foreign `--resume`).
    */
   defaultProvider?: AgentProvider,
+  /** Live session/model context, injected by the extension host. */
+  agentContext: DashboardAgentContext = {},
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
+  const resolvedProvider = resolveProvider(ticket.agentProvider, defaultProvider);
+  const agentSession = buildAgentSessionView({
+    provider: resolvedProvider,
+    ticketModel: ticket.model,
+    defaultModel: agentContext.defaultModel ?? null,
+    catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
+    stageCurrent: ticket.stageCurrent,
+    sessionOpen: agentContext.isSessionOpen?.(ticketId) ?? false,
+  });
   const stepper = buildStepper(ticket.stages);
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
@@ -123,8 +162,21 @@ export function buildDashboardState(
   // there is nothing to report yet (0, same as before any gate has failed).
   const failedGate = lastFailedGate(ticket.stages);
   const fixAttempts = failedGate ? countFixAttempts(ticket.stages, failedGate) : 0;
-  const prs = listPrsByTicket(store, ticketId);
+  // Rendered through the SAME path-display preference as the worktree rows: the
+  // ship stage names the same directories, and two formats for one path is the
+  // bug this replaces.
+  const prs = listPrsByTicket(store, ticketId).map((p) => ({
+    ...p,
+    repoDisplay: repoDisplayPath(p.repo, pathContext),
+  }));
+  // Read ONCE and share: the PR panel and the ship strip must never describe the
+  // same three-valued fact from two different reads.
+  const mergeChecks = listMergeChecksByTicket(store, ticketId);
   const phases = approachPhases(ticket.approach);
+
+  // ONE clock read per push: the merge rows and the stage strip must not date
+  // from two different instants.
+  const now = nowIso();
 
   return {
     ticketId: ticket.id,
@@ -132,13 +184,14 @@ export function buildDashboardState(
     title: ticket.title,
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
+    agentSession,
     stepper,
     currentStage,
     now: buildNowLine(currentStage, {
       fixAttempts,
       sessionAction: sessionAction(
         ticket,
-        resolveProvider(ticket.agentProvider, defaultProvider),
+        resolvedProvider,
       ),
     }),
     servers: listServersByTicket(store, ticketId),
@@ -147,7 +200,8 @@ export function buildDashboardState(
     // Start button there is a dead affordance dressed as an available action.
     hasRunnableRepos: ticket.selectedRepos.some((r) => isRepoRunnable(r)),
     worktrees,
-    prs,
+    prs: buildPrPanelRows(prs),
+    mergeChecks: buildMergeCheckPanelRows(mergeChecks, now),
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
@@ -158,7 +212,7 @@ export function buildDashboardState(
       gateRuns: listGateRuns(store, ticketId),
       worktrees,
       prs,
-      mergeChecks: listMergeChecksByTicket(store, ticketId),
+      mergeChecks,
       session: {
         sessionId: ticket.sessionId,
         agentState: ticket.agentState,
@@ -168,7 +222,7 @@ export function buildDashboardState(
       phases,
       marks: listPhaseMarks(store, ticketId),
       fixAttempts,
-      now: nowIso(),
+      now,
     }),
     approach: ticket.approach ? { id: ticket.approach, phases } : null,
   };

@@ -1,5 +1,7 @@
 import type { DashboardState } from './state.js';
+import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { isHttpUrl } from '../shared/url.js';
+import type { WorktreeStats } from './worktreeStats.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -13,8 +15,10 @@ export type WebviewMessage =
   | { type: 'spin-servers' }
   | { type: 'restart-servers' }
   | { type: 'stop-servers' }
-  | { type: 'diff-worktree'; path: string }
+  | { type: 'show-changes' }
+  | { type: 'open-worktree-terminal'; path: string }
   | { type: 'open-worktree-folder'; path: string }
+  | { type: 'copy-worktree-branch'; branch: string }
   | { type: 'open-pr'; url: string }
   | { type: 'open-ticket-link'; url: string }
   | { type: 'edit-ticket' }
@@ -22,10 +26,41 @@ export type WebviewMessage =
   | { type: 'ship-ticket' }
   | { type: 'resume-ticket' }
   | { type: 'create-follow-up-ticket' }
-  | { type: 'open-stage-log'; path: string };
+  | { type: 'open-stage-log'; path: string }
+  | { type: 'resolve-conflicts'; repo: string }
+  /**
+   * Merge one repo's PR from the ship stage. Carries the repo ONLY: the merge
+   * method is asked for host-side, in the confirmation the user must answer, so a
+   * crafted (or stale) message can neither choose the strategy nor skip the
+   * confirmation of an irreversible action.
+   */
+  | { type: 'merge-pr'; repo: string }
+  /**
+   * Re-probe this ticket's PRs and their mergeability NOW, instead of waiting for
+   * the background sweep. Payload-free: which ticket (and which project) is the
+   * host's to know, so a message cannot aim the probe at anything else.
+   */
+  | { type: 'refresh-prs' }
+  /**
+   * Flip the terminal↔dashboard binding. Carries no value on purpose: the host
+   * holds the preference and the webview only renders what it is pushed, so the
+   * two can never disagree about which way the toggle currently sits.
+   */
+  | { type: 'toggle-bind' }
+  /** Request the host-owned picker for this panel's current live session. */
+  | { type: 'switch-agent' };
 
-/** Host → webview messages: state pushes drive the stepper + panels. */
-export type HostMessage = { type: 'state'; state: DashboardState };
+/**
+ * Host → webview messages. `state` pushes drive the stepper + panels;
+ * `ship-progress` overlays live ship steps that are not in the store; `bind`
+ * carries the window's terminal-binding preference, which is host-owned and
+ * likewise absent from `DashboardState`.
+ */
+export type HostMessage =
+  | { type: 'state'; state: DashboardState }
+  | { type: 'worktree-stats'; stats: WorktreeStats[] }
+  | { type: 'ship-progress'; event: ShipStepEvent }
+  | { type: 'bind'; enabled: boolean };
 
 /** The daemon-facing side-effects a dashboard can trigger. */
 export interface DashboardActions {
@@ -42,8 +77,10 @@ export interface DashboardActions {
    */
   restartServers: () => void;
   stopServers: () => void;
-  diffWorktree: (path: string) => void;
+  showChanges: () => void;
+  openWorktreeTerminal: (path: string) => void;
   openWorktreeFolder: (path: string) => void;
+  copyWorktreeBranch: (branch: string) => void;
   openPr: (url: string) => void;
   openTicketLink: (url: string) => void;
   editTicket: () => void;
@@ -54,6 +91,29 @@ export interface DashboardActions {
   createFollowUpTicket: () => void;
   /** Open a stage's log (uat/review artifact) in an editor. */
   openStageLog: (path: string) => void;
+  /**
+   * Hand one repo's merge conflict to an agent session, seeded with the conflict
+   * context. Takes the repo (not a path) because the host resolves the worktree
+   * itself — the webview must not be able to name an arbitrary directory to open
+   * a session in.
+   */
+  resolveConflicts: (repo: string) => void;
+  /**
+   * Merge one repo's PR. Takes the repo (not a url or a number) for the same
+   * reason `resolveConflicts` does: the host resolves the PR from the store, so
+   * the webview cannot name an arbitrary pull request to merge.
+   */
+  mergePr: (repo: string) => void;
+  /**
+   * Re-probe this ticket's PR statuses and mergeability immediately, bypassing
+   * the sweep's freshness floor, and push the result. Takes nothing: the closure
+   * already owns the ticket, and the panel is asking for "again", not "this one".
+   */
+  refreshPrs: () => void;
+  /** Flip the window's terminal↔dashboard binding. */
+  toggleBind: () => void;
+  /** Switch the panel's live agent session through the host-owned picker. */
+  switchAgent: () => void;
 }
 
 /**
@@ -69,6 +129,7 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
   const m = raw as Record<string, unknown>;
   const num = typeof m.serverId === 'number' && Number.isFinite(m.serverId);
   const path = typeof m.path === 'string' && m.path.length > 0;
+  const branch = typeof m.branch === 'string' && m.branch.length > 0;
   switch (m.type) {
     case 'stop-server':
       return num ? { type: 'stop-server', serverId: m.serverId as number } : null;
@@ -86,10 +147,14 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'restart-servers' };
     case 'stop-servers':
       return { type: 'stop-servers' };
-    case 'diff-worktree':
-      return path ? { type: 'diff-worktree', path: m.path as string } : null;
+    case 'show-changes':
+      return { type: 'show-changes' };
+    case 'open-worktree-terminal':
+      return path ? { type: 'open-worktree-terminal', path: m.path as string } : null;
     case 'open-worktree-folder':
       return path ? { type: 'open-worktree-folder', path: m.path as string } : null;
+    case 'copy-worktree-branch':
+      return branch ? { type: 'copy-worktree-branch', branch: m.branch as string } : null;
     case 'open-pr':
       return isHttpUrl(m.url) ? { type: 'open-pr', url: m.url } : null;
     case 'open-ticket-link':
@@ -106,6 +171,29 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'create-follow-up-ticket' };
     case 'open-stage-log':
       return path ? { type: 'open-stage-log', path: m.path as string } : null;
+    case 'resolve-conflicts':
+      return typeof m.repo === 'string' && m.repo.length > 0
+        ? { type: 'resolve-conflicts', repo: m.repo }
+        : null;
+    // A companion `method` is DROPPED, not honored: how to merge is the host's
+    // question to the user, never the webview's to answer.
+    case 'merge-pr':
+      return typeof m.repo === 'string' && m.repo.length > 0
+        ? { type: 'merge-pr', repo: m.repo }
+        : null;
+    // Payload-free like the panel-level server controls: a companion `repo` or
+    // ticket id is dropped, so the refresh can only ever re-probe the ticket the
+    // host already opened this panel for.
+    case 'refresh-prs':
+      return { type: 'refresh-prs' };
+    // Payload-free like the panel-level server controls: a companion `enabled`
+    // is dropped rather than honored, so the host's value stays authoritative.
+    case 'toggle-bind':
+      return { type: 'toggle-bind' };
+    // Payload-free: the panel closure owns the ticket and re-reads the live
+    // session before switching, so no webview-supplied target can be trusted.
+    case 'switch-agent':
+      return { type: 'switch-agent' };
     default:
       return null;
   }
@@ -141,11 +229,17 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
     case 'stop-servers':
       actions.stopServers();
       return;
-    case 'diff-worktree':
-      actions.diffWorktree(msg.path);
+    case 'show-changes':
+      actions.showChanges();
+      return;
+    case 'open-worktree-terminal':
+      actions.openWorktreeTerminal(msg.path);
       return;
     case 'open-worktree-folder':
       actions.openWorktreeFolder(msg.path);
+      return;
+    case 'copy-worktree-branch':
+      actions.copyWorktreeBranch(msg.branch);
       return;
     case 'open-pr':
       actions.openPr(msg.url);
@@ -170,6 +264,21 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'open-stage-log':
       actions.openStageLog(msg.path);
+      return;
+    case 'resolve-conflicts':
+      actions.resolveConflicts(msg.repo);
+      return;
+    case 'merge-pr':
+      actions.mergePr(msg.repo);
+      return;
+    case 'refresh-prs':
+      actions.refreshPrs();
+      return;
+    case 'toggle-bind':
+      actions.toggleBind();
+      return;
+    case 'switch-agent':
+      actions.switchAgent();
       return;
   }
 }

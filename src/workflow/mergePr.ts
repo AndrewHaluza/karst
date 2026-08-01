@@ -1,0 +1,100 @@
+import type { Store } from '../store/db.js';
+import { findTicketPr, updatePrDetail } from '../store/prs.js';
+import {
+  fetchPrDetail,
+  mergePr,
+  defaultGhRunnerAsync,
+  UNKNOWN_PR_DETAIL,
+  type GhRunner,
+  type MergeMethod,
+  type PrDetail,
+  type PrStatus,
+} from '../integrations/github.js';
+
+/**
+ * Merge one repo's PR for a ticket, from the ship stage, and record what actually
+ * happened.
+ *
+ * Host-agnostic: takes the store and an injected `gh`, so it runs under vitest
+ * with a fake runner and holds no vscode, no clock, no confirmation dialog. The
+ * host owns the confirmation (a merge is irreversible) and the wording of the
+ * toast; this owns the operation and the truth about its outcome.
+ *
+ * The contract that matters: **a zero exit is never taken as proof.** The stored
+ * status and the returned verdict both come from a fresh `gh pr view` AFTER the
+ * merge, so the UI can only show merged when the PR really is. The two honest
+ * asymmetries that falls out of:
+ *
+ *  - gh refused but the PR reads merged (a teammate merged it, a retry after a
+ *    partial failure) → success. The outcome the user asked for is true.
+ *  - gh accepted but the PR does not read merged (a queued/blocked merge, a
+ *    probe that cannot see it) → NOT success, with the state named. Silence here
+ *    is what would let the panel lie about an irreversible action.
+ */
+export interface MergeTicketPrOpts {
+  ticketId: number;
+  /** The repository the PR belongs to (a repo path, as `prs.repo` stores it). */
+  repo: string;
+  /** How to merge. Always explicit — the host asks the user which. */
+  method: MergeMethod;
+}
+
+export interface MergeTicketPrResult {
+  /** True only when the PR is confirmed merged afterwards. */
+  ok: boolean;
+  /**
+   * The PR's status as it now stands: the re-probed value when gh could see it,
+   * else the last stored one. Null only when there was no PR to act on at all.
+   */
+  status: PrStatus | string | null;
+  /** Why it did not merge, in gh's own words where there are any; '' on success. */
+  reason: string;
+}
+
+/** A probe must never sink the operation it observes: failure reads as unknown. */
+async function probe(gh: GhRunner, url: string, cwd: string): Promise<PrDetail> {
+  try {
+    return await fetchPrDetail(gh, url, cwd);
+  } catch {
+    return UNKNOWN_PR_DETAIL;
+  }
+}
+
+export async function mergeTicketPr(
+  store: Store,
+  opts: MergeTicketPrOpts,
+  gh: GhRunner = defaultGhRunnerAsync,
+): Promise<MergeTicketPrResult> {
+  // The store decides what is mergeable, not the caller: the repo arrives from a
+  // webview message and a stale panel can name a PR that has since gone.
+  const pr = findTicketPr(store, opts.ticketId, opts.repo);
+  if (!pr) {
+    return {
+      ok: false,
+      status: null,
+      reason: `No pull request is recorded for "${opts.repo}" on this ticket — nothing to merge.`,
+    };
+  }
+  // Already merged: the desired state, reached earlier. Not an error, and not a
+  // reason to run an irreversible command a second time.
+  if (pr.status === 'merged') return { ok: true, status: 'merged', reason: '' };
+
+  const attempt = await mergePr(gh, pr.url, pr.cwd, opts.method);
+  const detail = await probe(gh, pr.url, pr.cwd);
+  // Persist whatever the probe could see, pass or fail: a refused merge still
+  // brings back the comments and status that explain the refusal, and
+  // `updatePrDetail` drops an unknown status rather than overwriting a real one.
+  updatePrDetail(store, { ticketId: pr.ticketId, repo: pr.repo, url: pr.url, detail });
+
+  const status = detail.status === 'unknown' ? pr.status : detail.status;
+  if (detail.status === 'merged') return { ok: true, status: 'merged', reason: '' };
+  if (!attempt.ok) return { ok: false, status, reason: attempt.reason };
+  return {
+    ok: false,
+    status,
+    reason:
+      detail.status === 'unknown'
+        ? 'gh reported the merge succeeded, but karst could not confirm it on GitHub. Check the pull request before retrying.'
+        : `gh reported the merge succeeded, but the pull request still reads ${detail.status}.`,
+  };
+}

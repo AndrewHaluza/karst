@@ -100,4 +100,94 @@ describe('syncPrStatuses', () => {
     expect(prs.find((p) => p.repo === 'api')!.status).toBe('open'); // untouched by the throw
     expect(prs.find((p) => p.repo === 'web')!.status).toBe('merged');
   });
+  it('fills in the PR metadata the ship stage renders', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const gh: GhRunner = async () => ({
+      stdout: JSON.stringify({
+        state: 'MERGED',
+        isDraft: false,
+        headRefName: 'karst/feat/x',
+        baseRefName: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: '2026-07-28T09:30:00Z',
+        comments: [{ author: { login: 'ada' }, createdAt: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+      }),
+      exitCode: 0,
+    });
+
+    const changed = await syncPrStatuses(store, gh, { projectId: 1 });
+
+    expect(changed).toBe(1);
+    expect(listPrsByTicket(store, a.id)[0]).toMatchObject({
+      status: 'merged',
+      headRef: 'karst/feat/x',
+      baseRef: 'develop',
+      createdAt: '2026-07-23T08:00:00Z',
+      mergedAt: '2026-07-28T09:30:00Z',
+      comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+    });
+  });
+
+  // Metadata moves on its own: a new comment on a PR that is still open is a real
+  // change the panel must be refreshed for, even though the status did not move.
+  it('reports a change when only the metadata moved', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const withComments = (n: number): GhRunner => async () => ({
+      stdout: JSON.stringify({
+        state: 'OPEN',
+        isDraft: false,
+        headRefName: 'karst/feat/x',
+        baseRefName: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: null,
+        comments: Array.from({ length: n }, (_, i) => ({ body: `c${i}` })),
+      }),
+      exitCode: 0,
+    });
+
+    expect(await syncPrStatuses(store, withComments(1), { projectId: 1 })).toBe(1);
+    // Same answer twice: nothing moved, so no refresh is asked for.
+    expect(await syncPrStatuses(store, withComments(1), { projectId: 1 })).toBe(0);
+    expect(await syncPrStatuses(store, withComments(2), { projectId: 1 })).toBe(1);
+    expect(listPrsByTicket(store, a.id)[0]!.comments).toHaveLength(2);
+  });
+
+  // Graceful degradation applies to metadata too: an older gh that answers with
+  // fewer fields must not erase branches and dates a previous sweep learned.
+  it('keeps stored metadata when a later probe stops reporting it', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const rich: GhRunner = async () => ({
+      stdout: JSON.stringify({
+        state: 'OPEN',
+        isDraft: false,
+        headRefName: 'karst/feat/x',
+        baseRefName: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        comments: [],
+      }),
+      exitCode: 0,
+    });
+    await syncPrStatuses(store, rich, { projectId: 1 });
+
+    const bare: GhRunner = async () => ({
+      stdout: JSON.stringify({ state: 'CLOSED' }),
+      exitCode: 0,
+    });
+    await syncPrStatuses(store, bare, { projectId: 1 });
+
+    const pr = listPrsByTicket(store, a.id)[0]!;
+    expect(pr.status).toBe('closed');
+    expect(pr.headRef).toBe('karst/feat/x');
+    expect(pr.baseRef).toBe('develop');
+    expect(pr.createdAt).toBe('2026-07-23T08:00:00Z');
+  });
 });

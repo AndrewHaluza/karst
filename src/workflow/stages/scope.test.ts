@@ -71,9 +71,11 @@ describe('scopeTicket (warnings)', () => {
     expect(() => scopeTicket(manifest, ['nope'])).toThrow();
   });
 
-  it('confirmScope creates a worktree per hot repo off the baseline branch', () => {
+  it('confirmScope creates a worktree per hot repo off the baseline branch', async () => {
     const t = createTicketFlow(store, { key: 'PROJ-1', title: 't' });
-    const records = confirmScope(store, manifest, t.id, ['frontend', 'backend']);
+    const records = await confirmScope(store, manifest, t.id, ['frontend', 'backend'], {
+      pullBase: false,
+    });
     expect(records).toHaveLength(2);
     for (const rec of records) {
       expect(existsSync(rec.path)).toBe(true);
@@ -81,9 +83,9 @@ describe('scopeTicket (warnings)', () => {
     }
   });
 
-  it('confirmScope with a frontend-only set creates just one worktree', () => {
+  it('confirmScope with a frontend-only set creates just one worktree', async () => {
     const t = createTicketFlow(store, { key: 'PROJ-2', title: 't' });
-    const records = confirmScope(store, manifest, t.id, ['frontend']);
+    const records = await confirmScope(store, manifest, t.id, ['frontend'], { pullBase: false });
     expect(records).toHaveLength(1);
     expect(records[0]!.repoPath).toBe(fe.path);
   });
@@ -92,7 +94,7 @@ describe('scopeTicket (warnings)', () => {
   // processes) make a single worktree, not two — the worktree slug is
   // per-ticket, so both entries resolve to the same path/branch. Restores the
   // dedup 53314d6 added and b7f223d wrongly deleted.
-  it('confirmScope dedupes two hot repositories sharing one repoPath into a single worktree', () => {
+  it('confirmScope dedupes two hot repositories sharing one repoPath into a single worktree', async () => {
     const shared = runnableRepo(
       { start: 'npm run api' },
       { repoPath: fe.path },
@@ -102,8 +104,133 @@ describe('scopeTicket (warnings)', () => {
       { portRange: [4000, 4100] },
     );
     const t = createTicketFlow(store, { key: 'PROJ-3', title: 't' });
-    const records = confirmScope(store, sharedManifest, t.id, ['api', 'web']);
+    const records = await confirmScope(store, sharedManifest, t.id, ['api', 'web'], {
+      pullBase: false,
+    });
     expect(records).toHaveLength(1);
     expect(records[0]!.repoPath).toBe(fe.path);
+  });
+});
+
+/**
+ * The pull switch (§ scope): a ticket's worktree is cut from the baseline
+ * branch, so an un-refreshed local base starts every ticket behind the team.
+ * Refreshing is the DEFAULT and the user's explicit choice is honored.
+ *
+ * Real git against a local bare "remote" — no network, and the fetch semantics
+ * (a checked-out base refuses the fast-forward refspec) are the real ones a
+ * faked runner would only assert about itself.
+ */
+describe('confirmScope (pull the base before branching)', () => {
+  let store: Store;
+  let origin: string;
+  let repo: string;
+  let manifest: Manifest;
+  const dirs: string[] = [];
+
+  const tmp = (prefix: string): string => {
+    const d = mkdtempSync(join(tmpdir(), prefix));
+    dirs.push(d);
+    return d;
+  };
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+
+    origin = tmp('karst-origin-');
+    git(origin, 'init', '-q', '--bare', '-b', 'develop');
+
+    // The working clone: one commit, pushed. Its develop is checked out, which
+    // is exactly what makes git refuse `fetch origin develop:develop` later.
+    repo = tmp('karst-scope-pull-');
+    writeFileSync(join(repo, 'index.js'), 'x\n');
+    git(repo, 'init', '-q', '-b', 'develop');
+    git(repo, 'config', 'user.email', 't@k.local');
+    git(repo, 'config', 'user.name', 't');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-q', '-m', 'init');
+    git(repo, 'remote', 'add', 'origin', origin);
+    git(repo, 'push', '-q', '-u', 'origin', 'develop');
+
+    // A teammate lands a commit the working clone has never seen.
+    const other = tmp('karst-other-');
+    git(other, 'clone', '-q', origin, other);
+    git(other, 'config', 'user.email', 'o@k.local');
+    git(other, 'config', 'user.name', 'o');
+    writeFileSync(join(other, 'teammate.js'), 'newer\n');
+    git(other, 'add', '.');
+    git(other, 'commit', '-q', '-m', 'teammate work');
+    git(other, 'push', '-q', 'origin', 'develop');
+
+    manifest = buildManifest(
+      { frontend: runnableRepo({}, { repoPath: repo }) },
+      { portRange: [4000, 4100] },
+    );
+  });
+  afterEach(() => {
+    store.close();
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('refreshes the base by default, so the worktree carries the remote commit', async () => {
+    const t = createTicketFlow(store, { key: 'PULL-1', title: 't' });
+
+    const records = await confirmScope(store, manifest, t.id, ['frontend']);
+
+    expect(existsSync(join(records[0]!.path, 'teammate.js'))).toBe(true);
+    // The RECORDED base stays the plain branch name whichever ref was branched
+    // from — mergeCheck and the diff views re-derive `origin/<base>` themselves.
+    expect(records[0]!.baseRef).toBe('develop');
+  });
+
+  it('honors an explicit opt-out: no fetch, worktree cut from the stale local base', async () => {
+    const t = createTicketFlow(store, { key: 'PULL-2', title: 't' });
+
+    const records = await confirmScope(store, manifest, t.id, ['frontend'], { pullBase: false });
+
+    expect(existsSync(join(records[0]!.path, 'teammate.js'))).toBe(false);
+  });
+
+  it('reports a failed pull and still creates the worktree', async () => {
+    git(repo, 'remote', 'remove', 'origin');
+    const t = createTicketFlow(store, { key: 'PULL-3', title: 't' });
+    const warnings: { repoPath: string; baseRef: string; reason: string }[] = [];
+
+    const records = await confirmScope(store, manifest, t.id, ['frontend'], {
+      onPullFailed: (repoPath, baseRef, reason) => warnings.push({ repoPath, baseRef, reason }),
+    });
+
+    expect(existsSync(records[0]!.path)).toBe(true); // creation is never blocked
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.repoPath).toBe(repo);
+    expect(warnings[0]!.baseRef).toBe('develop');
+    expect(warnings[0]!.reason).not.toBe('');
+  });
+
+  // Two entries at one repoPath share a worktree; they must also share ONE
+  // fetch, not one per manifest entry.
+  it('pulls once per repoPath, not once per repository entry', async () => {
+    const shared = buildManifest(
+      {
+        api: runnableRepo({ start: 'npm run api' }, { repoPath: repo }),
+        web: runnableRepo({ start: 'npm run web' }, { repoPath: repo }),
+      },
+      { portRange: [4000, 4100] },
+    );
+    const t = createTicketFlow(store, { key: 'PULL-4', title: 't' });
+    let fetches = 0;
+
+    const records = await confirmScope(store, shared, t.id, ['api', 'web'], {
+      git: async (args, cwd) => {
+        if (args[0] === 'fetch') fetches += 1;
+        const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+        return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', exitCode: r.status ?? 1 };
+      },
+    });
+
+    expect(records).toHaveLength(1);
+    // The ff refspec is refused (develop is checked out), so exactly one repo
+    // costs the two fetch attempts of `pullBaseRef` — never four.
+    expect(fetches).toBe(2);
   });
 });

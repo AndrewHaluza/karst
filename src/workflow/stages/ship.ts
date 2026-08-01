@@ -5,7 +5,19 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
-import { openPr, findOpenPr, defaultGhRunnerAsync, type GhRunner } from '../../integrations/github.js';
+import {
+  openPr,
+  findOpenPr,
+  fetchPrDetail,
+  fetchPrBody,
+  updatePrBody,
+  defaultGhRunnerAsync,
+  UNKNOWN_PR_DETAIL,
+  type ExistingPr,
+  type GhRunner,
+  type OpenedPr,
+} from '../../integrations/github.js';
+import { updatePrDetail } from '../../store/prs.js';
 import {
   commitAllIfDirty,
   hasChangesFrom,
@@ -74,6 +86,69 @@ async function describePr(
     cwd,
   });
   return sanitizePrDescription(r.raw, title);
+}
+
+/**
+ * Say that the PR step found a PR rather than opening one, so the live view never
+ * shows a plain `pass` for work that did not happen.
+ */
+function noteReusedPr(repo: string, onProgress: ShipProgress): void {
+  onProgress({
+    repo,
+    step: 'pr',
+    status: 'note',
+    detail: 'a PR for this branch already existed — reused it',
+  });
+}
+
+/**
+ * Give an adopted PR a description if — and only if — it has none.
+ *
+ * The asymmetry is the whole point. A PR opened by hand commonly has an empty
+ * body and nothing else will ever fill it, so skipping the describe step
+ * wholesale (what adoption used to do) leaves a permanently blank PR. But
+ * overwriting prose a human wrote is unrecoverable, so anything gh reports as
+ * non-empty is kept verbatim, and a body gh did NOT report (null) is treated as
+ * "unknown", not as "empty" — a degraded probe must never authorize a write.
+ *
+ * Never throws: the PR is already open, which means ship's irreversible part
+ * already succeeded. A refused edit is a note on a working ship, and ship has no
+ * `failed` edge to park at anyway.
+ */
+async function backfillDescription(
+  gh: GhRunner,
+  repo: string,
+  cwd: string,
+  existing: ExistingPr,
+  buildBody: () => Promise<string>,
+  onProgress: ShipProgress,
+): Promise<void> {
+  const note = (detail: string): void =>
+    onProgress({ repo, step: 'describe', status: 'note', detail });
+
+  if (existing.body === null) {
+    note('existing PR description could not be read — left unchanged');
+    return;
+  }
+  // Whitespace is not a description someone wrote — it is the same emptiness with
+  // invisible characters in it.
+  if (existing.body.trim() !== '') {
+    note('existing PR already has a description — kept');
+    return;
+  }
+
+  const body = await buildBody();
+  const attempt = await updatePrBody(gh, existing.url, cwd, body);
+  if (attempt.ok) {
+    onProgress({
+      repo,
+      step: 'describe',
+      status: 'pass',
+      detail: 'existing PR had no description — filled in',
+    });
+    return;
+  }
+  note(`existing PR had no description — update failed: ${attempt.reason}`);
 }
 
 /**
@@ -286,21 +361,15 @@ export async function shipTicket(
       onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
       const existing = await findOpenPr(gh, wt.path);
       const descriptionTemplate = conventions?.pullRequestDescription;
-      if (
-        existing &&
-        adapter &&
-        (!descriptionTemplate || usesDescription(descriptionTemplate))
-      ) {
-        onProgress({
-          repo: wt.repo,
-          step: 'describe',
-          status: 'note',
-          detail: 'existing PR already open — description not regenerated',
-        });
-      }
-      let opened = existing;
-      if (!opened) {
-        let body: string;
+
+      /**
+       * The PR body, rendered exactly the same way whether it is about to open a
+       * PR or to backfill one that was adopted — one description, one shape, so an
+       * adopted PR cannot end up with prose in a different format from a created
+       * one. Emits the describe run/pass pair around the model call only, since
+       * that is the part that takes time.
+       */
+      const buildBody = async (): Promise<string> => {
         if (descriptionTemplate) {
           let description = prTitle;
           if (usesDescription(descriptionTemplate) && adapter) {
@@ -308,22 +377,77 @@ export async function shipTicket(
             description = await describePr(adapter, wt.path, prTitle);
             onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
           }
-          body = renderArtifactTemplate(
+          return renderArtifactTemplate(
             'pullRequestDescription',
             descriptionTemplate,
             { ...templateContext, description },
           );
-        } else if (adapter) {
-          onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-          body = await describePr(adapter, wt.path, prTitle);
-          onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
-        } else {
-          body = prTitle;
         }
-        opened = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
+        if (adapter) {
+          onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
+          const generated = await describePr(adapter, wt.path, prTitle);
+          onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
+          return generated;
+        }
+        return prTitle;
+      };
+
+      let opened: OpenedPr;
+      if (existing) {
+        // Adopting used to skip the description wholesale, which is right for a PR
+        // that HAS one and wrong for the common case that produced this ticket: a
+        // PR opened by hand, with an empty body, that nothing would ever fill.
+        //
+        // Three-valued on purpose, because the destructive mistake is asymmetric —
+        // overwriting a description a human wrote is unrecoverable, leaving one
+        // empty is not. So only a body gh positively reported as empty is filled;
+        // "gh did not say" (null) is left alone, exactly like a degraded PR probe.
+        noteReusedPr(wt.repo, onProgress);
+        await backfillDescription(gh, wt.repo, wt.path, existing, buildBody, onProgress);
+        opened = existing;
+      } else {
+        const body = await buildBody();
+        const created = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
+        if (created.adopted) {
+          // The probe above answered null but a PR existed anyway — it is
+          // branch-inferred, so bad auth or an ambiguous base repo looks exactly
+          // like "no PR". gh named the PR when it refused, so nothing failed.
+          //
+          // The body just generated never reached GitHub. Re-probe by ref (the
+          // branch lookup is the thing that just proved unreliable) and apply the
+          // same rule as any adopted PR: fill an empty description, never
+          // overwrite a written one. No second model call — the prose exists.
+          noteReusedPr(wt.repo, onProgress);
+          const current = await fetchPrBody(gh, created.url, wt.path);
+          await backfillDescription(
+            gh,
+            wt.repo,
+            wt.path,
+            { ...created, body: current },
+            async () => body,
+            onProgress,
+          );
+        }
+        opened = created;
       }
       onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
       insert.run(opts.ticketId, wt.repo, opened.number, opened.url);
+      // The from-to branches and the opened stamp are what the ship stage shows
+      // beside the PR it just made. Read them now, from the PR that exists, rather
+      // than leaving the row blank until the next background sweep ticks — the
+      // moment the user is looking at ship is the moment right after it ran.
+      //
+      // Never fatal: a failed probe leaves NULLs, which render as absent and are
+      // filled by `syncPrStatuses` later. Observability must not break the
+      // operation it observes, and the PR is already open — the irreversible part
+      // succeeded.
+      const detail = await fetchPrDetail(gh, opened.url, wt.path).catch(() => UNKNOWN_PR_DETAIL);
+      updatePrDetail(store, {
+        ticketId: opts.ticketId,
+        repo: wt.repo,
+        url: opened.url,
+        detail,
+      });
       prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
     }
   } catch (err) {

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
+import { normalizeComments, type PrComment } from '../model/prComments.js';
 
 /**
  * GitHub integration (§12, §15) — shells out to `gh`. The runner is injected so
@@ -178,6 +179,19 @@ interface PrView {
   number?: unknown;
   url?: unknown;
   state?: unknown;
+  body?: unknown;
+}
+
+/**
+ * An open PR ship found rather than opened, plus the body it already carries.
+ *
+ * `body` is three-valued for the same reason `PrDetail.comments` is: `''` means
+ * the PR genuinely has no description (and may therefore be prefilled), null
+ * means gh did not say — which is never permission to overwrite prose a human
+ * may have written.
+ */
+export interface ExistingPr extends OpenedPr {
+  body: string | null;
 }
 
 /**
@@ -193,9 +207,12 @@ interface PrView {
  * Only an OPEN PR counts. A closed or merged one does not block a new PR on the
  * same branch, and adopting it would strand the ticket on a PR nobody will merge
  * while skipping the create that should have happened.
+ *
+ * The body rides along in the same round trip because the caller must decide, in
+ * the same breath as adopting, whether the PR still needs a description.
  */
-export async function findOpenPr(gh: GhRunner, cwd: string): Promise<OpenedPr | null> {
-  const r = await gh(['pr', 'view', '--json', 'number,url,state'], cwd);
+export async function findOpenPr(gh: GhRunner, cwd: string): Promise<ExistingPr | null> {
+  const r = await gh(['pr', 'view', '--json', 'number,url,state,body'], cwd);
   if (r.exitCode !== 0) return null;
 
   let view: PrView;
@@ -207,7 +224,66 @@ export async function findOpenPr(gh: GhRunner, cwd: string): Promise<OpenedPr | 
   if (view.state !== 'OPEN' || typeof view.url !== 'string' || view.url === '') return null;
 
   const number = typeof view.number === 'number' ? view.number : prNumberFromUrl(view.url);
-  return { url: view.url, number };
+  // Deliberately NOT `text()`: '' and absent mean different things here.
+  const body = typeof view.body === 'string' ? view.body : null;
+  return { url: view.url, number, body };
+}
+
+/**
+ * The current description of a PR named by ref, or null.
+ *
+ * Same three-valued contract as `findOpenPr`'s body, and for the same reason:
+ * `''` is a PR with no description, null is "gh did not say". A probe that
+ * failed must never read as empty — "empty" is what authorizes an overwrite.
+ *
+ * Queried by ref rather than by branch, because the caller reaching for this
+ * already holds a PR URL and has just learned the branch lookup is unreliable.
+ */
+export async function fetchPrBody(gh: GhRunner, ref: string, cwd: string): Promise<string | null> {
+  const r = await gh(['pr', 'view', ref, '--json', 'body'], cwd);
+  if (r.exitCode !== 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(r.stdout);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const body = (parsed as { body?: unknown }).body;
+    return typeof body === 'string' ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `gh pr edit` accepted, and gh's own words when it did not. */
+export interface PrEditAttempt {
+  ok: boolean;
+  /** gh's refusal, verbatim; '' on success. */
+  reason: string;
+}
+
+/**
+ * Replace a PR's description via `gh pr edit`.
+ *
+ * Returns a result instead of throwing (like `mergePr`, unlike `openPr`): this
+ * only ever runs against a PR that is ALREADY open, so ship's irreversible part
+ * has succeeded by the time it is called. A refusal — no write permission, a dead
+ * network — is a note on a ship that worked, never an exception that parks a
+ * ticket at a stage with no `failed` edge to leave by.
+ */
+export async function updatePrBody(
+  gh: GhRunner,
+  ref: string,
+  cwd: string,
+  body: string,
+): Promise<PrEditAttempt> {
+  let r: GhResult;
+  try {
+    r = await gh(['pr', 'edit', ref, '--body', body], cwd);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  if (r.exitCode === 0) return { ok: true, reason: '' };
+  // A quiet runner may hand back nothing at all; the exit code is the last resort
+  // so the user is never shown an empty explanation.
+  return { ok: false, reason: r.stderr?.trim() || r.stdout.trim() || `gh exit ${r.exitCode}` };
 }
 
 /**
@@ -260,11 +336,183 @@ export async function fetchPrState(gh: GhRunner, ref: string, cwd: string): Prom
 }
 
 /**
+ * The PR facts the ship stage renders beside a PR, plus its normalized status.
+ *
+ * Every field is independently nullable because every one of them is gh's answer:
+ * an open PR legitimately has no `mergedAt`, an older gh may not return a field at
+ * all, and a probe that could not see the PR returns all-null. Null means "not
+ * stated" — never a blank to be dressed up as a value.
+ *
+ * `comments` is three-valued for the same reason `status` is: `[]` means the PR
+ * has no comments, null means gh did not say.
+ */
+export interface PrDetail {
+  status: PrStatus;
+  /** Source branch (gh `headRefName`) — the "from" of from-to. */
+  headRef: string | null;
+  /** Target branch (gh `baseRefName`) — the "to" of from-to. */
+  baseRef: string | null;
+  createdAt: string | null;
+  mergedAt: string | null;
+  comments: PrComment[] | null;
+}
+
+/**
+ * What a failed probe returns: nothing known, nothing guessed. A caller reads
+ * `status: 'unknown'` as "keep every value already stored" (F4), so this is never
+ * a partial overwrite.
+ */
+export const UNKNOWN_PR_DETAIL: PrDetail = {
+  status: 'unknown',
+  headRef: null,
+  baseRef: null,
+  createdAt: null,
+  mergedAt: null,
+  comments: null,
+};
+
+/** The `--json` fields `fetchPrDetail` requests, in one round trip. */
+const PR_DETAIL_FIELDS = 'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments';
+
+/** A gh string field, or null for absent/empty/wrong-typed. */
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * Current upstream state of a recorded PR PLUS the metadata the ship stage shows.
+ *
+ * A superset of `fetchPrState` in one gh call rather than two: the panel needs the
+ * status and the branches/dates/comments together, and two probes could disagree
+ * (a PR merged between them would render as open with a merge stamp).
+ *
+ * Never throws. Every failure — bad auth, a PR deleted upstream, unparseable
+ * output — is `UNKNOWN_PR_DETAIL`, which tells the caller to keep what it has
+ * instead of overwriting real metadata with nulls.
+ */
+export async function fetchPrDetail(
+  gh: GhRunner,
+  ref: string,
+  cwd: string,
+): Promise<PrDetail> {
+  const r = await gh(['pr', 'view', ref, '--json', PR_DETAIL_FIELDS], cwd);
+  if (r.exitCode !== 0) return UNKNOWN_PR_DETAIL;
+
+  let view: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(r.stdout);
+    if (typeof parsed !== 'object' || parsed === null) return UNKNOWN_PR_DETAIL;
+    view = parsed as Record<string, unknown>;
+  } catch {
+    return UNKNOWN_PR_DETAIL;
+  }
+
+  return {
+    status: normalizePrState(view.state, view.isDraft),
+    headRef: text(view.headRefName),
+    baseRef: text(view.baseRefName),
+    createdAt: text(view.createdAt),
+    mergedAt: text(view.mergedAt),
+    comments: normalizeComments(view.comments),
+  };
+}
+
+/**
+ * How the merge is performed upstream. Named explicitly at the call site — never
+ * defaulted — because the three produce different history and a repo's branch
+ * protection may allow only one of them.
+ */
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** Whether `gh pr merge` accepted, and gh's own words when it did not. */
+export interface MergeAttempt {
+  ok: boolean;
+  /** gh's refusal, verbatim; '' on success. */
+  reason: string;
+}
+
+/**
+ * Merge a PR via `gh pr merge`.
+ *
+ * Returns a result instead of throwing (unlike `openPr`): a refusal — conflicts,
+ * failing checks, no write permission, a dead network — is an expected outcome the
+ * caller must show to the user and then RE-PROBE the real state from, so it is
+ * modeled as data rather than an exception.
+ *
+ * A method flag is always passed: bare `gh pr merge` prompts interactively, and
+ * there is no tty behind a webview button — it would hang, not fail.
+ *
+ * Deliberately no `--delete-branch`: the `worktrees` row and `archive.ts`'s
+ * restore both target that ref, so deleting it upstream would break resuming and
+ * restoring a ticket. Nor `--auto`: queuing a merge for later cannot be reflected
+ * as merged state now, and the button must never claim more than happened.
+ */
+export async function mergePr(
+  gh: GhRunner,
+  ref: string,
+  cwd: string,
+  method: MergeMethod,
+): Promise<MergeAttempt> {
+  let r: GhResult;
+  try {
+    r = await gh(['pr', 'merge', ref, `--${method}`], cwd);
+  } catch (e) {
+    // A runner that rejects (spawn failure in a custom runner) is a failed merge
+    // with a reason, not an exception the UI has to catch a second time.
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  if (r.exitCode === 0) return { ok: true, reason: '' };
+  // A quiet runner may hand back nothing at all; the exit code is the last resort
+  // so the user is never shown an empty explanation.
+  return {
+    ok: false,
+    reason: r.stderr?.trim() || r.stdout.trim() || `gh exit ${r.exitCode}`,
+  };
+}
+
+/**
+ * The PR gh names when it refuses a create because one already exists, or null.
+ *
+ * gh's refusal is not a dead end — it carries the URL of the PR that blocked the
+ * create ("a pull request for branch %q into branch %q already exists:\n%s"), and
+ * that PR is precisely what ship wanted. Reading it is what turns a permanent
+ * failure into a reuse.
+ *
+ * BOTH signals are required — the already-exists wording AND a PR URL — and the
+ * asymmetry of the mistakes is why. Reusing the wrong PR would record someone
+ * else's work as this ticket's and pass the stage silently; failing to match a
+ * reworded message only restores the loud error that was already visible. So this
+ * is deliberately conservative, and gh's phrasing is the thing being matched.
+ */
+export function prFromAlreadyExists(text: string): OpenedPr | null {
+  if (!/already exists/i.test(text)) return null;
+  const m = text.match(/https?:\/\/\S+?\/pull\/(\d+)/);
+  if (!m) return null;
+  return { url: m[0], number: Number(m[1]) };
+}
+
+/**
+ * A PR ship holds after `openPr` — created just now, or the one gh pointed at
+ * when it refused because a PR for this branch already existed.
+ *
+ * `adopted` is not cosmetic: the body ship generated never reached GitHub in that
+ * case, so the caller must decide separately whether the existing PR needs it.
+ */
+export interface CreatedPr extends OpenedPr {
+  adopted: boolean;
+}
+
+/**
  * Open a PR for one repo via `gh pr create`. MVP opens PRs independently with
  * no ordering (cross-repo merge ordering is out of scope). Throws on a nonzero
- * exit so a failed PR surfaces rather than silently producing an empty row.
+ * exit so a failed PR surfaces rather than silently producing an empty row —
+ * EXCEPT when gh refuses because the PR already exists, which is not a failure
+ * at all. An open PR is what ship is for; gh names it, so it is returned as
+ * `adopted` rather than raised. Ship probes for one first (`findOpenPr`), but
+ * that probe is branch-inferred and answers null for bad auth or an ambiguous
+ * base repo exactly as it does for "no PR" — this is the second net under it.
  */
-export async function openPr(gh: GhRunner, opts: OpenPrOpts): Promise<OpenedPr> {
+export async function openPr(gh: GhRunner, opts: OpenPrOpts): Promise<CreatedPr> {
   const args = ['pr', 'create', '--title', opts.title, '--body', opts.body];
   if (opts.base) args.push('--base', opts.base);
 
@@ -273,9 +521,13 @@ export async function openPr(gh: GhRunner, opts: OpenPrOpts): Promise<OpenedPr> 
     // A runner may still hand back nothing (a custom one, or gh writing only to a
     // tty); fall back to the exit code so the message is never a bare colon.
     const reason = r.stderr?.trim() || r.stdout.trim() || `gh exit ${r.exitCode}`;
+    // Either stream, because which one carries gh's refusal depends on the runner
+    // and on whether gh thinks it is talking to a tty.
+    const existing = prFromAlreadyExists(`${r.stderr ?? ''}\n${r.stdout}`);
+    if (existing) return { ...existing, adopted: true };
     throw new Error(`gh pr create failed in ${opts.cwd}: ${reason}`);
   }
 
   const url = r.stdout.trim();
-  return { url, number: prNumberFromUrl(url) };
+  return { url, number: prNumberFromUrl(url), adopted: false };
 }

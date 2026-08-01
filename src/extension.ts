@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import {
+  lstat as fsLstat,
+  readFile as fsReadFile,
+  readlink as fsReadlink,
+  realpath as fsRealpath,
+} from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
@@ -7,17 +13,43 @@ import { openStore, type Store } from './store/db.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
+import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
+import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
+import {
+  TicketChangesManager,
+  type ChangesPanel,
+  type ChangesPanelHost,
+} from './ui/diffs/panel.js';
+import {
+  StaleDiffTargetError,
+  TextDiffUnavailableError,
+  inspectWorktree,
+  prepareDiff,
+  type DiffTarget,
+  type PreparedDiffResource,
+} from './ui/diffs/git.js';
+import { buildTicketChangesSnapshot } from './ui/diffs/snapshot.js';
+import {
+  DisposableBag,
+  type VirtualDocumentAttempt,
+  VirtualDocumentRegistry,
+} from './ui/diffs/hostResources.js';
 import {
   continueSessionInBackground,
   deferSessionRetry,
   KARST_LAUNCH_ENV,
-  KARST_TICKET_ENV,
   SessionManager,
+  ticketIdFromTerminalEnv,
   type TerminalHost,
   type SessionTerminal,
+  type OpenSessionOptions,
+  type RestoredSession,
+  type RestoredSessionDisposition,
 } from './ui/session.js';
+import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
   classifyRestoredSession,
   planSessionRecovery,
@@ -32,7 +64,9 @@ import {
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
+import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
 import {
+  catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
   loadModelCatalog,
 } from './agent/modelCatalogLoader.js';
@@ -52,6 +86,7 @@ import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { glyphThemeColorKey } from './model/glyphColor.js';
 import { StatusBarManager } from './ui/statusBar.js';
+import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
 import { composeStageCommand } from './cli/stage.js';
 import { composePhaseCommand } from './cli/phaseCommand.js';
@@ -67,14 +102,22 @@ import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
+import { syncMergeChecks } from './workflow/mergeSync.js';
+import { mergeTicketPr } from './workflow/mergePr.js';
+import { findTicketPr } from './store/prs.js';
+import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
 import { makePortAllocator } from './resolver/allocator.js';
-import { defaultGitRunner } from './integrations/git.js';
+import {
+  defaultGitRunner,
+} from './integrations/git.js';
+import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import type { PathContext } from './ui/dashboard/state.js';
+import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
@@ -99,6 +142,7 @@ import {
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import type {
   ApproachDef,
+  AgentProvider,
   TicketingConfig,
 } from './manifest/types.js';
 import {
@@ -127,6 +171,7 @@ import {
   listArchivedTickets,
   setAgentState,
   setSessionId,
+  updateTicketOnboarding,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
@@ -135,7 +180,11 @@ import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
 import { OnboardingManager } from './ui/onboarding/panel.js';
-import { buildOnboardingActions, type StartTicketResult } from './ui/onboarding/actions.js';
+import {
+  buildOnboardingActions,
+  type StartTicketResult,
+  type StartTicketOptions,
+} from './ui/onboarding/actions.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -167,6 +216,7 @@ import {
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
+import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { WelcomeManager } from './ui/welcome/panel.js';
 import { buildWelcomeActions } from './ui/welcome/actions.js';
@@ -203,6 +253,15 @@ const HOOK_PORT_KEY = 'karst.hookPort';
 const OWNED_SESSION_TICKETS_KEY = 'karst.ownedSessionTickets';
 
 /**
+ * Whether this window binds a ticket's agent terminal to its dashboard.
+ *
+ * `workspaceState`, like the keys above and for the same reason: the surfaces it
+ * binds — terminals and editor tabs — are window-local, so a global key would
+ * make a second window's dashboard reveal terminals the user cannot see.
+ */
+const BIND_TERMINAL_KEY = 'karst.bindTerminalToDashboard';
+
+/**
  * Global (cross-window) flag: the one-shot adoption of pre-v6 tickets has run.
  * Lives in `globalState` deliberately — the DB it guards is global too, so a
  * per-workspace flag would let the second window adopt all over again.
@@ -217,11 +276,26 @@ const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
  */
 const PR_SYNC_INTERVAL_MS = 60_000;
 
+/**
+ * How stale a stored merge verdict may get before the sweep re-probes it. Unlike
+ * a `gh` status call, every probe costs a `git fetch` per repo, so this rides the
+ * same one-minute tick but only spends a fetch every five — recent enough that a
+ * base moving under an open PR surfaces while the ticket is still on screen.
+ */
+const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
+
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
 const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
+/**
+ * Torn down BEFORE `store.close()`: an in-flight changes refresh re-enters its
+ * loader from a settlement handler, and that loader reads the store
+ * synchronously. `context.subscriptions` is drained only after `deactivate`
+ * returns, so the manager is registered there AND called here.
+ */
+let shutdownTicketChanges: (() => void) | undefined;
 const pendingSessionRecoveryTasks = new Set<Promise<void>>();
 
 /** Per-ticket single-flight + Stop bookkeeping for the auto-driver (§11/§12). */
@@ -249,6 +323,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
   logger.info('Karst activated');
+
+  /**
+   * A base branch that could not be refreshed before its worktree was cut
+   * (§ pull switch). Deliberately a warning, not an error: the ticket exists and
+   * is usable — it just starts from what this clone already had, which the user
+   * must be told rather than left to discover in a diff. The reason is git's own
+   * first line, already bounded by `pullBaseRef`.
+   */
+  const warnBaseNotPulled = (repoPath: string, baseRef: string, reason: string): void => {
+    const message = `Could not refresh ${baseRef} in ${repoPath} — the worktree was created from the local branch: ${reason}`;
+    logger.warn(message);
+    void vscode.window.showWarningMessage(message);
+  };
   let modelCatalog = bundledModelCatalog();
   const modelCatalogCache = makeMementoCatalogCache(context.globalState);
 
@@ -263,6 +350,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     requestState: () => mgr.refresh(),
     create: () => void vscode.commands.executeCommand('karst.createTicket'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
+    openTicket: (id) => openTicketFromList(localStore, id, {
+      edit: (ticketId) => vscode.commands.executeCommand('karst.editTicket', ticketId),
+      openDashboard: (ticketId) =>
+        vscode.commands.executeCommand('karst.openDashboard', ticketId),
+      onError: (error) => logError(`ticket-list navigation failed for ticket ${id}`, error),
+    }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
     openSession: (id) => void vscode.commands.executeCommand('karst.openSession', id),
@@ -273,7 +366,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }), () => worktreePathContext(currentManifest(), logger.warn), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider);
-  const { host: sidebarHost, provider: sidebarProvider } = makeSidebarViewHost(context);
+  const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
+    makeSidebarViewHost(context);
   provider.bind(sidebarHost);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SIDEBAR_VIEW_ID, sidebarProvider),
@@ -512,13 +606,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * doesn't vary by agent provider, and passing it needlessly risks a
    * `getTicket` throw on a since-deleted ticket.
    */
-  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
-    const ticketProvider =
-      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+  const guardProviderCapability = (
+    capability: Capability,
+    agentProvider: AgentProvider,
+    silent = false,
+  ): boolean => {
     const faults = ensureCapability(
       capability,
-      dependencyRegistry(provider),
+      dependencyRegistry(agentProvider),
       binaryExists,
       commandSucceeds,
     );
@@ -537,6 +632,103 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     }
     return false;
+  };
+
+  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+    const ticketProvider =
+      ticketId === undefined ? undefined : getTicket(localStore, ticketId).agentProvider;
+    return guardProviderCapability(
+      capability,
+      resolveProvider(ticketProvider, currentManifest()?.agentProvider),
+      silent,
+    );
+  };
+
+  /**
+   * Switch-only provider probe. Unlike the activation and ordinary action
+   * guards, this runs from an open dashboard and must never block the shared
+   * extension-host event loop while a candidate CLI answers (or hangs).
+   */
+  const guardProviderCapabilityAsync = async (
+    capability: Capability,
+    agentProvider: AgentProvider,
+  ): Promise<boolean> => {
+    const faults = await ensureCapabilityAsync(capability, dependencyRegistry(agentProvider));
+    if (faults.length === 0) return true;
+    for (const fault of faults) logger.warn(`blocked: '${fault.dep.binary}' is ${fault.state}`);
+    const message = faults
+      .map((fault) => renderDependencyFault(fault.dep, fault.state))
+      .filter((text): text is string => text !== null)
+      .join(' ');
+    void vscode.window.showErrorMessage(message, 'Open setup checklist').then((choice) => {
+      if (choice === 'Open setup checklist') welcome.open();
+    });
+    return false;
+  };
+
+  const switchAgentSession = async (ticketId: number): Promise<void> => {
+    try {
+      const outcome = await runAgentSwitchFlow({
+        read: () => {
+          const ticket = getTicket(localStore, ticketId);
+          return {
+            stageCurrent: ticket.stageCurrent,
+            provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+            ticketModel: ticket.model,
+            defaultModel: currentManifest()?.defaultModel ?? null,
+          };
+        },
+        isSessionOpen: () => sessions.isOpen(ticketId),
+        pickProvider: async (choices, current) => {
+          const picked = await vscode.window.showQuickPick(
+            choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
+            { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
+          );
+          return picked?.provider;
+        },
+        isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
+        pickModel: async (provider, choices) => vscode.window.showQuickPick(
+          choices.map((choice) => ({ ...choice, label: choice.label })),
+          { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
+        ),
+        confirm: async ({ from, to }) => {
+          const choice = await vscode.window.showWarningMessage(
+            `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
+            {
+              modal: true,
+              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+            },
+            'Switch and continue',
+          );
+          return choice === 'Switch and continue';
+        },
+        persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
+          agentProvider: provider,
+          model: model ?? '',
+        }),
+        dispose: () => sessions.disposeSession(ticketId),
+        launch: async (options) => {
+          await vscode.commands.executeCommand('karst.openSession', ticketId, options);
+        },
+      }, modelCatalog);
+
+      if (outcome.kind === 'stale') {
+        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+      } else if (outcome.kind === 'launch-failed') {
+        void vscode.window.showErrorMessage(
+          `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+        );
+      }
+    } catch (error) {
+      logError('agent session switch failed', error);
+      void vscode.window.showErrorMessage(
+        `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
+      );
+    } finally {
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      showStatusFor(ticketId);
+    }
   };
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates
@@ -665,7 +857,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Finish handoff: scope the ticket's selected repos (worktrees, no
       // servers) and open the agent session seeded with its chosen approach.
       // Servers stay deferred — they come up only when a stage needs to verify.
-      startTicket: async (ticketId: number): Promise<StartTicketResult> => {
+      startTicket: async (
+        ticketId: number,
+        { pullBase }: StartTicketOptions,
+      ): Promise<StartTicketResult> => {
         const t = getTicket(localStore, ticketId);
         const hot = t.selectedRepos;
         // Nothing to scope → the ticket stays pending. Report it so onboarding
@@ -675,7 +870,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const manifest = currentManifest() ?? emptyManifest();
         try {
-          confirmScope(localStore, manifest, ticketId, hot);
+          // `pullBase` is the page's switch, honored as given. A pull that could
+          // not happen is REPORTED, never fatal — the worktree still exists, it
+          // just starts from what this clone already had.
+          await confirmScope(localStore, manifest, ticketId, hot, {
+            pullBase,
+            onPullFailed: warnBaseNotPulled,
+          });
           // Scope is complete the moment its worktrees exist (scope has only a
           // pass edge → impl; it is not a gate). Pass it so the ticket advances
           // to impl running — the agent session opens in the impl worktree.
@@ -890,13 +1091,137 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void loadModelCatalog({ cache: modelCatalogCache })
     .then(async (loaded) => {
       for (const diagnostic of loaded.diagnostics) {
-        logger.warn(`karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`);
+        // An optional provider CLI that is not installed is a normal state, not
+        // a fault; only a source that was supposed to work and did not warns.
+        const line = `karst: model catalog ${formatCatalogDiagnostic(diagnostic)}`;
+        if (catalogDiagnosticSeverity(diagnostic.category) === 'warn') logger.warn(line);
+        else logger.info(line);
       }
       modelCatalog = loaded.catalog;
       onboarding.refreshModels();
       await settings.refreshModels();
     })
     .catch((error) => logError('karst: model catalog load failed', error));
+
+  const virtualDocuments = new VirtualDocumentRegistry();
+  let virtualDocumentId = 0;
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider('karst-diff', {
+      // `resolve`, never `?? ''`: VS Code restores open `karst-diff:` editors
+      // across a window reload but the registry is rebuilt empty, and an empty
+      // string is a legitimate diff side. It must refuse, not fabricate.
+      provideTextDocumentContent: (uri) => virtualDocuments.resolve(uri.toString()),
+    }),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      if (document.uri.scheme === 'karst-diff') {
+        virtualDocuments.delete(document.uri.toString());
+      }
+    }),
+  );
+
+  const workingFile = {
+    lstat: async (path: string) => {
+      const entry = await fsLstat(path);
+      return {
+        dev: entry.dev,
+        ino: entry.ino,
+        mode: entry.mode,
+        size: entry.size,
+        mtimeMs: entry.mtimeMs,
+        ctimeMs: entry.ctimeMs,
+        isSymbolicLink: () => entry.isSymbolicLink(),
+      };
+    },
+    realpath: (path: string): Promise<string> => fsRealpath(path),
+    readlink: (path: string): Promise<string> => fsReadlink(path),
+    read: (path: string): Promise<Buffer> => fsReadFile(path),
+  };
+  const materializeDiffResource = (
+    resource: PreparedDiffResource,
+    attempt: VirtualDocumentAttempt,
+  ): vscode.Uri => {
+    if (resource.kind === 'file') return vscode.Uri.file(resource.path);
+
+    // The comparison suffix belongs in the editor label, not in the URI: it can
+    // name a Git revision. The URI exposes only an opaque host token plus a
+    // sanitized basename, while the provider map owns the already-prepared text.
+    const basenameOnly = resource.label.replace(/\s+\([^)]*\)$/, '');
+    const safeBasename =
+      basename(basenameOnly).replace(/[^a-zA-Z0-9._-]+/g, '-') || 'resource';
+    const uri = vscode.Uri.from({
+      scheme: 'karst-diff',
+      path: `/${++virtualDocumentId}/${safeBasename}`,
+    });
+    attempt.set(uri.toString(), resource.content);
+    return uri;
+  };
+  const openTicketDiff = async (
+    target: DiffTarget,
+    viewColumn: number | undefined,
+  ): Promise<void> => {
+    const virtualAttempt = virtualDocuments.beginAttempt();
+    try {
+      const prepared = await prepareDiff(defaultGitRunner, target, workingFile);
+      const leftUri = materializeDiffResource(prepared.left, virtualAttempt);
+      const rightUri = materializeDiffResource(prepared.right, virtualAttempt);
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        leftUri,
+        rightUri,
+        prepared.title,
+        // The column is the panel's own + 1 (see `diffViewColumn`): `Beside`
+        // resolves against whatever is active when this runs, which after the
+        // first diff is that diff — so every click used to open ANOTHER group.
+        { preview: true, viewColumn: viewColumn ?? vscode.ViewColumn.Beside },
+      );
+      virtualAttempt.commit();
+    } catch (error) {
+      virtualAttempt.rollback();
+      if (error instanceof StaleDiffTargetError) throw error;
+      if (error instanceof TextDiffUnavailableError) {
+        void vscode.window.showWarningMessage(error.message);
+        return;
+      }
+      // Rethrown, not swallowed: the manager's generic branch is what tells the
+      // user their click failed. Returning here would resolve the promise and
+      // leave an unexpected failure completely silent in the UI.
+      logError('karst: opening native ticket diff failed', error);
+      throw error;
+    }
+  };
+
+  const changes = new TicketChangesManager(
+    makeChangesPanelHost(context),
+    (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
+    async (ticketId, signal) => {
+      const pathContext = worktreePathContext(currentManifest(), logger.warn);
+      const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
+        label: repoDisplayPath(worktree.repo, pathContext),
+        path: worktree.path,
+        branch: worktree.branch,
+        baseRef: worktree.baseRef,
+      }));
+      return buildTicketChangesSnapshot(
+        ticketId,
+        worktrees,
+        (spec, inspectSignal) => inspectWorktree(defaultGitRunner, spec, inspectSignal),
+        undefined,
+        signal,
+      );
+    },
+    openTicketDiff,
+    (message) => void vscode.window.showWarningMessage(message),
+    logError,
+    (text) => void vscode.env.clipboard.writeText(text),
+  );
+  shutdownTicketChanges = () => changes.dispose();
+  context.subscriptions.push(changes);
+
+  // Declared before the manager because the two reference each other: the
+  // manager asks the binder how the toggle sits, and the binder reveals through
+  // the manager. Assigned immediately below, and neither direction is read
+  // until a panel actually opens.
+  let binder: TerminalDashboardBinder;
 
   const dashboard = new DashboardManager(
     localStore,
@@ -924,6 +1249,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             makeTokenProvider(context),
           ),
         (event) => dashboard.postShipProgress(ticketId, event),
+        // A live session already owns the worktrees: nudge it and reveal the
+        // terminal so the user sees the agent take the job. With none open,
+        // launch one seeded with the brief instead of the ticket's own context.
+        (prompt) => {
+          if (sessions.nudge(ticketId, prompt)) {
+            sessions.focusSession(ticketId);
+            return;
+          }
+          void vscode.commands.executeCommand('karst.openSession', ticketId, {
+            seedPrompt: prompt,
+          });
+        },
+        () => changes.open(ticketId),
+        () => void switchAgentSession(ticketId),
+        () => binder.toggle(),
+        // Declared below with the sweep it forces (like `binder`, the two are
+        // mutually referential); read only when a panel is actually open, which
+        // is long after activation has run.
+        () => runPrSync(true),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
@@ -955,6 +1299,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // provider openSession will launch with (a Continue it can't honor would
     // just flash a terminal that exits on a foreign `--resume`).
     () => currentManifest()?.agentProvider,
+    {
+      enabled: () => binder.enabled(),
+      onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
+    },
+    () => ({
+      defaultModel: currentManifest()?.defaultModel ?? null,
+      modelCatalog,
+      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
+    }),
+    (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
+  );
+
+  binder = new TerminalDashboardBinder({
+    isEnabled: () => context.workspaceState.get<boolean>(BIND_TERMINAL_KEY) === true,
+    persist: (enabled) => void context.workspaceState.update(BIND_TERMINAL_KEY, enabled),
+    // Open-or-reveal: a dashboard is a read-only view of the store, so the
+    // terminal click can materialize one. `preserveFocus` keeps the caret in the
+    // shell the user is typing into — and keeps the panel from going ACTIVE,
+    // which is what stops the two listeners revealing each other in a circle.
+    revealDashboard: (ticketId) => dashboard.openDashboard(ticketId, { preserveFocus: true }),
+    // Reveal only. Never `karst.openSession`: that launches an agent, and
+    // clicking a tab must not spend tokens or move the ticket.
+    revealTerminal: (ticketId) => sessions.focusSession(ticketId, true),
+    broadcast: () => dashboard.pushBind(),
+  });
+
+  context.subscriptions.push(
+    // Every terminal in the window raises this, karst's or not; the ticket comes
+    // from the launch env, and a terminal without one resolves to undefined.
+    vscode.window.onDidChangeActiveTerminal((terminal) =>
+      binder.onTerminalActivated(ticketIdFromTerminalEnv(terminalEnv(terminal))),
+    ),
   );
 
   // The live verbose channel (§ naming/status): whatever a tab or terminal
@@ -990,6 +1366,83 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       statusBar.render(null);
     }
   };
+
+  // The needs-you channel, and the reason the activity-bar logo carries state at
+  // all: this must reach the user with the Karst panel CLOSED. Priority 50 sits
+  // between the deps item (0) and the focused-ticket item (100); for
+  // StatusBarAlignment.Left, HIGHER priority renders further LEFT, so the bar
+  // reads left to right as: where you are (100) → what needs you (50) → tools
+  // broken (0).
+  const attnItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  attnItem.command = 'karst.showAttention';
+  context.subscriptions.push(attnItem);
+  const attention = new AttentionManager({
+    setStatus: (text, tooltip, warning) => {
+      attnItem.text = text;
+      attnItem.tooltip = tooltip;
+      attnItem.backgroundColor = warning
+        ? new vscode.ThemeColor('statusBarItem.warningBackground')
+        : undefined;
+      attnItem.show();
+    },
+    hideStatus: () => attnItem.hide(),
+    setBadge: (value, tooltip) => sidebarBadge.set(value, tooltip),
+    clearBadge: () => sidebarBadge.clear(),
+  });
+
+  /**
+   * The tickets needing this window's user. SCOPED: the store lives in global
+   * storage and every IDE window shares it, so an unscoped read would badge this
+   * window with another project's waiting tickets. When no project is bound
+   * (no workspace folder, or `bindProject` threw) there is no scope to read
+   * safely, so this returns empty rather than issuing an unscoped query.
+   */
+  const currentAttention = (): AttentionItem[] => {
+    const projectId = currentProject()?.id;
+    return projectId === undefined ? [] : attentionItems(listTickets(localStore, { projectId }));
+  };
+
+  /** Repaint both surfaces. Never throws: a failed repaint must not break the
+   * sidebar push that just succeeded, and a store closed during shutdown reads
+   * as "nothing needs you" rather than an error. The fallback render is itself
+   * guarded — `attention.render([])` touches vscode objects and can throw too
+   * (e.g. mid-teardown), and that must not escape either. */
+  const refreshAttention = (): void => {
+    try {
+      attention.render(currentAttention());
+    } catch (err) {
+      logError('karst: attention refresh failed', err);
+      try {
+        attention.render([]);
+      } catch (fallbackErr) {
+        logError('karst: attention fallback render failed', fallbackErr);
+      }
+    }
+  };
+
+  // Coalesce bursts of `provider.onRefresh` — every live agent's PostToolUse
+  // hook lands here via `provider.refresh()`, and `refreshAttention` is a full
+  // ticket scan. CLAUDE.md bans blocking the extension host, so a scan per hook
+  // POST is out; collapse everything within a tick into one repaint instead.
+  // The timer is disposed on deactivation so a pending repaint never fires
+  // after teardown, and the leading call below runs inline (unscheduled) so
+  // first paint isn't delayed by a tick.
+  let attentionRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleAttentionRefresh = (): void => {
+    if (attentionRefreshTimer !== undefined) return;
+    attentionRefreshTimer = setTimeout(() => {
+      attentionRefreshTimer = undefined;
+      refreshAttention();
+    }, 0);
+  };
+  context.subscriptions.push({
+    dispose: () => {
+      if (attentionRefreshTimer !== undefined) clearTimeout(attentionRefreshTimer);
+    },
+  });
+
+  provider.onRefresh(scheduleAttentionRefresh);
+  refreshAttention();
 
   // Where the auto-driver persists its gate-run evidence (§11/§12), mirroring
   // the per-ticket layout the runners themselves expect.
@@ -1174,17 +1627,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Scoped to this window's project (projects invariant). Async spawn only — gh
   // runs off the event loop, and a re-entrancy guard drops a tick that lands
   // while a slow sweep is still going, so a dead remote can never pile up sweeps.
+  //
+  // `force` is the panel's refresh icon: same sweep, but the mergeability age
+  // floor is dropped (the user is asking BECAUSE the stored answer looks stale)
+  // and the dashboard is pushed even when nothing moved, so the icon's spinner
+  // always has an end. A forced request that lands mid-sweep is not dropped like
+  // a timer tick — it re-runs once the in-flight one finishes, because the answer
+  // that sweep is producing may predate whatever the user just pushed.
   let prSyncRunning = false;
-  const runPrSync = async (): Promise<void> => {
+  let forceQueued = false;
+  const runPrSync = async (force = false): Promise<void> => {
     const project = currentProject();
     if (!project) return;
-    if (prSyncRunning) return;
+    if (prSyncRunning) {
+      forceQueued ||= force;
+      return;
+    }
     prSyncRunning = true;
     try {
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
         projectId: project.id,
       });
-      if (changed > 0) {
+      // Mergeability rides the same tick: ship's verdict describes the base as
+      // it stood that minute, and the base keeps moving under an open PR. Same
+      // baseline the ship itself measured against, so the two can't disagree
+      // about which branch a repo merges into. The age floor keeps a multi-repo
+      // project from fetching once per repo per minute forever.
+      let mergeChanged = 0;
+      try {
+        mergeChanged = await syncMergeChecks(localStore, defaultGitRunner, {
+          scope: { projectId: project.id },
+          minAgeMs: force ? 0 : MERGE_SYNC_MIN_AGE_MS,
+          baseRefFor: (repo) => {
+            const m = currentManifest();
+            return m ? resolveBaselineBranchForPath(m, repo) : null;
+          },
+        });
+      } catch (e) {
+        // The PR statuses above already landed; a failed merge sweep must not
+        // discard them or stop the next tick.
+        logError('karst: merge check sync failed', e);
+      }
+      // A forced sweep pushes unconditionally: "nothing changed" is the answer
+      // the user asked for, and it is also what clears the panel's spinner.
+      if (force || changed > 0 || mergeChanged > 0) {
         provider.refresh();
         dashboard.pushAll();
       }
@@ -1192,6 +1678,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError('karst: PR status sync failed', e);
     } finally {
       prSyncRunning = false;
+      if (forceQueued) {
+        forceQueued = false;
+        void runPrSync(true);
+      }
     }
   };
   void runPrSync();
@@ -1268,13 +1758,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand(
       'karst.openSession',
-      async (arg: unknown, options: { reveal?: boolean; recovery?: boolean } = {}) => {
+      async (arg: unknown, options: OpenSessionOptions = {}) => {
         const ticketId = ticketIdArg(arg);
         if (ticketId === undefined) return;
         const adapter = currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!guardCapability('sessions', ticketId)) return;
+      if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -1295,7 +1785,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
         try {
-          confirmScope(localStore, currentManifest() ?? emptyManifest(), ticketId, draft.selectedRepos);
+          // No page to ask here (this is Start on a saved draft), so the pull
+          // takes its default: ON, the same as the onboarding switch ships.
+          await confirmScope(
+            localStore,
+            currentManifest() ?? emptyManifest(),
+            ticketId,
+            draft.selectedRepos,
+            { onPullFailed: warnBaseNotPulled },
+          );
           // Scope has only a pass edge → impl (it is not a gate), so pass it: the
           // session then opens in the impl worktree, and the dashboard reads impl.
           transition(localStore, ticketId, 'scope', { kind: 'passed' });
@@ -1418,6 +1916,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessionProvider: t.sessionProvider,
         stageCurrent: t.stageCurrent as StageKey,
         provider: launchProvider,
+        allowResume: options.allowResume,
       })
         ? (t.sessionId ?? undefined)
         : undefined;
@@ -1467,6 +1966,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           markerInstruction,
         );
       }
+      // A caller with one specific job for this session (the merge brief behind
+      // "Resolve conflicts") wins over every composed seed above, resume line
+      // included: the ticket's own context would bury the one instruction the
+      // click was about. Set host-side only — never from a webview message.
+      if (options.seedPrompt) seedPrompt = options.seedPrompt;
       const extraArgs =
         materialized.extraArgs.length > 0
           ? materialized.extraArgs
@@ -1723,6 +2227,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('karst.showAttention', async () => {
+      const items = currentAttention();
+      if (items.length === 0) {
+        // The command is palette-reachable even at zero; an empty picker would
+        // read as a broken list rather than an answer.
+        void vscode.window.showInformationMessage('No tickets need your input.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        items.map((i) => ({
+          label: `${i.kind === 'failed' ? '$(warning)' : '$(bell)'} ${i.key} · ${i.reason}`,
+          description: i.title,
+          ticketId: i.ticketId,
+        })),
+        { placeHolder: 'Tickets needing you' },
+      );
+      if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
+    }),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
       const query = await vscode.window.showInputBox({ prompt: 'Filter tickets' });
@@ -1793,10 +2315,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // project terminals into the new manager, then recover only owned sessions
   // that remain hidden in the background through the registered command so its
   // usual scoping/seed/materialization path is preserved.
-  const projectId = currentProject()?.id;
-  const currentTickets =
-    projectId === undefined ? [] : listTickets(localStore, { projectId });
-  const candidates: RecoveryCandidate[] = currentTickets.map((ticket) => ({
+  const toRecoveryCandidate = (
+    ticket: ReturnType<typeof listTickets>[number],
+  ): RecoveryCandidate => ({
     id: ticket.id,
     agentState: ticket.agentState,
     canResume: shouldResumeSession({
@@ -1806,8 +2327,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
     }),
     hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
-  }));
+  });
+  const projectId = currentProject()?.id;
+  const currentTickets =
+    projectId === undefined ? [] : listTickets(localStore, { projectId });
+  const candidates: RecoveryCandidate[] = currentTickets.map(toRecoveryCandidate);
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+
+  // A terminal tab can be revived AFTER this activation scan — VS Code restores
+  // them on its own schedule — and one that lands late used to be invisible to
+  // karst forever: background recovery then launched a SECOND agent beside the
+  // still-running first, leaving the user two tabs for one ticket. Every
+  // terminal opened from here on is reconciled the same way the scan does it,
+  // classified against the store as it stands at that moment.
+  const classifyLateSession = (ticketId: number): RestoredSessionDisposition => {
+    const project = currentProject()?.id;
+    if (project === undefined) return 'ignore';
+    const ticket = listTickets(localStore, { projectId: project }).find(
+      (row) => row.id === ticketId,
+    );
+    return classifyRestoredSession(ticket ? toRecoveryCandidate(ticket) : undefined);
+  };
+  context.subscriptions.push(
+    vscode.window.onDidOpenTerminal((terminal) => {
+      const session = restoredSessionOf(terminal);
+      if (!session) return;
+      const outcome = sessions.adoptLateSession(session, classifyLateSession);
+      if (outcome.kind === 'adopted') {
+        logger.info(
+          `session recovery: adopted late-restored terminal for ticket ${session.ticketId}`,
+        );
+        provider.refresh();
+        dashboard.pushState(session.ticketId);
+        return;
+      }
+      if (outcome.kind === 'duplicate') {
+        logger.warn(
+          `session recovery: closed a duplicate restored terminal for ticket ${session.ticketId}`,
+        );
+      }
+    }),
+  );
+
   const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));
   });
@@ -1906,6 +2467,12 @@ export async function deactivate(): Promise<void> {
   pendingSessionRecoveryTasks.clear();
   shutdownSessionRecovery = undefined;
   flushSessionOwnership = undefined;
+  try {
+    shutdownTicketChanges?.();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  shutdownTicketChanges = undefined;
   try {
     store?.close();
   } catch (error) {
@@ -2042,20 +2609,31 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
     injectPalette(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
   );
   return {
-    createPanel(title): DashboardPanel {
+    createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
         'karst.dashboard',
         title,
-        vscode.ViewColumn.Active,
+        // A bound open rides on the user clicking the TERMINAL: the panel must
+        // appear beside it without taking the caret out of the shell.
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus: preserveFocus === true },
         { enableScripts: true, retainContextWhenHidden: true },
       );
       // Nonce per panel, not per host (the html above is built once and reused).
       panel.webview.html = injectCsp(html, newNonce());
       return {
-        reveal: () => panel.reveal(),
+        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
         postMessage: (message) => void panel.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+        // `active` — not `visible`: a preserve-focus reveal makes the panel
+        // visible without the user being on it, and binding off that would fire
+        // on karst's own reveal rather than on a real click.
+        onDidChangeViewState: (handler) =>
+          panel.onDidChangeViewState(
+            (e) => handler(e.webviewPanel.active),
+            undefined,
+            context.subscriptions,
+          ),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
         setIcon: (p: string) => {
           panel.iconPath = vscode.Uri.file(p);
@@ -2065,10 +2643,82 @@ function makePanelHost(context: vscode.ExtensionContext): PanelHost {
   };
 }
 
+/** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
+function makeChangesPanelHost(context: vscode.ExtensionContext): ChangesPanelHost {
+  const html = readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8');
+  return {
+    createPanel(title, _ticketId): ChangesPanel {
+      const panel = vscode.window.createWebviewPanel(
+        'karst.changes',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      );
+      // The panel itself, not only its listeners: without this the webview
+      // outlives extension unload with no owner. VS Code tolerates a second
+      // dispose of an already-closed panel.
+      context.subscriptions.push(panel);
+      panel.webview.html = injectCsp(html, newNonce());
+      const listeners = new DisposableBag();
+      return {
+        reveal: () => panel.reveal(),
+        // Read per call, not captured: the user can drag the panel to another
+        // group, and the diff belongs beside wherever it is NOW.
+        viewColumn: () => panel.viewColumn,
+        postMessage: (message) => void panel.webview.postMessage(message),
+        onDidReceiveMessage: (handler) => {
+          listeners.add(panel.webview.onDidReceiveMessage(handler));
+        },
+        onDidDispose: (handler) => {
+          listeners.add(panel.onDidDispose(() => {
+            try {
+              handler();
+            } finally {
+              listeners.dispose();
+            }
+          }));
+        },
+      };
+    },
+  };
+}
+
+/**
+ * A terminal's launch environment, when it has one. `creationOptions` is a union
+ * — a pty-backed terminal carries no `env` at all — so the narrowing lives here
+ * rather than at each call site.
+ */
+function terminalEnv(
+  terminal: vscode.Terminal | undefined,
+): Readonly<Record<string, string | undefined>> | undefined {
+  const opts = terminal?.creationOptions;
+  return opts && 'env' in opts
+    ? (opts.env as Readonly<Record<string, string | undefined>> | undefined)
+    : undefined;
+}
+
+/**
+ * Read a terminal's karst identity, or undefined when it has none. The env is
+ * the only durable terminal→ticket link, and `exitStatus` is what separates a
+ * live session from a tab whose agent already quit.
+ */
+function restoredSessionOf(terminal: vscode.Terminal): RestoredSession | undefined {
+  const env = terminalEnv(terminal);
+  const ticketId = ticketIdFromTerminalEnv(env);
+  if (ticketId === undefined) return undefined;
+  const launchId = env?.[KARST_LAUNCH_ENV];
+  return {
+    ticketId,
+    ...(typeof launchId === 'string' && launchId.length > 0 ? { launchId } : {}),
+    ...(terminal.exitStatus !== undefined ? { exited: true } : {}),
+    terminal: wrapTerminal(terminal),
+  };
+}
+
 /** Wrap a VS Code terminal for both freshly-created and restored sessions. */
 function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
   return {
-    show: () => terminal.show(),
+    show: (preserveFocus) => terminal.show(preserveFocus),
     sendText: (text) => terminal.sendText(text, true),
     dispose: () => terminal.dispose(),
     onDidClose: (handler) => {
@@ -2105,19 +2755,8 @@ function makeTerminalHost(): TerminalHost {
     },
     restoredSessions: () =>
       vscode.window.terminals.flatMap((terminal) => {
-        const creationOptions = terminal.creationOptions;
-        const env = 'env' in creationOptions ? creationOptions.env : undefined;
-        const raw = env?.[KARST_TICKET_ENV];
-        const launchId = env?.[KARST_LAUNCH_ENV];
-        return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
-          ? [{
-              ticketId: Number(raw),
-              ...(typeof launchId === 'string' && launchId.length > 0
-                ? { launchId }
-                : {}),
-              terminal: wrapTerminal(terminal),
-            }]
-          : [];
+        const session = restoredSessionOf(terminal);
+        return session ? [session] : [];
       }),
   };
 }
@@ -2150,7 +2789,41 @@ function makeDashboardActions(
   // `shipTicket` runs, so the confirm-ship click has visible progress instead
   // of a frozen button.
   onShipProgress: (event: ShipStepEvent) => void,
+  // Deliver a prompt to this ticket's session, live or not: nudge the open
+  // terminal, else launch one seeded with it. A conflict brief handed to
+  // `openSession` alone would be dropped whenever a session is already up —
+  // openSession only focuses an existing terminal.
+  handOffToSession: (prompt: string) => void,
+  // Open the host-owned, whole-ticket changes explorer. The dashboard action
+  // carries no path because this closure already owns the ticket id.
+  showChanges: () => void,
+  // Switch the open session through native VS Code pickers. The closure owns
+  // the ticket id so the webview cannot select a different session.
+  switchAgent: () => void,
+  // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
+  // takes no id — every open dashboard reports the same toggle.
+  toggleBind: () => void,
+  // Force an immediate PR/mergeability sweep, ignoring the freshness floor the
+  // background tick respects. Project-scoped like the tick itself, so it takes no
+  // ticket: the panel is asking for a fresher answer, not a narrower one.
+  refreshPrs: () => Promise<void>,
 ): DashboardActions {
+  const worktreeActions = makeWorktreeActions(
+    {
+      createTerminal: (options) => vscode.window.createTerminal(options),
+      revealInExplorer: async (path) => {
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path));
+      },
+      expandExplorer: async () => {
+        await vscode.commands.executeCommand('list.expand');
+      },
+      writeClipboard: async (text) => {
+        await vscode.env.clipboard.writeText(text);
+      },
+    },
+    logError,
+  );
+
   return {
     stopServer: (serverId) => {
       stopServer(store, serverId);
@@ -2196,22 +2869,9 @@ function makeDashboardActions(
       stopTicketServers(store, ticketId);
       afterServerChange();
     },
-    // Diff → register the worktree with Git, then open the Source Control view
-    // so its changes (vs the branch point) are shown. The SCM view is the right
-    // whole-worktree affordance (per-file `git.openChange` needs a file target).
-    diffWorktree: (path) => {
-      void (async () => {
-        // git.openRepository expects a plain path string, not a Uri — passing a
-        // Uri makes the git extension call `.toLowerCase()` on the object and
-        // throw "e.toLowerCase is not a function".
-        await vscode.commands.executeCommand('git.openRepository', path);
-        await vscode.commands.executeCommand('workbench.view.scm');
-      })();
-    },
-    // Open folder → reveal the worktree in the Explorer (navigate there), not
-    // the OS file manager.
-    openWorktreeFolder: (path) =>
-      void vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path)),
+    showChanges,
+    switchAgent,
+    ...worktreeActions,
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
@@ -2295,5 +2955,109 @@ function makeDashboardActions(
         }
       })();
     },
+    // Hand one repo's conflict to an agent, briefed with where, against what,
+    // and which paths the probe named. karst runs no git itself here: the
+    // worktree may still have a session sitting in it, and a half-applied merge
+    // left by a button click is a state nobody asked for.
+    resolveConflicts: (repo) => {
+      if (!guardCapability('sessions', ticketId)) return;
+      // The store decides whether there is a conflict — the repo arrived in a
+      // webview message, and a stale panel can name one that has since gone.
+      const brief = buildConflictBrief(store, ticketId, repo);
+      if (!brief) {
+        void vscode.window.showInformationMessage(
+          `No merge conflict is recorded for "${repo}" on this ticket — nothing to resolve.`,
+        );
+        return;
+      }
+      handOffToSession(brief);
+    },
+    // Merge one repo's PR, from the ship stage.
+    //
+    // Irreversible, so the confirmation is a MODAL and it is the same click that
+    // chooses the strategy — there is no default method and no way to merge
+    // without answering. The webview only names the repo; everything about how
+    // (and whether) the merge happens is decided here and in `mergeTicketPr`.
+    //
+    // The dashboard is refreshed on EVERY exit — success, refusal, cancel, throw —
+    // because the panel's pending state is cleared by a state push. Skipping the
+    // push on the cancel path would leave the button stuck on "Merging…".
+    mergePr: (repo) => {
+      if (!guardCapability('ship')) return;
+      void (async () => {
+        try {
+          // The store decides what is mergeable: `repo` arrived in a webview
+          // message and a stale panel can name a PR that has since gone.
+          const pr = findTicketPr(store, ticketId, repo);
+          if (!pr) {
+            void vscode.window.showInformationMessage(
+              `No pull request is recorded for "${repo}" on this ticket — nothing to merge.`,
+            );
+            return;
+          }
+          if (pr.status === 'merged') {
+            void vscode.window.showInformationMessage(
+              `Pull request${pr.number ? ` #${pr.number}` : ''} is already merged.`,
+            );
+            return;
+          }
+
+          const target = pr.baseRef ? ` into ${pr.baseRef}` : '';
+          const choice = await vscode.window.showWarningMessage(
+            `Merge pull request${pr.number ? ` #${pr.number}` : ''}${target}?`,
+            {
+              modal: true,
+              detail:
+                'This merges the branch on GitHub now. karst cannot undo it. '
+                + 'The worktree and its branch are kept.',
+            },
+            'Squash and merge',
+            'Create a merge commit',
+          );
+          if (!choice) return; // dismissed: nothing ran, and nothing is claimed
+
+          const result = await mergeTicketPr(store, {
+            ticketId,
+            repo,
+            method: choice === 'Squash and merge' ? 'squash' : 'merge',
+          });
+          if (result.ok) {
+            void vscode.window.showInformationMessage(
+              `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
+            );
+            return;
+          }
+          // The reason is gh's own words where there are any. `mergeTicketPr` has
+          // already persisted the real, re-probed state, so the panel and this
+          // message describe the same PR.
+          logError(`merge failed for ticket #${ticketId} (${repo})`, undefined);
+          void vscode.window.showErrorMessage(`Merge failed: ${result.reason}`);
+        } catch (e) {
+          logError('merge failed', e);
+          void vscode.window.showErrorMessage(
+            `Merge failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        } finally {
+          afterServerChange();
+        }
+      })();
+    },
+    // Re-probe PR status and mergeability on demand, from the panel's refresh
+    // icon. The background sweep runs once a minute behind a five-minute
+    // freshness floor, so after pushing a conflict fix a user could watch a stale
+    // "conflicted" for minutes with no way to ask again.
+    //
+    // Errors are the sweep's own to log — this only has to guarantee the panel
+    // gets a push either way, or the icon spins forever.
+    refreshPrs: () => {
+      void (async () => {
+        try {
+          await refreshPrs();
+        } finally {
+          afterServerChange();
+        }
+      })();
+    },
+    toggleBind,
   };
 }

@@ -10,8 +10,10 @@ function actions(): DashboardActions {
     spinServers: vi.fn(),
     restartServers: vi.fn(),
     stopServers: vi.fn(),
-    diffWorktree: vi.fn(),
+    showChanges: vi.fn(),
+    openWorktreeTerminal: vi.fn(),
     openWorktreeFolder: vi.fn(),
+    copyWorktreeBranch: vi.fn(),
     openPr: vi.fn(),
     openTicketLink: vi.fn(),
     editTicket: vi.fn(),
@@ -20,6 +22,11 @@ function actions(): DashboardActions {
     resumeTicket: vi.fn(),
     createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
+    resolveConflicts: vi.fn(),
+    mergePr: vi.fn(),
+    refreshPrs: vi.fn(),
+    toggleBind: vi.fn(),
+    switchAgent: vi.fn(),
   };
 }
 
@@ -38,12 +45,30 @@ describe('routeAction', () => {
     expect(a.openServer).toHaveBeenCalledWith(3);
   });
 
-  it('dispatches worktree diff / open-folder by path', () => {
+  it('dispatches ticket changes without trusting a companion path', () => {
     const a = actions();
-    routeAction({ type: 'diff-worktree', path: '/wt/a' }, a);
+    routeAction({ type: 'show-changes', path: '/forged' }, a);
+    expect(a.showChanges).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches open-folder by path', () => {
+    const a = actions();
     routeAction({ type: 'open-worktree-folder', path: '/wt/a' }, a);
-    expect(a.diffWorktree).toHaveBeenCalledWith('/wt/a');
     expect(a.openWorktreeFolder).toHaveBeenCalledWith('/wt/a');
+  });
+
+  it('validates and dispatches worktree terminal and branch-copy actions', () => {
+    const a = actions();
+    routeAction({ type: 'open-worktree-terminal', path: '/wt/a' }, a);
+    routeAction({ type: 'copy-worktree-branch', branch: 'karst/A' }, a);
+    expect(a.openWorktreeTerminal).toHaveBeenCalledWith('/wt/a');
+    expect(a.copyWorktreeBranch).toHaveBeenCalledWith('karst/A');
+  });
+
+  it('rejects empty or non-string worktree action payloads', () => {
+    expect(parseWebviewMessage({ type: 'open-worktree-terminal', path: '' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'copy-worktree-branch', branch: '' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'copy-worktree-branch', branch: 4 })).toBeNull();
   });
 
   it('dispatches open-pr by url', () => {
@@ -117,12 +142,8 @@ describe('routeAction', () => {
     expect(a.stopServer).not.toHaveBeenCalled();
   });
 
-  it('rejects a worktree action whose path is missing or non-string', () => {
-    const a = actions();
-    routeAction({ type: 'diff-worktree', path: 123 }, a);
-    routeAction({ type: 'diff-worktree' }, a);
-    routeAction({ type: 'diff-worktree', path: '' }, a);
-    expect(a.diffWorktree).not.toHaveBeenCalled();
+  it('rejects the removed path-bearing worktree diff action', () => {
+    expect(parseWebviewMessage({ type: 'diff-worktree', path: '/wt/a' })).toBeNull();
   });
 
   it('rejects an open-pr url that is not http(s) — no file:// or other scheme', () => {
@@ -186,5 +207,75 @@ describe('routeAction', () => {
     routeAction({ type: 'open-stage-log', path: 42 }, a);
     routeAction({ type: 'open-stage-log', path: '' }, a);
     expect(a.openStageLog).not.toHaveBeenCalled();
+  });
+
+  it('dispatches resolve-conflicts with the repo the conflict is in', () => {
+    const a = actions();
+    routeAction({ type: 'resolve-conflicts', repo: 'api' }, a);
+    expect(a.resolveConflicts).toHaveBeenCalledWith('api');
+  });
+
+  // The repo name selects which worktree a session is opened against, so it is
+  // exactly the field a crafted message would want to bend.
+  it('ignores a resolve-conflicts with a missing or non-string repo', () => {
+    const a = actions();
+    routeAction({ type: 'resolve-conflicts' }, a);
+    routeAction({ type: 'resolve-conflicts', repo: 7 }, a);
+    routeAction({ type: 'resolve-conflicts', repo: '' }, a);
+    expect(a.resolveConflicts).not.toHaveBeenCalled();
+  });
+
+  it('dispatches merge-pr with the repo whose PR is being merged', () => {
+    const a = actions();
+    routeAction({ type: 'merge-pr', repo: '/repo/api' }, a);
+    expect(a.mergePr).toHaveBeenCalledWith('/repo/api');
+  });
+
+  // Merging is irreversible, so this is the message a crafted one would most want
+  // to bend — and it carries NO method: the host asks the user how to merge, so a
+  // webview message can never choose the strategy for them.
+  it('ignores a merge-pr with a missing or non-string repo, and drops any method', () => {
+    const a = actions();
+    routeAction({ type: 'merge-pr' }, a);
+    routeAction({ type: 'merge-pr', repo: 7 }, a);
+    routeAction({ type: 'merge-pr', repo: '' }, a);
+    expect(a.mergePr).not.toHaveBeenCalled();
+    expect(parseWebviewMessage({ type: 'merge-pr', repo: 'api', method: 'rebase' })).toEqual({
+      type: 'merge-pr',
+      repo: 'api',
+    });
+  });
+
+  // The panel's refresh icon. Payload-free like the other panel-level controls:
+  // WHICH ticket's PRs get re-probed is the host's to know, so a companion
+  // `repo`/`projectId` is dropped rather than honoured.
+  it('dispatches refresh-prs, carrying no target of its own', () => {
+    expect(parseWebviewMessage({ type: 'refresh-prs', repo: 'api' })).toEqual({
+      type: 'refresh-prs',
+    });
+    const a = actions();
+    routeAction({ type: 'refresh-prs' }, a);
+    expect(a.refreshPrs).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches toggle-bind, carrying no state of its own', () => {
+    // The host owns the binding and flips it. A message that carried the desired
+    // value could disagree with the host — two panels racing, or a stale webview
+    // after a reload — and the pref is window-wide, so the two must not desync.
+    expect(parseWebviewMessage({ type: 'toggle-bind', enabled: false })).toEqual({
+      type: 'toggle-bind',
+    });
+    const a = actions();
+    routeAction({ type: 'toggle-bind' }, a);
+    expect(a.toggleBind).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes switch-agent without trusting companion provider/model/ticket fields', () => {
+    const a = actions();
+    expect(parseWebviewMessage({
+      type: 'switch-agent', provider: 'evil', model: 'evil', ticketId: 999,
+    })).toEqual({ type: 'switch-agent' });
+    routeAction({ type: 'switch-agent', provider: 'evil' }, a);
+    expect(a.switchAgent).toHaveBeenCalledOnce();
   });
 });

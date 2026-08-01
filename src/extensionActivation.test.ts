@@ -11,6 +11,18 @@ describe('extension activation', () => {
     expect(pkg.activationEvents).toContain('onStartupFinished');
   });
 
+  it('reconciles terminals VS Code revives after the activation scan', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'extension.ts'),
+      'utf8',
+    );
+
+    // The one-shot scan cannot see a tab restored a moment later; without this
+    // subscription that tab stays invisible and recovery launches a duplicate.
+    expect(source).toContain('vscode.window.onDidOpenTerminal((terminal) => {');
+    expect(source).toContain('sessions.adoptLateSession(session, classifyLateSession)');
+  });
+
   it('does not run project recovery from an unbound startup window', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'extension.ts'),
@@ -22,6 +34,23 @@ describe('extension activation', () => {
     );
     expect(source).toContain(
       'const project = currentProject();\n    if (!project) return;',
+    );
+  });
+
+  it('binds dashboard agent switching to native pickers, confirmation, and the normal launch path', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toContain('runAgentSwitchFlow(');
+    expect(source).toContain('vscode.window.showQuickPick');
+    expect(source).toContain("modal: true");
+    expect(source).toContain("guardProviderCapabilityAsync('sessions', provider)");
+    expect(source).toContain(
+      "if (!options.providerReady && !guardCapability('sessions', ticketId)) return;",
+    );
+    expect(source).toContain('sessions.disposeSession(ticketId)');
+    expect(source).toContain("vscode.commands.executeCommand('karst.openSession', ticketId, options)");
+    expect(source).toContain("logError('agent session switch failed', error)");
+    expect(source).toContain(
+      'finally {\n      provider.refresh();\n      dashboard.pushState(ticketId);\n      showStatusFor(ticketId);\n    }',
     );
   });
 });

@@ -112,6 +112,11 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       });
     }
 
+    /** Report only the keychain flag, leaving the webview's draft untouched. */
+    async function pushTokenState(): Promise<void> {
+      ctx.post({ type: 'token-state', configured: await deps.hasToken() });
+    }
+
     return {
       validate(manifest: Manifest): void {
         try {
@@ -173,10 +178,16 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         }
       },
 
+      /**
+       * The token lives in the keychain, not the manifest, so its change is
+       * reported with `token-state` alone. A full state push would carry the
+       * manifest FROM DISK and reset the webview's draft — and "Set token" is
+       * pressed mid-setup, before the provider has ever been saved.
+       */
       async setToken(): Promise<void> {
         try {
           await deps.setToken();
-          await pushStateWithInstalled();
+          await pushTokenState();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }
@@ -185,7 +196,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       async clearToken(): Promise<void> {
         try {
           await deps.clearToken();
-          await pushStateWithInstalled();
+          await pushTokenState();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

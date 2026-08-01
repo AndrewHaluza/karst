@@ -288,6 +288,7 @@ describe('recovery lifecycle ordering', () => {
         shellArgs: [],
         env: {},
         shown: 0,
+        shownPreserveFocus: [],
         sent: [],
         disposed: false,
         show: () => {},

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   renderTicketLabel,
+  validateLabelTemplate,
   DEFAULT_TICKET_LABEL_TEMPLATE,
   type TicketLabelFields,
 } from './ticketLabelTemplate.js';
@@ -61,5 +62,74 @@ describe('renderTicketLabel', () => {
 
   it('empty repos join to an empty string', () => {
     expect(renderTicketLabel({ ...base, selectedRepos: [] }, '{key} [{repos}]')).toBe('PROJ-142 []');
+  });
+});
+
+describe('placeholder transforms', () => {
+  it('shortens a look-alike ticket key to its distinguishing tail', () => {
+    expect(renderTicketLabel({ ...base, key: '869e82530' }, '{key|slice:-4} — {title}')).toBe(
+      '2530 — do things',
+    );
+    expect(renderTicketLabel({ ...base, key: '869e820e2' }, '{key|slice:-4} — {title}')).toBe(
+      '20e2 — do things',
+    );
+  });
+
+  it('applies a chain left to right', () => {
+    expect(renderTicketLabel(base, '{key|slice:-3|upper} · {title|truncate:6}')).toBe(
+      '142 · do th…',
+    );
+  });
+
+  it('fills an empty field with its default instead of leaving a gap', () => {
+    const fresh: TicketLabelFields = {
+      id: 3,
+      key: null,
+      title: null,
+      stageCurrent: null,
+      agentState: null,
+      selectedRepos: [],
+    };
+    expect(renderTicketLabel(fresh, '{status|default:idle}')).toBe('idle');
+    expect(renderTicketLabel(base, '{status|default:idle}')).toBe('working');
+  });
+
+  it('transforms an unknown variable as the empty string, never a raw brace', () => {
+    expect(renderTicketLabel(base, '{key} {nope|upper}')).toBe('PROJ-142 ');
+  });
+
+  it('an invalid transform falls back to the default template rather than throwing', () => {
+    expect(renderTicketLabel(base, '{key|slize:-4}')).toBe('PROJ-142 — do things');
+    expect(renderTicketLabel(base, '{key|slice:x}')).toBe('PROJ-142 — do things');
+  });
+
+  it('renders templates without transforms byte-identically', () => {
+    for (const template of ['{key} — {title}', 'Karst: {key} — {title}', '{key} [{repos}]', 'x']) {
+      expect(renderTicketLabel(base, template)).toBe(
+        template
+          .replace('{key}', 'PROJ-142')
+          .replace('{title}', 'do things')
+          .replace('{repos}', 'fe, be'),
+      );
+    }
+  });
+});
+
+describe('validateLabelTemplate', () => {
+  it('accepts templates with no transforms and every unknown variable', () => {
+    expect(() => validateLabelTemplate('ticketLabelTemplate', '{key} — {title}')).not.toThrow();
+    expect(() => validateLabelTemplate('ticketLabelTemplate', '{whatever}')).not.toThrow();
+  });
+
+  it('rejects an unknown transform, naming the field and the placeholder', () => {
+    expect(() => validateLabelTemplate('terminalNameTemplate', 'Karst: {key|slize:-4}')).toThrow(
+      /terminalNameTemplate contains unknown transform "slize" in "\{key\|slize:-4\}"/,
+    );
+  });
+
+  it('rejects a malformed argument, naming the placeholder and the reason', () => {
+    expect(() => validateLabelTemplate('ticketLabelTemplate', '{key|slice:x}')).toThrow(
+      /ticketLabelTemplate has an invalid "slice" argument in "\{key\|slice:x\}": start must be an integer/,
+    );
   });
 });

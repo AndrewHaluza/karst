@@ -43,6 +43,7 @@ describe('recovery interrupted by another window reload', () => {
         shellArgs: [],
         env: {},
         shown: 0,
+        shownPreserveFocus: [],
         sent: [],
         disposed: false,
         show: () => {},
@@ -286,6 +287,7 @@ describe('recovery interrupted by another window reload', () => {
             const terminal: FakeTerminal = {
               ...opts,
               shown: 0,
+              shownPreserveFocus: [],
               sent: [],
               disposed: false,
               show: () => {},

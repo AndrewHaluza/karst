@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { parseComments, type PrComment } from '../model/prComments.js';
 
 /** Read models for the dashboard (§14 dashboard tier) — plain, serializable. */
 export interface ServerView {
@@ -24,9 +25,25 @@ export interface WorktreeView {
 export interface PrView {
   ticketId: number;
   repo: string;
+  /**
+   * How `repo` renders on the dashboard (absolute path, or project-relative) —
+   * the same worktree path-display preference the worktree rows honor, so the
+   * ship stage cannot show the same directory in a second format.
+   */
+  repoDisplay: string;
   number: number | null;
   url: string | null;
   status: string | null;
+  /** Source branch (the "from" of from-to), or null when never probed. */
+  headRef: string | null;
+  /** Target branch (the "to"), or null when never probed. */
+  baseRef: string | null;
+  /** When the PR was opened, ISO-8601; null when never probed. */
+  createdAt: string | null;
+  /** When it was merged, ISO-8601; null while open, closed, or never probed. */
+  mergedAt: string | null;
+  /** Its comments, newest last. Empty for none AND for never probed. */
+  comments: PrComment[];
 }
 
 interface ServerRow {
@@ -104,17 +121,33 @@ interface PrRow {
   number: number | null;
   url: string | null;
   status: string | null;
+  head_ref: string | null;
+  base_ref: string | null;
+  created_at: string | null;
+  merged_at: string | null;
+  comments: string | null;
 }
 
 export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
   const rows = store.db
-    .prepare('SELECT ticket_id, repo, number, url, status FROM prs WHERE ticket_id = ? ORDER BY number')
+    .prepare(
+      `SELECT ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, comments
+         FROM prs WHERE ticket_id = ? ORDER BY number`,
+    )
     .all(ticketId) as PrRow[];
   return rows.map((r) => ({
     ticketId: r.ticket_id,
     repo: r.repo,
+    repoDisplay: r.repo, // default; state.ts may re-render project-relative
     number: r.number,
     url: r.url,
     status: r.status,
+    headRef: r.head_ref,
+    baseRef: r.base_ref,
+    createdAt: r.created_at,
+    mergedAt: r.merged_at,
+    // A malformed column renders as no comments rather than faulting the panel —
+    // this is a display cache, gh remains the source of truth.
+    comments: parseComments(r.comments),
   }));
 }

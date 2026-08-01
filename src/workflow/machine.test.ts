@@ -54,6 +54,33 @@ describe('transition (stage machine core)', () => {
     expect(transition(store, ticketId, 'fix', { kind: 'passed' })).toBe('uat');
   });
 
+  // `stages` is keyed (ticket_id, stage_key), so a retry OVERWRITES the row —
+  // the verdict column describes what the row says NOW, it is not a history
+  // (gate_runs is). Left behind, the reason one attempt failed outlives the
+  // attempt that fixed it: the diagnostic report then prints a review stage as
+  // `status: passed` beside `verdict: "gates failed: lint"`, and every reader
+  // has to guess which half is true.
+  it('re-entering a stage clears the reason its previous attempt recorded', () => {
+    transition(store, ticketId, 'review', { kind: 'failed', reason: 'gates failed: lint' });
+    // Every fix revalidates from uat (graph.ts), so uat is what re-enters first —
+    // and it must not carry a reason either.
+    transition(store, ticketId, 'fix', { kind: 'passed' });
+    expect(stageOf(store, ticketId, 'uat').status).toBe('running');
+    expect(stageOf(store, ticketId, 'uat').verdict).toBeNull();
+
+    // review is re-entered one step later; its own stale reason clears there.
+    transition(store, ticketId, 'uat', { kind: 'passed' });
+    expect(stageOf(store, ticketId, 'review').status).toBe('running');
+    expect(stageOf(store, ticketId, 'review').verdict).toBeNull();
+  });
+
+  it('passing a stage clears a reason left by its previous attempt', () => {
+    setStage(store, ticketId, 'review', { status: 'failed', verdict: 'gates failed: lint' });
+    transition(store, ticketId, 'review', { kind: 'passed' });
+    expect(stageOf(store, ticketId, 'review').status).toBe('passed');
+    expect(stageOf(store, ticketId, 'review').verdict).toBeNull();
+  });
+
   it('fail at review routes to fix', () => {
     expect(transition(store, ticketId, 'review', { kind: 'failed' })).toBe('fix');
   });

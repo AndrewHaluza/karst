@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { commitAllIfDirty, pushBranch, defaultGitRunner, runGit, type GitRunner } from './git.js';
+import {
+  commitAllIfDirty,
+  pushBranch,
+  defaultGitRunner,
+  runGit,
+  runGitBytes,
+  type GitRunner,
+} from './git.js';
 
 async function expectProcessDead(pid: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -149,6 +156,34 @@ describe('defaultGitRunner', () => {
     },
   );
 
+  it.runIf(process.platform !== 'win32')(
+    'aborts a detached git process tree and settles with an abort reason',
+    async () => {
+      const controller = new AbortController();
+      const script =
+        `const{spawn}=require('node:child_process');` +
+        `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
+        `process.stdout.write(String(c.pid)+'\\\\n');setInterval(()=>{},1000)`;
+      const pending = runGit(
+        ['-c', `alias.hangtree=!${process.execPath} -e "${script}"`, 'hangtree'],
+        process.cwd(),
+        10_000,
+        1024,
+        500,
+        controller.signal,
+      );
+
+      setTimeout(() => controller.abort(), 100);
+      const result = await pending;
+      const grandchildPid = Number.parseInt(result.stdout, 10);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toMatch(/aborted/i);
+      expect(Number.isInteger(grandchildPid)).toBe(true);
+      await expectProcessDead(grandchildPid);
+    },
+  );
+
   it('answers with a reason when git itself cannot be spawned', async () => {
     const r = await runGit(['--version'], '/nonexistent-directory-for-karst-test');
     expect(r.exitCode).not.toBe(0);
@@ -173,6 +208,23 @@ describe('defaultGitRunner', () => {
     expect(Buffer.byteLength(result.stderr)).toBeLessThanOrEqual(24 + Buffer.byteLength(marker));
     expect(result.stdout.split(marker)).toHaveLength(2);
     expect(result.stderr.split(marker)).toHaveLength(2);
+    },
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    'preserves the exact retained stdout bytes and reports truncation',
+    async () => {
+      const script = `process.stdout.write(Buffer.from([255,0,97,98,99]))`;
+      const result = await runGitBytes(
+        ['-c', `alias.raw=!${process.execPath} -e "${script}"`, 'raw'],
+        process.cwd(),
+        2_000,
+        4,
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toEqual(Buffer.from([255, 0, 97, 98]));
+      expect(result.stdoutTruncated).toBe(true);
     },
   );
 });

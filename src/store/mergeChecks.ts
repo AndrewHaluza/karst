@@ -123,6 +123,25 @@ export function setMergeCheck(store: Store, check: MergeCheckInput): void {
     );
 }
 
+/**
+ * One repo's current merge state, or null when it was never checked.
+ *
+ * Null is the honest answer for "never asked" and must stay distinguishable from
+ * a recorded verdict: the post-ship sweep reads this to decide whether a stored
+ * answer is fresh enough to skip, and treating a missing row as `clean` would
+ * skip the very repo nobody has ever probed.
+ */
+export function getMergeCheck(store: Store, ticketId: number, repo: string): MergeCheckRow | null {
+  const row = store.db
+    .prepare(
+      `SELECT ticket_id, repo, state, files, reason, head_sha, base_sha, base_ref, checked_at
+         FROM merge_checks
+        WHERE ticket_id = ? AND repo = ?`,
+    )
+    .get(ticketId, repo) as MergeCheckDbRow | undefined;
+  return row ? rowToMergeCheck(row) : null;
+}
+
 /** Every repo's current merge state for a ticket, ordered by repo for stable rendering. */
 export function listMergeChecksByTicket(store: Store, ticketId: number): MergeCheckRow[] {
   return store.db

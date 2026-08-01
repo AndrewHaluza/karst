@@ -5,6 +5,7 @@ import {
   buildOnboardingActions,
   type OnboardingActionsDeps,
   type StartTicketResult,
+  type StartTicketOptions,
 } from './actions.js';
 import type { OnboardingActionsCtx } from './panel.js';
 import type { OnboardingHostMessage } from './messages.js';
@@ -112,7 +113,9 @@ describe('buildOnboardingActions', () => {
   let writeSignals: ReturnType<typeof vi.fn<(p: string, s: string, sig: string[]) => void>>;
   let reloadManifest: ReturnType<typeof vi.fn<() => void>>;
   let listInstalledIds: ReturnType<typeof vi.fn<() => string[]>>;
-  let startTicket: ReturnType<typeof vi.fn<(id: number) => Promise<StartTicketResult>>>;
+  let startTicket: ReturnType<
+    typeof vi.fn<(id: number, opts: StartTicketOptions) => Promise<StartTicketResult>>
+  >;
   let openDashboard: ReturnType<typeof vi.fn<(id: number) => void>>;
 
   beforeEach(() => {
@@ -121,7 +124,9 @@ describe('buildOnboardingActions', () => {
     writeSignals = vi.fn<(p: string, s: string, sig: string[]) => void>();
     reloadManifest = vi.fn<() => void>();
     listInstalledIds = vi.fn<() => string[]>(() => ['rpi']);
-    startTicket = vi.fn<(id: number) => Promise<StartTicketResult>>(async () => ({ ok: true }));
+    startTicket = vi.fn<(id: number, opts: StartTicketOptions) => Promise<StartTicketResult>>(
+      async () => ({ ok: true }),
+    );
     openDashboard = vi.fn<(id: number) => void>();
     deps = {
       store,
@@ -322,7 +327,7 @@ describe('buildOnboardingActions', () => {
     expect(tickets[0]!.description).toBe('a desc');
     expect(onCreated).toHaveBeenCalled();
     // Finish hands the just-created ticket off to the workflow.
-    expect(startTicket).toHaveBeenCalledWith(tickets[0]!.id);
+    expect(startTicket).toHaveBeenCalledWith(tickets[0]!.id, { pullBase: true });
   });
 
   it('submit generates a unique key when the key field is left blank (manual creation)', async () => {
@@ -333,6 +338,26 @@ describe('buildOnboardingActions', () => {
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(tickets[0]!.key).toBeTruthy(); // never persists an empty string
+  });
+
+  it('a blank key is derived from the title, not a random MANUAL- id', async () => {
+    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildOnboardingActions(deps)(ctx);
+
+    await actions.submit({ key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    expect(listTickets(store)[0]!.key).toBe('FIX-LOGIN-REDIRECT');
+  });
+
+  it('two blank-key submissions of the SAME title still get distinct keys', async () => {
+    const mk = () => buildOnboardingActions(deps)({
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    });
+    const fields = { key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null };
+
+    await mk().submit({ ...fields });
+    await mk().submit({ ...fields });
+    const keys = listTickets(store).map((t) => t.key).sort();
+    expect(keys).toEqual(['FIX-LOGIN-REDIRECT', 'FIX-LOGIN-REDIRECT-2']);
   });
 
   it('two blank-key submissions generate distinct keys — no collision', async () => {
@@ -409,7 +434,7 @@ describe('buildOnboardingActions', () => {
     await actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const id = listTickets(store)[0]!.id;
     expect(bound).toBe(id);
-    expect(startTicket).toHaveBeenCalledWith(id);
+    expect(startTicket).toHaveBeenCalledWith(id, { pullBase: true });
   });
 
   it('submit in edit mode updates key/title of the existing ticket', async () => {
@@ -422,7 +447,7 @@ describe('buildOnboardingActions', () => {
     expect(reloaded.key).toBe('NEW');
     expect(reloaded.title).toBe('new');
     expect(listTickets(store)).toHaveLength(1); // no duplicate created
-    expect(startTicket).toHaveBeenCalledWith(t.id);
+    expect(startTicket).toHaveBeenCalledWith(t.id, { pullBase: true });
   });
 
   it('submit hands off to the dashboard and closes the panel once the ticket starts', async () => {
@@ -440,6 +465,21 @@ describe('buildOnboardingActions', () => {
     // and clears before the panel goes away.
     expect(ctx.posted[0]).toEqual({ type: 'busy', what: 'submit', on: true });
     expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'submit', on: false });
+  });
+
+  // The pull switch is a LAUNCH choice, not a stored field: submit forwards
+  // whatever the page said, and its absence means "pull" (the default).
+  it('submit forwards an explicit pull opt-out to startTicket', async () => {
+    const actions = buildOnboardingActions(deps)(mkCtx());
+
+    await actions.submit({
+      key: 'NEW-P', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null, pullBase: false,
+    });
+
+    const id = listTickets(store)[0]!.id;
+    expect(startTicket).toHaveBeenCalledWith(id, { pullBase: false });
+    // Nothing about the switch is persisted on the ticket.
+    expect(getTicket(store, id)).not.toHaveProperty('pullBase');
   });
 
   it('submit opens the dashboard only after startTicket resolves', async () => {

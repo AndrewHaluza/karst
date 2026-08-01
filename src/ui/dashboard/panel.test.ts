@@ -3,30 +3,48 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
+import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 /** In-memory PanelHost double: records created panels + messages. */
 function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
   const panels: FakePanel[] = [];
   const host: PanelHost = {
-    createPanel: (title) => {
+    createPanel: (title, _ticketId, preserveFocus) => {
       const messageHandlers: Array<(m: unknown) => void> = [];
+      const viewStateHandlers: Array<(active: boolean) => void> = [];
       const panel: FakePanel = {
         title,
         revealed: 0,
+        createdPreserveFocus: preserveFocus,
+        revealedPreserveFocus: [],
         disposed: false,
         posted: [],
         icons: [],
         messageHandlers,
-        reveal: () => panel.revealed++,
+        viewStateHandlers,
+        reveal: (keepFocus) => {
+          panel.revealed++;
+          panel.revealedPreserveFocus.push(keepFocus);
+        },
         setIcon: (p) => panel.icons.push(p),
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => messageHandlers.push(h),
+        onDidChangeViewState: (h) => viewStateHandlers.push(h),
         onDidDispose: (h) => (panel.disposeHandler = h),
         dispose: () => {
           panel.disposed = true;
           panel.disposeHandler?.();
         },
         emit: (m) => messageHandlers.forEach((h) => h(m)),
+        emitViewState: (active) => viewStateHandlers.forEach((h) => h(active)),
       };
       panels.push(panel);
       return panel;
@@ -59,6 +77,22 @@ describe('DashboardManager', () => {
 
     mgr.openDashboard(t.id);
     expect(panels[0]!.title).toBe('PROJ-9 — ship it');
+  });
+
+  it('posts switchable agent-session state for a live impl session', () => {
+    const t = createTicket(store, { key: 'SW-1', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      () => ({ isSessionOpen: () => true }),
+    );
+
+    mgr.openDashboard(t.id);
+
+    const message = panels[0]!.posted.find((m: any) => m.type === 'state') as any;
+    expect(message.state.agentSession.canSwitch).toBe(true);
   });
 
   it('sets the tab icon on open and on each state push, from iconFor', () => {
@@ -169,5 +203,269 @@ describe('DashboardManager', () => {
     panels[0]!.dispose();
     mgr.openDashboard(t.id);
     expect(panels).toHaveLength(2);
+  });
+
+  describe('worktree stats', () => {
+    const addWorktree = (ticketId: number): void => {
+      store.db
+        .prepare(
+          'INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(ticketId, '/repo/a', '/wt/a', 'karst/A', 'develop');
+    };
+
+    it('posts loaded worktree stats after the synchronous state', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      addWorktree(t.id);
+      const { host, panels } = fakeHost();
+      const loadStats = vi
+        .fn()
+        .mockResolvedValue([{ repo: '/repo/a', additions: 8, deletions: 3 }]);
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        loadStats,
+      );
+
+      mgr.openDashboard(t.id);
+
+      await vi.waitFor(() =>
+        expect(panels[0]!.posted).toContainEqual({
+          type: 'worktree-stats',
+          stats: [{ repo: '/repo/a', additions: 8, deletions: 3 }],
+        }),
+      );
+      expect(loadStats).toHaveBeenCalledWith(
+        [expect.objectContaining({ repo: '/repo/a', path: '/wt/a', baseRef: 'develop' })],
+        expect.any(AbortSignal),
+      );
+    });
+
+    it('drops an older stats response after a newer state request wins', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      addWorktree(t.id);
+      const first = deferred<WorktreeStats[]>();
+      const second = deferred<WorktreeStats[]>();
+      const signals: AbortSignal[] = [];
+      const loadStats: WorktreeStatsLoader = vi.fn((_worktrees, signal) => {
+        signals.push(signal!);
+        return signals.length === 1 ? first.promise : second.promise;
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        loadStats,
+      );
+      mgr.openDashboard(t.id);
+      mgr.pushState(t.id);
+
+      expect(signals[0]!.aborted).toBe(true);
+      expect(signals[1]!.aborted).toBe(false);
+
+      second.resolve([{ repo: '/repo/a', additions: 2, deletions: 1 }]);
+      await vi.waitFor(() =>
+        expect(panels[0]!.posted).toContainEqual({
+          type: 'worktree-stats',
+          stats: [{ repo: '/repo/a', additions: 2, deletions: 1 }],
+        }),
+      );
+      first.resolve([{ repo: '/repo/a', additions: 99, deletions: 99 }]);
+      await Promise.resolve();
+
+      expect(panels[0]!.posted.filter((m: any) => m.type === 'worktree-stats')).toEqual([
+        {
+          type: 'worktree-stats',
+          stats: [{ repo: '/repo/a', additions: 2, deletions: 1 }],
+        },
+      ]);
+    });
+
+    it('does not post late stats to a disposed panel', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      addWorktree(t.id);
+      const pending = deferred<WorktreeStats[]>();
+      let signal: AbortSignal | undefined;
+      const loadStats: WorktreeStatsLoader = (_worktrees, requestSignal) => {
+        signal = requestSignal;
+        return pending.promise;
+      };
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        loadStats,
+      );
+      mgr.openDashboard(t.id);
+      panels[0]!.dispose();
+
+      expect(signal?.aborted).toBe(true);
+
+      pending.resolve([{ repo: '/repo/a', additions: 1, deletions: 1 }]);
+      await Promise.resolve();
+
+      expect(panels[0]!.posted.filter((m: any) => m.type === 'worktree-stats')).toEqual([]);
+    });
+
+    it('logs an unexpected loader rejection without killing the panel pump', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      addWorktree(t.id);
+      const error = new Error('loader failed');
+      const logError = vi.fn();
+      const { host } = fakeHost();
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        logError,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => Promise.reject(error),
+      );
+
+      mgr.openDashboard(t.id);
+
+      await vi.waitFor(() =>
+        expect(logError).toHaveBeenCalledWith('karst: dashboard worktree stats failed', error),
+      );
+      expect(mgr.isOpen(t.id)).toBe(true);
+    });
+  });
+
+  describe('terminal binding', () => {
+    const bind = (
+      enabled: boolean,
+      onDidActivate: (ticketId: number, active: boolean) => void = () => {},
+    ) => ({ enabled: () => enabled, onDidActivate });
+
+    it('tells a new panel where the binding currently sits', () => {
+      // The preference is host-owned and window-wide, so the webview renders
+      // what it is pushed rather than remembering its own copy.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        bind(true),
+      );
+
+      mgr.openDashboard(t.id);
+      expect(panels[0]!.posted).toContainEqual({ type: 'bind', enabled: true });
+    });
+
+    it('reports unbound when the host declares no binding at all', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      expect(panels[0]!.posted).toContainEqual({ type: 'bind', enabled: false });
+    });
+
+    it('pushBind reaches every open panel, not just the one that toggled', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      const b = createTicket(store, { key: 'B', title: 'b' });
+      const { host, panels } = fakeHost();
+      let on = false;
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { enabled: () => on, onDidActivate: () => {} },
+      );
+
+      mgr.openDashboard(a.id);
+      mgr.openDashboard(b.id);
+      on = true;
+      mgr.pushBind();
+
+      for (const panel of panels) {
+        expect(panel.posted).toContainEqual({ type: 'bind', enabled: true });
+      }
+    });
+
+    it('forwards panel activation, both gaining and losing it', () => {
+      // Losing activation is forwarded rather than filtered here: the panel
+      // reports what happened, the binder decides what it means.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        bind(true, (ticketId, active) => seen.push([ticketId, active])),
+      );
+
+      mgr.openDashboard(t.id);
+      panels[0]!.emitViewState(true);
+      panels[0]!.emitViewState(false);
+
+      expect(seen).toEqual([[t.id, true], [t.id, false]]);
+    });
+
+    it('creates and reveals without focus when the binding asked for it', () => {
+      // A bound reveal happens because the user clicked the TERMINAL. Taking
+      // focus would yank the caret out of the shell they are typing into.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(panels[0]!.createdPreserveFocus).toBe(true);
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(panels[0]!.revealedPreserveFocus).toEqual([true]);
+    });
+
+    it('takes focus on an ordinary open, as it always did', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      mgr.openDashboard(t.id);
+
+      expect(panels[0]!.createdPreserveFocus).toBeUndefined();
+      expect(panels[0]!.revealedPreserveFocus).toEqual([undefined]);
+    });
   });
 });
