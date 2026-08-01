@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Variant E — Segmented track</title>
+<style>
+  /* ── Variant E: "Segmented track" ─────────────────────────────────────────
+     Thesis: the pipeline is ONE object the ticket travels through, not seven
+     circles that happen to be joined by lines. The rail becomes a single
+     chevron-segmented track. Nothing floats off it and nothing hangs under it —
+     everything the rail has to say is said INSIDE a segment.
+
+     What that buys, against the four complaints:
+
+     1. `fix` stops being a stage-below. The uat…review span of the track
+        doubles into a RETURN LANE: a second track segment, aligned under the two
+        gates it serves, joined to them by elbows. It is part of the same object,
+        so it reads as a detour in the route rather than a box under it.
+
+     2. No toggle. The lane is always drawn (hairline when idle), so there is
+        nothing to collapse and nothing floating unattached.
+
+     3. impl's approach lives INSIDE impl's segment. When impl is the current
+        stage the segment expands and the approach's phases render as a row of
+        pips within it — impl's property, drawn in impl's own space.
+
+     4. needs-you is the loudest thing on the track. A parked confirm stage
+        (`ship`, `merge`) fills amber, carries a pause glyph, states the reason,
+        and offers the action inline. The rest of the track dims behind it.
+
+     THE CURRENT SEGMENT IS WIDE, THE REST ARE COMPACT. That is what makes seven
+     stages fit a narrow VS Code panel without the 560px horizontal scroll the
+     shipped rail needs — the stage you are on gets the room, the others get a
+     glyph and a word.
+
+     Lane alignment is MEASURED after layout, not hardcoded: segments are
+     content-sized, so the lane's left/width come from the gate segments' own
+     rects. Colours are the real tokens' dark values, hardcoded because a mockup
+     has no host theme. ---------------------------------------------------- */
+  :root{
+    --bg:#1f1f1f; --panel:#252526; --border:#3c3c3c; --border-soft:#2d2d2d;
+    --text:#cccccc; --dim:#9d9d9d; --faint:#6e7681; --sunken:#1c1c1c;
+
+    --k-pending:#6e7681; --k-running:#3794ff; --k-attention:#cca700;
+    --k-passed:#4bb64b; --k-failed:#f14c4c; --k-series-2:#8a63d2;
+    --k-knockout:#0b0b0b;
+
+    --stage-scope:#a371f7; --stage-impl:#7f7bf5; --stage-uat:#d18616;
+    --stage-review:#2ea8b5; --stage-fix:#f14c4c; --stage-ship:#d162c4;
+    --stage-merge:#c14bb4; --stage-done:#4bb64b;
+
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  .stg-scope{--stg:var(--stage-scope)} .stg-impl{--stg:var(--stage-impl)}
+  .stg-uat{--stg:var(--stage-uat)} .stg-review{--stg:var(--stage-review)}
+  .stg-fix{--stg:var(--stage-fix)} .stg-ship{--stg:var(--stage-ship)}
+  .stg-merge{--stg:var(--stage-merge)} .stg-done{--stg:var(--stage-done)}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 var(--ui);padding:28px 24px 60px}
+  h1{font-size:15px;margin:0 0 2px;font-weight:600}
+  .sub{color:var(--dim);font-size:12px;margin:0 0 26px;max-width:78ch}
+  .case{margin:0 0 30px;border:1px solid var(--border-soft);border-radius:12px;background:var(--panel);overflow:hidden}
+  .case > h2{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+    margin:0;padding:10px 16px;border-bottom:1px solid var(--border-soft);font-weight:700}
+  .case > .note{font-size:11.5px;color:var(--dim);margin:0;padding:8px 16px 0}
+
+  .rail{padding:20px 18px 16px}
+  .track{position:relative}
+
+  /* ── the track ────────────────────────────────────────────────────────────
+     Chevron segments interlock by a negative margin equal to the arrow depth, so
+     the track is one continuous object with no gaps to read as separators. */
+  .lane1{display:flex;align-items:stretch;height:46px;border-radius:9px;background:var(--sunken);
+    border:1px solid var(--border);overflow:hidden}
+  /* A segment is a WRAPPER holding the select button and, when the stage is
+     parked on the user, its action button. The chevron clip and the wash live on
+     the wrapper because a <button> may not contain a <button> — nested, the
+     parser closes the outer one and the whole track loses its structure. */
+  .seg{position:relative;display:flex;align-items:center;gap:7px;padding:0 14px 0 22px;
+    min-width:0;color:var(--faint);
+    clip-path:polygon(0 0,calc(100% - 11px) 0,100% 50%,calc(100% - 11px) 100%,0 100%,11px 50%);
+    margin-left:-11px;transition:background 180ms ease}
+  .seg:first-child{margin-left:0;padding-left:14px;
+    clip-path:polygon(0 0,calc(100% - 11px) 0,100% 50%,calc(100% - 11px) 100%,0 100%)}
+  .seg:last-child{padding-right:16px;
+    clip-path:polygon(0 0,100% 0,100% 100%,0 100%,11px 50%)}
+  .seg:hover{background:#2b2b2c}
+  /* The select control fills the wrapper so the whole segment is the hit area. */
+  .seg .pick{position:absolute;inset:0;background:transparent;border:0;padding:0;cursor:pointer}
+  .seg .pick:focus-visible{outline:2px solid var(--k-series-2);outline-offset:-4px}
+  .seg > *:not(.pick){position:relative;z-index:1;pointer-events:none}
+  .seg > .act{pointer-events:auto}
+
+  /* Travelled segments carry their own stage hue as a wash; the ticket's route
+     therefore changes colour as it advances, which is the one thing a flat
+     progress bar cannot say. */
+  .seg.passed{background:color-mix(in srgb,var(--stg) 20%,transparent);color:var(--stg)}
+  .seg.running{background:color-mix(in srgb,var(--stg) 34%,transparent);color:#fff}
+  .seg.failed{color:var(--k-failed);
+    background-image:repeating-linear-gradient(135deg,color-mix(in srgb,var(--k-failed) 26%,transparent) 0 6px,transparent 6px 12px)}
+  .seg.skipped{background:color-mix(in srgb,var(--k-pending) 22%,transparent);color:var(--faint)}
+  /* Needs-you outranks the stage wash: the stage is no longer the point, the
+     human is. Amber fill, pause glyph, the word, and the action — four carriers. */
+  .seg.needs{background:color-mix(in srgb,var(--k-attention) 30%,transparent);color:var(--k-attention);
+    animation:breathe 2.4s ease-in-out infinite}
+  @keyframes breathe{0%,100%{background:color-mix(in srgb,var(--k-attention) 30%,transparent)}
+    50%{background:color-mix(in srgb,var(--k-attention) 16%,transparent)}}
+
+  /* The current segment is the wide one; every other segment holds its natural
+     width and never shrinks. Shrinking them instead (flex:0 1 auto) let the
+     current segment eat the track and truncated every label to two letters. */
+  .seg{flex:0 0 auto}
+  /* The extra right padding is not spacing: clip-path clips CHILDREN, so the
+     11px chevron notch was slicing the inline action button's own right edge
+     ("Resolve" rendered as "Re"). */
+  /* min-content, not 0: at 0 the current segment absorbed every overflow by
+     shrinking, so its own action button was clipped away by the chevron AND the
+     track never reported an overflow, so the tight fallback below never fired.
+     A floor of min-content makes the overflow real and the fallback do its job. */
+  .seg.cur{flex:1 1 auto;min-width:min-content;padding-right:26px}
+  /* Below the width where seven names fit, the compact segments drop their name
+     and keep the glyph — the current segment still says everything. This is the
+     degradation the shipped rail does not have: it hits a 560px floor and
+     scrolls sideways instead. */
+  /* Two steps, in order of what costs least to lose. SNUG drops the facts that
+     the segment merely annotates (duration, the meter's numeral) and keeps every
+     stage NAME. TIGHT then drops the names too. Collapsing straight to glyphs the
+     moment the track is one pixel over is what made a comfortably-fitting rail
+     read as an emergency. */
+  .track.snug .seg:not(.cur) .mt,
+  .track.snug .seg:not(.cur) .fixm .tx{display:none}
+  .track.snug .seg:not(.cur) .fixm{padding-left:6px;margin-left:0}
+  .track.tight .seg:not(.cur) .nm{display:none}
+  .track.tight .seg:not(.cur){padding-left:18px;padding-right:8px}
+
+  .seg .g{flex:none;width:16px;height:16px;display:grid;place-items:center;font-size:11px;font-weight:700}
+  .seg .nm{font-size:11px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .seg.cur .nm{font-size:12px;font-weight:600;letter-spacing:.03em}
+  .seg .mt{font-family:var(--mono);font-size:10px;opacity:.85;white-space:nowrap;
+    padding-left:8px;margin-left:2px;border-left:1px solid currentColor;flex:none}
+  /* Inside the current segment the META is what gives way, never the stage name
+     and never the action: an unbounded fact (a repo pair, a conflict summary)
+     must not be able to push the button it belongs to out of the clip. */
+  .seg.cur .nm{flex:none}
+  .seg.cur .mt{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .seg .act{font:inherit;font-size:10.5px;border:1px solid currentColor;border-radius:5px;
+    background:transparent;color:inherit;padding:2px 9px;cursor:pointer;flex:none;margin-left:auto}
+  .seg .act:hover{background:color-mix(in srgb,currentColor 18%,transparent)}
+  /* impl's approach lives inside impl's segment: one pip per declared phase, the
+     live one filled. No stem, no chip, nothing outside the track. */
+  .seg .ph{display:flex;align-items:center;gap:4px;flex:none;margin-left:auto;padding-left:10px}
+  .seg .ph .p{width:6px;height:6px;border-radius:50%;border:1px solid currentColor;opacity:.55}
+  .seg .ph .p.on{background:currentColor;opacity:1}
+  .seg .ph .pn{font-family:var(--mono);font-size:10px;margin-left:4px;opacity:.9}
+
+  .spin{display:block;width:12px;height:12px;border-radius:50%;border:2px solid currentColor;
+    border-top-color:transparent;animation:spin 900ms linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.spin,.seg.needs{animation:none}}
+
+  /* ── THE RETRY METER ──────────────────────────────────────────────────────
+     `fix` is not a station on the track. It is reached only by a failed verdict
+     and its only edge returns to `uat`, so the ticket never leaves the gate's
+     neighbourhood — it is a RETRY CYCLE on the gate that failed.
+
+     A detached lane under the track bought permanent layout for a stage most
+     tickets never enter, and stood there saying `fix idle`, which is a control
+     announcing that nothing is happening. Instead the gate that is being retried
+     carries a meter INSIDE its own segment: one tick per allowed attempt, filled
+     per attempt spent. It costs nothing when the loop has not run, and it makes
+     "one retry left before this parks" visible rather than buried in a caption.
+
+     Ticks, not a bar: a bar reads as elapsed progress toward completion, and
+     spending fix attempts is the opposite of progress. */
+  .fixm{display:inline-flex;align-items:center;gap:6px;flex:none;
+    padding-left:9px;margin-left:2px;border-left:1px solid currentColor}
+  .fixm .ticks{display:inline-flex;gap:3px}
+  .tk{width:4px;height:11px;border-radius:1px;border:1px solid var(--stage-fix);opacity:.45;display:inline-block}
+  .tk.on{background:var(--stage-fix);opacity:1}
+  .fixm .tx{font-family:var(--mono);font-size:10px;color:var(--stage-fix);white-space:nowrap}
+  /* Spent-but-idle is a RECORD, not an alarm: the meter stays so the cost of the
+     ticket is still legible, but it stops claiming the ticket's attention. */
+  .fixm.spent .tk{border-color:var(--faint)} .fixm.spent .tk.on{background:var(--faint)}
+  .fixm.spent .tx{color:var(--faint)}
+  /* review ─fail→ fix ─pass→ uat is the one loop that lands on a different gate
+     than it left. Said in words, inside the segment — a backwards arc across the
+     track is exactly the shape this variant exists to avoid. */
+  .fixm .ret{font-family:var(--mono);font-size:10px;color:var(--stage-fix);white-space:nowrap}
+
+  .legend{display:flex;flex-wrap:wrap;gap:16px;font-size:11px;color:var(--dim);
+    border-top:1px solid var(--border-soft);padding:10px 18px}
+  .legend i{display:inline-block;width:20px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:6px}
+  .ticks-legend{display:inline-flex;gap:3px;margin-right:6px;vertical-align:-2px}
+  .narrow{max-width:430px}
+  .capnote{font-size:11px;color:var(--faint);padding:0 18px 12px;font-style:italic}
+</style>
+</head>
+<body>
+<h1>Variant E — Segmented track</h1>
+<p class="sub">One object, not seven circles. Stages are chevron segments of a single track; the
+<b>current</b> segment is wide and the rest compact, so seven stages fit a narrow panel without sideways
+scroll. <b>fix</b> is a retry cycle on the gate that failed, shown as a meter inside that gate's segment
+and shown nowhere when it has not run. Needs-you fills its segment amber and puts the action inside it.</p>
+
+<div id="out"></div>
+
+<script>
+const MAIN = ['scope','impl','uat','review','ship','merge','done'];
+const TITLE = {scope:'Scope',impl:'Implementation',uat:'UAT',review:'Review',fix:'Fix',
+  ship:'Ship',merge:'Merge',done:'Done'};
+const GLYPH = {passed:'✓',failed:'✕',pending:'·',skipped:'–'};
+const esc = (s)=>String(s).replace(/[&<>"]/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* workflow/fixAttempts.ts */
+const FIX_ATTEMPT_CAP = 3;
+
+const CASES = [
+  { h:'1 · Not started', narrow:false,
+    note:'An untravelled track: one object, every segment inert, and no trace of the fix loop anywhere — which is the state most tickets stay in.',
+    stages:{}, cur:'scope' },
+
+  { h:'2 · Implementing', narrow:false,
+    note:'impl is current, so impl is the wide segment — and the approach\'s four declared phases render as pips INSIDE it. Nothing hangs off the track.',
+    stages:{scope:'passed',impl:'running'}, cur:'impl',
+    phases:{names:['describe','research','plan','implement'],at:3},
+    metas:{scope:'2m 14s'} },
+
+  { h:'3 · UAT failed — fix running, attempt 2 of 3', narrow:false,
+    note:'The loop is drawn on the gate it is retrying. uat stays uat — its own hue, its own hatch — and the meter beside the name spends the cap: two ticks filled, one left. Nothing is added below the track and nothing was reserved for it.',
+    stages:{scope:'passed',impl:'passed',uat:'failed'}, cur:'uat',
+    fix:{gate:'uat',spent:2,live:true}, metas:{scope:'2m 14s',impl:'41m'} },
+
+  { h:'4 · Review failed — the loop that lands on a different gate', narrow:false,
+    note:'review ─fail→ fix ─pass→ uat is the one case where the ticket returns to a gate it did not leave. The segment says so in words rather than drawing a backwards arc across the track.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'failed'}, cur:'review',
+    fix:{gate:'review',spent:1,live:true,ret:'uat'}, metas:{scope:'2m 14s',impl:'41m'} },
+
+  { h:'5 · Ship — parked on you', narrow:false,
+    note:'ship is a CONFIRM stage. The segment fills amber, states the reason, and carries the action inside itself — the user never has to look below the track to find out what is wanted. uat keeps its spent meter, dimmed: a record of what the ticket cost, not a live alarm.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'passed'},
+    cur:'ship', needs:'ship', meta:'2 repos ready', action:'Confirm ship',
+    fix:{gate:'uat',spent:2,live:false}, metas:{scope:'2m 14s',impl:'41m'} },
+
+  { h:'6 · Merge — conflicted', narrow:false,
+    note:'A conflict is a WORDING difference, not a new state: merge has no failed edge, so it must never render red as though a retry could clear it. Same amber segment, different words and a warning glyph.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'passed',ship:'passed'},
+    cur:'merge', needs:'merge', conflict:true,
+    meta:'karst-extention ✕ develop', action:'Resolve',
+    fix:{gate:'uat',spent:2,live:false}, metas:{scope:'2m 14s',impl:'41m'} },
+
+  { h:'7 · Done', narrow:false,
+    note:'The whole track is washed in the stages\' own hues, so the route reads as travelled ground rather than as a uniform green bar.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'passed',ship:'passed',merge:'passed',done:'passed'},
+    cur:'done', fix:{gate:'uat',spent:2,live:false}, metas:{scope:'2m 14s',impl:'41m'} },
+
+  { h:'8 · Narrow panel (430px)', narrow:true,
+    note:'The same markup at a real VS Code side-panel width. Compact segments shed their meta and keep the glyph; only the current segment stays wide. No horizontal scroll — the shipped rail needs 560px minimum and scrolls below that.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'passed'},
+    cur:'ship', needs:'ship', meta:'2 repos', action:'Confirm',
+    fix:{gate:'uat',spent:2,live:false} },
+];
+
+/* The meter: one tick per allowed attempt, filled per attempt spent. Built from
+   the cap rather than written out — the cap is a constant of the machine. */
+function retryMeter(fx){
+  const ticks = Array.from({length: FIX_ATTEMPT_CAP},(_,i)=>
+    `<span class="tk ${i < fx.spent ? 'on':''}"></span>`).join('');
+  const ret = fx.ret ? `<span class="ret">↩ ${esc(fx.ret)}</span>` : '';
+  return `<span class="fixm ${fx.live?'':'spent'}">
+    <span class="ticks">${ticks}</span>
+    <span class="tx">fix ${fx.spent}/${FIX_ATTEMPT_CAP}</span>${ret}</span>`;
+}
+
+function segGlyph(status, running, conflict){
+  if (running) return '<span class="spin"></span>';
+  if (conflict) return '⚠';
+  if (status === 'needs') return '❚❚';
+  return GLYPH[status] || '·';
+}
+
+function render(c, idx){
+  const st = c.stages || {}, metas = c.metas || {}, fx = c.fix;
+  const segs = MAIN.map((k)=>{
+    const needs = c.needs === k;
+    const status = needs ? 'needs' : (st[k] || 'pending');
+    const cur = c.cur === k;
+    const retried = fx && fx.gate === k;
+    const cls = [status, cur?'cur':''].filter(Boolean).join(' ');
+    const g = segGlyph(status, status==='running' || (retried && fx.live), needs && c.conflict);
+    const name = cur ? TITLE[k] : k;
+
+    /* The meter is APPENDED, never assigned into the same slot as the meta —
+       a retried gate has both a duration and a spent cap and must not have to
+       choose between saying them. */
+    let extra = '';
+    if (cur && k === 'impl' && c.phases){
+      extra = `<span class="ph">${c.phases.names.map((p,i)=>
+        `<span class="p ${i < c.phases.at ? 'on':''}" title="${esc(p)}"></span>`).join('')}
+        <span class="pn">${esc(c.phases.names[c.phases.at-1])} · rpi</span></span>`;
+    } else if (cur && needs){
+      extra = `<span class="mt">${esc(c.meta||'')}</span>
+        <button type="button" class="act">${esc(c.action||'Confirm')}</button>`;
+    } else if (metas[k] && (cur || !c.narrow)){
+      extra = `<span class="mt">${esc(metas[k])}</span>`;
+    }
+    if (retried && (cur || !c.narrow)) extra += retryMeter(fx);
+
+    /* The accessible name carries the loop too: a screen reader must not have to
+       infer a running retry from a meter it cannot see. */
+    const aria = (needs ? `${TITLE[k]}: needs you` : `${TITLE[k]}: ${status}`)
+      + (retried ? ` — fix attempt ${fx.spent} of ${FIX_ATTEMPT_CAP}${fx.live?', running':''}` : '');
+    return `<div class="seg stg-${k} ${cls}" data-k="${k}">
+      <button type="button" class="pick" aria-current="${cur}"
+        aria-label="${esc(aria)}" title="${esc(aria)}"></button>
+      <span class="g">${g}</span><span class="nm">${esc(name)}</span>${extra}</div>`;
+  }).join('');
+
+  return `<section class="case">
+    <h2>${esc(c.h)}</h2>
+    <p class="note">${c.note}</p>
+    <div class="rail"><div class="track ${c.narrow?'narrow':''}" data-i="${idx}">
+      <div class="lane1">${segs}</div>
+    </div></div>
+    ${c.narrow?'<p class="capnote">Rendered at 430px — the width of a default VS Code side panel.</p>':''}
+    <div class="legend">
+      <span><i style="background:color-mix(in srgb,var(--stage-review) 20%,transparent)"></i>travelled</span>
+      <span><i style="background-image:repeating-linear-gradient(135deg,color-mix(in srgb,var(--k-failed) 26%,transparent) 0 6px,transparent 6px 12px)"></i>gate failed</span>
+      <span><i style="background:color-mix(in srgb,var(--k-attention) 30%,transparent)"></i>needs you</span>
+      <span><span class="ticks-legend"><span class="tk on"></span><span class="tk on"></span><span class="tk"></span></span>fix attempts spent / left</span>
+      <span><i style="background:var(--sunken);border:1px solid var(--border)"></i>not travelled</span>
+    </div>
+  </section>`;
+}
+
+document.getElementById('out').innerHTML = CASES.map(render).join('');
+
+/* Below the width where seven names fit, the compact segments shed their name
+   and keep the glyph. Measured rather than a breakpoint: the threshold is
+   whatever this track's own content needs, which depends on how long the current
+   stage's name is and on whether a retry meter is riding along.
+
+   With the return lane gone, this is the ONLY measurement left — the variant no
+   longer positions anything from a rect, which was its weakest point against a
+   codebase whose geometry is pure CSS calc(). */
+function place(){
+  document.querySelectorAll('.track').forEach((track)=>{
+    const lane1 = track.querySelector('.lane1');
+    const over = ()=> lane1.scrollWidth > lane1.clientWidth + 1;
+    track.classList.remove('snug','tight');
+    if (!over()) return;
+    track.classList.add('snug');
+    if (over()) track.classList.add('tight');
+  });
+}
+/* Run once now, again after the frame the browser actually lays out in, and
+   again once web fonts have settled — a measured lane placed against
+   pre-layout rects detaches from the gates it is supposed to span, which is
+   exactly the failure the derived-geometry rule exists to prevent. */
+place();
+requestAnimationFrame(()=>{ place(); requestAnimationFrame(place); });
+window.addEventListener('load', place);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
+window.addEventListener('resize', place);
+</script>
+</body>
+</html>
