@@ -23,26 +23,66 @@ describe('parseNumstat', () => {
 });
 
 describe('loadWorktreeStats', () => {
-  it('runs one base-to-working-tree numstat diff and returns repo-keyed totals', async () => {
-    const git: GitRunner = vi.fn().mockResolvedValue({
-      stdout: '200\t24\tsrc/a.ts\n',
-      stderr: '',
-      exitCode: 0,
-    });
+  it('diffs from the merge base with the REMOTE base, matching what a PR reports', async () => {
+    const git: GitRunner = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '', exitCode: 0 })
+      .mockResolvedValueOnce({ stdout: '200\t24\tsrc/a.ts\n', stderr: '', exitCode: 0 });
 
     await expect(loadWorktreeStats([wt()], git, vi.fn())).resolves.toEqual([
       { repo: '/repo/a', additions: 200, deletions: 24 },
     ]);
-    expect(git).toHaveBeenCalledWith(
-      ['diff', '--numstat', '--no-ext-diff', 'develop', '--'],
+    expect(git).toHaveBeenNthCalledWith(
+      1,
+      ['merge-base', 'HEAD', 'origin/develop'],
       '/repo/a/.karst/worktrees/A',
     );
+    expect(git).toHaveBeenNthCalledWith(
+      2,
+      ['diff', '--numstat', '--no-ext-diff', 'abc123', '--'],
+      '/repo/a/.karst/worktrees/A',
+    );
+  });
+
+  it('falls back to the local base branch when the remote-tracking ref is absent', async () => {
+    const git: GitRunner = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: '', stderr: 'Not a valid object name', exitCode: 128 })
+      .mockResolvedValueOnce({ stdout: 'def456\n', stderr: '', exitCode: 0 })
+      .mockResolvedValueOnce({ stdout: '5\t1\tsrc/a.ts\n', stderr: '', exitCode: 0 });
+
+    await expect(loadWorktreeStats([wt()], git, vi.fn())).resolves.toEqual([
+      { repo: '/repo/a', additions: 5, deletions: 1 },
+    ]);
+    expect(git).toHaveBeenNthCalledWith(
+      2,
+      ['merge-base', 'HEAD', 'develop'],
+      '/repo/a/.karst/worktrees/A',
+    );
+    expect(git).toHaveBeenNthCalledWith(
+      3,
+      ['diff', '--numstat', '--no-ext-diff', 'def456', '--'],
+      '/repo/a/.karst/worktrees/A',
+    );
+  });
+
+  it('reports rather than guesses when neither base ref yields a merge base', async () => {
+    const logError = vi.fn();
+    const git: GitRunner = vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 1 });
+
+    await expect(loadWorktreeStats([wt()], git, logError)).resolves.toEqual([]);
+    expect(git).toHaveBeenCalledTimes(2);
+    expect(logError).toHaveBeenCalledOnce();
   });
 
   it('skips a missing base and isolates failed or truncated worktrees', async () => {
     const logError = vi.fn();
     const git: GitRunner = vi
       .fn()
+      // Both worktrees resolve their merge base first (they run concurrently),
+      // then both diffs fail — one outright, one by overflowing the output bound.
+      .mockResolvedValueOnce({ stdout: 'aaa\n', stderr: '', exitCode: 0 })
+      .mockResolvedValueOnce({ stdout: 'bbb\n', stderr: '', exitCode: 0 })
       .mockResolvedValueOnce({ stdout: '', stderr: 'bad ref', exitCode: 128 })
       .mockResolvedValueOnce({
         stdout: '1\t1\tx\n',
@@ -57,7 +97,7 @@ describe('loadWorktreeStats', () => {
     ];
 
     await expect(loadWorktreeStats(rows, git, logError)).resolves.toEqual([]);
-    expect(git).toHaveBeenCalledTimes(2);
+    expect(git).toHaveBeenCalledTimes(4);
     expect(logError).toHaveBeenCalledTimes(2);
   });
 
@@ -66,6 +106,7 @@ describe('loadWorktreeStats', () => {
     const git: GitRunner = vi
       .fn()
       .mockRejectedValueOnce(new Error('spawn failed'))
+      .mockResolvedValueOnce({ stdout: 'ccc\n', stderr: '', exitCode: 0 })
       .mockResolvedValueOnce({ stdout: '3\t1\ty\n', stderr: '', exitCode: 0 });
 
     await expect(
