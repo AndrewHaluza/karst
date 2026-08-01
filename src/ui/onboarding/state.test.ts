@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
+import { insertAttachment } from '../../store/attachments.js';
 import { setStage } from '../../store/stages.js';
 import { buildOnboardingState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
@@ -351,6 +353,62 @@ describe('buildOnboardingState — sessionOpen in create mode', () => {
   it('is always false in create mode (no ticket, nothing to lock)', () => {
     const s = buildOnboardingState(store, MANIFEST, () => [], () => [], undefined, () => true);
     expect(s.sessionOpen).toBe(false);
+  });
+});
+
+describe('buildOnboardingState — attachments', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  it('is empty in create mode', () => {
+    const state = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    expect(state.attachments).toEqual([]);
+  });
+
+  it('carries each attachment with an absolute src path in edit mode', () => {
+    const ticket = createTicket(store, { key: 'P-ATTACH', title: 'attachment' });
+    insertAttachment(store, {
+      ticketId: ticket.id,
+      kind: 'image',
+      storedName: 'aaaa1111bbbb2222.png',
+      originalName: 'login-error.png',
+      byteSize: 4096,
+    });
+
+    const state = buildOnboardingState(
+      store,
+      MANIFEST,
+      () => [],
+      () => [],
+      ticket.id,
+      () => false,
+      undefined,
+      '/storage',
+    );
+
+    expect(state.attachments).toEqual([
+      {
+        id: expect.any(Number),
+        kind: 'image',
+        name: 'login-error.png',
+        byteSize: 4096,
+        src: join('/storage', 'attachments', String(ticket.id), 'aaaa1111bbbb2222.png'),
+      },
+    ]);
+  });
+
+  it('is empty when no storage dir is supplied', () => {
+    const ticket = createTicket(store, { key: 'P-NOSTORE', title: 'no storage' });
+    insertAttachment(store, {
+      ticketId: ticket.id,
+      kind: 'image',
+      storedName: 'aaaa.png',
+      originalName: 'a.png',
+      byteSize: 1,
+    });
+
+    const state = buildOnboardingState(store, MANIFEST, () => [], () => [], ticket.id);
+    expect(state.attachments).toEqual([]);
   });
 });
 

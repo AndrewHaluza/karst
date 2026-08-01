@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
+import { insertAttachment } from '../store/attachments.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
@@ -134,6 +136,85 @@ describe('buildTicketContext', () => {
     const ctx = buildTicketContext(store, undefined, child.id);
     expect(ctx.parent).toBeNull();
     expect(renderTicketContext(ctx)).not.toContain('## Continuing from');
+  });
+
+  describe('attachments', () => {
+    it('omits the section when the ticket has none', () => {
+      const ticketId = seed();
+      const ctx = buildTicketContext(store, undefined, ticketId, '/storage');
+
+      expect(ctx.attachments).toEqual([]);
+      expect(renderTicketContext(ctx)).not.toContain('## Attachments');
+    });
+
+    it('renders each attachment with its kind, absolute path, and original name', () => {
+      const ticketId = seed();
+      insertAttachment(store, {
+        ticketId,
+        kind: 'image',
+        storedName: 'a3f9e1b2c3d4e5f6.png',
+        originalName: 'login-error.png',
+        byteSize: 10,
+      });
+
+      const ctx = buildTicketContext(store, undefined, ticketId, '/storage');
+      expect(ctx.attachments).toEqual([
+        {
+          kind: 'image',
+          path: join('/storage', 'attachments', String(ticketId), 'a3f9e1b2c3d4e5f6.png'),
+          name: 'login-error.png',
+        },
+      ]);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Attachments');
+      expect(md).toContain(
+        `- image: ${join('/storage', 'attachments', String(ticketId), 'a3f9e1b2c3d4e5f6.png')} — "login-error.png"`,
+      );
+    });
+
+    it('marks a video as not agent-readable', () => {
+      const ticketId = seed();
+      insertAttachment(store, {
+        ticketId,
+        kind: 'video',
+        storedName: 'b1c4d2e3f4a5b6c7.mp4',
+        originalName: 'repro.mov',
+        byteSize: 20,
+      });
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, ticketId, '/storage'));
+      expect(md).toContain('- video: ');
+      expect(md).toContain('— "repro.mov" (not agent-readable)');
+    });
+
+    it('does not mark an image as not agent-readable', () => {
+      const ticketId = seed();
+      insertAttachment(store, {
+        ticketId,
+        kind: 'image',
+        storedName: 'aaaa.png',
+        originalName: 'a.png',
+        byteSize: 1,
+      });
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, ticketId, '/storage'));
+      expect(md).not.toContain('not agent-readable');
+    });
+
+    it('omits attachments entirely when no storage dir is supplied', () => {
+      const ticketId = seed();
+      insertAttachment(store, {
+        ticketId,
+        kind: 'image',
+        storedName: 'aaaa.png',
+        originalName: 'a.png',
+        byteSize: 1,
+      });
+
+      const ctx = buildTicketContext(store, undefined, ticketId);
+      expect(ctx.attachments).toEqual([]);
+      expect(renderTicketContext(ctx)).not.toContain('## Attachments');
+    });
   });
 });
 

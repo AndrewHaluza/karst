@@ -1,6 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket, getTicketByKey, listTickets, updateTicketOnboarding } from '../../store/tickets.js';
+import {
+  createTicket,
+  deleteTicket,
+  getTicket,
+  getTicketByKey,
+  listTickets,
+  updateTicketOnboarding,
+} from '../../store/tickets.js';
 import {
   buildOnboardingActions,
   type OnboardingActionsDeps,
@@ -13,6 +23,34 @@ import type { ContextBrief, TicketingProvider } from '../../integrations/ticketi
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import {
+  getAttachment,
+  insertAttachment,
+  listAttachments,
+} from '../../store/attachments.js';
+import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
+import { attachmentDir, attachmentPath } from '../../attachments/paths.js';
+
+const dirs: string[] = [];
+afterEach(() => {
+  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+});
+
+function freshStorage(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-onboarding-attachments-'));
+  dirs.push(dir);
+  return dir;
+}
+
+function sourceFile(name: string, contents: string): string {
+  const path = join(freshStorage(), name);
+  writeFileSync(path, contents);
+  return path;
+}
+
+function sourceImage(name: string): string {
+  return sourceFile(name, `PNGDATA:${name}`);
+}
 
 function svc(over: Partial<RepositoryDef> = {}): RepositoryDef {
   return runnableRepo({ start: 'x', ports: [slot('port', 'PORT', 3000)] }, over);
@@ -68,6 +106,8 @@ function fakeAdapter(): AgentAdapter {
 function mkCtx(ticketId?: number): OnboardingActionsCtx & {
   posted: OnboardingHostMessage[];
   pushes: number;
+  statePushes: number;
+  boundTicketId?: number;
   closes: number;
 } {
   let boundId = ticketId;
@@ -78,6 +118,12 @@ function mkCtx(ticketId?: number): OnboardingActionsCtx & {
     posted,
     get pushes() {
       return pushes;
+    },
+    get statePushes() {
+      return pushes;
+    },
+    get boundTicketId() {
+      return boundId;
     },
     get closes() {
       return closes;
@@ -102,6 +148,8 @@ function mkCtx(ticketId?: number): OnboardingActionsCtx & {
   return ctx as OnboardingActionsCtx & {
     posted: OnboardingHostMessage[];
     pushes: number;
+    statePushes: number;
+    boundTicketId?: number;
     closes: number;
   };
 }
@@ -140,8 +188,20 @@ describe('buildOnboardingActions', () => {
       listInstalledIds,
       startTicket,
       openDashboard,
+      storageDir: freshStorage(),
+      pickAttachment: async () => [],
+      openFile: () => {},
     };
   });
+
+  function makeActions(input: { mode: 'create' | 'edit' }) {
+    const ticketId = input.mode === 'edit'
+      ? createTicket(store, { key: `ATT-${Math.random()}`, title: 'attachments' }).id
+      : undefined;
+    const ctx = mkCtx(ticketId);
+    const actions = buildOnboardingActions(deps)(ctx);
+    return { actions, ctx, deps, ticketId };
+  }
 
   it('fetchSource posts the brief and persists it for an existing ticket', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
@@ -914,6 +974,275 @@ describe('buildOnboardingActions', () => {
     actions.setProvider('');
     expect(getTicket(store, t.id).agentProvider).toBeNull();
     expect(ctx.pushes).toBe(2);
+  });
+
+  describe('attachments', () => {
+    it('persists a draft ticket on the first attach in create mode', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      deps.pickAttachment = async () => [sourceImage('shot.png')];
+      await actions.attachPick();
+      expect(ctx.boundTicketId).toBeGreaterThan(0);
+      expect(listAttachments(deps.store, ctx.boundTicketId!)).toHaveLength(1);
+    });
+
+    it('does not create a second draft on the next attach', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      deps.pickAttachment = async () => [sourceImage('one.png')];
+      await actions.attachPick();
+      const first = ctx.boundTicketId;
+      deps.pickAttachment = async () => [sourceImage('two.png')];
+      await actions.attachPick();
+      expect(ctx.boundTicketId).toBe(first);
+      expect(listAttachments(deps.store, first!)).toHaveLength(2);
+    });
+
+    it('does nothing when the picker is cancelled', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      deps.pickAttachment = async () => [];
+      await actions.attachPick();
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(ctx.posted.filter((m) => m.type === 'error')).toEqual([]);
+    });
+
+    it('reports a picker rejection inline without binding a draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      deps.pickAttachment = async () => {
+        throw new Error('picker failed');
+      };
+      const outcome = await actions.attachPick().then(
+        () => 'resolved',
+        () => 'rejected',
+      );
+      expect(outcome).toBe('resolved');
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(ctx.posted).toContainEqual({ type: 'error', message: 'picker failed' });
+    });
+
+    it('ingests every file the picker returns', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      deps.pickAttachment = async () => [sourceImage('a.png'), sourceImage('b.png')];
+      await actions.attachPick();
+      expect(listAttachments(deps.store, ticketId!)).toHaveLength(2);
+    });
+
+    it('reports an unsupported file as an inline error and attaches nothing', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+      deps.pickAttachment = async () => [sourceFile('notes.pdf', '%PDF')];
+      await actions.attachPick();
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('not a supported attachment') }),
+      );
+    });
+
+    it('stores pasted bytes and pushes fresh state', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+      await actions.attachBytes('shot.png', Buffer.from('PNGDATA').toString('base64'));
+      const rows = listAttachments(deps.store, ticketId!);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.originalName).toBe('shot.png');
+      expect(ctx.statePushes).toBeGreaterThan(0);
+    });
+
+    it('rejects invalid base64 as an inline error, not a throw', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+      await actions.attachBytes('shot.png', '!!!not-base64!!!');
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      expect(ctx.posted).toContainEqual(expect.objectContaining({ type: 'error' }));
+    });
+
+    it('rejects invalid base64 before binding a create-mode draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      await actions.attachBytes('shot.png', '!!!not-base64!!!');
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(listTickets(deps.store)).toEqual([]);
+      expect(ctx.posted).toContainEqual({
+        type: 'error',
+        message: 'shot.png could not be decoded',
+      });
+    });
+
+    it('rejects an unsupported pasted filename before binding a create-mode draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+
+      await actions.attachBytes('notes.pdf', Buffer.from('%PDF').toString('base64'));
+
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(listTickets(deps.store)).toEqual([]);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({
+          type: 'error',
+          message: expect.stringContaining('not a supported attachment'),
+        }),
+      );
+    });
+
+    it('rejects the largest encoded payload that decodes over the cap before binding a draft', async () => {
+      const { actions, ctx, deps } = makeActions({ mode: 'create' });
+      const maximumEncodedPayload = Buffer.alloc(MAX_PASTE_BYTES + 1).toString('base64');
+      expect(maximumEncodedPayload).toHaveLength(Math.ceil(MAX_PASTE_BYTES / 3) * 4);
+      expect(Buffer.from(maximumEncodedPayload, 'base64').byteLength).toBe(MAX_PASTE_BYTES + 1);
+
+      await actions.attachBytes('edge.png', maximumEncodedPayload);
+
+      expect(ctx.boundTicketId).toBeUndefined();
+      expect(listTickets(deps.store)).toEqual([]);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('too large') }),
+      );
+    });
+
+    // Identical bytes are one file, so a second attach must not add a second tile
+    // pointing at it — and must certainly not leave a row whose file a later
+    // detach would unlink out from under the first.
+    it('does not add a second row for identical bytes', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      const b64 = Buffer.from('SAME').toString('base64');
+      await actions.attachBytes('one.png', b64);
+      await actions.attachBytes('two.png', b64);
+      expect(listAttachments(deps.store, ticketId!)).toHaveLength(1);
+    });
+
+    it('removes bytes when an in-flight attach loses its parent ticket', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+
+      const attaching = actions.attachBytes('late.png', Buffer.from('LATE').toString('base64'));
+      deleteTicket(deps.store, ticketId!);
+      await attaching;
+
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      const directory = attachmentDir(deps.storageDir, ticketId!);
+      expect(existsSync(directory) ? readdirSync(directory) : []).toEqual([]);
+      expect(ctx.posted).toContainEqual({
+        type: 'error',
+        message: 'This ticket was deleted before the attachment could be saved.',
+      });
+    });
+
+    it('detaches an attachment and unlinks its file', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
+      const row = listAttachments(deps.store, ticketId!)[0]!;
+      const path = attachmentPath(deps.storageDir, ticketId!, row.storedName);
+      expect(existsSync(path)).toBe(true);
+      await actions.detachAttachment(row.id);
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      expect(existsSync(path)).toBe(false);
+    });
+
+    it('keeps shared bytes until a deliberately seeded duplicate row is the last reference', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      await actions.attachBytes('shot.png', Buffer.from('SHARED').toString('base64'));
+      const first = listAttachments(deps.store, ticketId!)[0]!;
+      const path = attachmentPath(deps.storageDir, ticketId!, first.storedName);
+      deps.store.db.exec('DROP INDEX idx_ticket_attachments_ticket_stored_name');
+      const info = deps.store.db.prepare(
+        `INSERT INTO ticket_attachments
+           (ticket_id, kind, stored_name, original_name, byte_size, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        ticketId!,
+        first.kind,
+        first.storedName,
+        'legacy-copy.png',
+        first.byteSize,
+        '2026-08-01T00:00:00.000Z',
+      );
+      const duplicateId = Number(info.lastInsertRowid);
+
+      await actions.detachAttachment(first.id);
+
+      expect(getAttachment(deps.store, duplicateId)).not.toBeNull();
+      expect(existsSync(path)).toBe(true);
+
+      await actions.detachAttachment(duplicateId);
+
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      expect(existsSync(path)).toBe(false);
+    });
+
+    it('reports an unlink failure inline and keeps the row retryable', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+      await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
+      const row = listAttachments(deps.store, ticketId!)[0]!;
+      const path = attachmentPath(deps.storageDir, ticketId!, row.storedName);
+      rmSync(path);
+      mkdirSync(path);
+
+      const outcome = await actions.detachAttachment(row.id).then(
+        () => 'resolved',
+        () => 'rejected',
+      );
+
+      expect(getAttachment(deps.store, row.id)).not.toBeNull();
+      expect(outcome).toBe('resolved');
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('directory') }),
+      );
+    });
+
+    it('ignores a detach for an unknown id', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      await expect(actions.detachAttachment(9999)).resolves.toBeUndefined();
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+    });
+
+    // An id belonging to another ticket must not let this panel delete its file.
+    it('ignores a detach for an attachment on another ticket', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      const other = createTicket(deps.store, { key: 'OTHER-1', title: 'other' }).id;
+      const foreign = insertAttachment(deps.store, {
+        ticketId: other, kind: 'image', storedName: 'x.png', originalName: 'x.png', byteSize: 1,
+      });
+      expect(foreign).not.toBeNull();
+      if (!foreign) return;
+      await actions.detachAttachment(foreign.id);
+      expect(getAttachment(deps.store, foreign.id)).not.toBeNull();
+      expect(ticketId).not.toBe(other);
+    });
+
+    it('opens an attachment by its absolute path', async () => {
+      const { actions, deps, ticketId } = makeActions({ mode: 'edit' });
+      const opened: string[] = [];
+      deps.openFile = (p: string) => {
+        opened.push(p);
+      };
+      await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
+      const row = listAttachments(deps.store, ticketId!)[0]!;
+      await actions.openAttachment(row.id);
+      expect(opened).toEqual([attachmentPath(deps.storageDir, ticketId!, row.storedName)]);
+    });
+
+    it('reports an asynchronous open failure inline', async () => {
+      const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
+      const rejected = Promise.reject(new Error('open failed'));
+      // Avoid an unhandled rejection in the pre-fix implementation, which
+      // discards this promise instead of awaiting it.
+      void rejected.catch(() => {});
+      deps.openFile = () => rejected;
+      await actions.attachBytes('shot.png', Buffer.from('X').toString('base64'));
+      const row = listAttachments(deps.store, ticketId!)[0]!;
+
+      await actions.openAttachment(row.id);
+
+      expect(ctx.posted).toContainEqual({ type: 'error', message: 'open failed' });
+    });
+
+    it('does not open an attachment belonging to another ticket', async () => {
+      const { actions, deps } = makeActions({ mode: 'edit' });
+      const opened: string[] = [];
+      deps.openFile = (p: string) => {
+        opened.push(p);
+      };
+      const other = createTicket(deps.store, { key: 'OTHER-2', title: 'other' }).id;
+      const foreign = insertAttachment(deps.store, {
+        ticketId: other, kind: 'image', storedName: 'x.png', originalName: 'x.png', byteSize: 1,
+      });
+      expect(foreign).not.toBeNull();
+      if (!foreign) return;
+      await actions.openAttachment(foreign.id);
+      expect(opened).toEqual([]);
+    });
   });
 
 });

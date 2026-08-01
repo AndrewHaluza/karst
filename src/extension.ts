@@ -174,7 +174,6 @@ import {
   updateTicketOnboarding,
   archiveTicket,
   unarchiveTicket,
-  deleteTicket,
 } from './store/tickets.js';
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
@@ -185,6 +184,9 @@ import {
   type StartTicketResult,
   type StartTicketOptions,
 } from './ui/onboarding/actions.js';
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
+import { reapAttachments } from './attachments/reap.js';
+import { deleteTicketPermanently } from './runtime/deleteTicket.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -919,6 +921,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       reloadManifest,
       listInstalledIds: listInstalledApproachIds,
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+      storageDir: context.globalStorageUri.fsPath,
+      pickAttachment: async (): Promise<string[]> => {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectMany: true,
+          openLabel: 'Attach',
+          filters: {
+            Media: [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS],
+          },
+        });
+        return (picked ?? []).map((uri) => uri.fsPath);
+      },
+      openFile: async (path: string) => {
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
+      },
     }),
     listInstalledApproachIds,
     listAgents,
@@ -927,6 +943,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError,
     tabIconFor,
     () => modelCatalog,
+    context.globalStorageUri.fsPath,
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -1880,7 +1897,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // plus live worktrees/branches/services/PRs) into markdown and seed it —
       // in-process, no CLI round-trip (the extension already holds the data).
       const ticketContextMd = renderTicketContext(
-        buildTicketContext(localStore, currentManifest(), ticketId),
+        buildTicketContext(
+          localStore,
+          currentManifest(),
+          ticketId,
+          context.globalStorageUri.fsPath,
+        ),
       );
       // The done marker (§5.4) rides EVERY seed, not just the approach path:
       // `materializeApproach` only runs for an installed package or a solo agent,
@@ -2208,7 +2230,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Delete',
       );
       if (choice !== 'Delete') return;
-      deleteTicket(localStore, ticketId);
+      try {
+        await deleteTicketPermanently(localStore, ticketId, {
+          closePanel: (id) => onboarding.closeTicket(id),
+          reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+        });
+      } catch (err) {
+        const message =
+          `Karst could not finish permanently deleting "${label}". ` +
+          `Attachment cleanup may be incomplete: ${String(err)}`;
+        logger.warn(message);
+        await vscode.window.showErrorMessage(message);
+      }
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {

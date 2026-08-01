@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { join, resolve } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
+import { insertAttachment } from '../store/attachments.js';
 import { upsertProject } from '../store/projects.js';
 import { parseContextArgs, runContextCommand, composeContextCommand } from './context.js';
 import type { Manifest } from '../manifest/types.js';
@@ -81,6 +83,64 @@ describe('runContextCommand', () => {
   it('throws a clear error for an unknown key', () => {
     expect(() => runContextCommand(store, MANIFEST, { key: 'NOPE-1', format: 'json' })).toThrow(
       /NOPE-1/,
+    );
+  });
+
+  it('renders attachments with paths rooted beside the registry file', () => {
+    const ticketId = createTicket(store, { key: 'K-1', title: 'has media' }).id;
+    insertAttachment(store, {
+      ticketId,
+      kind: 'image',
+      storedName: 'aaaa1111bbbb2222.png',
+      originalName: 'shot.png',
+      byteSize: 12,
+    });
+
+    const md = runContextCommand(
+      store,
+      undefined,
+      { key: 'K-1', format: 'md' },
+      '/storage/karst.db',
+    );
+    expect(md).toContain('## Attachments');
+    expect(md).toContain(
+      join('/storage', 'attachments', String(ticketId), 'aaaa1111bbbb2222.png'),
+    );
+  });
+
+  it('resolves attachment paths when the registry file path is relative', () => {
+    const ticketId = createTicket(store, { key: 'K-relative', title: 'has media' }).id;
+    insertAttachment(store, {
+      ticketId,
+      kind: 'image',
+      storedName: 'aaaa1111bbbb2222.png',
+      originalName: 'shot.png',
+      byteSize: 12,
+    });
+
+    const md = runContextCommand(
+      store,
+      undefined,
+      { key: 'K-relative', format: 'md' },
+      'karst.db',
+    );
+    expect(md).toContain(
+      join(resolve('.'), 'attachments', String(ticketId), 'aaaa1111bbbb2222.png'),
+    );
+  });
+
+  it('omits attachments when no db path is supplied', () => {
+    const ticketId = createTicket(store, { key: 'K-2', title: 'has media' }).id;
+    insertAttachment(store, {
+      ticketId,
+      kind: 'image',
+      storedName: 'aaaa.png',
+      originalName: 'a.png',
+      byteSize: 1,
+    });
+
+    expect(runContextCommand(store, undefined, { key: 'K-2', format: 'md' })).not.toContain(
+      '## Attachments',
     );
   });
 

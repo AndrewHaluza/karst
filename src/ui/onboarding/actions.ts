@@ -18,6 +18,32 @@ import {
 } from '../../workflow/classify/analyze.js';
 import type { OnboardingActions, TicketDraftFields } from './messages.js';
 import type { OnboardingActionsCtx, OnboardingActionsFactory } from './panel.js';
+import {
+  ingestFile,
+  ingestBytes,
+  attachmentExists,
+  validateAttachment,
+  type IngestResult,
+} from '../../attachments/ingest.js';
+import {
+  discardStagedAttachment,
+  restoreStagedAttachment,
+  stageAttachmentRemoval,
+  unlinkAttachment,
+  type StagedAttachmentRemoval,
+} from '../../attachments/reap.js';
+import { attachmentPath } from '../../attachments/paths.js';
+import {
+  abortAttachmentWrite,
+  attachmentWriteState,
+  beginAttachmentWrite,
+  finalizeAttachmentDetach,
+  finalizeAttachmentWrite,
+  getAttachment,
+  prepareAttachmentDetach,
+  releaseAttachmentDetach,
+  releaseAttachmentOperation,
+} from '../../store/attachments.js';
 
 /**
  * Host-side onboarding logic (§ onboarding), independent of `vscode`. It ties
@@ -95,6 +121,21 @@ export interface OnboardingActionsDeps {
   listInstalledIds: () => string[];
   /** Open a URL in the external browser (vscode.env.openExternal). */
   openUrl?: (url: string) => void | Promise<void>;
+  /**
+   * Global-storage root that attachment bytes are written under. Injected rather
+   * than derived so this module stays free of `vscode` and testable against a
+   * tmpdir.
+   */
+  storageDir: string;
+  /**
+   * Show the native file picker and resolve the chosen absolute paths (empty on
+   * cancel). Injected because it needs `vscode.window.showOpenDialog`. The HOST
+   * owns the dialog: the webview only asks for one, so a crafted message can
+   * neither choose a path nor pre-fill one.
+   */
+  pickAttachment: () => Promise<string[]>;
+  /** Reveal a file in the editor (real: `vscode.env.openExternal` / `vscode.open`). */
+  openFile: (path: string) => void | Promise<void>;
 }
 
 function errorMessage(e: unknown): string {
@@ -168,7 +209,254 @@ function persistDraft(
 export function buildOnboardingActions(
   deps: OnboardingActionsDeps,
 ): OnboardingActionsFactory {
-  return (ctx: OnboardingActionsCtx): OnboardingActions => ({
+  return (ctx: OnboardingActionsCtx): OnboardingActions => {
+    /**
+     * Ensure this panel is bound to a persisted ticket, minting a draft if it is
+     * not. There is no attachment without a `ticket_id` — the directory is named
+     * by one. Reuses the exact persist-on-bind path `fetchSource` already walks,
+     * rather than inventing a staging area that would need its own move-on-submit
+     * lifecycle to get wrong.
+     */
+    const ensureTicket = (): number => {
+      if (ctx.ticketId !== undefined) return ctx.ticketId;
+      const draft = createTicketFlow(deps.store, {
+        key: '',
+        title: 'Untitled ticket',
+        projectId: deps.projectId,
+      });
+      ctx.bindTicket(draft.id);
+      deps.onChange(); // sidebar shows the new draft
+      return draft.id;
+    };
+
+    /**
+     * File the ingest result. A dedupe hit returns the EXISTING row rather than
+     * inserting a second one: identical bytes are one file, and a duplicate row
+     * would put two tiles over it — the second detach then unlinking the file the
+     * first still points at.
+     */
+    const record = async (
+      ticketId: number,
+      result: IngestResult,
+      republish: (expectedStoredName: string) => Promise<IngestResult>,
+    ): Promise<boolean> => {
+      if (!result.ok) {
+        ctx.post({ type: 'error', message: result.message });
+        return false;
+      }
+      const deadline = Date.now() + 30_000;
+      for (;;) {
+        let attempt = beginAttachmentWrite(deps.store, result.input);
+        while (attempt?.kind === 'busy' && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          attempt = beginAttachmentWrite(deps.store, result.input);
+        }
+        if (attempt?.kind === 'busy') {
+          throw new Error('Timed out waiting for another window to finish attaching this file.');
+        }
+        if (!attempt) {
+          // The conditional insert proves the parent is gone, so no row can
+          // still reference these just-published bytes.
+          await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+          ctx.post({
+            type: 'error',
+            message: 'This ticket was deleted before the attachment could be saved.',
+          });
+          return false;
+        }
+        const claim = attempt;
+        let rolledBack = false;
+        const rollback = async (): Promise<void> => {
+          if (rolledBack) return;
+          // Keep the attach token while removing bytes for a row this operation
+          // inserted. A waiting writer cannot claim/check the path until the DB
+          // row is then deleted, so it cannot miss this cleanup race.
+          if (claim.inserted) {
+            await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+          }
+          abortAttachmentWrite(deps.store, claim);
+          rolledBack = true;
+        };
+
+        try {
+          // If this attach arrived during a detach, wait for that operation to
+          // acknowledge cancellation (or finish deletion) before checking the
+          // destination. The separate detach token is the handshake that closes
+          // the check-then-rename race across two extension-host processes.
+          let state = attachmentWriteState(deps.store, claim.row.id, claim.token);
+          while (state === 'waiting-for-detach' && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            state = attachmentWriteState(deps.store, claim.row.id, claim.token);
+          }
+          if (state === 'waiting-for-detach') {
+            throw new Error('Timed out waiting for another window to finish detaching the attachment.');
+          }
+          if (state === 'superseded') continue;
+          if (state === 'missing') {
+            await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+            ctx.post({
+              type: 'error',
+              message: 'This ticket was deleted before the attachment could be saved.',
+            });
+            return false;
+          }
+
+          // A detach can move the destination aside after ingest publishes but
+          // before SQLite records this attach. Holding the attach token blocks a
+          // newer detach while this post-claim check repairs that narrow window.
+          if (!await attachmentExists(
+            deps.storageDir,
+            ticketId,
+            result.input.storedName,
+          )) {
+            const retry = await republish(result.input.storedName);
+            if (!retry.ok || retry.input.storedName !== result.input.storedName) {
+              await rollback();
+              ctx.post({
+                type: 'error',
+                message: retry.ok
+                  ? `${result.input.originalName} changed before it could be saved`
+                  : retry.message,
+              });
+              return false;
+            }
+          }
+
+          const finalized = finalizeAttachmentWrite(deps.store, claim.row.id, claim.token);
+          if (finalized === 'superseded') continue;
+          if (finalized === 'missing') {
+            await unlinkAttachment(deps.storageDir, ticketId, result.input.storedName);
+            ctx.post({
+              type: 'error',
+              message: 'This ticket was deleted before the attachment could be saved.',
+            });
+            return false;
+          }
+          return true;
+        } catch (error) {
+          await rollback();
+          throw error;
+        } finally {
+          releaseAttachmentOperation(deps.store, claim.row.id, claim.token);
+        }
+      }
+    };
+
+    return {
+    attachPick: async (): Promise<void> => {
+      try {
+        const paths = await deps.pickAttachment();
+        if (paths.length === 0) return; // cancelled — not an error, say nothing
+        const ticketId = ensureTicket();
+        let changed = false;
+        for (const path of paths) {
+          // Sequential, not Promise.all: each ingest hashes and copies, and a
+          // multi-select of large videos should not run N copies at once.
+          if (await record(
+            ticketId,
+            await ingestFile(deps.storageDir, ticketId, path),
+            (expected) => ingestFile(deps.storageDir, ticketId, path, expected),
+          )) {
+            changed = true;
+          }
+        }
+        if (changed) ctx.pushState();
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      }
+    },
+
+    attachBytes: async (name: string, base64: string): Promise<void> => {
+      try {
+        // Buffer.from silently DROPS invalid base64 characters rather than
+        // throwing, so a corrupt payload would otherwise be written as a
+        // truncated file that renders as a broken tile. Re-encoding and comparing
+        // is the check: a payload that does not round-trip was not valid base64.
+        // Validate BEFORE ensureTicket: rejected bytes are not a real attach and
+        // must not persist or bind an otherwise-empty create panel.
+        const bytes = Buffer.from(base64, 'base64');
+        if (bytes.toString('base64') !== base64) {
+          ctx.post({ type: 'error', message: `${name} could not be decoded` });
+          return;
+        }
+        const validation = validateAttachment(name, bytes.byteLength);
+        if (!validation.ok) {
+          ctx.post({ type: 'error', message: validation.message });
+          return;
+        }
+        const ticketId = ensureTicket();
+        if (await record(
+          ticketId,
+          await ingestBytes(deps.storageDir, ticketId, name, bytes),
+          () => ingestBytes(deps.storageDir, ticketId, name, bytes),
+        )) {
+          ctx.pushState();
+        }
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      }
+    },
+
+    detachAttachment: async (id: number): Promise<void> => {
+      try {
+        // Scoped to THIS panel's ticket. The id crosses an untrusted boundary, so
+        // an id belonging to another ticket must not let this panel unlink that
+        // ticket's file.
+        if (ctx.ticketId === undefined) return;
+        const decision = prepareAttachmentDetach(deps.store, id, ctx.ticketId);
+        if (!decision) return;
+        const { row } = decision;
+        if (!decision.needsUnlink) {
+          ctx.pushState();
+          return;
+        }
+        // Keep a DB-visible detach claim across the async filesystem operation.
+        // Moving aside first makes a failed unlink reversible; final row delete
+        // is conditional on this detach still owning the token, so a concurrent
+        // same-content attach cancels it rather than losing its publication.
+        let staged: StagedAttachmentRemoval | null = null;
+        try {
+          staged = await stageAttachmentRemoval(
+            deps.storageDir,
+            row.ticketId,
+            row.storedName,
+            decision.token,
+          );
+        } catch (error) {
+          releaseAttachmentDetach(deps.store, row.id, decision.token);
+          throw error;
+        }
+        try {
+          await discardStagedAttachment(staged);
+        } catch (error) {
+          // Keep waiters/new detaches behind the handshake until rollback has
+          // restored the destination (without replacing a newer publication).
+          // If restoration itself fails, retain the token rather than exposing
+          // a live row whose destination is still absent.
+          await restoreStagedAttachment(staged);
+          releaseAttachmentDetach(deps.store, row.id, decision.token);
+          throw error;
+        }
+        // From here the published bytes are gone. If SQLite finalization throws,
+        // deliberately retain detach_token: the row is durable retry metadata,
+        // and prepareAttachmentDetach resumes that token on the next click.
+        finalizeAttachmentDetach(deps.store, row.id, decision.token);
+        ctx.pushState();
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      }
+    },
+
+    openAttachment: async (id: number): Promise<void> => {
+      try {
+        const row = getAttachment(deps.store, id);
+        if (!row || row.ticketId !== ctx.ticketId) return;
+        await deps.openFile(attachmentPath(deps.storageDir, row.ticketId, row.storedName));
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      }
+    },
+
     async fetchSource(ref: string): Promise<void> {
       if (!deps.provider.fetchTicket) {
         ctx.post({ type: 'error', message: 'This provider cannot fetch tickets.' });
@@ -424,5 +712,6 @@ export function buildOnboardingActions(
     requestState(): void {
       ctx.pushState();
     },
-  });
+    };
+  };
 }

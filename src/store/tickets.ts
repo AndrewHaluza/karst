@@ -444,6 +444,7 @@ const TICKET_CHILD_TABLES = [
   'baseline_refs',
   'servers',
   'prs',
+  'ticket_attachments',
 ] as const;
 
 /**

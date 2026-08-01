@@ -1,5 +1,8 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
+import { listAttachments } from '../../store/attachments.js';
+import { attachmentPath } from '../../attachments/paths.js';
+import type { AttachmentKind } from '../../attachments/kinds.js';
 import type { Manifest, ApproachDef, TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
@@ -43,6 +46,24 @@ export interface RepoRow {
  * whether to offer "open" vs. "install".
  */
 export type ApproachRow = ApproachDef & { installed: boolean };
+
+/**
+ * One attachment as the prompt strip renders it.
+ *
+ * `src` leaves this module as an absolute FILESYSTEM path, not a webview URI —
+ * only a real `vscode.Webview` can mint one of those, and this module is
+ * host-agnostic. The panel manager maps it at postMessage time via
+ * `OnboardingPanel.toWebviewUri`. `id` is what the detach/open messages carry;
+ * the stored name never crosses to the webview, because nothing there needs it.
+ */
+export interface AttachmentView {
+  id: number;
+  kind: AttachmentKind;
+  /** The user's filename — often the only clue what a screenshot shows. */
+  name: string;
+  byteSize: number;
+  src: string;
+}
 
 export interface OnboardingState {
   mode: 'create' | 'edit';
@@ -99,6 +120,8 @@ export interface OnboardingState {
    * in create mode — there is no ticket yet, so no workflow to show.
    */
   stepper: StepperCell[];
+  /** Prompt attachments, oldest first. Empty in create mode (no ticket yet). */
+  attachments: AttachmentView[];
 }
 
 /**
@@ -151,6 +174,12 @@ export function buildOnboardingState(
   ticketId?: number,
   isSessionOpen: (ticketId: number) => boolean = () => false,
   modelCatalog: ModelCatalog = bundledModelCatalog(),
+  /**
+   * Global-storage root for attachment paths. Optional for the same reason
+   * `buildTicketContext`'s is: with no root there is no absolute path to build,
+   * so the strip renders nothing rather than a broken tile.
+   */
+  storageDir?: string,
 ): OnboardingState {
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
@@ -211,6 +240,7 @@ export function buildOnboardingState(
       defaultType: resolveTicketType({ type: null }, manifest.conventions),
       sessionOpen: false, // create mode has no ticket → nothing to lock
       stepper: [], // no ticket yet → no workflow to show
+      attachments: [],
     };
   }
 
@@ -254,5 +284,15 @@ export function buildOnboardingState(
     defaultType: resolveTicketType({ type: null }, manifest.conventions),
     sessionOpen: isSessionOpen(ticketId),
     stepper: buildStepper(ticket.stages),
+    attachments:
+      storageDir === undefined
+        ? []
+        : listAttachments(store, ticketId).map((a) => ({
+            id: a.id,
+            kind: a.kind,
+            name: a.originalName,
+            byteSize: a.byteSize,
+            src: attachmentPath(storageDir, ticketId, a.storedName),
+          })),
   };
 }

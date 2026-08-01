@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { slugifyTitleKey, TITLE_KEY_MAX } from '../../store/titleKey.js';
+import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -186,4 +187,158 @@ describe('onboarding webview.html', () => {
     const saveBlock = HTML.slice(HTML.indexOf("el('saveBtn').addEventListener"));
     expect(saveBlock.slice(0, 1200)).not.toContain('pullBase');
   });
+});
+
+describe('attachment strip', () => {
+  const render = (list: unknown): string =>
+    loadFunction('renderAttachments', {
+      formatBytes: loadFunction('formatBytes'),
+    })(list) as string;
+
+  it('renders nothing when there are no attachments', () => {
+    expect(render([]).trim()).toBe('');
+  });
+
+  it('renders an image tile with an img element pointing at the src', () => {
+    const html = render([
+      { id: 1, kind: 'image', name: 'login-error.png', byteSize: 4096, src: 'webview://a.png' },
+    ]);
+    expect(html).toContain('<img');
+    expect(html).toContain('src="webview://a.png"');
+    expect(html).toContain('login-error.png');
+  });
+
+  it('renders a video tile with a controllable video element', () => {
+    const html = render([
+      { id: 2, kind: 'video', name: 'repro.mov', byteSize: 1048576, src: 'webview://b.mp4' },
+    ]);
+    expect(html).toContain('<video');
+    expect(html).toContain('controls');
+    expect(html).toContain('preload="metadata"');
+    expect(html).toContain('src="webview://b.mp4"');
+  });
+
+  it('carries the image row id on its media, detach control, and explicit open control', () => {
+    const html = render([
+      { id: 7, kind: 'image', name: 'a.png', byteSize: 1, src: 'webview://a.png' },
+    ]);
+    expect(html).toMatch(/<img[^>]*data-attach-id="7"/);
+    expect(html).toMatch(/<button[^>]*class="attachdetach"[^>]*data-attach-id="7"/);
+    expect(html).toMatch(/<button[^>]*class="attachopen"[^>]*data-attach-id="7"/);
+    expect(html).toContain('aria-label="Open a.png"');
+  });
+
+  it('carries the video row id on its media, detach control, and explicit open control', () => {
+    const html = render([
+      { id: 8, kind: 'video', name: 'b.mov', byteSize: 1, src: 'webview://b.mp4' },
+    ]);
+    expect(html).toMatch(/<video[^>]*data-attach-id="8"/);
+    expect(html).toMatch(/<button[^>]*class="attachdetach"[^>]*data-attach-id="8"/);
+    expect(html).toMatch(/<button[^>]*class="attachopen"[^>]*data-attach-id="8"/);
+    expect(html).toContain('aria-label="Open b.mov"');
+  });
+
+  it('opens only from the explicit button so native video controls stay independent', () => {
+    const handler = HTML.slice(
+      HTML.indexOf("el('attachments').addEventListener('click'"),
+      HTML.indexOf('// Clipboard images have no path'),
+    );
+    expect(handler).toContain("closest('.attachopen')");
+    expect(handler).not.toContain("closest('video");
+    expect(handler).not.toContain("closest('img");
+  });
+
+  // The strip renders values that came from a ticket the user did not author.
+  // esc() is the primary defense; the CSP is only the backstop under it.
+  it('escapes the original filename', () => {
+    const html = render([
+      {
+        id: 1, kind: 'image', byteSize: 1, src: 'webview://a.png',
+        name: '<img src=x onerror="alert(1)">.png',
+      },
+    ]);
+    expect(html).not.toContain('onerror="alert(1)"');
+    expect(html).toContain('&lt;img src=x');
+  });
+
+  it('escapes the src', () => {
+    const html = render([
+      { id: 1, kind: 'image', name: 'a.png', byteSize: 1, src: 'x" onerror="alert(1)' },
+    ]);
+    expect(html).not.toContain('onerror="alert(1)"');
+  });
+});
+
+describe('formatBytes', () => {
+  const formatBytes = loadFunction('formatBytes') as (n: number) => string;
+
+  it('renders bytes, KB and MB', () => {
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(4096)).toBe('4 KB');
+    expect(formatBytes(1048576)).toBe('1 MB');
+  });
+});
+
+// The host re-checks this. The page's copy exists so the user is told BEFORE a
+// large paste crosses postMessage, not after the host silently drops it — so the
+// two values must be the same number.
+describe('paste cap mirror', () => {
+  it('matches the host cap exactly', () => {
+    expect(htmlConstNumber('MAX_PASTE_BYTES')).toBe(MAX_PASTE_BYTES);
+  });
+});
+
+describe('pasted file reader', () => {
+  function readerHarness() {
+    const posted: unknown[] = [];
+    const errors: string[] = [];
+    let reader: {
+      result: unknown;
+      onload?: () => void;
+      onerror?: () => void;
+      onabort?: () => void;
+      readAsDataURL(file: unknown): void;
+    } | undefined;
+    class FakeFileReader {
+      result: unknown = null;
+      onload?: () => void;
+      onerror?: () => void;
+      onabort?: () => void;
+      constructor() {
+        reader = this;
+      }
+      readAsDataURL(): void {}
+    }
+    const read = loadFunction('postPastedFile', {
+      FileReader: FakeFileReader,
+      MAX_PASTE_BYTES,
+      post: (message: unknown) => posted.push(message),
+      showErr: (message: string) => errors.push(message),
+    }) as (file: { name: string; size: number }) => void;
+    read({ name: 'broken.png', size: 4 });
+    if (!reader) throw new Error('FileReader was not constructed');
+    return { reader, posted, errors };
+  }
+
+  it.each(['onerror', 'onabort'] as const)('reports FileReader %s without posting bytes', (event) => {
+    const harness = readerHarness();
+
+    harness.reader[event]?.();
+
+    expect(harness.errors).toEqual(['broken.png could not be read from the clipboard.']);
+    expect(harness.posted).toEqual([]);
+  });
+
+  it.each([null, 'not-a-data-url', 'data:image/png;base64,'])(
+    'reports malformed FileReader result %j without posting bytes',
+    (result) => {
+      const harness = readerHarness();
+      harness.reader.result = result;
+
+      harness.reader.onload?.();
+
+      expect(harness.errors).toEqual(['broken.png could not be read from the clipboard.']);
+      expect(harness.posted).toEqual([]);
+    },
+  );
 });

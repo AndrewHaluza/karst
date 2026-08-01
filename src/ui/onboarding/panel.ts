@@ -22,12 +22,21 @@ import {
 export interface OnboardingPanel {
   reveal(): void;
   postMessage(message: OnboardingHostMessage): void;
-  onDidReceiveMessage(handler: (message: unknown) => void): void;
+  onDidReceiveMessage(handler: (message: unknown) => void | Promise<void>): void;
   onDidDispose(handler: () => void): void;
   /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
   dispose(): void;
   /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
   setIcon(path: string): void;
+  /**
+   * Convert an absolute filesystem path into a URI this webview may load.
+   *
+   * Required because only a real `vscode.Webview` can mint one (`asWebviewUri`),
+   * while `state.ts` — which produces the paths — is host-agnostic and imports no
+   * `vscode`. Same shape as `setIcon(path)`: the manager hands over a path, the
+   * adapter knows what to do with it. Test fakes return the path unchanged.
+   */
+  toWebviewUri(path: string): string;
 }
 
 /** Factory the manager uses to mint panels (real: `createWebviewPanel`). */
@@ -77,6 +86,8 @@ export type OnboardingActionsFactory = (ctx: OnboardingActionsCtx) => Onboarding
  */
 export class OnboardingManager {
   private readonly panels = new Map<number, OnboardingPanel>();
+  /** Live ticket binding for every edit or draft-bound create panel. */
+  private readonly ticketByPanel = new Map<OnboardingPanel, number>();
   private readonly modelRefreshers = new Set<() => void>();
   /** Next unbound-create sentinel; decrements so create panels never collide. */
   private nextCreateKey = -1;
@@ -122,6 +133,8 @@ export class OnboardingManager {
     private readonly iconFor?: (ticketId: number) => string | undefined,
     /** Current launch-model catalog, refreshed independently of the manifest. */
     private readonly modelCatalog: () => ModelCatalog = bundledModelCatalog,
+    /** Global storage root used to construct attachment paths for state pushes. */
+    private readonly storageDir?: string,
   ) {}
 
   /**
@@ -153,6 +166,7 @@ export class OnboardingManager {
         : ticketLabel(getTicket(this.store, ticketId!), this.manifest().ticketLabelTemplate);
     const panel = this.host.createPanel(title);
     this.panels.set(key, panel);
+    if (ticketId !== undefined) this.ticketByPanel.set(panel, ticketId);
 
     // Mutable so persist-on-fetch can bind a create panel to its new draft
     // ticket without re-opening. `pushState`/`ctx` read this live.
@@ -174,8 +188,20 @@ export class OnboardingManager {
         boundId,
         this.isSessionOpen,
         this.modelCatalog(),
+        this.storageDir,
       );
-      panel.postMessage({ type: 'state', state });
+      // The state builder emits filesystem paths; only the panel can turn one
+      // into a URI the webview is allowed to load. Mapped here, at the last
+      // moment before the message leaves, so everything upstream stays
+      // host-agnostic.
+      const withWebviewUris: OnboardingState = {
+        ...state,
+        attachments: state.attachments.map((a) => ({
+          ...a,
+          src: panel.toWebviewUri(a.src),
+        })),
+      };
+      panel.postMessage({ type: 'state', state: withWebviewUris });
       // Re-point the tab icon at the bound ticket's live glyph. A create panel
       // stays iconless until `bindTicket` gives it an id.
       const icon = boundId === undefined ? undefined : this.iconFor?.(boundId);
@@ -194,6 +220,7 @@ export class OnboardingManager {
       },
       bindTicket: (id: number) => {
         boundId = id;
+        this.ticketByPanel.set(panel, id);
         // Once bound, this panel IS the ticket's edit panel — re-key it so
         // `openEdit(id)` reveals it rather than opening a second one. If an
         // edit panel for that ticket already exists, leave the keys alone.
@@ -211,17 +238,22 @@ export class OnboardingManager {
     this.modelRefreshers.add(pushState);
     const actions = this.actionsFactory(ctx);
 
-    panel.onDidReceiveMessage((raw) => {
+    panel.onDidReceiveMessage(async (raw) => {
       try {
-        routeOnboardingAction(raw, actions);
+        await routeOnboardingAction(raw, actions);
       } catch (err) {
         // The message pump must never die on one bad message.
         this.logError('karst: onboarding action failed', err);
+        ctx.post({
+          type: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
     });
     panel.onDidDispose(() => {
       disposed = true;
       this.panels.delete(panelKey);
+      this.ticketByPanel.delete(panel);
       this.modelRefreshers.delete(pushState);
     });
 
@@ -231,6 +263,16 @@ export class OnboardingManager {
   /** Push the current catalog to every onboarding panel that is still live. */
   refreshModels(): void {
     for (const refresh of this.modelRefreshers) refresh();
+  }
+
+  /**
+   * Dispose every local onboarding panel bound to a ticket being hard-deleted.
+   * Snapshot first because `dispose()` synchronously unregisters the panel.
+   */
+  closeTicket(ticketId: number): void {
+    for (const [panel, boundId] of [...this.ticketByPanel]) {
+      if (boundId === ticketId) panel.dispose();
+    }
   }
 
   /**

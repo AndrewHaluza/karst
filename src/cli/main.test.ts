@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { parseGlobalFlags, runCli } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
+import { insertAttachment } from '../store/attachments.js';
 import { transition } from '../workflow/machine.js';
 
 describe('parseGlobalFlags', () => {
@@ -75,6 +76,58 @@ describe('runCli — stage marker', () => {
 
   it('names every verb it accepts when the subcommand is unknown', () => {
     expect(() => runCli(['bogus', '--db', dbPath])).toThrow(/phase/);
+  });
+});
+
+describe('runCli — populated attachment context over node:sqlite', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-attachments-'));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    const ticket = createTicket(seed, { key: 'MEDIA-1', title: 'has media' });
+    insertAttachment(seed, {
+      ticketId: ticket.id,
+      kind: 'image',
+      storedName: 'aaaa1111bbbb2222.png',
+      originalName: 'screen.png',
+      byteSize: 12,
+    });
+    insertAttachment(seed, {
+      ticketId: ticket.id,
+      kind: 'video',
+      storedName: 'cccc3333dddd4444.mp4',
+      originalName: 'repro.mov',
+      byteSize: 34,
+    });
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('renders absolute paths and the video unreadable marker through runCli', () => {
+    const parsed = JSON.parse(
+      runCli(['context', 'MEDIA-1', '--db', dbPath, '--json']),
+    ) as { attachments: Array<{ kind: string; path: string; name: string }> };
+    expect(parsed.attachments).toEqual([
+      {
+        kind: 'image',
+        path: join(dir, 'attachments', '1', 'aaaa1111bbbb2222.png'),
+        name: 'screen.png',
+      },
+      {
+        kind: 'video',
+        path: join(dir, 'attachments', '1', 'cccc3333dddd4444.mp4'),
+        name: 'repro.mov',
+      },
+    ]);
+
+    const markdown = runCli(['context', 'MEDIA-1', '--db', dbPath, '--md']);
+    expect(markdown).toContain(
+      `- video: ${join(dir, 'attachments', '1', 'cccc3333dddd4444.mp4')} — "repro.mov" (not agent-readable)`,
+    );
   });
 });
 
