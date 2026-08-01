@@ -49,6 +49,15 @@ import {
   type RestoredSession,
   type RestoredSessionDisposition,
 } from './ui/session.js';
+import {
+  forgetSessionTerminal,
+  identifyTerminal,
+  parseSessionTerminalRecords,
+  pruneSessionTerminals,
+  rememberSessionTerminal,
+  type SessionTerminalRecord,
+  type TerminalIdentity,
+} from './ui/terminalIdentity.js';
 import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
   classifyRestoredSession,
@@ -257,6 +266,21 @@ const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
 const HOOK_PORT_KEY = 'karst.hookPort';
 /** Tickets whose terminals this window launched, including hidden terminals. */
 const OWNED_SESSION_TICKETS_KEY = 'karst.ownedSessionTickets';
+/**
+ * The pid this window launched each ticket's terminal under.
+ *
+ * `workspaceState`, like the keys above: pids name processes this window
+ * started. It exists because a reattached terminal comes back WITHOUT its
+ * launch environment (see `ui/terminalIdentity.ts`), so the pid is the only
+ * surviving terminal→ticket link after a reload.
+ */
+const SESSION_TERMINALS_KEY = 'karst.sessionTerminals';
+/**
+ * How long a terminal gets to report its pid. Activation waits on this before
+ * it may adopt a restored session, and `Terminal.processId` never settles for a
+ * process that failed to start — so the wait is bounded rather than open-ended.
+ */
+const PID_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Whether this window binds a ticket's agent terminal to its dashboard.
@@ -408,7 +432,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError('session ownership persistence failed', error);
     },
   );
-  flushSessionOwnership = () => ownershipWriter.flush();
+  const terminalRecordWriter = new SerializedStateWriter<SessionTerminalRecord[]>(
+    (snapshot) => context.workspaceState.update(SESSION_TERMINALS_KEY, snapshot),
+    (error) => {
+      logError('session terminal identity persistence failed', error);
+    },
+  );
+  const terminalIdentity = makeTerminalIdentityRegistry(
+    parseSessionTerminalRecords(context.workspaceState.get(SESSION_TERMINALS_KEY)),
+    (records) => void terminalRecordWriter.enqueue(records),
+  );
+  flushSessionOwnership = async () => {
+    await ownershipWriter.flush();
+    await terminalRecordWriter.flush();
+  };
   shutdownSessionRecovery = () => recoveryLifecycle.shutdown();
   pendingSessionRecoveryTasks.clear();
   const persistOwnedSessionTickets = (): Promise<void> => {
@@ -416,7 +453,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return ownershipWriter.enqueue(snapshot);
   };
   const sessions = new SessionManager(
-    makeTerminalHost(),
+    makeTerminalHost(terminalIdentity),
     (ticketId) => {
       if (!endpoint) {
         throw new Error('karst: hook endpoint is not bound');
@@ -2425,8 +2462,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return classifyRestoredSession(ticket ? toRecoveryCandidate(ticket) : undefined);
   };
   context.subscriptions.push(
-    vscode.window.onDidOpenTerminal((terminal) => {
-      const session = restoredSessionOf(terminal);
+    // A terminal karst launched in a PREVIOUS window comes back without its
+    // env, so its pid has to be read before it can be named — that probe is
+    // what makes this handler async.
+    vscode.window.onDidOpenTerminal(async (terminal) => {
+      await terminalIdentity.resolve(terminal);
+      const session = restoredSessionOf(terminal, terminalIdentity);
       if (!session) return;
       const outcome = sessions.adoptLateSession(session, classifyLateSession);
       if (outcome.kind === 'adopted') {
@@ -2443,6 +2484,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       }
     }),
+    // A closed terminal's pid is free for the OS to hand to anything, so its
+    // record must not outlive it.
+    vscode.window.onDidCloseTerminal((terminal) => {
+      const named = terminalIdentity.identify(terminal);
+      if (named) terminalIdentity.forget(named.ticketId);
+    }),
+  );
+
+  // Records for tickets this window can no longer act on are dead weight, and
+  // every one of them is a pid that could be reused by an unrelated process.
+  if (projectId !== undefined) {
+    terminalIdentity.prune(currentTickets.map((ticket) => ticket.id));
+  }
+  // Every terminal already revived must be identifiable BEFORE the scan below
+  // decides what to adopt: a pid still being probed reads as "no session here",
+  // and background recovery would launch a second agent beside the live one.
+  await Promise.all(
+    vscode.window.terminals.map((terminal) => terminalIdentity.resolve(terminal)),
   );
 
   const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
@@ -2798,18 +2857,110 @@ function terminalEnv(
 }
 
 /**
- * Read a terminal's karst identity, or undefined when it has none. The env is
- * the only durable terminal→ticket link, and `exitStatus` is what separates a
- * live session from a tab whose agent already quit.
+ * This window's terminal→ticket lookup, and the only place a pid is captured.
+ * `identify` never awaits: `restoredSessions()` is called synchronously from the
+ * open path, so a pid must already be resolved (via `resolve`) to count.
  */
-function restoredSessionOf(terminal: vscode.Terminal): RestoredSession | undefined {
-  const env = terminalEnv(terminal);
-  const ticketId = ticketIdFromTerminalEnv(env);
-  if (ticketId === undefined) return undefined;
-  const launchId = env?.[KARST_LAUNCH_ENV];
+interface TerminalIdentityRegistry {
+  /** Learn a terminal's pid. Idempotent — repeat calls share one probe. */
+  resolve(terminal: vscode.Terminal): Promise<void>;
+  /** Name a terminal's ticket from what is already known. Never awaits. */
+  identify(terminal: vscode.Terminal): TerminalIdentity | undefined;
+  /** Remember a terminal karst just launched, once its pid resolves. */
+  remember(terminal: vscode.Terminal, env: Record<string, string>): void;
+  /** Release a ticket's record — its terminal closed, freeing the pid. */
+  forget(ticketId: number): void;
+  /** Drop records for tickets this window can no longer act on. */
+  prune(knownTicketIds: readonly number[]): void;
+}
+
+function makeTerminalIdentityRegistry(
+  initial: readonly SessionTerminalRecord[],
+  persist: (records: SessionTerminalRecord[]) => void,
+): TerminalIdentityRegistry {
+  let records: SessionTerminalRecord[] = [...initial];
+  const pidByTerminal = new WeakMap<vscode.Terminal, number>();
+  const probes = new WeakMap<vscode.Terminal, Promise<void>>();
+
+  const resolve = (terminal: vscode.Terminal): Promise<void> => {
+    const running = probes.get(terminal);
+    if (running) return running;
+    // `Terminal.processId` never settles for a terminal whose process never
+    // reported one, and activation awaits this before it may adopt anything —
+    // so the probe is bounded. A pid that never arrives simply leaves the
+    // terminal unidentifiable: the state karst was in before records existed,
+    // never a hang and never a failure.
+    const probe = new Promise<number | undefined>((done) => {
+      const timer = setTimeout(() => done(undefined), PID_PROBE_TIMEOUT_MS);
+      void Promise.resolve(terminal.processId).then(
+        (pid) => {
+          clearTimeout(timer);
+          done(pid);
+        },
+        () => {
+          clearTimeout(timer);
+          done(undefined);
+        },
+      );
+    }).then((pid) => {
+      if (typeof pid === 'number' && pid > 0) pidByTerminal.set(terminal, pid);
+    });
+    probes.set(terminal, probe);
+    return probe;
+  };
+
+  const write = (next: SessionTerminalRecord[]): void => {
+    records = next;
+    persist(records);
+  };
+
   return {
-    ticketId,
-    ...(typeof launchId === 'string' && launchId.length > 0 ? { launchId } : {}),
+    resolve,
+    identify: (terminal) =>
+      identifyTerminal(
+        { env: terminalEnv(terminal), pid: pidByTerminal.get(terminal) },
+        records,
+      ),
+    remember: (terminal, env) => {
+      const ticketId = ticketIdFromTerminalEnv(env);
+      if (ticketId === undefined) return;
+      const launchId = env[KARST_LAUNCH_ENV];
+      void resolve(terminal).then(() => {
+        const pid = pidByTerminal.get(terminal);
+        if (pid === undefined) return;
+        write(
+          rememberSessionTerminal(records, {
+            ticketId,
+            pid,
+            ...(launchId ? { launchId } : {}),
+          }),
+        );
+      });
+    },
+    forget: (ticketId) => {
+      const next = forgetSessionTerminal(records, ticketId);
+      if (next.length !== records.length) write(next);
+    },
+    prune: (knownTicketIds) => {
+      const next = pruneSessionTerminals(records, knownTicketIds);
+      if (next.length !== records.length) write(next);
+    },
+  };
+}
+
+/**
+ * Read a terminal's karst identity, or undefined when it has none. `exitStatus`
+ * is what separates a live session from a tab whose agent already quit.
+ */
+function restoredSessionOf(
+  terminal: vscode.Terminal,
+  identity: TerminalIdentityRegistry,
+): RestoredSession | undefined {
+  const named = identity.identify(terminal);
+  if (!named) return undefined;
+  return {
+    ticketId: named.ticketId,
+    ...(named.launchId ? { launchId: named.launchId } : {}),
     ...(terminal.exitStatus !== undefined ? { exited: true } : {}),
     terminal: wrapTerminal(terminal),
   };
@@ -2833,7 +2984,7 @@ function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
 }
 
 /** Real terminals, wrapped in the `SessionTerminal` interface. */
-function makeTerminalHost(): TerminalHost {
+function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
   return {
     createTerminal(opts): SessionTerminal {
       // VS Code terminals have no separate "description" field — fold the title
@@ -2851,11 +3002,14 @@ function makeTerminalHost(): TerminalHost {
         ...(opts.iconPath ? { iconPath: vscode.Uri.file(opts.iconPath) } : {}),
         ...(opts.color ? { color: new vscode.ThemeColor(opts.color) } : {}),
       });
+      // Capture the launch pid NOW: it is what re-identifies this terminal
+      // after a reload strips the env that carries the ticket today.
+      identity.remember(terminal, opts.env);
       return wrapTerminal(terminal);
     },
     restoredSessions: () =>
       vscode.window.terminals.flatMap((terminal) => {
-        const session = restoredSessionOf(terminal);
+        const session = restoredSessionOf(terminal, identity);
         return session ? [session] : [];
       }),
   };
