@@ -1,3 +1,4 @@
+import { dirname, resolve } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { resolveTicketByKey } from './resolveTicket.js';
@@ -64,11 +65,19 @@ export function runContextCommand(
   store: Store,
   manifest: Manifest | undefined,
   parsed: ParsedContext,
+  /**
+   * The registry file's own path. Its directory IS the global-storage root that
+   * attachments are rooted in, and the CLI is never told that root directly — it
+   * only ever receives `--db`. Optional so the existing call shape in tests keeps
+   * compiling; `main.ts` always supplies it.
+   */
+  dbPath?: string,
 ): string {
   const ticket = resolveTicketByKey(store, parsed.key, manifest?.id);
   if (!ticket) {
     throw new Error(`no ticket found for key '${parsed.key}'`);
   }
-  const ctx = buildTicketContext(store, manifest, ticket.id);
+  const storageDir = dbPath === undefined ? undefined : resolve(dirname(dbPath));
+  const ctx = buildTicketContext(store, manifest, ticket.id, storageDir);
   return parsed.format === 'md' ? renderTicketContext(ctx) : JSON.stringify(ctx, null, 2);
 }

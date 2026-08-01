@@ -159,6 +159,21 @@ describe('writeManifest', () => {
           pullRequestTitle: '[{key}] {title}',
           pullRequestDescription: '## Summary\n\n{description}\n\nRepository: {repo}\n',
         },
+        uat: {
+          testDir: 'e2e/karst',
+          maxFixAttempts: 2,
+          gates: [
+            { name: 'test', kind: 'script', script: 'test' },
+            { name: 'gotest', kind: 'command', command: 'go', args: ['test', './...'], repo: 'backend' },
+          ],
+          env: { SMTP_HOST: '127.0.0.1' },
+          secrets: ['STRIPE_SECRET_KEY'],
+          passthrough: ['CUSTOM_REGISTRY_TOKEN'],
+          origins: ['http://localhost:5173'],
+          authBootstrap: { path: 'e2e/auth.setup.ts', secrets: ['UAT_ACCOUNT_PASSWORD'] },
+          author: { agent: 'uat-author', enabled: true },
+          repositories: { backend: { env: { VITE_MODE: 'uat' } } },
+        },
         ticketing: {
           provider: 'clickup',
           teamId: '9001',

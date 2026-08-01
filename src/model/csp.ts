@@ -5,11 +5,14 @@ import { randomBytes } from 'node:crypto';
  * escaping, not a replacement for it. Every panel runs with `enableScripts:
  * true`, so an escaping regression would otherwise be directly exploitable.
  *
- * The policy is as tight as it is because every webview is entirely
- * self-contained: no `<link>`, no `<img>`, no `url()`, no `@font-face`, no
- * `fetch()`. Nothing legitimately loads from anywhere, so `default-src 'none'`
- * costs nothing and `webview.cspSource` has nothing to grant — granting it would
- * only widen the policy to sources no asset actually uses.
+ * The policy is as tight as it is because a webview is otherwise entirely
+ * self-contained: no `<link>`, no `url()`, no `@font-face`, no `fetch()`. One
+ * exception exists — the onboarding page renders prompt attachments off disk, so
+ * it alone is handed a `mediaSource` (the panel's `webview.cspSource`) and gets
+ * `img-src`/`media-src` for it. Every other webview passes no source and keeps
+ * `default-src 'none'` covering everything, because nothing they load comes from
+ * anywhere. The grant is per-panel for that reason: a widened policy applied
+ * globally would loosen five documents to buy nothing.
  *
  * Scripts are inline blocks, so they are authorized by nonce. `'unsafe-inline'`
  * must never appear in `script-src`: it re-permits any injected `<script>`,
@@ -17,8 +20,17 @@ import { randomBytes } from 'node:crypto';
  * because inline `<style>` blocks and `style=""` attributes have no nonce path —
  * an accepted, much smaller surface than script.
  */
-const POLICY = (nonce: string): string =>
-  `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+const POLICY = (nonce: string, mediaSource?: string): string => {
+  const parts = [
+    "default-src 'none'",
+    "style-src 'unsafe-inline'",
+    `script-src 'nonce-${nonce}'`,
+  ];
+  if (mediaSource) {
+    parts.push(`img-src ${mediaSource}`, `media-src ${mediaSource}`);
+  }
+  return `${parts.join('; ')};`;
+};
 
 /** The placeholder each webview.html carries where the CSP meta tag belongs. */
 export const CSP_MARKER = '<!--KARST_CSP-->';
@@ -44,8 +56,8 @@ export function newNonce(): string {
  * a JS string or a style block, say — which no webview does today.
  * `ui/webviewCsp.test.ts` holds both of those true.
  */
-export function injectCsp(html: string, nonce: string): string {
+export function injectCsp(html: string, nonce: string, mediaSource?: string): string {
   if (!html.includes(CSP_MARKER)) return html;
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${POLICY(nonce)}" />`;
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${POLICY(nonce, mediaSource)}" />`;
   return html.replace(CSP_MARKER, meta).replaceAll('<script>', `<script nonce="${nonce}">`);
 }

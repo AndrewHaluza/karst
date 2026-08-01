@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS stages (
   artifact_path TEXT,
   started_at    TEXT,
   ended_at      TEXT,
+  -- v17 blocked columns (kept in sync with migrations.ts v17 ALTERs).
+  -- A block is karst saying it could not ASK the question — distinct from a
+  -- `failed` verdict, which says the code is wrong. NULL kind = not blocked, so
+  -- there is nothing to backfill and no status value had to change.
+  blocked_kind   TEXT,                -- BlockerKind; NULL = not blocked
+  blocked_reason TEXT,                -- the specific text a human needs
+  blocked_at     TEXT,
   PRIMARY KEY (ticket_id, stage_key)
 );
 
@@ -242,3 +249,37 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_project_time ON token_usage(project_i
 CREATE INDEX IF NOT EXISTS idx_token_usage_ticket ON token_usage(ticket_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_site ON token_usage(project_id, call_site, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, model, recorded_at);
+
+-- Images and video attached to a ticket's prompt. An INDEX of bytes that live on
+-- disk under <globalStorage>/attachments/<ticket_id>/<stored_name>, never the
+-- bytes themselves: a 200 MB mp4 in a row would be read by every query that
+-- selects *, and the agent needs a real file path regardless.
+--
+-- `kind` is resolved ONCE at ingest, against the whitelist in
+-- attachments/kinds.ts, and stored. Nothing re-derives it from a filename later,
+-- so a row's kind cannot drift from the value that was actually validated.
+--
+-- `stored_name` is content-addressed (<sha256[0..16]>.<ext>) and is the ONLY
+-- name that touches the filesystem. `original_name` is what the user called the
+-- file; it is display-only and is never joined into a path, which is what makes
+-- a crafted name like '../../../.ssh/id_rsa' inert rather than dangerous.
+CREATE TABLE IF NOT EXISTS ticket_attachments (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL,     -- -> tickets.id
+  kind          TEXT NOT NULL,        -- image | video
+  stored_name   TEXT NOT NULL,        -- <sha256[0..16]>.<ext>; the on-disk name
+  original_name TEXT NOT NULL,        -- display only; never a path component
+  byte_size     INTEGER NOT NULL,
+  created_at    TEXT NOT NULL,
+  operation_token TEXT,               -- transient attach cross-window claim
+  detach_token    TEXT                -- detach handshake; attach waits for its release
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket
+  ON ticket_attachments(ticket_id, id);
+
+-- Global storage is shared across IDE windows. Let SQLite, rather than a
+-- process-local find-then-insert check, arbitrate two windows attaching the
+-- same content-addressed file at once.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name
+  ON ticket_attachments(ticket_id, stored_name);

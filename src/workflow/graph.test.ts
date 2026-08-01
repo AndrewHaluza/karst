@@ -62,3 +62,15 @@ describe('branch stages', () => {
     }
   });
 });
+
+describe('the fix return edge', () => {
+  it('re-enters uat, so a ticket that failed uat cannot ship without passing it', () => {
+    expect(STAGE_GRAPH.fix.passed).toBe('uat');
+  });
+
+  it('leaves fix a branch and the main line unchanged', () => {
+    expect(isBranch('fix')).toBe(true);
+    expect(isBranch('uat')).toBe(false);
+    expect(MAIN_LINE).toEqual(['scope', 'impl', 'uat', 'review', 'ship', 'done']);
+  });
+});

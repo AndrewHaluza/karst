@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { parseOnboardingMessage, routeOnboardingAction, type OnboardingActions } from './messages.js';
+import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 
 describe('parseOnboardingMessage', () => {
   it('accepts a well-formed fetch-source message', () => {
@@ -216,6 +217,10 @@ describe('routeOnboardingAction', () => {
       setType: vi.fn(),
       setProvider: vi.fn(),
       analyze: vi.fn(),
+      attachPick: vi.fn(),
+      attachBytes: vi.fn(),
+      detachAttachment: vi.fn(),
+      openAttachment: vi.fn(),
       openTicketLink: vi.fn(),
       submit: vi.fn(),
       save: vi.fn(),
@@ -264,6 +269,13 @@ describe('routeOnboardingAction', () => {
     });
   });
 
+  it('does not fall through from set-provider into set-type', () => {
+    const actions = spyActions();
+    routeOnboardingAction({ type: 'set-provider', id: 'codex' }, actions);
+    expect(actions.setProvider).toHaveBeenCalledWith('codex');
+    expect(actions.setType).not.toHaveBeenCalled();
+  });
+
   it('ignores install-approach (removed — install now lives in settings)', () => {
     const actions = spyActions();
     routeOnboardingAction({ type: 'install-approach', id: 'rpi' }, actions);
@@ -274,5 +286,128 @@ describe('routeOnboardingAction', () => {
     const actions = spyActions();
     expect(() => routeOnboardingAction({ type: 'nope' }, actions)).not.toThrow();
     expect(actions.fetchSource).not.toHaveBeenCalled();
+  });
+});
+
+describe('attachment messages', () => {
+  function spyActions(): OnboardingActions {
+    return {
+      fetchSource: vi.fn(),
+      suggestSignals: vi.fn(),
+      saveSignals: vi.fn(),
+      setRepos: vi.fn(),
+      setApproach: vi.fn(),
+      setAgent: vi.fn(),
+      setModel: vi.fn(),
+      setType: vi.fn(),
+      setProvider: vi.fn(),
+      analyze: vi.fn(),
+      openTicketLink: vi.fn(),
+      submit: vi.fn(),
+      save: vi.fn(),
+      requestState: vi.fn(),
+      attachPick: vi.fn(),
+      attachBytes: vi.fn(),
+      detachAttachment: vi.fn(),
+      openAttachment: vi.fn(),
+    };
+  }
+
+  it('routes attach-pick', () => {
+    const actions = spyActions();
+    routeOnboardingAction({ type: 'attach-pick' }, actions);
+    expect(actions.attachPick).toHaveBeenCalled();
+  });
+
+  it('routes a well-formed attach-bytes', () => {
+    const actions = spyActions();
+    routeOnboardingAction(
+      { type: 'attach-bytes', name: 'shot.png', base64: 'AAAA' }, actions,
+    );
+    expect(actions.attachBytes).toHaveBeenCalledWith('shot.png', 'AAAA');
+  });
+
+  it('ignores attach-bytes with a non-string name or payload', () => {
+    const actions = spyActions();
+    routeOnboardingAction({ type: 'attach-bytes', name: 1, base64: 'AAAA' }, actions);
+    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: null }, actions);
+    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png' }, actions);
+    expect(actions.attachBytes).not.toHaveBeenCalled();
+  });
+
+  it('ignores attach-bytes with an empty name', () => {
+    const actions = spyActions();
+    routeOnboardingAction({ type: 'attach-bytes', name: '', base64: 'AAAA' }, actions);
+    expect(actions.attachBytes).not.toHaveBeenCalled();
+  });
+
+  it('ignores attach-bytes with an empty base64 payload', () => {
+    const actions = spyActions();
+    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: '' }, actions);
+    expect(actions.attachBytes).not.toHaveBeenCalled();
+  });
+
+  // The webview caps this too. Re-checked here because argv from a webview is
+  // never trusted on the grounds that the webview already checked it — the same
+  // rule the CLI's stage/phase split exists for.
+  it('ignores attach-bytes whose payload exceeds the paste cap', () => {
+    const actions = spyActions();
+    // 4 base64 chars per 3 bytes, so this decodes to just over the cap.
+    const oversize = 'A'.repeat(Math.ceil((MAX_PASTE_BYTES + 1024) / 3) * 4);
+    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: oversize }, actions);
+    expect(actions.attachBytes).not.toHaveBeenCalled();
+  });
+
+  it('uses decoded size when cap and cap-plus-one have the same encoded length', () => {
+    const actions = spyActions();
+    const atCap = Buffer.alloc(MAX_PASTE_BYTES).toString('base64');
+    const overCap = Buffer.alloc(MAX_PASTE_BYTES + 1).toString('base64');
+    expect(atCap).toHaveLength(overCap.length);
+
+    routeOnboardingAction({ type: 'attach-bytes', name: 'edge.png', base64: atCap }, actions);
+    routeOnboardingAction({ type: 'attach-bytes', name: 'over.png', base64: overCap }, actions);
+
+    expect(actions.attachBytes).toHaveBeenCalledTimes(1);
+    expect(actions.attachBytes).toHaveBeenCalledWith('edge.png', atCap);
+  });
+
+  it('routes detach-attachment and open-attachment with a numeric id', () => {
+    const actions = spyActions();
+    routeOnboardingAction({ type: 'detach-attachment', id: 7 }, actions);
+    routeOnboardingAction({ type: 'open-attachment', id: 7 }, actions);
+    expect(actions.detachAttachment).toHaveBeenCalledWith(7);
+    expect(actions.openAttachment).toHaveBeenCalledWith(7);
+  });
+
+  it('returns each attachment action promise to the panel', () => {
+    const actions = spyActions();
+    const pick = Promise.resolve();
+    const bytes = Promise.resolve();
+    const detach = Promise.resolve();
+    const open = Promise.resolve();
+    actions.attachPick = vi.fn(() => pick);
+    actions.attachBytes = vi.fn(() => bytes);
+    actions.detachAttachment = vi.fn(() => detach);
+    actions.openAttachment = vi.fn(() => open);
+
+    expect(routeOnboardingAction({ type: 'attach-pick' }, actions)).toBe(pick);
+    expect(
+      routeOnboardingAction(
+        { type: 'attach-bytes', name: 'shot.png', base64: 'AAAA' },
+        actions,
+      ),
+    ).toBe(bytes);
+    expect(routeOnboardingAction({ type: 'detach-attachment', id: 7 }, actions)).toBe(detach);
+    expect(routeOnboardingAction({ type: 'open-attachment', id: 7 }, actions)).toBe(open);
+  });
+
+  it('ignores a detach/open whose id is not a positive integer', () => {
+    const actions = spyActions();
+    for (const id of ['7', 0, -1, 1.5, NaN, null, undefined]) {
+      routeOnboardingAction({ type: 'detach-attachment', id }, actions);
+      routeOnboardingAction({ type: 'open-attachment', id }, actions);
+    }
+    expect(actions.detachAttachment).not.toHaveBeenCalled();
+    expect(actions.openAttachment).not.toHaveBeenCalled();
   });
 });

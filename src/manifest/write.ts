@@ -159,6 +159,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
     agents: manifest.agents ?? {},
     ticketing: manifest.ticketing ?? { provider: 'manual' },
     agentProvider: manifest.agentProvider ?? 'claude',
+    // Without this line Save silently drops the whole block — the failure mode
+    // the writeManifest round-trip test exists to catch.
+    uat: manifest.uat,
   };
 
   // Re-validate before persisting — never write a file the loader would reject.

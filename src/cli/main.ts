@@ -112,7 +112,7 @@ export function runCli(argv: string[]): string {
     }
     const store = openReadonlyStore(db);
     try {
-      return runContextCommand(store, manifest, parsed);
+      return runContextCommand(store, manifest, parsed, db);
     } finally {
       store.close();
     }

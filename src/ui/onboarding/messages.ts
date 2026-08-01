@@ -2,6 +2,7 @@ import type { OnboardingState } from './state.js';
 import type { ContextBrief } from '../../integrations/ticketing.js';
 import { isHttpUrl } from '../shared/url.js';
 import { isKnownProvider } from '../../agent/registry.js';
+import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 
 /**
  * Onboarding webview ↔ host message protocol (§ onboarding). The webview is a
@@ -57,6 +58,14 @@ export type OnboardingMessage =
   // id may be '' — "Inherit (settings)", which clears the ticket's type.
   | { type: 'set-type'; id: string }
   | { type: 'analyze'; prompt: string }
+  // Open the native file picker. Carries nothing — the host owns the dialog, so
+  // a crafted message can neither choose a path nor pre-fill one.
+  | { type: 'attach-pick' }
+  // Bytes pasted from the clipboard, base64-encoded (postMessage is JSON, so a
+  // Buffer cannot cross it). Capped at both ends; see the parse guard.
+  | { type: 'attach-bytes'; name: string; base64: string }
+  | { type: 'detach-attachment'; id: number }
+  | { type: 'open-attachment'; id: number }
   | { type: 'open-ticket-link'; url: string }
   | ({ type: 'submit' } & TicketDraftFields & { pullBase: boolean })
   // Persists the ticket like `submit`, but never calls startTicket — no
@@ -92,6 +101,10 @@ export interface OnboardingActions {
   setProvider: (id: string) => void;
   setType: (id: string) => void;
   analyze: (prompt: string) => void;
+  attachPick: () => Promise<void>;
+  attachBytes: (name: string, base64: string) => Promise<void>;
+  detachAttachment: (id: number) => Promise<void>;
+  openAttachment: (id: number) => Promise<void>;
   openTicketLink: (url: string) => void;
   submit: (input: SubmitFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
@@ -100,6 +113,28 @@ export interface OnboardingActions {
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');
+}
+
+/**
+ * A positive integer row id. `typeof x === 'number'` is not enough: `1.5`, `NaN`
+ * and `-1` all pass it and none is a row this store can hold.
+ */
+function isRowId(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0;
+}
+
+/**
+ * Base64 expands 3 bytes to 4 characters, so a payload longer than this cannot
+ * decode to something under the cap. Checking the ENCODED length means an
+ * oversize paste is rejected before anything decodes it — the decode itself is
+ * the allocation worth avoiding.
+ */
+const MAX_BASE64_CHARS = Math.ceil(MAX_PASTE_BYTES / 3) * 4;
+
+/** Exact decoded size for a canonical-or-nearly-canonical base64 payload. */
+function decodedBase64ByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
 }
 
 /** Validate the shared draft-persist fields (submit and save both carry these). */
@@ -179,6 +214,25 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.
       return typeof m.prompt === 'string' ? { type: 'analyze', prompt: m.prompt } : null;
+    case 'attach-pick':
+      return { type: 'attach-pick' };
+    case 'attach-bytes': {
+      // The name drives the whitelist check and the stored extension; the
+      // payload is capped here as well as in the webview, because a webview
+      // having checked something is not a reason for the host to skip it.
+      if (typeof m.name !== 'string' || m.name.length === 0) return null;
+      if (typeof m.base64 !== 'string' || m.base64.length === 0) return null;
+      if (m.base64.length > MAX_BASE64_CHARS) return null;
+      // Encoded length alone is not exact at the boundary: because the cap is
+      // 1 mod 3, cap and cap+1 have the same base64 length and differ only in
+      // padding. Keep the cheap character ceiling above, then inspect padding.
+      if (decodedBase64ByteLength(m.base64) > MAX_PASTE_BYTES) return null;
+      return { type: 'attach-bytes', name: m.name, base64: m.base64 };
+    }
+    case 'detach-attachment':
+      return isRowId(m.id) ? { type: 'detach-attachment', id: m.id } : null;
+    case 'open-attachment':
+      return isRowId(m.id) ? { type: 'open-attachment', id: m.id } : null;
     case 'open-ticket-link':
       // http(s) only — this drives vscode.env.openExternal, so a non-empty-string
       // check is not enough (a crafted file://, vscode:// or command: URI would
@@ -207,7 +261,10 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
  * boundary; unknown/malformed shapes are ignored so a stray message can't crash
  * the host.
  */
-export function routeOnboardingAction(raw: unknown, actions: OnboardingActions): void {
+export function routeOnboardingAction(
+  raw: unknown,
+  actions: OnboardingActions,
+): void | Promise<void> {
   const msg = parseOnboardingMessage(raw);
   if (!msg) return;
   switch (msg.type) {
@@ -241,6 +298,14 @@ export function routeOnboardingAction(raw: unknown, actions: OnboardingActions):
     case 'analyze':
       actions.analyze(msg.prompt);
       return;
+    case 'attach-pick':
+      return actions.attachPick();
+    case 'attach-bytes':
+      return actions.attachBytes(msg.name, msg.base64);
+    case 'detach-attachment':
+      return actions.detachAttachment(msg.id);
+    case 'open-attachment':
+      return actions.openAttachment(msg.id);
     case 'open-ticket-link':
       actions.openTicketLink(msg.url);
       return;

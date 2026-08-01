@@ -36,4 +36,21 @@ describe('extension activation', () => {
       'const project = currentProject();\n    if (!project) return;',
     );
   });
+
+  it('binds dashboard agent switching to native pickers, confirmation, and the normal launch path', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toContain('runAgentSwitchFlow(');
+    expect(source).toContain('vscode.window.showQuickPick');
+    expect(source).toContain("modal: true");
+    expect(source).toContain("guardProviderCapabilityAsync('sessions', provider)");
+    expect(source).toContain(
+      "if (!options.providerReady && !guardCapability('sessions', ticketId)) return;",
+    );
+    expect(source).toContain('sessions.disposeSession(ticketId)');
+    expect(source).toContain("vscode.commands.executeCommand('karst.openSession', ticketId, options)");
+    expect(source).toContain("logError('agent session switch failed', error)");
+    expect(source).toContain(
+      'finally {\n      provider.refresh();\n      dashboard.pushState(ticketId);\n      showStatusFor(ticketId);\n    }',
+    );
+  });
 });

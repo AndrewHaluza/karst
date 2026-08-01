@@ -67,13 +67,22 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
     expect(out).not.toMatch(/<script(?![^>]*\bnonce=)/);
   });
 
-  // The policy is only this tight because nothing loads externally. If a webview
-  // ever gains a <link>/<img>/url()/fetch(), default-src 'none' silently breaks
-  // it — better to fail here, at the assumption, than to debug a blank panel.
+  // The policy is only this tight because nothing loads externally. Onboarding
+  // is the narrow exception: its attachment renderer emits img/video elements,
+  // and its panel alone receives the media-source CSP grant. If another webview
+  // gains a <link>/<img>/<video>/url()/fetch(), default-src 'none' silently
+  // breaks it — better to fail here, at the assumption, than to debug a blank
+  // panel.
   it('loads nothing externally, which is what default-src none assumes', () => {
     const html = read(name);
     expect(html).not.toMatch(/<link\b/);
-    expect(html).not.toMatch(/<img\b/);
+    if (name === 'onboarding') {
+      expect(html).toMatch(/<img\b/);
+      expect(html).toMatch(/<video\b/);
+    } else {
+      expect(html).not.toMatch(/<img\b/);
+      expect(html).not.toMatch(/<video\b/);
+    }
     expect(html).not.toMatch(/\burl\(\s*['"]?(?:https?:)?\/\//);
     expect(html).not.toMatch(/@font-face/);
     expect(html).not.toMatch(/\bfetch\(/);
@@ -97,5 +106,41 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
     const html = read(name);
     const nonceOf = (s: string): string => /<script nonce="([^"]+)"/.exec(s)?.[1] ?? '';
     expect(nonceOf(injectCsp(html, newNonce()))).not.toBe(nonceOf(injectCsp(html, newNonce())));
+  });
+});
+
+describe('media source', () => {
+  const SOURCE = 'vscode-resource://karst';
+
+  it('omits img-src and media-src when no media source is given', () => {
+    const html = injectCsp(read('onboarding'), newNonce());
+    expect(html).not.toContain('img-src');
+    expect(html).not.toContain('media-src');
+  });
+
+  it('grants img-src and media-src to exactly the given source', () => {
+    const html = injectCsp(read('onboarding'), newNonce(), SOURCE);
+    expect(html).toContain(`img-src ${SOURCE};`);
+    expect(html).toContain(`media-src ${SOURCE};`);
+  });
+
+  // Widening for attachments must not weaken anything else. default-src stays
+  // 'none' and script-src stays nonce-only — an img-src grant is not a reason to
+  // let a script in.
+  it('leaves the rest of the policy untouched when widened', () => {
+    const nonce = newNonce();
+    const html = injectCsp(read('onboarding'), nonce, SOURCE);
+    expect(html).toContain("default-src 'none';");
+    expect(html).toContain(`script-src 'nonce-${nonce}';`);
+    expect(html).not.toContain("script-src 'unsafe-inline'");
+    expect(html).not.toContain("default-src 'self'");
+  });
+
+  it('never widens a webview that was not given a source', () => {
+    for (const name of WEBVIEWS) {
+      const html = injectCsp(read(name), newNonce());
+      expect(html, name).not.toContain('img-src');
+      expect(html, name).not.toContain('media-src');
+    }
   });
 });

@@ -1,29 +1,63 @@
 /**
  * How many times karst will auto-resume the agent into `fix` after a gate fails
  * before it parks the ticket and hands it back to the human. Without a cap, a
- * ticket the agent cannot fix would re-loop fix→review→fix forever.
+ * ticket the agent cannot fix would re-loop fix→uat/review→fix forever — `fix`
+ * returns to whichever gate failed it, so either loop needs the same backstop.
  *
  * Lives alone so the driver (which enforces it) and the dashboard copy (which
  * reports "attempt 2 of 3") can never disagree about the number.
  */
 export const FIX_ATTEMPT_CAP = 3;
 
+/** The gate stages that carry their own fix budget. */
+const GATE_STAGE_KEYS = ['uat', 'review'] as const;
+export type GateStageKey = (typeof GATE_STAGE_KEYS)[number];
+
 /**
- * How many times a gate has failed this ticket — the depth of the fix loop.
+ * How many times ONE gate has failed this ticket — the depth of that gate's fix
+ * loop.
  *
- * The `fix` stage's own `attempt` is always 0: the machine bumps `attempt` on the
- * stage that FAILED (uat/review), and fix is only ever passed through. So the
- * loop count is the gates' failures, summed.
+ * Per stage, not summed. `stages.attempt` was always per `(ticket_id, stage_key)`,
+ * but the policy read here summed uat + review into one counter: two review
+ * failures left UAT a single attempt for a budget it had never spent. With `fix`
+ * returning to `uat`, both gates fail on the same ticket routinely, so the sum
+ * exhausts roughly twice as fast as either budget says.
+ *
+ * The `fix` stage's own `attempt` is always 0 — the machine bumps the stage that
+ * FAILED, and fix is only ever passed through.
  */
 export function countFixAttempts(
   stages: readonly { stageKey: string; attempt?: number }[],
+  stageKey: GateStageKey,
 ): number {
-  return stages
-    .filter((s) => s.stageKey === 'uat' || s.stageKey === 'review')
-    .reduce((total, s) => total + (s.attempt ?? 0), 0);
+  return stages.find((s) => s.stageKey === stageKey)?.attempt ?? 0;
 }
 
-/** True while the ticket still has an auto-resume left after `attempts` failures. */
-export function fixAttemptsRemain(attempts: number): boolean {
-  return attempts < FIX_ATTEMPT_CAP;
+/**
+ * Which gate sent this ticket to `fix` — the one whose budget the resume spends.
+ *
+ * By latest `endedAt`, not by array order: the stage rows have no ordering
+ * contract, and `attempt` cannot break the tie because it only climbs on failure,
+ * so a fail-then-pass pair sits at the same number.
+ */
+export function lastFailedGate(
+  stages: readonly { stageKey: string; status?: string; endedAt?: string | null }[],
+): GateStageKey | null {
+  const failed = stages.filter(
+    (s): s is { stageKey: GateStageKey; status?: string; endedAt?: string | null } =>
+      s.status === 'failed' && (GATE_STAGE_KEYS as readonly string[]).includes(s.stageKey),
+  );
+  if (failed.length === 0) return null;
+  return failed.reduce((latest, s) =>
+    (s.endedAt ?? '') > (latest.endedAt ?? '') ? s : latest,
+  ).stageKey;
+}
+
+/**
+ * True while the ticket still has an auto-resume left after `attempts` failures.
+ * `cap` is caller-supplied so UAT can honour `uat.maxFixAttempts` while review
+ * keeps `FIX_ATTEMPT_CAP` until its own redesign.
+ */
+export function fixAttemptsRemain(attempts: number, cap: number = FIX_ATTEMPT_CAP): boolean {
+  return attempts < cap;
 }

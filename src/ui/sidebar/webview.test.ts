@@ -64,6 +64,11 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('data-act="open-session"');
   });
 
+  it('uses conditional open-ticket navigation for row selection only', () => {
+    expect(HTML).toContain("post({ type:'open-ticket', ticketId: id });");
+    expect(HTML).toContain('data-act="open-dashboard"');
+  });
+
   it('labels the session button with the continue-or-start verb, not a generic word', () => {
     // The verb comes from row.sessionAction so the button says which it does.
     expect(HTML).toContain('row.sessionAction');

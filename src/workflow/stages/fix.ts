@@ -6,13 +6,13 @@ import { transition } from '../machine.js';
 
 /**
  * Fix stage (§T4.4, §11, §5.3). Resumes the ticket's captured session so the
- * agent keeps its context, then re-enters the review gate (the
- * fix→revalidate→review loop). Idempotent: a fix run is safe to repeat — the
+ * agent keeps its context, then re-enters the uat gate (the
+ * fix→revalidate→uat loop). Idempotent: a fix run is safe to repeat — the
  * transition only fires on the resumed run's verdict, and `attempt` climbs per
  * loop in the machine.
  *
  * MVP treats a completed resume as "ready to revalidate" and transitions
- * fix→review; the *actual* re-gate happens when `runReview` runs next. There is
+ * fix→uat; the *actual* re-gate happens when `runUat` runs next. There is
  * no captured session to resume ⇒ throw (we never fix blind).
  */
 export interface RunFixOpts {
@@ -39,6 +39,6 @@ export async function runFix(
     tracking: { callSite: 'fix-resume', ticketId: opts.ticketId },
   });
 
-  // Revalidate: fix pass re-enters review (the deterministic re-gate).
+  // Revalidate: fix pass re-enters uat (the deterministic re-gate).
   return transition(store, opts.ticketId, 'fix', { kind: 'passed' });
 }

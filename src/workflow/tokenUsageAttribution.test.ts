@@ -82,8 +82,8 @@ describe('instrumented AI calls', () => {
 
     const next = await runFix(store, { ticketId: id, cwd: '/wt' }, instrumented(reportingAdapter()));
 
-    // The feature behaves exactly as before.
-    expect(next).toBe('review');
+    // The feature behaves exactly as before: a fix re-enters uat to revalidate.
+    expect(next).toBe('uat');
 
     expect(rows()).toHaveLength(1);
     expect(rows()[0]).toMatchObject({

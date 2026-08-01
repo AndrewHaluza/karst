@@ -11,7 +11,9 @@ function actions(): DashboardActions {
     restartServers: vi.fn(),
     stopServers: vi.fn(),
     showChanges: vi.fn(),
+    openWorktreeTerminal: vi.fn(),
     openWorktreeFolder: vi.fn(),
+    copyWorktreeBranch: vi.fn(),
     openPr: vi.fn(),
     openTicketLink: vi.fn(),
     editTicket: vi.fn(),
@@ -24,6 +26,7 @@ function actions(): DashboardActions {
     mergePr: vi.fn(),
     refreshPrs: vi.fn(),
     toggleBind: vi.fn(),
+    switchAgent: vi.fn(),
   };
 }
 
@@ -52,6 +55,20 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'open-worktree-folder', path: '/wt/a' }, a);
     expect(a.openWorktreeFolder).toHaveBeenCalledWith('/wt/a');
+  });
+
+  it('validates and dispatches worktree terminal and branch-copy actions', () => {
+    const a = actions();
+    routeAction({ type: 'open-worktree-terminal', path: '/wt/a' }, a);
+    routeAction({ type: 'copy-worktree-branch', branch: 'karst/A' }, a);
+    expect(a.openWorktreeTerminal).toHaveBeenCalledWith('/wt/a');
+    expect(a.copyWorktreeBranch).toHaveBeenCalledWith('karst/A');
+  });
+
+  it('rejects empty or non-string worktree action payloads', () => {
+    expect(parseWebviewMessage({ type: 'open-worktree-terminal', path: '' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'copy-worktree-branch', branch: '' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'copy-worktree-branch', branch: 4 })).toBeNull();
   });
 
   it('dispatches open-pr by url', () => {
@@ -251,5 +268,14 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'toggle-bind' }, a);
     expect(a.toggleBind).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes switch-agent without trusting companion provider/model/ticket fields', () => {
+    const a = actions();
+    expect(parseWebviewMessage({
+      type: 'switch-agent', provider: 'evil', model: 'evil', ticketId: 999,
+    })).toEqual({ type: 'switch-agent' });
+    routeAction({ type: 'switch-agent', provider: 'evil' }, a);
+    expect(a.switchAgent).toHaveBeenCalledOnce();
   });
 });

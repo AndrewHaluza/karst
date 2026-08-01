@@ -368,6 +368,13 @@
     border-top:1px solid var(--border);font-size:12px;color:var(--text)}
   .now .ntext{flex:1}
   .now .now-sub{flex-basis:100%;font-size:11px;color:var(--text-dim)}
+  .now .switch-agent{
+    color:var(--vscode-button-secondaryForeground,var(--vscode-button-foreground));
+    background:var(--vscode-button-secondaryBackground,var(--vscode-button-background));
+  }
+  .now .switch-agent:hover{
+    background:var(--vscode-button-secondaryHoverBackground,var(--vscode-button-hoverBackground));
+  }
   /* The ship-in-progress spinner rides in the Now line at the gate-node size.
      .spin is display:block, so it needs an explicit box here. */
   .now .spin{width:13px;height:13px;flex:none;color:var(--st-running)}
@@ -399,7 +406,11 @@
   .wt:hover,.pr:hover{background:var(--hover)}
   .wt .wrepo{font-size:12.5px;min-width:74px}
   .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:4px}
-  .wt .wbr{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .wt .wbranch{display:flex;align-items:center;gap:2px;min-width:0;flex:1}
+  .wt .wbr{font-family:var(--mono);font-size:11px;color:var(--text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .wt .wstats{display:flex;gap:5px;font-family:var(--mono);font-size:11px;white-space:nowrap}
+  .wt .wadd{color:var(--st-done)}
+  .wt .wdel{color:var(--st-failed)}
   .pr .pst{font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);text-transform:uppercase;letter-spacing:.4px}
   /* Live PR state at a glance: open green, merged purple, closed red, draft muted. */
   .pr .pst-open{background:var(--vscode-testing-iconPassed,#2ea043);color:#fff}
@@ -419,6 +430,16 @@
   .mg-conflicted .mgtext{color:var(--vscode-testing-iconFailed,#cf222e)}
   .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mg .mgbtn{flex:none}
+  /* The conflict list / the reason karst could not tell. Collapsed by default,
+     like the PR comments thread further down this same panel — the count is what
+     a reader scans, the detail is what they open. Capped and scrollable so a
+     forty-file conflict cannot push the rest of the panel off screen. */
+  .mgd{margin:-4px 0 6px 30px;font-size:11.5px}
+  .mgd summary{cursor:pointer;color:var(--link);width:fit-content}
+  .mgdbody{max-height:180px;overflow-y:auto;margin-top:4px}
+  .mgfile{font-family:var(--mono);font-size:11px;color:var(--text-dim);word-break:break-all}
+  /* git's own words: `pre-wrap` keeps the line breaks a multi-line git error has. */
+  .mgreason{white-space:pre-wrap;color:var(--text-dim);word-break:break-word}
   /* PR metadata: from-to, opened, merged. Indented under its PR like the merge
      verdict, so it reads as facts ABOUT that pull request. */
   .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-2px 0 4px 12px;padding:0 6px;
@@ -587,6 +608,21 @@
       <rect x="5.5" y="2.5" width="8" height="8" rx="1.5"/>
       <path d="M10.5 10.5V12A1.5 1.5 0 0 1 9 13.5H4A1.5 1.5 0 0 1 2.5 12V7A1.5 1.5 0 0 1 4 5.5h1.5"/>
     </g>
+    <g id="i-diff" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 2.5v11M2.5 4 4 2.5 5.5 4M12 13.5v-11M10.5 12 12 13.5l1.5-1.5"/>
+      <path d="M4 8h5a3 3 0 0 0 3-3"/>
+    </g>
+    <g id="i-terminal" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5"/>
+      <path d="m4.5 6 2 2-2 2M8.5 10h3"/>
+    </g>
+    <g id="i-folder" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 5.5h12v6A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5z"/>
+      <path d="M2 5.5V4A1.5 1.5 0 0 1 3.5 2.5H7l1.5 2H14v1"/>
+    </g>
     <g id="i-restart" fill="none" stroke="currentColor" stroke-width="1.4"
        stroke-linecap="round" stroke-linejoin="round">
       <path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.6v3.2H10"/>
@@ -643,7 +679,8 @@
   <!-- The count is a direct child of .phead, like every other panel's: nested in
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
-  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" data-act="show-changes" type="button">Changes</button></div><div class="pbody" id="worktrees"></div></div>
+  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" class="iconbtn" data-act="show-changes" type="button"
+    aria-label="Show ticket changes" title="Show ticket changes"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><use href="#i-diff"/></svg></button></div><div class="pbody" id="worktrees"></div></div>
   <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="iconbtn" data-act="refresh-prs" type="button"
     aria-label="Refresh pull requests" title="Re-check pull request status and mergeability now">
     <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914l1.09-.508A6.2 6.2 0 1 1 8 1.8V0l3 2.4-3 2.4V3Z"/></svg>
@@ -684,6 +721,9 @@
   // state push lands on every server change, so a filter living in (or absent
   // from) DashboardState would be wiped out mid-typing.
   let srvFilter = '';
+  // Live Git totals are supplemental filesystem facts. They stay beside the
+  // host's store snapshot and are cleared whenever a newer snapshot arrives.
+  let worktreeStats = {};
   // Ship-in-flight view state. `shipping` is set the instant the user clicks
   // Confirm ship — BEFORE any host round trip — so the click always registers
   // visibly. It stays true (overriding every state push, which still reads the
@@ -698,6 +738,14 @@
   // a one-shot host round trip, and a flag restored from a reload would claim a
   // merge is underway that nobody is running. Cleared on every state push.
   let mergePending = {};
+  // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
+  // state, exactly like `selectedStage`: render() replaces #prs wholesale on
+  // every `state` push AND every ship-progress tick, so a disclosure that is
+  // open only in the DOM — and the reader's scroll position inside it — would
+  // snap shut on the very next one. Never in DashboardState, never
+  // round-tripped through the host; only the `toggle` listener below mutates
+  // it, and render() itself must never reset it.
+  let openMergeRepos = new Set();
   // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
   // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
   // in which a button with no busy state looks inert and gets pressed again.
@@ -938,7 +986,7 @@
   // is a label concern only — the button always reaches the one entry point.
   const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket', session: 'resume-ticket' };
 
-  function renderNow(now) {
+  function renderNow(now, agentSession) {
     // While a ship is in flight, the real per-step progress lives in the Inside
     // block; this line is a static sentence, never a spinner label — and no
     // button, since the confirm click already happened (no second one to make).
@@ -950,14 +998,23 @@
     const a = line.action;
     const type = a && NOW_MESSAGE[a.kind];
     const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
+    const switchAction = agentSession && agentSession.canSwitch
+      ? '<button class="switch-agent" data-act="switch-agent">Switch agent…</button>'
+      : '';
+    const identity = agentSession
+      ? `${agentSession.providerLabel} · ${agentSession.modelLabel}`
+      : '';
     // A brief success flash beside the settled line once a ship resolves — the
     // clear "it worked" beat before the dashboard shows the done state.
     const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
-    const sub = a && a.kind === 'session' && a.detail
-      ? `<div class="now-sub">${esc(a.detail)}</div>`
+    const detail = a && a.kind === 'session' && a.detail ? a.detail : '';
+    const subtitle = [detail, identity].filter(Boolean).join(' · ');
+    const sub = subtitle
+      ? `<div class="now-sub">${esc(subtitle)}</div>`
       : '';
     el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
       + (type ? `<button data-act="${type}"${attrs}>${esc(a.label)}</button>` : '')
+      + switchAction
       + sub;
   }
 
@@ -1124,26 +1181,54 @@
   function renderWorktrees(wts) {
     el('wtCount').textContent = wts.length ? `${wts.length}` : '';
     el('wtChanges').disabled = wts.length === 0;
-    el('worktrees').innerHTML = wts.length ? wts.map((w) => (
-      `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
-      + `<span class="wbr">${esc(w.branch || '')}</span>`
-      + `<span class="wacts">`
-      + `<button data-act="open-worktree-folder" data-path="${esc(w.path)}">Open folder</button>`
-      + `</span></div>`
-    )).join('') : '<div class="empty">No worktrees.</div>';
+    el('worktrees').innerHTML = wts.length ? wts.map((w) => {
+      const stats = worktreeStats[w.repo];
+      const totals = stats
+        ? `<span class="wstats"><span class="wadd">+${stats.additions}</span> <span class="wdel">−${stats.deletions}</span></span>`
+        : '';
+      const branch = w.branch
+        ? `<span class="wbranch"><span class="wbr">${esc(w.branch)}</span>`
+          + `<button class="ib t-copy" data-act="copy-worktree-branch" data-branch="${esc(w.branch)}" data-copy aria-label="Copy branch name" title="Copy branch name">${svgIcon('copy')}</button></span>`
+        : '';
+      return `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
+        + branch + totals + `<span class="wacts">`
+        + `<button data-act="open-worktree-terminal" data-path="${esc(w.path)}">Open Terminal</button>`
+        + `<button data-act="open-worktree-folder" data-path="${esc(w.path)}">Reveal in Explorer</button>`
+        + `</span></div>`;
+    }).join('') : '<div class="empty">No worktrees.</div>';
   }
 
-  // Mergeability under a PR row. The verdict and its sentence are the host's
-  // (summarizeMergeCheck) — the webview only places them. A repo with no check
-  // renders NOTHING: never asked is not the same as clean, and the one thing
-  // this panel must not do is reassure about a question nobody put.
+  // Mergeability under a PR row. Every string is the host's
+  // (`buildMergeCheckPanelRows`) — the webview only places them. A repo with no
+  // check renders NOTHING: never asked is not the same as clean, and the one
+  // thing this panel must not do is reassure about a question nobody put.
+  //
+  // The headline is bounded (verdict, count, base ref, age), so it fits the line
+  // it is given. Everything unbounded — the path list, git's own error prose —
+  // lives in the disclosure, which is where it can wrap and be selected. A row
+  // the host gave no `detailsLabel` renders no disclosure at all.
   function mergeLine(m) {
     if (!m) return '';
     const act = m.state === 'conflicted'
       ? `<button class="mgbtn" data-act="resolve-conflicts" data-repo="${esc(m.repo)}">Resolve conflicts</button>`
       : '';
-    return `<div class="mg mg-${esc(m.state)}"><span class="mgdot" aria-hidden="true"></span>`
-      + `<span class="mgtext">${esc(m.summary)}</span>${act}</div>`;
+    // The relative age drifts between state pushes; the absolute stamp does not.
+    const title = m.checkedTitle ? ` title="checked ${esc(m.checkedTitle)}"` : '';
+    const body = m.reason
+      ? `<div class="mgreason">${esc(m.reason)}</div>`
+      : (m.files || []).map((f) => `<div class="mgfile">${esc(f)}</div>`).join('');
+    // Re-open exactly the disclosures the user had open before this render —
+    // see `openMergeRepos` above.
+    const openAttr = openMergeRepos.has(m.repo) ? ' open' : '';
+    const details = m.detailsLabel
+      ? `<details class="mgd"${openAttr} data-repo="${esc(m.repo)}"><summary>${esc(m.detailsLabel)}</summary>`
+        + `<div class="mgdbody">${body}</div></details>`
+      : '';
+    return `<div class="mgwrap mg-${esc(m.state)}">`
+      + `<div class="mg"><span class="mgdot" aria-hidden="true"></span>`
+      + `<span class="mgtext"${title}>${esc(m.headline)}</span>${act}</div>`
+      + details
+      + `</div>`;
   }
 
   // The merge control. Rendered from the host's verdict (`canMerge` +
@@ -1278,7 +1363,7 @@
     renderInside(shippingView(state, sel), sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
-    renderNow(state.now);
+    renderNow(state.now, state.agentSession);
     renderServers(state);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
@@ -1343,6 +1428,20 @@
     if (e.target.closest('[data-back]')) select(null);
   });
 
+  // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired
+  // by a state push or a ship-progress tick, not by this click — restores
+  // exactly the ones the user had open. Listens in the CAPTURE phase: `toggle`
+  // does not bubble in every engine, so a bubble-phase delegate on `#prs` could
+  // silently miss it.
+  document.addEventListener('toggle', (e) => {
+    const node = e.target && e.target.closest && e.target.closest('.mgd');
+    if (!node || !node.dataset.repo) return;
+    const next = new Set(openMergeRepos);
+    if (node.open) next.add(node.dataset.repo);
+    else next.delete(node.dataset.repo);
+    openMergeRepos = next;
+  }, true);
+
   // Optimistic feedback for the copy button — the host does the actual clipboard
   // write; the webview just confirms it so the click feels responsive.
   function flashCopied(btn) {
@@ -1404,6 +1503,7 @@
       if (lastState) render(lastState);
     }
     if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id) });
+    else if (btn.dataset.branch) post({ type: act, branch: btn.dataset.branch });
     else if (btn.dataset.path) post({ type: act, path: btn.dataset.path });
     else if (btn.dataset.url) post({ type: act, url: btn.dataset.url });
     // The repo NAMES the conflict; the host resolves it to a worktree itself.
@@ -1435,6 +1535,13 @@
       renderBind();
       return;
     }
+    if (msg.type === 'worktree-stats') {
+      worktreeStats = Object.fromEntries(
+        (msg.stats || []).map((stats) => [stats.repo, stats]),
+      );
+      if (lastState) renderWorktrees(lastState.worktrees || []);
+      return;
+    }
     if (msg.type === 'state') {
       // Resolve an in-flight ship FIRST, so render() draws either the held
       // spinner or the settled line — never a flash of the stale "Confirm ship".
@@ -1446,6 +1553,9 @@
       // Likewise the refresh icon: the host pushes state when the sweep settles
       // even if no verdict moved, precisely so the spin has an end.
       prRefreshing = false;
+      // The matching async totals message follows this snapshot. Until then,
+      // omit numbers rather than showing values for an older working tree.
+      worktreeStats = {};
       // Never touches selectedStage, so a full re-render preserves the user's
       // selection for free — including during a run, when pushes are frequent.
       render(msg.state);

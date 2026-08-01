@@ -13,8 +13,11 @@ import { openStore, type Store } from './store/db.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
+import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
+import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -61,6 +64,7 @@ import {
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
+import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -71,7 +75,6 @@ import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { renderFixBrief } from './agent/fixBrief.js';
-import { countFixAttempts, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow/fixAttempts.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModelForProvider } from './agent/models.js';
@@ -158,10 +161,8 @@ import { buildAgentPool, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
-import { runStageDriver } from './workflow/driver.js';
+import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
-import { runUat } from './workflow/stages/uat.js';
-import { runReview } from './workflow/stages/review.js';
 import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
@@ -173,9 +174,9 @@ import {
   listArchivedTickets,
   setAgentState,
   setSessionId,
+  updateTicketOnboarding,
   archiveTicket,
   unarchiveTicket,
-  deleteTicket,
 } from './store/tickets.js';
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
@@ -186,6 +187,9 @@ import {
   type StartTicketResult,
   type StartTicketOptions,
 } from './ui/onboarding/actions.js';
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
+import { reapAttachments } from './attachments/reap.js';
+import { deleteTicketPermanently } from './runtime/deleteTicket.js';
 import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
 import {
   makeTokenProvider,
@@ -217,6 +221,7 @@ import {
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
+import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { WelcomeManager } from './ui/welcome/panel.js';
 import { buildWelcomeActions } from './ui/welcome/actions.js';
@@ -350,6 +355,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     requestState: () => mgr.refresh(),
     create: () => void vscode.commands.executeCommand('karst.createTicket'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
+    openTicket: (id) => openTicketFromList(localStore, id, {
+      edit: (ticketId) => vscode.commands.executeCommand('karst.editTicket', ticketId),
+      openDashboard: (ticketId) =>
+        vscode.commands.executeCommand('karst.openDashboard', ticketId),
+      onError: (error) => logError(`ticket-list navigation failed for ticket ${id}`, error),
+    }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
     openSession: (id) => void vscode.commands.executeCommand('karst.openSession', id),
@@ -619,13 +630,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * doesn't vary by agent provider, and passing it needlessly risks a
    * `getTicket` throw on a since-deleted ticket.
    */
-  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
-    const ticketProvider =
-      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+  const guardProviderCapability = (
+    capability: Capability,
+    agentProvider: AgentProvider,
+    silent = false,
+  ): boolean => {
     const faults = ensureCapability(
       capability,
-      dependencyRegistry(provider),
+      dependencyRegistry(agentProvider),
       binaryExists,
       commandSucceeds,
     );
@@ -644,6 +656,103 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     }
     return false;
+  };
+
+  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+    const ticketProvider =
+      ticketId === undefined ? undefined : getTicket(localStore, ticketId).agentProvider;
+    return guardProviderCapability(
+      capability,
+      resolveProvider(ticketProvider, currentManifest()?.agentProvider),
+      silent,
+    );
+  };
+
+  /**
+   * Switch-only provider probe. Unlike the activation and ordinary action
+   * guards, this runs from an open dashboard and must never block the shared
+   * extension-host event loop while a candidate CLI answers (or hangs).
+   */
+  const guardProviderCapabilityAsync = async (
+    capability: Capability,
+    agentProvider: AgentProvider,
+  ): Promise<boolean> => {
+    const faults = await ensureCapabilityAsync(capability, dependencyRegistry(agentProvider));
+    if (faults.length === 0) return true;
+    for (const fault of faults) logger.warn(`blocked: '${fault.dep.binary}' is ${fault.state}`);
+    const message = faults
+      .map((fault) => renderDependencyFault(fault.dep, fault.state))
+      .filter((text): text is string => text !== null)
+      .join(' ');
+    void vscode.window.showErrorMessage(message, 'Open setup checklist').then((choice) => {
+      if (choice === 'Open setup checklist') welcome.open();
+    });
+    return false;
+  };
+
+  const switchAgentSession = async (ticketId: number): Promise<void> => {
+    try {
+      const outcome = await runAgentSwitchFlow({
+        read: () => {
+          const ticket = getTicket(localStore, ticketId);
+          return {
+            stageCurrent: ticket.stageCurrent,
+            provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+            ticketModel: ticket.model,
+            defaultModel: currentManifest()?.defaultModel ?? null,
+          };
+        },
+        isSessionOpen: () => sessions.isOpen(ticketId),
+        pickProvider: async (choices, current) => {
+          const picked = await vscode.window.showQuickPick(
+            choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
+            { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
+          );
+          return picked?.provider;
+        },
+        isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
+        pickModel: async (provider, choices) => vscode.window.showQuickPick(
+          choices.map((choice) => ({ ...choice, label: choice.label })),
+          { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
+        ),
+        confirm: async ({ from, to }) => {
+          const choice = await vscode.window.showWarningMessage(
+            `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
+            {
+              modal: true,
+              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+            },
+            'Switch and continue',
+          );
+          return choice === 'Switch and continue';
+        },
+        persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
+          agentProvider: provider,
+          model: model ?? '',
+        }),
+        dispose: () => sessions.disposeSession(ticketId),
+        launch: async (options) => {
+          await vscode.commands.executeCommand('karst.openSession', ticketId, options);
+        },
+      }, modelCatalog);
+
+      if (outcome.kind === 'stale') {
+        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+      } else if (outcome.kind === 'launch-failed') {
+        void vscode.window.showErrorMessage(
+          `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+        );
+      }
+    } catch (error) {
+      logError('agent session switch failed', error);
+      void vscode.window.showErrorMessage(
+        `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
+      );
+    } finally {
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      showStatusFor(ticketId);
+    }
   };
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates
@@ -837,6 +946,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       reloadManifest,
       listInstalledIds: listInstalledApproachIds,
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+      storageDir: context.globalStorageUri.fsPath,
+      pickAttachment: async (): Promise<string[]> => {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectMany: true,
+          openLabel: 'Attach',
+          filters: {
+            Media: [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS],
+          },
+        });
+        return (picked ?? []).map((uri) => uri.fsPath);
+      },
+      openFile: async (path: string) => {
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
+      },
     }),
     listInstalledApproachIds,
     listAgents,
@@ -845,6 +968,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError,
     tabIconFor,
     () => modelCatalog,
+    context.globalStorageUri.fsPath,
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -1189,6 +1313,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         },
         () => changes.open(ticketId),
+        () => void switchAgentSession(ticketId),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
@@ -1229,6 +1354,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       enabled: () => binder.enabled(),
       onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
     },
+    () => ({
+      defaultModel: currentManifest()?.defaultModel ?? null,
+      modelCatalog,
+      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
+    }),
+    (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
   );
 
   binder = new TerminalDashboardBinder({
@@ -1372,16 +1503,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Auto-run the deterministic uat/review gates for a ticket after the
   // impl/fix marker (or a prior gate) leaves it at a gate boundary. Single-flight
   // via `driver.begin`/`end`; never authors a transition itself — `runUat`/
-  // `runReview` own that (single-writer preserved). `runStageDriver` expects
-  // each runner to resolve the ticket's *new* `stageCurrent`, so wrap the real
-  // outcome-returning runners with a re-read.
+  // `runReview` own that (single-writer preserved). Everything below the host
+  // seam lives in `workflow/driveTicket.ts`, which imports no vscode and is
+  // therefore the only version of this logic under test.
   async function driveTicket(ticketId: number): Promise<void> {
     if (!driver.begin(ticketId)) return; // a run is already in flight
     logger.info(`stage driver: begin ticket ${ticketId}`);
     try {
-      const outcome = await runStageDriver(
+      await driveTicketRun(
         {
           store: localStore,
+          manifest: currentManifest,
+          artifactDirFor,
+          // Only a fallback: with a manifest, runUat plans its own multi-repository
+          // targets and this path is not what decides where gates run.
           worktreeFor: (id) => listWorktreesByTicket(localStore, id)[0]?.path ?? null,
           onProgress: (id, stage, status) => {
             logger.info(`stage driver: ticket ${id} ${stage} → ${status}`);
@@ -1389,27 +1524,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             dashboard.pushState(id);
           },
           shouldContinue: () => driver.shouldContinue(ticketId),
-          runUat: (id, cwd) =>
-            runUat(localStore, { ticketId: id, cwd, artifactDir: artifactDirFor(id) }).then(
-              () => getTicket(localStore, id).stageCurrent as StageKey,
-            ),
-          runReview: (id, cwd) =>
-            runReview(localStore, {
-              ticketId: id,
-              cwd,
-              artifactDir: artifactDirFor(id),
-              manifest: currentManifest(),
-            }).then(
-              () => getTicket(localStore, id).stageCurrent as StageKey,
-            ),
+          // Stop, as a signal rather than a between-stages poll: `requestStop`
+          // aborts this, and the abort reaches the gate child already running.
+          signal: driver.signalFor(ticketId),
+          resumeFix: (id, _gate, attempts) => resumeFixSession(id, attempts),
+          log: (message) => logger.info(message),
         },
         ticketId,
       );
-      logger.info(
-        `stage driver: ticket ${ticketId} halted at ${outcome.stage} (${outcome.status}` +
-          `${outcome.reason ? `: ${outcome.reason}` : ''})`,
-      );
-      if (outcome.stage === 'fix') autoResumeFix(ticketId);
     } catch (e) {
       logError('stage driver failed', e);
     } finally {
@@ -1432,20 +1554,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the live session was seeded the IMPL marker, and firing that at fix would
   // move the wrong stage.
   //
-  // Capped: an unfixable ticket would otherwise loop fix→review→fix forever,
-  // burning tokens with no human ever looking. At the cap the ticket stays parked
-  // and the dashboard says so ("fix attempts ran out…", with a Resume button), so
-  // the loop always ends in a human decision rather than silence.
-  function autoResumeFix(ticketId: number): void {
+  // Capped: an unfixable ticket would otherwise loop fix→uat/review→fix forever,
+  // burning tokens with no human ever looking. The cap itself is decided by
+  // `fixResumeDecision` in the driver module — this function only runs once a
+  // resume has been granted, so reaching it IS the decision.
+  function resumeFixSession(ticketId: number, attempts: number): void {
     const t = getTicket(localStore, ticketId);
-    const attempts = countFixAttempts(t.stages);
-    if (!fixAttemptsRemain(attempts)) {
-      logger.info(
-        `stage driver: ticket ${ticketId} parked at fix — ${attempts} gate failures, ` +
-          `at the cap of ${FIX_ATTEMPT_CAP}; leaving it for a human`,
-      );
-      return;
-    }
     const label = t.key ?? `#${ticketId}`;
     const brief =
       renderFixBrief(label, t.stages) ??
@@ -1701,7 +1815,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const adapter = currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!guardCapability('sessions', ticketId)) return;
+      if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -1817,7 +1931,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // plus live worktrees/branches/services/PRs) into markdown and seed it —
       // in-process, no CLI round-trip (the extension already holds the data).
       const ticketContextMd = renderTicketContext(
-        buildTicketContext(localStore, currentManifest(), ticketId),
+        buildTicketContext(
+          localStore,
+          currentManifest(),
+          ticketId,
+          context.globalStorageUri.fsPath,
+        ),
       );
       // The done marker (§5.4) rides EVERY seed, not just the approach path:
       // `materializeApproach` only runs for an installed package or a solo agent,
@@ -1853,6 +1972,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessionProvider: t.sessionProvider,
         stageCurrent: t.stageCurrent as StageKey,
         provider: launchProvider,
+        allowResume: options.allowResume,
       })
         ? (t.sessionId ?? undefined)
         : undefined;
@@ -2144,7 +2264,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Delete',
       );
       if (choice !== 'Delete') return;
-      deleteTicket(localStore, ticketId);
+      try {
+        await deleteTicketPermanently(localStore, ticketId, {
+          closePanel: (id) => onboarding.closeTicket(id),
+          reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+        });
+      } catch (err) {
+        const message =
+          `Karst could not finish permanently deleting "${label}". ` +
+          `Attachment cleanup may be incomplete: ${String(err)}`;
+        logger.warn(message);
+        await vscode.window.showErrorMessage(message);
+      }
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {
@@ -2758,6 +2889,9 @@ function makeDashboardActions(
   // Open the host-owned, whole-ticket changes explorer. The dashboard action
   // carries no path because this closure already owns the ticket id.
   showChanges: () => void,
+  // Switch the open session through native VS Code pickers. The closure owns
+  // the ticket id so the webview cannot select a different session.
+  switchAgent: () => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -2766,6 +2900,22 @@ function makeDashboardActions(
   // ticket: the panel is asking for a fresher answer, not a narrower one.
   refreshPrs: () => Promise<void>,
 ): DashboardActions {
+  const worktreeActions = makeWorktreeActions(
+    {
+      createTerminal: (options) => vscode.window.createTerminal(options),
+      revealInExplorer: async (path) => {
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path));
+      },
+      expandExplorer: async () => {
+        await vscode.commands.executeCommand('list.expand');
+      },
+      writeClipboard: async (text) => {
+        await vscode.env.clipboard.writeText(text);
+      },
+    },
+    logError,
+  );
+
   return {
     stopServer: (serverId) => {
       stopServer(store, serverId);
@@ -2812,10 +2962,8 @@ function makeDashboardActions(
       afterServerChange();
     },
     showChanges,
-    // Open folder → reveal the worktree in the Explorer (navigate there), not
-    // the OS file manager.
-    openWorktreeFolder: (path) =>
-      void vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path)),
+    switchAgent,
+    ...worktreeActions,
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,

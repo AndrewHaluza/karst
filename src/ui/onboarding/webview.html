@@ -60,6 +60,26 @@
   .err{color:var(--vscode-errorForeground);font-size:12px;margin-top:8px}
   .busy{opacity:.6;font-size:11px}
   .empty{opacity:.5;font-size:12px;padding:6px 4px}
+  .attachrow{display:flex;align-items:center;gap:8px;margin-top:6px}
+  .attachstrip{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .attachstrip:empty{display:none}
+  .attachtile{position:relative;width:132px;border-radius:4px;overflow:hidden;
+    border:1px solid var(--vscode-panel-border,rgba(128,128,128,.35))}
+  .attachtile img,.attachtile video{display:block;width:100%;height:82px;object-fit:cover;
+    background:var(--vscode-editor-background,#1e1e1e)}
+  .attachmeta{padding:4px 6px;font-size:11px;line-height:1.3;
+    color:var(--vscode-descriptionForeground,var(--vscode-foreground));opacity:.85}
+  .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .attachdetach{position:absolute;top:2px;right:2px;width:18px;height:18px;padding:0;
+    line-height:16px;border:none;border-radius:3px;cursor:pointer;
+    background:var(--vscode-editor-background,#1e1e1e);
+    color:var(--vscode-foreground);opacity:.75}
+  .attachdetach:hover{opacity:1}
+  .attachopen{display:block;width:100%;padding:4px 6px;border:0;border-top:1px solid
+    var(--vscode-panel-border,rgba(128,128,128,.35));cursor:pointer;text-align:left;
+    background:var(--vscode-button-secondaryBackground,var(--vscode-editor-background));
+    color:var(--vscode-button-secondaryForeground,var(--vscode-textLink-foreground))}
+  .attachopen:hover{background:var(--vscode-button-secondaryHoverBackground)}
 
   /* Card heading row: title on the left, provider chip pinned top-right. */
   .cardhead{display:flex;align-items:center;justify-content:space-between;
@@ -254,6 +274,12 @@
     </span>
   </div>
   <textarea id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
+  <div class="attachrow">
+    <button type="button" id="attachBtn" class="ghost"
+            title="Attach an image or video from disk">Attach…</button>
+    <span class="hint">or paste a screenshot into the prompt</span>
+  </div>
+  <div id="attachments" class="attachstrip"></div>
   <div class="err hidden" id="err"></div>
 </div>
 
@@ -347,6 +373,12 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
+  // Mirrors MAX_PASTE_BYTES in attachments/ingest.ts. The host re-checks it —
+  // this copy exists so the user is told before a large paste crosses
+  // postMessage, not after the host silently drops it. webview.test.ts pins the
+  // two together, because a drift means a paste that vanishes with no message.
+  const MAX_PASTE_BYTES = 10485760;
+
   // The working draft: create mode has no ticket, so the webview owns state that
   // only lands in the DB on submit. Repos/approach/agent selections are
   // mirrored here.
@@ -381,6 +413,35 @@
     link.innerHTML = '↗ ' + badge + ref;
   }
 
+  function formatBytes(n) {
+    if (n >= 1048576) return Math.round(n / 1048576) + ' MB';
+    if (n >= 1024) return Math.round(n / 1024) + ' KB';
+    return n + ' B';
+  }
+
+  // Renders the strip under the prompt. Every interpolated value came from a
+  // ticket the user may not have authored, so all of them go through esc(); the
+  // widened CSP is the backstop under that, not a replacement for it.
+  function renderAttachments(list) {
+    if (!list || list.length === 0) return '';
+    return list.map(function (a) {
+      const media = a.kind === 'video'
+        ? '<video src="' + esc(a.src) + '" preload="metadata" controls '
+          + 'data-attach-id="' + esc(a.id) + '"></video>'
+        : '<img src="' + esc(a.src) + '" alt="' + esc(a.name) + '" '
+          + 'data-attach-id="' + esc(a.id) + '">';
+      return '<div class="attachtile">'
+        + media
+        + '<button type="button" class="attachdetach" data-attach-id="' + esc(a.id) + '" '
+        + 'title="Remove attachment">&times;</button>'
+        + '<span class="attachmeta"><span class="attachname" title="' + esc(a.name) + '">'
+        + esc(a.name) + '</span>' + esc(formatBytes(a.byteSize)) + '</span>'
+        + '<button type="button" class="attachopen" data-attach-id="' + esc(a.id) + '" '
+        + 'title="Open attachment" aria-label="Open ' + esc(a.name) + '">Open</button>'
+        + '</div>';
+    }).join('');
+  }
+
   function render(state) {
     draft.mode = state.mode;
     // Edit heading = the ticket's human label (key, else #id) + title. No id →
@@ -410,6 +471,7 @@
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
     if (!el('desc').value) el('desc').value = state.description || '';
+    el('attachments').innerHTML = renderAttachments(state.attachments || []);
 
     renderGate(state.unclassified, state.repos);
     // Drawer header title: the persisted brief's first heading, else the ticket
@@ -946,6 +1008,69 @@
   // auto-prefill (that would rewrite the prompt mid-type); prefill auto-runs only
   // after a fetch (and only when Auto-prefill is on), or on an explicit click.
   el('desc').addEventListener('input', syncAnalyzeBtn);
+
+  el('attachBtn').addEventListener('click', function () {
+    post({ type: 'attach-pick' });
+  });
+
+  // Delegated: the strip is re-rendered on every state push, so per-tile
+  // listeners would be re-bound each time and leak.
+  el('attachments').addEventListener('click', function (e) {
+    const detach = e.target.closest('.attachdetach');
+    if (detach) {
+      post({ type: 'detach-attachment', id: Number(detach.dataset.attachId) });
+      return;
+    }
+    const open = e.target.closest('.attachopen');
+    if (open) post({ type: 'open-attachment', id: Number(open.dataset.attachId) });
+  });
+
+  function postPastedFile(file) {
+    const name = file.name || ('pasted-' + Date.now() + '.png');
+    if (file.size > MAX_PASTE_BYTES) {
+      // showErr is the page's existing inline-error display. Told here rather
+      // than after the host drops it, so the user learns why nothing appeared.
+      showErr(name + ' is too large to paste (limit 10 MB). Use Attach… to add it from disk.');
+      return;
+    }
+    const reader = new FileReader();
+    const reportReadFailure = function () {
+      showErr(name + ' could not be read from the clipboard.');
+    };
+    reader.onerror = reportReadFailure;
+    reader.onabort = reportReadFailure;
+    reader.onload = function () {
+      if (typeof reader.result !== 'string') {
+        reportReadFailure();
+        return;
+      }
+      const marker = ';base64,';
+      const markerAt = reader.result.indexOf(marker);
+      const payload = markerAt < 0 ? '' : reader.result.slice(markerAt + marker.length);
+      if (!reader.result.startsWith('data:') || markerAt < 5 || payload.length === 0) {
+        reportReadFailure();
+        return;
+      }
+      post({ type: 'attach-bytes', name, base64: payload });
+    };
+    try {
+      reader.readAsDataURL(file);
+    } catch {
+      reportReadFailure();
+    }
+  }
+
+  // Clipboard images have no path, so bytes are the only thing available — this
+  // is why the paste path exists at all. Text pastes fall through untouched:
+  // preventDefault only fires once a file is actually found.
+  el('desc').addEventListener('paste', function (e) {
+    const files = e.clipboardData && e.clipboardData.files;
+    if (!files || files.length === 0) return;
+    e.preventDefault();
+    for (let i = 0; i < files.length; i += 1) {
+      postPastedFile(files[i]);
+    }
+  });
 
   // Auto-prefill switch (default on). Click or Space/Enter toggles it.
   el('autoPrefill').addEventListener('click', () => setAutoPrefill(!autoPrefillOn));

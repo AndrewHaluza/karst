@@ -32,7 +32,21 @@ function ticket(
     projectId: null,
     parentTicketId: null,
     stages: stageCurrent
-      ? [{ ticketId: 1, stageKey: stageCurrent, status, attempt: 0, verdict: null, artifactPath: null, startedAt: null, endedAt: null }]
+      ? [
+          {
+            ticketId: 1,
+            stageKey: stageCurrent,
+            status,
+            attempt: 0,
+            verdict: null,
+            artifactPath: null,
+            startedAt: null,
+            endedAt: null,
+            blockedKind: null,
+            blockedReason: null,
+            blockedAt: null,
+          },
+        ]
       : [],
     ...over,
   };

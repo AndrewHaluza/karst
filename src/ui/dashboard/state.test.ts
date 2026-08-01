@@ -38,6 +38,34 @@ describe('buildDashboardState', () => {
     expect(state.prs).toEqual([]);
   });
 
+  it('shows the resolved agent core/model and enables switching only for a live impl session', () => {
+    const t = createTicket(store, { key: 'SW-1', title: 'switch' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { defaultModel: null, isSessionOpen: (id) => id === t.id },
+    );
+
+    expect(state.agentSession).toMatchObject({
+      provider: 'codex', providerLabel: 'Codex',
+      modelId: 'gpt-5.6-sol', modelLabel: 'GPT-5.6 Sol', canSwitch: true,
+    });
+  });
+
+  it.each([
+    ['impl', false], ['fix', false], ['review', true],
+  ] as const)('does not offer switching at %s/open=%s', (stage, open) => {
+    const t = createTicket(store, { key: `SW-${stage}-${open}`, title: 'switch' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { isSessionOpen: () => open },
+    );
+    expect(state.agentSession.canSwitch).toBe(false);
+  });
+
   // The merge verdicts already feed the ship strip; the PR panel needs them at
   // the top level too, because that is where the conflict is acted on and the
   // webview cannot query the store.
@@ -57,15 +85,17 @@ describe('buildDashboardState', () => {
 
     const state = buildDashboardState(store, t.id);
 
-    expect(state.mergeChecks).toEqual([
-      {
-        repo: 'api',
-        state: 'conflicted',
-        // Rendered host-side: the webview must never phrase a verdict of its own.
-        summary: 'conflicted (1 file: src/a.ts)',
-        checkedAt: '2026-07-28T12:00:00.000Z',
-      },
-    ]);
+    // Fully worded host-side: the webview must never phrase a verdict of its own,
+    // and the age is relative to the push, so only the fixed parts are pinned.
+    expect(state.mergeChecks).toHaveLength(1);
+    const row = state.mergeChecks[0]!;
+    expect(row.repo).toBe('api');
+    expect(row.state).toBe('conflicted');
+    expect(row.headline).toMatch(/^conflicted · 1 file · vs main · /);
+    expect(row.detailsLabel).toBe('1 conflicting file');
+    expect(row.files).toEqual(['src/a.ts']);
+    expect(row.reason).toBe('');
+    expect(row.checkedTitle).not.toBe('');
   });
 
   it('throws for an unknown ticket', () => {

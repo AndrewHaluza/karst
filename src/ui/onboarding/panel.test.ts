@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import { insertAttachment } from '../../store/attachments.js';
 import { OnboardingManager } from './panel.js';
 import type { OnboardingPanel, OnboardingPanelHost, OnboardingActionsCtx } from './panel.js';
 import type { OnboardingActions } from './messages.js';
+import type { AttachmentView, OnboardingState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import {
@@ -36,9 +38,9 @@ interface FakePanel extends OnboardingPanel {
   revealed: number;
   posted: unknown[];
   icons: string[];
-  handlers: Array<(m: unknown) => void>;
+  handlers: Array<(m: unknown) => void | Promise<void>>;
   disposeHandler?: () => void;
-  emit(m: unknown): void;
+  emit(m: unknown): Promise<void>;
   dispose(): void;
 }
 
@@ -54,10 +56,13 @@ function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
         handlers: [],
         reveal: () => (panel.revealed += 1),
         setIcon: (p) => panel.icons.push(p),
+        toWebviewUri: (p: string) => `webview://${p}`,
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => panel.handlers.push(h),
         onDidDispose: (h) => (panel.disposeHandler = h),
-        emit: (m) => panel.handlers.forEach((h) => h(m)),
+        emit: async (m) => {
+          await Promise.all(panel.handlers.map((h) => h(m)));
+        },
         dispose: () => panel.disposeHandler?.(),
       };
       panels.push(panel);
@@ -68,7 +73,10 @@ function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
 }
 
 /** A no-op actions factory that records the ctx it was built with. */
-function recordingFactory(seen: OnboardingActionsCtx[] = []) {
+function recordingFactory(
+  seen: OnboardingActionsCtx[] = [],
+  overrides: Partial<OnboardingActions> = {},
+) {
   const factory = (ctx: OnboardingActionsCtx): OnboardingActions => {
     seen.push(ctx);
     return {
@@ -82,10 +90,15 @@ function recordingFactory(seen: OnboardingActionsCtx[] = []) {
       setProvider: () => {},
       setType: () => {},
       analyze: () => {},
+      attachPick: async () => {},
+      attachBytes: async () => {},
+      detachAttachment: async () => {},
+      openAttachment: async () => {},
       openTicketLink: () => {},
       submit: () => {},
       save: () => {},
       requestState: () => ctx.pushState(),
+      ...overrides,
     };
   };
   return { factory, seen };
@@ -217,6 +230,33 @@ describe('OnboardingManager', () => {
     expect(panels[0]!.revealed).toBeGreaterThan(0);
   });
 
+  it('closes the local edit panel when its ticket is permanently deleted', () => {
+    const ticket = createTicket(store, { key: 'P-DELETE', title: 'deleted' });
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+    manager.openEdit(ticket.id);
+
+    manager.closeTicket(ticket.id);
+    manager.openEdit(ticket.id);
+
+    expect(panels).toHaveLength(2);
+  });
+
+  it('closes a create panel that became bound to the deleted ticket', () => {
+    const ticket = createTicket(store, { key: 'P-DRAFT-DELETE', title: 'deleted draft' });
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+    manager.openCreate();
+    seen[0]!.bindTicket(ticket.id);
+
+    manager.closeTicket(ticket.id);
+    manager.openEdit(ticket.id);
+
+    expect(panels).toHaveLength(2);
+  });
+
   it('routes a request-state message back through the ctx pushState', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
@@ -227,6 +267,34 @@ describe('OnboardingManager', () => {
     panels[0]!.emit({ type: 'request-state' });
     const pushed = panels[0]!.posted.at(-1) as { type: string };
     expect(pushed.type).toBe('state');
+  });
+
+  it('awaits a rejected attachment action and reports it inline', async () => {
+    const { host, panels } = fakeHost();
+    const rejected = Promise.reject(new Error('attachment action failed'));
+    // Keep the pre-fix implementation from surfacing an unhandled rejection;
+    // the assertion below still proves the panel itself did not observe it.
+    void rejected.catch(() => {});
+    const { factory } = recordingFactory([], { attachPick: () => rejected });
+    const mgr = new OnboardingManager(
+      store,
+      () => MANIFEST,
+      host,
+      factory,
+      undefined,
+      undefined,
+      undefined,
+      () => {},
+    );
+
+    mgr.openCreate();
+    panels[0]!.posted.length = 0;
+    await panels[0]!.emit({ type: 'attach-pick' });
+
+    expect(panels[0]!.posted).toContainEqual({
+      type: 'error',
+      message: 'attachment action failed',
+    });
   });
 
   it('rebinds a create panel to a ticket so the next pushState is edit mode', () => {
@@ -330,5 +398,75 @@ describe('OnboardingManager', () => {
     panels[0]!.dispose();
     mgr.openCreate();
     expect(panels).toHaveLength(2);
+  });
+});
+
+describe('attachment URI mapping', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  function attachmentPanel(): FakePanel {
+    const ticket = createTicket(store, { key: 'P-ATTACH', title: 'attachments' });
+    insertAttachment(store, {
+      ticketId: ticket.id,
+      kind: 'image',
+      storedName: 'aaaa.png',
+      originalName: 'a.png',
+      byteSize: 4,
+    });
+    insertAttachment(store, {
+      ticketId: ticket.id,
+      kind: 'video',
+      storedName: 'bbbb.mp4',
+      originalName: 'b.mov',
+      byteSize: 8,
+    });
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const manager = new OnboardingManager(
+      store,
+      () => MANIFEST,
+      host,
+      factory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      '/storage',
+    );
+    manager.openEdit(ticket.id);
+    return panels[0]!;
+  }
+
+  function stateAttachments(panel: FakePanel): AttachmentView[] {
+    const state = panel.posted.at(-1) as { type: 'state'; state: OnboardingState };
+    return state.state.attachments;
+  }
+
+  it('maps every attachment src through the panel before posting state', () => {
+    expect(stateAttachments(attachmentPanel())).toEqual([
+      { id: 1, kind: 'image', name: 'a.png', byteSize: 4, src: 'webview:///storage/attachments/1/aaaa.png' },
+      { id: 2, kind: 'video', name: 'b.mov', byteSize: 8, src: 'webview:///storage/attachments/1/bbbb.mp4' },
+    ]);
+  });
+
+  it('maps attachment sources on a request-state refresh too', () => {
+    const panel = attachmentPanel();
+    panel.emit({ type: 'request-state' });
+    expect(stateAttachments(panel).map((attachment) => attachment.src)).toEqual([
+      'webview:///storage/attachments/1/aaaa.png',
+      'webview:///storage/attachments/1/bbbb.mp4',
+    ]);
+  });
+
+  it('posts an empty attachment list unchanged', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+
+    manager.openCreate();
+    expect(stateAttachments(panels[0]!)).toEqual([]);
   });
 });

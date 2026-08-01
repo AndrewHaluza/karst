@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readPackageScripts, REVIEW_GATES } from './scripts.js';
+import { readPackageScripts, REVIEW_GATES, UAT_GATES } from './scripts.js';
 
 describe('readPackageScripts', () => {
   let dir: string;
@@ -45,5 +45,12 @@ describe('REVIEW_GATES', () => {
       ['typecheck', 'typecheck'],
       ['test', 'test'],
     ]);
+  });
+});
+
+describe('UAT_GATES', () => {
+  it('is a non-empty list whose first entry is the repo test script', () => {
+    expect(UAT_GATES.length).toBeGreaterThan(0);
+    expect(UAT_GATES[0]).toEqual({ name: 'test', script: 'test', args: ['test'] });
   });
 });

@@ -38,12 +38,12 @@ describe('runFix', () => {
     walkToFix(store, id);
   });
 
-  it('resumes the captured session_id and re-enters review', async () => {
+  it('resumes the captured session_id and re-enters uat', async () => {
     const { adapter, calls } = fakeAdapter();
     const next = await runFix(store, { ticketId: id, cwd: '/wt' }, adapter);
     expect((calls[0] as { resume?: string }).resume).toBe('sess-abc');
-    expect(next).toBe('review');
-    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(next).toBe('uat');
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
   });
 
   it('throws when there is no captured session to resume', async () => {

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 19;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -347,7 +347,77 @@ export function migrate(db: Database): void {
   }
 
   if (current < 17) {
-    // v17 adds the append-only token_usage table plus its aggregation indexes
+    // v17 gives a gate stage a durable "karst could not ask" state. Purely
+    // additive and guarded on the CURRENT columns, so a fresh DB (already carrying
+    // them from schema.sql) skips the step and a re-open is a no-op. Nothing is
+    // backfilled: absence IS "not blocked", which is the correct reading of every
+    // existing row.
+    const cols = tableColumns(db, 'stages');
+    if (cols.size > 0) {
+      if (!cols.has('blocked_kind')) db.exec('ALTER TABLE stages ADD COLUMN blocked_kind TEXT');
+      if (!cols.has('blocked_reason')) db.exec('ALTER TABLE stages ADD COLUMN blocked_reason TEXT');
+      if (!cols.has('blocked_at')) db.exec('ALTER TABLE stages ADD COLUMN blocked_at TEXT');
+    }
+  }
+
+  if (current < 18) {
+    // v18 adds prompt attachments (images/video). Purely additive and a
+    // CREATE TABLE IF NOT EXISTS, so a fresh DB (already carrying it from
+    // schema.sql) skips it and a re-open is a no-op.
+    //
+    // Nothing is backfilled — there are no pre-v18 attachments to derive. The
+    // bytes live on disk under <globalStorage>/attachments/, which a migration
+    // has no business reaching into; the table indexes them, and the host owns
+    // the directory's lifecycle.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ticket_attachments (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL,
+        kind          TEXT NOT NULL,
+        stored_name   TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        byte_size     INTEGER NOT NULL,
+        created_at    TEXT NOT NULL,
+        operation_token TEXT,
+        detach_token    TEXT
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket ON ticket_attachments(ticket_id, id)',
+    );
+  }
+
+  // The attachment table was strengthened before release. A development registry
+  // may already report a current user_version while carrying the earlier table
+  // (it shipped as v17 before the UAT stage claimed that number), so repair the
+  // CURRENT shape outside the version gate instead of stranding it without the
+  // conflict target the atomic attachment upsert requires.
+  const repairAttachments = db.transaction(() => {
+    const attachmentCols = tableColumns(db, 'ticket_attachments');
+    if (attachmentCols.size === 0) return;
+    if (!attachmentCols.has('operation_token')) {
+      db.exec('ALTER TABLE ticket_attachments ADD COLUMN operation_token TEXT');
+    }
+    if (!attachmentCols.has('detach_token')) {
+      db.exec('ALTER TABLE ticket_attachments ADD COLUMN detach_token TEXT');
+    }
+    // Pre-index builds could race two identical rows into a development DB.
+    // They reference the same content-addressed file, so retaining the oldest
+    // row restores the specified no-duplicate-tile model without losing bytes.
+    db.exec(`
+      DELETE FROM ticket_attachments
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM ticket_attachments GROUP BY ticket_id, stored_name
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name ON ticket_attachments(ticket_id, stored_name)',
+    );
+  });
+  repairAttachments();
+
+  if (current < 19) {
+    // v19 adds the append-only token_usage table plus its aggregation indexes
     // (§ token consumption stats). A whole new table, so the step is the same
     // DDL as schema.sql rather than an ALTER, and every statement is IF NOT
     // EXISTS — a fresh DB (already carrying it) and a re-open are both no-ops.

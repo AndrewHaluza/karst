@@ -23,7 +23,10 @@ export function shouldResumeSession(t: {
   sessionProvider: AgentProvider | null;
   stageCurrent: StageKey;
   provider: AgentProvider;
+  /** Host-only override for launches that must start a new conversation. */
+  allowResume?: boolean;
 }): boolean {
+  if (t.allowResume === false) return false;
   if (t.sessionId === null || t.sessionProvider === null) return false;
   if (t.sessionProvider !== t.provider) return false;
   return t.stageCurrent === 'impl' || t.stageCurrent === 'fix';

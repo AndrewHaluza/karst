@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { transition } from '../workflow/machine.js';
+import { insertAttachment } from '../store/attachments.js';
 import { openWritableStore } from './writableStore.js';
 
 /**
@@ -64,5 +65,25 @@ describe('openWritableStore', () => {
     const row = check.db.prepare('SELECT title FROM tickets WHERE id = ?').get(1) as { title: string };
     expect(row.title).toBe('demo'); // unchanged — rolled back
     check.close();
+  });
+
+  it('runs the attachment conditional dedupe upsert through node:sqlite', () => {
+    const store = openWritableStore(dbPath);
+    try {
+      const input = {
+        ticketId: 1,
+        kind: 'image' as const,
+        storedName: 'same.png',
+        originalName: 'first.png',
+        byteSize: 4,
+      };
+      const inserted = insertAttachment(store, input);
+      const deduped = insertAttachment(store, { ...input, originalName: 'second.png' });
+
+      expect(inserted).not.toBeNull();
+      expect(deduped).toEqual(inserted);
+    } finally {
+      store.close();
+    }
   });
 });
