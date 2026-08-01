@@ -46,6 +46,7 @@ export class SidebarViewManager {
   private view: SidebarView | undefined;
   private facets: FacetKey[] = [...DEFAULT_SELECTION];
   private filter = '';
+  private refreshSubscriber: (() => void) | undefined;
 
   constructor(
     private readonly store: Store,
@@ -103,6 +104,21 @@ export class SidebarViewManager {
   /** Re-query and re-push. Named to match the old tree provider's `refresh`. */
   refresh(): void {
     this.push();
+    this.refreshSubscriber?.();
+  }
+
+  /**
+   * Observe every `refresh` — the ticket-set-changed signal, which is what the
+   * activity-bar badge and the attention status item are derived from.
+   *
+   * Deliberately NOT fired by `setFilter`/`toggleFacet`: those change what this
+   * view SHOWS, not which tickets need the user.
+   *
+   * One subscriber, last registration wins — the same contract
+   * `SidebarViewHost.onResolve` already has. This is wiring, not an event bus.
+   */
+  onRefresh(cb: () => void): void {
+    this.refreshSubscriber = cb;
   }
 
   /** Set the search filter and re-push; blank clears it. */

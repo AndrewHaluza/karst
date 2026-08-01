@@ -94,6 +94,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "karst.showAttention",
+        "title": "Karst: Show Tickets Needing You",
+        "icon": "$(bell)"
+      },
+      {
         "command": "karst.showLogs",
         "title": "Karst: Show Logs",
         "icon": "$(output)"

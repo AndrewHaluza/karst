@@ -110,4 +110,50 @@ describe('SidebarViewManager', () => {
     const mgr = new SidebarViewManager(store, () => stubActions());
     expect(() => mgr.refresh()).not.toThrow();
   });
+
+  it('notifies the refresh subscriber on every refresh', () => {
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    resolve();
+    const seen = vi.fn();
+    mgr.onRefresh(seen);
+    mgr.refresh();
+    mgr.refresh();
+    expect(seen).toHaveBeenCalledTimes(2);
+  });
+
+  it('notifies the refresh subscriber even before the view resolves', () => {
+    // The badge is most useful in exactly this window: the user has never
+    // opened the Tickets view, so `push` is a no-op — but the count still needs
+    // to reach the activity-bar icon.
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const seen = vi.fn();
+    mgr.onRefresh(seen);
+    mgr.refresh();
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not notify on filter or facet changes — the ticket set is unchanged', () => {
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    resolve();
+    const seen = vi.fn();
+    mgr.onRefresh(seen);
+    mgr.setFilter('abc');
+    mgr.toggleFacet('failed');
+    expect(seen).not.toHaveBeenCalled();
+  });
+
+  it('still refreshes when no subscriber is registered', () => {
+    createTicket(store, { key: 'B-1', title: 'one' });
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    const before = view.posted.length;
+    expect(() => mgr.refresh()).not.toThrow();
+    expect(view.posted.length).toBe(before + 1);
+  });
 });

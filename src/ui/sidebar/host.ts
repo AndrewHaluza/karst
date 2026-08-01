@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { SidebarView, SidebarViewHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
+import { BadgeCache } from './badgeCache.js';
 
 /**
  * Activation-layer adapter: the real `vscode.WebviewViewProvider` for the sidebar
@@ -30,9 +31,12 @@ export const SIDEBAR_VIEW_ID = 'karst.tickets';
  */
 export function makeSidebarViewHost(
   context: vscode.ExtensionContext,
-): { host: SidebarViewHost; provider: vscode.WebviewViewProvider } {
+): { host: SidebarViewHost; provider: vscode.WebviewViewProvider; badge: BadgeCache } {
   const html = injectPalette(readFileSync(join(HERE, 'webview.html'), 'utf8'));
   let onResolve: ((view: SidebarView) => void) | undefined;
+  // The badge outlives any single resolve: VS Code re-resolves the view when it
+  // is hidden and shown again, and in a cold window it may never resolve at all.
+  const badge = new BadgeCache();
 
   const provider: vscode.WebviewViewProvider = {
     resolveWebviewView(webviewView) {
@@ -40,6 +44,14 @@ export function makeSidebarViewHost(
       // Fresh nonce per resolve — the sidebar view is re-resolved when it is
       // hidden and shown again, and each resolve is a new page load.
       webviewView.webview.html = injectCsp(html, newNonce());
+      badge.attach({
+        setBadge: (value) => {
+          webviewView.badge = value;
+        },
+      });
+      // The view is re-resolved on next show; detach now so a `set`/`clear` in
+      // between doesn't write to this dead view (and so it isn't retained).
+      webviewView.onDidDispose(() => badge.detach());
       const view: SidebarView = {
         postMessage: (message) => void webviewView.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>
@@ -55,5 +67,5 @@ export function makeSidebarViewHost(
     },
   };
 
-  return { host, provider };
+  return { host, provider, badge };
 }
