@@ -266,6 +266,43 @@ describe('driveTicket', () => {
     expect(runSignal?.aborted).toBe(true);
   });
 
+  it('passes the host openDiff to the review runner', async () => {
+    let receivedOpenDiff: unknown;
+    const hostOpenDiff = (): void => {};
+
+    await driveTicket(deps({ openDiff: hostOpenDiff }), id, {
+      runUat: async (s, opts) => ({
+        kind: 'advanced',
+        next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }),
+      }),
+      runReview: async (s, opts, _runner, openDiff) => {
+        receivedOpenDiff = openDiff;
+        transition(s, opts.ticketId, 'review', { kind: 'passed' }); // -> ship
+        return { verdict: { kind: 'passed' }, artifactPath: '/x', gates: [] };
+      },
+    });
+
+    expect(receivedOpenDiff).toBe(hostOpenDiff);
+  });
+
+  it('leaves the review runner’s openDiff undefined when the host supplied none', async () => {
+    let receivedOpenDiff: unknown = 'unset';
+
+    await driveTicket(deps(), id, {
+      runUat: async (s, opts) => ({
+        kind: 'advanced',
+        next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }),
+      }),
+      runReview: async (s, opts, _runner, openDiff) => {
+        receivedOpenDiff = openDiff;
+        transition(s, opts.ticketId, 'review', { kind: 'passed' }); // -> ship
+        return { verdict: { kind: 'passed' }, artifactPath: '/x', gates: [] };
+      },
+    });
+
+    expect(receivedOpenDiff).toBeUndefined();
+  });
+
   it('does not abort the run signal on an ordinary completion', async () => {
     let runSignal: AbortSignal | undefined;
 

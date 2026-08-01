@@ -4,7 +4,7 @@ import type { Manifest } from '../manifest/types.js';
 import { getTicket } from '../store/tickets.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import { runUat } from './stages/uat.js';
-import { runReview } from './stages/review.js';
+import { runReview, type OpenDiff } from './stages/review.js';
 import {
   countFixAttempts,
   fixAttemptsRemain,
@@ -55,6 +55,15 @@ export interface DriveTicketDeps {
   signal?: AbortSignal;
   /** Called only when a fix attempt remains; the host owns how it resumes. */
   resumeFix: (ticketId: number, gate: GateStageKey, attempts: number) => void;
+  /**
+   * Opens the ticket's diff for a human to review. Absent means nothing does
+   * — review then records no diff evidence for that run, and `reviewInside`
+   * shows no diff row rather than claim one nobody performed. The host wires
+   * its existing ticket-stack diff surface here (`TicketChangesManager.open`,
+   * itself backed by the `vscode.diff` call already in `extension.ts`);
+   * `driveTicket` never authors a second diff surface of its own.
+   */
+  openDiff?: OpenDiff;
   log: (message: string) => void;
 }
 
@@ -120,13 +129,22 @@ export async function driveTicket(
         // `runReview` still always transitions and returns a ReviewOutcome, so
         // its result is adapted here from the ticket's post-transition stage.
         // Review's redesign is out of scope for this phase.
+        //
+        // `undefined` for the runner argument keeps `runReview`'s own default
+        // (`makeGateRunner()`); `deps.openDiff` is threaded straight through —
+        // absent here means absent there, never a no-op default.
         runReview: (id, cwd) =>
-          review(deps.store, {
-            ticketId: id,
-            cwd,
-            artifactDir: deps.artifactDirFor(id),
-            manifest: deps.manifest(),
-          }).then(() => ({
+          review(
+            deps.store,
+            {
+              ticketId: id,
+              cwd,
+              artifactDir: deps.artifactDirFor(id),
+              manifest: deps.manifest(),
+            },
+            undefined,
+            deps.openDiff,
+          ).then(() => ({
             kind: 'advanced' as const,
             next: getTicket(deps.store, id).stageCurrent as StageKey,
           })),

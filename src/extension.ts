@@ -1625,6 +1625,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
           resumeFix: (id, _gate, attempts) => resumeFixSession(id, attempts),
+          // Reuses the ticket-stack diff surface already wired above
+          // (`TicketChangesManager` → `openTicketDiff` → `vscode.diff`) rather
+          // than authoring a second one. The panel already aggregates every
+          // worktree for a ticket, so revealing it by ticket id covers every
+          // affected target review calls this for; `cwd` names nothing further
+          // to open.
+          openDiff: (id) => changes.open(id),
           log: (message) => logger.info(message),
         },
         ticketId,

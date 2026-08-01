@@ -141,20 +141,31 @@ export async function runReview(
   store: Store,
   opts: RunReviewOpts,
   runner: GateRunner = makeGateRunner(),
-  openDiff: OpenDiff = () => {},
+  // No default no-op: a caller that supplies nothing means nothing opens, and
+  // the evidence below must say so — a default that quietly "succeeds" is
+  // exactly the lie this closes (openDiff used to default to a no-op that no
+  // caller ever replaced, while the row claimed a diff opened regardless).
+  openDiff?: OpenDiff,
   git: GitRunner = defaultGitRunner,
 ): Promise<ReviewOutcome> {
   const targets = opts.manifest
     ? await selectReviewTargets(opts.manifest, listWorktreesByTicket(store, opts.ticketId), git)
     : [{ repo: opts.cwd, path: opts.cwd, baseRef: null, names: [] }];
   const targetRuns: { label: string; gates: GateResult[] }[] = [];
+  // Tracked so the transition below can record whether a diff genuinely
+  // opened — never assumed from "the loop ran", since only a real `openDiff`
+  // (not the absence of one) actually shows the human anything.
+  let diffOpened = false;
   for (const target of targets) {
     targetRuns.push({
       label: target.names.join(', ') || target.repo,
       gates: await runner(target.path),
     });
     // A human diff is useful for exactly the same affected target set.
-    openDiff(opts.ticketId, target.path);
+    if (openDiff) {
+      openDiff(opts.ticketId, target.path);
+      diffOpened = true;
+    }
   }
 
   // Evidence remains one row per gate name. When several affected repositories
@@ -221,13 +232,14 @@ export async function runReview(
   const runAt = nowIso();
   transition(store, opts.ticketId, 'review', verdict, () => {
     setStage(store, opts.ticketId, 'review', { artifactPath });
+    // Read inside the transaction, before the machine bumps it on a failure:
+    // these gates belong to the attempt that RAN, not to the one its failure
+    // creates.
+    const attempt = stageAttempt(store, opts.ticketId, 'review');
     recordGateRun(store, {
       ticketId: opts.ticketId,
       stageKey: 'review',
-      // Read inside the transaction, before the machine bumps it on a failure:
-      // these gates belong to the attempt that RAN, not to the one its failure
-      // creates.
-      attempt: stageAttempt(store, opts.ticketId, 'review'),
+      attempt,
       runAt,
       gates: gates.map((g) => ({
         gateName: g.name,
@@ -236,6 +248,22 @@ export async function runReview(
         endedAt: g.endedAt ?? null,
       })),
     });
+    // The diff is evidence exactly like a gate, recorded ONLY when a real
+    // `openDiff` actually ran — a separate batch call, deliberately never
+    // folded into `gates` above, so it can never touch REVIEW_GATES' verdict
+    // math or artifact report (that stays the deterministic-gate computation
+    // it always was). This is what lets `reviewInside` read "did a diff
+    // open" back out of the store after a reload, instead of a live
+    // `ReviewOutcome` boolean that a reload would lose.
+    if (diffOpened) {
+      recordGateRun(store, {
+        ticketId: opts.ticketId,
+        stageKey: 'review',
+        attempt,
+        runAt,
+        gates: [{ gateName: 'diff', exitCode: 0 }],
+      });
+    }
   });
 
   return { verdict, artifactPath, gates };

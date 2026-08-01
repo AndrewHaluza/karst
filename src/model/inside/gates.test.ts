@@ -85,13 +85,28 @@ describe('reviewInside', () => {
     expect(ops.find((o) => o.name === 'lint')!.status).toBe('pass');
   });
 
-  it('states the diff as still to come while the gate runs, and as opened once it finished', () => {
+  it('states the diff as still to come while the gate runs, and as opened once a real openDiff recorded it', () => {
     const running = reviewInside(cell('review', 'running'), [], NOW).ops;
     expect(running.at(-1)).toMatchObject({ name: 'diff', status: 'note' });
 
-    const done = reviewInside(cell('review', 'failed'), [run('review', 'lint', 1)], NOW).ops;
+    const done = reviewInside(
+      cell('review', 'failed'),
+      [run('review', 'lint', 1), run('review', 'diff', 0)],
+      NOW,
+    ).ops;
     // review opens the diff on both verdicts, so this is observed, not inferred.
     expect(done.at(-1)).toMatchObject({ name: 'diff', status: 'pass' });
+  });
+
+  it('emits no diff row when nothing opened it', () => {
+    // A finished stage with real gate evidence but no recorded 'diff' run means
+    // no `openDiff` was wired for that run (e.g. no host supplied one). The row
+    // must say nothing, never claim a control nobody performed.
+    const done = reviewInside(cell('review', 'passed'), [run('review', 'lint', 0)], NOW).ops;
+    expect(done.find((o) => o.name === 'diff')).toBeUndefined();
+
+    const failed = reviewInside(cell('review', 'failed'), [run('review', 'lint', 1)], NOW).ops;
+    expect(failed.find((o) => o.name === 'diff')).toBeUndefined();
   });
 
   it('names no diff row before the stage has run — nothing opened or promised yet', () => {

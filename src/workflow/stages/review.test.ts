@@ -99,6 +99,21 @@ describe('runReview', () => {
     expect(openDiff).toHaveBeenCalledWith(id, '/wt');
   });
 
+  it('records the diff as evidence only when a real openDiff opened it', async () => {
+    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
+    const runs = listGateRuns(store, id);
+    expect(runs.find((r) => r.gateName === 'diff')).toMatchObject({ exitCode: 0, stageKey: 'review' });
+  });
+
+  it('records no diff evidence when nothing was wired to open it', async () => {
+    // `openDiff` absent — as it is for any caller (a test, a future CLI path)
+    // that supplies no host implementation. The recorded evidence must not
+    // claim a diff opened that nothing performed.
+    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES);
+    const runs = listGateRuns(store, id);
+    expect(runs.find((r) => r.gateName === 'diff')).toBeUndefined();
+  });
+
   it('writes the combined gate output to an artifact and records its path', async () => {
     const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
     const contents = readFileSync(res.artifactPath, 'utf8');
@@ -111,7 +126,9 @@ describe('runReview', () => {
   it('records one gate row per gate, in the order the runner reported them', async () => {
     await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
     const runs = listGateRuns(store, id);
-    expect(runs.map((r) => r.gateName)).toEqual(['lint', 'typecheck', 'test']);
+    // 'diff' is its own evidence row (recorded because `openDiff` is wired in
+    // this suite's beforeEach), appended after the REVIEW_GATES-driven ones.
+    expect(runs.map((r) => r.gateName)).toEqual(['lint', 'typecheck', 'test', 'diff']);
     expect(runs.every((r) => r.stageKey === 'review')).toBe(true);
     expect(new Set(runs.map((r) => r.runAt)).size).toBe(1); // one invocation, one batch
   });
@@ -119,10 +136,12 @@ describe('runReview', () => {
   it('files a failing run under the attempt it ran as, not the one its failure creates', async () => {
     // `transition` increments `attempt` on the failed branch. The gates belong to
     // the run that produced the failure, so they must be read before that bump.
+    // Same for the 'diff' row — the diff opens on every verdict, and it must be
+    // filed under the SAME pre-bump attempt as the gate that failed alongside it.
     const gates: GateRunner = async () => [{ name: 'test', exitCode: 1, output: 'boom' }];
     await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
 
-    expect(listGateRuns(store, id).map((r) => r.attempt)).toEqual([0]);
+    expect(listGateRuns(store, id).map((r) => r.attempt)).toEqual([0, 0]);
     const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review');
     expect(review?.attempt).toBe(1);
   });

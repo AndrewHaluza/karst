@@ -85,24 +85,33 @@ export function reviewInside(
 ): StageInside {
   const running = cell.status === 'running';
   const finished = cell.status === 'passed' || cell.status === 'failed';
-  const ops = gateOps(REVIEW_GATES, latestBatch(runs, 'review'), running || cell.status === 'pending');
+  const batch = latestBatch(runs, 'review');
+  const ops = gateOps(REVIEW_GATES, batch, running || cell.status === 'pending');
 
-  // The diff is opened unconditionally, on both verdicts — so once the stage has
-  // finished this is something karst observed, not something it expects. Before
-  // the stage starts, nothing has opened and nothing is promised yet, so no row.
-  // A finished stage with no gate rows of its own (e.g. rows belonging to
-  // another stage) has no evidence to hang a diff row on either.
-  if (running || (finished && ops.length > 0)) {
-    ops.push(
-      running
-        ? {
-            status: 'note',
-            name: 'diff',
-            detail: 'opens for you when the gate finishes, pass or fail',
-            duration: '',
-          }
-        : { status: 'pass', name: 'diff', detail: 'opened for review', duration: '' },
-    );
+  // The diff row states what happened, never what review merely intended to
+  // do. `openDiff` is an optional host dependency (`DriveTicketDeps.openDiff`)
+  // — absent, it opens nothing — so the row is driven by a recorded 'diff'
+  // gate_run, evidence written in the SAME append-only place as every other
+  // gate row, alongside the review batch it belongs to. A live boolean on a
+  // `ReviewOutcome` would read correctly for one render and then be gone on
+  // the next window reload; this survives it, the same as every other row
+  // here. Never derived from `ops.length > 0` alone: that only proved this
+  // batch belongs to review, not that a diff opened for it.
+  const diffRun = batch.find((r) => r.gateName === 'diff');
+  if (running) {
+    ops.push({
+      status: 'note',
+      name: 'diff',
+      detail: 'opens for you when the gate finishes, pass or fail',
+      duration: '',
+    });
+  } else if (finished && diffRun) {
+    ops.push({
+      status: 'pass',
+      name: 'diff',
+      detail: 'opened for review',
+      duration: formatDuration(diffRun.startedAt, diffRun.endedAt),
+    });
   }
 
   return inside(cell, now, ops);
