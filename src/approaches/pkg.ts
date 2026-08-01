@@ -248,13 +248,22 @@ export function writeApproachPackage(
  * `artifacts` inventory. Every relPath is traversal-guarded per segment. Does
  * not mutate inputs. This is the neutral writer for the structured-fetch path;
  * `writeApproachPackage` remains for the legacy flat prompts model.
+ *
+ * REPLACES the package directory rather than overlaying onto it, so an install
+ * is idempotent and a reinstall lands the source's current contents and nothing
+ * else. Overlaying left every file a previous install fetched and this one did
+ * not, and those leftovers are not inert: `materializeApproach` copies a skill's
+ * whole FOLDER into the launch plugin, so a stale sibling still reached the
+ * agent (869eckp0x). Callers run their validity guards BEFORE this point, so a
+ * rejected install never destroys the working package it would have replaced.
  */
 export function writeApproachArtifacts(
   baseDir: string,
   pkg: ApproachPackage,
   files: { relPath: string; body: string }[],
 ): void {
-  const dir = approachDir(baseDir, pkg.id);
+  const dir = approachDir(baseDir, pkg.id); // asserts safe id before any removal
+  rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
 
   for (const file of files) {

@@ -420,6 +420,37 @@ export function updateTicketOnboarding(
 }
 
 /**
+ * Clear `approach` from every ticket bound to `approachId`, returning how many
+ * rows were cleared.
+ *
+ * This is the ticket half of an approach uninstall (869eckp0x). Removing the
+ * package directory leaves `tickets.approach` pointing at something that no
+ * longer exists, and the launcher reports that dangling reference on every
+ * session open ("produced no method prompt or loadable artifacts") — forever,
+ * because the onboarding picker DROPS sourced-but-uninstalled approaches, so
+ * the stale value is not even offered as an option the user could change. The
+ * reference belongs to the approach, not to the ticket, so the uninstall that
+ * removed the approach is what clears it.
+ *
+ * Scoped by project like every other ticket query: the DB is shared by every
+ * IDE window, and an uninstall in this workspace must never rewrite another
+ * project's tickets. Archived tickets ARE included — a dangling reference is
+ * just as dangling after an unarchive.
+ */
+export function clearApproachFromTickets(
+  store: Store,
+  approachId: string,
+  scope: ProjectScope = {},
+): number {
+  const { sql, params } = scopeClause(scope);
+  const where = whereClause('approach = ?', sql);
+  const info = store.db
+    .prepare(`UPDATE tickets SET approach = NULL, updated_at = datetime('now') ${where}`)
+    .run(approachId, ...params);
+  return Number(info.changes);
+}
+
+/**
  * Archive a ticket (soft-delete): stamp `archived_at` now. Idempotent-ish — an
  * already-archived ticket gets a fresh timestamp. Single-writer discipline.
  */
