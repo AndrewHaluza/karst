@@ -638,60 +638,68 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const switchAgentSession = async (ticketId: number): Promise<void> => {
-    const outcome = await runAgentSwitchFlow({
-      read: () => {
-        const ticket = getTicket(localStore, ticketId);
-        return {
-          stageCurrent: ticket.stageCurrent,
-          provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
-          ticketModel: ticket.model,
-          defaultModel: currentManifest()?.defaultModel ?? null,
-        };
-      },
-      isSessionOpen: () => sessions.isOpen(ticketId),
-      pickProvider: async (choices, current) => {
-        const picked = await vscode.window.showQuickPick(
-          choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
-          { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
-        );
-        return picked?.provider;
-      },
-      isProviderReady: (provider) => guardProviderCapability('sessions', provider),
-      pickModel: async (provider, choices) => vscode.window.showQuickPick(
-        choices.map((choice) => ({ ...choice, label: choice.label })),
-        { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
-      ),
-      confirm: async ({ from, to }) => {
-        const choice = await vscode.window.showWarningMessage(
-          `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
-          {
-            modal: true,
-            detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
-          },
-          'Switch and continue',
-        );
-        return choice === 'Switch and continue';
-      },
-      persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
-        agentProvider: provider,
-        model: model ?? '',
-      }),
-      dispose: () => sessions.disposeSession(ticketId),
-      launch: async () => {
-        await vscode.commands.executeCommand('karst.openSession', ticketId);
-      },
-    }, modelCatalog);
+    try {
+      const outcome = await runAgentSwitchFlow({
+        read: () => {
+          const ticket = getTicket(localStore, ticketId);
+          return {
+            stageCurrent: ticket.stageCurrent,
+            provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+            ticketModel: ticket.model,
+            defaultModel: currentManifest()?.defaultModel ?? null,
+          };
+        },
+        isSessionOpen: () => sessions.isOpen(ticketId),
+        pickProvider: async (choices, current) => {
+          const picked = await vscode.window.showQuickPick(
+            choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
+            { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
+          );
+          return picked?.provider;
+        },
+        isProviderReady: (provider) => guardProviderCapability('sessions', provider),
+        pickModel: async (provider, choices) => vscode.window.showQuickPick(
+          choices.map((choice) => ({ ...choice, label: choice.label })),
+          { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
+        ),
+        confirm: async ({ from, to }) => {
+          const choice = await vscode.window.showWarningMessage(
+            `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
+            {
+              modal: true,
+              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+            },
+            'Switch and continue',
+          );
+          return choice === 'Switch and continue';
+        },
+        persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
+          agentProvider: provider,
+          model: model ?? '',
+        }),
+        dispose: () => sessions.disposeSession(ticketId),
+        launch: async () => {
+          await vscode.commands.executeCommand('karst.openSession', ticketId);
+        },
+      }, modelCatalog);
 
-    if (outcome.kind === 'stale') {
-      void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
-    } else if (outcome.kind === 'launch-failed') {
+      if (outcome.kind === 'stale') {
+        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+      } else if (outcome.kind === 'launch-failed') {
+        void vscode.window.showErrorMessage(
+          `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+        );
+      }
+    } catch (error) {
+      logError('agent session switch failed', error);
       void vscode.window.showErrorMessage(
-        `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+        `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
       );
+    } finally {
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      showStatusFor(ticketId);
     }
-    provider.refresh();
-    dashboard.pushState(ticketId);
-    showStatusFor(ticketId);
   };
 
   // Load the manifest for the settings page. Unlike resolveManifest (which gates

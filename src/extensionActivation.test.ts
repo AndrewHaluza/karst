@@ -45,5 +45,9 @@ describe('extension activation', () => {
     expect(source).toContain("guardProviderCapability('sessions', provider)");
     expect(source).toContain('sessions.disposeSession(ticketId)');
     expect(source).toContain("vscode.commands.executeCommand('karst.openSession', ticketId)");
+    expect(source).toContain("logError('agent session switch failed', error)");
+    expect(source).toContain(
+      'finally {\n      provider.refresh();\n      dashboard.pushState(ticketId);\n      showStatusFor(ticketId);\n    }',
+    );
   });
 });
