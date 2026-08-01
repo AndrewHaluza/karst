@@ -33,10 +33,14 @@ describe('transition (stage machine core)', () => {
   });
 
   it('pass at uat advances to review', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
     expect(transition(store, ticketId, 'uat', { kind: 'passed' })).toBe('review');
   });
 
   it('fail at uat routes to fix and increments the failing stage attempt', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
     const before = stageOf(store, ticketId, 'uat').attempt;
     const next = transition(store, ticketId, 'uat', { kind: 'failed', reason: 'x' });
     expect(next).toBe('fix');
@@ -46,11 +50,17 @@ describe('transition (stage machine core)', () => {
   });
 
   it('fail persists the reason as the stage verdict', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     transition(store, ticketId, 'review', { kind: 'failed', reason: 'lint broke' });
     expect(stageOf(store, ticketId, 'review').verdict).toBe('lint broke');
   });
 
   it('fix pass re-enters uat (revalidate loop)', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'failed' }); // now at fix
     expect(transition(store, ticketId, 'fix', { kind: 'passed' })).toBe('uat');
   });
 
@@ -61,6 +71,9 @@ describe('transition (stage machine core)', () => {
   // `status: passed` beside `verdict: "gates failed: lint"`, and every reader
   // has to guess which half is true.
   it('re-entering a stage clears the reason its previous attempt recorded', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     transition(store, ticketId, 'review', { kind: 'failed', reason: 'gates failed: lint' });
     // Every fix revalidates from uat (graph.ts), so uat is what re-enters first —
     // and it must not carry a reason either.
@@ -75,6 +88,11 @@ describe('transition (stage machine core)', () => {
   });
 
   it('passing a stage clears a reason left by its previous attempt', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
+    // setStage injects the stale reason directly on the row — it does not touch
+    // stage_current, so the ticket is still legitimately AT review.
     setStage(store, ticketId, 'review', { status: 'failed', verdict: 'gates failed: lint' });
     transition(store, ticketId, 'review', { kind: 'passed' });
     expect(stageOf(store, ticketId, 'review').status).toBe('passed');
@@ -82,10 +100,16 @@ describe('transition (stage machine core)', () => {
   });
 
   it('fail at review routes to fix', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     expect(transition(store, ticketId, 'review', { kind: 'failed' })).toBe('fix');
   });
 
   it('pass at review advances to ship, ship to merge, merge to done', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     expect(transition(store, ticketId, 'review', { kind: 'passed' })).toBe('ship');
     // Ship ends where the PRs exist. `merge` owns the gap between that and the
     // work having landed, so `done` is one more verdict away.
@@ -97,6 +121,9 @@ describe('transition (stage machine core)', () => {
   // arrive to close it. Left 'running', a shipped ticket would sit on a blue,
   // forever-running `done` node and file itself under "In progress" (facets.ts).
   it('entering the terminal stage completes it — arriving IS finishing', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     transition(store, ticketId, 'review', { kind: 'passed' });
     transition(store, ticketId, 'ship', { kind: 'passed' });
     transition(store, ticketId, 'merge', { kind: 'passed' });
@@ -119,6 +146,9 @@ describe('transition (stage machine core)', () => {
   // doing, which painted the ticket blue / "In progress" — so the needs-you state
   // (amber, "Needs you") was unreachable for the one stage that always needs you.
   it('entering a confirm stage parks it as pending — nothing runs until the user acts', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     transition(store, ticketId, 'review', { kind: 'passed' });
 
     const ship = stageOf(store, ticketId, 'ship');
@@ -128,12 +158,19 @@ describe('transition (stage machine core)', () => {
     expect(getTicket(store, ticketId).stageCurrent).toBe('ship');
   });
 
-  // Re-entering ship after a failed attempt (fix → review → ship) must not leave
-  // the previous attempt's endedAt behind: deriveStageCurrent ranks stages by
-  // `endedAt ?? startedAt`, so a stale timestamp makes the parked ship look older
-  // than the review it just came from.
+  // Entering ship must not leave a stale endedAt behind on the row:
+  // deriveStageCurrent ranks stages by `endedAt ?? startedAt`, so a stale
+  // timestamp makes the parked ship look older than the review it just came
+  // from. `ship` currently has exactly one inbound edge (review→ship), so this
+  // exercises entryPatch's clearing on that one legitimate entry rather than a
+  // literal re-entry: setStage (not transition, so stage_current is untouched)
+  // seeds the row with a leftover endedAt — the kind of artifact ship.ts's own
+  // failure path (`setStage(..., 'ship', { status: 'failed', endedAt: ... })`)
+  // can leave behind — and the transition into ship is the ordinary one.
   it('re-entering a confirm stage clears the previous attempt end time', () => {
-    transition(store, ticketId, 'review', { kind: 'passed' });
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     setStage(store, ticketId, 'ship', { status: 'failed', endedAt: '2020-01-01T00:00:00.000Z' });
 
     transition(store, ticketId, 'review', { kind: 'passed' });
@@ -220,12 +257,45 @@ describe('transition (stage machine core)', () => {
   });
 
   it('a repeated fix loop climbs attempt each time', () => {
-    transition(store, ticketId, 'uat', { kind: 'failed' }); // attempt 1
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
+    transition(store, ticketId, 'uat', { kind: 'failed' }); // uat attempt 1, -> fix
     transition(store, ticketId, 'fix', { kind: 'passed' }); // back to uat
-    transition(store, ticketId, 'review', { kind: 'failed' }); // review attempt 1
-    transition(store, ticketId, 'fix', { kind: 'passed' });
+    // fix ALWAYS revalidates through uat (graph.ts) — it never returns straight
+    // to review, so uat must pass again before review can fail.
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // -> review
+    transition(store, ticketId, 'review', { kind: 'failed' }); // review attempt 1, -> fix
+    transition(store, ticketId, 'fix', { kind: 'passed' }); // back to uat
     transition(store, ticketId, 'uat', { kind: 'failed' }); // uat attempt 2
     expect(stageOf(store, ticketId, 'uat').attempt).toBe(2);
+  });
+
+  // `transition` verified only that a stage ROW exists for `from` — never that
+  // it was the ticket's CURRENT stage. That let a transition be authored from a
+  // stage the ticket already left (two IDE windows sweeping the same ticket
+  // could both advance it).
+  it('refuses to transition a stage that is not the ticket current stage', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' }); // now at impl
+    expect(() => transition(store, ticketId, 'scope', { kind: 'passed' })).toThrow(
+      /scope' is not ticket .*'s current stage \(impl\)/,
+    );
+    // nothing mutated by the refused call
+    expect(getTicket(store, ticketId).stageCurrent).toBe('impl');
+    expect(stageOf(store, ticketId, 'scope').status).toBe('passed');
+  });
+
+  // better-sqlite3 is synchronous, so "concurrent" here means the second call
+  // observing state the first already committed — not real parallelism.
+  it('refuses a second concurrent transition from the same stage', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
+    expect(transition(store, ticketId, 'uat', { kind: 'passed' })).toBe('review');
+    expect(() => transition(store, ticketId, 'uat', { kind: 'passed' })).toThrow();
+
+    // the second (refused) call mutated nothing beyond the first's outcome
+    expect(getTicket(store, ticketId).stageCurrent).toBe('review');
+    expect(stageOf(store, ticketId, 'uat').status).toBe('passed');
+    expect(stageOf(store, ticketId, 'review').status).toBe('running');
   });
 });
 
