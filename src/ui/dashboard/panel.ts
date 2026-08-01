@@ -4,7 +4,7 @@ import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
-import { buildDashboardState, type PathContext } from './state.js';
+import { buildDashboardState, type DashboardAgentContext, type PathContext } from './state.js';
 import { routeAction, type DashboardActions } from './messages.js';
 
 /**
@@ -122,6 +122,8 @@ export class DashboardManager {
      * activation is not reported, which is exactly the pre-binding behavior.
      */
     private readonly binding?: DashboardBinding,
+    /** Live session/model context for the dashboard's agent switch affordance. */
+    private readonly agentContext?: () => DashboardAgentContext,
   ) {}
 
   /**
@@ -187,6 +189,7 @@ export class DashboardManager {
       this.approachPhases,
       this.isRepoRunnable,
       this.defaultProvider?.(),
+      this.agentContext?.(),
     );
     panel.postMessage({ type: 'state', state });
     this.refreshIcon(ticketId, panel);

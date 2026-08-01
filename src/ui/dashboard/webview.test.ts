@@ -24,6 +24,21 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('a.detail');
   });
 
+  it('shows the live core/model and a payload-free switch action beside Now', () => {
+    expect(HTML).toContain('agentSession.providerLabel');
+    expect(HTML).toContain('agentSession.modelLabel');
+    expect(HTML).toContain('data-act="switch-agent"');
+    expect(HTML).toMatch(/agentSession\.canSwitch[\s\S]*switch-agent/);
+    expect(HTML).not.toMatch(/data-act="switch-agent"[^>]*data-(?:provider|model|ticket)/);
+  });
+
+  it('styles the switch action only with semantic VS Code theme tokens', () => {
+    const rule = HTML.match(/\.switch-agent\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('var(--vscode-button-secondaryBackground');
+    expect(rule).toContain('var(--vscode-button-secondaryForeground');
+    expect(rule).not.toMatch(/#[0-9a-f]{3,8}|\b(?:black|white)\b/i);
+  });
+
   it('offers one ticket-level Changes action and no per-worktree Diff action', () => {
     expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
     expect(HTML).not.toContain('diff-worktree');
@@ -320,7 +335,7 @@ describe('dashboard webview.html', () => {
     // Every push still reads the ship stage as "ready" (it sits at running), so
     // renderNow must short-circuit to a static sentence while shipping, and the
     // resolution must key off host stage truth — not the button copy.
-    expect(HTML).toMatch(/function renderNow\(now\) \{[\s\S]*?if \(shipping\)/);
+    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipping\)/);
     expect(HTML).toMatch(/stageCurrent === 'ship'/);
     expect(HTML).toMatch(/status === 'failed'/);
   });

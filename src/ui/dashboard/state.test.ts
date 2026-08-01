@@ -38,6 +38,34 @@ describe('buildDashboardState', () => {
     expect(state.prs).toEqual([]);
   });
 
+  it('shows the resolved agent core/model and enables switching only for a live impl session', () => {
+    const t = createTicket(store, { key: 'SW-1', title: 'switch' });
+    updateTicketOnboarding(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { defaultModel: null, isSessionOpen: (id) => id === t.id },
+    );
+
+    expect(state.agentSession).toMatchObject({
+      provider: 'codex', providerLabel: 'Codex',
+      modelId: 'gpt-5.6-sol', modelLabel: 'GPT-5.6 Sol', canSwitch: true,
+    });
+  });
+
+  it.each([
+    ['impl', false], ['fix', false], ['review', true],
+  ] as const)('does not offer switching at %s/open=%s', (stage, open) => {
+    const t = createTicket(store, { key: `SW-${stage}-${open}`, title: 'switch' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { isSessionOpen: () => open },
+    );
+    expect(state.agentSession.canSwitch).toBe(false);
+  });
+
   // The merge verdicts already feed the ship strip; the PR panel needs them at
   // the top level too, because that is where the conflict is acted on and the
   // webview cannot query the store.

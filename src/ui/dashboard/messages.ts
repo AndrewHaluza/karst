@@ -43,7 +43,9 @@ export type WebviewMessage =
    * holds the preference and the webview only renders what it is pushed, so the
    * two can never disagree about which way the toggle currently sits.
    */
-  | { type: 'toggle-bind' };
+  | { type: 'toggle-bind' }
+  /** Request the host-owned picker for this panel's current live session. */
+  | { type: 'switch-agent' };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -104,6 +106,8 @@ export interface DashboardActions {
   refreshPrs: () => void;
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void;
+  /** Switch the panel's live agent session through the host-owned picker. */
+  switchAgent: () => void;
 }
 
 /**
@@ -175,6 +179,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // is dropped rather than honored, so the host's value stays authoritative.
     case 'toggle-bind':
       return { type: 'toggle-bind' };
+    // Payload-free: the panel closure owns the ticket and re-reads the live
+    // session before switching, so no webview-supplied target can be trusted.
+    case 'switch-agent':
+      return { type: 'switch-agent' };
     default:
       return null;
   }
@@ -251,6 +259,9 @@ export function routeAction(raw: unknown, actions: DashboardActions): void {
       return;
     case 'toggle-bind':
       actions.toggleBind();
+      return;
+    case 'switch-agent':
+      actions.switchAgent();
       return;
   }
 }

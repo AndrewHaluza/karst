@@ -70,6 +70,22 @@ describe('DashboardManager', () => {
     expect(panels[0]!.title).toBe('PROJ-9 — ship it');
   });
 
+  it('posts switchable agent-session state for a live impl session', () => {
+    const t = createTicket(store, { key: 'SW-1', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      () => ({ isSessionOpen: () => true }),
+    );
+
+    mgr.openDashboard(t.id);
+
+    const message = panels[0]!.posted.find((m: any) => m.type === 'state') as any;
+    expect(message.state.agentSession.canSwitch).toBe(true);
+  });
+
   it('sets the tab icon on open and on each state push, from iconFor', () => {
     const t = createTicket(store, { key: 'PROJ-9', title: 'ship it' });
     const { host, panels } = fakeHost();

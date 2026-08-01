@@ -24,6 +24,7 @@ function actions(): DashboardActions {
     mergePr: vi.fn(),
     refreshPrs: vi.fn(),
     toggleBind: vi.fn(),
+    switchAgent: vi.fn(),
   };
 }
 
@@ -251,5 +252,14 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'toggle-bind' }, a);
     expect(a.toggleBind).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes switch-agent without trusting companion provider/model/ticket fields', () => {
+    const a = actions();
+    expect(parseWebviewMessage({
+      type: 'switch-agent', provider: 'evil', model: 'evil', ticketId: 999,
+    })).toEqual({ type: 'switch-agent' });
+    routeAction({ type: 'switch-agent', provider: 'evil' }, a);
+    expect(a.switchAgent).toHaveBeenCalledOnce();
   });
 });
