@@ -103,6 +103,70 @@ describe('runUat', () => {
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
   });
 
+  // `planTargets` (`planUatTargets`) can itself report `unavailable` — a git
+  // probe failure means karst could not even determine which repositories are
+  // affected, before any gate ever ran. This is a different seam than
+  // `resolveTargetGates`'s `unavailable` above: that one fires per-target,
+  // after targets are already known; this one fires before targets exist at
+  // all, so it must be asserted at the `runUat` level and not inferred from
+  // `planUatTargets`'s own propagation test in a different file.
+  it('an unavailable target selection blocks with the propagated blocker and reason, before any gate runs', async () => {
+    const reason = 'cannot determine review changes in /wt/web: baseline unavailable';
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({ kind: 'unavailable', blocker: 'capability-missing', reason }),
+      }),
+    );
+    // The real observable outcome: the exact StageRunResult returned...
+    expect(res).toEqual({ kind: 'blocked', blocker: 'capability-missing', reason });
+    // ...the stage actually parked in the store, carrying the same blocker and
+    // reason...
+    expect(stageBlock(store, id, 'uat')).toEqual({
+      kind: 'capability-missing',
+      reason,
+      at: now(),
+    });
+    // ...no verdict was written (still sitting at uat, never advanced)...
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    // ...and no attempt was consumed — a park is not a failed attempt.
+    expect(uatStage(store, id).attempt).toBe(0);
+    // Nothing ran before the park landed.
+    expect(listGateRuns(store, id)).toEqual([]);
+  });
+
+  // An `unavailable` selection (karst could not even ask which repositories are
+  // affected) and a genuine `{kind:'targets', targets: []}` (karst asked and the
+  // answer is "nothing is affected") must stay distinguishable at this seam —
+  // collapsing them is exactly the vacuous-green bug this task closes: an
+  // environmental failure must never read as "nothing to test".
+  it('keeps an unavailable selection and a genuine empty target list apart', async () => {
+    const unavailable = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'unavailable',
+          blocker: 'capability-missing',
+          reason: 'cannot determine review changes in /wt/web: baseline unavailable',
+        }),
+      }),
+    );
+    expect(unavailable).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+
+    const id2 = createTicketFlow(store, { key: 'T-2', title: 't2' }).id;
+    transition(store, id2, 'scope', { kind: 'passed' });
+    transition(store, id2, 'impl', { kind: 'passed' });
+    const empty = await runUat(
+      store,
+      { ticketId: id2, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+    );
+    expect(empty).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(empty).not.toMatchObject({ blocker: 'capability-missing' });
+  });
+
   it('a stopped run yields no verdict and no attempt', async () => {
     const res = await runUat(
       store,
