@@ -124,6 +124,8 @@ export class AntigravityAdapter implements AgentAdapter {
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
+  // `opts.sessionName` is deliberately dropped: the agy CLI has no launch-time
+  // session-naming flag, so there is nothing to carry the terminal name into.
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
     const args: string[] = [];
 

@@ -305,10 +305,16 @@ export class SessionManager {
       return;
     }
 
+    // Resolved ONCE and used for both the terminal tab and the agent's own
+    // session name: a session found later in the agent's resume picker must
+    // read exactly like the terminal it ran in, or it can't be matched back to
+    // its ticket. Adapters whose CLI has no naming flag ignore it.
+    const terminalName = naming?.name ?? `Karst: ${label?.key ?? `#${ticketId}`}`;
     const hookChannel = this.hookChannelFor(ticketId);
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
       hookChannel,
+      sessionName: terminalName,
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
       ...(model ? { model } : {}),
@@ -317,7 +323,7 @@ export class SessionManager {
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 
     const terminal = this.host.createTerminal({
-      name: naming?.name ?? `Karst: ${label?.key ?? `#${ticketId}`}`,
+      name: terminalName,
       description: naming ? undefined : (label?.title ?? undefined),
       cwd: worktreePath,
       shellPath: cmd.command,
