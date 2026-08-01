@@ -41,7 +41,6 @@ import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { renderFixBrief } from './agent/fixBrief.js';
-import { countFixAttempts, lastFailedGate, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './workflow/fixAttempts.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModelForProvider } from './agent/models.js';
@@ -115,10 +114,8 @@ import { buildAgentPool, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
-import { runStageDriver } from './workflow/driver.js';
+import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
-import { runUat } from './workflow/stages/uat.js';
-import { runReview } from './workflow/stages/review.js';
 import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
@@ -1002,16 +999,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Auto-run the deterministic uat/review gates for a ticket after the
   // impl/fix marker (or a prior gate) leaves it at a gate boundary. Single-flight
   // via `driver.begin`/`end`; never authors a transition itself — `runUat`/
-  // `runReview` own that (single-writer preserved). `runStageDriver` expects
-  // each runner to resolve the ticket's *new* `stageCurrent`, so wrap the real
-  // outcome-returning runners with a re-read.
+  // `runReview` own that (single-writer preserved). Everything below the host
+  // seam lives in `workflow/driveTicket.ts`, which imports no vscode and is
+  // therefore the only version of this logic under test.
   async function driveTicket(ticketId: number): Promise<void> {
     if (!driver.begin(ticketId)) return; // a run is already in flight
     logger.info(`stage driver: begin ticket ${ticketId}`);
     try {
-      const outcome = await runStageDriver(
+      await driveTicketRun(
         {
           store: localStore,
+          manifest: currentManifest,
+          artifactDirFor,
+          // Only a fallback: with a manifest, runUat plans its own multi-repository
+          // targets and this path is not what decides where gates run.
           worktreeFor: (id) => listWorktreesByTicket(localStore, id)[0]?.path ?? null,
           onProgress: (id, stage, status) => {
             logger.info(`stage driver: ticket ${id} ${stage} → ${status}`);
@@ -1019,38 +1020,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             dashboard.pushState(id);
           },
           shouldContinue: () => driver.shouldContinue(ticketId),
-          // `runUat` reports its own StageRunResult now, so it is passed through
-          // verbatim: wrapping a park as 'advanced' at the ticket's unchanged
-          // stage would send the driver round the same blocked gate forever.
-          // (Fuller wiring — the manifest-driven boot stack and a Stop signal —
-          // is the next task.)
-          runUat: (id, cwd) =>
-            runUat(localStore, {
-              ticketId: id,
-              cwd,
-              artifactDir: artifactDirFor(id),
-              manifest: currentManifest(),
-            }),
-          // TODO(later task): runReview doesn't yet return StageRunResult itself
-          // — it still always transitions, so wrap it as 'advanced' with the
-          // ticket's post-transition stage.
-          runReview: (id, cwd) =>
-            runReview(localStore, {
-              ticketId: id,
-              cwd,
-              artifactDir: artifactDirFor(id),
-              manifest: currentManifest(),
-            }).then(
-              () => ({ kind: 'advanced' as const, next: getTicket(localStore, id).stageCurrent as StageKey }),
-            ),
+          // Stop, as a signal rather than a between-stages poll: `requestStop`
+          // aborts this, and the abort reaches the gate child already running.
+          signal: driver.signalFor(ticketId),
+          resumeFix: (id, _gate, attempts) => resumeFixSession(id, attempts),
+          log: (message) => logger.info(message),
         },
         ticketId,
       );
-      logger.info(
-        `stage driver: ticket ${ticketId} halted at ${outcome.stage} (${outcome.status}` +
-          `${outcome.reason ? `: ${outcome.reason}` : ''})`,
-      );
-      if (outcome.stage === 'fix') autoResumeFix(ticketId);
     } catch (e) {
       logError('stage driver failed', e);
     } finally {
@@ -1073,31 +1050,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the live session was seeded the IMPL marker, and firing that at fix would
   // move the wrong stage.
   //
-  // Capped: an unfixable ticket would otherwise loop fix→review→fix forever,
-  // burning tokens with no human ever looking. At the cap the ticket stays parked
-  // and the dashboard says so ("fix attempts ran out…", with a Resume button), so
-  // the loop always ends in a human decision rather than silence.
-  function autoResumeFix(ticketId: number): void {
+  // Capped: an unfixable ticket would otherwise loop fix→uat/review→fix forever,
+  // burning tokens with no human ever looking. The cap itself is decided by
+  // `fixResumeDecision` in the driver module — this function only runs once a
+  // resume has been granted, so reaching it IS the decision.
+  function resumeFixSession(ticketId: number, attempts: number): void {
     const t = getTicket(localStore, ticketId);
-    // Which gate's budget this resume spends. No failed gate means nothing sent
-    // the ticket here, so there is nothing to resume against.
-    const gate = lastFailedGate(t.stages);
-    if (!gate) {
-      logger.info(`stage driver: ticket ${ticketId} at fix with no failed gate; leaving it`);
-      return;
-    }
-    const cap =
-      gate === 'uat'
-        ? (currentManifest()?.uat?.maxFixAttempts ?? FIX_ATTEMPT_CAP)
-        : FIX_ATTEMPT_CAP;
-    const attempts = countFixAttempts(t.stages, gate);
-    if (!fixAttemptsRemain(attempts, cap)) {
-      logger.info(
-        `stage driver: ticket ${ticketId} parked at fix — ${attempts} ${gate} failures, ` +
-          `at the cap of ${cap}; leaving it for a human`,
-      );
-      return;
-    }
     const label = t.key ?? `#${ticketId}`;
     const brief =
       renderFixBrief(label, t.stages) ??

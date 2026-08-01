@@ -62,12 +62,26 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
       ? await deps.runUat(ticketId, cwd)
       : await deps.runReview(ticketId, cwd);
 
-    // A block is a resting place, not an error: the stage stays current, the row
-    // carries why, and the sweep skips it until a human clears it.
-    if (result.kind === 'blocked') {
-      return finish(deps, ticketId, stage, 'blocked', `${result.blocker}: ${result.reason}`);
+    // Exhaustive by construction. Two `if`s and a fallthrough read ANY unknown
+    // kind as `advanced`, so a fourth `StageRunResult` variant would silently
+    // re-spin the loop over the same gate — and an unbroken await chain starves
+    // the timers a test timeout needs, so it hangs rather than reports.
+    switch (result.kind) {
+      // A block is a resting place, not an error: the stage stays current, the
+      // row carries why, and the sweep skips it until a human clears it.
+      case 'blocked':
+        return finish(deps, ticketId, stage, 'blocked', `${result.blocker}: ${result.reason}`);
+      case 'stopped':
+        return finish(deps, ticketId, stage, 'stopped');
+      case 'advanced':
+        // The runner already transitioned; re-read stage_current and continue.
+        break;
+      default: {
+        const unreachable: never = result;
+        throw new Error(
+          `stage '${stage}' runner returned an unrecognized result: ${JSON.stringify(unreachable)}`,
+        );
+      }
     }
-    if (result.kind === 'stopped') return finish(deps, ticketId, stage, 'stopped');
-    // advanced: the runner already transitioned; re-read stage_current and continue.
   }
 }

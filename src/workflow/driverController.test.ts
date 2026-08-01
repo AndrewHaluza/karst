@@ -82,4 +82,34 @@ describe('DriverController', () => {
     c.begin(1);
     expect(c.shouldContinue(1)).toBe(true); // stop flag cleared on new run
   });
+
+  it('requestStop aborts the run signal, so Stop reaches a gate already running', () => {
+    const c = new DriverController();
+    c.begin(1);
+    const signal = c.signalFor(1);
+    expect(signal?.aborted).toBe(false);
+    c.requestStop(1);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('gives each run a fresh signal, so a stopped run never poisons the next', () => {
+    const c = new DriverController();
+    c.begin(1);
+    const first = c.signalFor(1);
+    c.requestStop(1);
+    c.end(1);
+    c.begin(1);
+    const second = c.signalFor(1);
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+    expect(second?.aborted).toBe(false);
+  });
+
+  it('has no signal for a ticket with no run in flight', () => {
+    const c = new DriverController();
+    expect(c.signalFor(1)).toBeUndefined();
+    c.begin(1);
+    c.end(1);
+    expect(c.signalFor(1)).toBeUndefined();
+  });
 });

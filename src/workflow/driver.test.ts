@@ -3,6 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { runStageDriver, type StageDriverDeps } from './driver.js';
+import type { StageRunResult } from '../model/types.js';
 import { createTicketFlow } from './stages/create.js';
 
 function seedAtUat(store: Store): number {
@@ -18,9 +19,9 @@ function baseDeps(store: Store, over: Partial<StageDriverDeps> = {}): StageDrive
     worktreeFor: () => '/wt',
     onProgress: () => {},
     shouldContinue: () => true,
-    // -> review / -> ship: adapt the still-StageKey-returning transition into
-    // StageRunResult minimally; the real runners return it themselves once they
-    // are rewritten in a later task.
+    // -> review / -> ship: the minimum a runner has to report. The real ones
+    // (`runUat` natively, `runReview` adapted in `driveTicket.ts`) say the same
+    // thing after doing work this sequencer knows nothing about.
     runUat: async (id) => ({ kind: 'advanced', next: transition(store, id, 'uat', { kind: 'passed' }) }),
     runReview: async (id) => ({ kind: 'advanced', next: transition(store, id, 'review', { kind: 'passed' }) }),
     ...over,
@@ -112,6 +113,23 @@ describe('runStageDriver', () => {
     );
 
     expect(outcome).toEqual({ stage: 'uat', status: 'stopped' });
+    store.close();
+  });
+
+  it('throws on an unrecognized result kind rather than treating it as advanced', async () => {
+    // The fallthrough this replaces read any unknown kind as `advanced` and
+    // re-spun the loop, so a fourth StageRunResult variant became an endless
+    // re-run of the same gate rather than a visible error. `shouldContinue` is
+    // bounded here only so that a regression FAILS instead of livelocking the
+    // suite — an unbroken await chain starves the timers vitest times out with.
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    let polls = 0;
+    const deps = baseDeps(store, {
+      shouldContinue: () => (polls += 1) <= 2,
+      runUat: async () => ({ kind: 'quarantined' } as unknown as StageRunResult),
+    });
+    await expect(runStageDriver(deps, id)).rejects.toThrow(/quarantined/);
     store.close();
   });
 });

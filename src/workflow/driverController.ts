@@ -41,12 +41,21 @@ export function ticketsToSweep(
 
 /**
  * Per-ticket run bookkeeping for the host seam: single-flight guard (no two
- * drivers on one ticket) and a Stop flag the driver reads via `shouldContinue`.
+ * drivers on one ticket), a Stop flag the driver reads via `shouldContinue`, and
+ * the abort signal that carries the same Stop into a gate ALREADY running.
  * Pure of vscode so it is unit-testable.
  */
 export class DriverController {
   private readonly running = new Set<number>();
   private readonly stopping = new Set<number>();
+  /**
+   * One controller per run, created by `begin` and dropped by `end`.
+   *
+   * `shouldContinue` is only polled between stages, so on its own Stop is a
+   * button that does nothing for the length of a UAT gate — up to `npm test`
+   * plus e2e. The signal is what reaches the child process.
+   */
+  private readonly aborts = new Map<number, AbortController>();
 
   isRunning(ticketId: number): boolean {
     return this.running.has(ticketId);
@@ -57,19 +66,30 @@ export class DriverController {
     if (this.running.has(ticketId)) return false;
     this.running.add(ticketId);
     this.stopping.delete(ticketId); // fresh run clears any stale stop flag
+    // A fresh controller per run, never a reset one: an AbortSignal cannot be
+    // un-aborted, so reusing it would make every gate after a Stop refuse to
+    // spawn.
+    this.aborts.set(ticketId, new AbortController());
     return true;
   }
 
   end(ticketId: number): void {
     this.running.delete(ticketId);
     this.stopping.delete(ticketId);
+    this.aborts.delete(ticketId);
   }
 
   requestStop(ticketId: number): void {
     this.stopping.add(ticketId);
+    this.aborts.get(ticketId)?.abort();
   }
 
   shouldContinue(ticketId: number): boolean {
     return !this.stopping.has(ticketId);
+  }
+
+  /** The running run's abort signal, or undefined when nothing is in flight. */
+  signalFor(ticketId: number): AbortSignal | undefined {
+    return this.aborts.get(ticketId)?.signal;
   }
 }
