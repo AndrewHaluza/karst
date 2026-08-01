@@ -13,6 +13,7 @@ import { openStore, type Store } from './store/db.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
+import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import {
@@ -346,6 +347,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     requestState: () => mgr.refresh(),
     create: () => void vscode.commands.executeCommand('karst.createTicket'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
+    openTicket: (id) => openTicketFromList(localStore, id, {
+      edit: (ticketId) => void vscode.commands.executeCommand('karst.editTicket', ticketId),
+      openDashboard: (ticketId) =>
+        void vscode.commands.executeCommand('karst.openDashboard', ticketId),
+    }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
     openSession: (id) => void vscode.commands.executeCommand('karst.openSession', id),
