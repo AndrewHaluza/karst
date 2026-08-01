@@ -50,8 +50,21 @@ export interface RestoredSession {
   ticketId: number;
   /** Opaque hook generation captured when this terminal was launched. */
   launchId?: string;
+  /**
+   * The terminal's process has already exited (real: `Terminal.exitStatus`).
+   * A dead tab still sits in the terminal list, so adopting one would hand the
+   * ticket a session that cannot answer — it must launch instead.
+   */
+  exited?: boolean;
   terminal: SessionTerminal;
 }
+
+/** What became of a terminal the host reported after the activation scan. */
+export type LateSessionAdoption =
+  | { kind: 'adopted'; disposition: Exclude<RestoredSessionDisposition, 'ignore'> }
+  | { kind: 'duplicate' }
+  | { kind: 'known' }
+  | { kind: 'ignored' };
 
 /** Tickets whose restored terminals should resume or remain recoverable idle. */
 export interface RestoredRecoveryResult {
@@ -156,6 +169,16 @@ function toSingleLine(text: string): string {
 }
 
 /**
+ * A live terminal plus the hook generation it was launched with — the identity
+ * that tells this window's own terminal apart from one VS Code revived for the
+ * same ticket in a previous window.
+ */
+interface TrackedSession {
+  terminal: SessionTerminal;
+  launchId?: string;
+}
+
+/**
  * One interactive terminal per ticket (§5.2, §5.6). `openSession` launches
  * `claude` scoped to the ticket's worktree via the agent adapter, threading the
  * hook-settings path so the HTTP channel fires; re-opening focuses the existing
@@ -163,7 +186,7 @@ function toSingleLine(text: string): string {
  * later open recreates it.
  */
 export class SessionManager {
-  private readonly terminals = new Map<number, SessionTerminal>();
+  private readonly terminals = new Map<number, TrackedSession>();
   private readonly cleanupByTerminal = new WeakMap<SessionTerminal, () => void>();
 
   constructor(
@@ -210,12 +233,12 @@ export class SessionManager {
     options: OpenSessionOptions = {},
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
-    this.terminals.set(ticketId, terminal);
+    this.terminals.set(ticketId, { terminal, ...(launchId ? { launchId } : {}) });
     terminal.onDidClose((exitCode) => {
       // A recovery timeout can dispose one terminal and immediately create its
       // retry before VS Code delivers the old close event. Only the handle that
       // is still current may clear the ticket or announce that its session ended.
-      const wasCurrent = this.terminals.get(ticketId) === terminal;
+      const wasCurrent = this.terminals.get(ticketId)?.terminal === terminal;
       if (wasCurrent) this.terminals.delete(ticketId);
       try {
         // Materialized paths are ticket-scoped and a retry may reuse them. A
@@ -262,7 +285,16 @@ export class SessionManager {
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
-      if (options.reveal !== false) existing.show();
+      if (options.reveal !== false) existing.terminal.show();
+      return;
+    }
+    // VS Code revives terminal tabs asynchronously, so a session tagged for this
+    // ticket can surface AFTER the activation scan that was meant to adopt it.
+    // Re-check the host here or a recovery launch spawns a second agent beside a
+    // terminal that is still running the first one.
+    const revived = this.adoptRevivedSession(ticketId);
+    if (revived) {
+      if (options.reveal !== false) revived.terminal.show();
       return;
     }
 
@@ -322,29 +354,71 @@ export class SessionManager {
     classify: (ticketId: number) => RestoredSessionDisposition,
   ): RestoredRecoveryResult {
     const result: RestoredRecoveryResult = { resume: [], idle: [] };
-    const recovered = new Set<number>();
 
-    for (const {
-      ticketId,
-      launchId,
-      terminal,
-    } of this.host.restoredSessions?.() ?? []) {
-      const disposition = classify(ticketId);
-      if (disposition === 'ignore') continue;
-      if (recovered.has(ticketId)) {
-        // The duplicate never enters the managed map, so it has no close
-        // listener through which its generation could otherwise be retired.
-        this.onDidCloseTerminal?.(ticketId, launchId);
-        terminal.dispose();
-        continue;
+    for (const session of this.host.restoredSessions?.() ?? []) {
+      const outcome = this.adoptLateSession(session, classify);
+      if (outcome.kind === 'adopted') {
+        result[outcome.disposition].push(session.ticketId);
       }
-      recovered.add(ticketId);
-      this.trackTerminal(ticketId, terminal, launchId);
-      this.onDidAdoptTerminal?.(ticketId, launchId);
-      result[disposition].push(ticketId);
     }
 
     return result;
+  }
+
+  /**
+   * Reconcile ONE terminal the host reports, whenever it surfaces. The
+   * activation scan cannot be the only adoption point: VS Code restores its
+   * terminal tabs on its own schedule, and a tab that lands after that scan is
+   * still this ticket's running agent. Second sessions for a ticket are refused
+   * here rather than left to sit beside the live one.
+   */
+  adoptLateSession(
+    session: RestoredSession,
+    classify: (ticketId: number) => RestoredSessionDisposition,
+  ): LateSessionAdoption {
+    const { ticketId, launchId, terminal } = session;
+    const tracked = this.terminals.get(ticketId);
+    if (tracked) {
+      // Same handle, or same generation → this is the terminal this window
+      // already manages (VS Code reports every terminal it opens, karst's own
+      // included, and each report re-wraps it in a fresh handle object). An
+      // ABSENT generation proves nothing: two legacy terminals both lack one,
+      // so identity is the only evidence left for them.
+      const known =
+        tracked.terminal === terminal ||
+        (launchId !== undefined && tracked.launchId === launchId);
+      if (known) return { kind: 'known' };
+      // A different generation for a ticket already running here is a leftover
+      // from a previous window: its hooks are quarantined, so it can only
+      // confuse the user. Retire it explicitly — it never enters the managed
+      // map, so it has no close listener to do that for it.
+      this.onDidCloseTerminal?.(ticketId, launchId);
+      terminal.dispose();
+      return { kind: 'duplicate' };
+    }
+    // A tab whose process already exited answers nothing; the caller must be
+    // free to launch a live session instead of adopting the corpse.
+    if (session.exited) return { kind: 'ignored' };
+    const disposition = classify(ticketId);
+    if (disposition === 'ignore') return { kind: 'ignored' };
+    this.trackTerminal(ticketId, terminal, launchId);
+    this.onDidAdoptTerminal?.(ticketId, launchId);
+    return { kind: 'adopted', disposition };
+  }
+
+  /**
+   * Adopt a live terminal the host already holds for this ticket. Used on the
+   * open path, where the ticket is named explicitly: no classification is
+   * needed, only proof that the tab is this ticket's and still running.
+   */
+  private adoptRevivedSession(ticketId: number): TrackedSession | undefined {
+    for (const session of this.host.restoredSessions?.() ?? []) {
+      if (session.ticketId !== ticketId || session.exited) continue;
+      this.trackTerminal(ticketId, session.terminal, session.launchId);
+      this.onDidAdoptTerminal?.(ticketId, session.launchId);
+      return this.terminals.get(ticketId);
+    }
+    return undefined;
   }
 
   /**
@@ -359,9 +433,9 @@ export class SessionManager {
    * nothing happening.
    */
   nudge(ticketId: number, prompt: string): boolean {
-    const terminal = this.terminals.get(ticketId);
-    if (!terminal) return false;
-    terminal.sendText(toSingleLine(prompt));
+    const tracked = this.terminals.get(ticketId);
+    if (!tracked) return false;
+    tracked.terminal.sendText(toSingleLine(prompt));
     return true;
   }
 
@@ -371,7 +445,7 @@ export class SessionManager {
    * launching an agent must stay an explicit act.
    */
   focusSession(ticketId: number, preserveFocus?: boolean): void {
-    this.terminals.get(ticketId)?.show(preserveFocus);
+    this.terminals.get(ticketId)?.terminal.show(preserveFocus);
   }
 
   /** Whether a session terminal is currently open for a ticket. */
@@ -385,15 +459,15 @@ export class SessionManager {
    * close handler prevents that stale event from deleting a replacement.
    */
   disposeSession(ticketId: number): void {
-    const terminal = this.terminals.get(ticketId);
-    if (!terminal) return;
+    const tracked = this.terminals.get(ticketId);
+    if (!tracked) return;
     try {
       // Release this launch's assets while it still owns the ticket slot. A
       // retry can safely reuse the same paths as soon as this method returns.
-      this.cleanupByTerminal.get(terminal)?.();
+      this.cleanupByTerminal.get(tracked.terminal)?.();
     } finally {
       this.terminals.delete(ticketId);
-      terminal.dispose();
+      tracked.terminal.dispose();
     }
   }
 }

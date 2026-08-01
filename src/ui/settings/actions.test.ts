@@ -188,7 +188,7 @@ describe('settings actions — requestState', () => {
       codex: [{ id: 'codex-later', label: 'Codex Later', providers: ['codex'] }],
     };
 
-    await actions.setToken();
+    await actions.createAgent('reviewer');
 
     const states = posted.filter((m) => m.type === 'state');
     expect(states).toHaveLength(2);
@@ -323,7 +323,7 @@ describe('settings actions — uninstallApproach', () => {
 });
 
 describe('settings actions — setToken', () => {
-  it('calls setToken, re-pushes state with tokenConfigured true', async () => {
+  it('calls setToken, reports the token flag alone', async () => {
     let hasTok = false;
     const { actions, posted, order } = harness({
       setToken: async () => { hasTok = true; order.push('setToken'); return true; },
@@ -331,8 +331,20 @@ describe('settings actions — setToken', () => {
     });
     await actions.setToken();
     expect(order).toContain('setToken');
-    const s = posted.find((m) => m.type === 'state');
-    expect((s as any).state.tokenConfigured).toBe(true);
+    expect(posted).toContainEqual({ type: 'token-state', configured: true });
+  });
+
+  // A full `state` push replaces the webview's draft with the manifest on disk.
+  // Setting a token is the FIRST thing a user does while configuring ticketing,
+  // long before Save — pushing state there silently reverted the provider they
+  // had just picked (and any team id they had typed) to the saved manifest.
+  it('does NOT push manifest state, so an unsaved draft survives', async () => {
+    const { actions, posted } = harness({
+      setToken: async () => true,
+      hasToken: async () => true,
+    });
+    await actions.setToken();
+    expect(posted.some((m) => m.type === 'state')).toBe(false);
   });
 
   it('setToken throws: posts error', async () => {
@@ -499,7 +511,7 @@ describe('settings actions — createAgent', () => {
 });
 
 describe('settings actions — clearToken', () => {
-  it('calls clearToken, re-pushes state with tokenConfigured false', async () => {
+  it('calls clearToken, reports the token flag alone', async () => {
     let hasTok = true;
     const { actions, posted, order } = harness({
       clearToken: async () => { hasTok = false; order.push('clearToken'); },
@@ -507,8 +519,17 @@ describe('settings actions — clearToken', () => {
     });
     await actions.clearToken();
     expect(order).toContain('clearToken');
-    const s = posted.find((m) => m.type === 'state');
-    expect((s as any).state.tokenConfigured).toBe(false);
+    expect(posted).toContainEqual({ type: 'token-state', configured: false });
+  });
+
+  /** Same draft-preservation rule as setToken. */
+  it('does NOT push manifest state, so an unsaved draft survives', async () => {
+    const { actions, posted } = harness({
+      clearToken: async () => {},
+      hasToken: async () => false,
+    });
+    await actions.clearToken();
+    expect(posted.some((m) => m.type === 'state')).toBe(false);
   });
 
   it('clearToken throws: posts error', async () => {

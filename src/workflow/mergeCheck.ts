@@ -40,6 +40,24 @@ function reasonFrom(stderr: string, stdout: string, exitCode: number): string {
 }
 
 /**
+ * Does this failure mean "this git cannot run the probe at all"?
+ *
+ * git < 2.38 has no `merge-tree --write-tree`; worse, that merge-tree takes no
+ * options at all, so it counts argv, fails the count, and prints its usage
+ * banner — `usage: git merge-tree <base-tree> <branch1> <branch2>` — which the
+ * dashboard then showed verbatim as the reason a merge check "failed". It names
+ * neither the cause (an old git) nor the fix (a newer one), and describes a
+ * command nobody typed.
+ *
+ * Detected by feature, not by parsing `git --version`: the question is whether
+ * THIS invocation is supported, and a version string is a proxy for that which
+ * distro backports and wrappers can make wrong.
+ */
+function isUnsupportedProbe(text: string): boolean {
+  return /usage: git merge-tree/i.test(text) || /unknown option.*write-tree/i.test(text);
+}
+
+/**
  * `merge-tree --write-tree --name-only` prints the tree OID on the first line,
  * the conflicted paths on the lines immediately after it, then a BLANK line, then
  * git's informational messages ("Auto-merging x", "CONFLICT (content): …").
@@ -65,6 +83,38 @@ function parseConflictedPaths(stdout: string): string[] {
     paths.push(line);
   }
   return paths;
+}
+
+/** Named where the user can act on it, since git's own words here cannot be. */
+const TOO_OLD =
+  'merge conflicts cannot be checked: `git merge-tree --write-tree` needs git 2.38+';
+
+/**
+ * What can still be answered on a git too old for the real probe.
+ *
+ * A branch that already CONTAINS its base merges by fast-forward — there is no
+ * merge, so there is nothing to conflict. That is provable from ancestry alone,
+ * on any git, and it is the common case right after ship pushes: a branch cut or
+ * rebased recently, with the base unmoved under it. Answering it is a real
+ * verdict, not a guess.
+ *
+ * Anything else is `unknown`. Ancestry says nothing about whether two real sets
+ * of changes conflict, and old `merge-tree`'s trivial-merge mode cannot be made
+ * to say it either — it does no rename detection and signals conflicts only as
+ * markers inside a diff. Parsing that into a confident "clean" is precisely the
+ * failure this three-valued result exists to prevent.
+ */
+async function checkByAncestry(
+  git: GitRunner,
+  cwd: string,
+  headSha: string,
+  baseSha: string,
+): Promise<MergeCheck> {
+  const contained = await git(['merge-base', '--is-ancestor', baseSha, headSha], cwd);
+  if (contained.exitCode === 0) {
+    return { state: 'clean', files: [], reason: null, headSha, baseSha };
+  }
+  return unknown(TOO_OLD, headSha, baseSha);
 }
 
 export async function checkMergeable(
@@ -117,6 +167,9 @@ export async function checkMergeable(
         headSha,
         baseSha,
       };
+    }
+    if (isUnsupportedProbe(`${probe.stderr}\n${probe.stdout}`)) {
+      return await checkByAncestry(git, cwd, headSha, baseSha);
     }
     return unknown(reasonFrom(probe.stderr, probe.stdout, probe.exitCode), headSha, baseSha);
   } catch (err) {

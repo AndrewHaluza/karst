@@ -9,6 +9,7 @@ import type { AgentProvider } from '../manifest/types.js';
 // consumer of this module — the edge `diagnostics/nonInterference.test.ts` bans.
 import { isKnownProvider } from '../agent/provider.js';
 import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
+import { slugifyTitleKey } from './titleKey.js';
 
 export interface Ticket {
   id: number;
@@ -239,13 +240,30 @@ export function getTicketByKey(
 
 /**
  * Auto-generated key for a manually created ticket left blank by the user
- * (§ manual ticket creation — key is optional). Shaped like a hand-typed key
- * (`MANUAL-XXXXXXXX`) so downstream consumers can't tell it apart from one the
- * user supplied. Collisions are astronomically unlikely at 4 bytes of entropy,
- * but a retry-on-collision loop makes the uniqueness guarantee actual rather
- * than probabilistic, scoped the same way `getTicketByKey` is.
+ * (§ manual ticket creation — key is optional).
+ *
+ * With a `seedTitle` the key is DERIVED from the title (`Fix login redirect` →
+ * `FIX-LOGIN-REDIRECT`), suffixed `-2`, `-3`… when that name is already taken in
+ * scope: the title is the only identity a manual ticket actually carries, and a
+ * readable key is what shows on the board. Without one — or when the title has
+ * nothing key-able in it — it falls back to `MANUAL-XXXXXXXX`, shaped like a
+ * hand-typed key so downstream consumers can't tell it apart from one the user
+ * supplied. Collisions are astronomically unlikely at 4 bytes of entropy, but a
+ * retry-on-collision loop makes the uniqueness guarantee actual rather than
+ * probabilistic, scoped the same way `getTicketByKey` is.
  */
-export function generateTicketKey(store: Store, scope: ProjectScope = {}): string {
+export function generateTicketKey(
+  store: Store,
+  scope: ProjectScope = {},
+  seedTitle?: string,
+): string {
+  const base = slugifyTitleKey(seedTitle ?? '');
+  if (base) {
+    for (let n = 1; n <= 50; n++) {
+      const candidate = n === 1 ? base : `${base}-${n}`;
+      if (!getTicketByKey(store, candidate, scope)) return candidate;
+    }
+  }
   for (let attempt = 0; attempt < 5; attempt++) {
     const candidate = `MANUAL-${randomBytes(4).toString('hex').toUpperCase()}`;
     if (!getTicketByKey(store, candidate, scope)) return candidate;

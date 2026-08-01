@@ -139,6 +139,13 @@
     border-radius:4px;cursor:pointer;font-size:13px}
   .provselect-opt:hover{background:var(--vscode-list-hoverBackground)}
   .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--vscode-list-hoverBackground))}
+  /* The menu is absolutely positioned below the trigger and is taller than the
+     card that hosts it (the ClickUp fields below it are hidden while the
+     provider is `manual`), so the accordion's `.card{overflow:hidden}` clipped
+     it to a sliver — the dropdown opened but read as invisible. This card is
+     always open and has no rounded body to clip, so it opts out. The menu's
+     z-index is what keeps it above the cards that follow. */
+  .card.unclipped{overflow:visible}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -561,7 +568,7 @@
 
     <!-- Ticketing -->
     <div class="section hidden" id="section-ticketing">
-      <div class="card open">
+      <div class="card open unclipped">
         <div class="card-body" style="display:block;padding-top:14px">
           <label id="ticketProviderLabel">Provider</label>
           <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
@@ -753,6 +760,83 @@
     agentProvider: 'claude',
   });
 
+  // Placeholder transforms — mirror of src/template/token.ts and
+  // src/template/transforms.ts (the webview can't import TS). PREVIEW ONLY: the
+  // host's validateManifest stays authoritative for reporting a bad transform,
+  // so an unrecognized one is skipped here rather than reported. webview.test.ts
+  // pins TRANSFORM_NAMES against the host module.
+  const TRANSFORM_NAMES = ['slice', 'truncate', 'upper', 'lower', 'kebab', 'snake', 'trim', 'default'];
+  const TRANSFORM_ARITY = {
+    slice: 2, truncate: 2, upper: 0, lower: 0, kebab: 0, snake: 0, trim: 0, default: 1,
+  };
+  function splitTransformArgs(argText, maxArgs) {
+    if (maxArgs <= 1) return [argText];
+    const comma = argText.indexOf(',');
+    if (comma === -1) return [argText];
+    return [argText.slice(0, comma), ...splitTransformArgs(argText.slice(comma + 1), maxArgs - 1)];
+  }
+  function separateWords(value, sep) {
+    return value
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, sep)
+      .replace(new RegExp('^\\' + sep + '+|\\' + sep + '+$', 'g'), '');
+  }
+  function parseTokenBody(body) {
+    const parts = String(body).split('|');
+    return {
+      variable: (parts[0] || '').trim(),
+      transforms: parts.slice(1).map((raw) => {
+        const colon = raw.indexOf(':');
+        return colon === -1
+          ? { name: raw.trim(), argText: undefined }
+          : { name: raw.slice(0, colon).trim(), argText: raw.slice(colon + 1) };
+      }),
+    };
+  }
+  function applyOneTransform(name, value, args) {
+    switch (name) {
+      case 'slice': {
+        const start = parseInt(args[0], 10);
+        if (Number.isNaN(start)) return value;
+        if (args.length > 1) {
+          const end = parseInt(args[1], 10);
+          return Number.isNaN(end) ? value : value.slice(start, end);
+        }
+        return value.slice(start);
+      }
+      case 'truncate': {
+        const width = parseInt(args[0], 10);
+        if (!(width >= 1)) return value;
+        const marker = args.length > 1 ? args[1] : '…';
+        const points = [...value];
+        if (points.length <= width) return value;
+        const markerPoints = [...marker];
+        if (markerPoints.length >= width) return points.slice(0, width).join('');
+        return points.slice(0, width - markerPoints.length).join('') + marker;
+      }
+      case 'upper': return value.toUpperCase();
+      case 'lower': return value.toLowerCase();
+      case 'kebab': return separateWords(value, '-');
+      case 'snake': return separateWords(value, '_');
+      case 'trim': return value.trim();
+      case 'default': return value === '' ? (args[0] || '') : value;
+      default: return value;
+    }
+  }
+  function applyTransforms(value, transforms) {
+    let out = value === null || value === undefined ? '' : String(value);
+    for (const spec of transforms) {
+      const arity = TRANSFORM_ARITY[spec.name];
+      if (arity === undefined) continue;
+      out = applyOneTransform(
+        spec.name,
+        out,
+        spec.argText === undefined ? [] : splitTransformArgs(spec.argText, arity),
+      );
+    }
+    return out;
+  }
+
   // Ticket-label template — mirror of src/store/ticketLabelTemplate.ts (the webview
   // can't import TS). Keep the two in sync: default + variables + fallbacks.
   const DEFAULT_LABEL_TEMPLATE = '{key} — {title}';
@@ -772,8 +856,13 @@
       stage: ticket.stageCurrent ?? '',
       repos: (ticket.selectedRepos || []).join(', '),
     };
-    const out = tpl.replace(/\{(\w+)\}/g, (_m, name) =>
-      Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : '');
+    const out = tpl.replace(/\{(\w+(?:\|[^{}]*)?)\}/g, (_m, body) => {
+      const token = parseTokenBody(body);
+      const value = Object.prototype.hasOwnProperty.call(vars, token.variable)
+        ? vars[token.variable]
+        : '';
+      return applyTransforms(value, token.transforms);
+    });
     if (out.trim() !== '') return out;
     if (tpl === DEFAULT_LABEL_TEMPLATE) return out;
     return renderLabel(ticket, DEFAULT_LABEL_TEMPLATE);
@@ -1052,7 +1141,9 @@
     el('labelPreview').innerHTML =
       'Preview: <span class="lp-val">' + esc(renderLabel(SAMPLE_TICKET, tpl)) + '</span>';
     el('labelVars').innerHTML =
-      'Variables: ' + LABEL_VARS.map((v) => '<code>{' + v + '}</code>').join(' ');
+      'Variables: ' + LABEL_VARS.map((v) => '<code>{' + v + '}</code>').join(' ') +
+      '<br />Transforms: ' + TRANSFORM_NAMES.map((n) => '<code>' + n + '</code>').join(' ') +
+      ' — pipe them, e.g. <code>{key|slice:-4}</code>';
     renderTerminalPreview();
   }
 
@@ -1066,7 +1157,9 @@
 
   function renderConventionVars(target, names) {
     el(target).innerHTML =
-      'Variables: ' + names.map((name) => '<code>{' + name + '}</code>').join(' ');
+      'Variables: ' + names.map((name) => '<code>{' + name + '}</code>').join(' ') +
+      '<br />Transforms: ' + TRANSFORM_NAMES.map((n) => '<code>' + n + '</code>').join(' ') +
+      ' — pipe them, e.g. <code>{key|slice:-4}</code>';
   }
 
   function renderConventionPreview(inputId, previewId, fallback) {
@@ -1075,11 +1168,13 @@
       el(previewId).textContent = fallback;
       return;
     }
-    const rendered = template.replace(/\{(\w+)\}/g, (match, name) =>
-      Object.prototype.hasOwnProperty.call(CONVENTION_SAMPLE, name)
-        ? CONVENTION_SAMPLE[name]
-        : match
-    );
+    const rendered = template.replace(/\{([^{}]*)\}/g, (match, body) => {
+      const token = parseTokenBody(body);
+      // An unknown variable stays LITERAL in the preview — the host reports it
+      // as an error, and blanking it here would hide which one is wrong.
+      if (!Object.prototype.hasOwnProperty.call(CONVENTION_SAMPLE, token.variable)) return match;
+      return applyTransforms(CONVENTION_SAMPLE[token.variable], token.transforms);
+    });
     el(previewId).innerHTML = 'Preview: <span class="lp-val">' + esc(rendered) + '</span>';
   }
 
@@ -2516,6 +2611,18 @@
   el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
   el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
 
+  // The host's answer to set-token/clear-token. The token is keychain state, not
+  // manifest state, so this NEVER touches `draft` — a full `state` push would
+  // replace the draft with the saved manifest, and the token is set mid-setup,
+  // before the provider has ever been saved. Re-rendering also re-arms the
+  // list auto-fetch now that a prerequisite has changed.
+  function applyTokenState(configured) {
+    tokenConfigured = Boolean(configured);
+    renderTicketing();
+    const prev = vscode.getState();
+    if (prev) vscode.setState({ ...prev, tokenConfigured });
+  }
+
   // ---- top bar ----
   el('discardBtn').addEventListener('click', () => {
     draft = clone(lastSaved);
@@ -2637,6 +2744,10 @@
           touchedFields.add(msg.name + '.repoPath');
           markDirty();
         }
+        break;
+      }
+      case 'token-state': {
+        applyTokenState(msg.configured);
         break;
       }
       case 'ticket-statuses': {

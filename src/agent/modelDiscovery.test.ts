@@ -41,6 +41,25 @@ describe('parseAntigravityModels', () => {
       { id: 'claude-opus-5-thinking', label: 'Claude Opus 5 (Thinking)', providers: ['antigravity'] },
     ]);
   });
+
+  it('reads the headingless id list the installed agy CLI actually prints', () => {
+    expect(parseAntigravityModels([
+      'gemini-3.6-flash-high',
+      'claude-opus-4-6-thinking',
+      '',
+    ].join('\n'))).toEqual([
+      { id: 'gemini-3.6-flash-high', label: 'gemini-3.6-flash-high', providers: ['antigravity'] },
+      { id: 'claude-opus-4-6-thinking', label: 'claude-opus-4-6-thinking', providers: ['antigravity'] },
+    ]);
+  });
+
+  it.each([
+    ['usage text', 'Usage: agy models [options]\n  --json  print JSON\n'],
+    ['an error page', 'error: not logged in, run agy auth login\n'],
+    ['nothing at all', '\n\n'],
+  ])('refuses to read %s as a headingless model list', (_case, stdout) => {
+    expect(parseAntigravityModels(stdout)).toBeUndefined();
+  });
 });
 
 describe('provider discovery', () => {
@@ -142,9 +161,34 @@ describe('provider discovery', () => {
       .resolves.toMatchObject({ status: 'unavailable' });
   });
 
-  it('reports Claude CLI discovery as explicitly unsupported', async () => {
+  // The code, not the prose, is what the catalog loader classifies by: an absent
+  // optional CLI is a normal state and a broken one is not, and the two must not
+  // be told apart by grepping a human-readable sentence.
+  it.each([
+    ['an uninstalled CLI', 'command unavailable' as const, 'command-unavailable'],
+    ['a hung CLI', 'timed out' as const, 'timeout'],
+    ['a failing CLI', 'command failed' as const, 'nonzero-exit'],
+    ['a flooding CLI', 'output exceeded' as const, 'invalid-output'],
+  ])('codes %s distinctly', async (_case, failure, code) => {
+    const run: CommandRunner = async () => ({ stdout: '', stderr: '', exitCode: 1, failure });
+    await expect(discoverCodexModels(run)).resolves.toMatchObject({ status: 'unavailable', code });
+    await expect(discoverAntigravityModels(run)).resolves.toMatchObject({ status: 'unavailable', code });
+  });
+
+  it('codes an unclassified non-zero exit as a non-zero exit, not a missing command', async () => {
+    await expect(discoverCodexModels(completed('', 3, 'boom')))
+      .resolves.toMatchObject({ status: 'unavailable', code: 'nonzero-exit' });
+  });
+
+  it('codes unparseable output as invalid output rather than an absent CLI', async () => {
+    await expect(discoverCodexModels(completed('{not json}')))
+      .resolves.toMatchObject({ status: 'unavailable', code: 'invalid-output' });
+  });
+
+  it('reports Claude CLI discovery as unsupported, never as a missing command', async () => {
     await expect(discoverClaudeModels()).resolves.toEqual({
       status: 'unavailable',
+      code: 'unsupported',
       reason: 'Claude CLI model discovery is unsupported',
     });
   });

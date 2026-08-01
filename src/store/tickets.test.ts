@@ -104,6 +104,22 @@ describe('ticket + stage persistence', () => {
     expect(getTicketByKey(store, key)?.id).toBe(t.id);
   });
 
+  it('generateTicketKey derives the key from a seed title when one is given', () => {
+    expect(generateTicketKey(store, {}, 'Fix login redirect')).toBe('FIX-LOGIN-REDIRECT');
+  });
+
+  it('a seed title whose key is taken gets a numeric suffix, in scope', () => {
+    createTicket(store, { key: 'FIX-LOGIN-REDIRECT', title: 'first', projectId: 1 });
+    expect(generateTicketKey(store, { projectId: 1 }, 'Fix login redirect')).toBe('FIX-LOGIN-REDIRECT-2');
+    // Another project never saw that key — it keeps the clean one.
+    expect(generateTicketKey(store, { projectId: 2 }, 'Fix login redirect')).toBe('FIX-LOGIN-REDIRECT');
+  });
+
+  it('falls back to a random key when the seed title carries nothing key-able', () => {
+    const key = generateTicketKey(store, {}, '  *** ');
+    expect(key).toMatch(/^MANUAL-[0-9A-F]{8}$/);
+  });
+
   it('generateTicketKey is scoped per project, like getTicketByKey', () => {
     const keyInA = generateTicketKey(store, { projectId: 1 });
     createTicket(store, { key: keyInA, title: 'in A', projectId: 1 });

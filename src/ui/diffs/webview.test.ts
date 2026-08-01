@@ -88,7 +88,40 @@ interface Harness {
   filterBy: (value: string) => void;
   clickRefresh: () => void;
   clickRow: (changeId: string | null) => void;
+  clickCopy: (hash: string) => CopyButtonDouble;
   receive: (data: unknown) => void;
+}
+
+/** The one node the copy handler mutates, with only the API it touches. */
+interface CopyButtonDouble {
+  dataset: Record<string, string>;
+  textContent: string;
+  label: string;
+  classes: string[];
+  defaultPrevented: boolean;
+}
+
+function copyButton(hash: string): CopyButtonDouble & {
+  classList: { add: (name: string) => void; remove: (name: string) => void };
+  setAttribute: (name: string, value: string) => void;
+  closest: (selector: string) => unknown;
+} {
+  const button = {
+    dataset: { copyHash: hash } as Record<string, string>,
+    textContent: '⧉',
+    label: 'Copy commit hash',
+    classes: [] as string[],
+    defaultPrevented: false,
+    classList: {
+      add: (name: string) => { button.classes.push(name); },
+      remove: (name: string) => { button.classes = button.classes.filter((n) => n !== name); },
+    },
+    setAttribute: (name: string, value: string) => {
+      if (name === 'aria-label') button.label = value;
+    },
+    closest: (selector: string) => (selector === '[data-copy-hash]' ? button : null),
+  };
+  return button;
 }
 
 function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
@@ -113,6 +146,8 @@ function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
     }),
     document: documentDouble,
     window: windowDouble,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
   };
   runInNewContext(
     `${scriptSource()}\n;globalThis.__karst = { ${EXPORTS.join(', ')} };`,
@@ -150,6 +185,14 @@ function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
             selector === '[data-change-id]' && changeId !== null ? { dataset: { changeId } } : null,
         },
       }),
+    clickCopy: (hash: string) => {
+      const button = copyButton(hash);
+      documentDouble.fire('click', {
+        target: button,
+        preventDefault: () => { button.defaultPrevented = true; },
+      });
+      return button;
+    },
     receive: (data: unknown) => windowDouble.fire('message', { data }),
   };
 }
@@ -346,6 +389,25 @@ describe('ticket changes webview rows', () => {
     expect(commitRow(commit, 0)).toContain('<span>2</span></summary>');
   });
 
+  /**
+   * The hash and the subject are separate grid items — a literal space between
+   * them printed as a second gap after the hash on top of the layout's own.
+   */
+  it('leaves no text node between the hash and the subject', () => {
+    const { commitRow } = boot();
+    expect(commitRow(commitView(), 0)).toContain('</code>Add gate runner');
+  });
+
+  it('offers the full hash to copy while showing the abbreviation', () => {
+    const { commitRow } = boot();
+    const html = commitRow(commitView(), 0);
+    expect(html).toContain('<code data-hash>9f1c2ab</code>');
+    expect(html).toContain(
+      'data-copy-hash="9f1c2ab7d5e04416b3ca9f8e77d0a1c5b6e34210"',
+    );
+    expect(html).toContain('aria-label="Copy commit hash"');
+  });
+
   it('opens a repository only when it has commits or pending files', () => {
     const { worktreeRow } = boot();
     expect(worktreeRow(worktreeView())).toContain('<details class="repo">');
@@ -482,8 +544,32 @@ describe('ticket changes webview protocol', () => {
     expect(harness.posted).toEqual([]);
   });
 
-  it('never posts a path, old path, revision, or hash back to the host', () => {
-    expect(HTML).not.toMatch(/postMessage\(\{[^}]*\b(?:path|oldPath|revision|hash)\s*:/);
+  it('never posts a path, old path, or revision back to the host', () => {
+    expect(HTML).not.toMatch(/postMessage\(\{[^}]*\b(?:path|oldPath|revision)\s*:/);
+  });
+
+  /**
+   * A hash leaves the webview for exactly one reason — the clipboard request —
+   * and the host re-validates it as a git object name before writing it. Any
+   * second message shape carrying a hash would widen that surface.
+   */
+  it('posts a hash only as the clipboard request', () => {
+    const posts = HTML.match(/postMessage\(\{[^}]*\bhash:[^}]*\}/g) ?? [];
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toContain("type: 'copy-hash'");
+  });
+
+  it('posts the full hash and confirms the copy on the button itself', () => {
+    const harness = boot();
+    const button = harness.clickCopy('9f1c2ab7d5e04416b3ca9f8e77d0a1c5b6e34210');
+
+    expect(harness.posted).toEqual([
+      { type: 'copy-hash', hash: '9f1c2ab7d5e04416b3ca9f8e77d0a1c5b6e34210' },
+    ]);
+    expect(button.defaultPrevented).toBe(true);
+    expect(button.textContent).toBe('✓');
+    expect(button.label).toBe('Copied');
+    expect(button.classes).toContain('copied');
   });
 
   it('renders the loading state immediately when refresh is clicked', () => {

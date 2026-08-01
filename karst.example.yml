@@ -208,6 +208,39 @@ agents:
 # characters folded to dashes). It is rendered ONCE, when the worktree is
 # created: changing this never renames an existing ticket's branch.
 #
+# ANY placeholder, in ANY of these templates, may pipe its value through
+# transforms: {key|slice:-4}. Ticket ids from an external tracker often share a
+# long prefix (869e82530, 869e820e2 differ only in the last four characters), so
+# rendering them whole spends width on characters that distinguish nothing.
+#
+#   slice:START[,END]        exactly String.prototype.slice — negative indices
+#                            count from the end, START >= END gives "", and it
+#                            cuts UTF-16 CODE UNITS (an emoji can be halved)
+#   truncate:WIDTH[,MARKER]  shorten to WIDTH only when longer, marking the cut.
+#                            MARKER defaults to "…" and is INSIDE the budget, so
+#                            the result never exceeds WIDTH. Counts code points.
+#   upper / lower            case the whole value
+#   kebab / snake            lowercase; every non-alphanumeric run becomes one
+#                            "-" / "_" (Unicode-aware: non-Latin letters survive)
+#   trim                     strip leading/trailing whitespace, keep the interior
+#   default:VALUE            replace an EMPTY value (missing field, or "").
+#                            Whitespace-only is NOT empty — use {x|trim|default:…}
+#
+# Chains apply LEFT TO RIGHT: {title|trim|kebab|truncate:24}. Arguments follow
+# ":" and split on ","; only as many commas as the transform takes arguments are
+# split, so the last argument may contain commas ({status|default:none, yet}).
+# Arguments are verbatim — {key|slice: -4} is an ERROR, not -4.
+#
+# Unknown transforms and malformed arguments are rejected WHEN THIS FILE LOADS,
+# naming the placeholder and the reason. Nothing is coerced at render time.
+# A template with no "|" renders exactly as it did before transforms existed.
+#
+# In branchName, transforms apply to the RAW value and git-ref sanitization runs
+# after — so {key|slice:-4} means the same four characters here as everywhere
+# else. Slicing {slug}/{key}/{id} short enough can let two tickets collide on one
+# branch: the uniqueness rule checks WHICH variable is read, not how much of it
+# survives.
+#
 # defaultType supplies {type} for tickets that carry none of their own; a ticket's
 # type is picked (or AI-prefilled) on the onboarding page. One of:
 # feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert.
@@ -236,6 +269,15 @@ agents:
 #
 # conventions:
 #   pullRequestTitle: "[{key}] {title}"
+#
+# The same transforms work in the two label templates below. Shortening a
+# 9-character tracker id to its distinguishing tail buys back five columns in
+# every sidebar row and terminal tab:
+#
+# ticketLabelTemplate: "{key|slice:-4} — {title|truncate:48}"
+# terminalNameTemplate: "Karst: {key|slice:-4}"
+# conventions:
+#   branchName: "karst/{type}/{key|slice:-4}-{slug|truncate:32,}"
 #
 # Scope: commitMessage applies only to Karst's fallback commit when a worktree is
 # dirty. Karst does not rename commits created by an agent or user. PR templates

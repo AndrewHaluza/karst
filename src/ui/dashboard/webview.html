@@ -34,6 +34,12 @@
     /* Selection, kept off the status ramp so a selected node's status stays
        readable underneath the ring. */
     --st-sel:var(--vscode-charts-purple,#8a63d2);
+    /* One header height for every panel in the grid. The headers carry
+       different contents — bare text, icon buttons, a text button — and letting
+       each size itself put the Worktrees body 2px below the Servers body beside
+       it, so the whole block read as drifted. Padding alone cannot fix that:
+       the tallest control still sets the height. */
+    --phead-h:39px;
     --mono:var(--vscode-editor-font-family,"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace);
     --ui:var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);
   }
@@ -371,7 +377,8 @@
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .panel{border:1px solid var(--border);border-radius:10px;background:var(--panel-bg);overflow:hidden}
   .panel.span{grid-column:1 / -1}
-  .phead{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600}
+  .phead{display:flex;align-items:center;gap:8px;min-height:var(--phead-h);padding:8px 14px;
+    border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600}
   .phead .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-faint);font-weight:400}
   /* An icon-only panel control. Quiet until hovered — it sits in a header, not a
      row of actions, and a filled button there reads as the panel's subject. The
@@ -450,7 +457,7 @@
      and must survive the states where the body has no rows to hang a button
      off — the empty body is exactly when Start matters most. The count
      therefore gives up the auto margin it keeps in the other panels. */
-  .svpanel .phead{padding:8px 10px 8px 14px}
+  .svpanel .phead{padding-right:10px}
   .svpanel .phead .count{margin-left:0}
   .svpanel .phead .pops{margin-left:auto;display:flex;gap:2px}
   .svpanel .pbody{padding:0}
@@ -633,8 +640,11 @@
 
 <div class="grid">
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
-  <div class="panel"><div class="phead"><span>Worktrees<span class="count" id="wtCount"></span></span><button id="wtChanges" data-act="show-changes" type="button">Changes</button></div><div class="pbody" id="worktrees"></div></div>
-  <div class="panel span"><div class="phead"><span>Pull requests<span class="count" id="prCount"></span></span><button id="prRefresh" class="iconbtn" data-act="refresh-prs" type="button"
+  <!-- The count is a direct child of .phead, like every other panel's: nested in
+       a wrapper its `margin-left:auto` had nothing to push against, so it read
+       as "Worktrees2" and the button sat wherever the text ended. -->
+  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" data-act="show-changes" type="button">Changes</button></div><div class="pbody" id="worktrees"></div></div>
+  <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="iconbtn" data-act="refresh-prs" type="button"
     aria-label="Refresh pull requests" title="Re-check pull request status and mergeability now">
     <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914l1.09-.508A6.2 6.2 0 1 1 8 1.8V0l3 2.4-3 2.4V3Z"/></svg>
   </button></div><div class="pbody" id="prs"></div></div>

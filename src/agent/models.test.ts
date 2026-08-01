@@ -18,6 +18,7 @@ describe('KNOWN_MODELS', () => {
   it('offers the curated launch models with stable ids', () => {
     const ids = KNOWN_MODELS.map((m) => m.id);
     expect(ids).toEqual([
+      'claude-opus-5',
       'claude-opus-4-8',
       'claude-sonnet-5',
       'claude-haiku-4-5',
@@ -45,6 +46,7 @@ describe('KNOWN_MODELS', () => {
 
   it('filters launch models by agent provider', () => {
     expect(modelsForProvider('claude').map((m) => m.id)).toEqual([
+      'claude-opus-5',
       'claude-opus-4-8',
       'claude-sonnet-5',
       'claude-haiku-4-5',
@@ -54,6 +56,21 @@ describe('KNOWN_MODELS', () => {
       'gemini-3.6-flash-high',
     );
     expect(modelsForProvider('antigravity').map((m) => m.id)).not.toContain('claude-opus-4-8');
+  });
+
+  it('lists the current Claude lineup without dropping previously offered ids', () => {
+    const claude = modelsForProvider('claude');
+    const ids = claude.map((m) => m.id);
+    // Current lineup (newest first) — a stale list is the bug this guards.
+    expect(ids).toContain('claude-opus-5');
+    expect(ids).toContain('claude-sonnet-5');
+    expect(ids).toContain('claude-fable-5');
+    // Previously offered ids keep resolving so stored selections stay valid.
+    expect(ids).toContain('claude-opus-4-8');
+    expect(ids).toContain('claude-haiku-4-5');
+    for (const id of ids) {
+      expect(isModelCompatibleWithProvider('claude', id)).toBe(true);
+    }
   });
 
   it('offers curated Codex models', () => {
