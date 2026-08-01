@@ -3,7 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
-import type { WorktreeStats } from './worktreeStats.js';
+import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -229,9 +229,10 @@ describe('DashboardManager', () => {
           stats: [{ repo: '/repo/a', additions: 8, deletions: 3 }],
         }),
       );
-      expect(loadStats).toHaveBeenCalledWith([
-        expect.objectContaining({ repo: '/repo/a', path: '/wt/a', baseRef: 'develop' }),
-      ]);
+      expect(loadStats).toHaveBeenCalledWith(
+        [expect.objectContaining({ repo: '/repo/a', path: '/wt/a', baseRef: 'develop' })],
+        expect.any(AbortSignal),
+      );
     });
 
     it('drops an older stats response after a newer state request wins', async () => {
@@ -239,10 +240,11 @@ describe('DashboardManager', () => {
       addWorktree(t.id);
       const first = deferred<WorktreeStats[]>();
       const second = deferred<WorktreeStats[]>();
-      const loadStats = vi
-        .fn()
-        .mockReturnValueOnce(first.promise)
-        .mockReturnValueOnce(second.promise);
+      const signals: AbortSignal[] = [];
+      const loadStats: WorktreeStatsLoader = vi.fn((_worktrees, signal) => {
+        signals.push(signal!);
+        return signals.length === 1 ? first.promise : second.promise;
+      });
       const { host, panels } = fakeHost();
       const mgr = new DashboardManager(
         store,
@@ -261,6 +263,9 @@ describe('DashboardManager', () => {
       );
       mgr.openDashboard(t.id);
       mgr.pushState(t.id);
+
+      expect(signals[0]!.aborted).toBe(true);
+      expect(signals[1]!.aborted).toBe(false);
 
       second.resolve([{ repo: '/repo/a', additions: 2, deletions: 1 }]);
       await vi.waitFor(() =>
@@ -284,6 +289,11 @@ describe('DashboardManager', () => {
       const t = createTicket(store, { key: 'A', title: 'a' });
       addWorktree(t.id);
       const pending = deferred<WorktreeStats[]>();
+      let signal: AbortSignal | undefined;
+      const loadStats: WorktreeStatsLoader = (_worktrees, requestSignal) => {
+        signal = requestSignal;
+        return pending.promise;
+      };
       const { host, panels } = fakeHost();
       const mgr = new DashboardManager(
         store,
@@ -298,10 +308,12 @@ describe('DashboardManager', () => {
         undefined,
         undefined,
         undefined,
-        () => pending.promise,
+        loadStats,
       );
       mgr.openDashboard(t.id);
       panels[0]!.dispose();
+
+      expect(signal?.aborted).toBe(true);
 
       pending.resolve([{ repo: '/repo/a', additions: 1, deletions: 1 }]);
       await Promise.resolve();

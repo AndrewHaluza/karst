@@ -1196,7 +1196,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       enabled: () => binder.enabled(),
       onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
     },
-    (worktrees) => loadWorktreeStats(worktrees, defaultGitRunner, logError),
+    (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
   );
 
   binder = new TerminalDashboardBinder({

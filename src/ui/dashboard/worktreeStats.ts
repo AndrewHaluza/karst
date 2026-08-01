@@ -10,6 +10,7 @@ export interface WorktreeStats {
 
 export type WorktreeStatsLoader = (
   worktrees: readonly WorktreeView[],
+  signal?: AbortSignal,
 ) => Promise<WorktreeStats[]>;
 
 /** Reduce numeric `git diff --numstat` rows; binary and malformed rows are omitted. */
@@ -37,20 +38,22 @@ export async function loadWorktreeStats(
   worktrees: readonly WorktreeView[],
   git: GitRunner,
   logError: LogError,
+  signal?: AbortSignal,
 ): Promise<WorktreeStats[]> {
   const rows = await Promise.all(
     worktrees.map(async (worktree): Promise<WorktreeStats | null> => {
-      if (!worktree.baseRef) return null;
+      if (!worktree.baseRef || signal?.aborted) return null;
       try {
-        const result = await git(
-          ['diff', '--numstat', '--no-ext-diff', worktree.baseRef, '--'],
-          worktree.path,
-        );
+        const args = ['diff', '--numstat', '--no-ext-diff', worktree.baseRef, '--'];
+        const result = signal
+          ? await git(args, worktree.path, { signal })
+          : await git(args, worktree.path);
         if (result.exitCode !== 0 || result.stdoutTruncated) {
           throw new Error(result.stderr || 'git diff output was truncated');
         }
         return { repo: worktree.repo, ...parseNumstat(result.stdout) };
       } catch (error) {
+        if (signal?.aborted) return null;
         logError(`karst: could not read worktree stats for ${worktree.path}`, error);
         return null;
       }

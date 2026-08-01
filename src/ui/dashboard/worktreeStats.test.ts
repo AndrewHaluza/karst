@@ -77,4 +77,25 @@ describe('loadWorktreeStats', () => {
     ).resolves.toEqual([{ repo: '/ok', additions: 3, deletions: 1 }]);
     expect(logError).toHaveBeenCalledOnce();
   });
+
+  it('passes cancellation to Git and does not log an expected abort', async () => {
+    const controller = new AbortController();
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const git: GitRunner = vi.fn(async (_args, _cwd, options) => {
+      expect(options?.signal).toBe(controller.signal);
+      await pending;
+      return { stdout: '', stderr: 'git was aborted', exitCode: 1 };
+    });
+    const logError = vi.fn();
+
+    const result = loadWorktreeStats([wt()], git, logError, controller.signal);
+    controller.abort();
+    finish();
+
+    await expect(result).resolves.toEqual([]);
+    expect(logError).not.toHaveBeenCalled();
+  });
 });

@@ -81,6 +81,7 @@ export type ActionsFactory = (ticketId: number) => DashboardActions;
 export class DashboardManager {
   private readonly panels = new Map<number, DashboardPanel>();
   private readonly statsRequests = new Map<number, number>();
+  private readonly statsControllers = new Map<number, AbortController>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -160,8 +161,10 @@ export class DashboardManager {
     panel.onDidChangeViewState((active) => this.binding?.onDidActivate(ticketId, active));
     panel.onDidDispose(() => {
       if (this.panels.get(ticketId) !== panel) return;
+      this.statsControllers.get(ticketId)?.abort();
       this.panels.delete(ticketId);
       this.statsRequests.delete(ticketId);
+      this.statsControllers.delete(ticketId);
     });
 
     this.refreshIcon(ticketId, panel);
@@ -211,17 +214,22 @@ export class DashboardManager {
     worktrees: DashboardState['worktrees'],
   ): void {
     if (!this.loadStats) return;
+    this.statsControllers.get(ticketId)?.abort();
+    const controller = new AbortController();
+    this.statsControllers.set(ticketId, controller);
     const request = (this.statsRequests.get(ticketId) ?? 0) + 1;
     this.statsRequests.set(ticketId, request);
-    void this.loadStats(worktrees).then(
+    void this.loadStats(worktrees, controller.signal).then(
       (stats) => {
         if (this.panels.get(ticketId) !== panel) return;
         if (this.statsRequests.get(ticketId) !== request) return;
+        this.statsControllers.delete(ticketId);
         panel.postMessage({ type: 'worktree-stats', stats });
       },
       (error) => {
         if (this.panels.get(ticketId) !== panel) return;
         if (this.statsRequests.get(ticketId) !== request) return;
+        this.statsControllers.delete(ticketId);
         this.logError('karst: dashboard worktree stats failed', error);
       },
     );
