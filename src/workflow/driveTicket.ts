@@ -6,10 +6,10 @@ import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.j
 import { runUat } from './stages/uat.js';
 import { runReview } from './stages/review.js';
 import {
+  capForGate,
   countFixAttempts,
   fixAttemptsRemain,
   lastFailedGate,
-  FIX_ATTEMPT_CAP,
   type GateStageKey,
 } from './fixAttempts.js';
 
@@ -35,9 +35,9 @@ export function fixResumeDecision(
 ): FixResumeDecision {
   const gate = lastFailedGate(stages);
   if (!gate) return { kind: 'no-failed-gate' };
-  // Only UAT's budget is configurable; review keeps the default until its own
-  // redesign, so `uat.maxFixAttempts` can never narrow a gate it does not name.
-  const cap = gate === 'uat' ? (manifest?.uat?.maxFixAttempts ?? FIX_ATTEMPT_CAP) : FIX_ATTEMPT_CAP;
+  // The rule lives in `capForGate` so the meter the dashboard draws and the
+  // budget spent here can never be two different numbers.
+  const cap = capForGate(gate, manifest?.uat?.maxFixAttempts);
   const attempts = countFixAttempts(stages, gate);
   return fixAttemptsRemain(attempts, cap)
     ? { kind: 'resume', gate, attempts }
