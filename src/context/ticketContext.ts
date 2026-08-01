@@ -11,7 +11,10 @@
  * vscode-free and driver-agnostic (takes a `Store`), so both paths are testable.
  */
 
+import type { AttachmentKind } from '../attachments/kinds.js';
+import { attachmentPath } from '../attachments/paths.js';
 import type { Store } from '../store/db.js';
+import { listAttachments } from '../store/attachments.js';
 import { getTicket } from '../store/tickets.js';
 import {
   listWorktreesByTicket,
@@ -49,6 +52,20 @@ export interface TicketContextPr {
    * this existed renders exactly as it did before, and never as "clean".
    */
   mergeCheck?: MergeCheckView;
+}
+
+/**
+ * One image or video attached to the ticket's prompt, as the agent sees it.
+ *
+ * `path` is absolute — the agent opens it directly, so a relative path would be
+ * resolved against whatever cwd the session happens to have. `name` is what the
+ * user called the file, which is frequently the only clue what a screenshot
+ * shows; the stored name is a hash and says nothing.
+ */
+export interface TicketContextAttachment {
+  kind: AttachmentKind;
+  path: string;
+  name: string;
 }
 
 /** The completed ticket this one continues work from, or null for an ordinary ticket. */
@@ -92,6 +109,8 @@ export interface TicketContext {
   worktrees: TicketContextWorktree[];
   servers: TicketContextServer[];
   prs: TicketContextPr[];
+  /** Images and video attached to the prompt. Empty when there are none. */
+  attachments: TicketContextAttachment[];
   /** Set when this ticket was created via "create follow-up" from a completed parent. */
   parent: TicketContextParent | null;
   repos: TicketContextRepo[];
@@ -106,6 +125,15 @@ export function buildTicketContext(
   store: Store,
   manifest: Manifest | undefined,
   ticketId: number,
+  /**
+   * The global-storage root attachment paths are built from. Optional because
+   * an absolute path cannot be formed without it: with no root, `attachments`
+   * is empty and the section is omitted, rather than emitting a half-built path
+   * the agent would fail to open with no way to tell why. Both real callers
+   * supply it — the extension from `globalStorageUri`, the CLI from the DB
+   * file's own directory.
+   */
+  storageDir?: string,
 ): TicketContext {
   const t = getTicket(store, ticketId);
   const mergeChecks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
@@ -183,6 +211,14 @@ export function buildTicketContext(
           : {}),
       };
     }),
+    attachments:
+      storageDir === undefined
+        ? []
+        : listAttachments(store, ticketId).map((a) => ({
+            kind: a.kind,
+            path: attachmentPath(storageDir, ticketId, a.storedName),
+            name: a.originalName,
+          })),
     parent,
     repos,
   };
@@ -209,6 +245,17 @@ export function renderTicketContext(ctx: TicketContext): string {
 
   const brief = ctx.brief?.trim();
   if (brief) parts.push(`## Context brief\n${brief}`);
+
+  if (ctx.attachments.length > 0) {
+    const rows = ctx.attachments.map((a) => {
+      // Video is stated as unreadable rather than omitted. Omitting it would let
+      // an agent conclude nothing was attached; listing it bare would let one
+      // report on footage it never opened.
+      const note = a.kind === 'video' ? ' (not agent-readable)' : '';
+      return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
+    });
+    parts.push(`## Attachments\n${rows.join('\n')}`);
+  }
 
   // One section, not two. The old render emitted a bare name list AND a richer
   // "## Services" list, so a repository appeared twice and a non-runnable one

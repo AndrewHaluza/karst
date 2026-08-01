@@ -42,6 +42,7 @@ describe('direct approach launch path (integration)', () => {
         worktrees: [],
         servers: [],
         prs: [],
+        attachments: [],
         repos: [
           {
             name: 'backend',

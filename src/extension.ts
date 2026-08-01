@@ -1748,7 +1748,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // plus live worktrees/branches/services/PRs) into markdown and seed it —
       // in-process, no CLI round-trip (the extension already holds the data).
       const ticketContextMd = renderTicketContext(
-        buildTicketContext(localStore, currentManifest(), ticketId),
+        buildTicketContext(
+          localStore,
+          currentManifest(),
+          ticketId,
+          context.globalStorageUri.fsPath,
+        ),
       );
       // The done marker (§5.4) rides EVERY seed, not just the approach path:
       // `materializeApproach` only runs for an installed package or a solo agent,
