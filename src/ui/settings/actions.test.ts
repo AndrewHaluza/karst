@@ -142,6 +142,71 @@ describe('settings actions — save', () => {
   });
 });
 
+describe('settings actions — section-scoped save', () => {
+  /** Capture what actually reached disk, not just that a write happened. */
+  function writeSpy() {
+    const writes: Manifest[] = [];
+    return {
+      writes,
+      harness: (base: Manifest) =>
+        harness({
+          loadState: () => ({ manifest: base, error: null }),
+          writeManifest: (_p, m) => { writes.push(m); },
+        }),
+    };
+  }
+
+  it('writes only the named section, leaving other tabs as the file has them', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions } = h(VALID);
+    // A draft dirty on TWO tabs: only General was asked for.
+    await actions.save(
+      { ...VALID, host: '0.0.0.0', baselineBranch: 'develop', repositories: {} },
+      'general',
+    );
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.host).toBe('0.0.0.0');
+    expect(writes[0]!.baselineBranch).toBe('develop');
+    expect(writes[0]!.repositories).toEqual(VALID.repositories); // untouched tab kept
+  });
+
+  it('merges onto the CURRENT file, so an out-of-band write is not clobbered', async () => {
+    // An agent toggle (setAgentEnabled) landed after the webview loaded its draft.
+    const onDisk: Manifest = { ...VALID, agents: { reviewer: { role: 'reviewer', enabled: false } } };
+    const { writes, harness: h } = writeSpy();
+    const { actions } = h(onDisk);
+    await actions.save({ ...VALID, host: '0.0.0.0' }, 'general'); // stale draft: agents {}
+
+    expect(writes[0]!.agents).toEqual(onDisk.agents);
+  });
+
+  it('acks with the section it saved', async () => {
+    const { actions, posted } = harness();
+    await actions.save({ ...VALID, host: '0.0.0.0' }, 'general');
+    expect(posted).toContainEqual({ type: 'saved', section: 'general' });
+  });
+
+  it('still refuses a merged result that does not validate', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions, posted } = h(VALID);
+    await actions.save({ ...VALID, portRange: [9000, 1000] }, 'general');
+
+    expect(writes).toEqual([]);
+    expect((posted.find((m) => m.type === 'error') as any).message).toMatch(/portRange/);
+  });
+
+  it('falls back to a whole-manifest write when no section is named', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions } = h(VALID);
+    const whole: Manifest = { ...VALID, host: '0.0.0.0', worktreePathDisplay: 'absolute' };
+    await actions.save(whole);
+
+    expect(writes[0]!.host).toBe('0.0.0.0');
+    expect(writes[0]!.worktreePathDisplay).toBe('absolute');
+  });
+});
+
 describe('settings actions — requestState', () => {
   it('requires the live model catalog dependency', () => {
     expect(MODEL_CATALOG_DEPENDENCY_IS_REQUIRED).toBe(true);

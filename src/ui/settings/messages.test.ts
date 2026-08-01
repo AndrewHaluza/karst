@@ -13,6 +13,20 @@ describe('parseSettingsMessage', () => {
     });
   });
 
+  it('carries a valid save section through', () => {
+    expect(parseSettingsMessage({ type: 'save', manifest: draft, section: 'git' })).toEqual({
+      type: 'save', manifest: draft, section: 'git',
+    });
+  });
+
+  it('rejects a save whose section is not a known tab', () => {
+    // Dropped, never downgraded to a whole-manifest save: a bad section name must
+    // not widen the write back to every tab.
+    expect(parseSettingsMessage({ type: 'save', manifest: draft, section: 'nope' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'save', manifest: draft, section: 'constructor' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'save', manifest: draft, section: 7 })).toBeNull();
+  });
+
   it('accepts request-state', () => {
     expect(parseSettingsMessage({ type: 'request-state' })).toEqual({ type: 'request-state' });
   });
@@ -141,7 +155,7 @@ describe('routeSettingsAction', () => {
     };
     return {
       calls,
-      save: (m) => calls['save']!.push(m),
+      save: (m, section) => calls['save']!.push({ manifest: m, section }),
       validate: (m) => calls['validate']!.push(m),
       requestState: () => calls['requestState']!.push(true),
       installApproach: (id) => calls['installApproach']!.push(id),
@@ -160,6 +174,12 @@ describe('routeSettingsAction', () => {
     };
   }
 
+  it('routes a section-scoped save with its section', () => {
+    const a = spies();
+    routeSettingsAction({ type: 'save', manifest: draft, section: 'services' }, a);
+    expect(a.calls.save).toEqual([{ manifest: draft, section: 'services' }]);
+  });
+
   it('routes each valid message to its action', () => {
     const a = spies();
     routeSettingsAction({ type: 'save', manifest: draft }, a);
@@ -176,7 +196,7 @@ describe('routeSettingsAction', () => {
     routeSettingsAction({ type: 'delete-agent', name: 'r' }, a);
     routeSettingsAction({ type: 'get-approach-command-body', approachId: 'rpi', command: '/rpi:research' }, a);
     routeSettingsAction({ type: 'browse-repo-path', name: 'backend' }, a);
-    expect(a.calls.save).toEqual([draft]);
+    expect(a.calls.save).toEqual([{ manifest: draft, section: undefined }]);
     expect(a.calls.validate).toEqual([draft]);
     expect(a.calls.requestState).toEqual([true]);
     expect(a.calls.installApproach).toEqual(['my-id']);

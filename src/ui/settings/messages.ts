@@ -2,10 +2,16 @@ import type { Manifest } from '../../manifest/types.js';
 import type { SettingsState } from './state.js';
 import type { TicketList } from '../../integrations/ticketing.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { isSettingsSection, type SettingsSection } from './sections.js';
 
 /** Webview → host messages. The webview is untrusted; parse before use. */
 export type SettingsWebviewMessage =
-  | { type: 'save'; manifest: Manifest }
+  /**
+   * `section` scopes the write to one tab: the host overlays that tab's fields
+   * onto the manifest on disk and leaves every other section alone. Absent means
+   * "write the whole draft" — kept for callers that legitimately own all of it.
+   */
+  | { type: 'save'; manifest: Manifest; section?: SettingsSection }
   | { type: 'validate'; manifest: Manifest }
   | { type: 'install-approach'; id: string }
   | { type: 'uninstall-approach'; id: string }
@@ -28,7 +34,8 @@ export type SettingsHostMessage =
   | { type: 'models'; models: ModelCatalog; modelCompatibility: ModelCatalog }
   | { type: 'validation'; ok: boolean; error: string | null }
   | { type: 'error'; message: string }
-  | { type: 'saved' }
+  /** `section` echoes back which tab was committed, so the page can say so. */
+  | { type: 'saved'; section?: SettingsSection }
   | { type: 'approach-command-body'; approachId: string; command: string; body: string }
   | { type: 'ticket-statuses'; statuses: string[] }
   | { type: 'ticket-statuses-error'; message: string }
@@ -45,7 +52,8 @@ export type SettingsHostMessage =
 
 /** The host-side effects a settings panel can trigger. */
 export interface SettingsActions {
-  save(manifest: Manifest): void;
+  /** Persist the draft; `section` narrows the write to that tab's fields. */
+  save(manifest: Manifest, section?: SettingsSection): void;
   validate(manifest: Manifest): void;
   installApproach(id: string): void;
   uninstallApproach(id: string): void;
@@ -93,8 +101,17 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
   const str = (k: string): boolean => typeof raw[k] === 'string' && (raw[k] as string).length > 0;
 
   switch (raw.type) {
-    case 'save':
-      return isRecord(raw.manifest) ? { type: 'save', manifest: raw.manifest as unknown as Manifest } : null;
+    case 'save': {
+      if (!isRecord(raw.manifest)) return null;
+      // An unrecognized section is DROPPED, never downgraded to a whole-manifest
+      // save — widening the write is the failure mode this scoping exists to stop.
+      if (raw.section !== undefined && !isSettingsSection(raw.section)) return null;
+      return {
+        type: 'save',
+        manifest: raw.manifest as unknown as Manifest,
+        ...(raw.section !== undefined ? { section: raw.section as SettingsSection } : {}),
+      };
+    }
     case 'validate':
       return isRecord(raw.manifest) ? { type: 'validate', manifest: raw.manifest as unknown as Manifest } : null;
     case 'install-approach':
@@ -151,7 +168,7 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
   if (!msg) return;
   switch (msg.type) {
     case 'save':
-      actions.save(msg.manifest);
+      actions.save(msg.manifest, msg.section);
       return;
     case 'validate':
       actions.validate(msg.manifest);
