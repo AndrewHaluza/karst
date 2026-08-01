@@ -15,6 +15,7 @@ export type SidebarWebviewMessage =
   | { type: 'request-state' }
   | { type: 'create' }
   | { type: 'open-settings' }
+  | { type: 'open-ticket'; ticketId: number }
   | { type: 'open-dashboard'; ticketId: number }
   | { type: 'spin'; ticketId: number }
   | { type: 'open-session'; ticketId: number }
@@ -34,6 +35,7 @@ export interface SidebarActions {
   requestState(): void;
   create(): void;
   openSettings(): void;
+  openTicket(ticketId: number): void;
   openDashboard(ticketId: number): void;
   spin(ticketId: number): void;
   openSession(ticketId: number): void;
@@ -67,6 +69,7 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
         : null;
     case 'set-filter':
       return typeof m.query === 'string' ? { type: 'set-filter', query: m.query } : null;
+    case 'open-ticket':
     case 'open-dashboard':
     case 'spin':
     case 'open-session':
@@ -97,6 +100,8 @@ export function routeSidebarAction(raw: unknown, actions: SidebarActions): void 
       return actions.create();
     case 'open-settings':
       return actions.openSettings();
+    case 'open-ticket':
+      return actions.openTicket(msg.ticketId);
     case 'open-dashboard':
       return actions.openDashboard(msg.ticketId);
     case 'spin':

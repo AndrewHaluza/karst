@@ -36,6 +36,7 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
     requestState: vi.fn(),
     create: vi.fn(),
     openSettings: vi.fn(),
+    openTicket: vi.fn(),
     openDashboard: vi.fn(),
     spin: vi.fn(),
     openSession: vi.fn(),
