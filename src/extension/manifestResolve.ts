@@ -76,7 +76,7 @@ export async function scaffoldManifest(): Promise<void> {
  * Resolve the workspace's manifest, offering to scaffold one from the bundled
  * template when absent. Returns the loaded `Manifest`, or `undefined` when the
  * caller should stop (no folder, no/invalid manifest, or a scaffold was just
- * created). Shared by the spin and onboarding commands.
+ * created). Shared by the spin and ticket-form commands.
  */
 export async function resolveManifest(): Promise<Manifest | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -121,7 +121,7 @@ export async function resolveManifest(): Promise<Manifest | undefined> {
 }
 
 /**
- * A safe empty manifest for onboarding to render against before a real one is
+ * A safe empty manifest for the ticket form to render against before a real one is
  * resolved (no repositories/approaches). Commands set the real manifest before
  * opening; this is only the getter's fallback.
  *

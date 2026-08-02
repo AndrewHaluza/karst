@@ -8,7 +8,7 @@
  * described as "the button that uses `--vscode-button-background`"; `sidebar`'s
  * `.tool` and `.ia` were two icon buttons with different box sizes, radii and
  * hover alphas IN ONE FILE; `settings` had no destructive styling at all, so
- * "Delete agent" rendered identically to "Cancel"; and `onboarding` applied a
+ * "Delete agent" rendered identically to "Cancel"; and `ticketForm` applied a
  * `.ghost` class that no stylesheet anywhere defined, so the ghost button
  * silently rendered as a primary.
  *

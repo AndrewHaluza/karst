@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
+import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { setStage } from '../../store/stages.js';
-import { buildOnboardingState } from './state.js';
+import { buildTicketFormState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import {
   manifest as buildManifest,
@@ -53,12 +53,12 @@ const MANIFEST: Manifest = buildManifest(
   },
 );
 
-describe('buildOnboardingState — create mode', () => {
+describe('buildTicketFormState — create mode', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
   it('starts an empty draft in create mode', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.mode).toBe('create');
     expect(s.ticketId).toBeUndefined();
     expect(s.key).toBe('');
@@ -68,19 +68,19 @@ describe('buildOnboardingState — create mode', () => {
   });
 
   it("defaults provider to 'manual' when the manifest has no ticketing config", () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.provider).toBe('manual');
   });
 
   it('reflects the configured ticketing provider', () => {
     const withClickup: Manifest = { ...MANIFEST, ticketing: { provider: 'clickup' } };
-    const s = buildOnboardingState(store, withClickup, () => [], () => []);
+    const s = buildTicketFormState(store, withClickup, () => [], () => []);
     expect(s.provider).toBe('clickup');
   });
 
   it('offers the current provider models from an injected catalog', () => {
     const withCodex: Manifest = { ...MANIFEST, agentProvider: 'codex' };
-    const s = buildOnboardingState(
+    const s = buildTicketFormState(
       store,
       withCodex,
       () => [],
@@ -96,7 +96,7 @@ describe('buildOnboardingState — create mode', () => {
 
   it('offers installed sourced approaches plus built-in (sourceless) ones', () => {
     // rpi installed; tdd sourced-but-not-installed (dropped); direct built-in (always).
-    const s = buildOnboardingState(store, MANIFEST, () => ['rpi'], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => ['rpi'], () => []);
     expect(s.approaches.map((a) => a.id)).toEqual(['rpi', 'direct']);
     expect(s.approaches.every((a) => a.installed === true)).toBe(true);
   });
@@ -113,12 +113,12 @@ describe('buildOnboardingState — create mode', () => {
     };
     // rpi installed but disabled → dropped; direct built-in but disabled → dropped;
     // tdd installed+enabled → kept; single-subagent built-in+enabled → kept.
-    const s = buildOnboardingState(store, m, () => ['rpi', 'tdd'], () => []);
+    const s = buildTicketFormState(store, m, () => ['rpi', 'tdd'], () => []);
     expect(s.approaches.map((a) => a.id)).toEqual(['tdd', 'single-subagent']);
   });
 
   it('always offers a built-in (sourceless) approach even when nothing is installed', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.approaches.map((a) => a.id)).toEqual(['direct']);
   });
 
@@ -130,19 +130,19 @@ describe('buildOnboardingState — create mode', () => {
         { id: 'rpi', label: 'RPI', recommended: true, source: { type: 'git', repo: 'a/b', ref: 'main', include: ['y'] } },
       ],
     };
-    const s = buildOnboardingState(store, m, () => ['tdd', 'rpi'], () => []);
+    const s = buildTicketFormState(store, m, () => ['tdd', 'rpi'], () => []);
     expect(s.selectedApproach).toBe('rpi'); // recommended wins over first
   });
 
   it('returns only built-in approaches and defaults to one when nothing is installed', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.approaches.map((a) => a.id)).toEqual(['direct']);
     expect(s.selectedApproach).toBe('direct');
   });
 
   it('returns an empty approaches array and null selectedApproach when none configured', () => {
     const m = { ...MANIFEST, approaches: [] };
-    const s = buildOnboardingState(store, m, () => [], () => []);
+    const s = buildTicketFormState(store, m, () => [], () => []);
     expect(s.approaches).toEqual([]);
     expect(s.selectedApproach).toBeNull();
   });
@@ -152,12 +152,12 @@ describe('buildOnboardingState — create mode', () => {
       ...MANIFEST,
       repositories: { fe: svc({ signals: [] }), be: svc({ signals: ['api'] }) },
     };
-    const s = buildOnboardingState(store, m, () => [], () => []);
+    const s = buildTicketFormState(store, m, () => [], () => []);
     expect(s.unclassified).toEqual(['fe']);
   });
 
   it('seeds a repo row per repository with its signals and no selection yet', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.repos.map((r) => r.service).sort()).toEqual(['be', 'fe']);
     const fe = s.repos.find((r) => r.service === 'fe')!;
     expect(fe.signals).toEqual(['ui', 'modal']);
@@ -165,19 +165,19 @@ describe('buildOnboardingState — create mode', () => {
   });
 
   it('populates agents from the injected listAgents fn, with no selection yet', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => AGENTS);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => AGENTS);
     expect(s.agents).toEqual(AGENTS);
     expect(s.selectedAgent).toBeNull();
   });
 });
 
-describe('buildOnboardingState — repo auto-selection & approach default', () => {
+describe('buildTicketFormState — repo auto-selection & approach default', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
   it('auto-selects the lone repository even with a zero score', () => {
     const solo: Manifest = { ...MANIFEST, repositories: { only: svc({ signals: [] }) } };
-    const s = buildOnboardingState(store, solo, () => [], () => []);
+    const s = buildTicketFormState(store, solo, () => [], () => []);
     const row = s.repos.find((r) => r.service === 'only')!;
     expect(row.score).toBe(0);
     expect(row.selected).toBe(true); // single repository is always chosen
@@ -189,19 +189,19 @@ describe('buildOnboardingState — repo auto-selection & approach default', () =
       ...MANIFEST,
       repositories: { docs: bareRepo({ repoPath: '/repo/docs', signals: ['guide'] }) },
     };
-    const s = buildOnboardingState(store, m, () => [], () => []);
+    const s = buildTicketFormState(store, m, () => [], () => []);
     const row = s.repos.find((r) => r.service === 'docs')!;
     expect(row.runnable).toBe(false);
     expect(row.selected).toBe(true); // sole repo: still auto-selected
   });
 
   it('marks a repository that declares a service as runnable', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.repos.every((r) => r.runnable)).toBe(true);
   });
 
   it('does not auto-select any repo in a multi-service stack with no score hits', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.repos.every((r) => r.selected === false)).toBe(true);
   });
 
@@ -213,7 +213,7 @@ describe('buildOnboardingState — repo auto-selection & approach default', () =
         { id: 'rpi', label: 'RPI', recommended: true },
       ],
     };
-    const s = buildOnboardingState(store, m, () => ['tdd', 'rpi'], () => []);
+    const s = buildTicketFormState(store, m, () => ['tdd', 'rpi'], () => []);
     expect(s.selectedApproach).toBe('rpi'); // recommended wins over first
   });
 
@@ -225,23 +225,23 @@ describe('buildOnboardingState — repo auto-selection & approach default', () =
         { id: 'rpi', label: 'RPI' },
       ],
     };
-    const s = buildOnboardingState(store, m, () => ['tdd', 'rpi'], () => []);
+    const s = buildTicketFormState(store, m, () => ['tdd', 'rpi'], () => []);
     expect(s.selectedApproach).toBe('tdd');
   });
 });
 
-describe('buildOnboardingState — edit mode', () => {
+describe('buildTicketFormState — edit mode', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
   it('loads persisted ticket fields into the draft', () => {
     const t = createTicket(store, { key: 'PROJ-7', title: 'a thing', description: 'desc' });
-    updateTicketOnboarding(store, t.id, {
+    updateTicketFields(store, t.id, {
       brief: 'the brief',
       approach: 'tdd',
       selectedRepos: ['be'],
     });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.mode).toBe('edit');
     expect(s.ticketId).toBe(t.id);
     expect(s.key).toBe('PROJ-7');
@@ -253,10 +253,10 @@ describe('buildOnboardingState — edit mode', () => {
 
   it('retains an absent saved ticket model for the model picker', () => {
     const t = createTicket(store, { key: 'P-MODEL', title: 'keep saved model' });
-    updateTicketOnboarding(store, t.id, { model: 'codex-preview-removed' });
+    updateTicketFields(store, t.id, { model: 'codex-preview-removed' });
     const withCodex: Manifest = { ...MANIFEST, agentProvider: 'codex' };
 
-    const s = buildOnboardingState(
+    const s = buildTicketFormState(
       store,
       withCodex,
       () => [],
@@ -272,8 +272,8 @@ describe('buildOnboardingState — edit mode', () => {
 
   it('marks previously selected repos as selected', () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { selectedRepos: ['fe'] });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    updateTicketFields(store, t.id, { selectedRepos: ['fe'] });
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.repos.find((r) => r.service === 'fe')!.selected).toBe(true);
     expect(s.repos.find((r) => r.service === 'be')!.selected).toBe(false);
   });
@@ -281,8 +281,8 @@ describe('buildOnboardingState — edit mode', () => {
   it('scores repos against the ticket text and auto-selects hits when none chosen yet', () => {
     // Description contains 'modal' (fe signal) but no 'api' (be signal).
     const t = createTicket(store, { key: 'P-2', title: 'fix', description: 'the login modal breaks' });
-    updateTicketOnboarding(store, t.id, { brief: 'the brief' });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    updateTicketFields(store, t.id, { brief: 'the brief' });
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     const fe = s.repos.find((r) => r.service === 'fe')!;
     const be = s.repos.find((r) => r.service === 'be')!;
     expect(fe.score).toBeGreaterThan(0);
@@ -294,35 +294,35 @@ describe('buildOnboardingState — edit mode', () => {
   it('does not override an explicit repo selection with the score-based default', () => {
     // 'modal' scores fe, but the user explicitly picked only be — respect it.
     const t = createTicket(store, { key: 'P-3', title: 'fix', description: 'login modal' });
-    updateTicketOnboarding(store, t.id, { selectedRepos: ['be'] });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    updateTicketFields(store, t.id, { selectedRepos: ['be'] });
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.repos.find((r) => r.service === 'fe')!.selected).toBe(false);
     expect(s.repos.find((r) => r.service === 'be')!.selected).toBe(true);
   });
 
   it('reflects the persisted ticket.agent as selectedAgent, and populates agents', () => {
     const t = createTicket(store, { key: 'P-4', title: 'fix' });
-    updateTicketOnboarding(store, t.id, { agent: 'reviewer' });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => AGENTS, t.id);
+    updateTicketFields(store, t.id, { agent: 'reviewer' });
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => AGENTS, t.id);
     expect(s.agents).toEqual(AGENTS);
     expect(s.selectedAgent).toBe('reviewer');
   });
 
   it('defaults selectedAgent to null when the ticket has no persisted agent', () => {
     const t = createTicket(store, { key: 'P-5', title: 'fix' });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => AGENTS, t.id);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => AGENTS, t.id);
     expect(s.selectedAgent).toBeNull();
   });
 
   it('throws for an unknown ticket id', () => {
-    expect(() => buildOnboardingState(store, MANIFEST, () => [], () => [], 9999)).toThrow(/not found|unknown/i);
+    expect(() => buildTicketFormState(store, MANIFEST, () => [], () => [], 9999)).toThrow(/not found|unknown/i);
   });
 
   it('projects the ticket stages onto an ordered read-only stepper', () => {
     const t = createTicket(store, { key: 'P-STEP', title: 'fix' });
     setStage(store, t.id, 'scope', { status: 'passed' });
     setStage(store, t.id, 'impl', { status: 'running' });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.stepper.map((c) => c.stageKey)).toEqual([
       'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'merge', 'done',
     ]);
@@ -333,35 +333,35 @@ describe('buildOnboardingState — edit mode', () => {
 
   it('reports sessionOpen from the injected predicate in edit mode', () => {
     const t = createTicket(store, { key: 'P-6', title: 'fix' });
-    const open = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id, (id) => id === t.id);
+    const open = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id, (id) => id === t.id);
     expect(open.sessionOpen).toBe(true);
-    const closed = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id, () => false);
+    const closed = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id, () => false);
     expect(closed.sessionOpen).toBe(false);
   });
 
   it('defaults sessionOpen to false when no predicate is injected', () => {
     const t = createTicket(store, { key: 'P-7', title: 'fix' });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.sessionOpen).toBe(false);
   });
 });
 
-describe('buildOnboardingState — sessionOpen in create mode', () => {
+describe('buildTicketFormState — sessionOpen in create mode', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
   it('is always false in create mode (no ticket, nothing to lock)', () => {
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], undefined, () => true);
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], undefined, () => true);
     expect(s.sessionOpen).toBe(false);
   });
 });
 
-describe('buildOnboardingState — attachments', () => {
+describe('buildTicketFormState — attachments', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
   it('is empty in create mode', () => {
-    const state = buildOnboardingState(store, MANIFEST, () => [], () => []);
+    const state = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(state.attachments).toEqual([]);
   });
 
@@ -375,7 +375,7 @@ describe('buildOnboardingState — attachments', () => {
       byteSize: 4096,
     });
 
-    const state = buildOnboardingState(
+    const state = buildTicketFormState(
       store,
       MANIFEST,
       () => [],
@@ -407,18 +407,18 @@ describe('buildOnboardingState — attachments', () => {
       byteSize: 1,
     });
 
-    const state = buildOnboardingState(store, MANIFEST, () => [], () => [], ticket.id);
+    const state = buildTicketFormState(store, MANIFEST, () => [], () => [], ticket.id);
     expect(state.attachments).toEqual([]);
   });
 });
 
-describe('buildOnboardingState — agent core (provider) fields', () => {
+describe('buildTicketFormState — agent core (provider) fields', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
   it('create mode offers every implemented provider, selects none, and defaults to the manifest provider', () => {
     const m: Manifest = { ...MANIFEST, agentProvider: 'codex' };
-    const s = buildOnboardingState(store, m, () => [], () => []);
+    const s = buildTicketFormState(store, m, () => [], () => []);
     expect(s.agentProviders).toEqual(['claude', 'codex', 'antigravity']);
     expect(s.selectedAgentProvider).toBeNull();
     expect(s.defaultAgentProvider).toBe('codex');
@@ -426,16 +426,16 @@ describe('buildOnboardingState — agent core (provider) fields', () => {
 
   it("edit mode reflects the ticket's persisted agentProvider override", () => {
     const t = createTicket(store, { key: 'K-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { agentProvider: 'antigravity' });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    updateTicketFields(store, t.id, { agentProvider: 'antigravity' });
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.selectedAgentProvider).toBe('antigravity');
     expect(s.defaultAgentProvider).toBe('claude');
   });
 
   it("the model list is filtered by the ticket's resolved provider, not always the manifest default", () => {
     const t = createTicket(store, { key: 'K-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { agentProvider: 'antigravity' });
-    const s = buildOnboardingState(store, MANIFEST, () => [], () => [], t.id);
+    updateTicketFields(store, t.id, { agentProvider: 'antigravity' });
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.models.map((m) => m.id)).toContain('gemini-3.6-flash-high');
     expect(s.models.map((m) => m.id)).not.toContain('claude-opus-4-8');
   });

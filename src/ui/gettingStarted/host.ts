@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import type { WelcomePanel, WelcomePanelHost } from './panel.js';
+import type { GettingStartedPanel, GettingStartedPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
@@ -11,22 +11,22 @@ import { brandIconUri } from '../panelIcon.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
- * `WelcomePanelHost` interface. The one place `vscode` webview APIs bind to the
- * welcome manager; everything below it is tested with fakes. The HTML resolves
+ * `GettingStartedPanelHost` interface. The one place `vscode` webview APIs bind to the
+ * Getting Started manager; everything below it is tested with fakes. The HTML resolves
  * relative to the compiled module (copy-assets mirrors it into dist/).
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export function makeWelcomePanelHost(
+export function makeGettingStartedPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
-): WelcomePanelHost {
+): GettingStartedPanelHost {
   const html = injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8')));
   return {
-    createPanel(title: string): WelcomePanel {
+    createPanel(title: string): GettingStartedPanel {
       const panel = vscode.window.createWebviewPanel(
-        'karst.welcome',
+        'karst.gettingStarted',
         title,
         vscode.ViewColumn.Active,
         { enableScripts: true, retainContextWhenHidden: true },

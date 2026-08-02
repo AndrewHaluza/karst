@@ -3,7 +3,7 @@ import {
   createTicket,
   getTicket,
   getTicketByKey,
-  updateTicketOnboarding,
+  updateTicketFields,
   type ProjectScope,
   type Ticket,
 } from '../../store/tickets.js';
@@ -59,7 +59,7 @@ export function createFollowUpTicket(
     parentTicketId: parent.id,
   });
 
-  updateTicketOnboarding(store, child.id, {
+  updateTicketFields(store, child.id, {
     approach: parent.approach ?? undefined,
     agent: parent.agent ?? undefined,
     selectedRepos: parent.selectedRepos,

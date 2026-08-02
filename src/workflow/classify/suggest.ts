@@ -1,7 +1,7 @@
 import type { AgentAdapter } from '../../agent/adapter.js';
 
 /**
- * The one AI touch in classification (§ onboarding): a one-shot, bounded call to
+ * The one AI touch in classification (§ ticket form): a one-shot, bounded call to
  * suggest signal words for an unclassified service. The user edits/approves the
  * result before it is written to the yml (or types signals manually). Runs once
  * per service — not per ticket.

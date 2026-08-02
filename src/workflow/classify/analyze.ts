@@ -8,7 +8,7 @@ import {
 } from '../../store/ticketTypes.js';
 
 /**
- * The coupled ticket analyzer (§ onboarding). ONE bounded agent call turns a
+ * The coupled ticket analyzer (§ ticket form). ONE bounded agent call turns a
  * fetched brief (or a manual prompt) into three tightly-coupled decisions at
  * once: the synthesized implementation prompt, the best-fit development
  * approach, and the affected services. They are decided together because the
@@ -22,7 +22,7 @@ import {
  * must carry only WHAT/WHY — an approach's method leaking into it silently
  * overrides whichever approach is finally selected.
  *
- * karst recommends; the user decides. The onboarding UI applies the result but
+ * karst recommends; the user decides. The ticket-form UI applies the result but
  * every field stays editable. Parsing is defensive (the model may wrap the
  * object in prose, and the prompt field itself may carry braces/newlines), and
  * every field degrades to a safe fallback rather than failing the flow. Only an
@@ -47,7 +47,7 @@ export interface AnalyzeInput {
   /** Enabled + available approaches to choose from. */
   approaches: ApproachDef[];
   /**
-   * Ticket this analysis is for, when it already exists. Onboarding runs the
+   * Ticket this analysis is for, when it already exists. The ticket form runs the
    * analyzer on a DRAFT, so it is usually absent — the call is still recorded,
    * unattributed, because it is real spend (§ token consumption stats).
    */

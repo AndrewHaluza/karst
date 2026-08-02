@@ -4,7 +4,7 @@ import { tintSvg } from './glyphIcon.js';
 
 /**
  * The karst mark for tabs that carry NO status — settings, usage, changes,
- * welcome, and a create-mode onboarding page with no ticket bound yet. Those
+ * welcome, and a create-mode ticket form with no ticket bound yet. Those
  * panels have nothing for the status ramp to say, so the mark is rendered in the
  * editor's own icon foreground rather than in a glyph hue: a Settings tab tinted
  * `gray` would read as an idle ticket.

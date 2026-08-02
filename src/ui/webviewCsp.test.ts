@@ -34,11 +34,11 @@ describe('webview discovery', () => {
     expect([...WEBVIEWS].sort()).toEqual([
       'dashboard',
       'diffs',
-      'onboarding',
+      'gettingStarted',
       'settings',
       'sidebar',
+      'ticketForm',
       'usage',
-      'welcome',
     ]);
   });
 });
@@ -67,7 +67,7 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
     expect(out).not.toMatch(/<script(?![^>]*\bnonce=)/);
   });
 
-  // The policy is only this tight because nothing loads externally. Onboarding
+  // The policy is only this tight because nothing loads externally. The ticket form
   // is the narrow exception: its attachment renderer emits img/video elements,
   // and its panel alone receives the media-source CSP grant. If another webview
   // gains a <link>/<img>/<video>/url()/fetch(), default-src 'none' silently
@@ -76,7 +76,7 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
   it('loads nothing externally, which is what default-src none assumes', () => {
     const html = read(name);
     expect(html).not.toMatch(/<link\b/);
-    if (name === 'onboarding') {
+    if (name === 'ticketForm') {
       expect(html).toMatch(/<img\b/);
       expect(html).toMatch(/<video\b/);
     } else {
@@ -113,13 +113,13 @@ describe('media source', () => {
   const SOURCE = 'vscode-resource://karst';
 
   it('omits img-src and media-src when no media source is given', () => {
-    const html = injectCsp(read('onboarding'), newNonce());
+    const html = injectCsp(read('ticketForm'), newNonce());
     expect(html).not.toContain('img-src');
     expect(html).not.toContain('media-src');
   });
 
   it('grants img-src and media-src to exactly the given source', () => {
-    const html = injectCsp(read('onboarding'), newNonce(), SOURCE);
+    const html = injectCsp(read('ticketForm'), newNonce(), SOURCE);
     expect(html).toContain(`img-src ${SOURCE};`);
     expect(html).toContain(`media-src ${SOURCE};`);
   });
@@ -129,7 +129,7 @@ describe('media source', () => {
   // let a script in.
   it('leaves the rest of the policy untouched when widened', () => {
     const nonce = newNonce();
-    const html = injectCsp(read('onboarding'), nonce, SOURCE);
+    const html = injectCsp(read('ticketForm'), nonce, SOURCE);
     expect(html).toContain("default-src 'none';");
     expect(html).toContain(`script-src 'nonce-${nonce}';`);
     expect(html).not.toContain("script-src 'unsafe-inline'");

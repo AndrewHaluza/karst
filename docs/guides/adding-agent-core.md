@@ -244,10 +244,10 @@ default when the provider changes. The launch boundary must use
 `resolveModelForProvider`, which skips known incompatible IDs while preserving
 unknown IDs for deliberate preview/custom models.
 
-Update onboarding state tests and model tests. Verify both directions of a
+Update ticket-form state tests and model tests. Verify both directions of a
 provider switch.
 
-## 9. Wire settings and onboarding
+## 9. Wire settings and the ticket form
 
 The settings webview mirrors all legal provider values and receives
 `implementedProviders` to decide which are enabled.
@@ -260,7 +260,7 @@ Verify:
 - dependency checks use the selected provider's binary;
 - model options update when the provider changes;
 - an incompatible default is not silently retained;
-- onboarding ticket models are filtered to the active provider.
+- ticket-form models are filtered to the active provider.
 
 Remember that source webview assets are copied into `dist/` by the build. Edit
 the source HTML, never the generated copy.
@@ -298,7 +298,7 @@ the source HTML, never the generated copy.
 - [ ] Registry and implemented-provider list updated.
 - [ ] Dependency registry updated.
 - [ ] Provider-scoped models updated in TypeScript and settings HTML.
-- [ ] Settings and onboarding flows tested.
+- [ ] Settings and ticket-form flows tested.
 
 ### Verification
 

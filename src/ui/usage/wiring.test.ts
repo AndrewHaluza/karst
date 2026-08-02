@@ -44,7 +44,7 @@ describe('token-usage host wiring', () => {
 
   it('instruments EVERY adapter it hands out', () => {
     const resolved = [...EXTENSION.matchAll(/resolveAdapter\([^)]*\)/g)].map((m) => m[0]);
-    // Two call sites today: the per-ticket adapter and onboarding's.
+    // Two call sites today: the per-ticket adapter and the ticket form's.
     expect(resolved.length).toBeGreaterThan(0);
     for (const call of resolved) {
       const line = EXTENSION.split('\n').find((l) => l.includes(call!));

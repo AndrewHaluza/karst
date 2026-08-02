@@ -3,12 +3,12 @@ import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
-import { buildOnboardingState, type OnboardingState } from './state.js';
+import { buildTicketFormState, type TicketFormState } from './state.js';
 import {
-  parseOnboardingMessage,
-  routeOnboardingAction,
-  type OnboardingActions,
-  type OnboardingHostMessage,
+  parseTicketFormMessage,
+  routeTicketFormAction,
+  type TicketFormActions,
+  type TicketFormHostMessage,
 } from './messages.js';
 import {
   bundledModelCatalog,
@@ -17,13 +17,13 @@ import {
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
- * The subset of a `vscode.WebviewPanel` the onboarding manager touches. Modeled
+ * The subset of a `vscode.WebviewPanel` the ticket-form manager touches. Modeled
  * as an interface so the manager stays host-agnostic and unit-testable without a
  * `vscode` module; the activation adapter supplies a real panel.
  */
-export interface OnboardingPanel {
+export interface TicketFormPanel {
   reveal(): void;
-  postMessage(message: OnboardingHostMessage): void;
+  postMessage(message: TicketFormHostMessage): void;
   onDidReceiveMessage(handler: (message: unknown) => void | Promise<void>): void;
   onDidDispose(handler: () => void): void;
   /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
@@ -42,8 +42,8 @@ export interface OnboardingPanel {
 }
 
 /** Factory the manager uses to mint panels (real: `createWebviewPanel`). */
-export interface OnboardingPanelHost {
-  createPanel(title: string): OnboardingPanel;
+export interface TicketFormPanelHost {
+  createPanel(title: string): TicketFormPanel;
 }
 
 /**
@@ -51,8 +51,8 @@ export interface OnboardingPanelHost {
  * webview, re-push fresh state, and know which ticket (edit) or none (create)
  * it is bound to.
  */
-export interface OnboardingActionsCtx {
-  post(message: OnboardingHostMessage): void;
+export interface TicketFormActionsCtx {
+  post(message: TicketFormHostMessage): void;
   pushState(): void;
   /**
    * The bound ticket id, or undefined in create mode until a draft is persisted.
@@ -68,7 +68,7 @@ export interface OnboardingActionsCtx {
    */
   bindTicket(id: number): void;
   /**
-   * Close this panel — the onboarding surface is done with the ticket (submit
+   * Close this panel — the ticket-form surface is done with the ticket (submit
    * started it, and the dashboard takes over). Idempotent, and everything after
    * it (`post`/`pushState`) becomes a no-op so a late async action can't talk to
    * a disposed webview.
@@ -77,19 +77,19 @@ export interface OnboardingActionsCtx {
 }
 
 /** Builds the host-side actions for one panel, bound to its ctx. */
-export type OnboardingActionsFactory = (ctx: OnboardingActionsCtx) => OnboardingActions;
+export type TicketFormActionsFactory = (ctx: TicketFormActionsCtx) => TicketFormActions;
 
 /**
- * One onboarding panel per key (§ onboarding). Edit mode keys by ticket id so
+ * One ticket-form panel per key (§ ticket form). Edit mode keys by ticket id so
  * re-opening reveals rather than duplicates; create mode takes a fresh negative
  * sentinel key per open, since every create request means a new blank page.
  * State is pushed to the webview via postMessage; incoming messages route to
  * injected host actions.
  */
-export class OnboardingManager {
-  private readonly panels = new Map<number, OnboardingPanel>();
+export class TicketFormManager {
+  private readonly panels = new Map<number, TicketFormPanel>();
   /** Live ticket binding for every edit or draft-bound create panel. */
-  private readonly ticketByPanel = new Map<OnboardingPanel, number>();
+  private readonly ticketByPanel = new Map<TicketFormPanel, number>();
   private readonly modelRefreshers = new Set<() => void>();
   /** Next unbound-create sentinel; decrements so create panels never collide. */
   private nextCreateKey = -1;
@@ -102,8 +102,8 @@ export class OnboardingManager {
   constructor(
     private readonly store: Store,
     private readonly manifest: () => Manifest,
-    private readonly host: OnboardingPanelHost,
-    private readonly actionsFactory: OnboardingActionsFactory,
+    private readonly host: TicketFormPanelHost,
+    private readonly actionsFactory: TicketFormActionsFactory,
     /**
      * Returns the ids of approach packages currently installed on disk.
      * Injected so this manager stays host-agnostic (no fs/vscode import) —
@@ -140,7 +140,7 @@ export class OnboardingManager {
   ) {}
 
   /**
-   * Open a create-mode onboarding page. Always a new page: an already-open
+   * Open a create-mode ticket form. Always a new page: an already-open
    * create panel carries a half-filled (or draft-bound) flow, so revealing it
    * would silently swallow the request for a blank one.
    */
@@ -182,7 +182,7 @@ export class OnboardingManager {
 
     const pushState = (): void => {
       if (disposed) return;
-      const state: OnboardingState = buildOnboardingState(
+      const state: TicketFormState = buildTicketFormState(
         this.store,
         this.manifest(),
         this.listInstalledIds,
@@ -196,7 +196,7 @@ export class OnboardingManager {
       // into a URI the webview is allowed to load. Mapped here, at the last
       // moment before the message leaves, so everything upstream stays
       // host-agnostic.
-      const withWebviewUris: OnboardingState = {
+      const withWebviewUris: TicketFormState = {
         ...state,
         attachments: state.attachments.map((a) => ({
           ...a,
@@ -209,7 +209,7 @@ export class OnboardingManager {
       const icon = boundId === undefined ? undefined : this.iconFor?.(boundId);
       if (icon) panel.setIcon(icon);
     };
-    const ctx: OnboardingActionsCtx = {
+    const ctx: TicketFormActionsCtx = {
       post: (message) => {
         if (!disposed) panel.postMessage(message);
       },
@@ -242,12 +242,12 @@ export class OnboardingManager {
 
     panel.onDidReceiveMessage((raw) => {
       // Read the correlation id off the RAW message, before it is narrowed —
-      // `parseOnboardingMessage` deliberately drops fields it does not model,
+      // `parseTicketFormMessage` deliberately drops fields it does not model,
       // and that dropping is the trust boundary (see readRequestId's own doc).
       const requestId = readRequestId(raw);
       // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
       // no terminal outcome to report.
-      if (!parseOnboardingMessage(raw)) return;
+      if (!parseTicketFormMessage(raw)) return;
       void reportAction(requestId, (message) => ctx.post(message), () => {
         // The message pump must never die on one bad message — log it either
         // way, then rethrow so reportAction reports the real failure as
@@ -258,10 +258,10 @@ export class OnboardingManager {
         // `action-result` contract — preserving the pre-existing behaviour of
         // an unconditional `{type:'error'}` post for those.
         try {
-          const result = routeOnboardingAction(raw, actions);
+          const result = routeTicketFormAction(raw, actions);
           if (result && typeof (result as PromiseLike<void>).then === 'function') {
             return (result as Promise<void>).catch((err: unknown) => {
-              this.logError('karst: onboarding action failed', err);
+              this.logError('karst: ticket-form action failed', err);
               if (requestId === undefined) {
                 ctx.post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
               }
@@ -270,7 +270,7 @@ export class OnboardingManager {
           }
           return result;
         } catch (err) {
-          this.logError('karst: onboarding action failed', err);
+          this.logError('karst: ticket-form action failed', err);
           if (requestId === undefined) {
             ctx.post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
           }
@@ -288,13 +288,13 @@ export class OnboardingManager {
     pushState();
   }
 
-  /** Push the current catalog to every onboarding panel that is still live. */
+  /** Push the current catalog to every ticket-form panel that is still live. */
   refreshModels(): void {
     for (const refresh of this.modelRefreshers) refresh();
   }
 
   /**
-   * Dispose every local onboarding panel bound to a ticket being hard-deleted.
+   * Dispose every local ticket-form panel bound to a ticket being hard-deleted.
    * Snapshot first because `dispose()` synchronously unregisters the panel.
    */
   closeTicket(ticketId: number): void {

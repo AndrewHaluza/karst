@@ -35,7 +35,7 @@ export interface ApproachPackage {
    * the package dir. The adapter materializes these into an agent's format.
    */
   artifacts?: ApproachArtifact[];
-  /** Ordered dev-workflow phases (§ onboarding), when the approach defines one. */
+  /** Ordered dev-workflow phases (§ ticket form), when the approach defines one. */
   workflow?: WorkflowPhase[];
 }
 

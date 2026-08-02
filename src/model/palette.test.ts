@@ -14,7 +14,7 @@ describe('paletteCss', () => {
     // charts-green is the single passed/done/online green; charts-lines the single gray.
     expect(css).toContain('--k-passed:var(--vscode-charts-green, #4bb64b)');
     expect(css).toContain('--k-pending:var(--vscode-charts-lines, #6e7681)');
-    // The stray onboarding green (#3fb950) and sidebar gray (#8b8b8b) must not appear.
+    // The stray ticket-form green (#3fb950) and sidebar gray (#8b8b8b) must not appear.
     expect(css).not.toContain('#3fb950');
     expect(css).not.toContain('#8b8b8b');
   });

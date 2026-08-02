@@ -94,7 +94,7 @@ describe('openStore', () => {
     expect(mode).toBe('wal');
   });
 
-  it('tickets carries the v2 onboarding columns', () => {
+  it('tickets carries the v2 ticket-field columns', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
     const cols = store.db
@@ -902,7 +902,7 @@ describe('openStore', () => {
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
 
-    // Simulate a legacy v2 DB (onboarding columns present, no archived_at).
+    // Simulate a legacy v2 DB (ticket-field columns present, no archived_at).
     const legacy = new Database(path);
     legacy.exec(
       "CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, source TEXT, stage_current TEXT, agent_state TEXT, session_id TEXT, description TEXT, brief TEXT, source_ref TEXT, source_fetched_at TEXT, approach TEXT, selected_repos TEXT, created_at TEXT, updated_at TEXT)",

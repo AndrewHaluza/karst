@@ -49,7 +49,7 @@ repositories:
     # baselineBranch: release
     hasMigrations: false   # true → flagged "not first-class under shared-DB"
     # Repo-classifier signal words: ticket title/description/tag tokens that
-    # point a ticket at this repo. Empty/absent = unclassified (onboarding
+    # point a ticket at this repo. Empty/absent = unclassified (the ticket-form
     # prompts to author these before the first ticket). Repository-level: a repo
     # with no service still has to be routable, or no ticket could reach it.
     signals: [api, endpoint, backend, database, migration, service, model, query]
@@ -96,7 +96,7 @@ repositories:
     hasMigrations: false
     signals: [tooling, script, ci, config, extension]
 
-# Development approaches offered on the onboarding page. Each approach
+# Development approaches offered on the ticket form. Each approach
 # includes a description, entrypoint, and optional source recipe. Extensible — add custom entries.
 approaches:
   # `include`/`collect` paths are classified by their well-known layout and
@@ -242,7 +242,7 @@ agents:
 # survives.
 #
 # defaultType supplies {type} for tickets that carry none of their own; a ticket's
-# type is picked (or AI-prefilled) on the onboarding page. One of:
+# type is picked (or AI-prefilled) on the ticket form. One of:
 # feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert.
 #
 # `{description}` has a model-cost consequence: Karst asks the configured agent

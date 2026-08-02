@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
-import { getTicket, updateTicketOnboarding } from '../../store/tickets.js';
+import { getTicket, updateTicketFields } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { transition } from '../machine.js';
@@ -529,7 +529,7 @@ setTimeout(() => {
 
     it('renders {type} from the ticket and {scope} from the repository', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
-      updateTicketOnboarding(store, id, { type: 'fix' });
+      updateTicketFields(store, id, { type: 'fix' });
       const gitCalls: string[][] = [];
       const { gh, creates } = recordingGh();
 
