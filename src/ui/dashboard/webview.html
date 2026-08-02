@@ -99,7 +99,17 @@
      dimension with no scale match (the closed 0–26px scale stops well short of a
      control strip), the same UI-R04 exception the deleted 560px floor carried. */
   .track{position:relative;--trk-h:46px;
-    --trk-notch:var(--k-space-6);--trk-tick-w:var(--k-space-2);--trk-tick-h:var(--k-space-6)}
+    --trk-notch:var(--k-space-6);--trk-tick-w:var(--k-space-2);--trk-tick-h:var(--k-space-6);
+    /* Half the lane and the length of one chevron edge. Both exist only so the
+       focus ring below can be inset PERPENDICULARLY to that edge; they are
+       derived from the two dimensions above, never written down, so a change to
+       either keeps the ring parallel to the shape it outlines. */
+    --trk-half:calc(var(--trk-h) / 2);
+    --trk-diag:hypot(var(--trk-notch),var(--trk-half));
+    /* The lane's radius as seen from INSIDE its border — what a ring flush to the
+       first or last segment must curve by to sit on the lane's own corner rather
+       than be cut square by it. */
+    --trk-r:calc(var(--k-radius-lg) - var(--k-border-w))}
 
   /* overflow-x:auto, NEVER hidden. The three degradation steps below keep the
      track inside its lane at every width a VS Code panel can be dragged to (300px,
@@ -147,16 +157,143 @@
   /* The select control fills the wrapper, so the WHOLE segment is the hit area
      while still being one real <button> for Tab and Enter (UI-R09). */
   .track .seg .pick{position:absolute;inset:0;background:transparent;border:0;padding:0;cursor:pointer}
+  /* The rectangular baseline, and the fallback if the ring below cannot be
+     computed. It is honest about what it is: two bars, because an `outline` is
+     a rectangle and the chevron clip cuts its left and right strokes away. */
   .track .seg .pick:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
     outline-offset:calc(var(--k-focus-offset) * -1)}
+
+  /* Selection is a MARK, never a fill — status already owns fill and the stage
+     owns hue, and all three must stay independently readable, so it keeps its
+     own off-ramp purple (the shared categorical token, UI-R08).
+     This is the BASELINE, replaced by the chevron ring above wherever that can
+     be computed. It is an inset shadow on the SEGMENT rather than a ring on the
+     inset `.pick` because `clip-path` clips a child's rendering: a rectangular
+     ring lost its left and right strokes inside the two notches, and at the ends
+     of the lane its square corners sat inside the lane's own `--k-radius-lg`, so
+     the mark read as SHIFTED off the block it marks. An underline is clipped by
+     the very polygon that draws the segment, so it cannot disagree with the
+     shape — it just says less than the ring does. */
+  .track .seg.sel{box-shadow:inset 0 calc(var(--k-border-w) * -3) 0 var(--k-series-2)}
+
+  /* ── the selection and focus rings, in the segment's own shape ───────────
+     An outline (or an inset shadow — same rectangle) cannot outline a chevron:
+     `clip-path` clips a CHILD's rendering, so the vertical strokes fall inside
+     the two notches and are cut, leaving a border that visibly does not close
+     around the arrow it belongs to. The first attempt at that was the selection
+     ring; the underline it became read as a stray bottom border on the segment,
+     which is the same complaint from the other side — a mark that is not the
+     shape it marks. So the ring is drawn as a SHAPE: `.pick` is filled and
+     clipped to the chevron MINUS a smaller chevron (`evenodd`), which leaves
+     exactly the band between them.
+
+     ONE shape, two states. Selection wears the shared categorical purple
+     (UI-R08) and focus wears `--k-focus` and OUTRANKS it — a focused segment is
+     already the selected one in every case the user can reach by keyboard, and
+     two concentric bands say nothing the colour does not. `aria-pressed` carries
+     selection either way, so nothing is lost while the ring is showing focus.
+
+     The inner chevron is the outer one offset PERPENDICULARLY — not by the same
+     px horizontally and vertically, which would splay the diagonals and taper
+     the ring. For an edge of length `--trk-diag` over a half-height of
+     `--trk-half`, an inset of `q` moves the tip by `q · diag / half` and the
+     top/bottom corners by `q · (diag ∓ notch) / half` (the notch is concave on
+     the left, convex on the right — hence the two signs). All three fall out of
+     the two dimensions the segment is already drawn from, so the ring stays
+     parallel to the shape at any lane height or notch depth.
+
+     The outer boundary IS the segment's own polygon, written out verbatim rather
+     than inset: an inset one read as a hairline gap all the way round, and at the
+     ends of the lane its square corners sat inside the lane's `--k-radius-lg` —
+     the same "mark shifted off its block" complaint in a smaller form. Flush, the
+     lane's own rounded overflow clips the ring exactly as it clips the segment,
+     so the corners agree by construction instead of by arithmetic.
+
+     The hole is joined to the outer boundary by a ZERO-AREA SLIT, and every point
+     of it is load-bearing. `polygon()` is ONE contour with no move-to, so the two
+     implicit connectors that reach the hole REPLACE whatever inner edge they jump
+     across — and that edge is simply gone from the shape, taking its band with it.
+     Both earlier orderings lost the left stroke that way: same-direction contours
+     cross in the middle of it, reversed ones drop the inner notch edge. So the
+     outer loop is CLOSED first (its start point repeated), and the inner loop both
+     starts and ends at the same point, which makes the two connectors coincident
+     and opposite — they cancel, and every real edge survives.
+
+     @supports, because a browser without `hypot()` (or without length division
+     in `calc()`) would drop the `clip-path` and keep the `background` — a solid
+     fill over the whole segment. The guard keeps such a browser on the plain
+     outline and the underline above, both of which still say what they mean. */
+  @supports (width: calc(1px * hypot(1px,1px) / 1px)){
+    .track .seg.sel{box-shadow:none}
+    .track .seg.sel .pick,
+    .track .seg .pick:focus-visible{
+      /* q: how far the inner edge sits from the segment's edge, i.e. the ring's
+         own width. Two focus widths, not one — a 1px band is what the diagonals
+         eat first, and neither of these marks may be the thing that degrades. */
+      --rq:calc(var(--k-focus-w) * 2);
+      --rt:calc(var(--rq) * var(--trk-diag) / var(--trk-half));
+      --rr:calc(var(--rq) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
+      --rl:calc(var(--rq) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
+      background:var(--k-series-2);
+      clip-path:polygon(evenodd,
+        0 0,
+        calc(100% - var(--trk-notch)) 0,
+        100% 50%,
+        calc(100% - var(--trk-notch)) 100%,
+        0 100%,
+        var(--trk-notch) 50%,
+        0 0,
+        var(--rl) var(--rq),
+        calc(var(--trk-notch) + var(--rt)) 50%,
+        var(--rl) calc(100% - var(--rq)),
+        calc(100% - var(--trk-notch) - var(--rr)) calc(100% - var(--rq)),
+        calc(100% - var(--rt)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr)) var(--rq),
+        var(--rl) var(--rq))}
+    /* The ends of the lane have one notch, not two — same rule as the segment
+       shapes above, and for the same reason: a wedge at the outer end would
+       point at nothing. A square corner insets by q in both axes, and takes the
+       lane's radius: `clip-path` cannot round a corner, so a flush ring met the
+       lane's rounded end square and the lane's own overflow cut the difference
+       away. `border-radius` clips the fill, so the two curve together. */
+    .track .seg:first-child.sel .pick,
+    .track .seg:first-child .pick:focus-visible{
+      border-radius:var(--trk-r) 0 0 var(--trk-r);
+      clip-path:polygon(evenodd,
+        0 0,
+        calc(100% - var(--trk-notch)) 0,
+        100% 50%,
+        calc(100% - var(--trk-notch)) 100%,
+        0 100%,
+        0 0,
+        var(--rq) var(--rq),
+        var(--rq) calc(100% - var(--rq)),
+        calc(100% - var(--trk-notch) - var(--rr)) calc(100% - var(--rq)),
+        calc(100% - var(--rt)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr)) var(--rq),
+        var(--rq) var(--rq))}
+    .track .seg:last-child.sel .pick,
+    .track .seg:last-child .pick:focus-visible{
+      border-radius:0 var(--trk-r) var(--trk-r) 0;
+      clip-path:polygon(evenodd,
+        0 0,
+        100% 0,
+        100% 100%,
+        0 100%,
+        var(--trk-notch) 50%,
+        0 0,
+        var(--rl) var(--rq),
+        calc(var(--trk-notch) + var(--rt)) 50%,
+        var(--rl) calc(100% - var(--rq)),
+        calc(100% - var(--rq)) calc(100% - var(--rq)),
+        calc(100% - var(--rq)) var(--rq),
+        var(--rl) var(--rq))}
+    /* Last, so focus wins the colour on a segment that is both. The outline goes
+       with it — the ring IS the indicator now (UI-R23). */
+    .track .seg .pick:focus-visible{outline:0;background:var(--k-focus)}}
   .track .seg > *:not(.pick){position:relative;z-index:1;pointer-events:none}
   /* The two REAL controls take their events back from the select overlay. */
   .track .seg > .go,.track .seg > .fixm{pointer-events:auto}
-  /* Selection is a RING, never a fill — status already owns fill and the stage
-     owns hue, and all three must stay independently readable, so the ring keeps
-     its own off-ramp purple (the shared categorical token, UI-R08). Drawn inset
-     because the chevron clip would slice an outward ring. */
-  .track .seg.sel .pick{box-shadow:inset 0 0 0 calc(var(--k-border-w) * 2) var(--k-series-2)}
 
   /* Untravelled: neutral, and explicitly so. A pending segment must not wear its
      stage hue at full strength — that is what "travelled ground" means here. */
@@ -168,8 +305,15 @@
      declaration and rendering unwashed. */
   .track .seg.passed{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 20%,transparent);
     color:var(--stg-color,var(--k-pending))}
+  /* Ordinary body text on the wash, NOT `--k-success-fg`. That token is the
+     knockout foreground (`--vscode-editor-background`), and it is paired with a
+     saturated feedback FILL — on a 34% wash of the stage hue over the lane it
+     resolves to nearly the surface it sits on: the running segment's own name
+     came out dark-on-dark in a dark theme and white-on-lavender in a light one,
+     which is the widest label on the track and the one that says where the
+     ticket is (UI-R29). The wash strength was chosen to carry body text. */
   .track .seg.running{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 34%,transparent);
-    color:var(--k-success-fg)}
+    color:var(--k-text)}
   /* Failed reads as a break in the surface: hatched, never a flat fill. */
   .track .seg.failed{color:var(--k-failed);
     background-image:repeating-linear-gradient(135deg,
@@ -899,12 +1043,17 @@
         ? `<span class="full">${esc(title)}</span><span class="abbr">${esc(k)}</span>`
         : esc(k);
 
+      // impl's approach is impl's own property, so it is drawn inside impl's own
+      // segment — and only while the ticket is there, which is the only time the
+      // segment has the room.
+      const showsApproach = s.current && k === 'impl' && !needs && !!approach;
+
       let extra = '';
       if (s.current && needs) {
         extra = `<span class="mt">${esc(s.needs ? s.needs.detail : '')}</span>`
           + `<button type="button" class="go" data-goto`
           + `>${esc(s.needs ? s.needs.action : 'Open')}</button>`;
-      } else if (s.current && k === 'impl' && approach) {
+      } else if (showsApproach) {
         extra = renderPips(approach);
       } else {
         const d = durationText(cell);
@@ -919,7 +1068,12 @@
       // it outright — and states the retry loop too: a screen-reader user must
       // not have to infer a live retry from a meter they cannot see, nor lose the
       // return target when the narrowest step drops the `↩ uat`.
+      // The approach rides in the name for the same reason: the pips and their
+      // caption are its only visual form and the narrowest step drops both, and
+      // the pips are `pointer-events:none` children of the segment, so their own
+      // `title` never surfaces — this is where a reader gets the approach at all.
       const aria = (needs ? `${title}: needs you` : `${title}: ${status}`)
+        + (showsApproach ? ` — approach ${approach.id}${phaseProgress(approach)}` : '')
         + (s.retry ? ` — fix ${s.retry.spent}/${s.retry.cap}${s.retry.live ? ' running' : ''}` : '')
         + (s.retry && s.retry.returnsTo ? `, revalidates from ${s.retry.returnsTo}` : '');
 
@@ -933,12 +1087,30 @@
     place();
   }
 
-  // impl's declared phases, as pips inside impl's own segment. DECLARED is not
-  // observed: a pip fills only for a phase the agent actually reported by running
-  // a marker command, and a hollow pip means "not reported" — never "not done".
-  function renderPips(approach) {
+  // impl's approach, inside impl's own segment: the approach's NAME, and one pip
+  // per declared phase. DECLARED is not observed: a pip fills only for a phase
+  // the agent actually reported by running a marker command, and a hollow pip
+  // means "not reported" — never "not done".
+  //
+  // The name is rendered whether or not there are phases. An approach with an
+  // empty `workflow` is the common case, not an edge one — the built-in `direct`
+  // declares none, and so does any package that ships prompts only — and it is
+  // still the thing driving impl. Returning early on an empty `phases` left the
+  // widest segment on the track saying nothing at all about what is running in
+  // it, which is the one place the panel names the approach.
+  // "…, 3 of 4 phases reported" — or nothing at all when the approach declares
+  // no workflow, because "0 of 0 phases" is a count of something that does not
+  // exist. Counted against the DECLARED phases, so a mark for a phase the
+  // approach no longer declares cannot push the tally past its own total.
+  function phaseProgress(approach) {
     const phases = approach.phases || [];
     if (!phases.length) return '';
+    const done = new Set(approach.reported || []);
+    return `, ${phases.filter((p) => done.has(p)).length} of ${phases.length} phases reported`;
+  }
+
+  function renderPips(approach) {
+    const phases = approach.phases || [];
     const done = new Set(approach.reported || []);
     const pips = phases.map((p) => {
       const on = done.has(p);
@@ -947,6 +1119,8 @@
     }).join('');
     const latest = (approach.reported || []).slice(-1)[0];
     const caption = latest ? `${latest} · ${approach.id}` : approach.id;
+    // Nothing to say only when there is genuinely nothing: no name AND no phase.
+    if (!caption && !pips) return '';
     return `<span class="pips">${pips}<span class="pn">${esc(caption)}</span></span>`;
   }
 

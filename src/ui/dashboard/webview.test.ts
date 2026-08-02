@@ -207,6 +207,135 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('not reported');
   });
 
+  it('names the approach on impl even when it declares no phases', () => {
+    // An approach with an empty `workflow` (the built-in `direct`, or a package
+    // that ships prompts only) is still the thing driving impl, and the current
+    // segment is the one place the panel says so. Returning early on an empty
+    // `phases` left the widest segment on the track completely blank.
+    const fn = HTML.slice(HTML.indexOf('function renderPips('));
+    const body = fn.slice(0, fn.indexOf('\n  }'));
+    expect(body, 'an approach with no phases renders nothing').not.toMatch(
+      /if \(!phases\.length\) return ''/,
+    );
+    expect(body).toContain('approach.id');
+  });
+
+  it('keeps the current segment’s text legible on its own wash (UI-R29)', () => {
+    // `--k-success-fg` is the KNOCKOUT foreground — `--vscode-editor-background`,
+    // paired with a saturated feedback FILL. The running segment is not a fill:
+    // it is a 34% wash of the stage hue over the lane, so the knockout resolves
+    // to (near) the background it sits on — dark-on-dark in a dark theme and
+    // white-on-lavender in a light one. The wash is designed to carry ordinary
+    // body text, so it takes ordinary body text.
+    expect(HTML).toMatch(/\.track \.seg\.running\{[^}]*color:var\(--k-text\)/);
+    expect(HTML).not.toMatch(/\.track \.seg[^{]*\{[^}]*color:var\(--k-success-fg\)/);
+  });
+
+  it('marks the selected segment with the segment’s own shape, never a stray edge', () => {
+    // A segment is a CHEVRON (clip-path), and `clip-path` clips a child's
+    // rendering — so a rectangular ring on the inset `.pick` lost its left and
+    // right strokes in the two notches and survived as two detached horizontal
+    // bars; at the ends of the lane its square corners sat inside the lane's
+    // `--k-radius-lg`, which read as the mark being shifted off the block it
+    // marks. The underline that replaced it had the same problem from the other
+    // side: it read as a stray bottom border on the segment. Selection is drawn
+    // as the chevron ring, sharing one shape with focus.
+    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(ring).toContain('.track .seg.sel .pick,');
+    expect(ring).toContain('.track .seg:first-child.sel .pick,');
+    expect(ring).toContain('.track .seg:last-child.sel .pick,');
+    // Focus outranks selection on a segment that is both, so it is stated LAST —
+    // and it is what drops the outline, so the two can never both be missing.
+    const focusLast = ring.lastIndexOf('.track .seg .pick:focus-visible{outline:0');
+    expect(focusLast, 'focus does not win the ring colour').toBeGreaterThan(
+      ring.indexOf('.track .seg.sel .pick,'),
+    );
+    // The baseline survives for a browser that cannot compute the shape — and
+    // the guard turns it off rather than painting both.
+    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:inset[^}]*var\(--k-series-2\)\}/);
+    expect(ring).toContain('.track .seg.sel{box-shadow:none}');
+    // …which only works if the baseline is declared BEFORE the guard: same
+    // specificity, so a later baseline would win and the underline would come
+    // back underneath the ring.
+    expect(HTML.indexOf('.track .seg.sel{box-shadow:inset')).toBeLessThan(
+      HTML.indexOf('@supports (width: calc(1px * hypot'),
+    );
+  });
+
+  it('draws the ring flush to the segment, joined without crossing itself', () => {
+    // Brace-balanced, not `[\s\S]*?\n  }` — this test asserts on what the guard
+    // does NOT contain, so an over-capture that ran into the next rule would
+    // read a later `--k-focus-offset` as this block's.
+    const at = HTML.indexOf('@supports (width: calc(1px * hypot');
+    let depth = 0;
+    let end = at;
+    for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+      if (HTML[i] === '{') depth += 1;
+      else if (HTML[i] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          end = i + 1;
+          break;
+        }
+      }
+    }
+    const ring = HTML.slice(at, end);
+    expect(ring, 'the chevron ring is not behind an @supports guard').toContain('clip-path');
+    // FLUSH. An outer boundary inset by `--k-focus-offset` read as a hairline gap
+    // all the way round, and at the ends of the lane its square corners sat
+    // inside the lane's own `--k-radius-lg`. On the segment's own edge, the
+    // lane's rounded overflow clips ring and segment identically.
+    expect(ring, 'the ring is inset off the segment edge').not.toContain('--k-focus-offset');
+    for (const [, points] of ring.matchAll(/clip-path:polygon\(evenodd,([\s\S]*?)\)\}/g)) {
+      const pts = points!
+        .split(/,(?![^(]*\))/)
+        .map((p) => p.replace(/\s+/g, ' ').trim());
+      // Each ring opens on the segment's own polygon: its first point is the
+      // segment's, and every outer point is free of the inset vars.
+      expect(pts[0], `ring does not start on the segment corner: ${pts[0]}`).toBe('0 0');
+      // ZERO-AREA SLIT. `polygon()` is ONE contour with no move-to, so the two
+      // connectors that reach the hole REPLACE the inner edge they jump across —
+      // and that edge, with the band it bounds, is simply gone from the shape.
+      // Both earlier orderings lost the ring's left stroke that way. So the outer
+      // loop closes on its own first point, and the inner loop starts AND ends on
+      // one point: the two connectors coincide and cancel, and no edge is lost.
+      const outerEnd = pts.indexOf('0 0', 1);
+      expect(outerEnd, 'the outer loop is not closed before the hole').toBeGreaterThan(2);
+      expect(pts[outerEnd + 1], 'the hole does not close on the point it opened on')
+        .toBe(pts[pts.length - 1]);
+      // Every inner point is derived perpendicularly; none is a bare axis inset.
+      for (const p of pts.slice(outerEnd + 1)) {
+        expect(p, `inner point is not inset from the edge: ${p}`).toMatch(/var\(--r[tlrq]\)/);
+      }
+    }
+  });
+
+  it('outlines a focused segment in the segment’s own shape, with a working fallback', () => {
+    // Same defect as the selection ring, one state further: an `outline` is a
+    // rectangle, `clip-path` clips a child's rendering, so the focus ring's
+    // vertical strokes fell inside the two notches and were cut — a border that
+    // visibly did not close around the arrow it belonged to. The ring is drawn
+    // as a SHAPE instead: the chevron minus a smaller chevron (`evenodd`).
+    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(ring, 'the chevron ring is not behind an @supports guard').not.toBe('');
+    expect(ring).toContain('clip-path:polygon(evenodd,');
+    // The inner chevron is offset PERPENDICULARLY to the edge — derived from the
+    // edge length, never the same px in both axes, which would splay the
+    // diagonals and taper the ring.
+    expect(ring).toContain('var(--trk-diag)');
+    expect(HTML).toMatch(/--trk-diag:hypot\(var\(--trk-notch\),var\(--trk-half\)\)/);
+    // Both ends of the lane carry one notch, not two.
+    expect(ring).toContain('.track .seg:first-child .pick:focus-visible');
+    expect(ring).toContain('.track .seg:last-child .pick:focus-visible');
+    // The guard exists because a browser that cannot compute the ring would drop
+    // the clip-path and keep the fill — a focus-coloured block over the whole
+    // segment. Outside it, the plain outline must survive as the indicator.
+    const outside = HTML.replace(ring, '');
+    expect(outside).toMatch(
+      /\.track \.seg \.pick:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/,
+    );
+  });
+
   it('names the track’s two controls for a screen reader, not just a hover title', () => {
     // Both are glyph-or-shape only — aria-label and title must carry the SAME
     // string (UI-R21/R24).
@@ -689,7 +818,14 @@ describe('dashboard webview.html', () => {
     // instead of holding a floor, so there is no minimum width to declare. `46px`
     // replaces it — the lane's own height, the one piece of the track's geometry
     // the space scale has no step for.
-    const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px'];
+    // The four `1px` are ONE value in one place: the `@supports` probe that
+    // guards the track's chevron focus ring (`calc(1px * hypot(1px,1px) / 1px)`).
+    // A feature query cannot be written in tokens — a `var()` inside the
+    // condition makes it parse as valid on every browser, which is exactly the
+    // question being asked — so the probe is literal by construction. It is a
+    // type test, not geometry: nothing is drawn at 1px because of it.
+    const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
+      '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
     const found = [...withoutComments.matchAll(/[0-9]+(\.[0-9]+)?px/g)].map((m) => m[0]);
@@ -836,9 +972,9 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/class="k-chip fixtoggle/);
   });
 
-  it('resolves the three purples (selection ring, merged badge, merged timestamp) to one token', () => {
+  it('resolves the three purples (selection mark, merged badge, merged timestamp) to one token', () => {
     expect(HTML).not.toMatch(/#8957e5|#a371f7|#8a63d2|#c297ff/);
-    expect(HTML).toMatch(/\.track \.seg\.sel \.pick\{box-shadow:[^}]*var\(--k-series-2\)/);
+    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:[^}]*var\(--k-series-2\)/);
     expect(HTML).toMatch(/\.pr \.pst-merged\{background:var\(--k-series-2\)/);
     expect(HTML).toMatch(/\.pmeta \.pmerged\{color:var\(--k-series-2\)/);
   });
