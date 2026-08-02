@@ -1,7 +1,7 @@
 import type { SetupItem } from '../../init/status.js';
 
 /**
- * Serializable state for the welcome page. A live setup checklist plus a fixed
+ * Serializable state for the Getting Started page. A live setup checklist plus a fixed
  * how-to tutorial. Plain values so it crosses the postMessage boundary.
  */
 
@@ -46,11 +46,11 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
 ];
 
-export interface WelcomeState {
+export interface GettingStartedState {
   checklist: SetupItem[];
   tutorial: readonly TutorialStep[];
 }
 
-export function buildWelcomeState(checklist: SetupItem[]): WelcomeState {
+export function buildGettingStartedState(checklist: SetupItem[]): GettingStartedState {
   return { checklist, tutorial: TUTORIAL_STEPS };
 }

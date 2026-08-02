@@ -40,12 +40,12 @@ function htmlConstNumber(name: string): number {
 }
 
 /**
- * Text-level guards on the onboarding webview (§ manual ticket creation, §
+ * Text-level guards on the ticket-form webview (§ manual ticket creation, §
  * fetch-on-Enter). Standalone HTML with no test harness — same rationale as
  * dashboard/webview.test.ts: every DECISION here is host-agnostic script logic
  * that these regex checks can pin, even though nothing actually renders a DOM.
  */
-describe('onboarding webview.html', () => {
+describe('ticket-form webview.html', () => {
   it('gates Phase 2 on the title alone, whatever the provider — the key is never required', () => {
     // The literal bug (869echhyr): typing a title without clicking Fetch left
     // Phase 2 hidden on any board-backed provider, because phase1Valid()
@@ -362,7 +362,7 @@ function scriptBlock(): string {
   return HTML.slice(start + '<script>'.length, end);
 }
 
-describe('onboarding webview.html — UI-RULES.md remediation', () => {
+describe('ticket-form webview.html — UI-RULES.md remediation', () => {
   it('carries the design-system markers ahead of any file-local rule (UI-R03)', () => {
     const [main] = styleBlocks();
     expect(main!.trimStart().startsWith('/*KARST_DS_CSS*/')).toBe(true);

@@ -120,7 +120,7 @@ and that exception is justified in a comment.
 ### UI-R10 — A class must have a rule
 Applying a class that no stylesheet defines is a defect.
 
-**Motivating defect:** `onboarding`'s `#attachBtn.ghost` — `.ghost` has no CSS
+**Motivating defect:** `ticketForm`'s `#attachBtn.ghost` — `.ghost` has no CSS
 anywhere in that file, so the "ghost" button renders as a primary button.
 
 **Check:** every class used in markup resolves to a rule in the file or in the
@@ -213,7 +213,7 @@ clipboard write; the same pattern on a merge or delete would not be.
 A busy/result discriminant is a union of literal types, never `string`. An
 unrecognized value is handled explicitly, not dropped.
 
-**Motivating defect:** `OnboardingHostMessage` declares `{type:'busy'; what: string}`;
+**Motivating defect:** `TicketFormHostMessage` declares `{type:'busy'; what: string}`;
 the host posts `what:'suggest'` and the webview's `setBusy` switch has no
 `'suggest'` case, so the Suggest button's pending state is silently swallowed and
 never rendered.
@@ -300,7 +300,7 @@ spin, open-session, edit, archive) has `title` and no `aria-label`.
 A `<label for>` per control. A placeholder is not a label. A field in error
 carries `aria-invalid="true"` and `aria-describedby` pointing at its message.
 
-**Motivating defect:** `onboarding`'s generated `#sig-${svc}` inputs have no
+**Motivating defect:** `ticketForm`'s generated `#sig-${svc}` inputs have no
 `<label for>`; `#ref`/`#title`/`#desc` never get `aria-invalid` or
 `aria-describedby` when `#err` fires.
 
@@ -312,7 +312,7 @@ carries `aria-invalid="true"` and `aria-describedby` pointing at its message.
 `aria-pressed` on toggle buttons · `aria-checked` on `role="switch"`/`role="radio"` ·
 `aria-current` on the active wizard step · `aria-invalid` on a field in error.
 
-**Motivating defects:** `onboarding`'s `#detailsBtn` opens a drawer with no
+**Motivating defects:** `ticketForm`'s `#detailsBtn` opens a drawer with no
 `aria-expanded`; its repo `.chip` (`role="button"`) has no `aria-pressed` and its
 approach `.acard` (a radio in effect) has no `aria-checked`; its stepper conveys
 done/active purely by CSS class with no `aria-current`.

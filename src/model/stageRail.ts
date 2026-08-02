@@ -53,7 +53,7 @@ function cellFor(stepper: readonly StepperCell[], stageKey: StageKey): StepperCe
  * Split a flat stepper into the shape the rail is actually drawn in.
  *
  * `buildStepper` keeps its canonical 7-cell projection — that is correct, and
- * onboarding relies on it. This is the dashboard's view on top of it.
+ * the ticket form relies on it. This is the dashboard's view on top of it.
  */
 export function buildStageRail(
   stepper: readonly StepperCell[],

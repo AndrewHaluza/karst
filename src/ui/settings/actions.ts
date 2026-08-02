@@ -20,7 +20,7 @@ export interface SettingsActionsDeps {
   writeManifest(path: string, manifest: Manifest): void;
   /** Re-read the manifest from disk into the host's live copy. */
   reloadManifest(): void;
-  /** Refresh sidebar + open dashboard/onboarding after a save. */
+  /** Refresh sidebar + open dashboard/ticket form after a save. */
   onChange(): void;
   /**
    * Re-read the manifest FILE for a state push — the same source `open` uses,

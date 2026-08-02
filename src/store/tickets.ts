@@ -19,7 +19,7 @@ export interface Ticket {
   stageCurrent: string | null;
   agentState: string | null;
   sessionId: string | null;
-  /** v2 onboarding fields (§ onboarding). */
+  /** v2 ticket-form fields (§ ticket form). */
   description: string | null;
   brief: string | null;
   sourceRef: string | null;
@@ -349,8 +349,8 @@ export function updateTicketCore(
   store.db.prepare(`UPDATE tickets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, ticketId);
 }
 
-/** The subset of onboarding fields a patch can set (all optional). */
-export interface OnboardingPatch {
+/** The subset of ticket-form fields a patch can set (all optional). */
+export interface TicketFieldsPatch {
   description?: string;
   brief?: string;
   sourceRef?: string;
@@ -371,14 +371,14 @@ export interface OnboardingPatch {
 }
 
 /**
- * Update a ticket's onboarding fields (§ onboarding) — the persistence for the
- * onboarding page's fetch/brief/repo/approach state. Only the supplied fields
+ * Update a ticket's form fields (§ ticket form) — the persistence for the
+ * ticket form's fetch/brief/repo/approach state. Only the supplied fields
  * are written; `selectedRepos` is stored as a JSON array. Single-writer.
  */
-export function updateTicketOnboarding(
+export function updateTicketFields(
   store: Store,
   ticketId: number,
-  patch: OnboardingPatch,
+  patch: TicketFieldsPatch,
 ): void {
   const columns: Record<string, unknown> = {};
   if (patch.description !== undefined) columns.description = patch.description;
@@ -427,7 +427,7 @@ export function updateTicketOnboarding(
  * package directory leaves `tickets.approach` pointing at something that no
  * longer exists, and the launcher reports that dangling reference on every
  * session open ("produced no method prompt or loadable artifacts") — forever,
- * because the onboarding picker DROPS sourced-but-uninstalled approaches, so
+ * because the ticket-form picker DROPS sourced-but-uninstalled approaches, so
  * the stale value is not even offered as an option the user could change. The
  * reference belongs to the approach, not to the ticket, so the uninstall that
  * removed the approach is what clears it.

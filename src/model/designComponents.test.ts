@@ -74,7 +74,7 @@ describe('design system components', () => {
   });
 
   it('gives the ghost variant an actual rule (UI-R10)', () => {
-    // onboarding applied `.ghost` to #attachBtn and no stylesheet defined it, so
+    // the ticket form applied `.ghost` to #attachBtn and no stylesheet defined it, so
     // the "ghost" button silently rendered as a primary.
     expect(CSS).toContain('.k-btn--ghost');
     expect(rulesFor('.k-btn--ghost').length).toBeGreaterThan(0);

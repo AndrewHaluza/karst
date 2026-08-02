@@ -4,7 +4,7 @@
  * A manually entered ticket has no board id to key on, so the title is the only
  * identity the user actually typed — deriving from it beats a random
  * `MANUAL-XXXXXXXX` nobody can read on the board. Pure and store-free: the
- * uniqueness pass lives in `generateTicketKey` (tickets.ts), and the onboarding
+ * uniqueness pass lives in `generateTicketKey` (tickets.ts), and the ticket form
  * webview mirrors THIS rule in plain JS (it cannot import TS) so the key it
  * previews while you type is the key that gets persisted.
  */

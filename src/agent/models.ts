@@ -2,7 +2,7 @@
  * The curated set of launch models offered per-ticket and as the manifest
  * default (§ model selection). vscode-free so it is unit-testable and shared by
  * the store, the launch path, and (mirrored, since a webview can't import TS)
- * the onboarding + settings HTML. `resolveModel` is the single precedence rule.
+ * the ticket-form + settings HTML. `resolveModel` is the single precedence rule.
  */
 
 import type { AgentProvider } from '../manifest/types.js';
@@ -12,7 +12,7 @@ export type { ModelOption } from './modelCatalog.js';
 
 /**
  * Offered models, newest/most-capable first. Ids are the exact CLI `--model`
- * values. Keep in sync with the mirrored lists in the onboarding + settings
+ * values. Keep in sync with the mirrored lists in the ticket-form + settings
  * webview HTML (they can't import this module).
  */
 export const KNOWN_MODELS = Object.values(bundledModelCatalog()).flat();

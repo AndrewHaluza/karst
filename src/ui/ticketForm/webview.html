@@ -1,8 +1,8 @@
 <!--
-  Karst ticket onboarding webview. Self-contained (webview CSP forbids external
+  Karst ticket ticket-form webview. Self-contained (webview CSP forbids external
   assets). Themed with VS Code's `--vscode-*` variables so it inherits light/dark.
-  Renders from the `state` postMessage the host pushes (state.ts → OnboardingState)
-  and posts action messages back (messages.ts → OnboardingMessage). One surface
+  Renders from the `state` postMessage the host pushes (state.ts → TicketFormState)
+  and posts action messages back (messages.ts → TicketFormMessage). One surface
   serves create and edit modes; the webview holds a working draft in create mode.
 -->
 <!--KARST_CSP-->
@@ -369,7 +369,7 @@
   // they opt into the recommendation by clicking its card (ticket 869e889uh).
   let aiSuggestion = null;
 
-  function renderOnboardingTicketLink(state) {
+  function renderTicketFormTicketLink(state) {
     const link = el('ticketLink');
     if (!state.ticketUrl) {
       link.classList.add('hidden');
@@ -432,7 +432,7 @@
     submitLabel = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
     if (!submitBusy) el('submitBtn').textContent = submitLabel;
     renderProvider(state.provider);
-    renderOnboardingTicketLink(state);
+    renderTicketFormTicketLink(state);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
     // what the user is typing on a re-push). The single #ref field IS the key —
@@ -1371,7 +1371,7 @@
         renderFetched(briefToText(b), b.title || '');
         // Update ticket link now that we have a fresh fetch.
         const state = vscode.getState();
-        if (state) renderOnboardingTicketLink(state);
+        if (state) renderTicketFormTicketLink(state);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
         syncPhase2();
         // A fresh brief is new context nothing has been prefilled against yet.

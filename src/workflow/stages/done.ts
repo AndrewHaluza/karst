@@ -18,7 +18,7 @@ import type { TicketingProvider } from '../../integrations/ticketing.js';
  * fetch, never the user-editable `key`. `null` → nothing addressable.
  *
  * `key` is NOT usable here. It is seeded from the fetched ref at create
- * (`ui/onboarding/actions.ts:129`) but `updateTicketCore` lets the user edit it to
+ * (`ui/ticketForm/actions.ts:129`) but `updateTicketCore` lets the user edit it to
  * arbitrary text, and a manual ticket has a hand-typed `key` and no ref at all.
  * Sending it would address a task nobody ever fetched.
  */

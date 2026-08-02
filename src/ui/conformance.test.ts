@@ -55,11 +55,11 @@ const styleSource = (html: string): string =>
 const LITERAL_BUDGET: Record<string, number> = {
   dashboard: 10,
   diffs: 1,
-  onboarding: 0,
+  ticketForm: 0,
   settings: 0,
   sidebar: 0,
   usage: 0,
-  welcome: 0,
+  gettingStarted: 0,
 };
 
 describe('UI conformance — discovery', () => {
@@ -67,11 +67,11 @@ describe('UI conformance — discovery', () => {
     expect([...WEBVIEWS].sort()).toEqual([
       'dashboard',
       'diffs',
-      'onboarding',
+      'gettingStarted',
       'settings',
       'sidebar',
+      'ticketForm',
       'usage',
-      'welcome',
     ]);
   });
 

@@ -30,9 +30,9 @@ describe('webview panel host discovery', () => {
   it('finds every module that mints a webview panel today', () => {
     expect(CREATORS).toEqual([
       'extension.ts',
-      'ui/onboarding/host.ts',
+      'ui/gettingStarted/host.ts',
       'ui/settings/host.ts',
-      'ui/welcome/host.ts',
+      'ui/ticketForm/host.ts',
     ]);
   });
 });

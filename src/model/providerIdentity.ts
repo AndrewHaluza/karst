@@ -2,7 +2,7 @@
  * Ticketing-provider brand identity (§ shared [ICON] Brand) — single source of
  * truth for how a `TicketProvider` renders across webviews: an inline SVG mark
  * plus a title-cased label. Every webview used to re-derive this independently
- * (onboarding had its own copy; dashboard's ticket-link printed the raw
+ * (the ticket form had its own copy; dashboard's ticket-link printed the raw
  * lowercase provider string with no icon at all; settings used a plain native
  * `<select>`), so the same board read as three different UI languages.
  *

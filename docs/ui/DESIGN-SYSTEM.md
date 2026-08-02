@@ -309,7 +309,7 @@ sideways. Both then sat inside a green box. Success still has to be visible
 opens — so the flash only has to say *which* row, which is what a selection wash
 already means.
 
-> `.ghost` currently exists in `onboarding/webview.html` as a class with **no CSS
+> `.ghost` currently exists in `ticketForm/webview.html` as a class with **no CSS
 > rule at all** — `#attachBtn.ghost` renders as a primary button. `.k-btn--ghost`
 > is the real thing.
 
@@ -372,7 +372,7 @@ Label + control + help/error, as one unit.
   `aria-describedby`, and the control carries `aria-invalid="true"` while it is
   in error.
 - One error message may serve one field. A single page-level error bucket that
-  every failure funnels into (today's `#err` in onboarding, `#errBanner` in
+  every failure funnels into (today's `#err` in the ticket form, `#errBanner` in
   settings) is permitted only for failures that belong to no single field.
 
 ### 4.6 Switch — `.k-switch`

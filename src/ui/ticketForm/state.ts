@@ -19,7 +19,7 @@ import {
 } from '../../agent/modelCatalog.js';
 
 /**
- * Serializable state for the onboarding page (§ onboarding). One surface serves
+ * Serializable state for the ticket form (§ ticket form). One surface serves
  * both create (no ticket yet) and edit (existing ticket) modes; the webview
  * renders from this and posts patches back. Everything is a plain value so it
  * crosses the postMessage boundary and survives a webview reload.
@@ -53,7 +53,7 @@ export type ApproachRow = ApproachDef & { installed: boolean };
  * `src` leaves this module as an absolute FILESYSTEM path, not a webview URI —
  * only a real `vscode.Webview` can mint one of those, and this module is
  * host-agnostic. The panel manager maps it at postMessage time via
- * `OnboardingPanel.toWebviewUri`. `id` is what the detach/open messages carry;
+ * `TicketFormPanel.toWebviewUri`. `id` is what the detach/open messages carry;
  * the stored name never crosses to the webview, because nothing there needs it.
  */
 export interface AttachmentView {
@@ -65,7 +65,7 @@ export interface AttachmentView {
   src: string;
 }
 
-export interface OnboardingState {
+export interface TicketFormState {
   mode: 'create' | 'edit';
   ticketId?: number;
   key: string;
@@ -138,7 +138,7 @@ function defaultApproach(approaches: ApproachDef[]): string | null {
 }
 
 /**
- * Which approaches onboarding offers to pick:
+ * Which approaches the ticket form offers to pick:
  * - A **built-in** approach (no `source`, e.g. `direct`, `single-subagent`)
  *   needs no install — always offered, marked `installed: true`.
  * - A **sourced** approach (git/npm) is offered only when its package is
@@ -158,15 +158,15 @@ function toApproachRows(approaches: ApproachDef[], listInstalledIds: () => strin
 }
 
 /**
- * Build onboarding state. With no `ticketId` → a blank create-mode draft. With a
- * `ticketId` → edit mode seeded from the ticket's persisted onboarding fields.
+ * Build ticket-form state. With no `ticketId` → a blank create-mode draft. With a
+ * `ticketId` → edit mode seeded from the ticket's persisted ticket fields.
  * Throws if the ticket id is unknown (validated at the boundary).
  *
  * `listInstalledIds` is injected (not called via fs/vscode here) so this stays
  * pure/host-agnostic — the real host binds it to `listInstalled(approachesDir)`.
  * `listAgents` is likewise injected (real host binds it to `buildAgentPool`).
  */
-export function buildOnboardingState(
+export function buildTicketFormState(
   store: Store,
   manifest: Manifest,
   listInstalledIds: () => string[],
@@ -180,7 +180,7 @@ export function buildOnboardingState(
    * so the strip renders nothing rather than a broken tile.
    */
   storageDir?: string,
-): OnboardingState {
+): TicketFormState {
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
   const unclassified = unclassifiedRepos(manifest);

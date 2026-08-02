@@ -186,7 +186,7 @@ import {
   listArchivedTickets,
   setAgentState,
   setSessionId,
-  updateTicketOnboarding,
+  updateTicketFields,
   clearApproachFromTickets,
   archiveTicket,
   unarchiveTicket,
@@ -194,16 +194,16 @@ import {
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
-import { OnboardingManager } from './ui/onboarding/panel.js';
+import { TicketFormManager } from './ui/ticketForm/panel.js';
 import {
-  buildOnboardingActions,
+  buildTicketFormActions,
   type StartTicketResult,
   type StartTicketOptions,
-} from './ui/onboarding/actions.js';
+} from './ui/ticketForm/actions.js';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
 import { reapAttachments } from './attachments/reap.js';
 import { deleteTicketPermanently } from './runtime/deleteTicket.js';
-import { makeOnboardingPanelHost } from './ui/onboarding/host.js';
+import { makeTicketFormPanelHost } from './ui/ticketForm/host.js';
 import {
   makeTokenProvider,
   setToken,
@@ -237,11 +237,11 @@ import {
 } from './runtime/deps.js';
 import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
-import { WelcomeManager } from './ui/welcome/panel.js';
-import { buildWelcomeActions } from './ui/welcome/actions.js';
-import { makeWelcomePanelHost } from './ui/welcome/host.js';
+import { GettingStartedManager } from './ui/gettingStarted/panel.js';
+import { buildGettingStartedActions } from './ui/gettingStarted/actions.js';
+import { makeGettingStartedPanelHost } from './ui/gettingStarted/host.js';
 import { buildSetupStatus } from './init/status.js';
-import { buildWelcomeState } from './ui/welcome/state.js';
+import { buildGettingStartedState } from './ui/gettingStarted/state.js';
 
 /**
  * Extension activation adapter — the host seam (§2.6). Everything below the UI
@@ -258,7 +258,7 @@ const BRAND_SVG = join(HERE, '..', 'media', 'karst.svg');
 
 /**
  * The status-free karst mark for every panel tab, materialized once per window.
- * A panel that also carries a ticket (dashboard, bound onboarding) repaints over
+ * A panel that also carries a ticket (dashboard, bound ticket form) repaints over
  * it with the status-tinted glyph; the rest keep this. An unreadable asset
  * degrades to "no icon", never a throw — an unbranded tab is not worth failing
  * activation over.
@@ -274,8 +274,13 @@ function brandTabIcon(context: vscode.ExtensionContext): BrandIconPaths | undefi
   }
 }
 
-/** Per-workspace flag: the user dismissed the fresh-install welcome panel. */
-const WELCOME_DISMISSED_KEY = 'karst.welcomeDismissed';
+/**
+ * Per-workspace flag: the user dismissed the fresh-install Getting Started
+ * panel. The stored key keeps its legacy `karst.welcomeDismissed` spelling on
+ * purpose — it is PERSISTED workspaceState, and renaming it would re-open the
+ * panel for every user who had already dismissed it (glossary rename, 869ecknnn).
+ */
+const GETTING_STARTED_DISMISSED_KEY = 'karst.welcomeDismissed';
 /**
  * The hook port this window bound last time. Rebinding it is what keeps a session
  * that outlived a host restart — it baked the old port into its `--settings` at
@@ -573,7 +578,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
-  // onboarding (after a signal writeback) and settings (after a save) so both
+  // the ticket form (after a signal writeback) and settings (after a save) so both
   // surfaces observe the same reload behavior from one implementation.
   const reloadManifest = (): void => manifests.reload();
 
@@ -584,8 +589,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   //
   // Identity comes from the manifest's `id:` when present, else a slug derived
   // from the workspace root. The fallback matters: it means a project binds even
-  // with no manifest yet (the welcome/scaffold path), so tickets created during
-  // onboarding are never orphaned.
+  // with no manifest yet (the Getting Started/scaffold path), so tickets created
+  // in the ticket form are never orphaned.
   let boundProject: Project | undefined;
   const currentProject = (): Project | undefined => {
     if (boundProject) return boundProject;
@@ -634,10 +639,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
   );
 
-  // Live setup status for the welcome page. Reads disk/PATH fresh on every call
+  // Live setup status for the Getting Started page. Reads disk/PATH fresh on every call
   // (no caching) so re-check and post-scaffold pushes reflect reality. Guarded:
   // no workspace folder → manifest counts as missing, provider defaults to claude.
-  const loadWelcomeState = () => {
+  const loadGettingStartedState = () => {
     let manifestExists = false;
     try {
       manifestExists = existsSync(manifestPathOrThrow());
@@ -649,17 +654,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // moment's truth, or installing a tool clears the checklist and leaves the
     // status bar still claiming it's missing.
     refreshDepsStatus();
-    return buildWelcomeState(
+    return buildGettingStartedState(
       buildSetupStatus({ manifestExists, provider, probe: binaryExists, ready: commandSucceeds }),
     );
   };
 
-  const welcome = new WelcomeManager(
-    loadWelcomeState,
-    makeWelcomePanelHost(context, brandIcon),
-    buildWelcomeActions({
+  const gettingStarted = new GettingStartedManager(
+    loadGettingStartedState,
+    makeGettingStartedPanelHost(context, brandIcon),
+    buildGettingStartedActions({
       scaffoldManifest,
-      setDismissed: () => void context.workspaceState.update(WELCOME_DISMISSED_KEY, true),
+      setDismissed: () => void context.workspaceState.update(GETTING_STARTED_DISMISSED_KEY, true),
       runCommand: (command) => void vscode.commands.executeCommand(command),
     }),
     logError,
@@ -726,7 +731,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         .filter((m): m is string => m !== null)
         .join(' ');
       void vscode.window.showErrorMessage(text, 'Open setup checklist').then((choice) => {
-        if (choice === 'Open setup checklist') welcome.open();
+        if (choice === 'Open setup checklist') gettingStarted.open();
       });
     }
     return false;
@@ -759,7 +764,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .filter((text): text is string => text !== null)
       .join(' ');
     void vscode.window.showErrorMessage(message, 'Open setup checklist').then((choice) => {
-      if (choice === 'Open setup checklist') welcome.open();
+      if (choice === 'Open setup checklist') gettingStarted.open();
     });
     return false;
   };
@@ -800,7 +805,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return choice === 'Switch and continue';
         },
-        persist: ({ provider, model }) => updateTicketOnboarding(localStore, ticketId, {
+        persist: ({ provider, model }) => updateTicketFields(localStore, ticketId, {
           agentProvider: provider,
           model: model ?? '',
         }),
@@ -867,9 +872,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     return install;
   };
-  // Ids of approach packages already installed on disk, for the onboarding
+  // Ids of approach packages already installed on disk, for the ticket form
   // state (Task E1). `approachesDirOrThrow` throws with no workspace folder;
-  // guarded to "nothing installed" so onboarding still opens in that case.
+  // guarded to "nothing installed" so the ticket form still opens in that case.
   const listInstalledApproachIds = (): string[] => {
     try {
       return listInstalled(approachesDirOrThrow()).map((p) => p.id);
@@ -878,7 +883,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  // Selectable single-subagent pool for the onboarding picker (§ single-
+  // Selectable single-subagent pool for the ticket-form picker (§ single-
   // subagent selection): local agent files ∪ agent-kind artifacts of
   // installed+enabled approaches. Guarded the same way as
   // `listInstalledApproachIds` — no workspace folder yet at activation, or a
@@ -896,7 +901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  // Onboarding page: create + edit tickets on one persistent surface. The
+  // Ticket form: create + edit tickets on one persistent surface. The
   // manifest is read fresh per-open (getter) so a signal write is reflected
   // immediately. The ClickUp provider + agent adapter are wired with the secure
   // token seam; the manifest/path are read at call time (resolved on open).
@@ -916,11 +921,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  const onboarding = new OnboardingManager(
+  const ticketForm = new TicketFormManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
-    makeOnboardingPanelHost(context, brandIcon),
-    buildOnboardingActions({
+    makeTicketFormPanelHost(context, brandIcon),
+    buildTicketFormActions({
       store: localStore,
       // These read the manifest at call time so a manifest resolved on open (or
       // loaded on demand) is available to fetch/suggest/save.
@@ -945,12 +950,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       },
       // Read fresh so a provider choice saved from settings takes effect on
-      // the next onboarding action, mirroring `get provider()` above — this
+      // the next ticket-form action, mirroring `get provider()` above — this
       // object is built once at activation, so a static property would be
       // permanently stuck on the fallback ('claude') read at that moment.
       get adapter() {
         const provider = (currentManifest() ?? emptyManifest()).agentProvider ?? 'claude';
-        // Instrumented like every other adapter: onboarding's analyzer is the
+        // Instrumented like every other adapter: the ticket form's analyzer is the
         // first AI call of a ticket's life and often its most expensive.
         return instrument(resolveAdapter(provider), provider);
       },
@@ -964,7 +969,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ): Promise<StartTicketResult> => {
         const t = getTicket(localStore, ticketId);
         const hot = t.selectedRepos;
-        // Nothing to scope → the ticket stays pending. Report it so onboarding
+        // Nothing to scope → the ticket stays pending. Report it so the ticket form
         // keeps the page open with the reason, instead of looking hung.
         if (hot.length === 0) {
           return { ok: false, message: 'Select at least one repository to start this ticket.' };
@@ -1011,7 +1016,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return { ok: false, message };
         }
       },
-      // A started ticket belongs to its dashboard — onboarding hands off there.
+      // A started ticket belongs to its dashboard — the ticket form hands off there.
       openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId),
       writeSignals: writeRepoSignals,
       // Re-read the manifest from disk after a signal writeback so the panel's
@@ -1046,7 +1051,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
-  // (used for the onboarding solo-agent picker, which drops disabled agents),
+  // (used for the ticket form solo-agent picker, which drops disabled agents),
   // this calls `buildAgentPool` WITHOUT `agentsMeta` so disabled agents stay
   // visible with `enabled:false` — the whole point of the tab is re-enabling
   // them. `body` is the file contents for a local file (so it's editable);
@@ -1246,7 +1251,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         else logger.info(line);
       }
       modelCatalog = loaded.catalog;
-      onboarding.refreshModels();
+      ticketForm.refreshModels();
       await settings.refreshModels();
     })
     .catch((error) => logError('karst: model catalog load failed', error));
@@ -1429,7 +1434,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         localStore,
         ticketId,
         () => currentAgentAdapter(ticketId),
-        () => onboarding.openEdit(ticketId),
+        () => ticketForm.openEdit(ticketId),
         () => {
           provider.refresh();
           dashboard.pushState(ticketId);
@@ -1899,13 +1904,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Startup dependency preflight (§ todo-5): karst shells out to tools it doesn't
   // bundle. The registry is the whole list — never hand-maintain one here, or the
-  // preflight and the welcome checklist drift apart.
+  // preflight and the Getting Started checklist drift apart.
   const depFaults = refreshDepsStatus();
 
-  // Fresh-install welcome: auto-open the getting-started panel when this
+  // Fresh-install: auto-open the getting-started panel when this
   // workspace has no manifest yet and the user hasn't dismissed it. Per-workspace
   // (workspaceState) so a new project re-triggers even if dismissed elsewhere.
-  let autoOpenedWelcome = false;
+  let autoOpenedGettingStarted = false;
   if (vscode.workspace.workspaceFolders?.[0]) {
     let manifestExists = false;
     try {
@@ -1913,15 +1918,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch {
       manifestExists = false;
     }
-    const dismissed = context.workspaceState.get<boolean>(WELCOME_DISMISSED_KEY) === true;
+    const dismissed = context.workspaceState.get<boolean>(GETTING_STARTED_DISMISSED_KEY) === true;
     if (!manifestExists && !dismissed) {
-      welcome.open();
-      autoOpenedWelcome = true;
+      gettingStarted.open();
+      autoOpenedGettingStarted = true;
     }
   }
 
   // Suppress the toast when the panel already shows the same dependency status.
-  if (depFaults.length > 0 && !autoOpenedWelcome) {
+  if (depFaults.length > 0 && !autoOpenedGettingStarted) {
     for (const f of depFaults) logger.warn(`dependency '${f.dep.binary}' is ${f.state}`);
     void vscode.window
       .showWarningMessage(
@@ -1932,17 +1937,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Open setup checklist',
       )
       .then((choice) => {
-        if (choice === 'Open setup checklist') welcome.open();
+        if (choice === 'Open setup checklist') gettingStarted.open();
       });
   }
 
-  // Shared entry: resolve the manifest, remember it for onboarding actions, and
-  // open the create-mode page. Used by both createTicket and openOnboarding.
-  const openOnboardingCreate = async (): Promise<void> => {
+  // Shared entry: resolve the manifest, remember it for ticket-form actions, and
+  // open the create-mode page. Used by both createTicket and the ticket-form command.
+  const openTicketFormCreate = async (): Promise<void> => {
     const manifest = await resolveManifest();
     if (!manifest) return; // no folder / scaffolded / invalid — message shown
     manifests.set(manifest, manifestPathOrThrow());
-    onboarding.openCreate();
+    ticketForm.openCreate();
   };
 
   // Cross-window freshness (§ projects / multi-window). Sidebar refreshes are
@@ -1977,7 +1982,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
-      // scope→impl transition the onboarding Start runs), then open the session in
+      // scope→impl transition the ticket form's Start runs), then open the session in
       // the fresh worktree. This is what makes the sidebar/dashboard button work
       // for the drafted-but-unstarted case, not just the interrupted one.
       let wt = listWorktreesByTicket(localStore, ticketId)[0];
@@ -1995,7 +2000,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         try {
           // No page to ask here (this is Start on a saved draft), so the pull
-          // takes its default: ON, the same as the onboarding switch ships.
+          // takes its default: ON, the same as the ticket form's switch ships.
           await confirmScope(
             localStore,
             currentManifest() ?? emptyManifest(),
@@ -2332,21 +2337,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
     }),
-    // "Add ticket" opens the onboarding page (create mode). A manifest is
+    // "Add ticket" opens the ticket form (create mode). A manifest is
     // resolved first so the classify-gate + repo picker have services to show.
-    vscode.commands.registerCommand('karst.createTicket', () => openOnboardingCreate()),
-    vscode.commands.registerCommand('karst.openOnboarding', () => openOnboardingCreate()),
+    vscode.commands.registerCommand('karst.createTicket', () => openTicketFormCreate()),
+    vscode.commands.registerCommand('karst.openTicketForm', () => openTicketFormCreate()),
+    // Deprecated alias. A command id is externally consumable — a user's
+    // keybindings.json or another extension may already invoke it — so the old
+    // `onboarding` spelling stays registered and simply forwards. It is hidden
+    // from the palette via `menus.commandPalette` in package.json; drop it only
+    // in a release that can state the break (glossary rename, 869ecknnn).
+    vscode.commands.registerCommand('karst.openOnboarding', () => openTicketFormCreate()),
     vscode.commands.registerCommand('karst.editTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
       const manifest = await resolveManifest();
       if (!manifest) return;
       manifests.set(manifest, manifestPathOrThrow());
-      onboarding.openEdit(ticketId);
+      ticketForm.openEdit(ticketId);
     }),
     // Follow-up: a done ticket spawns a linked child that inherits its
     // repos/approach/agent/model and carries its brief+PRs into the new
-    // session's context (§ continue work on a ticket). Opens onboarding-edit so
+    // session's context (§ continue work on a ticket). Opens the ticket form in edit mode so
     // the user types the actual follow-up ask straight away.
     vscode.commands.registerCommand('karst.createFollowUpTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
@@ -2365,7 +2376,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.refresh();
       const manifest = await resolveManifest();
       if (manifest) manifests.set(manifest, manifestPathOrThrow());
-      onboarding.openEdit(child.id);
+      ticketForm.openEdit(child.id);
       void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
     }),
     vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
@@ -2424,7 +2435,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (choice !== 'Delete') return;
       try {
         await deleteTicketPermanently(localStore, ticketId, {
-          closePanel: (id) => onboarding.closeTicket(id),
+          closePanel: (id) => ticketForm.closeTicket(id),
           reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
         });
       } catch (err) {
@@ -2522,7 +2533,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // fallback + the error, shown inline. No toast either way.
       settings.open();
     }),
-    vscode.commands.registerCommand('karst.openGettingStarted', () => welcome.open()),
+    vscode.commands.registerCommand('karst.openGettingStarted', () => gettingStarted.open()),
     // Reprobe on demand: the user installs a tool in a terminal, clicks the status
     // bar, and karst answers without a window reload. No polling — nothing else
     // knows when an install finishes, and a timer would probe PATH forever.
@@ -2532,7 +2543,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage('Karst has every tool it needs.');
         return;
       }
-      welcome.open();
+      gettingStarted.open();
     }),
   );
 
@@ -3330,7 +3341,7 @@ function makeDashboardActions(
     // action already uses; `SessionManager.openSession` resolves --resume vs.
     // a fresh launch on its own.
     resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
-    // Opens the onboarding edit page on the new ticket so the user can type
+    // Opens the ticket form in edit mode on the new ticket so the user can type
     // the actual follow-up ask straight away — the command itself copies
     // repos/approach/agent/model from this ticket.
     createFollowUpTicket: () =>
