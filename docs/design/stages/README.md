@@ -53,10 +53,13 @@ Both correct a topology error the shipped rail still has: the CSS comment at
 (`FIX_ATTEMPT_CAP`) visible as geometry rather than as a caption, so "one retry
 left before this parks" can be seen. Nothing in karst shows that today.
 
-**Variant E was chosen.** The design it is taken into is
-`docs/superpowers/specs/2026-08-02-stage-flow-nodes-design.md`; where the two
-disagree, the spec wins (the mockup draws the needs-you segment's button as an
-actor; the spec narrows it to a navigational control).
+**Variant E was chosen, and shipped** in `src/ui/dashboard/webview.html`. The
+design it was taken into is
+`docs/superpowers/specs/2026-08-02-stage-flow-nodes-design.md` and the plan built
+from it is `docs/superpowers/plans/2026-08-02-stage-flow-nodes.md`; where any two
+disagree, the spec wins over the mockup (the mockup draws the needs-you segment's
+button as an actor; the spec narrows it to a navigational control) and the shipped
+file wins over both.
 
 E additionally removes the rail's 560px floor. It degrades in three measured
 steps — drop annotations, then drop names, then reduce the passed-by segments to
@@ -65,5 +68,35 @@ its name to the stage key. Two steps was the first attempt and it was wrong: at 
 397px lane five of the eight cases were still over, and because the lane was
 `overflow:hidden` that showed up as the current segment's action button being
 clipped away with nothing to indicate it. The lane is `overflow-x:auto` now and
-the three steps clear every case down to **300px**. The measurement loop that
-produced that number is in the file; re-run it if a segment gains content.
+the three steps clear every case down to **300px** in the mockup.
+
+## Measuring the SHIPPED file — `harness.mjs`
+
+The mockup's numbers are the design's, not the product's: the shipped CSS renames
+what the mockup called `.lane1`/`.act`/`.ph` to `.lane`/`.go`/`.pips`, and it
+resolves every value through `--k-*` tokens the mockup only approximates. So the
+floor is re-measured against `src/ui/dashboard/webview.html` itself.
+
+```
+npm run build          # harness.mjs reads the injectors out of dist/
+node docs/design/stages/harness.mjs
+python3 -m http.server 8791 --directory docs/design/stages
+# → http://localhost:8791/_harness-shipped.html
+```
+
+It renders the real webview against eight fake `DashboardState` snapshots, then
+exposes `placeAll()` and `overflowReport()` so a width sweep can assert two
+things: that no lane overflows, and that the current segment keeps its name and
+its action button at every step. The generated HTML is a build product and is
+gitignored; the generator is the artifact worth keeping.
+
+Measured on the shipped file: **no overflow to 280px**, with the heaviest case (a
+conflicted merge carrying a spent meter) first overflowing — into a scrollbar,
+not a clip — at 260px. The current segment's name and action survive to 220px,
+which is narrower than the panel can be dragged.
+
+One defect this caught that no text test would have: scoping the base rule to
+`.track .seg` (specificity 0,2,0) let it beat the injected `stg-<stage>` palette
+classes (0,1,0) at any source order, so every travelled segment rendered neutral
+grey and the stage-hue wash — the whole point of the variant — was silently dead.
+The base rule now sets no colour at all; `webview.test.ts` pins that.

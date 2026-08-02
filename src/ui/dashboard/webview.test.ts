@@ -297,6 +297,20 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/window\.addEventListener\('resize', place\)/);
   });
 
+  it('lets the stage palette win the hue, because the segment never claims it', () => {
+    // `.track .seg` is (0,2,0); the injected `stg-<stage>` classes are (0,1,0), so
+    // a `color`/`--stg-color` on the scoped rule beats them at ANY source order
+    // and every travelled segment renders neutral grey — which silently kills the
+    // one thing the wash exists to say. The old `.st` rule tied at (0,1,0) and
+    // lost to the later injection; scoping is what broke that tie.
+    const base = HTML.match(/\.track \.seg\{[^}]*\}/)?.[0] ?? '';
+    expect(base, 'the base segment rule must not set a colour').not.toMatch(/(^|[;{])color:/);
+    expect(base, 'the base segment rule must not set --stg-color').not.toContain('--stg-color:');
+    // Untravelled is neutral by its own class, not by the base rule's default.
+    expect(HTML).toMatch(/\.track \.seg\.pending\{color:var\(--k-text-faint\)\}/);
+    expect(HTML).toMatch(/pending: 'pending'/);
+  });
+
   it('scopes every track selector, so it cannot collide with the strip', () => {
     // The dashboard already owns `.act` (the activity strip) and `.ph*`; an
     // unscoped `.seg`/`.fixm` would silently restyle them.

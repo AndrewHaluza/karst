@@ -122,8 +122,16 @@
      (model/stagePalette), the SAME token the sidebar chip uses, so a stage is the
      identical hue in both views. A stageKey with no stg-* class falls through to
      this neutral default rather than rendering uncoloured. */
+  /* NOTE: this rule deliberately sets NEITHER `color` NOR `--stg-color`. The
+     stage hue arrives on the same element from the injected `stg-<stage>` classes
+     (model/stagePalette), whose specificity is (0,1,0) — a scoped `.track .seg`
+     is (0,2,0) and would beat them at any source order, which paints every
+     travelled segment neutral grey and silently kills the one thing the wash
+     exists to say. The old `.st` rule tied at (0,1,0) and lost to the later
+     injection; scoping is what broke that. Status classes below are (0,3,0) and
+     override the hue ON PURPOSE. */
   .track .seg{position:relative;display:flex;align-items:center;gap:var(--k-space-3);
-    flex:0 0 auto;min-width:0;color:var(--k-pending);--stg-color:var(--k-pending);
+    flex:0 0 auto;min-width:0;
     padding:0 var(--k-space-6) 0 calc(var(--trk-notch) + var(--k-space-5));
     clip-path:polygon(0 0,calc(100% - var(--trk-notch)) 0,100% 50%,
       calc(100% - var(--trk-notch)) 100%,0 100%,var(--trk-notch) 50%);
@@ -150,10 +158,18 @@
      because the chevron clip would slice an outward ring. */
   .track .seg.sel .pick{box-shadow:inset 0 0 0 calc(var(--k-border-w) * 2) var(--k-series-2)}
 
+  /* Untravelled: neutral, and explicitly so. A pending segment must not wear its
+     stage hue at full strength — that is what "travelled ground" means here. */
+  .track .seg.pending{color:var(--k-text-faint)}
   /* Travelled segments carry their own stage hue as a wash, so the route changes
-     colour as the ticket advances — the one thing a flat progress bar cannot say. */
-  .track .seg.passed{background:color-mix(in srgb,var(--stg-color) 20%,transparent);color:var(--stg-color)}
-  .track .seg.running{background:color-mix(in srgb,var(--stg-color) 34%,transparent);color:var(--k-success-fg)}
+     colour as the ticket advances — the one thing a flat progress bar cannot say.
+     `--stg-color` carries its own fallback: a stage key with no palette class (a
+     row from a newer schema) then reads neutral instead of dropping the whole
+     declaration and rendering unwashed. */
+  .track .seg.passed{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 20%,transparent);
+    color:var(--stg-color,var(--k-pending))}
+  .track .seg.running{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 34%,transparent);
+    color:var(--k-success-fg)}
   /* Failed reads as a break in the surface: hatched, never a flat fill. */
   .track .seg.failed{color:var(--k-failed);
     background-image:repeating-linear-gradient(135deg,
@@ -687,7 +703,11 @@
   // host derives once (model/ticketGlyph.needsUser) for every surface. The old
   // rail showed stage status only, so a ticket parked on a human looked exactly
   // like one quietly running.
-  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: '', skipped: 'skipped' };
+  // `pending` is a REAL class, not the empty string the old rail used: the
+  // segment's own rule sets no colour (so the stage palette can), which leaves an
+  // untravelled segment wearing its stage hue at full strength unless something
+  // says otherwise.
+  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped' };
   // Running renders a spinner ELEMENT, not a character — see the .spin rule for
   // why every glyph candidate misread on a clickable node.
   const SPINNER = '<span class="spin" aria-hidden="true"></span>';
