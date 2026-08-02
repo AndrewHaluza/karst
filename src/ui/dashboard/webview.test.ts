@@ -262,6 +262,54 @@ describe('dashboard webview.html', () => {
     );
   });
 
+  it('draws the ring flush to the segment, joined without crossing itself', () => {
+    // Brace-balanced, not `[\s\S]*?\n  }` — this test asserts on what the guard
+    // does NOT contain, so an over-capture that ran into the next rule would
+    // read a later `--k-focus-offset` as this block's.
+    const at = HTML.indexOf('@supports (width: calc(1px * hypot');
+    let depth = 0;
+    let end = at;
+    for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+      if (HTML[i] === '{') depth += 1;
+      else if (HTML[i] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          end = i + 1;
+          break;
+        }
+      }
+    }
+    const ring = HTML.slice(at, end);
+    expect(ring, 'the chevron ring is not behind an @supports guard').toContain('clip-path');
+    // FLUSH. An outer boundary inset by `--k-focus-offset` read as a hairline gap
+    // all the way round, and at the ends of the lane its square corners sat
+    // inside the lane's own `--k-radius-lg`. On the segment's own edge, the
+    // lane's rounded overflow clips ring and segment identically.
+    expect(ring, 'the ring is inset off the segment edge').not.toContain('--k-focus-offset');
+    for (const [, points] of ring.matchAll(/clip-path:polygon\(evenodd,([\s\S]*?)\)\}/g)) {
+      const pts = points!
+        .split(/,(?![^(]*\))/)
+        .map((p) => p.replace(/\s+/g, ' ').trim());
+      // Each ring opens on the segment's own polygon: its first point is the
+      // segment's, and every outer point is free of the inset vars.
+      expect(pts[0], `ring does not start on the segment corner: ${pts[0]}`).toBe('0 0');
+      // ZERO-AREA SLIT. `polygon()` is ONE contour with no move-to, so the two
+      // connectors that reach the hole REPLACE the inner edge they jump across —
+      // and that edge, with the band it bounds, is simply gone from the shape.
+      // Both earlier orderings lost the ring's left stroke that way. So the outer
+      // loop closes on its own first point, and the inner loop starts AND ends on
+      // one point: the two connectors coincide and cancel, and no edge is lost.
+      const outerEnd = pts.indexOf('0 0', 1);
+      expect(outerEnd, 'the outer loop is not closed before the hole').toBeGreaterThan(2);
+      expect(pts[outerEnd + 1], 'the hole does not close on the point it opened on')
+        .toBe(pts[pts.length - 1]);
+      // Every inner point is derived perpendicularly; none is a bare axis inset.
+      for (const p of pts.slice(outerEnd + 1)) {
+        expect(p, `inner point is not inset from the edge: ${p}`).toMatch(/var\(--r[tlrq]\)/);
+      }
+    }
+  });
+
   it('outlines a focused segment in the segment’s own shape, with a working fallback', () => {
     // Same defect as the selection ring, one state further: an `outline` is a
     // rectangle, `clip-path` clips a child's rendering, so the focus ring's

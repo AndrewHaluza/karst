@@ -105,7 +105,11 @@
        derived from the two dimensions above, never written down, so a change to
        either keeps the ring parallel to the shape it outlines. */
     --trk-half:calc(var(--trk-h) / 2);
-    --trk-diag:hypot(var(--trk-notch),var(--trk-half))}
+    --trk-diag:hypot(var(--trk-notch),var(--trk-half));
+    /* The lane's radius as seen from INSIDE its border — what a ring flush to the
+       first or last segment must curve by to sit on the lane's own corner rather
+       than be cut square by it. */
+    --trk-r:calc(var(--k-radius-lg) - var(--k-border-w))}
 
   /* overflow-x:auto, NEVER hidden. The three degradation steps below keep the
      track inside its lane at every width a VS Code panel can be dragged to (300px,
@@ -198,9 +202,22 @@
      the two dimensions the segment is already drawn from, so the ring stays
      parallel to the shape at any lane height or notch depth.
 
-     The outer boundary is inset by one `--k-focus-offset` rather than sitting on
-     the segment's own edge: coincident with the parent's clip, the antialiased
-     outermost pixel is what gets cut, and the ring reads as broken again.
+     The outer boundary IS the segment's own polygon, written out verbatim rather
+     than inset: an inset one read as a hairline gap all the way round, and at the
+     ends of the lane its square corners sat inside the lane's `--k-radius-lg` —
+     the same "mark shifted off its block" complaint in a smaller form. Flush, the
+     lane's own rounded overflow clips the ring exactly as it clips the segment,
+     so the corners agree by construction instead of by arithmetic.
+
+     The hole is joined to the outer boundary by a ZERO-AREA SLIT, and every point
+     of it is load-bearing. `polygon()` is ONE contour with no move-to, so the two
+     implicit connectors that reach the hole REPLACE whatever inner edge they jump
+     across — and that edge is simply gone from the shape, taking its band with it.
+     Both earlier orderings lost the left stroke that way: same-direction contours
+     cross in the middle of it, reversed ones drop the inner notch edge. So the
+     outer loop is CLOSED first (its start point repeated), and the inner loop both
+     starts and ends at the same point, which makes the two connectors coincident
+     and opposite — they cancel, and every real edge survives.
 
      @supports, because a browser without `hypot()` (or without length division
      in `calc()`) would drop the `clip-path` and keep the `background` — a solid
@@ -210,60 +227,67 @@
     .track .seg.sel{box-shadow:none}
     .track .seg.sel .pick,
     .track .seg .pick:focus-visible{
-      /* q for each boundary: the outer edge, and the inner edge one ring-width
-         further in. Two focus widths, not one — a 1px band is what the diagonals
+      /* q: how far the inner edge sits from the segment's edge, i.e. the ring's
+         own width. Two focus widths, not one — a 1px band is what the diagonals
          eat first, and neither of these marks may be the thing that degrades. */
-      --rq-o:var(--k-focus-offset);
-      --rq-i:calc(var(--k-focus-offset) + var(--k-focus-w) * 2);
-      --rt-o:calc(var(--rq-o) * var(--trk-diag) / var(--trk-half));
-      --rr-o:calc(var(--rq-o) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
-      --rl-o:calc(var(--rq-o) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
-      --rt-i:calc(var(--rq-i) * var(--trk-diag) / var(--trk-half));
-      --rr-i:calc(var(--rq-i) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
-      --rl-i:calc(var(--rq-i) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
+      --rq:calc(var(--k-focus-w) * 2);
+      --rt:calc(var(--rq) * var(--trk-diag) / var(--trk-half));
+      --rr:calc(var(--rq) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
+      --rl:calc(var(--rq) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
       background:var(--k-series-2);
       clip-path:polygon(evenodd,
-        var(--rl-o) var(--rq-o),
-        calc(100% - var(--trk-notch) - var(--rr-o)) var(--rq-o),
-        calc(100% - var(--rt-o)) 50%,
-        calc(100% - var(--trk-notch) - var(--rr-o)) calc(100% - var(--rq-o)),
-        var(--rl-o) calc(100% - var(--rq-o)),
-        calc(var(--trk-notch) + var(--rt-o)) 50%,
-        var(--rl-i) var(--rq-i),
-        calc(100% - var(--trk-notch) - var(--rr-i)) var(--rq-i),
-        calc(100% - var(--rt-i)) 50%,
-        calc(100% - var(--trk-notch) - var(--rr-i)) calc(100% - var(--rq-i)),
-        var(--rl-i) calc(100% - var(--rq-i)),
-        calc(var(--trk-notch) + var(--rt-i)) 50%)}
+        0 0,
+        calc(100% - var(--trk-notch)) 0,
+        100% 50%,
+        calc(100% - var(--trk-notch)) 100%,
+        0 100%,
+        var(--trk-notch) 50%,
+        0 0,
+        var(--rl) var(--rq),
+        calc(var(--trk-notch) + var(--rt)) 50%,
+        var(--rl) calc(100% - var(--rq)),
+        calc(100% - var(--trk-notch) - var(--rr)) calc(100% - var(--rq)),
+        calc(100% - var(--rt)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr)) var(--rq),
+        var(--rl) var(--rq))}
     /* The ends of the lane have one notch, not two — same rule as the segment
        shapes above, and for the same reason: a wedge at the outer end would
-       point at nothing. A square corner insets by q in both axes. */
+       point at nothing. A square corner insets by q in both axes, and takes the
+       lane's radius: `clip-path` cannot round a corner, so a flush ring met the
+       lane's rounded end square and the lane's own overflow cut the difference
+       away. `border-radius` clips the fill, so the two curve together. */
     .track .seg:first-child.sel .pick,
     .track .seg:first-child .pick:focus-visible{
+      border-radius:var(--trk-r) 0 0 var(--trk-r);
       clip-path:polygon(evenodd,
-        var(--rq-o) var(--rq-o),
-        calc(100% - var(--trk-notch) - var(--rr-o)) var(--rq-o),
-        calc(100% - var(--rt-o)) 50%,
-        calc(100% - var(--trk-notch) - var(--rr-o)) calc(100% - var(--rq-o)),
-        var(--rq-o) calc(100% - var(--rq-o)),
-        var(--rq-i) var(--rq-i),
-        calc(100% - var(--trk-notch) - var(--rr-i)) var(--rq-i),
-        calc(100% - var(--rt-i)) 50%,
-        calc(100% - var(--trk-notch) - var(--rr-i)) calc(100% - var(--rq-i)),
-        var(--rq-i) calc(100% - var(--rq-i)))}
+        0 0,
+        calc(100% - var(--trk-notch)) 0,
+        100% 50%,
+        calc(100% - var(--trk-notch)) 100%,
+        0 100%,
+        0 0,
+        var(--rq) var(--rq),
+        var(--rq) calc(100% - var(--rq)),
+        calc(100% - var(--trk-notch) - var(--rr)) calc(100% - var(--rq)),
+        calc(100% - var(--rt)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr)) var(--rq),
+        var(--rq) var(--rq))}
     .track .seg:last-child.sel .pick,
     .track .seg:last-child .pick:focus-visible{
+      border-radius:0 var(--trk-r) var(--trk-r) 0;
       clip-path:polygon(evenodd,
-        var(--rl-o) var(--rq-o),
-        calc(100% - var(--rq-o)) var(--rq-o),
-        calc(100% - var(--rq-o)) calc(100% - var(--rq-o)),
-        var(--rl-o) calc(100% - var(--rq-o)),
-        calc(var(--trk-notch) + var(--rt-o)) 50%,
-        var(--rl-i) var(--rq-i),
-        calc(100% - var(--rq-i)) var(--rq-i),
-        calc(100% - var(--rq-i)) calc(100% - var(--rq-i)),
-        var(--rl-i) calc(100% - var(--rq-i)),
-        calc(var(--trk-notch) + var(--rt-i)) 50%)}
+        0 0,
+        100% 0,
+        100% 100%,
+        0 100%,
+        var(--trk-notch) 50%,
+        0 0,
+        var(--rl) var(--rq),
+        calc(var(--trk-notch) + var(--rt)) 50%,
+        var(--rl) calc(100% - var(--rq)),
+        calc(100% - var(--rq)) calc(100% - var(--rq)),
+        calc(100% - var(--rq)) var(--rq),
+        var(--rl) var(--rq))}
     /* Last, so focus wins the colour on a segment that is both. The outline goes
        with it — the ring IS the indicator now (UI-R23). */
     .track .seg .pick:focus-visible{outline:0;background:var(--k-focus)}}
