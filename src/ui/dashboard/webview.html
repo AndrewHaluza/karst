@@ -680,13 +680,21 @@
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
-  // Stage status -> rail CSS class. Amber/needs-you is an agent-level signal
-  // (glyphFor precedence); the rail shows stage status only.
-  const STEP_CLASS = { passed: 'done', running: 'running', failed: 'failed', pending: '', skipped: 'skipped' };
+  // Stage status -> segment CSS class. Needs-you is NOT here: it OUTRANKS the
+  // stage status, and it is applied from the segment's own `needsUser`, which the
+  // host derives once (model/ticketGlyph.needsUser) for every surface. The old
+  // rail showed stage status only, so a ticket parked on a human looked exactly
+  // like one quietly running.
+  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: '', skipped: 'skipped' };
   // Running renders a spinner ELEMENT, not a character — see the .spin rule for
   // why every glyph candidate misread on a clickable node.
   const SPINNER = '<span class="spin" aria-hidden="true"></span>';
-  const STEP_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–' };
+  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–' };
+  // A parked confirm stage carries a pause; a conflicted merge carries a warning.
+  // Two glyphs, ONE state — merge has no failed edge, so a conflict is a wording
+  // difference and must never render as something a retry could clear.
+  const NEEDS_GLYPH = '❚❚';
+  const CONFLICT_GLYPH = '⚠';
   const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -698,9 +706,6 @@
   // selection through the host would snap the panel back mid-run.
   let lastState = null;
   let selectedStage = null;
-  // Whether the optional fix loop is expanded. Local view state like the
-  // selection — never in DashboardState, so a host push can't reset it.
-  let fixExpanded = false;
   // What the user typed into the servers filter. Local for the same reason: a
   // state push lands on every server change, so a filter living in (or absent
   // from) DashboardState would be wiped out mid-typing.
@@ -810,15 +815,6 @@
     };
   }
 
-  // The connector INTO this node: lit once the previous stage passed, accented
-  // into a running node, broken (red) into a failed one, dim when unreached.
-  function segClass(cell, prev) {
-    if (cell.status === 'failed') return 'broken';
-    const reached = prev && (prev.status === 'passed' || prev.status === 'skipped');
-    if (!reached) return '';
-    return cell.status === 'running' ? 'active' : 'lit';
-  }
-
   // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
   // omitted while a stage is still running (no endedAt yet).
   function timingText(cell) {
@@ -843,101 +839,146 @@
     return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
   }
 
-  // The rail: the forward path, then the band carrying fix and impl's approach.
-  // Geometry comes from the host (state.rail.geometry) as CSS custom properties,
-  // so every attachment point below is a calc() that follows the columns.
-  function renderRail(rail, approach, sel, fixExpanded) {
-    const g = rail.geometry;
-    const nodes = rail.main.map((cell, i) => {
-      const cls = STEP_CLASS[cell.status] || '';
-      const on = sel === cell.stageKey;
-      // Icon-only (a glyph or a spinner, never text) — aria-label AND title
-      // carry the SAME string (UI-R21/R24): the stage name plus its status,
-      // since colour/shape alone would leave a screen-reader user with no
-      // account of which stage this node is.
-      const nodeName = `${esc(STAGE_TITLE[cell.stageKey] || cell.stageKey)}: ${esc(cell.status)}`;
-      return `<div class="st ${cls} stg-${esc(cell.stageKey)} ${on ? 'sel' : ''}">`
-        + `<div class="seg ${segClass(cell, rail.main[i - 1])}"></div>`
-        + `<button type="button" class="node" data-stage="${esc(cell.stageKey)}" aria-pressed="${on}"`
-        + ` aria-label="${nodeName}" title="${nodeName}">`
-        + `${STEP_GLYPH[cell.status] || ''}</button>`
-        + `<div class="lbl">${esc(cell.stageKey)}</div>`
-        + `<div class="meta">${esc(durationText(cell))}</div></div>`;
+  // The track: ONE object the ticket travels through. The current segment is
+  // wide and the rest compact — that is what fits seven stages in a narrow panel.
+  //
+  // No geometry is pushed from the host any more. The old rail positioned its
+  // band from `--cols/--impl/--uat/--review` calc() inputs because it had a
+  // second lane to bolt to specific columns; there is no second lane now, so the
+  // only measurement left is `place()` below, and it POSITIONS NOTHING — it picks
+  // one of three degradation classes.
+  function renderTrack(rail, approach, sel) {
+    const segs = rail.main.map((s) => {
+      const cell = s.cell;
+      const k = cell.stageKey;
+      const status = cell.status;
+      const needs = s.needsUser === true;
+      // A conflict is a WORDING difference, not a new state: merge has no failed
+      // edge, so it must never render as something a retry could clear. The host
+      // already made that distinction when it worded the action.
+      const conflict = needs && s.needs && s.needs.action === 'Resolve';
+      const running = status === 'running' || (s.retry && s.retry.live);
+      const cls = [
+        needs ? 'needs' : (SEG_CLASS[status] || ''),
+        s.current ? 'cur' : '',
+        sel === k ? 'sel' : '',
+      ].filter(Boolean).join(' ');
+
+      const glyph = running ? SPINNER
+        : conflict ? CONFLICT_GLYPH
+        : needs ? NEEDS_GLYPH
+        : (SEG_GLYPH[status] || '');
+
+      // Both name forms ship and the CSS picks one: the current segment normally
+      // shows the human title and falls back to the stage key at the narrowest
+      // step. Swapping the text in JS would mean re-rendering on every resize.
+      const title = STAGE_TITLE[k] || k;
+      const name = s.current
+        ? `<span class="full">${esc(title)}</span><span class="abbr">${esc(k)}</span>`
+        : esc(k);
+
+      let extra = '';
+      if (s.current && needs) {
+        extra = `<span class="mt">${esc(s.needs ? s.needs.detail : '')}</span>`
+          + `<button type="button" class="go" data-goto`
+          + `>${esc(s.needs ? s.needs.action : 'Open')}</button>`;
+      } else if (s.current && k === 'impl' && approach) {
+        extra = renderPips(approach);
+      } else {
+        const d = durationText(cell);
+        if (d) extra = `<span class="mt">${esc(d)}</span>`;
+      }
+      // The meter is APPENDED, never assigned into the same slot as the meta — a
+      // retried gate has both a duration and a spent cap and must not have to
+      // choose between saying them.
+      if (s.retry) extra += renderMeter(s.retry);
+
+      // The status is carried by colour and glyph, so the accessible name states
+      // it outright — and states the retry loop too: a screen-reader user must
+      // not have to infer a live retry from a meter they cannot see, nor lose the
+      // return target when the narrowest step drops the `↩ uat`.
+      const aria = (needs ? `${title}: needs you` : `${title}: ${status}`)
+        + (s.retry ? ` — fix ${s.retry.spent}/${s.retry.cap}${s.retry.live ? ' running' : ''}` : '')
+        + (s.retry && s.retry.returnsTo ? `, revalidates from ${s.retry.returnsTo}` : '');
+
+      return `<div class="seg stg-${esc(k)} ${cls}">`
+        + `<button type="button" class="pick" data-stage="${esc(k)}" aria-pressed="${sel === k}"`
+        + ` aria-label="${esc(aria)}" title="${esc(aria)}"></button>`
+        + `<span class="g">${glyph}</span><span class="nm">${name}</span>${extra}</div>`;
     }).join('');
 
-    const fixSel = sel === 'fix';
-    const fixClass = STEP_CLASS[rail.branch.status] || '';
-    const implRunning = rail.main.some((c) => c.stageKey === 'impl' && c.status === 'running');
-
-    // fix is a RETURN CHANNEL reached only on a failed gate, so it stays hidden
-    // until the user asks for it — on a ticket that never looped it would just eat
-    // the band's height. `armed` (fix running, or a gate sitting failed) forces it
-    // open, and so does selecting it: hiding a live loop, or the stage whose Inside
-    // strip is showing, would hide the very state the user is looking at.
-    // Keep a resolved fix visible after fix→review disarms the loop. Otherwise
-    // the branch collapses in the same state push that turns it green, making a
-    // successful resolution technically stored but impossible to see.
-    const showFix = fixExpanded || rail.armed || rail.branch.status === 'passed' || fixSel;
-    // No toggle while armed: there is nothing optional to collapse when the loop is
-    // actually running.
-    const toggle = rail.armed
-      ? ''
-      : showFix
-        ? `<button type="button" class="k-chip fixtoggle open" data-fixtoggle aria-expanded="true"`
-          + ` title="Hide the optional fix loop">hide fix ⌃</button>`
-        : `<button type="button" class="k-chip fixtoggle" data-fixtoggle aria-expanded="false"`
-          + ` title="fix runs only when a uat or review gate fails — show the loop">+ fix ⌄</button>`;
-    // The fix node is icon-only (↺) — aria-label AND title carry the same
-    // string (UI-R21/R24); the ancestor's own title (below) explains the loop
-    // as a whole, which is not part of THIS button's accessible name.
-    const fixNodeName = fixSel ? 'Fix stage, selected' : 'View fix stage';
-    const branch = showFix
-      ? `<div class="drop"></div><div class="ret"></div>`
-        + `<div class="retlbl">pass → review</div><div class="faillbl">fail</div>`
-        + `<div class="fixnode ${fixClass} stg-fix ${fixSel ? 'sel' : ''}"`
-        + ` title="Entered only when the uat or review gate fails; on pass it returns to review">`
-        + `<button type="button" class="node" data-stage="fix" aria-pressed="${fixSel}"`
-        + ` aria-label="${fixNodeName}" title="${fixNodeName}">↺</button>`
-        + `<div class="cl"><span class="lbl">fix</span>`
-        + `<span class="cap">${esc(rail.cap || 'idle')}</span></div></div>`
-      : '';
-
-    el('rail').innerHTML =
-      `<div class="track" style="--cols:${g.cols};--impl:${g.impl};--uat:${g.uat};--review:${g.review}">`
-      + `<div class="main">${nodes}</div>`
-      + `<div class="loop ${rail.armed ? 'armed' : ''} ${showFix ? '' : 'collapsed'}">`
-      + `<div class="implstem ${implRunning ? 'on' : ''}"></div>`
-      + branch
-      + toggle
-      + renderApproach(approach, rail)
-      + `</div></div>`;
+    el('rail').innerHTML = `<div class="track"><div class="lane">${segs}</div></div>`;
+    place();
   }
 
-  // The approach driving impl, named on the rail with its declared phases behind
-  // a disclosure. The phases are DECLARED, never observed — the footer says so,
-  // so the list cannot be read as progress karst is tracking.
-  function renderApproach(approach, rail) {
-    if (!approach) {
-      return `<div class="noapproach branch-slot" title="This ticket has no approach selected">`
-        + `<span class="k-chip none">no approach</span></div>`;
-    }
-    const impl = rail.main.find((c) => c.stageKey === 'impl');
-    const cls = impl && (impl.status === 'passed' || impl.status === 'skipped') ? 'done'
-      : impl && impl.status === 'running' ? 'active' : '';
+  // impl's declared phases, as pips inside impl's own segment. DECLARED is not
+  // observed: a pip fills only for a phase the agent actually reported by running
+  // a marker command, and a hollow pip means "not reported" — never "not done".
+  function renderPips(approach) {
     const phases = approach.phases || [];
-    const count = phases.length ? `${phases.length} phases` : 'no phases';
-    const rows = phases.length
-      ? phases.map((p, i) => `<div class="phrow"><span class="pi">${i + 1}</span>`
-        + `<span class="pn">${esc(p)}</span></div>`).join('')
-      : '';
-    const foot = phases.length
-      ? 'karst records no per-phase state — the agent runs these inside impl'
-      : 'this approach declares no workflow — impl is one undivided stage';
-    return `<details class="approach ${cls}">`
-      + `<summary class="branch-slot" title="Approach driving impl — ${esc(approach.id)}, ${count}">`
-      + `<span class="k-chip aid"><span class="nm">${esc(approach.id)}</span>`
-      + `<span class="chev">▼</span></span></summary>`
-      + `<div class="detail">${rows}<div class="foot">${esc(foot)}</div></div></details>`;
+    if (!phases.length) return '';
+    const done = new Set(approach.reported || []);
+    const pips = phases.map((p) => {
+      const on = done.has(p);
+      return `<span class="p ${on ? 'on' : ''}"`
+        + ` title="${esc(p)}${on ? ' — reported' : ' — not reported'}"></span>`;
+    }).join('');
+    const latest = (approach.reported || []).slice(-1)[0];
+    const caption = latest ? `${latest} · ${approach.id}` : approach.id;
+    return `<span class="pips">${pips}<span class="pn">${esc(caption)}</span></span>`;
+  }
+
+  // The retry meter IS the fix control: it is how `fix` stays selectable now that
+  // the node is gone, and it sits on the gate the loop belongs to, which is where
+  // a user would look for it. One tick per ALLOWED attempt, filled per attempt
+  // spent — built from the cap the host resolved, never from a literal, or it
+  // would misreport the budget the driver will actually spend.
+  function renderMeter(retry) {
+    const ticks = Array.from({ length: retry.cap }, (_, i) =>
+      `<span class="tk ${i < retry.spent ? 'on' : ''}"></span>`).join('');
+    const ret = retry.returnsTo ? `<span class="ret">↩ ${esc(retry.returnsTo)}</span>` : '';
+    const label = `Fix loop on ${STAGE_TITLE[retry.gate] || retry.gate}: `
+      + `attempt ${retry.spent} of ${retry.cap}${retry.live ? ', running' : ''}`;
+    return `<button type="button" class="fixm ${retry.live ? '' : 'spent'}" data-stage="fix"`
+      + ` aria-label="${esc(label)}" title="${esc(label)}">`
+      + `<span class="ticks">${ticks}</span>`
+      + `<span class="tx">fix ${retry.spent}/${retry.cap}</span>${ret}</button>`;
+  }
+
+  // THREE steps, measured rather than keyed to a breakpoint: the threshold
+  // depends on the current stage's name length and on whether a meter is riding
+  // along. This is the ONLY measurement in the track and it POSITIONS NOTHING —
+  // it toggles one of three classes, so a measurement taken pre-layout can never
+  // detach anything, only under-degrade for one frame.
+  function place() {
+    const track = document.querySelector('.track');
+    if (!track) return;
+    const lane = track.querySelector('.lane');
+    if (!lane) return;
+    const over = () => lane.scrollWidth > lane.clientWidth + 1;
+    track.classList.remove('snug', 'tight', 'bare');
+    if (!over()) return;
+    track.classList.add('snug');
+    if (!over()) return;
+    track.classList.add('tight');
+    if (over()) track.classList.add('bare');
+  }
+
+  // The needs-you button is NAVIGATIONAL. It scrolls the control that owns the
+  // action into view and focuses it; it posts no host message and duplicates no
+  // actor. merge is per-repo and its confirmation modal lives in the host
+  // (workflow/mergePr.ts), so a rail-level Merge button could neither pick a repo
+  // nor carry the confirmation — and making ship's an actor while merge's is a
+  // pointer would be two rules where one will do.
+  function gotoAction() {
+    // The Now line's own primary action, when it has one (ship). Otherwise the PR
+    // panel, where the per-repo Merge and Resolve buttons live (merge).
+    const target = document.querySelector('#now [data-act]')
+      || document.querySelector('#prs .mgbtn');
+    const scrollTo = target || el('prs');
+    if (!scrollTo) return;
+    scrollTo.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (target && typeof target.focus === 'function') target.focus();
   }
 
   // What happens inside the selected stage. Three shapes, because a stage has
@@ -1415,7 +1456,7 @@
     // createFollowUpTicket command enforces server-side.
     el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done');
     renderAgent(state.agentState);
-    renderRail(state.rail, state.approach, sel, fixExpanded);
+    renderTrack(state.rail, state.approach, sel);
     renderInside(shippingView(state, sel), sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
@@ -1441,7 +1482,7 @@
   // Selection is view state: persisted BESIDE the host's snapshot, never inside
   // it. Inside `state` it would be dropped by the next push (the host builds
   // that from the DB) and would put a webview concern in a host-owned type.
-  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, fixExpanded, srvFilter: srvFilter });
+  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter });
 
   function select(stage) {
     selectedStage = stage;
@@ -1449,11 +1490,14 @@
     persist();
   }
 
-  function toggleFix() {
-    fixExpanded = !fixExpanded;
-    render(lastState);
-    persist();
-  }
+  // Re-measure on resize, once the document has loaded, and again once web fonts
+  // have settled: a track measured against pre-layout metrics reports no overflow
+  // and degrades one step too late. `renderTrack` calls place() itself for the
+  // render path, so these three cover only the cases where the DOM did not change
+  // but its available width did.
+  window.addEventListener('resize', place);
+  window.addEventListener('load', place);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
 
   // editBtn/followUpBtn post through the generic delegated `[data-act]`
   // handler below (data-act is set in their markup, above) — the same pending
@@ -1479,7 +1523,9 @@
   // Clicking a stage re-points the strip. Purely local — no host round trip, so
   // it stays instant and survives every state push.
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-fixtoggle]')) { toggleFix(); return; }
+    // The needs-you button navigates; it never acts. Checked BEFORE the stage
+    // hook, because it lives inside a segment that also carries one.
+    if (e.target.closest('[data-goto]')) { gotoAction(); return; }
     const node = e.target.closest('[data-stage]');
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
@@ -1712,7 +1758,6 @@
   const restored = prev && prev.state ? prev : prev ? { state: prev, sel: null } : null;
   if (restored && restored.state) {
     selectedStage = restored.sel || null;
-    fixExpanded = restored.fixExpanded || false;
     srvFilter = restored.srvFilter || '';
     render(restored.state);
   }
