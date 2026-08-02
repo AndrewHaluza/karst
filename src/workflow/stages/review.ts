@@ -225,9 +225,11 @@ export async function runReview(
   }
 
   const outcome = aggregateReview(entries, uatIdentitiesFrom(listGateRuns(store, opts.ticketId)), {
-    // Task 10 reads this from the manifest. Until then the plan's default
-    // stands: a review that re-asks only UAT's questions has added no signal.
-    requireIndependentSignal: DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
+    // Manifest value wins; absent manifest, absent `review:` block, or an
+    // absent key all fall back to the same default (`true`) — a review that
+    // re-asks only UAT's questions has added no signal.
+    requireIndependentSignal:
+      opts.manifest?.review?.requireIndependentSignal ?? DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
   });
   if (outcome.kind === 'blocked') {
     return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [

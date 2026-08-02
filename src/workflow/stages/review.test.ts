@@ -453,6 +453,56 @@ describe('runReview', () => {
     expect(reviewStage(store, id).verdict).toContain('review asked no question uat does not');
   });
 
+  // Task 10: the manifest value must reach the rule through the real
+  // orchestration path, not just the pure `aggregateReview` function — a test
+  // that only exercised the pure function would leave the wiring unproven.
+  it('review.requireIndependentSignal: false lets a run that would otherwise fail R7 reach a pass', async () => {
+    // A manifest is supplied, so `deps().planTargets` names the target 'web'
+    // (not the bare path) — the recorded uat gate name must match that label
+    // for this to be the genuine overlap R7 exists to catch.
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T09:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0 }],
+    });
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig({ requireIndependentSignal: false }) }),
+      },
+      deps({ probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+  });
+
+  // Backward compatibility: a manifest present but carrying no `review:` block
+  // (or one that omits the key) must behave exactly like no manifest at all —
+  // R7 stays a FAILURE by default.
+  it('a manifest with no review.requireIndependentSignal key still defaults to true', async () => {
+    // With a manifest present, `deps().planTargets` names the target 'web'
+    // (not the bare path), so the recorded uat gate name must match that label
+    // for the two sides to be recognised as the same question.
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T09:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0 }],
+    });
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(reviewStage(store, id).verdict).toContain('review asked no question uat does not');
+  });
+
   it('passes when one gate asks something the latest UAT batch did not', async () => {
     recordGateRun(store, {
       ticketId: id,

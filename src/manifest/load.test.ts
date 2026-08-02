@@ -1203,6 +1203,46 @@ describe('review', () => {
     }
   });
 
+  it('refuses a negative maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: -1\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-integer maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: 1.5\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-numeric maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: "three"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-boolean requireIndependentSignal', () => {
+    const yaml = `${VALID}\nreview:\n  requireIndependentSignal: "yes"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.requireIndependentSignal/);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('refuses an unknown findings.blockingSeverity', () => {
     const yaml = `${VALID}\nreview:\n  findings:\n    blockingSeverity: urgent\n`;
     const { path, cleanup } = fixture(yaml);

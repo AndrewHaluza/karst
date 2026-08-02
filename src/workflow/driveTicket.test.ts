@@ -8,7 +8,7 @@ import { stageBlock } from '../store/stageBlocks.js';
 import { transition } from './machine.js';
 import { createTicketFlow } from './stages/create.js';
 import { ticketsToSweep } from './driverController.js';
-import { manifest, repo, uat } from '../manifest/fixtures.js';
+import { manifest, repo, uat, review } from '../manifest/fixtures.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { StageRunResult } from '../model/types.js';
 import { runUat } from './stages/uat.js';
@@ -33,8 +33,8 @@ describe('fixResumeDecision', () => {
   });
 
   it('leaves review on the default cap when uat.maxFixAttempts is lowered', () => {
-    // The uat knob must not narrow review's budget: review's redesign (and its
-    // own cap) is out of scope, so it stays on FIX_ATTEMPT_CAP.
+    // The uat knob must not narrow review's budget: each gate's budget is its
+    // own manifest key, so lowering uat's must not touch review's.
     const failedReview = [
       { stageKey: 'uat', status: 'passed', endedAt: '2026-07-30T09:00:00.000Z', attempt: 0 },
       { stageKey: 'review', status: 'failed', endedAt: '2026-07-30T10:00:00.000Z', attempt: 2 },
@@ -42,6 +42,28 @@ describe('fixResumeDecision', () => {
     expect(
       fixResumeDecision(failedReview, manifest({}, { uat: uat({ maxFixAttempts: 1 }) })),
     ).toEqual({ kind: 'resume', gate: 'review', attempts: 2 });
+  });
+
+  it('honours review.maxFixAttempts for the review budget', () => {
+    const failedReview = [
+      { stageKey: 'uat', status: 'passed', endedAt: '2026-07-30T09:00:00.000Z', attempt: 0 },
+      { stageKey: 'review', status: 'failed', endedAt: '2026-07-30T10:00:00.000Z', attempt: 1 },
+    ];
+    expect(
+      fixResumeDecision(failedReview, manifest({}, { review: review({ maxFixAttempts: 1 }) })),
+    ).toEqual({ kind: 'exhausted', gate: 'review', attempts: 1, cap: 1 });
+  });
+
+  it('leaves uat on the default cap when review.maxFixAttempts is lowered', () => {
+    // The reverse direction of the test above: narrowing review's budget must
+    // not narrow uat's.
+    const failedUat = [
+      { stageKey: 'uat', status: 'failed', endedAt: '2026-07-30T10:00:00.000Z', attempt: 2 },
+      { stageKey: 'review', status: 'passed', endedAt: '2026-07-30T09:00:00.000Z', attempt: 0 },
+    ];
+    expect(
+      fixResumeDecision(failedUat, manifest({}, { review: review({ maxFixAttempts: 1 }) })),
+    ).toEqual({ kind: 'resume', gate: 'uat', attempts: 2 });
   });
 
   it('does not let review failures exhaust the uat budget', () => {

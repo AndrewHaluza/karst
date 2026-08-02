@@ -1,4 +1,5 @@
 import type { BlockerKind, Verdict } from '../../model/types.js';
+import type { GateRun } from '../../store/gateRuns.js';
 import type { GateResult } from '../gates/result.js';
 
 /**
@@ -35,6 +36,43 @@ export function sameIdentity(a: GateIdentity, b: GateIdentity): boolean {
 
 function render(identity: GateIdentity): string {
   return `${identity.command} ${identity.args.join(' ')}`.trim();
+}
+
+/**
+ * The identities review EFFECTIVELY asked, from its latest recorded batch —
+ * the counterpart of review's own `uatIdentitiesFrom` (`review/aggregate.ts`),
+ * for exactly the reverse comparison.
+ *
+ * Read from the store rather than a fixed gate list: `review.gates` became
+ * configurable (Task 9), so a hard-coded review gate list stopped describing
+ * what review actually invokes for a given project — the recorded batch is
+ * the only thing that can never drift from what really ran.
+ *
+ * Latest by the greatest `run_at`, never by array position, for the same
+ * reason `uatIdentitiesFrom` picks that way: `attempt` only climbs on a
+ * failure, so a fail-then-pass pair shares one, and no query contract
+ * guarantees insertion order. Only gates that RAN count — a declared-but-null
+ * probe asked nothing.
+ *
+ * Unlike review's own `GateIdentity`, this module's has no name-only
+ * degradation: `repo`/`command`/`args` are all required here, so a row
+ * recorded before the v21 identity columns existed (or one whose `args`
+ * failed to parse) contributes no identity at all rather than a guessed one.
+ */
+export function reviewIdentitiesFrom(runs: readonly GateRun[]): GateIdentity[] {
+  const theirs = runs.filter((r) => r.stageKey === 'review');
+  const latest = theirs.reduce<string | null>(
+    (max, r) => (max === null || r.runAt > max ? r.runAt : max),
+    null,
+  );
+  if (latest === null) return [];
+  const identified: GateIdentity[] = [];
+  for (const r of theirs) {
+    if (r.runAt !== latest || r.exitCode === null) continue;
+    if (r.repo === null || r.command === null || r.args === null) continue;
+    identified.push({ repo: r.repo, command: r.command, args: r.args });
+  }
+  return identified;
 }
 
 /**

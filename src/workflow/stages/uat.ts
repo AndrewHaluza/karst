@@ -7,15 +7,20 @@ import type { GateRunInput } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { listGateRuns } from '../../store/gateRuns.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { noTargetsReason } from '../gates/targets.js';
-import { REVIEW_GATES } from '../gates/scripts.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { runGateList } from '../gates/runList.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
-import { aggregateUat, type AggregateEntry, type GateIdentity } from '../uat/aggregate.js';
+import {
+  aggregateUat,
+  reviewIdentitiesFrom,
+  type AggregateEntry,
+  type GateIdentity,
+} from '../uat/aggregate.js';
 
 /**
  * UAT stage — orchestration only.
@@ -47,18 +52,6 @@ export interface UatDeps {
   runGates?: typeof runGateList;
   git?: GitRunner;
   now?: () => string;
-}
-
-/** Review's gate identities for one target — what UAT must not merely duplicate. */
-function reviewIdentitiesFor(target: UatTarget): GateIdentity[] {
-  // `target.repo` verbatim on both sides. `sameIdentity` compares `repo` with
-  // `===`, so normalising one side (trailing slash, realpath) and not the other
-  // would make overlap detection silently never match.
-  return REVIEW_GATES.map((gate) => ({
-    repo: target.repo,
-    command: 'npm',
-    args: gate.args,
-  }));
 }
 
 /** What a gate invocation IS, as a dedup key: the command, not the label on it. */
@@ -131,7 +124,10 @@ export async function runUat(
   const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
 
   const entries: AggregateEntry[] = [];
-  const reviewIdentities: GateIdentity[] = [];
+  // Read once, from review's latest RECORDED batch (Task 10) — not a fixed
+  // gate list, since `review.gates` is configurable (Task 9) and only what
+  // review actually invoked can prove the overlap this warns about.
+  const reviewIdentities: GateIdentity[] = reviewIdentitiesFrom(listGateRuns(store, opts.ticketId));
   const sections: string[] = [];
 
   /** Write the log and commit the outcome with everything collected so far. */
@@ -209,8 +205,6 @@ export async function runUat(
       sections.push(`# package.json (${label}, exit 1)\n${scriptProbe.message}`);
       continue;
     }
-
-    reviewIdentities.push(...reviewIdentitiesFor(target));
 
     const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
     const run = await runGates(resolution.gates, target.path, {

@@ -6,7 +6,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
-import { listGateRuns } from '../../store/gateRuns.js';
+import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { runUat, type UatDeps } from './uat.js';
@@ -179,9 +179,20 @@ describe('runUat', () => {
   });
 
   it('writes the overlap warning into the artifact when nothing is independent', async () => {
-    // UAT's own probe fallback list never includes `lint` — an explicit
-    // `uat.gates: [lint]` is what makes UAT run it, so this deliberately
-    // overlaps with review's default gate set (`REVIEW_GATES`, Task 9).
+    // The overlap check now compares against review's RECORDED batch (Task
+    // 10), not a hard-coded gate list — `review.gates` is configurable since
+    // Task 9, so only what review actually ran can prove the overlap. An
+    // explicit `uat.gates: [lint]` is what makes UAT run the same identity a
+    // prior review run recorded.
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-07-30T09:00:00.000Z',
+      gates: [
+        { gateName: 'lint (/wt/web)', exitCode: 0, repo: '/web', command: 'npm', args: ['run', 'lint'] },
+      ],
+    });
     await runUat(
       store,
       {
@@ -196,6 +207,35 @@ describe('runUat', () => {
     );
     const path = uatStage(store, id).artifactPath!;
     expect(readFileSync(path, 'utf8')).toContain('asked no question review does not');
+  });
+
+  // A prior review run against a DIFFERENT command is not the same question —
+  // proves the comparison is genuinely reading the recorded identity, not just
+  // "review ran at all for this ticket".
+  it('does not warn when the recorded review batch asked a different question', async () => {
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-07-30T09:00:00.000Z',
+      gates: [
+        { gateName: 'build (/wt/web)', exitCode: 0, repo: '/web', command: 'npm', args: ['run', 'build'] },
+      ],
+    });
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) }),
+      },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
+      }),
+    );
+    const path = uatStage(store, id).artifactPath!;
+    expect(readFileSync(path, 'utf8')).not.toContain('asked no question review does not');
   });
 
   it('clears a previous block when a fresh run reaches a verdict', async () => {

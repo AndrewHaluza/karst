@@ -35,9 +35,12 @@ export function fixResumeDecision(
 ): FixResumeDecision {
   const gate = lastFailedGate(stages);
   if (!gate) return { kind: 'no-failed-gate' };
-  // Only UAT's budget is configurable; review keeps the default until its own
-  // redesign, so `uat.maxFixAttempts` can never narrow a gate it does not name.
-  const cap = gate === 'uat' ? (manifest?.uat?.maxFixAttempts ?? FIX_ATTEMPT_CAP) : FIX_ATTEMPT_CAP;
+  // Each gate's budget is its own manifest key: `uat.maxFixAttempts` can never
+  // narrow review's budget, nor `review.maxFixAttempts` uat's.
+  const cap =
+    gate === 'uat'
+      ? (manifest?.uat?.maxFixAttempts ?? FIX_ATTEMPT_CAP)
+      : (manifest?.review?.maxFixAttempts ?? FIX_ATTEMPT_CAP);
   const attempts = countFixAttempts(stages, gate);
   return fixAttemptsRemain(attempts, cap)
     ? { kind: 'resume', gate, attempts }

@@ -37,9 +37,11 @@ export interface AggregateReviewOpts {
 }
 
 /**
- * The default until a manifest key carries it (Task 10). `true`: a review that
- * re-asks only UAT's questions has added no signal, and reading that as green is
- * the vacuous pass this whole redesign exists to close.
+ * The default when `manifest.review` is absent, or present without this key
+ * (`stages/review.ts` reads `manifest?.review?.requireIndependentSignal ?? `
+ * this constant). `true`: a review that re-asks only UAT's questions has added
+ * no signal, and reading that as green is the vacuous pass this whole redesign
+ * exists to close.
  */
 export const DEFAULT_REQUIRE_INDEPENDENT_SIGNAL = true;
 
