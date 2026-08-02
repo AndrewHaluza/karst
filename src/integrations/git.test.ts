@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   commitAllIfDirty,
   pushBranch,
@@ -7,6 +10,48 @@ import {
   runGitBytes,
   type GitRunner,
 } from './git.js';
+
+/**
+ * A git alias that spawns a node grandchild and records its pid to a file.
+ * The FILE, not stdout, is what the tests read: the tree gets killed mid-run,
+ * and a kill that lands between the two halves of a stdout write leaves a
+ * truncated number that still parses — a valid pid for some other process.
+ * The write is via rename so a reader can never observe half of it.
+ */
+function hangTreeAlias(pidFile: string): string[] {
+  const script =
+    `const{spawn}=require('node:child_process');` +
+    `const fs=require('node:fs');` +
+    `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
+    `fs.writeFileSync('${pidFile}.tmp',String(c.pid));` +
+    `fs.renameSync('${pidFile}.tmp','${pidFile}');` +
+    `setInterval(()=>{},1000)`;
+  return ['-c', `alias.hangtree=!${process.execPath} -e "${script}"`, 'hangtree'];
+}
+
+/** Resolves once the grandchild has recorded its pid — spawning is not instant. */
+async function readPidWhenWritten(pidFile: string): Promise<number> {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    if (existsSync(pidFile)) {
+      const pid = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10);
+      if (Number.isInteger(pid)) return pid;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`grandchild never recorded a pid at ${pidFile}`);
+}
+
+/** Leaves no stray `node -e setInterval` behind when an assertion fails early. */
+function reapGrandchild(pidFile: string): void {
+  if (!existsSync(pidFile)) return;
+  const pid = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10);
+  if (!Number.isInteger(pid)) return;
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    /* already gone */
+  }
+}
 
 async function expectProcessDead(pid: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -136,51 +181,56 @@ describe('defaultGitRunner', () => {
   it.runIf(process.platform !== 'win32')(
     'waits for close and terminates descendants after timeout',
     async () => {
-    const script =
-      `const{spawn}=require('node:child_process');` +
-      `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
-      `process.stdout.write(String(c.pid)+'\\\\n');setInterval(()=>{},1000)`;
-    const r = await runGit(
-      ['-c', `alias.hangtree=!${process.execPath} -e "${script}"`, 'hangtree'],
-      process.cwd(),
-      100,
-      1024,
-      500,
-    );
-    const grandchildPid = Number.parseInt(r.stdout, 10);
+      const dir = mkdtempSync(join(tmpdir(), 'karst-git-'));
+      const pidFile = join(dir, 'pid');
+      try {
+        // The timeout clock starts with runGit, so this test cannot wait for
+        // the grandchild before arming it. The budget therefore has to cover a
+        // node startup on a machine running the whole suite in parallel — at
+        // 100ms it did not, and the test failed on an empty pid rather than on
+        // the descendant it means to check.
+        const r = await runGit(hangTreeAlias(pidFile), process.cwd(), 2000, 1024, 500);
 
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain('timed out after 100ms');
-    expect(Number.isInteger(grandchildPid)).toBe(true);
-    await expectProcessDead(grandchildPid);
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr).toContain('timed out after 2000ms');
+        await expectProcessDead(await readPidWhenWritten(pidFile));
+      } finally {
+        reapGrandchild(pidFile);
+        rmSync(dir, { recursive: true, force: true });
+      }
     },
   );
 
   it.runIf(process.platform !== 'win32')(
     'aborts a detached git process tree and settles with an abort reason',
     async () => {
-      const controller = new AbortController();
-      const script =
-        `const{spawn}=require('node:child_process');` +
-        `const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);` +
-        `process.stdout.write(String(c.pid)+'\\\\n');setInterval(()=>{},1000)`;
-      const pending = runGit(
-        ['-c', `alias.hangtree=!${process.execPath} -e "${script}"`, 'hangtree'],
-        process.cwd(),
-        10_000,
-        1024,
-        500,
-        controller.signal,
-      );
+      const dir = mkdtempSync(join(tmpdir(), 'karst-git-'));
+      const pidFile = join(dir, 'pid');
+      try {
+        const controller = new AbortController();
+        const pending = runGit(
+          hangTreeAlias(pidFile),
+          process.cwd(),
+          10_000,
+          1024,
+          500,
+          controller.signal,
+        );
 
-      setTimeout(() => controller.abort(), 100);
-      const result = await pending;
-      const grandchildPid = Number.parseInt(result.stdout, 10);
+        // Abort once the grandchild exists, never on a timer: a timed abort
+        // races the spawn it is supposed to interrupt and can tear down an
+        // empty tree.
+        const grandchildPid = await readPidWhenWritten(pidFile);
+        controller.abort();
 
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toMatch(/aborted/i);
-      expect(Number.isInteger(grandchildPid)).toBe(true);
-      await expectProcessDead(grandchildPid);
+        const result = await pending;
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toMatch(/aborted/i);
+        await expectProcessDead(grandchildPid);
+      } finally {
+        reapGrandchild(pidFile);
+        rmSync(dir, { recursive: true, force: true });
+      }
     },
   );
 
