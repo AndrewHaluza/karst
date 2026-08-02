@@ -275,10 +275,9 @@ describe('driveTicket', () => {
         kind: 'advanced',
         next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }),
       }),
-      runReview: async (s, opts, _runner, openDiff) => {
-        receivedOpenDiff = openDiff;
-        transition(s, opts.ticketId, 'review', { kind: 'passed' }); // -> ship
-        return { verdict: { kind: 'passed' }, artifactPath: '/x', gates: [] };
+      runReview: async (s, opts, deps) => {
+        receivedOpenDiff = deps?.openDiff;
+        return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
       },
     });
 
@@ -293,14 +292,35 @@ describe('driveTicket', () => {
         kind: 'advanced',
         next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }),
       }),
-      runReview: async (s, opts, _runner, openDiff) => {
-        receivedOpenDiff = openDiff;
-        transition(s, opts.ticketId, 'review', { kind: 'passed' }); // -> ship
-        return { verdict: { kind: 'passed' }, artifactPath: '/x', gates: [] };
+      runReview: async (s, opts, deps) => {
+        receivedOpenDiff = deps?.openDiff;
+        return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
       },
     });
 
     expect(receivedOpenDiff).toBeUndefined();
+  });
+
+  // G6: review parks, stops and states its verdict itself now, so it needs the
+  // same one-controller-per-run signal uat gets — without it a Stop pressed
+  // during a fifteen-minute review gate is only noticed once that gate finishes.
+  it('threads the run signal into the review runner too', async () => {
+    let reviewSignal: AbortSignal | undefined;
+    let uatSignal: AbortSignal | undefined;
+
+    await driveTicket(deps(), id, {
+      runUat: async (s, opts) => {
+        uatSignal = opts.signal;
+        return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+      },
+      runReview: async (s, opts) => {
+        reviewSignal = opts.signal;
+        return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+      },
+    });
+
+    expect(reviewSignal).toBeDefined();
+    expect(reviewSignal).toBe(uatSignal); // one controller for the whole run
   });
 
   it('does not abort the run signal on an ordinary completion', async () => {
@@ -311,10 +331,10 @@ describe('driveTicket', () => {
         runSignal = opts.signal;
         return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
       },
-      runReview: async (s, opts) => {
-        transition(s, opts.ticketId, 'review', { kind: 'passed' }); // -> ship
-        return { verdict: { kind: 'passed' }, artifactPath: '/x', gates: [] };
-      },
+      runReview: async (s, opts) => ({
+        kind: 'advanced',
+        next: transition(s, opts.ticketId, 'review', { kind: 'passed' }), // -> ship
+      }),
     });
 
     expect(runSignal?.aborted).toBe(false);

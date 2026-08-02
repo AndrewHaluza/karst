@@ -374,10 +374,11 @@ describe('buildStageInside', () => {
       { uat: 'running', review: 'running', impl: 'running', fix: 'running' },
       { session: { sessionId: 'abc', agentState: 'running', model: 'm' } },
     );
-    // uat has no static gate list to name — it resolves one per repository at
-    // run time — so a running stage with no rows yet says exactly that.
-    expect(all.uat.ops.map((o) => o.name)).toContain('gates');
-    expect(all.review.ops.map((o) => o.name)).toContain('lint');
+    // Neither gate stage has a static list to name — both resolve one per
+    // repository at run time — so a running stage with no rows yet says exactly
+    // that. Review adds its changes row, which is what tells the two apart here.
+    expect(all.uat.ops.map((o) => o.name)).toEqual(['gates']);
+    expect(all.review.ops.map((o) => o.name)).toEqual(['gates', 'changes']);
     expect(all.impl.ops.map((o) => o.name)).toContain('phases');
     expect(all.fix.ops.map((o) => o.name)).toContain('returns');
   });

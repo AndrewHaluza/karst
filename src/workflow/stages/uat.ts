@@ -11,6 +11,7 @@ import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
+import { noTargetsReason } from '../gates/targets.js';
 import { REVIEW_GATES } from '../gates/scripts.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { runGateList } from '../gates/runList.js';
@@ -124,24 +125,6 @@ function resolveTargetGates(
 }
 
 /**
- * Why there was nothing to run against.
- *
- * A worktree whose repo path is absent from the manifest is dropped by
- * `planUatTargets`, so "affected but unmapped" and "nothing to test" would be the
- * same silence. Naming the worktrees is what makes them different.
- */
-function noTargetsReason(worktrees: readonly { repo: string }[]): string {
-  if (worktrees.length === 0) {
-    return 'no worktree is registered for this ticket, so there is no repository to run UAT against';
-  }
-  return (
-    "none of this ticket's worktrees resolved to a manifest repository with changes: " +
-    `${worktrees.map((w) => w.repo).join(', ')} — a repository karst cannot map to a manifest ` +
-    'entry is not the same as nothing to test'
-  );
-}
-
-/**
  * The ONE place a UAT run is written down. Evidence and outcome commit together
  * on every path, because a stopped or blocked run still produced gate rows worth
  * keeping and `gate_runs` is the project's only append-only evidence table.
@@ -250,7 +233,7 @@ export async function runUat(
   const targets: UatTarget[] = planned.targets;
 
   if (targets.length === 0) {
-    const reason = noTargetsReason(worktrees);
+    const reason = noTargetsReason(worktrees, 'UAT');
     return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
   }
 

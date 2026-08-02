@@ -1,4 +1,3 @@
-import { REVIEW_GATES, type GateSpec } from '../../workflow/gates/scripts.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
@@ -7,14 +6,20 @@ import { formatDuration, inside, type StageInside, type StageOp } from './types.
 /**
  * The gate stages (uat, review) are the only stages that record per-step
  * evidence, because they are the only ones that ask the repo deterministic
- * questions. Everything here reads recorded rows or the static gate list — never
- * the artifact log, whose text format is not a data contract.
+ * questions. Everything here reads recorded rows — never the artifact log, whose
+ * text format is not a data contract, and never a static gate list: BOTH stages
+ * now resolve their gates per repository at runtime (review from a package.json
+ * probe, uat from that or `uat.gates`), so the recorded rows ARE the list.
+ * Matching runtime rows against a constant shows every gate as pending forever
+ * once the names carry their repository label.
  */
 
-/** How a gate is invoked, as a person would type it. */
-function command(spec: GateSpec): string {
-  return spec.args[0] === 'run' ? `npm run ${spec.script}` : `npm ${spec.args.join(' ')}`;
-}
+/**
+ * The changes-surface row review records beside its gates. Evidence, but not a
+ * gate: it never touched the verdict, so it is rendered separately and must not
+ * appear among the gates that decided one.
+ */
+const CHANGES_GATE = 'changes';
 
 /**
  * The most recent invocation's rows for a stage.
@@ -38,44 +43,40 @@ function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateRun[] {
 }
 
 /**
- * One gate's row. A recorded null exit code is a `note`, never a pass: it means
- * the repo defines no such script, so karst had no question to ask and the gate
- * says nothing about the ticket either way.
+ * One recorded gate as a row. A null exit code is a `note`, never a pass: it
+ * means the repo defines no such script, so karst had no question to ask and the
+ * gate says nothing about the ticket either way.
  */
-function gateOp(spec: GateSpec, run: GateRun | undefined, showPending: boolean): StageOp | null {
-  const cmd = command(spec);
-  if (!run) {
-    // Worth naming before OR during the run — the gate list is static, so
-    // "still to come" is a fact whether the stage is pending or live. On a
-    // finished stage a missing row means the gates predate this record, and
-    // inventing one would be a guess.
-    return showPending ? { status: 'pending', name: spec.name, detail: cmd, duration: '' } : null;
-  }
-  const duration = formatDuration(run.startedAt, run.endedAt);
-  if (run.exitCode === null) {
-    return {
-      status: 'note',
-      name: spec.name,
-      detail: `no "${spec.script}" script in package.json — nothing to run`,
-      duration,
-    };
-  }
+function gateOp(run: GateRun): StageOp {
   return {
-    status: run.exitCode === 0 ? 'pass' : 'fail',
-    name: spec.name,
-    detail: `${cmd} — exit ${run.exitCode}`,
-    duration,
+    status: run.exitCode === null ? 'note' : run.exitCode === 0 ? 'pass' : 'fail',
+    name: run.gateName,
+    // No command to quote: the row keeps the gate's name and its exit code, not
+    // the argv that produced it.
+    detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}`,
+    duration: formatDuration(run.startedAt, run.endedAt),
   };
 }
 
-function gateOps(
-  specs: readonly GateSpec[],
-  batch: readonly GateRun[],
-  showPending: boolean,
-): StageOp[] {
-  return specs
-    .map((spec) => gateOp(spec, batch.find((r) => r.gateName === spec.name), showPending))
-    .filter((op): op is StageOp => op !== null);
+/**
+ * The gate rows of one batch, or — before any row exists on a stage that is
+ * plainly doing something — the fact that the list is not knowable yet. A
+ * finished stage with no rows shows nothing: those gates predate this record,
+ * and a pending row on a passed stage would be a false promise.
+ */
+function recordedOps(batch: readonly GateRun[], cell: StepperCell): StageOp[] {
+  const ops = batch.filter((r) => r.gateName !== CHANGES_GATE).map(gateOp);
+  if (ops.length === 0 && (cell.status === 'running' || cell.status === 'pending')) {
+    return [
+      {
+        status: 'pending',
+        name: 'gates',
+        detail: 'resolved per repository when the stage runs',
+        duration: '',
+      },
+    ];
+  }
+  return ops;
 }
 
 export function reviewInside(
@@ -86,35 +87,33 @@ export function reviewInside(
   const running = cell.status === 'running';
   const finished = cell.status === 'passed' || cell.status === 'failed';
   const batch = latestBatch(runs, 'review');
-  const ops = gateOps(REVIEW_GATES, batch, running || cell.status === 'pending');
+  const ops = recordedOps(batch, cell);
 
   // This row states what happened, never what review merely intended to do.
   // `openDiff` is an optional host dependency (`DriveTicketDeps.openDiff`) —
   // absent, it opens nothing — so the row is driven by a recorded 'changes'
   // gate_run, evidence written in the SAME append-only place as every other
-  // gate row, alongside the review batch it belongs to. A live boolean on a
-  // `ReviewOutcome` would read correctly for one render and then be gone on
-  // the next window reload; this survives it, the same as every other row
-  // here. Never derived from `ops.length > 0` alone: that only proved this
-  // batch belongs to review, not that the changes surface opened for it.
+  // gate row, alongside the review batch it belongs to. A live boolean on the
+  // run's return value would read correctly for one render and then be gone on
+  // the next window reload; this survives it, the same as every other row here.
   //
   // Named and worded as "changes", not "diff": the host implementation
   // reveals the ticket's Changes panel — it does not itself invoke
   // `vscode.diff` (that only fires once a human clicks a file row inside the
   // panel). Claiming "diff opened" here would assert a control the run never
   // performed, the exact defect this row exists to close.
-  const changesRun = batch.find((r) => r.gateName === 'changes');
+  const changesRun = batch.find((r) => r.gateName === CHANGES_GATE);
   if (running) {
     ops.push({
       status: 'note',
-      name: 'changes',
+      name: CHANGES_GATE,
       detail: 'the changes panel opens for you when the gate finishes, pass or fail',
       duration: '',
     });
   } else if (finished && changesRun) {
     ops.push({
       status: 'pass',
-      name: 'changes',
+      name: CHANGES_GATE,
       detail: 'changes panel opened for review',
       duration: formatDuration(changesRun.startedAt, changesRun.endedAt),
     });
@@ -123,34 +122,6 @@ export function reviewInside(
   return inside(cell, now, ops);
 }
 
-/**
- * UAT's gate set is resolved at RUNTIME — per repository, from `uat.gates` else a
- * package.json probe — so the recorded rows ARE the list. Review can name its
- * gates before they run because `REVIEW_GATES` is a static constant; UAT cannot,
- * and matching runtime rows against a constant showed every gate as pending
- * forever once the row names started carrying their repository label.
- */
 export function uatInside(cell: StepperCell, runs: readonly GateRun[], now: string): StageInside {
-  const batch = latestBatch(runs, 'uat');
-  const ops = batch.map<StageOp>((run) => ({
-    status: run.exitCode === null ? 'note' : run.exitCode === 0 ? 'pass' : 'fail',
-    name: run.gateName,
-    // No command to quote: the row keeps the gate's name and its exit code, not
-    // the argv that produced it.
-    detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}`,
-    duration: formatDuration(run.startedAt, run.endedAt),
-  }));
-
-  // Before any row exists the list is genuinely unknown, so say that rather than
-  // show an empty strip on a stage that is plainly doing something.
-  if (ops.length === 0 && (cell.status === 'running' || cell.status === 'pending')) {
-    ops.push({
-      status: 'pending',
-      name: 'gates',
-      detail: 'resolved per repository when the stage runs',
-      duration: '',
-    });
-  }
-
-  return inside(cell, now, ops);
+  return inside(cell, now, recordedOps(latestBatch(runs, 'uat'), cell));
 }

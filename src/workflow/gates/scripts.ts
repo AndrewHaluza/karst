@@ -1,5 +1,3 @@
-import { probeScripts } from './probe.js';
-
 /** One review gate: a name, the npm script it needs, and how to invoke it. */
 export interface GateSpec {
   /** The name the verdict and the log use. */
@@ -35,15 +33,3 @@ export const REVIEW_GATES: readonly GateSpec[] = [
 export const UAT_GATES: readonly GateSpec[] = [
   { name: 'test', script: 'test', args: ['test'] },
 ];
-
-/**
- * The `scripts` a repo defines, or `{}` when karst could not read them.
- *
- * Kept for review, which has no place to put a richer answer yet. UAT calls
- * `probeScripts` directly, because "why is this empty" is the whole question
- * there — see `uat/gates.ts`.
- */
-export function readPackageScripts(cwd: string): Record<string, string> {
-  const probe = probeScripts(cwd);
-  return probe.kind === 'ok' ? probe.scripts : {};
-}

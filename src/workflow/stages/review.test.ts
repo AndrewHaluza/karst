@@ -1,15 +1,46 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
-import { runReview, makeGateRunner, ReviewAskedNothingError, type GateRunner } from './review.js';
-import { listGateRuns } from '../../store/gateRuns.js';
-import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
-import type { GitRunner } from '../../integrations/git.js';
+import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
+import { stageBlock } from '../../store/stageBlocks.js';
+import { manifest } from '../../manifest/fixtures.js';
+import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
+
+const now = (): string => '2026-08-01T10:00:00.000Z';
+
+/** A repository that answers every review gate. */
+const ALL_SCRIPTS = { lint: 'eslint .', typecheck: 'tsc --noEmit', test: 'vitest run' };
+
+function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
+  return {
+    now,
+    planTargets: async () => ({
+      kind: 'targets',
+      targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+    }),
+    probe: () => ({ kind: 'ok', scripts: ALL_SCRIPTS }),
+    runGates: async (gates) => ({
+      kind: 'ran',
+      results: gates.map((g) => ({
+        name: g.name,
+        exitCode: 0,
+        output: 'ok',
+        startedAt: now(),
+        endedAt: now(),
+      })),
+    }),
+    ...over,
+  };
+}
+
+function reviewStage(store: Store, id: number) {
+  return getTicket(store, id).stages.find((s) => s.stageKey === 'review')!;
+}
 
 function walkToReview(store: Store, id: number): void {
   transition(store, id, 'scope', { kind: 'passed' });
@@ -17,326 +48,470 @@ function walkToReview(store: Store, id: number): void {
   transition(store, id, 'uat', { kind: 'passed' });
 }
 
-const PASS_GATES: GateRunner = async () => [
-  { name: 'lint', exitCode: 0, output: 'ok' },
-  { name: 'typecheck', exitCode: 0, output: 'ok' },
-  { name: 'test', exitCode: 0, output: 'ok' },
-];
-
 describe('runReview', () => {
   let store: Store;
   let id: number;
   let artifactDir: string;
-  let openDiff: ReturnType<typeof vi.fn>;
+  let openDiff: Mock<OpenDiff>;
 
   beforeEach(() => {
     store = openStore(':memory:');
     id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
     walkToReview(store, id);
     artifactDir = mkdtempSync(join(tmpdir(), 'karst-review-'));
-    openDiff = vi.fn();
+    openDiff = vi.fn<OpenDiff>();
   });
   afterEach(() => {
     store.close();
     rmSync(artifactDir, { recursive: true, force: true });
   });
 
-  it('passes only when lint AND typecheck AND tests all exit 0 -> ship', async () => {
-    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
-    expect(res.verdict).toEqual({ kind: 'passed' });
+  it('every gate green -> advances to ship and records one row per gate', async () => {
+    const res = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
     expect(getTicket(store, id).stageCurrent).toBe('ship');
+    // No manifest supplied, so the target is the bare cwd and the label is the
+    // path — every row still names a place.
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual([
+      'lint (/wt/web)',
+      'typecheck (/wt/web)',
+      'test (/wt/web)',
+    ]);
+    expect(listGateRuns(store, id).every((r) => r.stageKey === 'review')).toBe(true);
+    expect(new Set(listGateRuns(store, id).map((r) => r.runAt)).size).toBe(1);
   });
 
-  it('a single nonzero gate -> failed -> fix', async () => {
-    const gates: GateRunner = async () => [
-      { name: 'lint', exitCode: 1, output: 'lint error' },
-      { name: 'typecheck', exitCode: 0, output: 'ok' },
-      { name: 'test', exitCode: 0, output: 'ok' },
-    ];
-    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
-    expect(res.verdict.kind).toBe('failed');
-    expect(getTicket(store, id).stageCurrent).toBe('fix');
-  });
-
-  it('a gate the repo cannot answer is skipped, never counted as a failure', async () => {
-    // Regression: karst ran `npm run lint` in a repo with no lint script, read the
-    // "Missing script" exit 1 as "the code is bad", and parked the ticket at fix —
-    // a loop no agent can win, because there is nothing in the code to fix.
-    const gates: GateRunner = async () => [
-      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
-      { name: 'typecheck', exitCode: 0, output: 'ok' },
-      { name: 'test', exitCode: 0, output: 'ok' },
-    ];
-    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
-    expect(res.verdict).toEqual({ kind: 'passed' });
-    expect(getTicket(store, id).stageCurrent).toBe('ship');
-  });
-
-  it('a skipped gate never hides a real failure', async () => {
-    const gates: GateRunner = async () => [
-      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
-      { name: 'typecheck', exitCode: 0, output: 'ok' },
-      { name: 'test', exitCode: 1, output: '2 failed' },
-    ];
-    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
-    expect(res.verdict).toEqual({ kind: 'failed', reason: 'gates failed: test' });
-  });
-
-  it('the artifact says a gate was skipped rather than claiming it passed', async () => {
-    // A skipped gate alongside one that ran — an all-skipped run is its own
-    // case (`ReviewAskedNothingError`, see below), so this fixture keeps one
-    // gate answered to isolate the artifact-formatting behavior under test.
-    const gates: GateRunner = async () => [
-      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
-      { name: 'typecheck', exitCode: 0, output: 'ok' },
-    ];
-    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
-    expect(readFileSync(res.artifactPath, 'utf8')).toContain('# lint (skipped)');
-  });
-
-  it('opens the diff for the human regardless of verdict', async () => {
-    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
-    expect(openDiff).toHaveBeenCalledWith(id, '/wt');
-  });
-
-  it('records the changes surface as evidence only when a real openDiff opened it', async () => {
-    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
-    const runs = listGateRuns(store, id);
-    // Named 'changes', not 'diff': the host implementation reveals the
-    // Changes panel, not a diff editor — the evidence must say what ran.
-    expect(runs.find((r) => r.gateName === 'changes')).toMatchObject({ exitCode: 0, stageKey: 'review' });
-  });
-
-  it('records no changes evidence when nothing was wired to open it', async () => {
-    // `openDiff` absent — as it is for any caller (a test, a future CLI path)
-    // that supplies no host implementation. The recorded evidence must not
-    // claim a surface opened that nothing performed.
-    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES);
-    const runs = listGateRuns(store, id);
-    expect(runs.find((r) => r.gateName === 'changes')).toBeUndefined();
-  });
-
-  it('writes the combined gate output to an artifact and records its path', async () => {
-    const res = await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
-    const contents = readFileSync(res.artifactPath, 'utf8');
-    expect(contents).toContain('lint');
-    expect(contents).toContain('typecheck');
-    const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review');
-    expect(review?.artifactPath).toBe(res.artifactPath);
-  });
-
-  it('records one gate row per gate, in the order the runner reported them', async () => {
-    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never);
-    const runs = listGateRuns(store, id);
-    // 'changes' is its own evidence row (recorded because `openDiff` is wired
-    // in this suite's beforeEach), appended after the REVIEW_GATES-driven ones.
-    expect(runs.map((r) => r.gateName)).toEqual(['lint', 'typecheck', 'test', 'changes']);
-    expect(runs.every((r) => r.stageKey === 'review')).toBe(true);
-    expect(new Set(runs.map((r) => r.runAt)).size).toBe(1); // one invocation, one batch
-  });
-
-  it('files a failing run under the attempt it ran as, not the one its failure creates', async () => {
+  it('a single red gate -> routes to fix and files the evidence under the attempt that ran', async () => {
     // `transition` increments `attempt` on the failed branch. The gates belong to
     // the run that produced the failure, so they must be read before that bump.
-    // Same for the 'changes' row — the changes surface opens on every
-    // verdict, and it must be filed under the SAME pre-bump attempt as the
-    // gate that failed alongside it.
-    const gates: GateRunner = async () => [{ name: 'test', exitCode: 1, output: 'boom' }];
-    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
-
-    expect(listGateRuns(store, id).map((r) => r.attempt)).toEqual([0, 0]);
-    const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review');
-    expect(review?.attempt).toBe(1);
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({
+            name: g.name,
+            exitCode: g.name === 'lint' ? 1 : 0,
+            output: 'lint error',
+            startedAt: now(),
+            endedAt: now(),
+          })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    expect(listGateRuns(store, id).every((r) => r.attempt === 0)).toBe(true);
+    expect(reviewStage(store, id).attempt).toBe(1);
   });
 
-  it('records a skipped gate as null, never as a pass', async () => {
-    // Same reasoning as above: keep one gate answered so this exercises a
-    // *mixed* skip, not the all-skipped case `ReviewAskedNothingError` covers.
-    const gates: GateRunner = async () => [
-      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
-      { name: 'typecheck', exitCode: 0, output: 'ok' },
-    ];
-    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
-    expect(listGateRuns(store, id)[0]!.exitCode).toBeNull();
+  // R1. The old assertion here pinned the bug: a review touching zero
+  // repositories used to ship as green. "Asked nothing" must reach a human.
+  it('no target resolved -> blocks nothing-to-run, never passes', async () => {
+    const runGates = vi.fn(deps().runGates!);
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }), runGates, openDiff }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(stageBlock(store, id, 'review')?.kind).toBe('nothing-to-run');
+    expect(runGates).not.toHaveBeenCalled();
+    expect(openDiff).not.toHaveBeenCalled();
   });
 
-  it('stores the timings a gate reports and leaves a skipped gate without any', async () => {
-    const gates: GateRunner = async () => [
-      {
-        name: 'lint',
-        exitCode: 0,
-        output: 'ok',
-        startedAt: '2026-07-20T12:00:00.000Z',
-        endedAt: '2026-07-20T12:00:06.400Z',
-      },
-      { name: 'test', exitCode: null, output: 'no "test" script in package.json' },
-    ];
-    await runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never);
-    const [lint, test] = listGateRuns(store, id);
-    expect(lint!.startedAt).toBe('2026-07-20T12:00:00.000Z');
-    expect(lint!.endedAt).toBe('2026-07-20T12:00:06.400Z');
-    // A gate that never ran has no duration; inventing one would read as a
-    // zero-length run rather than as "karst had nothing to ask".
-    expect(test!.startedAt).toBeNull();
-    expect(test!.endedAt).toBeNull();
+  it('names the ticket worktrees when none of them mapped to a manifest repository', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/unmapped', '/wt/unmapped', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+    );
+    expect(res).toMatchObject({ reason: expect.stringContaining('/unmapped') });
   });
 
-  it('refuses to pass when every gate was skipped', async () => {
-    // G1: a run whose gates are all `null` learned nothing about the ticket's
-    // code and must not report a green verdict.
-    const gates: GateRunner = async () => [
-      { name: 'lint', exitCode: null, output: 'no "lint" script in package.json' },
-      { name: 'typecheck', exitCode: null, output: 'no "typecheck" script in package.json' },
-      { name: 'test', exitCode: null, output: 'no "test" script in package.json' },
-    ];
-    await expect(
-      runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, gates, openDiff as never),
-    ).rejects.toThrow(ReviewAskedNothingError);
-    expect(getTicket(store, id).stageCurrent).toBe('review'); // never advanced
-    expect(listGateRuns(store, id)).toEqual([]); // no evidence for a run that asked nothing
+  it('says so plainly when the ticket has no worktree at all', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+    );
+    expect(res).toMatchObject({ reason: expect.stringContaining('no worktree') });
   });
 
-  it('fails, rather than skips, when package.json is malformed', async () => {
-    // G2: `readPackageScripts` used to collapse a malformed package.json into
-    // `{}` — the same answer as "no scripts defined" — so a repository defect
-    // an agent could actually fix silently skipped every gate instead of
-    // failing. `probeScripts` distinguishes the two; review must surface it.
-    const cwd = mkdtempSync(join(tmpdir(), 'karst-review-malformed-'));
-    writeFileSync(join(cwd, 'package.json'), '{ not json');
-    try {
-      const res = await runReview(
-        store,
-        { ticketId: id, cwd, artifactDir },
-        makeGateRunner(),
-        openDiff as never,
-      );
-      expect(res.verdict.kind).toBe('failed');
-      expect(res.gates).toEqual([
-        expect.objectContaining({ name: 'package.json', exitCode: 1 }),
-      ]);
-      expect(getTicket(store, id).stageCurrent).toBe('fix');
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
+  // R2. Environmental — karst could not even determine which repositories are
+  // affected. Never a verdict about the ticket's code, so it parks rather than
+  // transitioning or (as before this task) throwing out of the stage.
+  it('an unavailable target selection blocks with the propagated blocker and reason', async () => {
+    const reason = 'cannot determine review changes in /wt/web: baseline unavailable';
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'unavailable', blocker: 'capability-missing', reason }) }),
+    );
+    expect(res).toEqual({ kind: 'blocked', blocker: 'capability-missing', reason });
+    expect(stageBlock(store, id, 'review')).toEqual({ kind: 'capability-missing', reason, at: now() });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(listGateRuns(store, id)).toEqual([]);
+  });
+
+  // An `unavailable` selection and a genuine empty target list must stay
+  // distinguishable: collapsing them reads an environmental failure as
+  // "nothing to review".
+  it('keeps an unavailable selection and a genuine empty target list apart', async () => {
+    const unavailable = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'unavailable',
+          blocker: 'capability-missing',
+          reason: 'cannot determine review changes in /wt/web: baseline unavailable',
+        }),
+      }),
+    );
+    expect(unavailable).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+
+    const id2 = createTicketFlow(store, { key: 'T-2', title: 't2' }).id;
+    walkToReview(store, id2);
+    const empty = await runReview(
+      store,
+      { ticketId: id2, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+    );
+    expect(empty).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(empty).not.toMatchObject({ blocker: 'capability-missing' });
+  });
+
+  it('an unreadable repository blocks capability-missing', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'io-error', message: 'EACCES' }) }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    expect(reviewStage(store, id).attempt).toBe(0);
+  });
+
+  // R2 outranks R5: a repository karst could not ask anything of is not a
+  // verdict about the ticket's code, however red an earlier target was.
+  it('a repository karst cannot read outranks a red gate in an earlier target', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+        probe: (cwd) =>
+          cwd === '/wt/web'
+            ? { kind: 'ok', scripts: { test: 'vitest' } }
+            : { kind: 'io-error', message: 'EACCES' },
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    // The completed target's evidence goes down with the park.
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['test (web)']);
+    expect(listGateRuns(store, id)[0]!.attempt).toBe(0);
+  });
+
+  // R3 — the repository answers none of review's questions.
+  it('a repository defining none of the review scripts blocks nothing-to-run', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'ok', scripts: { build: 'tsc -b' } }) }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+  });
+
+  it('every gate reporting null blocks nothing-to-run, keeping the rows that say so', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: null, output: 'nothing to run' })),
+        }),
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(listGateRuns(store, id).every((r) => r.exitCode === null)).toBe(true);
+    expect(reviewStage(store, id).artifactPath).not.toBeNull();
+  });
+
+  // R4 — a repository defect an agent CAN fix, so it reaches a verdict.
+  it('a malformed package.json fails by name rather than parking', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'malformed', message: 'Unexpected token }' }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(stageBlock(store, id, 'review')).toBeNull();
+    const rows = listGateRuns(store, id);
+    expect(rows.map((r) => r.gateName)).toEqual(['package.json (/wt/web)']);
+    expect(rows[0]!.exitCode).toBe(1);
+    expect(readFileSync(reviewStage(store, id).artifactPath!, 'utf8')).toContain('Unexpected token }');
+  });
+
+  // R7 — review re-asking only UAT's questions has added no signal. A FAILURE,
+  // not a warning: review's escape hatch is configuration, available the same day.
+  it('fails when every gate that ran duplicates the latest UAT batch', async () => {
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T09:00:00.000Z',
+      gates: [{ gateName: 'test (/wt/web)', exitCode: 0 }],
+    });
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(reviewStage(store, id).verdict).toContain('review asked no question uat does not');
+  });
+
+  it('passes when one gate asks something the latest UAT batch did not', async () => {
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T09:00:00.000Z',
+      gates: [{ gateName: 'test (/wt/web)', exitCode: 0 }],
+    });
+    const res = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+  });
+
+  it('a stopped run keeps its partial rows, states no verdict and consumes no attempt', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async () => ({
+          kind: 'stopped',
+          results: [{ name: 'lint', exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() }],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    const rows = listGateRuns(store, id);
+    expect(rows.map((r) => r.gateName)).toEqual(['lint (/wt/web)']);
+    expect(rows[0]!.attempt).toBe(0);
+    expect(readFileSync(reviewStage(store, id).artifactPath!, 'utf8')).toContain('ok');
+  });
+
+  it('clears a previous block when a fresh run reaches a verdict', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'ok', scripts: { build: 'tsc -b' } }) }),
+    );
+    expect(stageBlock(store, id, 'review')).not.toBeNull();
+    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(stageBlock(store, id, 'review')).toBeNull();
   });
 
   it('leaves no gate rows behind when the transition throws', async () => {
-    // The gates are written inside the transition's transaction, so evidence and
+    // Evidence is written inside the transition's transaction, so it and the
     // verdict land together or not at all. Dropping the stage row makes the
-    // machine throw *after* the premutate has queued the gates, which is exactly
-    // the window a non-atomic write would leak through.
-    store.db
-      .prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?')
-      .run(id, 'review');
-
+    // machine throw AFTER the premutate queued the gates — exactly the window a
+    // non-atomic write would leak through.
+    store.db.prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?').run(id, 'review');
     await expect(
-      runReview(store, { ticketId: id, cwd: '/wt', artifactDir }, PASS_GATES, openDiff as never),
+      runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps()),
     ).rejects.toThrow(/has no stage 'review'/);
-
     expect(listGateRuns(store, id)).toEqual([]);
-    expect(getTicket(store, id).stageCurrent).toBe('review'); // no advance either
+    expect(getTicket(store, id).stageCurrent).toBe('review');
   });
 
-  describe('repository-aware triggers', () => {
-    const project = manifest({
-      api: runnableRepo({}, { repoPath: '/repos/api' }),
-      web: runnableRepo(
-        { dependsOn: [dependsOn('api', 'http', [{ env: 'API', template: '{port}' }])] },
-        { repoPath: '/repos/web' },
-      ),
-      docs: runnableRepo({}, { repoPath: '/repos/docs' }),
+  it('runs every target and aggregates only after all of them complete', async () => {
+    const ran: string[] = [];
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+        runGates: async (gates, cwd) => {
+          ran.push(cwd);
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(ran).toEqual(['/wt/web', '/wt/api']);
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('threads one abort signal into every gate invocation, so Stop reaches a running gate', async () => {
+    const controller = new AbortController();
+    const seen: (AbortSignal | undefined)[] = [];
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, signal: controller.signal, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+        runGates: async (gates, _cwd, opts) => {
+          seen.push(opts?.signal);
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(seen).toEqual([controller.signal, controller.signal]);
+  });
+
+  it('tells the gate runner which scripts the repository actually defines', async () => {
+    let available: ((script: string) => boolean) | undefined;
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          available = opts?.scriptsAvailable;
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(available?.('lint')).toBe(true);
+    expect(available?.('e2e')).toBe(false);
+  });
+
+  it('surfaces the changes of every target it reviewed, and records that as evidence', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+        openDiff,
+      }),
+    );
+    expect(openDiff.mock.calls.map((call) => call[1])).toEqual(['/wt/web', '/wt/api']);
+    // Named 'changes', not 'diff': the host reveals the Changes panel — it does
+    // not itself open a diff editor.
+    expect(listGateRuns(store, id).find((r) => r.gateName === 'changes')).toMatchObject({
+      exitCode: 0,
+      stageKey: 'review',
+      attempt: 0,
     });
+  });
 
-    function seed(repo: string, path: string): void {
-      store.db
-        .prepare(
-          `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
-           VALUES (?, ?, ?, 'karst/x', 'develop', 'inherited')`,
-        )
-        .run(id, repo, path);
-    }
+  it('records no changes evidence when nothing was wired to open it', async () => {
+    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(listGateRuns(store, id).find((r) => r.gateName === 'changes')).toBeUndefined();
+  });
 
-    function changed(...paths: string[]): GitRunner {
-      return async (args, cwd) => ({
-        stdout: '',
-        stderr: '',
-        exitCode: args[0] === 'diff' && paths.includes(cwd) ? 1 : 0,
-      });
-    }
+  it('opens the changes surface on a failing verdict too', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        openDiff,
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    expect(openDiff).toHaveBeenCalledWith(id, '/wt/web');
+    // Filed under the SAME pre-bump attempt as the gates that failed beside it.
+    expect(listGateRuns(store, id).every((r) => r.attempt === 0)).toBe(true);
+  });
 
-    it('refuses to pass when no target resolved', async () => {
-      // OLD ASSERTION (pinned the bug, G1): this test used to assert
-      // `result.verdict` equalled `{ kind: 'passed' }` with the runner never
-      // called — i.e. it locked in that a review touching zero repositories
-      // ships as green. That is exactly the vacuous pass this task closes:
-      // "asked nothing" must never read as "passed".
-      seed('/repos/api', '/wt/api');
-      seed('/repos/web', '/wt/web');
-      const runner = vi.fn(PASS_GATES);
+  it('opens nothing further once the run was stopped', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ openDiff, runGates: async () => ({ kind: 'stopped', results: [] }) }),
+    );
+    expect(openDiff).not.toHaveBeenCalled();
+  });
 
-      await expect(
-        runReview(
-          store,
-          { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
-          runner,
-          openDiff as never,
-          changed(),
-        ),
-      ).rejects.toThrow(ReviewAskedNothingError);
+  it('writes each gate section to the artifact and records its path on the stage', async () => {
+    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    const path = reviewStage(store, id).artifactPath!;
+    const contents = readFileSync(path, 'utf8');
+    expect(contents).toContain('# lint (/wt/web, exit 0)');
+    expect(contents).toContain('# typecheck (/wt/web, exit 0)');
+  });
 
-      expect(runner).not.toHaveBeenCalled();
-      expect(openDiff).not.toHaveBeenCalled();
-      expect(getTicket(store, id).stageCurrent).toBe('review'); // never reached ship
-    });
-
-    // `selectReviewTargets` reports a git failure as `{kind:'unavailable', ...}`
-    // rather than throwing (G4). Review has no `{kind:'blocked'}` path yet
-    // (Task 6), so it re-throws with the same message a caller would have seen
-    // before this task — carrying the failure OUT of the stage exactly as
-    // before, rather than silently treating "could not ask" as "nothing
-    // changed" and passing vacuously.
-    it('re-throws a git failure with the same message, rather than passing vacuously', async () => {
-      seed('/repos/api', '/wt/api');
-      const runner = vi.fn(PASS_GATES);
-      const failing: GitRunner = async (args) => ({
-        stdout: '',
-        stderr: args[0] === 'status' ? '' : 'baseline unavailable',
-        exitCode: args[0] === 'status' ? 0 : 128,
-      });
-
-      await expect(
-        runReview(
-          store,
-          { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
-          runner,
-          openDiff as never,
-          failing,
-        ),
-      ).rejects.toThrow(/cannot determine review changes.*baseline unavailable/);
-
-      expect(runner).not.toHaveBeenCalled();
-      expect(openDiff).not.toHaveBeenCalled();
-      expect(listGateRuns(store, id)).toEqual([]);
-      expect(getTicket(store, id).stageCurrent).toBe('review'); // parked, not passed
-    });
-
-    it('checks a directly changed repo and each relation-impacted dependent only', async () => {
-      seed('/repos/api', '/wt/api');
-      seed('/repos/web', '/wt/web');
-      seed('/repos/docs', '/wt/docs');
-      const runner = vi.fn(PASS_GATES);
-
-      await runReview(
-        store,
-        { ticketId: id, cwd: '/wt/api', artifactDir, manifest: project },
-        runner,
-        openDiff as never,
-        changed('/wt/api'),
-      );
-
-      expect(runner.mock.calls.map(([cwd]) => cwd)).toEqual(['/wt/api', '/wt/web']);
-      expect(runner).not.toHaveBeenCalledWith('/wt/docs');
-      expect(openDiff.mock.calls.map((call) => call[1])).toEqual(['/wt/api', '/wt/web']);
-    });
+  it('stores the timings a gate reports and leaves a gate that never ran without any', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g, i) =>
+            i === 0
+              ? {
+                  name: g.name,
+                  exitCode: 0,
+                  output: 'ok',
+                  startedAt: '2026-07-20T12:00:00.000Z',
+                  endedAt: '2026-07-20T12:00:06.400Z',
+                }
+              : { name: g.name, exitCode: null, output: 'nothing to run' },
+          ),
+        }),
+      }),
+    );
+    const [first, second] = listGateRuns(store, id);
+    expect(first!.startedAt).toBe('2026-07-20T12:00:00.000Z');
+    expect(first!.endedAt).toBe('2026-07-20T12:00:06.400Z');
+    // A gate that never ran has no duration; inventing one would read as a
+    // zero-length run rather than as "karst had nothing to ask".
+    expect(second!.startedAt).toBeNull();
+    expect(second!.endedAt).toBeNull();
   });
 });

@@ -25,6 +25,67 @@ export type TargetSelection =
   | { kind: 'targets'; targets: ReviewTarget[] }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
+/**
+ * One repository a gate stage runs against: the worktree, plus every manifest
+ * entry backed by it.
+ *
+ * Both gate stages resolve the same thing, so it is described once here and
+ * aliased by each (`UatTarget`, `ReviewGateTarget`) — the stages stay free to
+ * diverge later without a second copy of the collapsing rule below.
+ */
+export interface GateTarget {
+  /** The repository path the worktree row carries. */
+  repo: string;
+  /** The ticket's worktree for that repository — where the gates run. */
+  path: string;
+  /** Every manifest entry backed by this worktree (several for a monorepo). */
+  names: string[];
+}
+
+/**
+ * Collapse selected targets to one per repository PATH, unioning their names.
+ *
+ * Two `repositories:` entries sharing a path are one monorepo with one worktree
+ * — running the gates twice in the same directory answers the same question
+ * twice. This also absorbs a duplicated `worktrees` row for one path (stale
+ * data, a double write): every name that maps to the path is preserved and
+ * merged, never dropped, because service identity stays keyed by repository
+ * NAME (distinct ports, distinct `servers` rows) and per-repository gate
+ * overrides are keyed by that same name.
+ */
+export function dedupeTargetsByRepoPath(targets: readonly ReviewTarget[]): GateTarget[] {
+  const byPath = new Map<string, GateTarget>();
+  for (const target of targets) {
+    const existing = byPath.get(target.repo);
+    if (existing) {
+      for (const name of target.names) {
+        if (!existing.names.includes(name)) existing.names.push(name);
+      }
+      continue;
+    }
+    byPath.set(target.repo, { repo: target.repo, path: target.path, names: [...target.names] });
+  }
+  return [...byPath.values()];
+}
+
+/**
+ * Why a gate stage had nothing to run against — worded once, for both stages.
+ *
+ * A worktree whose repo path is absent from the manifest is dropped by the
+ * planners, so "affected but unmapped" and "nothing to check" would otherwise be
+ * the same silence. Naming the worktrees is what makes them different.
+ */
+export function noTargetsReason(worktrees: readonly { repo: string }[], stage: string): string {
+  if (worktrees.length === 0) {
+    return `no worktree is registered for this ticket, so there is no repository to run ${stage} against`;
+  }
+  return (
+    "none of this ticket's worktrees resolved to a manifest repository with changes: " +
+    `${worktrees.map((w) => w.repo).join(', ')} — a repository karst cannot map to a manifest ` +
+    `entry is not the same as nothing for ${stage} to check`
+  );
+}
+
 /** Whether one worktree changed, or that karst could not determine it. */
 type ChangeProbe =
   | { kind: 'changed'; changed: boolean }

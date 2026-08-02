@@ -129,28 +129,19 @@ export async function driveTicket(
             manifest: deps.manifest(),
             signal: controller.signal,
           }),
-        // `runReview` still always transitions and returns a ReviewOutcome, so
-        // its result is adapted here from the ticket's post-transition stage.
-        // Review's redesign is out of scope for this phase.
-        //
-        // `undefined` for the runner argument keeps `runReview`'s own default
-        // (`makeGateRunner()`); `deps.openDiff` is threaded straight through —
+        // `runReview` reports its own StageRunResult too, so it is passed
+        // through verbatim for the same reason: a park re-labelled 'advanced'
+        // at the ticket's unchanged stage sends the driver round the same
+        // blocked gate forever. `deps.openDiff` is threaded straight through —
         // absent here means absent there, never a no-op default.
         runReview: (id, cwd) =>
-          review(
-            deps.store,
-            {
-              ticketId: id,
-              cwd,
-              artifactDir: deps.artifactDirFor(id),
-              manifest: deps.manifest(),
-            },
-            undefined,
-            deps.openDiff,
-          ).then(() => ({
-            kind: 'advanced' as const,
-            next: getTicket(deps.store, id).stageCurrent as StageKey,
-          })),
+          review(deps.store, {
+            ticketId: id,
+            cwd,
+            artifactDir: deps.artifactDirFor(id),
+            manifest: deps.manifest(),
+            signal: controller.signal,
+          }, { openDiff: deps.openDiff }),
       },
       ticketId,
     );

@@ -1,32 +1,43 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
-import type { Verdict } from '../../model/types.js';
+import type { BlockerKind, StageRunResult, Verdict } from '../../model/types.js';
+import type { Manifest } from '../../manifest/types.js';
 import { setStage, stageAttempt } from '../../store/stages.js';
-import { recordGateRun } from '../../store/gateRuns.js';
+import { recordGateRun, listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
+import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
 import { transition } from '../machine.js';
 import { nowIso } from '../../model/time.js';
-import { REVIEW_GATES } from '../gates/scripts.js';
-import { probeScripts } from '../gates/probe.js';
-import { runCommand } from '../gates/run.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
-import type { Manifest } from '../../manifest/types.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
-import { selectReviewTargets } from '../gates/targets.js';
-import type { GateResult } from '../gates/result.js';
-
-export type { GateResult };
+import { probeScripts, type ScriptProbe } from '../gates/probe.js';
+import { REVIEW_GATES } from '../gates/scripts.js';
+import { resolveGates } from '../gates/resolve.js';
+import { runGateList } from '../gates/runList.js';
+import { noTargetsReason } from '../gates/targets.js';
+import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
+import {
+  aggregateReview,
+  malformedPackageJsonEntry,
+  uatIdentitiesFrom,
+  DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
+  type AggregateEntry,
+} from '../review/aggregate.js';
 
 /**
- * Review stage (§T4.4, §11). MVP gates on the **deterministic signal** — every
- * gate the repo can answer must exit 0 — plus a human diff review. There is
- * no agent-findings concept in MVP (that's the first post-MVP enhancement); the
- * verdict is purely `passed iff every gate exits 0`. The diff is opened for the
- * human regardless of verdict, so they always see what changed.
+ * Review stage — orchestration only.
+ *
+ * Plan the affected repositories, resolve each one's review gates from a
+ * package.json probe, run them, surface the changes for a human, and reduce.
+ * The verdict conjunction lives in `review/aggregate.ts` (§6.4 R1–R9) and the
+ * gate mechanics in `gates/resolve.ts`/`gates/runList.ts` — this file states no
+ * rule of its own.
+ *
+ * Returns `StageRunResult`: a run that could not ask its question parks durably
+ * (`parkGateStage`) rather than transitioning or throwing, and consumes no
+ * attempt — nothing about the code was learned. A run the user stopped keeps
+ * whatever already finished and consumes no attempt either.
  */
-
-/** Runs the review gates (lint/typecheck/test); injected for unit tests. */
-export type GateRunner = (cwd: string) => Promise<GateResult[]>;
 
 /**
  * Surfaces a target's changes for a human to review; injected. The host's real
@@ -40,252 +51,239 @@ export type OpenDiff = (ticketId: number, cwd: string) => void;
 
 export interface RunReviewOpts {
   ticketId: number;
+  /** The ticket's primary worktree; used only when no manifest is supplied. */
   cwd: string;
   artifactDir: string;
   /**
    * When present, review is repository-aware: only directly changed worktrees
    * and worktrees affected through dependsOn relations are checked.
-   * Absent preserves the single-worktree API used by callers without a manifest.
    */
   manifest?: Manifest;
+  /** One signal for the whole run, so a Stop reaches the gate in flight. */
+  signal?: AbortSignal;
 }
 
-export interface ReviewOutcome {
-  verdict: Exclude<Verdict, null>;
-  artifactPath: string;
-  gates: GateResult[];
+export interface ReviewDeps {
+  planTargets?: typeof planReviewTargets;
+  probe?: (cwd: string) => ScriptProbe;
+  runGates?: typeof runGateList;
+  git?: GitRunner;
+  now?: () => string;
+  /**
+   * Absent means nothing opens, and the evidence below says so — a default that
+   * quietly "succeeds" is exactly the lie this closes.
+   */
+  openDiff?: OpenDiff;
 }
+
+/** What the run decided, before any of it is written down. */
+type RunOutcome =
+  | { kind: 'verdict'; verdict: Exclude<Verdict, null> }
+  | { kind: 'blocked'; blocker: BlockerKind; reason: string }
+  | { kind: 'stopped' };
 
 /**
- * Review asked no question about this ticket's code: every gate came back
- * `null` (nothing changed, no relation was affected, or the repo defines none
- * of the review scripts), so there is nothing a `passed` verdict could mean.
- *
- * Thrown, not returned — deliberately and temporarily. `runReview` still
- * returns `ReviewOutcome` for every other path (this task predates the
- * `StageRunResult` refactor); a thrown error is louder than a silent green in
- * the meantime. Task 6 converts this into `{kind:'blocked',
- * blocker:'nothing-to-run', reason}` once `runReview` itself returns
- * `StageRunResult`, and deletes this class — it is exported now only so that
- * task can catch it by type.
+ * The scripts review looks for when it probes a repository, cheapest first.
+ * Derived from `REVIEW_GATES` so the gate list has one definition — this is
+ * `resolveGates`' `probeList` parameter, review's answer to UAT's `PROBE_SCRIPTS`.
  */
-export class ReviewAskedNothingError extends Error {
-  constructor(
-    public readonly ticketId: number,
-    reason: string,
-  ) {
-    super(`review asked nothing about ticket ${ticketId}: ${reason}`);
-    this.name = 'ReviewAskedNothingError';
+const REVIEW_PROBE_SCRIPTS: readonly string[] = REVIEW_GATES.map((gate) => gate.script);
+
+/**
+ * The ONE place a review run is written down. Evidence and outcome commit
+ * together on every path, because a stopped or blocked run still produced gate
+ * rows worth keeping and `gate_runs` is the project's only append-only evidence
+ * table. Structurally identical to `uat.ts`'s — the two stages must not be able
+ * to disagree about what "an outcome was recorded" means.
+ */
+function commitOutcome(
+  store: Store,
+  ticketId: number,
+  runAt: string,
+  artifactPath: string,
+  gates: readonly GateRunInput[],
+  outcome: RunOutcome,
+): StageRunResult {
+  if (outcome.kind === 'blocked') {
+    parkGateStage(store, {
+      ticketId,
+      stageKey: 'review',
+      kind: outcome.blocker,
+      reason: outcome.reason,
+      runAt,
+      gates,
+      artifactPath,
+    });
+    return { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason };
   }
-}
 
-/**
- * Default gate runner: lint, typecheck, tests — each via npm scripts, and each
- * run ONLY if the repo defines that script. A gate whose script is absent is
- * skipped, not failed: `npm run lint` in a repo with no lint script exits 1 with
- * "Missing script", which would park every such ticket at fix forever — an
- * unwinnable loop, since the agent cannot fix code that is not broken.
- *
- * A malformed package.json is different: unlike "no lint script", it is a
- * repository defect an agent CAN fix, so it must fail rather than skip — it
- * short-circuits the whole gate list (there is no script list to trust) and
- * reports as its own `package.json` gate, exit 1 (mirrors `uat.ts`'s
- * malformed-package.json handling).
- */
-export function makeGateRunner(): GateRunner {
-  return async (cwd) => {
-    const probe = probeScripts(cwd);
-    if (probe.kind === 'malformed') {
-      const at = nowIso();
-      return [
-        {
-          name: 'package.json',
-          exitCode: 1,
-          output: `package.json is malformed — ${probe.message}`,
-          startedAt: at,
-          endedAt: at,
-        },
-      ];
-    }
-    // `absent` and `io-error` both fall through to "no scripts": a missing
-    // file is normal, and an unreadable one is environmental — neither is a
-    // code defect an agent can act on, unlike `malformed`.
-    const scripts = probe.kind === 'ok' ? probe.scripts : {};
-    // Sequential, not `Promise.all`: three npm scripts racing in one worktree
-    // fight over the same node_modules/build output, and their interleaved
-    // output would land in one artifact log unreadable. Each still runs async,
-    // so the extension host stays responsive throughout (see `gates/run.ts`).
-    const results: GateResult[] = [];
-    for (const { name, script, args } of REVIEW_GATES) {
-      if (scripts[script] === undefined) {
-        results.push({
-          name,
-          exitCode: null,
-          output: `no "${script}" script in package.json — nothing to run`,
+  if (outcome.kind === 'stopped') {
+    // No verdict, no attempt, no block — but whatever finished still happened.
+    const apply = store.db.transaction(() => {
+      if (gates.length > 0) {
+        recordGateRun(store, {
+          ticketId,
+          stageKey: 'review',
+          attempt: stageAttempt(store, ticketId, 'review'),
+          runAt,
+          gates,
         });
-        continue;
       }
-      // Stamped around the await, not around a sync call: `runCommand` is async
-      // precisely so the host's event loop keeps serving hooks while npm runs,
-      // so this pair measures the child's wall-clock life, which is what the
-      // panel reports. The skipped branch above stamps neither — a gate that
-      // never ran has no duration, and a zero-length one would read as a pass.
-      const startedAt = nowIso();
-      const r = await runCommand('npm', args, cwd);
-      results.push({
-        name,
-        exitCode: r.exitCode,
-        output: r.output,
-        startedAt,
-        endedAt: nowIso(),
-      });
-    }
-    return results;
-  };
+      setStage(store, ticketId, 'review', { artifactPath });
+    });
+    apply();
+    return { kind: 'stopped' };
+  }
+
+  const next = transition(store, ticketId, 'review', outcome.verdict, () => {
+    setStage(store, ticketId, 'review', { artifactPath });
+    // A run that reached a verdict answers whatever blocked a previous one.
+    clearStageBlock(store, ticketId, 'review');
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'review',
+      // Read before the machine bumps it on a failure: these gates belong to the
+      // attempt that RAN, not to the one its failure creates.
+      attempt: stageAttempt(store, ticketId, 'review'),
+      runAt,
+      gates,
+    });
+  });
+  return { kind: 'advanced', next };
 }
 
 export async function runReview(
   store: Store,
   opts: RunReviewOpts,
-  runner: GateRunner = makeGateRunner(),
-  // No default no-op: a caller that supplies nothing means nothing opens, and
-  // the evidence below must say so — a default that quietly "succeeds" is
-  // exactly the lie this closes (openDiff used to default to a no-op that no
-  // caller ever replaced, while the row claimed a diff opened regardless).
-  openDiff?: OpenDiff,
-  git: GitRunner = defaultGitRunner,
-): Promise<ReviewOutcome> {
-  // Review has no `{kind:'blocked'}` path yet (Task 6): a git probe failure that
-  // `selectReviewTargets` now reports as `{kind:'unavailable', ...}` rather than
-  // throwing is re-thrown here, verbatim, so the ticket parks exactly as it did
-  // before this task — at `review`, uncaught, escaping to the host's generic
-  // log. Task 6 replaces this throw with a real `parkGateStage` park.
-  const selection = opts.manifest
-    ? await selectReviewTargets(opts.manifest, listWorktreesByTicket(store, opts.ticketId), git)
-    : { kind: 'targets' as const, targets: [{ repo: opts.cwd, path: opts.cwd, baseRef: null, names: [] }] };
-  if (selection.kind === 'unavailable') {
-    throw new Error(selection.reason);
-  }
-  const targets = selection.targets;
-  const targetRuns: { label: string; gates: GateResult[] }[] = [];
-  // Tracked so the transition below can record whether the changes surface
+  deps: ReviewDeps = {},
+): Promise<StageRunResult> {
+  const now = deps.now ?? nowIso;
+  const planTargets = deps.planTargets ?? planReviewTargets;
+  const probe = deps.probe ?? probeScripts;
+  const runGates = deps.runGates ?? runGateList;
+  const git = deps.git ?? defaultGitRunner;
+  const runAt = now();
+
+  const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
+
+  const entries: AggregateEntry[] = [];
+  const sections: string[] = [];
+  // Tracked so the outcome below can record whether the changes surface
   // genuinely opened — never assumed from "the loop ran", since only a real
   // `openDiff` (not the absence of one) actually shows the human anything.
   let diffOpened = false;
+
+  /** Write the log and commit the outcome with everything collected so far. */
+  const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
+    mkdirSync(opts.artifactDir, { recursive: true });
+    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
+    writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    const gates = entries.map<GateRunInput>((entry) => ({
+      gateName: entry.result.name,
+      exitCode: entry.result.exitCode,
+      startedAt: entry.result.startedAt ?? null,
+      endedAt: entry.result.endedAt ?? null,
+    }));
+    // The changes surface is evidence exactly like a gate, recorded ONLY when a
+    // real `openDiff` ran — appended here rather than folded into `entries` so
+    // it can never touch the verdict, which stays the deterministic-gate
+    // computation it always was. This is what lets `reviewInside` read "did the
+    // changes surface open" back out of the store after a reload.
+    if (diffOpened) gates.push({ gateName: 'changes', exitCode: 0 });
+    return commitOutcome(store, opts.ticketId, runAt, artifactPath, gates, outcome);
+  };
+
+  const planned = opts.manifest
+    ? await planTargets(opts.manifest, worktrees, git)
+    : { kind: 'targets' as const, targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }] };
+
+  // R2 at the selection seam: karst could not even determine which repositories
+  // are affected (an unreachable remote, a broken git). Never a verdict about
+  // the ticket's code, so this parks rather than transitioning or throwing.
+  if (planned.kind === 'unavailable') {
+    return finish({ kind: 'blocked', blocker: planned.blocker, reason: planned.reason }, [
+      planned.reason,
+    ]);
+  }
+  const targets: ReviewGateTarget[] = planned.targets;
+
+  // R1 — no target resolved. A ticket at review with nothing changed is an
+  // anomaly (impl produced nothing, or the worktrees are unmapped) and must
+  // reach a human, not ship.
+  if (targets.length === 0) {
+    const reason = noTargetsReason(worktrees, 'review');
+    return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+  }
+
   for (const target of targets) {
-    targetRuns.push({
-      label: target.names.join(', ') || target.repo,
-      gates: await runner(target.path),
+    const label = target.names.join(', ') || target.repo;
+    const scriptProbe = probe(target.path);
+    const resolution = resolveGates(scriptProbe, [], REVIEW_PROBE_SCRIPTS);
+
+    // R2/R3 per target: karst could not ask this repository anything. Park
+    // rather than reduce — earlier targets already ran, so their rows go down
+    // with the park.
+    if (resolution.kind === 'unavailable') {
+      const reason = `${label}: ${resolution.reason}`;
+      return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
+    }
+
+    // R4 — a malformed package.json resolves to zero gates and IS a failure
+    // about the repository. An agent can fix it, so it must reach a verdict.
+    if (resolution.gates.length === 0 && scriptProbe.kind === 'malformed') {
+      entries.push(malformedPackageJsonEntry(target.repo, label, scriptProbe.message, runAt));
+      sections.push(`# package.json (${label}, exit 1)\n${scriptProbe.message}`);
+      continue;
+    }
+
+    const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
+    const run = await runGates(resolution.gates, target.path, {
+      signal: opts.signal,
+      now,
+      scriptsAvailable: (script) => scripts[script] !== undefined,
     });
-    // Surfacing the changes is useful for exactly the same affected target
-    // set.
-    if (openDiff) {
-      openDiff(opts.ticketId, target.path);
+
+    for (const [index, result] of run.results.entries()) {
+      // Zipped by POSITION: `runGateList` emits one result per gate in order,
+      // so a name lookup could attach the wrong identity to the row.
+      const gate = resolution.gates[index];
+      entries.push({
+        result: { ...result, name: `${result.name} (${label})` },
+        identity: {
+          repo: target.repo,
+          command: gate?.command ?? result.name,
+          args: gate?.args ?? [],
+        },
+      });
+      sections.push(
+        `# ${result.name} (${label}, ${result.exitCode === null ? 'skipped' : `exit ${result.exitCode}`})\n${result.output}`,
+      );
+    }
+
+    // A Stop yields no verdict and no attempt. What already finished is still
+    // recorded — discarding it would make work that really happened
+    // unrecoverable — but nothing further is opened in the user's face.
+    if (run.kind === 'stopped') {
+      return finish({ kind: 'stopped' }, ['stopped before every gate finished']);
+    }
+
+    // The changes are worth seeing whatever the gates said, so this runs before
+    // any verdict exists — for exactly the affected target set.
+    if (deps.openDiff) {
+      deps.openDiff(opts.ticketId, target.path);
       diffOpened = true;
     }
   }
 
-  // Evidence remains one row per gate name. When several affected repositories
-  // answer the same gate, any failure fails that gate and their outputs are
-  // grouped in its artifact section. The name set is REVIEW_GATES plus
-  // whatever else a target reported (e.g. `makeGateRunner`'s `package.json`
-  // row for a malformed manifest) — a fixed REVIEW_GATES-only list would
-  // silently drop that row from evidence and the verdict alike.
-  const gateNames = [
-    ...REVIEW_GATES.map(({ name }) => name),
-    ...new Set(targetRuns.flatMap((run) => run.gates.map((gate) => gate.name))),
-  ].filter((name, index, names) => names.indexOf(name) === index);
-  const gates = gateNames.flatMap((name) => {
-    const answers = targetRuns.flatMap((run) =>
-      run.gates
-        .filter((gate) => gate.name === name)
-        .map((gate) => ({ label: run.label, gate })),
-    );
-    if (answers.length === 0) return [];
-    const ran = answers.filter(({ gate }) => gate.exitCode !== null);
-    const failure = ran.find(({ gate }) => gate.exitCode !== 0);
-    return [{
-      name,
-      exitCode: failure?.gate.exitCode ?? (ran.length > 0 ? 0 : null),
-      output: answers.map(({ label, gate }) => `## ${label}\n${gate.output}`).join('\n\n'),
-      startedAt: ran.map(({ gate }) => gate.startedAt).find((value) => value !== undefined),
-      endedAt: [...ran].reverse().map(({ gate }) => gate.endedAt).find((value) => value !== undefined),
-    }];
+  const outcome = aggregateReview(entries, uatIdentitiesFrom(listGateRuns(store, opts.ticketId)), {
+    // Task 10 reads this from the manifest. Until then the plan's default
+    // stands: a review that re-asks only UAT's questions has added no signal.
+    requireIndependentSignal: DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
   });
-
-  // G1/G3(c): a run that asked nothing — no target resolved at all, or every
-  // gate every target reported came back `null` — must never reach a verdict.
-  // A green here would mean "ship it" about code review never looked at.
-  // Checked before any side effect (artifact file, gate evidence, attempt)
-  // so a run that asked nothing leaves none behind. Task 6 turns this throw
-  // into `{kind:'blocked', blocker:'nothing-to-run', reason}`.
-  if (gates.every((g) => g.exitCode === null)) {
-    throw new ReviewAskedNothingError(
-      opts.ticketId,
-      gates.length === 0
-        ? 'no target resolved — nothing changed and no relation is affected'
-        : 'every gate was skipped',
-    );
+  if (outcome.kind === 'blocked') {
+    return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
+      outcome.reason,
+    ]);
   }
-
-  mkdirSync(opts.artifactDir, { recursive: true });
-  const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
-  const report = gates
-    .map((g) => `# ${g.name} (${g.exitCode === null ? 'skipped' : `exit ${g.exitCode}`})\n${g.output}`)
-    .join('\n\n');
-  writeFileSync(artifactPath, report);
-
-  // Deterministic verdict: passed iff every gate that RAN exits 0. A skipped gate
-  // (null) is not a pass and not a failure — the repo never answered it.
-  const failing = gates.filter((g) => g.exitCode !== null && g.exitCode !== 0);
-  const verdict: Exclude<Verdict, null> =
-    failing.length === 0
-      ? { kind: 'passed' }
-      : { kind: 'failed', reason: `gates failed: ${failing.map((g) => g.name).join(', ')}` };
-
-  // Artifact write and gate evidence folded into the transition transaction —
-  // atomic with the verdict, so a verdict never lands without the gates that
-  // produced it.
-  const runAt = nowIso();
-  transition(store, opts.ticketId, 'review', verdict, () => {
-    setStage(store, opts.ticketId, 'review', { artifactPath });
-    // Read inside the transaction, before the machine bumps it on a failure:
-    // these gates belong to the attempt that RAN, not to the one its failure
-    // creates.
-    const attempt = stageAttempt(store, opts.ticketId, 'review');
-    recordGateRun(store, {
-      ticketId: opts.ticketId,
-      stageKey: 'review',
-      attempt,
-      runAt,
-      gates: gates.map((g) => ({
-        gateName: g.name,
-        exitCode: g.exitCode,
-        startedAt: g.startedAt ?? null,
-        endedAt: g.endedAt ?? null,
-      })),
-    });
-    // The changes surface is evidence exactly like a gate, recorded ONLY when
-    // a real `openDiff` actually ran — a separate batch call, deliberately
-    // never folded into `gates` above, so it can never touch REVIEW_GATES'
-    // verdict math or artifact report (that stays the deterministic-gate
-    // computation it always was). This is what lets `reviewInside` read "did
-    // the changes surface open" back out of the store after a reload,
-    // instead of a live `ReviewOutcome` boolean that a reload would lose.
-    // Named 'changes', not 'diff': the host implementation reveals the
-    // Changes panel, it does not itself open a diff editor (that only
-    // happens once a human clicks a file row inside it) — the evidence must
-    // say exactly what ran, not the stronger claim its old name implied.
-    if (diffOpened) {
-      recordGateRun(store, {
-        ticketId: opts.ticketId,
-        stageKey: 'review',
-        attempt,
-        runAt,
-        gates: [{ gateName: 'changes', exitCode: 0 }],
-      });
-    }
-  });
-
-  return { verdict, artifactPath, gates };
+  return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
 }

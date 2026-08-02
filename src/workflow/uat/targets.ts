@@ -1,17 +1,15 @@
 import type { Manifest } from '../../manifest/types.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { BlockerKind } from '../../model/types.js';
-import { selectReviewTargets, type ReviewWorktree } from '../gates/targets.js';
+import {
+  dedupeTargetsByRepoPath,
+  selectReviewTargets,
+  type GateTarget,
+  type ReviewWorktree,
+} from '../gates/targets.js';
 
 /** One repository UAT runs its gates against. */
-export interface UatTarget {
-  /** The repository path the worktree row carries. */
-  repo: string;
-  /** The ticket's worktree for that repository — where the gates run. */
-  path: string;
-  /** Every manifest entry backed by this worktree (several for a monorepo). */
-  names: string[];
-}
+export type UatTarget = GateTarget;
 
 /**
  * What `planUatTargets` resolved — mirrors `TargetSelection` (`gates/targets.ts`)
@@ -51,21 +49,5 @@ export async function planUatTargets(
 ): Promise<UatTargetSelection> {
   const selection = await selectReviewTargets(manifest, worktrees, git);
   if (selection.kind === 'unavailable') return selection;
-
-  const byPath = new Map<string, UatTarget>();
-  for (const target of selection.targets) {
-    const existing = byPath.get(target.repo);
-    if (existing) {
-      for (const name of target.names) {
-        if (!existing.names.includes(name)) existing.names.push(name);
-      }
-      continue;
-    }
-    byPath.set(target.repo, {
-      repo: target.repo,
-      path: target.path,
-      names: [...target.names],
-    });
-  }
-  return { kind: 'targets', targets: [...byPath.values()] };
+  return { kind: 'targets', targets: dedupeTargetsByRepoPath(selection.targets) };
 }
