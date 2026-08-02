@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import { setStage } from '../../store/stages.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
@@ -93,6 +94,28 @@ describe('DashboardManager', () => {
 
     const message = panels[0]!.posted.find((m: any) => m.type === 'state') as any;
     expect(message.state.agentSession.canSwitch).toBe(true);
+  });
+
+  it('pushes the manifest’s uat fix budget into the rail’s retry meter', () => {
+    // The meter draws one tick per allowed attempt, so a cap resolved anywhere
+    // but from the live manifest is a different number from the one the driver
+    // will actually spend.
+    const t = createTicket(store, { key: 'CAP-1', title: 'capped' });
+    setStage(store, t.id, 'uat', { status: 'failed', attempt: 1 });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      () => 1,
+    );
+
+    mgr.openDashboard(t.id);
+
+    const message = panels[0]!.posted.find((m: any) => m.type === 'state') as any;
+    const uat = message.state.rail.main.find((s: any) => s.cell.stageKey === 'uat');
+    expect(uat.retry).toMatchObject({ spent: 1, cap: 1 });
   });
 
   it('sets the tab icon on open and on each state push, from iconFor', () => {
