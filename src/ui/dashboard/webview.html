@@ -92,12 +92,14 @@
     border-radius:calc(var(--k-radius-lg) + var(--k-border-w));background:var(--k-surface)}
   .railwrap{padding-top:var(--k-space-3)}
 
-  /* COMPONENT DIMENSIONS, not spacing (UI-R04 exception — the same category the
-     deleted 560px floor was declared under). The closed 0–26px space scale has no
-     step at a control-strip height or a chevron depth, and both are geometry: the
-     notch depth is what the horizontal paddings below are DERIVED from, so the
-     clip and the padding can never drift apart. */
-  .track{position:relative;--trk-h:46px;--trk-notch:11px;--trk-tick-w:4px;--trk-tick-h:11px}
+  /* Named geometry handles. The notch depth is what the horizontal paddings and
+     the clip-path below are BOTH derived from, so the two can never drift apart —
+     that is why it is a variable rather than three copies of one number. All but
+     the lane height resolve to scale tokens; the lane height is a component
+     dimension with no scale match (the closed 0–26px scale stops well short of a
+     control strip), the same UI-R04 exception the deleted 560px floor carried. */
+  .track{position:relative;--trk-h:46px;
+    --trk-notch:var(--k-space-6);--trk-tick-w:var(--k-space-2);--trk-tick-h:var(--k-space-6)}
 
   /* overflow-x:auto, NEVER hidden. The three degradation steps below keep the
      track inside its lane at every width a VS Code panel can be dragged to (300px,
@@ -1490,15 +1492,6 @@
     persist();
   }
 
-  // Re-measure on resize, once the document has loaded, and again once web fonts
-  // have settled: a track measured against pre-layout metrics reports no overflow
-  // and degrades one step too late. `renderTrack` calls place() itself for the
-  // render path, so these three cover only the cases where the DOM did not change
-  // but its available width did.
-  window.addEventListener('resize', place);
-  window.addEventListener('load', place);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
-
   // editBtn/followUpBtn post through the generic delegated `[data-act]`
   // handler below (data-act is set in their markup, above) — the same pending
   // lifecycle every other posting control gets, rather than a bespoke listener.
@@ -1686,6 +1679,15 @@
     // button sticking on "Merge" (pending) forever.
     mergeRequests = {};
   }
+
+  // Re-measure the track when the DOM did not change but its available width
+  // did. `renderTrack` calls place() itself on the render path; these three cover
+  // the rest — a panel drag, the document finishing, and web fonts settling. A
+  // track measured against pre-layout metrics reports no overflow and degrades
+  // one step too late, which is why `load` and `fonts.ready` are here at all.
+  window.addEventListener('resize', place);
+  window.addEventListener('load', place);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
