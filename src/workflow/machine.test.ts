@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { transition } from './machine.js';
@@ -286,16 +286,58 @@ describe('transition (stage machine core)', () => {
 
   // better-sqlite3 is synchronous, so "concurrent" here means the second call
   // observing state the first already committed — not real parallelism.
+  //
+  // Status alone does not prove the refusal prevented anything: a second,
+  // unguarded pass through entryPatch would leave `review` at status 'running'
+  // and `uat` at status 'passed' too — status is exactly what a REDUNDANT
+  // re-entry leaves unchanged. The tell is the TIMESTAMPS entryPatch stamps
+  // with a fresh `now()` on every entry (`review.startedAt`) and setStage
+  // stamps on every pass (`uat.endedAt`); the clock is advanced between the
+  // two calls specifically so an unguarded second write would be provably
+  // detectable here, rather than risk landing in the same millisecond as the
+  // first and passing by accident.
   it('refuses a second concurrent transition from the same stage', () => {
     transition(store, ticketId, 'scope', { kind: 'passed' });
     transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
-    expect(transition(store, ticketId, 'uat', { kind: 'passed' })).toBe('review');
-    expect(() => transition(store, ticketId, 'uat', { kind: 'passed' })).toThrow();
 
-    // the second (refused) call mutated nothing beyond the first's outcome
-    expect(getTicket(store, ticketId).stageCurrent).toBe('review');
-    expect(stageOf(store, ticketId, 'uat').status).toBe('passed');
-    expect(stageOf(store, ticketId, 'review').status).toBe('running');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+      expect(transition(store, ticketId, 'uat', { kind: 'passed' })).toBe('review');
+      const reviewStartedAt = stageOf(store, ticketId, 'review').startedAt;
+      const uatEndedAt = stageOf(store, ticketId, 'uat').endedAt;
+      expect(reviewStartedAt).toBe('2020-01-01T00:00:00.000Z');
+
+      // Advance the clock: an unguarded second call would stamp fresh
+      // timestamps here — the guard must refuse before either write happens.
+      vi.setSystemTime(new Date('2020-01-01T00:00:01.000Z'));
+      expect(() => transition(store, ticketId, 'uat', { kind: 'passed' })).toThrow();
+
+      // the second (refused) call mutated nothing beyond the first's outcome
+      expect(getTicket(store, ticketId).stageCurrent).toBe('review');
+      expect(stageOf(store, ticketId, 'uat').status).toBe('passed');
+      expect(stageOf(store, ticketId, 'uat').endedAt).toBe(uatEndedAt);
+      expect(stageOf(store, ticketId, 'review').status).toBe('running');
+      expect(stageOf(store, ticketId, 'review').startedAt).toBe(reviewStartedAt);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Pins the guard's position relative to `premutate`: moving the guard below
+  // `premutate()` would leave every other assertion in this file green while
+  // committing a phantom evidence write (the `gate_runs` row Task 2 folds in
+  // via `premutate`) on a refused transition. A spy is the only thing that
+  // catches that — the guard's own thrown error looks identical either way.
+  it('never runs premutate when the guard refuses the transition', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' }); // now at impl
+    const premutate = vi.fn();
+
+    expect(() =>
+      transition(store, ticketId, 'scope', { kind: 'passed' }, premutate),
+    ).toThrow();
+
+    expect(premutate).not.toHaveBeenCalled();
   });
 });
 
