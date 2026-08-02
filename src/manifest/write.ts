@@ -162,6 +162,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Without this line Save silently drops the whole block — the failure mode
     // the writeManifest round-trip test exists to catch.
     uat: manifest.uat,
+    review: manifest.review,
   };
 
   // Re-validate before persisting — never write a file the loader would reject.

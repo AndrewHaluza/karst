@@ -8,14 +8,19 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { manifest } from '../../manifest/fixtures.js';
+import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import { runUat, type UatDeps } from './uat.js';
 
 const now = (): string => '2026-08-01T10:00:00.000Z';
 
 /** A repository that answers every review gate. */
-const ALL_SCRIPTS = { lint: 'eslint .', typecheck: 'tsc --noEmit', test: 'vitest run' };
+const ALL_SCRIPTS = {
+  lint: 'eslint .',
+  typecheck: 'tsc --noEmit',
+  build: 'tsc -b',
+  format: 'prettier --check .',
+};
 
 function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
   return {
@@ -76,7 +81,8 @@ describe('runReview', () => {
     expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual([
       'lint (/wt/web)',
       'typecheck (/wt/web)',
-      'test (/wt/web)',
+      'build (/wt/web)',
+      'format (/wt/web)',
     ]);
     expect(listGateRuns(store, id).every((r) => r.stageKey === 'review')).toBe(true);
     expect(new Set(listGateRuns(store, id).map((r) => r.runAt)).size).toBe(1);
@@ -218,7 +224,7 @@ describe('runReview', () => {
         }),
         probe: (cwd) =>
           cwd === '/wt/web'
-            ? { kind: 'ok', scripts: { test: 'vitest' } }
+            ? { kind: 'ok', scripts: { lint: 'eslint .' } }
             : { kind: 'io-error', message: 'EACCES' },
         runGates: async (gates) => ({
           kind: 'ran',
@@ -228,7 +234,7 @@ describe('runReview', () => {
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
     // The completed target's evidence goes down with the park.
-    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['test (web)']);
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['lint (web)']);
     expect(listGateRuns(store, id)[0]!.attempt).toBe(0);
   });
 
@@ -237,7 +243,7 @@ describe('runReview', () => {
     const res = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
-      deps({ probe: () => ({ kind: 'ok', scripts: { build: 'tsc -b' } }) }),
+      deps({ probe: () => ({ kind: 'ok', scripts: { deploy: 'foo' } }) }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
     expect(getTicket(store, id).stageCurrent).toBe('review');
@@ -270,7 +276,8 @@ describe('runReview', () => {
     expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual([
       'lint (web)',
       'typecheck (web)',
-      'test (web)',
+      'build (web)',
+      'format (web)',
     ]);
     // The repository that answered nothing is still named in the log — an
     // absence a human cannot see is indistinguishable from one karst never met.
@@ -360,12 +367,12 @@ describe('runReview', () => {
       stageKey: 'uat',
       attempt: 0,
       runAt: '2026-08-01T09:00:00.000Z',
-      gates: [{ gateName: 'test (/wt/web)', exitCode: 0 }],
+      gates: [{ gateName: 'lint (/wt/web)', exitCode: 0 }],
     });
     const res = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
-      deps({ probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }) }),
+      deps({ probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }) }),
     );
     expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(reviewStage(store, id).verdict).toContain('review asked no question uat does not');
@@ -377,7 +384,7 @@ describe('runReview', () => {
       stageKey: 'uat',
       attempt: 0,
       runAt: '2026-08-01T09:00:00.000Z',
-      gates: [{ gateName: 'test (/wt/web)', exitCode: 0 }],
+      gates: [{ gateName: 'lint (/wt/web)', exitCode: 0 }],
     });
     const res = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
     expect(res).toEqual({ kind: 'advanced', next: 'ship' });
@@ -407,7 +414,7 @@ describe('runReview', () => {
     await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
-      deps({ probe: () => ({ kind: 'ok', scripts: { build: 'tsc -b' } }) }),
+      deps({ probe: () => ({ kind: 'ok', scripts: { deploy: 'foo' } }) }),
     );
     expect(stageBlock(store, id, 'review')).not.toBeNull();
     await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
@@ -642,7 +649,11 @@ describe('runUat and runReview record identities R7 can actually compare (differ
     return {
       now,
       planTargets: async () => ({ kind: 'targets', targets: [target] }),
-      probe: () => ({ kind: 'ok', scripts: { test: 'vitest run' } }),
+      // UAT's own probe fallback list never includes `lint` — an explicit
+      // `uat.gates: [lint]` (below) is what makes UAT run it, so the overlap
+      // with review's own default probe list is deliberate config, not an
+      // accident of what each stage happens to probe for.
+      probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
       runGates: async (gates) => ({
         kind: 'ran',
         results: gates.map((g) => ({
@@ -672,27 +683,32 @@ describe('runUat and runReview record identities R7 can actually compare (differ
   });
 
   it('review re-invoking the SAME command UAT ran is caught by R7, using each writer’s real identity', async () => {
-    // UAT's only discoverable script is `test`, so it records `npm test`
-    // against `/web` through its own real code path (`resolveGates` ->
-    // `runGateList` -> `commitGateOutcome`).
+    // UAT declares an explicit `lint` gate — its own probe fallback list never
+    // includes it — so it records `npm run lint` against `/web` through its
+    // own real code path (`resolveGates` -> `runGateList` -> `commitGateOutcome`).
     const uatRes = await runUat(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir: uatArtifactDir, manifest: manifest({}) },
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir: uatArtifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) }),
+      },
       uatDeps(),
     );
     expect(uatRes).toEqual({ kind: 'advanced', next: 'review' });
 
-    // Review probes the SAME repository and finds only the SAME `test` script,
-    // so it too resolves to `npm test` against `/web` — through ITS real code
-    // path, independently. If either writer disagreed on what `repo` means (a
-    // name vs. a path) or dropped `command`/`args`, this would silently pass
-    // instead of failing R7.
+    // Review probes the SAME repository and finds the SAME `lint` script
+    // through its own default probe list, so it too resolves to `npm run
+    // lint` against `/web` — through ITS real code path, independently. If
+    // either writer disagreed on what `repo` means (a name vs. a path) or
+    // dropped `command`/`args`, this would silently pass instead of failing R7.
     const reviewRes = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir: reviewArtifactDir, manifest: manifest({}) },
       deps({
         planTargets: async () => ({ kind: 'targets', targets: [target] }),
-        probe: () => ({ kind: 'ok', scripts: { test: 'vitest run' } }),
+        probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
       }),
     );
     expect(reviewRes).toEqual({ kind: 'advanced', next: 'fix' });
@@ -705,7 +721,7 @@ describe('runUat and runReview record identities R7 can actually compare (differ
     const reviewRow = rows.find((r) => r.stageKey === 'review')!;
     expect(uatRow.repo).toBe('/web');
     expect(uatRow.command).toBe('npm');
-    expect(uatRow.args).toEqual(['test']);
+    expect(uatRow.args).toEqual(['run', 'lint']);
     expect(reviewRow.repo).toBe(uatRow.repo);
     expect(reviewRow.command).toBe(uatRow.command);
     expect(reviewRow.args).toEqual(uatRow.args);
@@ -714,19 +730,24 @@ describe('runUat and runReview record identities R7 can actually compare (differ
   it('review asking an ADDITIONAL question beyond UAT’s real invocation still passes', async () => {
     const uatRes = await runUat(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir: uatArtifactDir, manifest: manifest({}) },
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir: uatArtifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) }),
+      },
       uatDeps(),
     );
     expect(uatRes).toEqual({ kind: 'advanced', next: 'review' });
 
-    // Review's repository also defines `lint`, which UAT never probes for —
+    // Review's repository also defines `typecheck`, which UAT never runs —
     // one real independent question is enough to satisfy R7.
     const reviewRes = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir: reviewArtifactDir, manifest: manifest({}) },
       deps({
         planTargets: async () => ({ kind: 'targets', targets: [target] }),
-        probe: () => ({ kind: 'ok', scripts: { test: 'vitest run', lint: 'eslint .' } }),
+        probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit' } }),
       }),
     );
     expect(reviewRes).toEqual({ kind: 'advanced', next: 'ship' });

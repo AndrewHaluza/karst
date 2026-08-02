@@ -9,8 +9,18 @@ describe('REVIEW_GATES', () => {
     expect(REVIEW_GATES.map((g) => [g.name, g.script])).toEqual([
       ['lint', 'lint'],
       ['typecheck', 'typecheck'],
-      ['test', 'test'],
+      ['build', 'build'],
+      ['format', 'format'],
     ]);
+  });
+
+  // `test` used to be here too, which meant every review run duplicated UAT's
+  // own gate list (`UAT_GATES` below) on the same worktree — the exact
+  // condition `requireIndependentSignal` (R7, `review/aggregate.ts`) exists to
+  // catch. Removing it here closes the duplication at the source rather than
+  // only failing tickets downstream once R7 lands.
+  it('does not duplicate UAT_GATES\' test gate', () => {
+    expect(REVIEW_GATES.map((g) => g.name)).not.toContain('test');
   });
 });
 

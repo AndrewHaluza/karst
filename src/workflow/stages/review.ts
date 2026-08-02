@@ -9,11 +9,10 @@ import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
-import { REVIEW_PROBE_SCRIPTS } from '../gates/scripts.js';
-import { resolveGates } from '../gates/resolve.js';
 import { runGateList } from '../gates/runList.js';
 import { noTargetsReason } from '../gates/targets.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
+import { resolveReviewGates } from '../review/gates.js';
 import {
   aggregateReview,
   malformedPackageJsonEntry,
@@ -152,7 +151,7 @@ export async function runReview(
   for (const target of targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path);
-    const resolution = resolveGates(scriptProbe, [], REVIEW_PROBE_SCRIPTS);
+    const resolution = resolveReviewGates(scriptProbe, opts.manifest?.review, target.names);
 
     if (resolution.kind === 'unavailable') {
       // R3 is decided ACROSS every target, so "this repository answers none of

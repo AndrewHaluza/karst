@@ -179,11 +179,19 @@ describe('runUat', () => {
   });
 
   it('writes the overlap warning into the artifact when nothing is independent', async () => {
+    // UAT's own probe fallback list never includes `lint` — an explicit
+    // `uat.gates: [lint]` is what makes UAT run it, so this deliberately
+    // overlaps with review's default gate set (`REVIEW_GATES`, Task 9).
     await runUat(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir },
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) }),
+      },
       deps({
-        probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }),
+        probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
       }),
     );
     const path = uatStage(store, id).artifactPath!;

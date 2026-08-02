@@ -9,15 +9,27 @@ export interface GateSpec {
 }
 
 /**
- * The MVP review gates. Each names the script it depends on, because a gate is
- * only answerable by a repo that defines it: `npm run lint` in a repo with no
- * lint script exits 1 with "Missing script", which says something about the
- * repo's configuration and nothing about the ticket's code.
+ * The default review gates (probed when `review.gates` is absent — Task 9's
+ * manifest surface lets a project declare its own instead). Each names the
+ * script it depends on, because a gate is only answerable by a repo that
+ * defines it: `npm run lint` in a repo with no lint script exits 1 with
+ * "Missing script", which says something about the repo's configuration and
+ * nothing about the ticket's code.
+ *
+ * `test` is deliberately ABSENT — it used to be here, duplicating UAT's own
+ * gate list (`UAT_GATES` below) so that a repo whose only script was `test`
+ * had every review gate silently asking the exact question UAT already
+ * answered on the same worktree. That duplication is what `requireIndependentSignal`
+ * (R7, `review/aggregate.ts`) exists to catch; removing `test` here closes it
+ * at the source instead of only failing the ticket downstream. `build` is
+ * added in its place: "does the change compile/bundle" is a property of the
+ * diff, not of a running system, and is not asked anywhere else.
  */
 export const REVIEW_GATES: readonly GateSpec[] = [
   { name: 'lint', script: 'lint', args: ['run', 'lint'] },
   { name: 'typecheck', script: 'typecheck', args: ['run', 'typecheck'] },
-  { name: 'test', script: 'test', args: ['test'] },
+  { name: 'build', script: 'build', args: ['run', 'build'] },
+  { name: 'format', script: 'format', args: ['run', 'format'] },
 ];
 
 /**

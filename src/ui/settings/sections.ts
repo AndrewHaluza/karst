@@ -14,9 +14,9 @@ import type { Manifest } from '../../manifest/types.js';
  * out-of-band writers — `setAgentEnabled`, `setApproachEnabled`, the approach
  * drawer — cannot be clobbered by a stale draft that was loaded before they ran.
  *
- * Fields no section claims (`id`, `uat`) are never editable here and always
- * survive from the base, so a tab-scoped save can't erase config the UI does not
- * render. The "exactly one section" split is pinned by sections.test.ts.
+ * Fields no section claims (`id`, `uat`, `review`) are never editable here and
+ * always survive from the base, so a tab-scoped save can't erase config the UI
+ * does not render. The "exactly one section" split is pinned by sections.test.ts.
  */
 export const SETTINGS_SECTIONS = [
   'general',

@@ -94,6 +94,52 @@ describe('writeManifest', () => {
     }
   });
 
+  it('persists an edited review block', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const edited: Manifest = {
+        ...m,
+        review: {
+          maxFixAttempts: 4,
+          requireIndependentSignal: false,
+          gates: [{ name: 'lint', kind: 'script', script: 'lint' }],
+          findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
+          repositories: {},
+        },
+      };
+      writeManifest(path, edited);
+      expect(loadManifest(path).review).toEqual(edited.review);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Without the `review: manifest.review` line in the overlay, Save silently
+  // drops the whole block on the next write — this is that failure mode,
+  // isolated from the "round-trips every modeled section" test below.
+  it('drops the review block entirely once cleared', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      writeManifest(path, {
+        ...m,
+        review: {
+          maxFixAttempts: 4,
+          requireIndependentSignal: false,
+          findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
+          repositories: {},
+        },
+      });
+      expect(loadManifest(path).review).toBeDefined();
+
+      writeManifest(path, { ...m, review: undefined });
+      expect(loadManifest(path).review).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
   // Regression guard: writeManifest whitelists modeled top-level keys in its
   // overlay, so ANY newly-added Manifest field silently fails to persist until
   // it's added there. This round-trips a fully-populated manifest and asserts
@@ -182,6 +228,16 @@ describe('writeManifest', () => {
           shipStatus: 'in review',
           advanceOnStart: true,
           startStatus: 'in dev',
+        },
+        review: {
+          maxFixAttempts: 2,
+          requireIndependentSignal: false,
+          gates: [
+            { name: 'lint', kind: 'script', script: 'lint' },
+            { name: 'clippy', kind: 'command', command: 'cargo', args: ['clippy', '--', '-D', 'warnings'] },
+          ],
+          findings: { enabled: false, agent: 'reviewer', blockingSeverity: 'critical', maxFindings: 25 },
+          repositories: { backend: { gates: [{ name: 'lint', kind: 'script', script: 'lint:ci' }] } },
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',

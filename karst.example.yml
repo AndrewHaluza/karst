@@ -294,3 +294,33 @@ ticketing:
   # provider: clickup
   # teamId: "9001"
   # listId: "42"
+
+# Review stage gates (optional). Absent yields the default pipeline: karst
+# probes package.json for lint/typecheck/build/format and runs whichever
+# exist. `test` is deliberately not among them — UAT already runs it first on
+# the same worktree, so review re-asking it would be the exact duplicated
+# question `requireIndependentSignal` below exists to catch.
+review:
+  # Review's own fix-loop budget; independent of uat.maxFixAttempts.
+  maxFixAttempts: 3
+  # A review whose gates ask nothing UAT didn't already ask has added no
+  # signal — that FAILS to `fix` (not a warning, unlike UAT's own overlap
+  # check) unless you turn it off here.
+  requireIndependentSignal: true
+  # gates:
+  #   - { name: lint,   kind: script,  script: lint }
+  #   - { name: clippy, kind: command, command: cargo, args: [clippy, --, -D, warnings] }
+  #   - { name: govet,  kind: command, command: go,    args: [vet, ./...], repo: backend }
+  # Per-repository gates REPLACE the global list above for that repo only —
+  # never additive.
+  # repositories:
+  #   backend: { gates: [{ name: lint, kind: script, script: lint:ci }] }
+  # Lane B (Phase 2): an agent reviews the diff and files findings. On by
+  # default, and critical/high findings fail review to `fix` — turn
+  # blockingSeverity down to `none` for advisory-only, or `enabled: false` to
+  # turn the lane off entirely.
+  findings:
+    enabled: true
+    blockingSeverity: high
+    maxFindings: 50
+    # agent: reviewer   # a key of the `agents:` map above

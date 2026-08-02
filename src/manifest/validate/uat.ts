@@ -1,14 +1,14 @@
 import { ManifestError } from '../error.js';
 import type {
+  GateKind,
   UatAuthBootstrap,
   UatAuthor,
   UatConfig,
   UatGateDef,
-  UatGateKind,
   UatRepositoryOverride,
 } from '../types.js';
 
-const GATE_KINDS: readonly UatGateKind[] = ['script', 'command'];
+const GATE_KINDS: readonly GateKind[] = ['script', 'command'];
 
 /** Value shapes that read as a pasted credential rather than a config literal. */
 const CREDENTIAL_PREFIXES = ['sk_live_', 'sk_test_', 'ghp_', 'AKIA', 'SG.'];
@@ -53,34 +53,43 @@ function keyNameList(raw: unknown, where: string): string[] {
   });
 }
 
-function validateGate(raw: unknown, index: number): UatGateDef {
-  if (!isObject(raw)) throw new ManifestError(`uat.gates[${index}] must be a mapping`);
+/**
+ * One declared gate — shared by `uat.gates` and `review.gates` (§6.3): both
+ * blocks offer the identical `{name, kind, script|command/args, repo}` shape,
+ * so the parsing (and its error wording) lives once, parameterised by the
+ * caller's own `where` prefix (`uat.gates[0]` vs `review.gates[0]`) so a
+ * thrown message still points at the field the author actually edited.
+ * `report` is parsed here too — harmless when the caller's type (`GateDef`)
+ * does not carry it forward, since it is simply never read off the result.
+ */
+export function validateGate(raw: unknown, index: number, where: string): UatGateDef {
+  if (!isObject(raw)) throw new ManifestError(`${where}[${index}] must be a mapping`);
   const name = raw.name;
   if (typeof name !== 'string' || name.trim().length === 0) {
-    throw new ManifestError(`uat.gates[${index}].name must be a non-empty string`);
+    throw new ManifestError(`${where}[${index}].name must be a non-empty string`);
   }
   const kind = raw.kind;
-  if (typeof kind !== 'string' || !GATE_KINDS.includes(kind as UatGateKind)) {
-    throw new ManifestError(`uat.gates "${name}".kind must be one of: ${GATE_KINDS.join(', ')}`);
+  if (typeof kind !== 'string' || !GATE_KINDS.includes(kind as GateKind)) {
+    throw new ManifestError(`${where} "${name}".kind must be one of: ${GATE_KINDS.join(', ')}`);
   }
-  const gate: UatGateDef = { name, kind: kind as UatGateKind };
+  const gate: UatGateDef = { name, kind: kind as GateKind };
 
   if (kind === 'script') {
     if (typeof raw.script !== 'string' || raw.script.trim().length === 0) {
-      throw new ManifestError(`uat.gates "${name}".script must be a non-empty string`);
+      throw new ManifestError(`${where} "${name}".script must be a non-empty string`);
     }
     gate.script = raw.script;
   } else {
     // argv-based and spawned without a shell, so there is no quoting surface.
     // This is `kind: script`'s sibling, not a scripting language — it is what
-    // keeps UAT usable by Go, Rust, Java and Python repositories.
+    // keeps UAT (and review) usable by Go, Rust, Java and Python repositories.
     if (typeof raw.command !== 'string' || raw.command.trim().length === 0) {
-      throw new ManifestError(`uat.gates "${name}".command must be a non-empty string`);
+      throw new ManifestError(`${where} "${name}".command must be a non-empty string`);
     }
     gate.command = raw.command;
     if (raw.args !== undefined) {
       if (!Array.isArray(raw.args) || raw.args.some((a) => typeof a !== 'string')) {
-        throw new ManifestError(`uat.gates "${name}".args must be a list of strings`);
+        throw new ManifestError(`${where} "${name}".args must be a list of strings`);
       }
       gate.args = raw.args as string[];
     }
@@ -88,23 +97,23 @@ function validateGate(raw: unknown, index: number): UatGateDef {
 
   if (raw.repo !== undefined) {
     if (typeof raw.repo !== 'string') {
-      throw new ManifestError(`uat.gates "${name}".repo must be a string`);
+      throw new ManifestError(`${where} "${name}".repo must be a string`);
     }
     gate.repo = raw.repo;
   }
   if (raw.report !== undefined) {
     if (typeof raw.report !== 'string') {
-      throw new ManifestError(`uat.gates "${name}".report must be a string`);
+      throw new ManifestError(`${where} "${name}".report must be a string`);
     }
     gate.report = raw.report;
   }
   return gate;
 }
 
-function validateGates(raw: unknown): UatGateDef[] | undefined {
+export function validateGates(raw: unknown, where: string): UatGateDef[] | undefined {
   if (raw === undefined) return undefined;
-  if (!Array.isArray(raw)) throw new ManifestError('uat.gates must be a list');
-  return raw.map(validateGate);
+  if (!Array.isArray(raw)) throw new ManifestError(`${where} must be a list`);
+  return raw.map((g, i) => validateGate(g, i, where));
 }
 
 function validateOrigins(raw: unknown): string[] {
@@ -161,7 +170,9 @@ function validateRepositories(raw: unknown): Record<string, UatRepositoryOverrid
     if (value.secrets !== undefined) {
       override.secrets = keyNameList(value.secrets, `uat.repositories "${name}".secrets`);
     }
-    if (value.gates !== undefined) override.gates = validateGates(value.gates);
+    if (value.gates !== undefined) {
+      override.gates = validateGates(value.gates, `uat.repositories "${name}".gates`);
+    }
     if (value.testDir !== undefined) {
       if (typeof value.testDir !== 'string') {
         throw new ManifestError(`uat.repositories "${name}".testDir must be a string`);
@@ -199,7 +210,7 @@ export function validateUat(raw: unknown): UatConfig | undefined {
     if (typeof raw.testDir !== 'string') throw new ManifestError('uat.testDir must be a string');
     config.testDir = raw.testDir;
   }
-  const gates = validateGates(raw.gates);
+  const gates = validateGates(raw.gates, 'uat.gates');
   if (gates !== undefined) config.gates = gates;
   const authBootstrap = validateAuthBootstrap(raw.authBootstrap);
   if (authBootstrap !== undefined) config.authBootstrap = authBootstrap;

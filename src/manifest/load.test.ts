@@ -1121,6 +1121,99 @@ describe('ticketing', () => {
   });
 });
 
+describe('review', () => {
+  it('is undefined when the block is absent', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).review).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applies every default, including the findings lane ON at high severity', () => {
+    const yaml = `${VALID}\nreview: {}\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).review).toEqual({
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+        repositories: {},
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses declared gates and a per-repository override', () => {
+    const yaml =
+      `${VALID}\nreview:\n  maxFixAttempts: 5\n  requireIndependentSignal: false\n` +
+      `  gates:\n    - { name: lint, kind: script, script: lint }\n` +
+      `  repositories:\n    backend: { gates: [{ name: lint, kind: script, script: lint:ci }] }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const review = loadManifest(path).review!;
+      expect(review.maxFixAttempts).toBe(5);
+      expect(review.requireIndependentSignal).toBe(false);
+      expect(review.gates).toEqual([{ name: 'lint', kind: 'script', script: 'lint' }]);
+      expect(review.repositories).toEqual({
+        backend: { gates: [{ name: 'lint', kind: 'script', script: 'lint:ci' }] },
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Validation is the point of this block: an unknown gate kind is refused
+  // with the offending field named, not silently defaulted or dropped.
+  it('refuses an unknown gate kind, naming the review field', () => {
+    const yaml = `${VALID}\nreview:\n  gates:\n    - { name: x, kind: shell }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /review.gates "x".kind must be one of: script, command/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Cross-referenced against the manifest's own declared repositories —
+  // `backend`/`frontend` are declared in `VALID`, `staging` is not.
+  it('refuses a review.repositories entry naming an undeclared repository', () => {
+    const yaml = `${VALID}\nreview:\n  repositories:\n    staging: { gates: [] }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /review.repositories "staging" is not a declared repository/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-positive maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: 0\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses an unknown findings.blockingSeverity', () => {
+    const yaml = `${VALID}\nreview:\n  findings:\n    blockingSeverity: urgent\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.findings.blockingSeverity/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('agentProvider', () => {
   it("defaults to 'claude' when omitted", () => {
     const { path, cleanup } = fixture(VALID);
