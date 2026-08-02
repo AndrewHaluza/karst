@@ -13,10 +13,22 @@ import {
 
 /**
  * A git alias that spawns a node grandchild and records its pid to a file.
+ *
  * The FILE, not stdout, is what the tests read: the tree gets killed mid-run,
  * and a kill that lands between the two halves of a stdout write leaves a
  * truncated number that still parses — a valid pid for some other process.
- * The write is via rename so a reader can never observe half of it.
+ * Stdout is unreadable anyway until the run has SETTLED, i.e. after the kill
+ * already happened. The write is via rename so a reader can never observe half
+ * of it.
+ *
+ * Both process-tree tests need the grandchild DEMONSTRABLY alive before the
+ * thing under test (a timeout, an abort) fires, or they race the spawn chain
+ * (git → shell alias → node → node). A fixed `setTimeout` stood in for "the
+ * tree is up", and on a loaded machine — the gate runs 254 files at once — the
+ * chain took longer, so the pid came back NaN. That fails one test and passes
+ * the sibling VACUOUSLY: `process.kill(NaN, 0)` throws, which
+ * `expectProcessDead` reads as "already dead". The wait below is bounded and
+ * its expiry is a failure, never a silent skip.
  */
 function hangTreeAlias(pidFile: string): string[] {
   const script =
@@ -184,11 +196,11 @@ describe('defaultGitRunner', () => {
       const dir = mkdtempSync(join(tmpdir(), 'karst-git-'));
       const pidFile = join(dir, 'pid');
       try {
-        // The timeout clock starts with runGit, so this test cannot wait for
-        // the grandchild before arming it. The budget therefore has to cover a
-        // node startup on a machine running the whole suite in parallel — at
-        // 100ms it did not, and the test failed on an empty pid rather than on
-        // the descendant it means to check.
+        // The timeout is the SUBJECT here, so this test cannot wait for the
+        // grandchild before arming it — it gets a budget wide enough for the
+        // spawn chain instead. At 100ms a loaded machine reaped git before its
+        // own child had spawned, and the test failed on an empty pid rather
+        // than on the descendant it means to check.
         const r = await runGit(hangTreeAlias(pidFile), process.cwd(), 2000, 1024, 500);
 
         expect(r.exitCode).toBe(1);
@@ -217,9 +229,10 @@ describe('defaultGitRunner', () => {
           controller.signal,
         );
 
-        // Abort once the grandchild exists, never on a timer: a timed abort
-        // races the spawn it is supposed to interrupt and can tear down an
-        // empty tree.
+        // Abort once the tree demonstrably EXISTS, never on a fixed delay: the
+        // claim is that abort kills a live descendant, and a delay that expires
+        // first races the spawn it is supposed to interrupt — it tears down an
+        // empty tree while looking like it passed.
         const grandchildPid = await readPidWhenWritten(pidFile);
         controller.abort();
 

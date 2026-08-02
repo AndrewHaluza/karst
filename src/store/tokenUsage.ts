@@ -40,7 +40,7 @@ export interface UsageGroupRow extends UsageTotals {
 }
 
 export interface UsageTicketRow extends UsageTotals {
-  /** NULL for calls made before the ticket existed (an onboarding draft). */
+  /** NULL for calls made before the ticket existed (a ticket-form draft). */
   ticketId: number | null;
   ticketKey: string | null;
   ticketTitle: string | null;

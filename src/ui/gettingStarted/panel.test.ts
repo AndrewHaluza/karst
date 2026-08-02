@@ -1,22 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
-import { WelcomeManager, type WelcomePanel, type WelcomePanelHost } from './panel.js';
-import type { WelcomeHostMessage } from './messages.js';
-import type { WelcomeState } from './state.js';
-import type { WelcomeActionsCtx } from './actions.js';
+import { GettingStartedManager, type GettingStartedPanel, type GettingStartedPanelHost } from './panel.js';
+import type { GettingStartedHostMessage } from './messages.js';
+import type { GettingStartedState } from './state.js';
+import type { GettingStartedActionsCtx } from './actions.js';
 
-function fakeState(): WelcomeState {
+function fakeState(): GettingStartedState {
   return { checklist: [], tutorial: [] };
 }
 
-class FakePanel implements WelcomePanel {
+class FakePanel implements GettingStartedPanel {
   revealed = 0;
-  posted: WelcomeHostMessage[] = [];
+  posted: GettingStartedHostMessage[] = [];
   private msgHandler?: (m: unknown) => void;
   private disposeHandler?: () => void;
   reveal(): void {
     this.revealed += 1;
   }
-  postMessage(m: WelcomeHostMessage): void {
+  postMessage(m: GettingStartedHostMessage): void {
     this.posted.push(m);
   }
   onDidReceiveMessage(h: (m: unknown) => void): void {
@@ -35,7 +35,7 @@ class FakePanel implements WelcomePanel {
 
 function makeHost() {
   const panels: FakePanel[] = [];
-  const host: WelcomePanelHost = {
+  const host: GettingStartedPanelHost = {
     createPanel: () => {
       const p = new FakePanel();
       panels.push(p);
@@ -45,14 +45,15 @@ function makeHost() {
   return { host, panels };
 }
 
-describe('WelcomeManager', () => {
+describe('GettingStartedManager', () => {
   it('pushes state on open', () => {
     const { host, panels } = makeHost();
-    const mgr = new WelcomeManager(fakeState, host, () => ({
+    const mgr = new GettingStartedManager(fakeState, host, () => ({
       createManifest: vi.fn(),
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
     }));
@@ -63,11 +64,12 @@ describe('WelcomeManager', () => {
 
   it('reveals the existing panel instead of duplicating', () => {
     const { host, panels } = makeHost();
-    const mgr = new WelcomeManager(fakeState, host, () => ({
+    const mgr = new GettingStartedManager(fakeState, host, () => ({
       createManifest: vi.fn(),
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
     }));
@@ -81,7 +83,7 @@ describe('WelcomeManager', () => {
     const { host, panels } = makeHost();
     const recheckDeps = vi.fn();
     const logError = vi.fn();
-    const mgr = new WelcomeManager(
+    const mgr = new GettingStartedManager(
       fakeState,
       host,
       () => ({
@@ -89,6 +91,7 @@ describe('WelcomeManager', () => {
         recheckDeps,
         openSettings: vi.fn(),
         createTicket: vi.fn(),
+        reportIssue: vi.fn(),
         dismiss: vi.fn(),
         requestState: vi.fn(),
       }),
@@ -103,11 +106,12 @@ describe('WelcomeManager', () => {
 
   it('recreates the panel after disposal', () => {
     const { host, panels } = makeHost();
-    const mgr = new WelcomeManager(fakeState, host, () => ({
+    const mgr = new GettingStartedManager(fakeState, host, () => ({
       createManifest: vi.fn(),
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
     }));
@@ -120,11 +124,12 @@ describe('WelcomeManager', () => {
 
   it('posts exactly one action-result per parsed request that carries a requestId (UI-R13)', async () => {
     const { host, panels } = makeHost();
-    const mgr = new WelcomeManager(fakeState, host, () => ({
+    const mgr = new GettingStartedManager(fakeState, host, () => ({
       createManifest: vi.fn(),
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
     }));
@@ -139,11 +144,12 @@ describe('WelcomeManager', () => {
   it('posts no action-result for a message with no requestId (back-compat)', async () => {
     const { host, panels } = makeHost();
     const recheckDeps = vi.fn();
-    const mgr = new WelcomeManager(fakeState, host, () => ({
+    const mgr = new GettingStartedManager(fakeState, host, () => ({
       createManifest: vi.fn(),
       recheckDeps,
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
     }));
@@ -158,7 +164,7 @@ describe('WelcomeManager', () => {
   it('reports a rejected action as ok:false with its message, and logs it', async () => {
     const { host, panels } = makeHost();
     const logError = vi.fn();
-    const mgr = new WelcomeManager(
+    const mgr = new GettingStartedManager(
       fakeState,
       host,
       () => ({
@@ -166,6 +172,7 @@ describe('WelcomeManager', () => {
         recheckDeps: vi.fn(),
         openSettings: vi.fn(),
         createTicket: vi.fn(),
+        reportIssue: vi.fn(),
         dismiss: vi.fn(),
         requestState: vi.fn(),
       }),
@@ -178,16 +185,17 @@ describe('WelcomeManager', () => {
     await Promise.resolve();
     const results = panels[0]!.posted.filter((m) => m.type === 'action-result');
     expect(results).toEqual([{ type: 'action-result', requestId: 'r2', ok: false, message: 'disk full' }]);
-    expect(logError).toHaveBeenCalledWith('karst: welcome action failed', expect.any(Error));
+    expect(logError).toHaveBeenCalledWith('karst: getting-started action failed', expect.any(Error));
   });
 
   it('acks a void action synchronously without waiting on anything (handoff kind)', async () => {
     const { host, panels } = makeHost();
-    const mgr = new WelcomeManager(fakeState, host, () => ({
+    const mgr = new GettingStartedManager(fakeState, host, () => ({
       createManifest: vi.fn(),
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
     }));
@@ -200,15 +208,16 @@ describe('WelcomeManager', () => {
 
   it('binds pushState so an action re-reads loadState', () => {
     const { host, panels } = makeHost();
-    let capturedCtx: WelcomeActionsCtx | undefined;
+    let capturedCtx: GettingStartedActionsCtx | undefined;
     const loadState = vi.fn(fakeState);
-    const mgr = new WelcomeManager(loadState, host, (ctx) => {
+    const mgr = new GettingStartedManager(loadState, host, (ctx) => {
       capturedCtx = ctx;
       return {
         createManifest: vi.fn(),
         recheckDeps: () => ctx.pushState(),
         openSettings: vi.fn(),
         createTicket: vi.fn(),
+        reportIssue: vi.fn(),
         dismiss: vi.fn(),
         requestState: vi.fn(),
       };

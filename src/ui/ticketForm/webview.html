@@ -1,8 +1,8 @@
 <!--
-  Karst ticket onboarding webview. Self-contained (webview CSP forbids external
+  Karst ticket ticket-form webview. Self-contained (webview CSP forbids external
   assets). Themed with VS Code's `--vscode-*` variables so it inherits light/dark.
-  Renders from the `state` postMessage the host pushes (state.ts → OnboardingState)
-  and posts action messages back (messages.ts → OnboardingMessage). One surface
+  Renders from the `state` postMessage the host pushes (state.ts → TicketFormState)
+  and posts action messages back (messages.ts → TicketFormMessage). One surface
   serves create and edit modes; the webview holds a working draft in create mode.
 -->
 <!--KARST_CSP-->
@@ -54,7 +54,6 @@
      (fetch/attach/host errors); "Title is required" ALSO marks the title
      field itself via aria-invalid/aria-describedby (§ DESIGN-SYSTEM 4.5). */
   .err{color:var(--k-danger);font-size:var(--k-text-md);margin-top:var(--k-space-4)}
-  .busy{opacity:.6;font-size:var(--k-text-xs)}
   .empty{opacity:.5;font-size:var(--k-text-md);padding:var(--k-space-3) var(--k-space-2)}
 
   .attachrow{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
@@ -242,7 +241,6 @@
               title="Fill the prompt, repositories &amp; approach together from the brief">
         <span class="rico" aria-hidden="true">⟳</span><span id="analyzeLbl">Prefill</span>
       </button>
-      <span class="busy hidden" id="analyzeBusy">analyzing…</span>
     </span>
   </div>
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
@@ -371,7 +369,7 @@
   // they opt into the recommendation by clicking its card (ticket 869e889uh).
   let aiSuggestion = null;
 
-  function renderOnboardingTicketLink(state) {
+  function renderTicketFormTicketLink(state) {
     const link = el('ticketLink');
     if (!state.ticketUrl) {
       link.classList.add('hidden');
@@ -434,7 +432,7 @@
     submitLabel = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
     if (!submitBusy) el('submitBtn').textContent = submitLabel;
     renderProvider(state.provider);
-    renderOnboardingTicketLink(state);
+    renderTicketFormTicketLink(state);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
     // what the user is typing on a re-push). The single #ref field IS the key —
@@ -860,7 +858,8 @@
   // Gate the inline control: Regenerate is active only with a signal, no run in
   // flight, and parts diverged from the last prefill. Status flips ✓ in sync ↔
   // Δ <why>; the button label reads Prefill before the first fill, Regenerate
-  // after. All status hidden while a run is in flight (the busy note shows).
+  // after. All status hidden while a run is in flight — the button's own
+  // aria-busy spinner is the only thing that says "running".
   function syncAnalyzeBtn() {
     const cur = currentParts();
     const analyzed = lastAnalyzed !== null;
@@ -1345,7 +1344,9 @@
       });
     }
     if (what === 'analyze') {
-      el('analyzeBusy').classList.toggle('hidden', !on);
+      // The button IS the pending state (aria-busy + the primitive's spinner,
+      // UI-R11/R18). It used to also toggle an `analyzing…` note beside itself —
+      // one state rendered twice, reflowing the toolbar row each way.
       if (on) el('analyzeBtn').setAttribute('aria-busy', 'true');
       else el('analyzeBtn').removeAttribute('aria-busy');
       approachBusy = on;
@@ -1370,7 +1371,7 @@
         renderFetched(briefToText(b), b.title || '');
         // Update ticket link now that we have a fresh fetch.
         const state = vscode.getState();
-        if (state) renderOnboardingTicketLink(state);
+        if (state) renderTicketFormTicketLink(state);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
         syncPhase2();
         // A fresh brief is new context nothing has been prefilled against yet.

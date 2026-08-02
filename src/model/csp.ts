@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
  *
  * The policy is as tight as it is because a webview is otherwise entirely
  * self-contained: no `<link>`, no `url()`, no `@font-face`, no `fetch()`. One
- * exception exists — the onboarding page renders prompt attachments off disk, so
+ * exception exists — the ticket form renders prompt attachments off disk, so
  * it alone is handed a `mediaSource` (the panel's `webview.cspSource`) and gets
  * `img-src`/`media-src` for it. Every other webview passes no source and keeps
  * `default-src 'none'` covering everything, because nothing they load comes from

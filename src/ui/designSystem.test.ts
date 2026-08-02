@@ -14,7 +14,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * primitives, no async feedback, and nothing failing. Discovery is what binds
  * these tests to every webview rather than to the seven that exist today.
  *
- * Three of the seven (`usage`, `diffs`, `welcome`) were in exactly that state
+ * Three of the seven (`usage`, `diffs`, `gettingStarted`) were in exactly that state
  * for the palette: they carried no `/*KARST_PALETTE*\/` marker and no host call,
  * so they sat outside the one shared block that already existed. That is the
  * failure mode this test makes loud.
@@ -38,11 +38,11 @@ describe('design system webview discovery', () => {
     expect([...WEBVIEWS].sort()).toEqual([
       'dashboard',
       'diffs',
-      'onboarding',
+      'gettingStarted',
       'settings',
       'sidebar',
+      'ticketForm',
       'usage',
-      'welcome',
     ]);
   });
 });

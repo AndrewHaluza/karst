@@ -15,7 +15,7 @@ const { delimiter, extname, isAbsolute, join } = win32;
  * `npm` on Windows is not an executable — it ships as `npm.cmd`. Node's spawn
  * resolves executable IMAGES on PATH (.exe/.com) and refuses batch shims
  * outright, so every bare `npm` spawn is an ENOENT there while `git`, `gh` and
- * `claude` (all real .exe) work. That asymmetry is why the onboarding checklist
+ * `claude` (all real .exe) work. That asymmetry is why the Getting Started checklist
  * reported "npm is installed ✗" on a machine with npm on PATH, and it would have
  * hit both gates and the worktree install next: a missing npm makes every gate
  * exit nonzero, which the driver reads as a code verdict and parks the ticket in

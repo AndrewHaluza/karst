@@ -2,17 +2,19 @@ import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import type { OnboardingPanel, OnboardingPanelHost } from './panel.js';
+import type { TicketFormPanel, TicketFormPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { attachmentsRoot } from '../../attachments/paths.js';
+import type { BrandIconPaths } from '../brandIcon.js';
+import { brandIconUri } from '../panelIcon.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
- * `OnboardingPanelHost` interface. This is the one place `vscode` webview APIs
- * bind to the onboarding manager; everything below it is tested with fakes.
+ * `TicketFormPanelHost` interface. This is the one place `vscode` webview APIs
+ * bind to the ticket-form manager; everything below it is tested with fakes.
  *
  * The HTML is located relative to the compiled module so it resolves the same
  * whether run from `dist/` (copy-assets mirrors it) or via ts-node in tests.
@@ -20,14 +22,17 @@ import { attachmentsRoot } from '../../attachments/paths.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export function makeOnboardingPanelHost(context: vscode.ExtensionContext): OnboardingPanelHost {
+export function makeTicketFormPanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): TicketFormPanelHost {
   const html = injectProviderIdentity(
     injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
   );
   return {
-    createPanel(title: string): OnboardingPanel {
+    createPanel(title: string): TicketFormPanel {
       const panel = vscode.window.createWebviewPanel(
-        'karst.onboarding',
+        'karst.ticketForm',
         title,
         vscode.ViewColumn.Active,
         {
@@ -40,6 +45,10 @@ export function makeOnboardingPanelHost(context: vscode.ExtensionContext): Onboa
           ],
         },
       );
+      // The brand mark up front: a create-mode page has no ticket, so `setIcon`
+      // never fires for it and the tab would otherwise stay unmarked for its
+      // whole life. A bound panel repaints over this with its status glyph.
+      panel.iconPath = brandIconUri(brandIcon);
       // Nonce per panel, not per host (the html above is built once and reused).
       panel.webview.html = injectCsp(html, newNonce(), panel.webview.cspSource);
       return {

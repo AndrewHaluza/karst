@@ -66,6 +66,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     installApproach: async () => { order.push('install'); return undefined; },
     confirmInstallCommand: async () => true,
     uninstallApproach: () => { order.push('uninstall'); return true; },
+    clearApproachFromTickets: () => 0,
     listInstalledIds: () => ['a'],
     setToken: async () => { order.push('setToken'); return true; },
     clearToken: async () => { order.push('clearToken'); },
@@ -361,6 +362,83 @@ describe('settings actions — installApproach npm-source confirm', () => {
     expect(asked).toBe(false);
     expect(order).toContain('install');
   });
+
+  /**
+   * The mirror of uninstall's disable: `enabled` is slaved to installedness for
+   * a SOURCED approach (`setApproachEnabled` already refuses to enable one that
+   * is not installed), so a reinstall has to restore an entry that is actually
+   * offerable again — otherwise uninstall→install does not converge and the
+   * approach stays invisible in the picker (869eckp0x).
+   */
+  it('re-enables a sourced approach the previous uninstall disabled', async () => {
+    let written: Manifest | undefined;
+    const { actions, order } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, approaches: [{ ...APPROACH_SOURCED, enabled: false }] },
+        error: null,
+      }),
+      writeManifest: (_p, m) => { order.push('write'); written = m; },
+      listInstalledIds: () => ['rpi'],
+    });
+    await actions.installApproach('rpi');
+    expect(order).toEqual(['install', 'write', 'reload', 'change']);
+    expect(written?.approaches?.find((a) => a.id === 'rpi')?.enabled).toBe(true);
+  });
+
+  it('an already-enabled approach is not rewritten on reinstall', async () => {
+    const { actions, order } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, approaches: [{ ...APPROACH_SOURCED, enabled: true }] },
+        error: null,
+      }),
+      listInstalledIds: () => ['rpi'],
+    });
+    await actions.installApproach('rpi');
+    expect(order).not.toContain('write');
+  });
+
+  /**
+   * The permanent-warning case: a source that can NEVER produce a package (an
+   * npm `collect: []`) fails identically on every attempt, so an entry left
+   * enabled keeps being offered, keeps being picked, and keeps warning at
+   * launch through any number of uninstall→install cycles (869eckp0x). Nothing
+   * is on disk after the failure, so the flag follows disk down.
+   */
+  it('a failed install that left nothing on disk retires the entry', async () => {
+    let written: Manifest | undefined;
+    const { actions, posted } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, approaches: [{ ...APPROACH_SOURCED, enabled: true }] },
+        error: null,
+      }),
+      writeManifest: (_p, m) => { written = m; },
+      installApproach: async () => { throw new Error('collected nothing installable'); },
+      listInstalledIds: () => [],
+    });
+    await actions.installApproach('rpi');
+    expect((posted.find((m) => m.type === 'error') as any).message).toBe(
+      'collected nothing installable',
+    );
+    expect(written?.approaches?.find((a) => a.id === 'rpi')?.enabled).toBe(false);
+  });
+
+  /**
+   * A transient failure (an unreachable remote) leaves the previously installed
+   * package untouched, so the entry is still legitimately enabled — the flag
+   * follows DISK, never the attempt's outcome.
+   */
+  it('a failed install that left the package intact changes nothing', async () => {
+    const { actions, order } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, approaches: [{ ...APPROACH_SOURCED, enabled: true }] },
+        error: null,
+      }),
+      installApproach: async () => { throw new Error('fetch failed'); },
+      listInstalledIds: () => ['rpi'],
+    });
+    await actions.installApproach('rpi');
+    expect(order).not.toContain('write');
+  });
 });
 
 describe('settings actions — uninstallApproach', () => {
@@ -375,6 +453,77 @@ describe('settings actions — uninstallApproach', () => {
     expect(calledWith).toBe('a');
     const s = posted.find((m) => m.type === 'state');
     expect((s as any).state.installedIds).toEqual([]);
+  });
+
+  /**
+   * Uninstall owns three things, not one: the package directory, the manifest's
+   * `enabled` flag for that approach, and every ticket reference to it. Leaving
+   * the flag true reproduces exactly the state `setApproachEnabled` refuses to
+   * create (enabled + not installed), and leaving the ticket references dangling
+   * is what makes the launch warning outlive the uninstall (869eckp0x).
+   */
+  it('disables the approach in the manifest and clears its ticket references', async () => {
+    let written: Manifest | undefined;
+    let clearedId: string | undefined;
+    const { actions, order } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, approaches: [{ ...APPROACH_SOURCED, enabled: true }] },
+        error: null,
+      }),
+      writeManifest: (_p, m) => { order.push('write'); written = m; },
+      uninstallApproach: () => { order.push('uninstall'); return true; },
+      clearApproachFromTickets: (id) => { clearedId = id; order.push('clearTickets'); return 3; },
+      listInstalledIds: () => [],
+    });
+    await actions.uninstallApproach('rpi');
+    expect(order).toEqual(['uninstall', 'clearTickets', 'write', 'reload', 'change']);
+    expect(clearedId).toBe('rpi');
+    expect(written?.approaches?.find((a) => a.id === 'rpi')?.enabled).toBe(false);
+  });
+
+  it('leaves every other approach entry untouched', async () => {
+    let written: Manifest | undefined;
+    const { actions } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, approaches: [APPROACH_A, { ...APPROACH_SOURCED, enabled: true }] },
+        error: null,
+      }),
+      writeManifest: (_p, m) => { written = m; },
+      clearApproachFromTickets: () => 0,
+    });
+    await actions.uninstallApproach('rpi');
+    expect(written?.approaches?.find((a) => a.id === 'a')).toEqual(APPROACH_A);
+  });
+
+  it('is idempotent — a repeat uninstall rewrites nothing', async () => {
+    const { actions, order } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, approaches: [{ ...APPROACH_SOURCED, enabled: false }] },
+        error: null,
+      }),
+      uninstallApproach: () => { order.push('uninstall'); return false; },
+      clearApproachFromTickets: () => 0,
+      listInstalledIds: () => [],
+    });
+    await actions.uninstallApproach('rpi');
+    expect(order).not.toContain('write');
+  });
+
+  /**
+   * A manifest that does not parse is not ours to rewrite: overlaying an
+   * `enabled` flag onto the empty fallback would erase the file. Files and
+   * ticket references are still cleaned — those do not depend on the manifest.
+   */
+  it('never rewrites a manifest that failed to load', async () => {
+    const { actions, order } = harness({
+      loadState: () => ({ manifest: VALID, error: 'Invalid karst.yml: bad indent' }),
+      uninstallApproach: () => { order.push('uninstall'); return true; },
+      clearApproachFromTickets: () => { order.push('clearTickets'); return 1; },
+    });
+    await actions.uninstallApproach('rpi');
+    expect(order).toContain('uninstall');
+    expect(order).toContain('clearTickets');
+    expect(order).not.toContain('write');
   });
 
   it('uninstaller throws: posts error', async () => {

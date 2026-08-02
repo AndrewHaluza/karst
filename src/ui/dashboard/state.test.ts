@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
+import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
@@ -41,7 +41,7 @@ describe('buildDashboardState', () => {
 
   it('shows the resolved agent core/model and enables switching only for a live impl session', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
-    updateTicketOnboarding(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
+    updateTicketFields(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
 
     const state = buildDashboardState(
@@ -137,7 +137,7 @@ describe('buildDashboardState', () => {
 
   it('builds a provider ticket URL from the source ref for a clickup ticket', () => {
     const t = createTicket(store, { key: 'CU-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { sourceRef: 'abc123' });
+    updateTicketFields(store, t.id, { sourceRef: 'abc123' });
     const state = buildDashboardState(store, t.id, undefined, { provider: 'clickup' });
     expect(state.provider).toBe('clickup');
     expect(state.sourceRef).toBe('abc123');
@@ -146,7 +146,7 @@ describe('buildDashboardState', () => {
 
   it('has no ticket URL for a manual provider or a missing source ref', () => {
     const manual = createTicket(store, { key: 'M-1', title: 't' });
-    updateTicketOnboarding(store, manual.id, { sourceRef: 'abc123' });
+    updateTicketFields(store, manual.id, { sourceRef: 'abc123' });
     expect(buildDashboardState(store, manual.id, undefined, { provider: 'manual' }).ticketUrl).toBeNull();
     const noRef = createTicket(store, { key: 'CU-2', title: 't' });
     expect(buildDashboardState(store, noRef.id, undefined, { provider: 'clickup' }).ticketUrl).toBeNull();
@@ -154,7 +154,7 @@ describe('buildDashboardState', () => {
 
   it('defaults provider fields to null when no ticketing config is passed', () => {
     const t = createTicket(store, { key: 'N-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { sourceRef: 'abc123' });
+    updateTicketFields(store, t.id, { sourceRef: 'abc123' });
     const state = buildDashboardState(store, t.id);
     expect(state.provider).toBeNull();
     expect(state.ticketUrl).toBeNull();
@@ -162,7 +162,7 @@ describe('buildDashboardState', () => {
 
   it('names the approach driving impl and its declared phases', () => {
     const t = createTicket(store, { key: 'W-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { approach: 'rpi' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
     const phases = (approachId: string | null) =>
       approachId === 'rpi' ? ['research', 'plan', 'implement'] : [];
     const state = buildDashboardState(store, t.id, undefined, undefined, phases);
@@ -243,7 +243,7 @@ describe('buildDashboardState', () => {
     // Declared is not observed: an unmarked phase renders hollow and must never
     // be claimed as done.
     const t = createTicket(store, { key: 'N-5', title: 't' });
-    updateTicketOnboarding(store, t.id, { approach: 'rpi' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
     setStage(store, t.id, 'impl', { status: 'running' });
     recordPhaseMark(store, {
       ticketId: t.id,
@@ -346,7 +346,7 @@ describe('buildDashboardState — runnable scope', () => {
 
   function scoped(repos: string[]): number {
     const t = createTicket(store, { key: 'P-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { selectedRepos: repos });
+    updateTicketFields(store, t.id, { selectedRepos: repos });
     return t.id;
   }
 

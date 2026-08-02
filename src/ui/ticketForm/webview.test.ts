@@ -40,12 +40,12 @@ function htmlConstNumber(name: string): number {
 }
 
 /**
- * Text-level guards on the onboarding webview (§ manual ticket creation, §
+ * Text-level guards on the ticket-form webview (§ manual ticket creation, §
  * fetch-on-Enter). Standalone HTML with no test harness — same rationale as
  * dashboard/webview.test.ts: every DECISION here is host-agnostic script logic
  * that these regex checks can pin, even though nothing actually renders a DOM.
  */
-describe('onboarding webview.html', () => {
+describe('ticket-form webview.html', () => {
   it('gates Phase 2 on the title alone, whatever the provider — the key is never required', () => {
     // The literal bug (869echhyr): typing a title without clicking Fetch left
     // Phase 2 hidden on any board-backed provider, because phase1Valid()
@@ -362,7 +362,7 @@ function scriptBlock(): string {
   return HTML.slice(start + '<script>'.length, end);
 }
 
-describe('onboarding webview.html — UI-RULES.md remediation', () => {
+describe('ticket-form webview.html — UI-RULES.md remediation', () => {
   it('carries the design-system markers ahead of any file-local rule (UI-R03)', () => {
     const [main] = styleBlocks();
     expect(main!.trimStart().startsWith('/*KARST_DS_CSS*/')).toBe(true);
@@ -505,6 +505,23 @@ describe('onboarding webview.html — UI-RULES.md remediation', () => {
     }
     // render() only ever sets the submit label OUTSIDE a busy window.
     expect(script).toContain("if (!submitBusy) el('submitBtn').textContent = submitLabel;");
+  });
+
+  /**
+   * The Prefill button already carries its pending state the way every other
+   * control does — `aria-busy` plus the primitive's own spinner (UI-R11/R18).
+   * The `analyzing…` note beside it was a SECOND rendering of that one state,
+   * so the toolbar read "⟳ Prefill analyzing…" and the row reflowed as the
+   * word appeared and vanished. One state, one expression.
+   */
+  it('states the analyze pending once, on the button, with no second note beside it', () => {
+    // Rendered text, not the source: the comment that records the defect is
+    // allowed to name it.
+    expect(HTML, 'the note is still rendered').not.toMatch(/>\s*analyzing/i);
+    expect(HTML, 'the note element survives').not.toContain('analyzeBusy');
+    expect(HTML, 'analyze no longer marks the button busy').toContain(
+      "el('analyzeBtn').setAttribute('aria-busy', 'true')",
+    );
   });
 
   it('the busy vocabulary is closed and every member (including "suggest") is handled (UI-R16)', () => {

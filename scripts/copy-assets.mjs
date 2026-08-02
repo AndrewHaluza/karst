@@ -10,11 +10,11 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const assets = [
   'ui/dashboard/webview.html',
   'ui/diffs/webview.html',
-  'ui/onboarding/webview.html',
+  'ui/ticketForm/webview.html',
   'ui/settings/webview.html',
   'ui/sidebar/webview.html',
   'ui/usage/webview.html',
-  'ui/welcome/webview.html',
+  'ui/gettingStarted/webview.html',
   'store/schema.sql',
 ]; // sourced from src/
 const rootAssets = ['karst.example.yml']; // sourced from the repo root

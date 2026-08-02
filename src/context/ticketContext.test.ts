@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
+import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
@@ -35,7 +35,7 @@ describe('buildTicketContext', () => {
 
   function seed(): number {
     const t = createTicket(store, { key: 'PROJ-9', title: 'Do research' });
-    updateTicketOnboarding(store, t.id, {
+    updateTicketFields(store, t.id, {
       description: 'Audit the app',
       brief: 'A short brief',
       approach: 'rpi',
@@ -89,7 +89,7 @@ describe('buildTicketContext', () => {
 
   it('includes a parent section when the ticket links to a completed parent', () => {
     const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
-    updateTicketOnboarding(store, parent.id, { brief: 'Built the thing.' });
+    updateTicketFields(store, parent.id, { brief: 'Built the thing.' });
     store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(parent.id);
     store.db
       .prepare(
@@ -225,7 +225,7 @@ describe('renderTicketContext', () => {
 
   it('renders every populated section as markdown', () => {
     const t = createTicket(store, { key: 'PROJ-9', title: 'Do research' });
-    updateTicketOnboarding(store, t.id, {
+    updateTicketFields(store, t.id, {
       description: 'Audit the app',
       brief: 'A short brief',
       selectedRepos: ['frontend'],
@@ -313,7 +313,7 @@ describe('renderTicketContext', () => {
   // A non-runnable repo used to render `start: undefined` into the agent's brief.
   it('renders a repository with no service without inventing a start command', () => {
     const t = createTicket(store, { key: 'P-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { selectedRepos: ['docs'] });
+    updateTicketFields(store, t.id, { selectedRepos: ['docs'] });
     const md = renderTicketContext(
       buildTicketContext(store, manifest({ docs: nonRunnable() }), t.id),
     );
@@ -327,7 +327,7 @@ describe('renderTicketContext', () => {
   // not exist rather than that karst could not find it.
   it('says so when a selected repo is missing from the manifest, never dropping it', () => {
     const t = createTicket(store, { key: 'P-2', title: 'x' });
-    updateTicketOnboarding(store, t.id, { selectedRepos: ['ghost'] });
+    updateTicketFields(store, t.id, { selectedRepos: ['ghost'] });
     const md = renderTicketContext(
       buildTicketContext(store, manifest({ docs: nonRunnable() }), t.id),
     );
@@ -337,7 +337,7 @@ describe('renderTicketContext', () => {
 
   it('renders runnable and non-runnable repos in one section, not two', () => {
     const t = createTicket(store, { key: 'P-3', title: 'x' });
-    updateTicketOnboarding(store, t.id, { selectedRepos: ['frontend', 'docs'] });
+    updateTicketFields(store, t.id, { selectedRepos: ['frontend', 'docs'] });
     const md = renderTicketContext(
       buildTicketContext(store, manifest({ frontend: svc(), docs: nonRunnable() }), t.id),
     );

@@ -148,8 +148,8 @@ function meterFor(
 /**
  * Split a flat stepper into the shape the track is drawn in.
  *
- * `buildStepper` keeps its canonical projection — that is correct, and onboarding
- * relies on it. This is the dashboard's view on top of it.
+ * `buildStepper` keeps its canonical projection — that is correct, and the
+ * ticket form relies on it. This is the dashboard's view on top of it.
  */
 export function buildStageRail(
   stepper: readonly StepperCell[],

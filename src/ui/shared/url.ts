@@ -6,7 +6,7 @@
  * `vscode://` or a `command:` URI, so a crafted message must be held to http(s)
  * before it gets there. This lives in one module because the guard was
  * previously copied inline per message type, and the copy is exactly how
- * onboarding ended up without it while the dashboard had it.
+ * the ticket form ended up without it while the dashboard had it.
  *
  * Scheme comparison is case-insensitive per RFC 3986 §3.1 — `HTTPS://…` is a
  * valid https URL, and rejecting it would be a silent false negative for any

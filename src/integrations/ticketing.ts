@@ -91,7 +91,7 @@ export interface BriefAttachment {
 }
 
 /**
- * Provider-agnostic synthesis of a fetched ticket — the shape the onboarding
+ * Provider-agnostic synthesis of a fetched ticket — the shape the ticket form
  * page renders and persists. A provider parses its native payload into this.
  */
 export interface ContextBrief {

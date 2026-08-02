@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join, resolve } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
+import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { upsertProject } from '../store/projects.js';
 import { parseContextArgs, runContextCommand, composeContextCommand } from './context.js';
@@ -58,7 +58,7 @@ describe('runContextCommand', () => {
 
   function seed(): void {
     const t = createTicket(store, { key: 'PROJ-9', title: 'Do research' });
-    updateTicketOnboarding(store, t.id, {
+    updateTicketFields(store, t.id, {
       description: 'Audit the app',
       selectedRepos: ['frontend'],
     });

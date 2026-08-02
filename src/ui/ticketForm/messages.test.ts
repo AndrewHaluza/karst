@@ -1,57 +1,57 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseOnboardingMessage, routeOnboardingAction, type OnboardingActions } from './messages.js';
+import { parseTicketFormMessage, routeTicketFormAction, type TicketFormActions } from './messages.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 
-describe('parseOnboardingMessage', () => {
+describe('parseTicketFormMessage', () => {
   it('accepts a well-formed fetch-source message', () => {
-    expect(parseOnboardingMessage({ type: 'fetch-source', ref: 'CU-1' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'fetch-source', ref: 'CU-1' })).toEqual({
       type: 'fetch-source',
       ref: 'CU-1',
     });
   });
 
   it('accepts suggest-signals and save-signals with validated fields', () => {
-    expect(parseOnboardingMessage({ type: 'suggest-signals', service: 'fe' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'suggest-signals', service: 'fe' })).toEqual({
       type: 'suggest-signals',
       service: 'fe',
     });
     expect(
-      parseOnboardingMessage({ type: 'save-signals', service: 'be', signals: ['api', 'db'] }),
+      parseTicketFormMessage({ type: 'save-signals', service: 'be', signals: ['api', 'db'] }),
     ).toEqual({ type: 'save-signals', service: 'be', signals: ['api', 'db'] });
   });
 
   it('accepts set-repos, set-approach, request-state, and submit', () => {
-    expect(parseOnboardingMessage({ type: 'set-repos', repos: ['fe', 'be'] })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-repos', repos: ['fe', 'be'] })).toEqual({
       type: 'set-repos',
       repos: ['fe', 'be'],
     });
-    expect(parseOnboardingMessage({ type: 'set-approach', id: 'rpi' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-approach', id: 'rpi' })).toEqual({
       type: 'set-approach',
       id: 'rpi',
     });
-    expect(parseOnboardingMessage({ type: 'analyze', prompt: 'do the thing' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'do the thing' })).toEqual({
       type: 'analyze',
       prompt: 'do the thing',
     });
     // empty prompt is allowed (host falls back to the persisted brief)
-    expect(parseOnboardingMessage({ type: 'analyze', prompt: '' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'analyze', prompt: '' })).toEqual({
       type: 'analyze',
       prompt: '',
     });
     // a non-string prompt is rejected at the trust boundary
-    expect(parseOnboardingMessage({ type: 'analyze' })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'analyze' })).toBeNull();
     expect(
-      parseOnboardingMessage({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }),
+      parseTicketFormMessage({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }),
     ).toEqual({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' });
-    expect(parseOnboardingMessage({ type: 'request-state' })).toEqual({ type: 'request-state' });
+    expect(parseTicketFormMessage({ type: 'request-state' })).toEqual({ type: 'request-state' });
     expect(
-      parseOnboardingMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
+      parseTicketFormMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
       type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
     });
     // repos + approach + agent + model + agentProvider carried through when present
     expect(
-      parseOnboardingMessage({
+      parseTicketFormMessage({
         type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
       }),
     ).toEqual({
@@ -61,20 +61,20 @@ describe('parseOnboardingMessage', () => {
 
   it('accepts a well-formed save message, mirroring submit validation', () => {
     expect(
-      parseOnboardingMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
+      parseTicketFormMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
       type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
     expect(
-      parseOnboardingMessage({
+      parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
       }),
     ).toEqual({
       type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
     });
-    expect(parseOnboardingMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
-    expect(parseOnboardingMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
-    expect(parseOnboardingMessage({ type: 'save', key: 'P-1', title: 't' })).toBeNull(); // missing description
+    expect(parseTicketFormMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
+    expect(parseTicketFormMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
+    expect(parseTicketFormMessage({ type: 'save', key: 'P-1', title: 't' })).toBeNull(); // missing description
   });
 
   // A blank key is valid — manual ticket creation leaves it to be generated
@@ -83,12 +83,12 @@ describe('parseOnboardingMessage', () => {
   // "rejects malformed shapes" test below).
   it('accepts an empty key — manual creation generates one at persist time', () => {
     expect(
-      parseOnboardingMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
+      parseTicketFormMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
       type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
     });
     expect(
-      parseOnboardingMessage({ type: 'save', key: '', title: 't', description: 'd' }),
+      parseTicketFormMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
       type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
     });
@@ -99,56 +99,56 @@ describe('parseOnboardingMessage', () => {
   // said false, so an older webview (or a stripped message) still refreshes.
   it('carries the pull switch on submit, defaulting ON for anything but an explicit false', () => {
     const base = { type: 'submit', key: 'P-1', title: 't', description: 'd' };
-    expect(parseOnboardingMessage({ ...base, pullBase: false })).toMatchObject({
+    expect(parseTicketFormMessage({ ...base, pullBase: false })).toMatchObject({
       type: 'submit',
       pullBase: false,
     });
-    expect(parseOnboardingMessage({ ...base, pullBase: true })).toMatchObject({ pullBase: true });
-    expect(parseOnboardingMessage(base)).toMatchObject({ pullBase: true });
+    expect(parseTicketFormMessage({ ...base, pullBase: true })).toMatchObject({ pullBase: true });
+    expect(parseTicketFormMessage(base)).toMatchObject({ pullBase: true });
     // A non-boolean is not a choice — it must not read as "skip the pull".
-    expect(parseOnboardingMessage({ ...base, pullBase: 'no' })).toMatchObject({ pullBase: true });
+    expect(parseTicketFormMessage({ ...base, pullBase: 'no' })).toMatchObject({ pullBase: true });
     // `save` never launches, so it carries no switch at all.
-    expect(parseOnboardingMessage({ ...base, type: 'save', pullBase: false })).not.toHaveProperty(
+    expect(parseTicketFormMessage({ ...base, type: 'save', pullBase: false })).not.toHaveProperty(
       'pullBase',
     );
   });
 
   it('accepts a well-formed set-agent message', () => {
-    expect(parseOnboardingMessage({ type: 'set-agent', id: 'reviewer' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-agent', id: 'reviewer' })).toEqual({
       type: 'set-agent',
       id: 'reviewer',
     });
   });
 
   it('accepts set-type, including the empty "inherit" choice', () => {
-    expect(parseOnboardingMessage({ type: 'set-type', id: 'fix' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-type', id: 'fix' })).toEqual({
       type: 'set-type',
       id: 'fix',
     });
-    expect(parseOnboardingMessage({ type: 'set-type', id: '' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-type', id: '' })).toEqual({
       type: 'set-type',
       id: '',
     });
-    expect(parseOnboardingMessage({ type: 'set-type', id: 7 })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'set-type', id: 7 })).toBeNull();
   });
 
   it('accepts set-model, including the empty "inherit" choice', () => {
-    expect(parseOnboardingMessage({ type: 'set-model', id: 'claude-sonnet-5' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-model', id: 'claude-sonnet-5' })).toEqual({
       type: 'set-model',
       id: 'claude-sonnet-5',
     });
-    expect(parseOnboardingMessage({ type: 'set-model', id: '' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-model', id: '' })).toEqual({
       type: 'set-model',
       id: '',
     });
   });
 
   it('accepts set-provider, including the empty "inherit" choice', () => {
-    expect(parseOnboardingMessage({ type: 'set-provider', id: 'codex' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-provider', id: 'codex' })).toEqual({
       type: 'set-provider',
       id: 'codex',
     });
-    expect(parseOnboardingMessage({ type: 'set-provider', id: '' })).toEqual({
+    expect(parseTicketFormMessage({ type: 'set-provider', id: '' })).toEqual({
       type: 'set-provider',
       id: '',
     });
@@ -158,19 +158,19 @@ describe('parseOnboardingMessage', () => {
   // reach resolveAdapter's FACTORIES lookup (a TypeError there would crash
   // the openSession command handler before its own guards run).
   it('rejects a set-provider message with an unrecognized provider id', () => {
-    expect(parseOnboardingMessage({ type: 'set-provider', id: 'evil' })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'set-provider', id: 'evil' })).toBeNull();
   });
 
   it('degrades an unrecognized agentProvider on submit/save to null rather than rejecting the whole message', () => {
     expect(
-      parseOnboardingMessage({
+      parseTicketFormMessage({
         type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
       type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
     });
     expect(
-      parseOnboardingMessage({
+      parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
@@ -180,32 +180,32 @@ describe('parseOnboardingMessage', () => {
 
   // open-ticket-link drives vscode.env.openExternal, so the scheme allowlist is
   // the trust boundary — not the non-empty-string check this used to carry. The
-  // dashboard guarded this and onboarding didn't; both now share isHttpUrl.
+  // dashboard guarded this and the ticket form didn't; both now share isHttpUrl.
   it('rejects a non-http(s) open-ticket-link url', () => {
     for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'command:foo', '']) {
-      expect(parseOnboardingMessage({ type: 'open-ticket-link', url })).toBeNull();
+      expect(parseTicketFormMessage({ type: 'open-ticket-link', url })).toBeNull();
     }
-    expect(parseOnboardingMessage({ type: 'open-ticket-link' })).toBeNull();
-    expect(parseOnboardingMessage({ type: 'open-ticket-link', url: 42 })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'open-ticket-link' })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'open-ticket-link', url: 42 })).toBeNull();
   });
 
   it('rejects malformed shapes (trust boundary)', () => {
-    expect(parseOnboardingMessage(null)).toBeNull();
-    expect(parseOnboardingMessage({})).toBeNull();
-    expect(parseOnboardingMessage({ type: 'unknown' })).toBeNull();
-    expect(parseOnboardingMessage({ type: 'fetch-source' })).toBeNull(); // missing ref
-    expect(parseOnboardingMessage({ type: 'save-signals', service: 'be' })).toBeNull(); // missing signals
+    expect(parseTicketFormMessage(null)).toBeNull();
+    expect(parseTicketFormMessage({})).toBeNull();
+    expect(parseTicketFormMessage({ type: 'unknown' })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'fetch-source' })).toBeNull(); // missing ref
+    expect(parseTicketFormMessage({ type: 'save-signals', service: 'be' })).toBeNull(); // missing signals
     expect(
-      parseOnboardingMessage({ type: 'save-signals', service: 'be', signals: [1, 2] }),
+      parseTicketFormMessage({ type: 'save-signals', service: 'be', signals: [1, 2] }),
     ).toBeNull(); // non-string signals
-    expect(parseOnboardingMessage({ type: 'set-repos', repos: 'fe' })).toBeNull(); // not an array
-    expect(parseOnboardingMessage({ type: 'submit', title: 't' })).toBeNull(); // missing key
-    expect(parseOnboardingMessage({ type: 'install-approach', id: 'rpi' })).toBeNull(); // removed message type
+    expect(parseTicketFormMessage({ type: 'set-repos', repos: 'fe' })).toBeNull(); // not an array
+    expect(parseTicketFormMessage({ type: 'submit', title: 't' })).toBeNull(); // missing key
+    expect(parseTicketFormMessage({ type: 'install-approach', id: 'rpi' })).toBeNull(); // removed message type
   });
 });
 
-describe('routeOnboardingAction', () => {
-  function spyActions(): OnboardingActions {
+describe('routeTicketFormAction', () => {
+  function spyActions(): TicketFormActions {
     return {
       fetchSource: vi.fn(),
       suggestSignals: vi.fn(),
@@ -230,18 +230,18 @@ describe('routeOnboardingAction', () => {
 
   it('routes each valid message to its action', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'fetch-source', ref: 'CU-1' }, actions);
-    routeOnboardingAction({ type: 'save-signals', service: 'be', signals: ['api'] }, actions);
-    routeOnboardingAction(
+    routeTicketFormAction({ type: 'fetch-source', ref: 'CU-1' }, actions);
+    routeTicketFormAction({ type: 'save-signals', service: 'be', signals: ['api'] }, actions);
+    routeTicketFormAction(
       { type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex' },
       actions,
     );
-    routeOnboardingAction({ type: 'analyze', prompt: 'go' }, actions);
-    routeOnboardingAction({ type: 'set-agent', id: 'reviewer' }, actions);
-    routeOnboardingAction({ type: 'set-model', id: 'claude-sonnet-5' }, actions);
-    routeOnboardingAction({ type: 'set-provider', id: 'antigravity' }, actions);
-    routeOnboardingAction({ type: 'set-type', id: 'fix' }, actions);
-    routeOnboardingAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
+    routeTicketFormAction({ type: 'analyze', prompt: 'go' }, actions);
+    routeTicketFormAction({ type: 'set-agent', id: 'reviewer' }, actions);
+    routeTicketFormAction({ type: 'set-model', id: 'claude-sonnet-5' }, actions);
+    routeTicketFormAction({ type: 'set-provider', id: 'antigravity' }, actions);
+    routeTicketFormAction({ type: 'set-type', id: 'fix' }, actions);
+    routeTicketFormAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
@@ -260,7 +260,7 @@ describe('routeOnboardingAction', () => {
 
   it('routes a valid save message to the save action', () => {
     const actions = spyActions();
-    routeOnboardingAction(
+    routeTicketFormAction(
       { type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex' },
       actions,
     );
@@ -271,26 +271,26 @@ describe('routeOnboardingAction', () => {
 
   it('does not fall through from set-provider into set-type', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'set-provider', id: 'codex' }, actions);
+    routeTicketFormAction({ type: 'set-provider', id: 'codex' }, actions);
     expect(actions.setProvider).toHaveBeenCalledWith('codex');
     expect(actions.setType).not.toHaveBeenCalled();
   });
 
   it('ignores install-approach (removed — install now lives in settings)', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'install-approach', id: 'rpi' }, actions);
+    routeTicketFormAction({ type: 'install-approach', id: 'rpi' }, actions);
     expect(actions.analyze).not.toHaveBeenCalled();
   });
 
   it('ignores malformed messages without throwing', () => {
     const actions = spyActions();
-    expect(() => routeOnboardingAction({ type: 'nope' }, actions)).not.toThrow();
+    expect(() => routeTicketFormAction({ type: 'nope' }, actions)).not.toThrow();
     expect(actions.fetchSource).not.toHaveBeenCalled();
   });
 });
 
 describe('attachment messages', () => {
-  function spyActions(): OnboardingActions {
+  function spyActions(): TicketFormActions {
     return {
       fetchSource: vi.fn(),
       suggestSignals: vi.fn(),
@@ -315,13 +315,13 @@ describe('attachment messages', () => {
 
   it('routes attach-pick', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'attach-pick' }, actions);
+    routeTicketFormAction({ type: 'attach-pick' }, actions);
     expect(actions.attachPick).toHaveBeenCalled();
   });
 
   it('routes a well-formed attach-bytes', () => {
     const actions = spyActions();
-    routeOnboardingAction(
+    routeTicketFormAction(
       { type: 'attach-bytes', name: 'shot.png', base64: 'AAAA' }, actions,
     );
     expect(actions.attachBytes).toHaveBeenCalledWith('shot.png', 'AAAA');
@@ -329,21 +329,21 @@ describe('attachment messages', () => {
 
   it('ignores attach-bytes with a non-string name or payload', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'attach-bytes', name: 1, base64: 'AAAA' }, actions);
-    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: null }, actions);
-    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png' }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: 1, base64: 'AAAA' }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: 'a.png', base64: null }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: 'a.png' }, actions);
     expect(actions.attachBytes).not.toHaveBeenCalled();
   });
 
   it('ignores attach-bytes with an empty name', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'attach-bytes', name: '', base64: 'AAAA' }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: '', base64: 'AAAA' }, actions);
     expect(actions.attachBytes).not.toHaveBeenCalled();
   });
 
   it('ignores attach-bytes with an empty base64 payload', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: '' }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: 'a.png', base64: '' }, actions);
     expect(actions.attachBytes).not.toHaveBeenCalled();
   });
 
@@ -354,7 +354,7 @@ describe('attachment messages', () => {
     const actions = spyActions();
     // 4 base64 chars per 3 bytes, so this decodes to just over the cap.
     const oversize = 'A'.repeat(Math.ceil((MAX_PASTE_BYTES + 1024) / 3) * 4);
-    routeOnboardingAction({ type: 'attach-bytes', name: 'a.png', base64: oversize }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: 'a.png', base64: oversize }, actions);
     expect(actions.attachBytes).not.toHaveBeenCalled();
   });
 
@@ -364,8 +364,8 @@ describe('attachment messages', () => {
     const overCap = Buffer.alloc(MAX_PASTE_BYTES + 1).toString('base64');
     expect(atCap).toHaveLength(overCap.length);
 
-    routeOnboardingAction({ type: 'attach-bytes', name: 'edge.png', base64: atCap }, actions);
-    routeOnboardingAction({ type: 'attach-bytes', name: 'over.png', base64: overCap }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: 'edge.png', base64: atCap }, actions);
+    routeTicketFormAction({ type: 'attach-bytes', name: 'over.png', base64: overCap }, actions);
 
     expect(actions.attachBytes).toHaveBeenCalledTimes(1);
     expect(actions.attachBytes).toHaveBeenCalledWith('edge.png', atCap);
@@ -373,8 +373,8 @@ describe('attachment messages', () => {
 
   it('routes detach-attachment and open-attachment with a numeric id', () => {
     const actions = spyActions();
-    routeOnboardingAction({ type: 'detach-attachment', id: 7 }, actions);
-    routeOnboardingAction({ type: 'open-attachment', id: 7 }, actions);
+    routeTicketFormAction({ type: 'detach-attachment', id: 7 }, actions);
+    routeTicketFormAction({ type: 'open-attachment', id: 7 }, actions);
     expect(actions.detachAttachment).toHaveBeenCalledWith(7);
     expect(actions.openAttachment).toHaveBeenCalledWith(7);
   });
@@ -390,22 +390,22 @@ describe('attachment messages', () => {
     actions.detachAttachment = vi.fn(() => detach);
     actions.openAttachment = vi.fn(() => open);
 
-    expect(routeOnboardingAction({ type: 'attach-pick' }, actions)).toBe(pick);
+    expect(routeTicketFormAction({ type: 'attach-pick' }, actions)).toBe(pick);
     expect(
-      routeOnboardingAction(
+      routeTicketFormAction(
         { type: 'attach-bytes', name: 'shot.png', base64: 'AAAA' },
         actions,
       ),
     ).toBe(bytes);
-    expect(routeOnboardingAction({ type: 'detach-attachment', id: 7 }, actions)).toBe(detach);
-    expect(routeOnboardingAction({ type: 'open-attachment', id: 7 }, actions)).toBe(open);
+    expect(routeTicketFormAction({ type: 'detach-attachment', id: 7 }, actions)).toBe(detach);
+    expect(routeTicketFormAction({ type: 'open-attachment', id: 7 }, actions)).toBe(open);
   });
 
   it('ignores a detach/open whose id is not a positive integer', () => {
     const actions = spyActions();
     for (const id of ['7', 0, -1, 1.5, NaN, null, undefined]) {
-      routeOnboardingAction({ type: 'detach-attachment', id }, actions);
-      routeOnboardingAction({ type: 'open-attachment', id }, actions);
+      routeTicketFormAction({ type: 'detach-attachment', id }, actions);
+      routeTicketFormAction({ type: 'open-attachment', id }, actions);
     }
     expect(actions.detachAttachment).not.toHaveBeenCalled();
     expect(actions.openAttachment).not.toHaveBeenCalled();

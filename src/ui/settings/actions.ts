@@ -20,7 +20,7 @@ export interface SettingsActionsDeps {
   writeManifest(path: string, manifest: Manifest): void;
   /** Re-read the manifest from disk into the host's live copy. */
   reloadManifest(): void;
-  /** Refresh sidebar + open dashboard/onboarding after a save. */
+  /** Refresh sidebar + open dashboard/ticket form after a save. */
   onChange(): void;
   /**
    * Re-read the manifest FILE for a state push — the same source `open` uses,
@@ -43,6 +43,13 @@ export interface SettingsActionsDeps {
   confirmInstallCommand(command: string): Promise<boolean>;
   /** Remove an installed approach package by id. */
   uninstallApproach(id: string): boolean;
+  /**
+   * Clear `approach` from every ticket in THIS project bound to `id`, returning
+   * how many were cleared. The ticket half of an uninstall — a reference to a
+   * package that no longer exists is the approach's leftover state, not the
+   * ticket's own (869eckp0x).
+   */
+  clearApproachFromTickets(id: string): number;
   /** Ids of approach packages currently present on disk. */
   listInstalledIds(): string[];
   /**
@@ -88,6 +95,14 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Immutable overlay of one approach's `enabled` flag (every other entry as-is). */
+function withApproachEnabled(manifest: Manifest, id: string, enabled: boolean): Manifest {
+  return {
+    ...manifest,
+    approaches: (manifest.approaches ?? []).map((a) => (a.id === id ? { ...a, enabled } : a)),
+  };
+}
+
 export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActionsFactory {
   return (ctx: SettingsActionsCtx): SettingsActions => {
     /**
@@ -116,6 +131,56 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
     /** Report only the keychain flag, leaving the webview's draft untouched. */
     async function pushTokenState(): Promise<void> {
       ctx.post({ type: 'token-state', configured: await deps.hasToken() });
+    }
+
+    /**
+     * Bring one approach's manifest `enabled` flag in line with what install /
+     * uninstall just did to disk, and report whether anything was written.
+     *
+     * For a SOURCED approach `enabled` is slaved to installedness — that rule
+     * already exists as a guard (`setApproachEnabled` refuses to enable a
+     * package that is not installed), but only on the enable path, so install
+     * and uninstall used to drift the manifest away from disk in both
+     * directions. An uninstall left `enabled: true` with nothing on disk — the
+     * exact state that guard forbids — and the approach kept being launchable,
+     * which is what made the "produced no method prompt or loadable artifacts"
+     * warning outlive the uninstall AND survive a reinstall that never
+     * re-offered it (869eckp0x).
+     *
+     * Two no-ops keep repeat cycles convergent: an approach whose flag already
+     * matches is not rewritten, and a manifest that FAILED to load is never
+     * rewritten at all — `loadState` falls back to an in-memory copy on a parse
+     * error, and overlaying a flag onto that would write the fallback over the
+     * user's file.
+     */
+    /**
+     * Point one approach's `enabled` flag at the ground truth — whether its
+     * package is on disk RIGHT NOW — after an install or uninstall attempt.
+     *
+     * Reading disk rather than assuming the operation's outcome is what makes a
+     * FAILED install self-correcting: a source that can never produce a package
+     * (an npm `collect: []`) leaves the entry enabled forever otherwise, so the
+     * approach stays offerable, keeps getting picked, and every launch from it
+     * warns — through any number of uninstall→install cycles, since the install
+     * fails identically each time. A failure that leaves the previously
+     * installed package intact (a transient fetch error) reads as installed
+     * here and correctly changes nothing.
+     */
+    function reconcileApproachEnabled(id: string): void {
+      syncApproachEnabled(id, deps.listInstalledIds().includes(id));
+    }
+
+    function syncApproachEnabled(id: string, enabled: boolean): boolean {
+      const loaded = deps.loadState();
+      if (loaded.error) return false;
+      const def = (loaded.manifest.approaches ?? []).find((a) => a.id === id);
+      if (def === undefined) return false;
+      // `enabled` is optional and defaults to on, so compare against that.
+      if ((def.enabled ?? true) === enabled) return false;
+      deps.writeManifest(ctx.manifestPath, withApproachEnabled(loaded.manifest, id, enabled));
+      deps.reloadManifest();
+      deps.onChange();
+      return true;
     }
 
     return {
@@ -178,15 +243,36 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
 
         try {
           await deps.installApproach(def);
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+        // Runs on BOTH outcomes: a success makes the entry legally enable-able
+        // again (the mirror of uninstall's disable), and a failure that left
+        // nothing on disk retires an entry that would otherwise keep being
+        // offered and keep warning at launch.
+        try {
+          reconcileApproachEnabled(id);
           await pushStateWithInstalled();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }
       },
 
+      /**
+       * Uninstall owns three things and removes all three, in this order: the
+       * package directory, every ticket reference to it, and the manifest's
+       * `enabled` flag. Removing only the first is what left the stale launch
+       * warning behind (869eckp0x) — the manifest kept offering an approach with
+       * no package, and tickets kept pointing at one.
+       *
+       * Deleting the manifest ENTRY is a separate, deliberate act (the drawer's
+       * Delete, which requires an uninstall first), so it is not done here.
+       */
       async uninstallApproach(id: string): Promise<void> {
         try {
           deps.uninstallApproach(id);
+          deps.clearApproachFromTickets(id);
+          reconcileApproachEnabled(id);
           await pushStateWithInstalled();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });

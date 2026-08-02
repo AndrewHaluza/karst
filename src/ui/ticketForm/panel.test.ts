@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { insertAttachment } from '../../store/attachments.js';
-import { OnboardingManager } from './panel.js';
-import type { OnboardingPanel, OnboardingPanelHost, OnboardingActionsCtx } from './panel.js';
-import type { OnboardingActions } from './messages.js';
-import type { AttachmentView, OnboardingState } from './state.js';
+import { TicketFormManager } from './panel.js';
+import type { TicketFormPanel, TicketFormPanelHost, TicketFormActionsCtx } from './panel.js';
+import type { TicketFormActions } from './messages.js';
+import type { AttachmentView, TicketFormState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import {
@@ -33,7 +33,7 @@ const REMOTE_MODELS: ModelCatalog = {
   antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
 };
 
-interface FakePanel extends OnboardingPanel {
+interface FakePanel extends TicketFormPanel {
   title: string;
   revealed: number;
   posted: unknown[];
@@ -44,10 +44,10 @@ interface FakePanel extends OnboardingPanel {
   dispose(): void;
 }
 
-function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
+function fakeHost(): { host: TicketFormPanelHost; panels: FakePanel[] } {
   const panels: FakePanel[] = [];
-  const host: OnboardingPanelHost = {
-    createPanel(title: string): OnboardingPanel {
+  const host: TicketFormPanelHost = {
+    createPanel(title: string): TicketFormPanel {
       const panel: FakePanel = {
         title,
         revealed: 0,
@@ -74,10 +74,10 @@ function fakeHost(): { host: OnboardingPanelHost; panels: FakePanel[] } {
 
 /** A no-op actions factory that records the ctx it was built with. */
 function recordingFactory(
-  seen: OnboardingActionsCtx[] = [],
-  overrides: Partial<OnboardingActions> = {},
+  seen: TicketFormActionsCtx[] = [],
+  overrides: Partial<TicketFormActions> = {},
 ) {
-  const factory = (ctx: OnboardingActionsCtx): OnboardingActions => {
+  const factory = (ctx: TicketFormActionsCtx): TicketFormActions => {
     seen.push(ctx);
     return {
       fetchSource: () => {},
@@ -104,14 +104,14 @@ function recordingFactory(
   return { factory, seen };
 }
 
-describe('OnboardingManager', () => {
+describe('TicketFormManager', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
   it('opens a create-mode panel and pushes initial state', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     expect(panels).toHaveLength(1);
@@ -123,7 +123,7 @@ describe('OnboardingManager', () => {
   it('pushes models from the current host catalog', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(
+    const mgr = new TicketFormManager(
       store,
       () => ({ ...MANIFEST, agentProvider: 'codex' }),
       host,
@@ -145,7 +145,7 @@ describe('OnboardingManager', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
     let catalog = bundledModelCatalog();
-    const mgr = new OnboardingManager(
+    const mgr = new TicketFormManager(
       store,
       () => MANIFEST,
       host,
@@ -178,7 +178,7 @@ describe('OnboardingManager', () => {
     const t = createTicket(store, { key: 'P-1', title: 'thing' });
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openEdit(t.id);
     const first = panels[0]!.posted[0] as { state: { mode: string; key: string } };
@@ -190,7 +190,7 @@ describe('OnboardingManager', () => {
     const t = createTicket(store, { key: 'P-1', title: 'thing' });
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(
+    const mgr = new TicketFormManager(
       store,
       () => MANIFEST,
       host,
@@ -210,7 +210,7 @@ describe('OnboardingManager', () => {
     const t = createTicket(store, { key: 'CU-1234', title: 'Add PDF export' });
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openEdit(t.id);
     // Human label (`key — title`), never `#<sqlId>`.
@@ -222,7 +222,7 @@ describe('OnboardingManager', () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openEdit(t.id);
     mgr.openEdit(t.id);
@@ -234,7 +234,7 @@ describe('OnboardingManager', () => {
     const ticket = createTicket(store, { key: 'P-DELETE', title: 'deleted' });
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const manager = new TicketFormManager(store, () => MANIFEST, host, factory);
     manager.openEdit(ticket.id);
 
     manager.closeTicket(ticket.id);
@@ -247,7 +247,7 @@ describe('OnboardingManager', () => {
     const ticket = createTicket(store, { key: 'P-DRAFT-DELETE', title: 'deleted draft' });
     const { host, panels } = fakeHost();
     const { factory, seen } = recordingFactory();
-    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const manager = new TicketFormManager(store, () => MANIFEST, host, factory);
     manager.openCreate();
     seen[0]!.bindTicket(ticket.id);
 
@@ -260,7 +260,7 @@ describe('OnboardingManager', () => {
   it('routes a request-state message back through the ctx pushState', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     panels[0]!.posted.length = 0; // clear initial push
@@ -276,7 +276,7 @@ describe('OnboardingManager', () => {
     // the assertion below still proves the panel itself did not observe it.
     void rejected.catch(() => {});
     const { factory } = recordingFactory([], { attachPick: () => rejected });
-    const mgr = new OnboardingManager(
+    const mgr = new TicketFormManager(
       store,
       () => MANIFEST,
       host,
@@ -301,7 +301,7 @@ describe('OnboardingManager', () => {
     const t = createTicket(store, { key: 'P-9', title: 'bound' });
     const { host, panels } = fakeHost();
     const { factory, seen } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     const ctx = seen[0]!;
@@ -322,7 +322,7 @@ describe('OnboardingManager', () => {
   it('ctx.close disposes the panel and frees its key for a later open', () => {
     const { host, panels } = fakeHost();
     const { factory, seen } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     expect(mgr.isCreateOpen()).toBe(true);
@@ -336,7 +336,7 @@ describe('OnboardingManager', () => {
   it('ctx.close is idempotent and never posts to a disposed panel', () => {
     const { host, panels } = fakeHost();
     const { factory, seen } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     const ctx = seen[0]!;
@@ -350,7 +350,7 @@ describe('OnboardingManager', () => {
   it('opens a fresh create panel every time instead of revealing the open one', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     mgr.openCreate();
@@ -364,7 +364,7 @@ describe('OnboardingManager', () => {
     const t = createTicket(store, { key: 'P-5', title: 'draft' });
     const { host, panels } = fakeHost();
     const { factory, seen } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     seen[0]!.bindTicket(t.id);
@@ -379,7 +379,7 @@ describe('OnboardingManager', () => {
     const t = createTicket(store, { key: 'P-7', title: 'bound' });
     const { host, panels } = fakeHost();
     const { factory, seen } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     seen[0]!.bindTicket(t.id);
@@ -392,7 +392,7 @@ describe('OnboardingManager', () => {
   it('drops a panel on dispose so a later open recreates it', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const mgr = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     mgr.openCreate();
     panels[0]!.dispose();
@@ -423,7 +423,7 @@ describe('attachment URI mapping', () => {
     });
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const manager = new OnboardingManager(
+    const manager = new TicketFormManager(
       store,
       () => MANIFEST,
       host,
@@ -441,7 +441,7 @@ describe('attachment URI mapping', () => {
   }
 
   function stateAttachments(panel: FakePanel): AttachmentView[] {
-    const state = panel.posted.at(-1) as { type: 'state'; state: OnboardingState };
+    const state = panel.posted.at(-1) as { type: 'state'; state: TicketFormState };
     return state.state.attachments;
   }
 
@@ -464,7 +464,7 @@ describe('attachment URI mapping', () => {
   it('posts an empty attachment list unchanged', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
-    const manager = new OnboardingManager(store, () => MANIFEST, host, factory);
+    const manager = new TicketFormManager(store, () => MANIFEST, host, factory);
 
     manager.openCreate();
     expect(stateAttachments(panels[0]!)).toEqual([]);

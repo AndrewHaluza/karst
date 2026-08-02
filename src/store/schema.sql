@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   stage_current     TEXT,                 -- StageKey
   agent_state       TEXT,                 -- running | waiting | idle | none
   session_id        TEXT,                 -- for --resume
-  -- v2 onboarding columns (kept in sync with migrations.ts v2 ALTERs):
+  -- v2 ticket-field columns (kept in sync with migrations.ts v2 ALTERs):
   description       TEXT,                 -- ticket requirements / acceptance criteria
   brief             TEXT,                 -- synthesized context brief (from fetch)
   source_ref        TEXT,                 -- board task id/url the ticket was fetched from
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS merge_checks (
 -- eventually hold it.
 --
 -- `ticket_id` is nullable because the first AI call of a ticket's life (the
--- onboarding analyzer) runs while the ticket is still an unsaved draft. Such a
+-- ticket-form analyzer) runs while the ticket is still an unsaved draft. Such a
 -- call is real spend and is recorded unattributed rather than dropped.
 -- `project_id` scopes the table for the same reason every ticket query is
 -- scoped: the DB lives in global storage and is shared by every IDE window.

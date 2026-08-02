@@ -69,8 +69,13 @@
         "icon": "$(terminal)"
       },
       {
+        "command": "karst.openTicketForm",
+        "title": "Karst: New Ticket",
+        "icon": "$(add)"
+      },
+      {
         "command": "karst.openOnboarding",
-        "title": "Karst: New Ticket (onboarding)",
+        "title": "Karst: New Ticket (deprecated alias)",
         "icon": "$(add)"
       },
       {
@@ -156,6 +161,14 @@
         "title": "Karst: Report Issue"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "karst.openOnboarding",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "Karst",
       "properties": {

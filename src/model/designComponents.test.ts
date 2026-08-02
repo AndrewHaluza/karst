@@ -74,10 +74,30 @@ describe('design system components', () => {
   });
 
   it('gives the ghost variant an actual rule (UI-R10)', () => {
-    // onboarding applied `.ghost` to #attachBtn and no stylesheet defined it, so
+    // the ticket form applied `.ghost` to #attachBtn and no stylesheet defined it, so
     // the "ghost" button silently rendered as a primary.
     expect(CSS).toContain('.k-btn--ghost');
     expect(rulesFor('.k-btn--ghost').length).toBeGreaterThan(0);
+  });
+
+  it('reports success on a row-shaped control as a wash, never a badge (UI-R13)', () => {
+    // The button-shaped success flash is a check glyph in the leading slot plus
+    // a --k-success border. On a ROW — a sidebar ticket, a diff file — that
+    // glyph is auto-placed into the row's own grid: it wrapped the path onto a
+    // second line and landed beside the status letter as "M ✓", inside a green
+    // box, for every click. The outcome still has to be visible (UI-R13), so
+    // the row variant keeps a flash and makes it the row's own highlight.
+    // Only the rules the row variant OWNS — `rulesFor` would also return the
+    // `:not(.k-btn--row)` exclusions, which mention --k-success by design.
+    const row = (CSS.match(/^\.k-btn--row[^{}]*\{[^}]*\}/gm) ?? []).join('\n');
+    expect(row, 'the row variant has no success rule').toContain('.k-btn--row.is-success');
+    expect(row, 'the row flash is not the shared selection wash').toContain('var(--k-surface-selected)');
+    expect(row, 'the row still grows a check badge').toContain('content:none');
+    expect(row, 'the row still recolours its border').not.toContain('var(--k-success)');
+    // Scoped off at the source, not overridden after the fact: a later
+    // `border-color` override would need a value, and any value it picked would
+    // be wrong for one of the variants a row composes with.
+    expect(CSS, 'the badge treatment still reaches rows').toContain('.k-btn.is-success:not(.k-btn--row)');
   });
 
   it('keeps every pointer target at or above the WCAG minimum (UI-R29)', () => {

@@ -44,12 +44,17 @@
       }
       .step-body { flex: 1; }
       .step-desc { font-size: var(--k-text-sm); color: var(--k-text-dim); }
+      .section-desc {
+        font-size: var(--k-text-sm);
+        color: var(--k-text-dim);
+        margin: 0 0 var(--k-space-4);
+      }
       .toolbar { display: flex; gap: var(--k-space-4); margin-top: var(--k-space-4); }
       footer { margin-top: var(--k-space-9); color: var(--k-text-dim); }
     </style>
   </head>
   <body>
-    <h1>Welcome to Karst</h1>
+    <h1>Getting Started</h1>
     <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
 
     <section>
@@ -64,6 +69,26 @@
     <section>
       <h2>How Karst works</h2>
       <ul class="steps" id="tutorial"></ul>
+    </section>
+
+    <section>
+      <h2>Report an issue</h2>
+      <p class="section-desc">
+        Click this when Karst itself behaves unexpectedly — a ticket stuck at a stage, a gate
+        that will not run, a panel that goes blank. Karst collects its own diagnostics
+        (runtime versions, stage and gate state, effective configuration, bounded logs),
+        redacts secrets, paths and credentials, then opens the report for you to read
+        before anything leaves your machine. Approve it and Karst hands the redacted
+        summary to a prefilled GitHub issue in your browser; you still press Submit there.
+      </p>
+      <p class="section-desc">
+        Ticket descriptions and other prompt text are left out unless you opt in during the
+        review step. For work items in your own project, create a ticket instead.
+      </p>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue"
+          title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+      </div>
     </section>
 
     <footer>
@@ -149,6 +174,7 @@
       });
 
       karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId));
+      karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
       karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId));
       post('request-state');
     </script>
