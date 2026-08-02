@@ -1,17 +1,15 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
-import type { BlockerKind, StageRunResult, Verdict } from '../../model/types.js';
+import type { StageRunResult } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
-import { setStage, stageAttempt } from '../../store/stages.js';
-import { recordGateRun, listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
-import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
-import { transition } from '../machine.js';
+import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
+import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
-import { REVIEW_GATES } from '../gates/scripts.js';
+import { REVIEW_PROBE_SCRIPTS } from '../gates/scripts.js';
 import { resolveGates } from '../gates/resolve.js';
 import { runGateList } from '../gates/runList.js';
 import { noTargetsReason } from '../gates/targets.js';
@@ -76,82 +74,6 @@ export interface ReviewDeps {
   openDiff?: OpenDiff;
 }
 
-/** What the run decided, before any of it is written down. */
-type RunOutcome =
-  | { kind: 'verdict'; verdict: Exclude<Verdict, null> }
-  | { kind: 'blocked'; blocker: BlockerKind; reason: string }
-  | { kind: 'stopped' };
-
-/**
- * The scripts review looks for when it probes a repository, cheapest first.
- * Derived from `REVIEW_GATES` so the gate list has one definition — this is
- * `resolveGates`' `probeList` parameter, review's answer to UAT's `PROBE_SCRIPTS`.
- */
-const REVIEW_PROBE_SCRIPTS: readonly string[] = REVIEW_GATES.map((gate) => gate.script);
-
-/**
- * The ONE place a review run is written down. Evidence and outcome commit
- * together on every path, because a stopped or blocked run still produced gate
- * rows worth keeping and `gate_runs` is the project's only append-only evidence
- * table. Structurally identical to `uat.ts`'s — the two stages must not be able
- * to disagree about what "an outcome was recorded" means.
- */
-function commitOutcome(
-  store: Store,
-  ticketId: number,
-  runAt: string,
-  artifactPath: string,
-  gates: readonly GateRunInput[],
-  outcome: RunOutcome,
-): StageRunResult {
-  if (outcome.kind === 'blocked') {
-    parkGateStage(store, {
-      ticketId,
-      stageKey: 'review',
-      kind: outcome.blocker,
-      reason: outcome.reason,
-      runAt,
-      gates,
-      artifactPath,
-    });
-    return { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason };
-  }
-
-  if (outcome.kind === 'stopped') {
-    // No verdict, no attempt, no block — but whatever finished still happened.
-    const apply = store.db.transaction(() => {
-      if (gates.length > 0) {
-        recordGateRun(store, {
-          ticketId,
-          stageKey: 'review',
-          attempt: stageAttempt(store, ticketId, 'review'),
-          runAt,
-          gates,
-        });
-      }
-      setStage(store, ticketId, 'review', { artifactPath });
-    });
-    apply();
-    return { kind: 'stopped' };
-  }
-
-  const next = transition(store, ticketId, 'review', outcome.verdict, () => {
-    setStage(store, ticketId, 'review', { artifactPath });
-    // A run that reached a verdict answers whatever blocked a previous one.
-    clearStageBlock(store, ticketId, 'review');
-    recordGateRun(store, {
-      ticketId,
-      stageKey: 'review',
-      // Read before the machine bumps it on a failure: these gates belong to the
-      // attempt that RAN, not to the one its failure creates.
-      attempt: stageAttempt(store, ticketId, 'review'),
-      runAt,
-      gates,
-    });
-  });
-  return { kind: 'advanced', next };
-}
-
 export async function runReview(
   store: Store,
   opts: RunReviewOpts,
@@ -190,7 +112,14 @@ export async function runReview(
     // computation it always was. This is what lets `reviewInside` read "did the
     // changes surface open" back out of the store after a reload.
     if (diffOpened) gates.push({ gateName: 'changes', exitCode: 0 });
-    return commitOutcome(store, opts.ticketId, runAt, artifactPath, gates, outcome);
+    return commitGateOutcome(store, {
+      ticketId: opts.ticketId,
+      stageKey: 'review',
+      runAt,
+      artifactPath,
+      gates,
+      outcome,
+    });
   };
 
   const planned = opts.manifest

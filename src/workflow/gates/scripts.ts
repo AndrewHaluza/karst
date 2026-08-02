@@ -21,6 +21,17 @@ export const REVIEW_GATES: readonly GateSpec[] = [
 ];
 
 /**
+ * The scripts review probes a repository for when it has no declared gates,
+ * cheapest first — review's value for `resolveGates`' `probeList` parameter
+ * (`gates/resolve.ts`), the counterpart of UAT's `PROBE_SCRIPTS`.
+ *
+ * Derived from `REVIEW_GATES` rather than written out again, so the review gate
+ * list has exactly one definition and cannot answer two different questions
+ * depending on which constant a caller reached for.
+ */
+export const REVIEW_PROBE_SCRIPTS: readonly string[] = REVIEW_GATES.map((gate) => gate.script);
+
+/**
  * The UAT gate list. A list, not a constant: the original bug was that UAT asked
  * exactly ONE question and another stage asked it too, so the fix is not removing
  * `test` — it is giving UAT room to ask more. `test` stays FIRST because it is the

@@ -1,12 +1,10 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
-import type { BlockerKind, StageRunResult, Verdict } from '../../model/types.js';
+import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
-import { setStage, stageAttempt } from '../../store/stages.js';
-import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
-import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
-import { transition } from '../machine.js';
+import type { GateRunInput } from '../../store/gateRuns.js';
+import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
@@ -50,12 +48,6 @@ export interface UatDeps {
   git?: GitRunner;
   now?: () => string;
 }
-
-/** What the run decided, before any of it is written down. */
-type RunOutcome =
-  | { kind: 'verdict'; verdict: Exclude<Verdict, null> }
-  | { kind: 'blocked'; blocker: BlockerKind; reason: string }
-  | { kind: 'stopped' };
 
 /** Review's gate identities for one target — what UAT must not merely duplicate. */
 function reviewIdentitiesFor(target: UatTarget): GateIdentity[] {
@@ -124,67 +116,6 @@ function resolveTargetGates(
   return unavailable ?? { kind: 'gates', gates: [] };
 }
 
-/**
- * The ONE place a UAT run is written down. Evidence and outcome commit together
- * on every path, because a stopped or blocked run still produced gate rows worth
- * keeping and `gate_runs` is the project's only append-only evidence table.
- */
-function commitOutcome(
-  store: Store,
-  ticketId: number,
-  runAt: string,
-  artifactPath: string,
-  gates: readonly GateRunInput[],
-  outcome: RunOutcome,
-): StageRunResult {
-  if (outcome.kind === 'blocked') {
-    parkGateStage(store, {
-      ticketId,
-      stageKey: 'uat',
-      kind: outcome.blocker,
-      reason: outcome.reason,
-      runAt,
-      gates,
-      artifactPath,
-    });
-    return { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason };
-  }
-
-  if (outcome.kind === 'stopped') {
-    // No verdict, no attempt, no block — but whatever finished still happened.
-    const apply = store.db.transaction(() => {
-      if (gates.length > 0) {
-        recordGateRun(store, {
-          ticketId,
-          stageKey: 'uat',
-          attempt: stageAttempt(store, ticketId, 'uat'),
-          runAt,
-          gates,
-        });
-      }
-      setStage(store, ticketId, 'uat', { artifactPath });
-    });
-    apply();
-    return { kind: 'stopped' };
-  }
-
-  const next = transition(store, ticketId, 'uat', outcome.verdict, () => {
-    setStage(store, ticketId, 'uat', { artifactPath });
-    // A run that reached a verdict answers whatever blocked a previous one.
-    clearStageBlock(store, ticketId, 'uat');
-    recordGateRun(store, {
-      ticketId,
-      stageKey: 'uat',
-      // Read before the machine bumps it on a failure: these gates belong to the
-      // attempt that RAN, not to the one its failure creates.
-      attempt: stageAttempt(store, ticketId, 'uat'),
-      runAt,
-      gates,
-    });
-  });
-  return { kind: 'advanced', next };
-}
-
 export async function runUat(
   store: Store,
   opts: RunUatOpts,
@@ -214,7 +145,14 @@ export async function runUat(
       startedAt: entry.result.startedAt ?? null,
       endedAt: entry.result.endedAt ?? null,
     }));
-    return commitOutcome(store, opts.ticketId, runAt, artifactPath, gates, outcome);
+    return commitGateOutcome(store, {
+      ticketId: opts.ticketId,
+      stageKey: 'uat',
+      runAt,
+      artifactPath,
+      gates,
+      outcome,
+    });
   };
 
   const planned = opts.manifest
