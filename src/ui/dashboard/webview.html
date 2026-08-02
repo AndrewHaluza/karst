@@ -152,11 +152,20 @@
   .track .seg > *:not(.pick){position:relative;z-index:1;pointer-events:none}
   /* The two REAL controls take their events back from the select overlay. */
   .track .seg > .go,.track .seg > .fixm{pointer-events:auto}
-  /* Selection is a RING, never a fill — status already owns fill and the stage
-     owns hue, and all three must stay independently readable, so the ring keeps
-     its own off-ramp purple (the shared categorical token, UI-R08). Drawn inset
-     because the chevron clip would slice an outward ring. */
-  .track .seg.sel .pick{box-shadow:inset 0 0 0 calc(var(--k-border-w) * 2) var(--k-series-2)}
+  /* Selection is a MARK, never a fill — status already owns fill and the stage
+     owns hue, and all three must stay independently readable, so it keeps its
+     own off-ramp purple (the shared categorical token, UI-R08).
+     It is drawn on the SEGMENT, as an inset shadow, because `clip-path` clips a
+     child's rendering: a ring on the inset `.pick` lost its left and right
+     strokes inside the two notches and survived as two detached horizontal bars
+     that stopped short of the chevron tips. At the ends of the lane it was
+     worse — the ring's square corners sat inside the lane's own
+     `--k-radius-lg`, so the highlight read as SHIFTED off the block it marks.
+     An inset shadow on the segment is clipped by the very polygon that draws
+     the segment, so the mark cannot disagree with the shape at either end. An
+     underline rather than a full ring for the same reason a ring was chosen
+     first: it must not read as a second fill. */
+  .track .seg.sel{box-shadow:inset 0 calc(var(--k-border-w) * -3) 0 var(--k-series-2)}
 
   /* Untravelled: neutral, and explicitly so. A pending segment must not wear its
      stage hue at full strength — that is what "travelled ground" means here. */
@@ -168,8 +177,15 @@
      declaration and rendering unwashed. */
   .track .seg.passed{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 20%,transparent);
     color:var(--stg-color,var(--k-pending))}
+  /* Ordinary body text on the wash, NOT `--k-success-fg`. That token is the
+     knockout foreground (`--vscode-editor-background`), and it is paired with a
+     saturated feedback FILL — on a 34% wash of the stage hue over the lane it
+     resolves to nearly the surface it sits on: the running segment's own name
+     came out dark-on-dark in a dark theme and white-on-lavender in a light one,
+     which is the widest label on the track and the one that says where the
+     ticket is (UI-R29). The wash strength was chosen to carry body text. */
   .track .seg.running{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 34%,transparent);
-    color:var(--k-success-fg)}
+    color:var(--k-text)}
   /* Failed reads as a break in the surface: hatched, never a flat fill. */
   .track .seg.failed{color:var(--k-failed);
     background-image:repeating-linear-gradient(135deg,
@@ -899,12 +915,17 @@
         ? `<span class="full">${esc(title)}</span><span class="abbr">${esc(k)}</span>`
         : esc(k);
 
+      // impl's approach is impl's own property, so it is drawn inside impl's own
+      // segment — and only while the ticket is there, which is the only time the
+      // segment has the room.
+      const showsApproach = s.current && k === 'impl' && !needs && !!approach;
+
       let extra = '';
       if (s.current && needs) {
         extra = `<span class="mt">${esc(s.needs ? s.needs.detail : '')}</span>`
           + `<button type="button" class="go" data-goto`
           + `>${esc(s.needs ? s.needs.action : 'Open')}</button>`;
-      } else if (s.current && k === 'impl' && approach) {
+      } else if (showsApproach) {
         extra = renderPips(approach);
       } else {
         const d = durationText(cell);
@@ -919,7 +940,12 @@
       // it outright — and states the retry loop too: a screen-reader user must
       // not have to infer a live retry from a meter they cannot see, nor lose the
       // return target when the narrowest step drops the `↩ uat`.
+      // The approach rides in the name for the same reason: the pips and their
+      // caption are its only visual form and the narrowest step drops both, and
+      // the pips are `pointer-events:none` children of the segment, so their own
+      // `title` never surfaces — this is where a reader gets the approach at all.
       const aria = (needs ? `${title}: needs you` : `${title}: ${status}`)
+        + (showsApproach ? ` — approach ${approach.id}${phaseProgress(approach)}` : '')
         + (s.retry ? ` — fix ${s.retry.spent}/${s.retry.cap}${s.retry.live ? ' running' : ''}` : '')
         + (s.retry && s.retry.returnsTo ? `, revalidates from ${s.retry.returnsTo}` : '');
 
@@ -933,12 +959,30 @@
     place();
   }
 
-  // impl's declared phases, as pips inside impl's own segment. DECLARED is not
-  // observed: a pip fills only for a phase the agent actually reported by running
-  // a marker command, and a hollow pip means "not reported" — never "not done".
-  function renderPips(approach) {
+  // impl's approach, inside impl's own segment: the approach's NAME, and one pip
+  // per declared phase. DECLARED is not observed: a pip fills only for a phase
+  // the agent actually reported by running a marker command, and a hollow pip
+  // means "not reported" — never "not done".
+  //
+  // The name is rendered whether or not there are phases. An approach with an
+  // empty `workflow` is the common case, not an edge one — the built-in `direct`
+  // declares none, and so does any package that ships prompts only — and it is
+  // still the thing driving impl. Returning early on an empty `phases` left the
+  // widest segment on the track saying nothing at all about what is running in
+  // it, which is the one place the panel names the approach.
+  // "…, 3 of 4 phases reported" — or nothing at all when the approach declares
+  // no workflow, because "0 of 0 phases" is a count of something that does not
+  // exist. Counted against the DECLARED phases, so a mark for a phase the
+  // approach no longer declares cannot push the tally past its own total.
+  function phaseProgress(approach) {
     const phases = approach.phases || [];
     if (!phases.length) return '';
+    const done = new Set(approach.reported || []);
+    return `, ${phases.filter((p) => done.has(p)).length} of ${phases.length} phases reported`;
+  }
+
+  function renderPips(approach) {
+    const phases = approach.phases || [];
     const done = new Set(approach.reported || []);
     const pips = phases.map((p) => {
       const on = done.has(p);
@@ -947,6 +991,8 @@
     }).join('');
     const latest = (approach.reported || []).slice(-1)[0];
     const caption = latest ? `${latest} · ${approach.id}` : approach.id;
+    // Nothing to say only when there is genuinely nothing: no name AND no phase.
+    if (!caption && !pips) return '';
     return `<span class="pips">${pips}<span class="pn">${esc(caption)}</span></span>`;
   }
 

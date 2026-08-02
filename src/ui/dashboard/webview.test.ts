@@ -207,6 +207,44 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('not reported');
   });
 
+  it('names the approach on impl even when it declares no phases', () => {
+    // An approach with an empty `workflow` (the built-in `direct`, or a package
+    // that ships prompts only) is still the thing driving impl, and the current
+    // segment is the one place the panel says so. Returning early on an empty
+    // `phases` left the widest segment on the track completely blank.
+    const fn = HTML.slice(HTML.indexOf('function renderPips('));
+    const body = fn.slice(0, fn.indexOf('\n  }'));
+    expect(body, 'an approach with no phases renders nothing').not.toMatch(
+      /if \(!phases\.length\) return ''/,
+    );
+    expect(body).toContain('approach.id');
+  });
+
+  it('keeps the current segment’s text legible on its own wash (UI-R29)', () => {
+    // `--k-success-fg` is the KNOCKOUT foreground — `--vscode-editor-background`,
+    // paired with a saturated feedback FILL. The running segment is not a fill:
+    // it is a 34% wash of the stage hue over the lane, so the knockout resolves
+    // to (near) the background it sits on — dark-on-dark in a dark theme and
+    // white-on-lavender in a light one. The wash is designed to carry ordinary
+    // body text, so it takes ordinary body text.
+    expect(HTML).toMatch(/\.track \.seg\.running\{[^}]*color:var\(--k-text\)/);
+    expect(HTML).not.toMatch(/\.track \.seg[^{]*\{[^}]*color:var\(--k-success-fg\)/);
+  });
+
+  it('draws selection inside the chevron clip, so the highlight is the segment’s own shape', () => {
+    // A segment is a CHEVRON (clip-path), and `clip-path` clips a child's
+    // rendering — so a rectangular ring on the inset `.pick` lost its left and
+    // right strokes in the two notches and survived as two detached horizontal
+    // bars. Worse at the ends of the lane: the ring's square corners sat inside
+    // the lane's `--k-radius-lg`, which read as the highlight being shifted off
+    // the block it marks. An inset shadow on the SEGMENT is clipped by the very
+    // polygon that draws it, so the mark can never disagree with the shape.
+    expect(HTML).toMatch(/\.track \.seg\.sel\{[^}]*box-shadow:inset/);
+    expect(HTML, 'the ring is back on the rectangular overlay').not.toMatch(
+      /\.track \.seg\.sel \.pick\{/,
+    );
+  });
+
   it('names the track’s two controls for a screen reader, not just a hover title', () => {
     // Both are glyph-or-shape only — aria-label and title must carry the SAME
     // string (UI-R21/R24).
@@ -836,9 +874,9 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/class="k-chip fixtoggle/);
   });
 
-  it('resolves the three purples (selection ring, merged badge, merged timestamp) to one token', () => {
+  it('resolves the three purples (selection mark, merged badge, merged timestamp) to one token', () => {
     expect(HTML).not.toMatch(/#8957e5|#a371f7|#8a63d2|#c297ff/);
-    expect(HTML).toMatch(/\.track \.seg\.sel \.pick\{box-shadow:[^}]*var\(--k-series-2\)/);
+    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:[^}]*var\(--k-series-2\)/);
     expect(HTML).toMatch(/\.pr \.pst-merged\{background:var\(--k-series-2\)/);
     expect(HTML).toMatch(/\.pmeta \.pmerged\{color:var\(--k-series-2\)/);
   });
