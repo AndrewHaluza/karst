@@ -14,11 +14,13 @@
  *
  * The diagnostic text is untrusted CLI prose (it can even be model output), so
  * it is collapsed to one line and length-capped before it reaches a stage
- * verdict, a log line, or a notification.
+ * verdict, a log line, or a notification. The collapse-and-cap itself
+ * (`oneLine`/`cap`) lives in `model/diagnosticText.ts`, shared with
+ * `model/stepper.ts` — the same shape applies wherever untrusted CLI/git
+ * prose reaches a rendered surface, not just here.
  */
 
-/** Bound on any raw CLI text that reaches a message. Matches the old codex cap. */
-const MAX_DIAGNOSTIC_CHARS = 8_000;
+import { cap, MAX_DIAGNOSTIC_CHARS, oneLine } from '../model/diagnosticText.js';
 
 /** Bound on the human sentence pulled out of a structured envelope. */
 const MAX_LIMIT_DETAIL_CHARS = 400;
@@ -116,15 +118,6 @@ function extractStructured(text: string): Structured {
     if (found.status === undefined && event.status !== undefined) found.status = event.status;
   }
   return found;
-}
-
-/** One line, no runs of whitespace — a verdict cell is not a log viewer. */
-function oneLine(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
-}
-
-function cap(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
 function endSentence(text: string): string {

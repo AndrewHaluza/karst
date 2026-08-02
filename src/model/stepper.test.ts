@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildStepper } from './stepper.js';
+import { MAX_DIAGNOSTIC_CHARS } from './diagnosticText.js';
 
 describe('buildStepper', () => {
   it('orders cells by STAGE_KEYS regardless of input order', () => {
@@ -98,5 +99,43 @@ describe('buildStepper', () => {
       { stageKey: 'review', status: 'running', blockedKind: null, blockedReason: null, blockedAt: null },
     ]);
     expect(cells.find((c) => c.stageKey === 'review')!.blocked).toBeUndefined();
+  });
+
+  // The reviewer's Important finding (task 8, fix round 1): `verdict` and
+  // `blockedReason` are untrusted CLI/git prose (e.g. raw `git status`
+  // stderr, see workflow/gates/targets.ts) — unbounded and possibly
+  // multi-line. Both reach the dashboard's fault card / blocked banner /
+  // Inside op row verbatim unless collapsed here, at the one place both
+  // fields are built.
+  it('collapses a multi-line verdict to one line before it reaches the cell', () => {
+    const cells = buildStepper([
+      { stageKey: 'review', status: 'failed', verdict: 'line one\nline two\n\nline three' },
+    ]);
+    expect(cells.find((c) => c.stageKey === 'review')!.reason).toBe('line one line two line three');
+  });
+
+  it('caps an over-length verdict rather than shipping it whole to the view', () => {
+    const huge = 'x'.repeat(MAX_DIAGNOSTIC_CHARS + 500);
+    const cells = buildStepper([{ stageKey: 'review', status: 'failed', verdict: huge }]);
+    const reason = cells.find((c) => c.stageKey === 'review')!.reason!;
+    expect(reason.length).toBe(MAX_DIAGNOSTIC_CHARS + 1); // +1 for the ellipsis
+    expect(reason.endsWith('…')).toBe(true);
+  });
+
+  it('collapses and caps a blocked reason the same way', () => {
+    const huge = `git status failed:\n${'e'.repeat(MAX_DIAGNOSTIC_CHARS + 500)}`;
+    const cells = buildStepper([
+      {
+        stageKey: 'review',
+        status: 'running',
+        blockedKind: 'capability-missing',
+        blockedReason: huge,
+        blockedAt: '2026-07-16T10:00:00.000Z',
+      },
+    ]);
+    const reason = cells.find((c) => c.stageKey === 'review')!.blocked!.reason;
+    expect(reason).not.toContain('\n');
+    expect(reason.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS + 1);
+    expect(reason.endsWith('…')).toBe(true);
   });
 });

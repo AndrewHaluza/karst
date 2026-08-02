@@ -1,4 +1,5 @@
 import { STAGE_KEYS, type BlockerKind, type StageKey, type StageStatus } from './types.js';
+import { collapseDiagnostic } from './diagnosticText.js';
 
 /**
  * One stepper cell — a stage node in a workflow stepper (§14). Shared by the
@@ -54,6 +55,18 @@ function detail<T>(key: string, value: T | null | undefined): Record<string, T> 
 }
 
 /**
+ * `verdict`/`blockedReason` are untrusted CLI/git prose (e.g. raw `git
+ * status` stderr, `workflow/gates/targets.ts`) — unbounded, possibly
+ * multi-line, and this is the ONE place both reach the cell that every
+ * rendered surface (fault card, blocked banner, Inside op row) reads from.
+ * Collapsed to one line and capped here, not per-surface, so no renderer can
+ * forget to.
+ */
+function collapsedReason(value: string | null | undefined): string | null | undefined {
+  return value == null ? value : collapseDiagnostic(value);
+}
+
+/**
  * The stage's block, or nothing. Keyed off `blockedKind` alone — a park always
  * writes all three fields in one transaction (`parkGateStage`), so a present
  * kind with an absent reason/at would mean the store lied, not that there is
@@ -62,7 +75,11 @@ function detail<T>(key: string, value: T | null | undefined): Record<string, T> 
 function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['blocked']> | Record<string, never> {
   if (!row?.blockedKind) return {};
   return {
-    blocked: { kind: row.blockedKind, reason: row.blockedReason ?? '', at: row.blockedAt ?? '' },
+    blocked: {
+      kind: row.blockedKind,
+      reason: collapseDiagnostic(row.blockedReason ?? ''),
+      at: row.blockedAt ?? '',
+    },
   };
 }
 
@@ -79,7 +96,7 @@ export function buildStepper(stages: readonly StepperStageRow[]): StepperCell[] 
     return {
       stageKey,
       status: row?.status ?? 'pending',
-      ...detail('reason', row?.verdict),
+      ...detail('reason', collapsedReason(row?.verdict)),
       ...detail('artifactPath', row?.artifactPath),
       ...detail('startedAt', row?.startedAt),
       ...detail('endedAt', row?.endedAt),

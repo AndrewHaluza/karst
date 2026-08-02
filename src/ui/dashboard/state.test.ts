@@ -5,6 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { STAGE_KEYS } from '../../model/types.js';
+import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { buildDashboardState } from './state.js';
 
 describe('buildDashboardState', () => {
@@ -142,6 +143,43 @@ describe('buildDashboardState', () => {
       reason: 'no target resolved',
       at: '2026-07-16T10:00:00.000Z',
     });
+  });
+
+  // The reviewer's Important finding (task 8, fix round 1): `reason`/`blocked`
+  // arrive from raw git/CLI stderr and reach the fault card / blocked banner
+  // verbatim unless collapsed and capped BEFORE they land in DashboardState —
+  // the webview does nothing but `esc()` them. This exercises the real
+  // buildDashboardState path (store → stepper → state), not the collapse
+  // helper in isolation.
+  it('delivers a multi-line, over-length failed-stage reason to the state as one capped line', () => {
+    const t = createTicket(store, { key: 'PROJ-5', title: 'noisy failure' });
+    const noisy = `error: something broke\n${'z'.repeat(MAX_DIAGNOSTIC_CHARS + 200)}\nmore lines\nand more`;
+    setStage(store, t.id, 'review', { status: 'failed', verdict: noisy });
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    const reason = state.currentStage!.reason!;
+    expect(reason).not.toContain('\n');
+    expect(reason.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS + 1);
+    expect(reason.endsWith('…')).toBe(true);
+  });
+
+  it('delivers a multi-line, over-length blocked reason to the state as one capped line', () => {
+    const t = createTicket(store, { key: 'PROJ-6', title: 'noisy block' });
+    const noisy = `cannot determine review changes:\n${'q'.repeat(MAX_DIAGNOSTIC_CHARS + 200)}\nfatal: not a repo`;
+    setStage(store, t.id, 'review', {
+      status: 'running',
+      blockedKind: 'capability-missing',
+      blockedReason: noisy,
+      blockedAt: '2026-07-16T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    const reason = state.currentStage!.blocked!.reason;
+    expect(reason).not.toContain('\n');
+    expect(reason.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS + 1);
+    expect(reason.endsWith('…')).toBe(true);
   });
 
   it('falls back to the not-started line when the ticket sits at no stage', () => {
