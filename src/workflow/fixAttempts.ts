@@ -55,8 +55,10 @@ export function lastFailedGate(
 
 /**
  * True while the ticket still has an auto-resume left after `attempts` failures.
- * `cap` is caller-supplied so UAT can honour `uat.maxFixAttempts` while review
- * keeps `FIX_ATTEMPT_CAP` until its own redesign.
+ * `cap` is caller-supplied so each gate can honour its own manifest override —
+ * `uat.maxFixAttempts` for uat, `review.maxFixAttempts` for review
+ * (`driveTicket.ts`'s `fixResumeDecision`) — falling back to `FIX_ATTEMPT_CAP`
+ * when neither is configured.
  */
 export function fixAttemptsRemain(attempts: number, cap: number = FIX_ATTEMPT_CAP): boolean {
   return attempts < cap;
