@@ -71,263 +71,255 @@
      shared stylesheet). */
   /*KARST_PROVIDER_CSS*/
 
-  /* The stage graph as a circuit, not a line. The main rail runs scope → impl →
-     uat → review → ship → done; `fix` is a RETURN CHANNEL below it, because
-     STAGE_GRAPH only reaches fix on a failed verdict and returns it to review on
-     a pass. Drawing fix inline claimed a forward path that does not exist.
+  /* The stage graph as ONE OBJECT the ticket travels through, not seven circles
+     joined by connectors with a band beneath. The current stage is the WIDE
+     segment and every other is compact — that is what fits seven stages into a
+     narrow panel, and it is what removed the old 560px floor and the sideways
+     scroll with it.
 
-     The CONNECTORS carry state, not just the nodes. Status is never color alone —
-     each node also carries a glyph and a distinct shape (filled / hollow /
-     broken), so the rail survives colorblindness and high-contrast themes. */
+     `fix` is NOT a segment. STAGE_GRAPH reaches it only by a failed verdict and
+     its only edge returns to uat, so nothing can ever be after it; it is a retry
+     cycle on the gate that failed, and it is drawn INSIDE that gate (.fixm).
+     Drawing it as a seventh station bought permanent layout for a stage most
+     tickets never enter, and left a control on screen reading `fix idle`.
+
+     Status is never colour alone (UI-R28): every state also carries a distinct
+     glyph, failed adds a hatch, and needs-you adds the reason in words plus the
+     action — so the track survives colourblindness and high-contrast themes. */
   .stepper{margin:var(--k-space-8) 0 var(--k-space-9);
     padding:calc(var(--k-space-6) + var(--k-space-1)) var(--k-space-4) var(--k-space-4);
     border:var(--k-border-w) solid var(--k-border);
     border-radius:calc(var(--k-radius-lg) + var(--k-border-w));background:var(--k-surface)}
-  /* The rail scrolls inside itself on a narrow panel; the page never scrolls sideways. */
-  /* padding-top is LOAD-BEARING, not spacing. overflow-x:auto forces overflow-y
-     to compute to `auto` as well, so this box clips vertically too — and the
-     nodes sit flush against its content top. The selection ring paints 4px above
-     the node and the focus outline 5px, so both were sliced off flat and the
-     selected circle rendered as an open arc. 6px is the outline's reach; the
-     stepper gives back the same 6px from its own padding so nothing moves. */
-  .railwrap{overflow-x:auto;padding-top:var(--k-space-3)}
-  /* Column geometry is DERIVED, never hardcoded: the rail is a flex row of
-     `--cols` equal columns, so column n centers at (n + 0.5) / cols. Every
-     attachment point below is a calc() off these vars (written inline from
-     state.rail.geometry), so adding or removing a stage moves the loop with it
-     instead of silently detaching it. */
-  /* 560px is the rail's minimum readable width at 7 columns — a component
-     dimension, not a spacing value; the closed 0–26px space scale has no step
-     anywhere near it (UI-R04 exception, same category as a @media breakpoint). */
-  .track{min-width:560px}
-  .main{display:flex;align-items:flex-start}
-  /* Each column carries its stage's color via the shared stg-<stage> token
-     (model/stagePalette), the SAME token the sidebar chip uses — so a stage is
-     the identical hue in both views. `color` here is the stage identity; the
-     node's FILL and SHAPE below still encode status, so hue and status stay two
-     independent reads. A stageKey with no stg-* class falls through to this
-     neutral default rather than rendering uncolored. */
-  .st{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0;
-    color:var(--k-pending);--stg-color:var(--k-pending)}
-  .st .seg{position:absolute;top:calc(var(--k-space-7) - var(--k-border-w));left:-50%;width:100%;
-    height:var(--k-space-1);background:var(--k-border);z-index:0}
-  .st:first-child .seg{display:none}
-  .st .seg.lit{background:var(--k-passed);opacity:.55}
-  .st .seg.active{background:var(--k-running)}
-  .st .seg.broken{background-color:transparent;
-    background-image:repeating-linear-gradient(90deg,var(--k-failed) 0 var(--k-space-2),transparent var(--k-space-2) var(--k-space-4))}
-  /* The node IS the control — a button, so Tab and Enter work for free. */
-  /* Pending is a hollow ring in the stage's hue (border + glyph both
-     currentColor, inherited from .st). Status changes the FILL, not the color. */
-  .st .node{width:var(--k-control-h-lg);height:var(--k-control-h-lg);border-radius:var(--k-radius-circle);
-    display:grid;place-items:center;
-    background:var(--k-surface);border:calc(var(--k-border-w) * 2) solid var(--stg-color);color:var(--stg-color);
-    position:relative;z-index:1;font-size:var(--k-text-base);font-weight:700;line-height:1;
-    padding:0;cursor:pointer;font-family:inherit}
-  .st .node:hover{filter:brightness(1.25)}
-  /* Focus is --k-focus, NOT the selection ring's --k-series-2. The selection
-     ring ends 4px out; a --k-series-2 outline at offset 3px overlaps it in the
-     same colour, so the two fused into one fat purple slab and a keyboard user
-     landing on the already-selected node saw no focus change at all. Two
-     colours at two radii keep selection and focus independently readable —
-     doubled off the base focus tokens rather than the standard 1px/1px, which
-     is what every OTHER focusable here (buttons, keypill, the approach
-     summary) uses. */
-  .st .node:focus-visible{outline:calc(var(--k-focus-w) * 2) solid var(--k-focus);
-    outline-offset:calc(var(--k-focus-offset) + var(--k-space-1))}
-  /* The label IS the stage color — the same string and hue as the sidebar chip.
-     Inherits from .st, so it can never drift from the node above it. */
-  .st .lbl{margin-top:calc(var(--k-space-4) + var(--k-border-w));font-size:var(--k-text-2xs);
-    letter-spacing:.06em;text-transform:uppercase;color:inherit;text-align:center}
-  .st .meta{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);
-    margin-top:calc(var(--k-space-1) + var(--k-border-w));height:var(--k-space-6)}
-  /* Passed/running FILL the node in the stage hue; the glyph knocks out against
-     it. Hue still says which stage, fill says it is done/working. */
-  .st.done .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--k-success-fg)}
-  /* Skipped is the one status that leaves the stage ramp: a stage that never ran
-     has no identity to assert, so it reads neutral gray. */
-  .st.skipped .node{background:var(--k-pending);border-color:var(--k-pending);color:var(--k-success-fg);opacity:.55}
-  /* No pulse on a running node: it carries a spinner, and two simultaneous
-     animations on one node-sized mark read as noise. */
-  .st.running .node{background:var(--stg-color);border-color:var(--stg-color);color:var(--k-success-fg)}
-  /* Failed reads as a break in the circuit: hollow + dashed, never filled — in
-     the stage's hue (fix's is red, which is also its status meaning). */
-  .st.failed .node{background:transparent;border-color:var(--stg-color);border-style:dashed;color:var(--stg-color)}
+  .railwrap{padding-top:var(--k-space-3)}
+
+  /* Named geometry handles. The notch depth is what the horizontal paddings and
+     the clip-path below are BOTH derived from, so the two can never drift apart —
+     that is why it is a variable rather than three copies of one number. All but
+     the lane height resolve to scale tokens; the lane height is a component
+     dimension with no scale match (the closed 0–26px scale stops well short of a
+     control strip), the same UI-R04 exception the deleted 560px floor carried. */
+  .track{position:relative;--trk-h:46px;
+    --trk-notch:var(--k-space-6);--trk-tick-w:var(--k-space-2);--trk-tick-h:var(--k-space-6)}
+
+  /* overflow-x:auto, NEVER hidden. The three degradation steps below keep the
+     track inside its lane at every width a VS Code panel can be dragged to (300px,
+     measured across the eight cases in docs/design/stages/variant-e-track.html),
+     so this scrollbar is unreachable in practice — but if a width ever gets past
+     them, the honest failure is a scrollbar the user can act on. overflow:hidden
+     is what turned an over-wide track into an INVISIBLE defect: the current
+     segment's own action button was clipped away with nothing to say so. */
+  .lane{display:flex;align-items:stretch;height:var(--trk-h);
+    border-radius:var(--k-radius-lg);background:var(--k-surface-sunken);
+    border:var(--k-border-w) solid var(--k-border);
+    overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+
+  /* A segment is a WRAPPER, not a button: it holds the select control and, when
+     the stage is parked on the user, the action control too — and a <button> may
+     not contain a <button> (nested, the parser closes the outer one and the whole
+     track loses its structure). The chevron clip and the wash live here.
+
+     Each segment carries its stage's colour via the shared stg-<stage> token
+     (model/stagePalette), the SAME token the sidebar chip uses, so a stage is the
+     identical hue in both views. A stageKey with no stg-* class falls through to
+     this neutral default rather than rendering uncoloured. */
+  /* NOTE: this rule deliberately sets NEITHER `color` NOR `--stg-color`. The
+     stage hue arrives on the same element from the injected `stg-<stage>` classes
+     (model/stagePalette), whose specificity is (0,1,0) — a scoped `.track .seg`
+     is (0,2,0) and would beat them at any source order, which paints every
+     travelled segment neutral grey and silently kills the one thing the wash
+     exists to say. The old `.st` rule tied at (0,1,0) and lost to the later
+     injection; scoping is what broke that. Status classes below are (0,3,0) and
+     override the hue ON PURPOSE. */
+  .track .seg{position:relative;display:flex;align-items:center;gap:var(--k-space-3);
+    flex:0 0 auto;min-width:0;
+    padding:0 var(--k-space-6) 0 calc(var(--trk-notch) + var(--k-space-5));
+    clip-path:polygon(0 0,calc(100% - var(--trk-notch)) 0,100% 50%,
+      calc(100% - var(--trk-notch)) 100%,0 100%,var(--trk-notch) 50%);
+    margin-left:calc(var(--trk-notch) * -1);
+    transition:background var(--k-dur-base) var(--k-ease-standard)}
+  .track .seg:first-child{margin-left:0;padding-left:var(--k-space-6);
+    clip-path:polygon(0 0,calc(100% - var(--trk-notch)) 0,100% 50%,
+      calc(100% - var(--trk-notch)) 100%,0 100%)}
+  .track .seg:last-child{padding-right:var(--k-space-7);
+    clip-path:polygon(0 0,100% 0,100% 100%,0 100%,var(--trk-notch) 50%)}
+  .track .seg:hover{background:var(--k-surface-hover)}
+
+  /* The select control fills the wrapper, so the WHOLE segment is the hit area
+     while still being one real <button> for Tab and Enter (UI-R09). */
+  .track .seg .pick{position:absolute;inset:0;background:transparent;border:0;padding:0;cursor:pointer}
+  .track .seg .pick:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
+    outline-offset:calc(var(--k-focus-offset) * -1)}
+  .track .seg > *:not(.pick){position:relative;z-index:1;pointer-events:none}
+  /* The two REAL controls take their events back from the select overlay. */
+  .track .seg > .go,.track .seg > .fixm{pointer-events:auto}
   /* Selection is a RING, never a fill — status already owns fill and the stage
      owns hue, and all three must stay independently readable, so the ring keeps
-     its own off-ramp purple (the shared categorical token, UI-R08). */
-  .st.sel .node{box-shadow:0 0 0 var(--k-space-1) var(--k-surface),0 0 0 calc(var(--k-space-2) * 1) var(--k-series-2)}
-  /* Scale only — never opacity. The one node this drives (armed fix) sits ON the
-     bracket's bottom edge, and its fill is what MASKS that edge. Fading the node
-     to .72 made the dashed bracket show through the fill and through the
-     selection ring, so the node read as broken exactly when it matters most. */
-  @keyframes node-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
+     its own off-ramp purple (the shared categorical token, UI-R08). Drawn inset
+     because the chevron clip would slice an outward ring. */
+  .track .seg.sel .pick{box-shadow:inset 0 0 0 calc(var(--k-border-w) * 2) var(--k-series-2)}
 
-  /* Running = a live spinner, not a glyph. ⟳ misreads as "reload/retry", which
-     is the wrong affordance on a node that is now clickable. An animating ring
-     is the one mark that reads as work in progress. Under reduced motion it
-     stops as a broken ring — still shape-distinct from ✓ ✕ · –, so status never
-     rides on color alone. */
-  .spin{display:block;border-radius:var(--k-radius-circle);border:calc(var(--k-border-w) * 2) solid currentColor;
-    border-top-color:transparent;animation:spin var(--k-dur-spin) linear infinite}
-  .st .spin{width:var(--k-text-base);height:var(--k-text-base)}
+  /* Untravelled: neutral, and explicitly so. A pending segment must not wear its
+     stage hue at full strength — that is what "travelled ground" means here. */
+  .track .seg.pending{color:var(--k-text-faint)}
+  /* Travelled segments carry their own stage hue as a wash, so the route changes
+     colour as the ticket advances — the one thing a flat progress bar cannot say.
+     `--stg-color` carries its own fallback: a stage key with no palette class (a
+     row from a newer schema) then reads neutral instead of dropping the whole
+     declaration and rendering unwashed. */
+  .track .seg.passed{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 20%,transparent);
+    color:var(--stg-color,var(--k-pending))}
+  .track .seg.running{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 34%,transparent);
+    color:var(--k-success-fg)}
+  /* Failed reads as a break in the surface: hatched, never a flat fill. */
+  .track .seg.failed{color:var(--k-failed);
+    background-image:repeating-linear-gradient(135deg,
+      color-mix(in srgb,var(--k-failed) 26%,transparent) 0 var(--k-space-3),
+      transparent var(--k-space-3) var(--k-space-6))}
+  /* Skipped is the one status that leaves the stage ramp: a stage that never ran
+     has no identity to assert, so it reads neutral. */
+  .track .seg.skipped{background:color-mix(in srgb,var(--k-pending) 22%,transparent);color:var(--k-text-faint)}
+  /* Needs-you OUTRANKS the stage: the stage is no longer the point, the human is.
+     Amber wash + pause glyph + the reason in words + the action = four carriers. */
+  .track .seg.needs{background:color-mix(in srgb,var(--k-attention) 30%,transparent);
+    color:var(--k-attention);animation:seg-breathe var(--k-dur-flash-done) ease-in-out infinite}
+  @keyframes seg-breathe{0%,100%{background:color-mix(in srgb,var(--k-attention) 30%,transparent)}
+    50%{background:color-mix(in srgb,var(--k-attention) 16%,transparent)}}
+
+  /* min-content, not 0: at 0 the current segment absorbs every overflow by
+     shrinking, so its own action button is clipped by the chevron AND the lane
+     never reports an overflow — the degradation below would never fire. The extra
+     right padding is not spacing either: clip-path clips CHILDREN, so the notch
+     was slicing the action button's right edge ("Resolve" rendered as "Re"). */
+  .track .seg.cur{flex:1 1 auto;min-width:min-content;padding-right:var(--k-space-9)}
+
+  .track .seg .g{flex:none;width:var(--k-space-7);height:var(--k-space-7);
+    display:grid;place-items:center;font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold)}
+  .track .seg .nm{font-size:var(--k-text-xs);letter-spacing:.05em;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .track .seg.cur .nm{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);
+    letter-spacing:.03em;flex:none}
+  .track .seg .mt{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.85;
+    white-space:nowrap;padding-left:var(--k-space-4);margin-left:var(--k-space-1);
+    border-left:var(--k-border-w) solid currentColor;flex:none}
+  /* Inside the current segment the META is what gives way, never the stage name
+     and never the action: an unbounded fact (a repo pair, a conflict summary) must
+     not be able to push the button it belongs to out of the clip. */
+  .track .seg.cur .mt{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+
+  /* The needs-you control. NOT `.act` — that is the activity strip's class. It is
+     NAVIGATIONAL: it scrolls the control that owns the action into view and
+     focuses it, so the rail never becomes a second actor for an irreversible step.
+     merge is per-repo and its confirmation modal lives in the host, so a
+     rail-level Merge button could neither pick a repo nor carry the confirmation. */
+  .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
+    border-radius:var(--k-radius-sm);background:transparent;color:inherit;
+    padding:var(--k-space-1) var(--k-space-4);cursor:pointer;flex:none;margin-left:auto}
+  .track .seg .go:hover{background:color-mix(in srgb,currentColor 18%,transparent)}
+  .track .seg .go:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
+    outline-offset:var(--k-focus-offset)}
+
+  /* impl's approach lives INSIDE impl's segment: one pip per declared phase, the
+     reported ones filled. No stem, no chip, nothing hanging off the track. A
+     hollow pip means "not reported", NEVER "not done" — karst records no
+     per-phase state it was not explicitly told. */
+  .track .seg .pips{display:flex;align-items:center;gap:var(--k-space-2);flex:none;
+    margin-left:auto;padding-left:var(--k-space-5)}
+  .track .seg .pips .p{width:var(--k-space-3);height:var(--k-space-3);
+    border-radius:var(--k-radius-circle);border:var(--k-border-w) solid currentColor;opacity:.55}
+  .track .seg .pips .p.on{background:currentColor;opacity:1}
+  .track .seg .pips .pn{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+    margin-left:var(--k-space-2);opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* ── the retry meter ──────────────────────────────────────────────────────
+     One tick per allowed attempt, filled per attempt spent, inside the gate being
+     retried. TICKS AND NOT A BAR: a bar reads as progress toward completion, and
+     spending fix attempts is the opposite of progress. It costs zero layout on a
+     ticket that never looped, and it makes "one retry left before this parks"
+     visible — which karst shows nowhere else.
+
+     It is also a <button>: it is how `fix` stays selectable now that the node is
+     gone, and it sits on the stage the loop belongs to, which is where a user
+     would look for it. */
+  .track .fixm{display:inline-flex;align-items:center;gap:var(--k-space-3);flex:none;
+    font:inherit;background:transparent;border:0;border-left:var(--k-border-w) solid currentColor;
+    padding:0 0 0 var(--k-space-4);margin-left:var(--k-space-1);color:inherit;cursor:pointer}
+  .track .fixm:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
+    outline-offset:var(--k-focus-offset)}
+  .track .fixm .ticks{display:inline-flex;gap:var(--k-space-1)}
+  .track .fixm .tk{width:var(--trk-tick-w);height:var(--trk-tick-h);border-radius:var(--k-radius-xs);
+    border:var(--k-border-w) solid var(--stage-fix);opacity:.45;display:inline-block}
+  .track .fixm .tk.on{background:var(--stage-fix);opacity:1}
+  .track .fixm .tx{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+    color:var(--stage-fix);white-space:nowrap}
+  /* review ─fail→ fix ─pass→ uat is the one loop that lands on a gate it did not
+     leave. Said in WORDS, inside the segment — a backwards arc across the track is
+     the shape this design exists to avoid. */
+  .track .fixm .ret{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+    color:var(--stage-fix);white-space:nowrap}
+  /* Spent-but-idle is a RECORD, not an alarm: the meter stays so the cost of the
+     ticket is still legible, and stops claiming the ticket's attention. */
+  .track .fixm.spent .tk{border-color:var(--k-text-faint)}
+  .track .fixm.spent .tk.on{background:var(--k-text-faint)}
+  .track .fixm.spent .tx,.track .fixm.spent .ret{color:var(--k-text-faint)}
+
+  /* ── narrow widths: THREE measured steps ──────────────────────────────────
+     Measured, not keyed to a breakpoint: the threshold depends on the current
+     stage's name length and on whether a meter is riding along. In order of what
+     costs least to lose — SNUG drops what a segment merely ANNOTATES and keeps
+     every name; TIGHT drops the names too; BARE is the floor, where the passed-by
+     segments become position markers and the current segment sheds its own
+     annotations, keeping glyph, name and action.
+
+     THREE, not two: two was the first draft, and at a 397px lane five of the eight
+     mockup cases were still over after TIGHT. Three clear every case to 300px.
+
+     Anything a step drops is already in the accessible name, which never
+     degrades — the meter's attempt count and its return target included. */
+  .track.snug .seg:not(.cur) .mt,
+  .track.snug .seg:not(.cur) .fixm .tx{display:none}
+  .track.snug .seg:not(.cur) .fixm{padding-left:var(--k-space-3);margin-left:0}
+  .track.snug .seg.cur .pips .pn{display:none}
+  .track.tight .seg:not(.cur) .nm{display:none}
+  .track.tight .seg:not(.cur){padding-left:var(--k-space-8);padding-right:var(--k-space-4)}
+  .track.tight .seg:not(.cur) .fixm .ret{display:none}
+  /* BARE. The non-current segments stop carrying anything but their position and
+     their status hue; min-width:0 lets them give up the last of their padding
+     rather than pushing the current segment's content under the clip. */
+  .track.bare .seg:not(.cur){padding-left:var(--k-space-6);padding-right:var(--k-space-2);min-width:0}
+  .track.bare .seg:not(.cur) .fixm{display:none}
+  .track.bare .seg:not(.cur) .g{width:var(--k-space-6)}
+  .track.bare .seg.cur{padding-right:var(--k-space-8)}
+  /* At the floor the current segment gives up its ANNOTATIONS — the meta, the
+     approach pips, and the meter's numeral and return label (the ticks still carry
+     the count, and the accessible name carries it in words either way). Never the
+     name, never the action button. */
+  .track.bare .seg.cur .mt,
+  .track.bare .seg.cur .pips,
+  .track.bare .seg.cur .fixm .tx,
+  .track.bare .seg.cur .fixm .ret{display:none}
+  /* …and its name shortens to the stage KEY, which is what every other segment
+     shows anyway. "Implementation" is 113px of a 300px panel; `impl` is 30. The
+     abbreviation is the same word the graph uses, so it is a shortening rather
+     than a different label. Both forms ship and CSS picks one — swapping the text
+     in JS would mean re-rendering on every resize. */
+  .track .seg .nm .abbr{display:none}
+  .track.bare .seg.cur .nm .full{display:none}
+  .track.bare .seg.cur .nm .abbr{display:inline}
+
+  /* Running = a live spinner, not a glyph. ⟳ misreads as "reload/retry", which is
+     the wrong affordance on a clickable segment. An animating ring is the one mark
+     that reads as work in progress. Under reduced motion it stops as a broken ring
+     — still shape-distinct from ✓ ✕ · –, so status never rides on colour alone. */
+  .spin{display:block;border-radius:var(--k-radius-circle);
+    border:calc(var(--k-border-w) * 2) solid currentColor;border-top-color:transparent;
+    animation:spin var(--k-dur-spin) linear infinite}
+  .track .seg .spin{width:var(--k-space-6);height:var(--k-space-6)}
   .oglyph .spin{width:var(--k-space-4);height:var(--k-space-4);margin:0 auto;
     border-width:calc(var(--k-border-w) * 1.5);color:var(--k-running)}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){
-    .loop.armed .fixnode .node{animation:none}
-    .spin{animation:none}
+    .spin,.track .seg.needs{animation:none}
   }
-
-  /* ── the branch band ──────────────────────────────────────────────────── */
-  /* ONE band carries both branches off the rail: fix hangs at the gate columns,
-     impl's approach at impl's column. Two grid rows — row 1 is the branch level,
-     row 2 is where impl's disclosure expands, clear of both branches. 62px is
-     twice the node control size plus its border — the band's height falls out
-     of the geometry it hosts, not the spacing scale. */
-  .loop{position:relative;display:grid;
-    grid-template-rows:calc(var(--k-control-h-lg) * 2 + var(--k-border-w) * 2) auto;
-    margin-top:var(--k-space-3)}
-  .loop .drop{position:absolute;top:0;height:var(--k-control-h-lg);
-    left:calc((var(--uat) + 0.5) / var(--cols) * 100%);
-    right:calc(100% - (var(--review) + 0.5) / var(--cols) * 100%);
-    border:calc(var(--k-border-w) * 2) dashed var(--k-border);border-top:none;
-    border-radius:0 0 var(--k-radius-xl) var(--k-radius-xl)}
-  /* Armed changes color, never style: a solid rounded bracket reads as a box
-     drawn around the fix node; dashed keeps reading as a path. */
-  .loop.armed .drop{border-color:var(--k-failed)}
-  /* fix ─pass→ review: parallel to review's descender, offset a fixed distance
-     off the token scale so the two edges read as a channel rather than one
-     ambiguous line. */
-  .loop .ret{position:absolute;top:var(--k-space-2);width:var(--k-space-1);height:var(--k-space-9);background:var(--k-border);
-    left:calc((var(--review) + 0.5) / var(--cols) * 100% + var(--k-space-8))}
-  .loop .ret::before{content:"▲";position:absolute;top:calc(var(--k-space-5) * -1);left:calc(var(--k-space-2) * -1);
-    font-size:var(--k-text-2xs);line-height:1;color:var(--k-border)}
-  .loop.armed .ret{background:var(--k-running)}
-  .loop.armed .ret::before{color:var(--k-running)}
-  .loop .retlbl{position:absolute;top:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
-    color:var(--k-text-faint);white-space:nowrap;
-    left:calc((var(--review) + 0.5) / var(--cols) * 100% + var(--k-space-8) + var(--k-space-6))}
-  .loop.armed .retlbl{color:var(--k-running)}
-  .loop .faillbl{position:absolute;top:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
-    color:var(--k-text-faint);white-space:nowrap;transform:translateX(-100%);padding-right:var(--k-space-4);
-    left:calc((var(--uat) + 0.5) / var(--cols) * 100%)}
-  .loop.armed .faillbl{color:var(--k-failed)}
-
-  /* Node on the bracket's bottom edge, name and status on ONE line beneath it.
-     Beside the node they run into the bracket's right descender; as two stacked
-     lines they cost too much vertical space to say two words. */
-  /* fix carries its own stage hue (stg-fix, added in the markup) exactly like a
-     rail node — currentColor here is that hue, so the ring, label, and armed
-     fill all read as one stage. */
-  .loop .fixnode{position:absolute;top:calc(var(--k-space-7) + var(--k-border-w));display:flex;flex-direction:column;
-    align-items:center;gap:var(--k-space-2);
-    left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
-    transform:translateX(-50%)}
-  .loop .fixnode .node{width:var(--k-control-h-md);height:var(--k-control-h-md);border-radius:var(--k-radius-circle);
-    display:grid;place-items:center;
-    background:var(--k-surface);border:calc(var(--k-border-w) * 2) dashed var(--stg-color);color:var(--stg-color);
-    font-size:var(--k-text-md);font-weight:700;flex:none;padding:0;cursor:pointer;font-family:inherit}
-  .loop .fixnode .node:hover{filter:brightness(1.25)}
-  /* --k-focus, not --k-series-2 — same fusion with the selection ring as the
-     rail nodes above. */
-  .loop .fixnode .node:focus-visible{outline:calc(var(--k-focus-w) * 2) solid var(--k-focus);
-    outline-offset:calc(var(--k-focus-offset) + var(--k-space-1))}
-  .loop .fixnode .cl{display:flex;align-items:baseline;gap:var(--k-space-3);white-space:nowrap}
-  .loop .fixnode .lbl{font-size:var(--k-text-2xs);letter-spacing:.06em;text-transform:uppercase;color:inherit}
-  .loop .fixnode .cap{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  /* Armed FILLS the ring (status: the loop is live); hue stays fix's. No token
-     matches this pulse's cadence — it is a one-off animation timing, not a
-     spacing/color/radius value, so UI-R04 does not cover it; flagged here
-     rather than inventing a --k-dur step nobody else would reuse. */
-  .loop.armed .fixnode .node{border-style:solid;border-color:var(--stg-color);
-    background:var(--stg-color);color:var(--k-success-fg);
-    animation:node-pulse 1.7s ease-in-out infinite}
-  .loop.armed .fixnode .cap{color:var(--k-attention)}
-  /* A fix pass is a resolved/healthy attempt even though review runs next to
-     revalidate it. Paint that stored success green instead of leaving the
-     branch looking like an unresolved red retry. */
-  .loop .fixnode.done .node{--stg-color:var(--k-passed);border-style:solid;
-    border-color:var(--stg-color);background:var(--stg-color);
-    color:var(--k-success-fg)}
-  .loop .fixnode.done .lbl{color:var(--k-passed)}
-  .loop .fixnode.sel .node{box-shadow:0 0 0 var(--k-space-1) var(--k-surface),0 0 0 var(--k-space-2) var(--k-series-2)}
-  .loop .fixnode.sel .lbl{color:var(--k-text)}
-
-  /* fix is optional, so it defaults collapsed: the whole return channel is
-     dropped and row 1 shrinks to the approach chip it still has to carry. Only
-     the toggle remains, sitting where the bracket would be. Armed never collapses
-     (renderRail omits the class), so a live loop is always drawn. */
-  .loop.collapsed{grid-template-rows:auto auto}
-  /* A dim stage-hued pill in fix's own colour (stg-fix on the button), so the
-     affordance still reads as "the fix loop" while it is hidden. Centred on the
-     branch, exactly where the fix node would sit. Built on `.k-chip` (UI-R08);
-     only position and the dashed "inert while collapsed" treatment stay local. */
-  .fixtoggle{position:absolute;top:var(--k-space-1);left:calc((var(--uat) + var(--review) + 1) / 2 / var(--cols) * 100%);
-    transform:translateX(-50%);font-family:var(--k-font-mono);letter-spacing:.04em;
-    border-style:dashed;white-space:nowrap;line-height:1.4}
-  /* When the branch is shown, the toggle steps aside to the band's right edge so
-     it never overlaps the fix node it now sits beside. */
-  .fixtoggle.open{left:auto;right:var(--k-space-1);transform:none}
-
-  /* impl's stem drops from the rail and STOPS at the approach chip — the same
-     move the bracket makes into the fix node. Running it the full band height
-     left a line dangling past the chip, which read as two unrelated marks. */
-  .loop .implstem{position:absolute;top:0;height:calc(var(--k-space-8) + var(--k-border-w));width:var(--k-space-1);background:var(--k-border);
-    left:calc((var(--impl) + 0.5) / var(--cols) * 100%)}
-  .loop .implstem.on{background:var(--k-running)}
-
-  /* ── impl's approach: named on the rail, detail on demand ─────────────── */
-  /* display:contents is what lets the summary chip sit in row 1 while the detail
-     panel expands into row 2, clear of both branches, with no extra wrapper. */
-  .approach{display:contents}
-  /* Centered ON impl's stem, exactly as the fix node centers on its bracket.
-     Width cap: the gap to the bracket, doubled (the chip is centered, so only
-     half reaches right), minus the `fail` edge label that hangs to the bracket's
-     LEFT — the nearest thing this can hit — plus a gutter (72px: geometry
-     derived from the rail's own layout, not a spacing value). */
-  .branch-slot{grid-row:1;justify-self:start;align-self:start;margin-top:calc(var(--k-space-8) + var(--k-border-w));
-    margin-left:calc((var(--impl) + 0.5) / var(--cols) * 100%);
-    transform:translateX(-50%);
-    max-width:calc((var(--uat) - var(--impl)) / var(--cols) * 200% - 72px);
-    display:inline-flex;align-items:center;min-width:0}
-  .approach > summary{list-style:none;cursor:pointer}
-  .approach > summary::-webkit-details-marker{display:none}
-  .approach > summary:hover .aid{background:var(--k-surface-hover);border-color:var(--k-text-dim)}
-  /* Primitives style :focus-visible on <button>/<a>/<input>; a <summary> is
-     neither, so it gets no ring from the generic rule and needs its own —
-     otherwise a keyboard user tabbing to the approach disclosure sees nothing. */
-  .approach > summary:focus-visible .aid{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  /* The chevron rides INSIDE the chip: beside it, it detached from both the stem
-     and the chip and read as a stray glyph. */
-  .approach .chev{color:var(--k-text-faint);font-size:var(--k-text-2xs);transition:transform var(--k-dur-fast) var(--k-ease-standard);flex:none}
-  .approach[open] .chev{transform:rotate(180deg)}
-  @media (prefers-reduced-motion:reduce){.approach .chev{transition:none}}
-  /* A long id truncates rather than pushing into the fix branch; the full value
-     stays in the title. Built on `.k-chip` (UI-R08: one pill shape for keypill,
-     fixtoggle, this, and the PR status chip below); only monospace + truncation
-     stay local. */
-  .approach .aid,.noapproach .none{font-family:var(--k-font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-  /* max-width:100% is what makes the cap bite — the slot's max-width alone lets
-     a nowrap chip overflow it. */
-  .approach .aid{display:inline-flex;align-items:center;gap:var(--k-space-3);max-width:100%}
-  .approach .aid .nm{overflow:hidden;text-overflow:ellipsis;min-width:0}
-  .approach.active .aid{border-color:var(--k-running);color:var(--k-text)}
-  .approach.done .aid{border-color:var(--k-passed);color:var(--k-passed)}
-  /* No approach at all (manual ticket): a plain inert chip, never an empty
-     disclosure the user can open onto nothing. */
-  .noapproach .none{border-style:dashed;color:var(--k-text-faint)}
-
-  .approach .detail{grid-row:2;margin:var(--k-space-1) 0 0;
-    margin-left:calc((var(--impl) + 0.5) / var(--cols) * 100% - var(--k-space-4));
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
-    padding:var(--k-space-4) var(--k-space-2) var(--k-space-3);max-width:640px}
-  .phrow{display:flex;align-items:baseline;gap:var(--k-space-5);padding:var(--k-space-2) var(--k-space-5);border-radius:var(--k-radius-md)}
-  .phrow:hover{background:var(--k-surface-hover)}
-  .phrow .pi{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);width:var(--k-space-6);flex:none}
-  .phrow .pn{font-size:var(--k-text-sm)}
-  .approach .foot{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);
-    padding:var(--k-space-4) var(--k-space-5) 0;margin-top:var(--k-space-3);border-top:var(--k-border-w) solid var(--k-border);opacity:.85}
 
   /* ── activity strip: what happens inside the SELECTED stage ───────────── */
   .act{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
@@ -706,13 +698,25 @@
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
-  // Stage status -> rail CSS class. Amber/needs-you is an agent-level signal
-  // (glyphFor precedence); the rail shows stage status only.
-  const STEP_CLASS = { passed: 'done', running: 'running', failed: 'failed', pending: '', skipped: 'skipped' };
+  // Stage status -> segment CSS class. Needs-you is NOT here: it OUTRANKS the
+  // stage status, and it is applied from the segment's own `needsUser`, which the
+  // host derives once (model/ticketGlyph.needsUser) for every surface. The old
+  // rail showed stage status only, so a ticket parked on a human looked exactly
+  // like one quietly running.
+  // `pending` is a REAL class, not the empty string the old rail used: the
+  // segment's own rule sets no colour (so the stage palette can), which leaves an
+  // untravelled segment wearing its stage hue at full strength unless something
+  // says otherwise.
+  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped' };
   // Running renders a spinner ELEMENT, not a character — see the .spin rule for
   // why every glyph candidate misread on a clickable node.
   const SPINNER = '<span class="spin" aria-hidden="true"></span>';
-  const STEP_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–' };
+  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–' };
+  // A parked confirm stage carries a pause; a conflicted merge carries a warning.
+  // Two glyphs, ONE state — merge has no failed edge, so a conflict is a wording
+  // difference and must never render as something a retry could clear.
+  const NEEDS_GLYPH = '❚❚';
+  const CONFLICT_GLYPH = '⚠';
   const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -724,9 +728,6 @@
   // selection through the host would snap the panel back mid-run.
   let lastState = null;
   let selectedStage = null;
-  // Whether the optional fix loop is expanded. Local view state like the
-  // selection — never in DashboardState, so a host push can't reset it.
-  let fixExpanded = false;
   // What the user typed into the servers filter. Local for the same reason: a
   // state push lands on every server change, so a filter living in (or absent
   // from) DashboardState would be wiped out mid-typing.
@@ -836,15 +837,6 @@
     };
   }
 
-  // The connector INTO this node: lit once the previous stage passed, accented
-  // into a running node, broken (red) into a failed one, dim when unreached.
-  function segClass(cell, prev) {
-    if (cell.status === 'failed') return 'broken';
-    const reached = prev && (prev.status === 'passed' || prev.status === 'skipped');
-    if (!reached) return '';
-    return cell.status === 'running' ? 'active' : 'lit';
-  }
-
   // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
   // omitted while a stage is still running (no endedAt yet).
   function timingText(cell) {
@@ -869,101 +861,146 @@
     return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
   }
 
-  // The rail: the forward path, then the band carrying fix and impl's approach.
-  // Geometry comes from the host (state.rail.geometry) as CSS custom properties,
-  // so every attachment point below is a calc() that follows the columns.
-  function renderRail(rail, approach, sel, fixExpanded) {
-    const g = rail.geometry;
-    const nodes = rail.main.map((cell, i) => {
-      const cls = STEP_CLASS[cell.status] || '';
-      const on = sel === cell.stageKey;
-      // Icon-only (a glyph or a spinner, never text) — aria-label AND title
-      // carry the SAME string (UI-R21/R24): the stage name plus its status,
-      // since colour/shape alone would leave a screen-reader user with no
-      // account of which stage this node is.
-      const nodeName = `${esc(STAGE_TITLE[cell.stageKey] || cell.stageKey)}: ${esc(cell.status)}`;
-      return `<div class="st ${cls} stg-${esc(cell.stageKey)} ${on ? 'sel' : ''}">`
-        + `<div class="seg ${segClass(cell, rail.main[i - 1])}"></div>`
-        + `<button type="button" class="node" data-stage="${esc(cell.stageKey)}" aria-pressed="${on}"`
-        + ` aria-label="${nodeName}" title="${nodeName}">`
-        + `${STEP_GLYPH[cell.status] || ''}</button>`
-        + `<div class="lbl">${esc(cell.stageKey)}</div>`
-        + `<div class="meta">${esc(durationText(cell))}</div></div>`;
+  // The track: ONE object the ticket travels through. The current segment is
+  // wide and the rest compact — that is what fits seven stages in a narrow panel.
+  //
+  // No geometry is pushed from the host any more. The old rail positioned its
+  // band from `--cols/--impl/--uat/--review` calc() inputs because it had a
+  // second lane to bolt to specific columns; there is no second lane now, so the
+  // only measurement left is `place()` below, and it POSITIONS NOTHING — it picks
+  // one of three degradation classes.
+  function renderTrack(rail, approach, sel) {
+    const segs = rail.main.map((s) => {
+      const cell = s.cell;
+      const k = cell.stageKey;
+      const status = cell.status;
+      const needs = s.needsUser === true;
+      // A conflict is a WORDING difference, not a new state: merge has no failed
+      // edge, so it must never render as something a retry could clear. The host
+      // already made that distinction when it worded the action.
+      const conflict = needs && s.needs && s.needs.action === 'Resolve';
+      const running = status === 'running' || (s.retry && s.retry.live);
+      const cls = [
+        needs ? 'needs' : (SEG_CLASS[status] || ''),
+        s.current ? 'cur' : '',
+        sel === k ? 'sel' : '',
+      ].filter(Boolean).join(' ');
+
+      const glyph = running ? SPINNER
+        : conflict ? CONFLICT_GLYPH
+        : needs ? NEEDS_GLYPH
+        : (SEG_GLYPH[status] || '');
+
+      // Both name forms ship and the CSS picks one: the current segment normally
+      // shows the human title and falls back to the stage key at the narrowest
+      // step. Swapping the text in JS would mean re-rendering on every resize.
+      const title = STAGE_TITLE[k] || k;
+      const name = s.current
+        ? `<span class="full">${esc(title)}</span><span class="abbr">${esc(k)}</span>`
+        : esc(k);
+
+      let extra = '';
+      if (s.current && needs) {
+        extra = `<span class="mt">${esc(s.needs ? s.needs.detail : '')}</span>`
+          + `<button type="button" class="go" data-goto`
+          + `>${esc(s.needs ? s.needs.action : 'Open')}</button>`;
+      } else if (s.current && k === 'impl' && approach) {
+        extra = renderPips(approach);
+      } else {
+        const d = durationText(cell);
+        if (d) extra = `<span class="mt">${esc(d)}</span>`;
+      }
+      // The meter is APPENDED, never assigned into the same slot as the meta — a
+      // retried gate has both a duration and a spent cap and must not have to
+      // choose between saying them.
+      if (s.retry) extra += renderMeter(s.retry);
+
+      // The status is carried by colour and glyph, so the accessible name states
+      // it outright — and states the retry loop too: a screen-reader user must
+      // not have to infer a live retry from a meter they cannot see, nor lose the
+      // return target when the narrowest step drops the `↩ uat`.
+      const aria = (needs ? `${title}: needs you` : `${title}: ${status}`)
+        + (s.retry ? ` — fix ${s.retry.spent}/${s.retry.cap}${s.retry.live ? ' running' : ''}` : '')
+        + (s.retry && s.retry.returnsTo ? `, revalidates from ${s.retry.returnsTo}` : '');
+
+      return `<div class="seg stg-${esc(k)} ${cls}">`
+        + `<button type="button" class="pick" data-stage="${esc(k)}" aria-pressed="${sel === k}"`
+        + ` aria-label="${esc(aria)}" title="${esc(aria)}"></button>`
+        + `<span class="g">${glyph}</span><span class="nm">${name}</span>${extra}</div>`;
     }).join('');
 
-    const fixSel = sel === 'fix';
-    const fixClass = STEP_CLASS[rail.branch.status] || '';
-    const implRunning = rail.main.some((c) => c.stageKey === 'impl' && c.status === 'running');
-
-    // fix is a RETURN CHANNEL reached only on a failed gate, so it stays hidden
-    // until the user asks for it — on a ticket that never looped it would just eat
-    // the band's height. `armed` (fix running, or a gate sitting failed) forces it
-    // open, and so does selecting it: hiding a live loop, or the stage whose Inside
-    // strip is showing, would hide the very state the user is looking at.
-    // Keep a resolved fix visible after fix→review disarms the loop. Otherwise
-    // the branch collapses in the same state push that turns it green, making a
-    // successful resolution technically stored but impossible to see.
-    const showFix = fixExpanded || rail.armed || rail.branch.status === 'passed' || fixSel;
-    // No toggle while armed: there is nothing optional to collapse when the loop is
-    // actually running.
-    const toggle = rail.armed
-      ? ''
-      : showFix
-        ? `<button type="button" class="k-chip fixtoggle open" data-fixtoggle aria-expanded="true"`
-          + ` title="Hide the optional fix loop">hide fix ⌃</button>`
-        : `<button type="button" class="k-chip fixtoggle" data-fixtoggle aria-expanded="false"`
-          + ` title="fix runs only when a uat or review gate fails — show the loop">+ fix ⌄</button>`;
-    // The fix node is icon-only (↺) — aria-label AND title carry the same
-    // string (UI-R21/R24); the ancestor's own title (below) explains the loop
-    // as a whole, which is not part of THIS button's accessible name.
-    const fixNodeName = fixSel ? 'Fix stage, selected' : 'View fix stage';
-    const branch = showFix
-      ? `<div class="drop"></div><div class="ret"></div>`
-        + `<div class="retlbl">pass → review</div><div class="faillbl">fail</div>`
-        + `<div class="fixnode ${fixClass} stg-fix ${fixSel ? 'sel' : ''}"`
-        + ` title="Entered only when the uat or review gate fails; on pass it returns to review">`
-        + `<button type="button" class="node" data-stage="fix" aria-pressed="${fixSel}"`
-        + ` aria-label="${fixNodeName}" title="${fixNodeName}">↺</button>`
-        + `<div class="cl"><span class="lbl">fix</span>`
-        + `<span class="cap">${esc(rail.cap || 'idle')}</span></div></div>`
-      : '';
-
-    el('rail').innerHTML =
-      `<div class="track" style="--cols:${g.cols};--impl:${g.impl};--uat:${g.uat};--review:${g.review}">`
-      + `<div class="main">${nodes}</div>`
-      + `<div class="loop ${rail.armed ? 'armed' : ''} ${showFix ? '' : 'collapsed'}">`
-      + `<div class="implstem ${implRunning ? 'on' : ''}"></div>`
-      + branch
-      + toggle
-      + renderApproach(approach, rail)
-      + `</div></div>`;
+    el('rail').innerHTML = `<div class="track"><div class="lane">${segs}</div></div>`;
+    place();
   }
 
-  // The approach driving impl, named on the rail with its declared phases behind
-  // a disclosure. The phases are DECLARED, never observed — the footer says so,
-  // so the list cannot be read as progress karst is tracking.
-  function renderApproach(approach, rail) {
-    if (!approach) {
-      return `<div class="noapproach branch-slot" title="This ticket has no approach selected">`
-        + `<span class="k-chip none">no approach</span></div>`;
-    }
-    const impl = rail.main.find((c) => c.stageKey === 'impl');
-    const cls = impl && (impl.status === 'passed' || impl.status === 'skipped') ? 'done'
-      : impl && impl.status === 'running' ? 'active' : '';
+  // impl's declared phases, as pips inside impl's own segment. DECLARED is not
+  // observed: a pip fills only for a phase the agent actually reported by running
+  // a marker command, and a hollow pip means "not reported" — never "not done".
+  function renderPips(approach) {
     const phases = approach.phases || [];
-    const count = phases.length ? `${phases.length} phases` : 'no phases';
-    const rows = phases.length
-      ? phases.map((p, i) => `<div class="phrow"><span class="pi">${i + 1}</span>`
-        + `<span class="pn">${esc(p)}</span></div>`).join('')
-      : '';
-    const foot = phases.length
-      ? 'karst records no per-phase state — the agent runs these inside impl'
-      : 'this approach declares no workflow — impl is one undivided stage';
-    return `<details class="approach ${cls}">`
-      + `<summary class="branch-slot" title="Approach driving impl — ${esc(approach.id)}, ${count}">`
-      + `<span class="k-chip aid"><span class="nm">${esc(approach.id)}</span>`
-      + `<span class="chev">▼</span></span></summary>`
-      + `<div class="detail">${rows}<div class="foot">${esc(foot)}</div></div></details>`;
+    if (!phases.length) return '';
+    const done = new Set(approach.reported || []);
+    const pips = phases.map((p) => {
+      const on = done.has(p);
+      return `<span class="p ${on ? 'on' : ''}"`
+        + ` title="${esc(p)}${on ? ' — reported' : ' — not reported'}"></span>`;
+    }).join('');
+    const latest = (approach.reported || []).slice(-1)[0];
+    const caption = latest ? `${latest} · ${approach.id}` : approach.id;
+    return `<span class="pips">${pips}<span class="pn">${esc(caption)}</span></span>`;
+  }
+
+  // The retry meter IS the fix control: it is how `fix` stays selectable now that
+  // the node is gone, and it sits on the gate the loop belongs to, which is where
+  // a user would look for it. One tick per ALLOWED attempt, filled per attempt
+  // spent — built from the cap the host resolved, never from a literal, or it
+  // would misreport the budget the driver will actually spend.
+  function renderMeter(retry) {
+    const ticks = Array.from({ length: retry.cap }, (_, i) =>
+      `<span class="tk ${i < retry.spent ? 'on' : ''}"></span>`).join('');
+    const ret = retry.returnsTo ? `<span class="ret">↩ ${esc(retry.returnsTo)}</span>` : '';
+    const label = `Fix loop on ${STAGE_TITLE[retry.gate] || retry.gate}: `
+      + `attempt ${retry.spent} of ${retry.cap}${retry.live ? ', running' : ''}`;
+    return `<button type="button" class="fixm ${retry.live ? '' : 'spent'}" data-stage="fix"`
+      + ` aria-label="${esc(label)}" title="${esc(label)}">`
+      + `<span class="ticks">${ticks}</span>`
+      + `<span class="tx">fix ${retry.spent}/${retry.cap}</span>${ret}</button>`;
+  }
+
+  // THREE steps, measured rather than keyed to a breakpoint: the threshold
+  // depends on the current stage's name length and on whether a meter is riding
+  // along. This is the ONLY measurement in the track and it POSITIONS NOTHING —
+  // it toggles one of three classes, so a measurement taken pre-layout can never
+  // detach anything, only under-degrade for one frame.
+  function place() {
+    const track = document.querySelector('.track');
+    if (!track) return;
+    const lane = track.querySelector('.lane');
+    if (!lane) return;
+    const over = () => lane.scrollWidth > lane.clientWidth + 1;
+    track.classList.remove('snug', 'tight', 'bare');
+    if (!over()) return;
+    track.classList.add('snug');
+    if (!over()) return;
+    track.classList.add('tight');
+    if (over()) track.classList.add('bare');
+  }
+
+  // The needs-you button is NAVIGATIONAL. It scrolls the control that owns the
+  // action into view and focuses it; it posts no host message and duplicates no
+  // actor. merge is per-repo and its confirmation modal lives in the host
+  // (workflow/mergePr.ts), so a rail-level Merge button could neither pick a repo
+  // nor carry the confirmation — and making ship's an actor while merge's is a
+  // pointer would be two rules where one will do.
+  function gotoAction() {
+    // The Now line's own primary action, when it has one (ship). Otherwise the PR
+    // panel, where the per-repo Merge and Resolve buttons live (merge).
+    const target = document.querySelector('#now [data-act]')
+      || document.querySelector('#prs .mgbtn');
+    const scrollTo = target || el('prs');
+    if (!scrollTo) return;
+    scrollTo.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (target && typeof target.focus === 'function') target.focus();
   }
 
   // What happens inside the selected stage. Three shapes, because a stage has
@@ -1441,7 +1478,7 @@
     // createFollowUpTicket command enforces server-side.
     el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done');
     renderAgent(state.agentState);
-    renderRail(state.rail, state.approach, sel, fixExpanded);
+    renderTrack(state.rail, state.approach, sel);
     renderInside(shippingView(state, sel), sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
@@ -1467,16 +1504,10 @@
   // Selection is view state: persisted BESIDE the host's snapshot, never inside
   // it. Inside `state` it would be dropped by the next push (the host builds
   // that from the DB) and would put a webview concern in a host-owned type.
-  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, fixExpanded, srvFilter: srvFilter });
+  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter });
 
   function select(stage) {
     selectedStage = stage;
-    render(lastState);
-    persist();
-  }
-
-  function toggleFix() {
-    fixExpanded = !fixExpanded;
     render(lastState);
     persist();
   }
@@ -1505,7 +1536,9 @@
   // Clicking a stage re-points the strip. Purely local — no host round trip, so
   // it stays instant and survives every state push.
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-fixtoggle]')) { toggleFix(); return; }
+    // The needs-you button navigates; it never acts. Checked BEFORE the stage
+    // hook, because it lives inside a segment that also carries one.
+    if (e.target.closest('[data-goto]')) { gotoAction(); return; }
     const node = e.target.closest('[data-stage]');
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
@@ -1667,6 +1700,15 @@
     mergeRequests = {};
   }
 
+  // Re-measure the track when the DOM did not change but its available width
+  // did. `renderTrack` calls place() itself on the render path; these three cover
+  // the rest — a panel drag, the document finishing, and web fonts settling. A
+  // track measured against pre-layout metrics reports no overflow and degrades
+  // one step too late, which is why `load` and `fonts.ready` are here at all.
+  window.addEventListener('resize', place);
+  window.addEventListener('load', place);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
+
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
@@ -1738,7 +1780,6 @@
   const restored = prev && prev.state ? prev : prev ? { state: prev, sel: null } : null;
   if (restored && restored.state) {
     selectedStage = restored.sel || null;
-    fixExpanded = restored.fixExpanded || false;
     srvFilter = restored.srvFilter || '';
     render(restored.state);
   }

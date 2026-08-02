@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
-import { implInside, fixInside } from './agent.js';
+import { implInside, fixInside, reportedPhases } from './agent.js';
 import { formatTime } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -26,6 +26,44 @@ function mark(phaseName: string, markedAt: string, extra: Partial<PhaseMark> = {
 }
 
 const at = (hhmm: string) => `2026-07-20T${hhmm}:00.000Z`;
+
+describe('reportedPhases', () => {
+  // Exported so the dashboard's impl segment fills its phase pips from the SAME
+  // derivation the strip lists. Two answers to "which phase is the agent in" is
+  // the same class of bug as two answers to needs-you.
+  it('reports each phase at its first mark, in report order', () => {
+    const marks = [mark('plan', at('10:05')), mark('research', at('10:00'))];
+    // Ordered by id (the rowid alias), never by array position: listPhaseMarks
+    // promises no order.
+    expect(reportedPhases([marks[1]!, marks[0]!], cell('impl', 'running')).map((m) => m.phaseName))
+      .toEqual(['plan', 'research']);
+  });
+
+  it('reports a repeated phase once, at its first mark', () => {
+    // Approaches loop legitimately (research → plan → research); a repeat
+    // counter would make ordinary iteration read as thrashing.
+    const first = mark('research', at('10:00'));
+    const out = reportedPhases(
+      [first, mark('plan', at('10:05')), mark('research', at('10:10'))],
+      cell('impl', 'running'),
+    );
+    expect(out.map((m) => m.phaseName)).toEqual(['research', 'plan']);
+    expect(out[0]!.id).toBe(first.id);
+  });
+
+  it('ignores marks from another attempt', () => {
+    expect(
+      reportedPhases([mark('research', at('10:00'), { attempt: 0 })],
+        cell('impl', 'running', { attempt: 1 })),
+    ).toEqual([]);
+  });
+
+  it('ignores marks from another stage', () => {
+    expect(
+      reportedPhases([mark('research', at('10:00'), { stageKey: 'fix' })], cell('impl', 'running')),
+    ).toEqual([]);
+  });
+});
 
 describe('implInside', () => {
   it('names the session and the model it is running on', () => {

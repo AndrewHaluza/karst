@@ -4,6 +4,7 @@ import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
+import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import { buildDashboardState } from './state.js';
 
@@ -165,7 +166,11 @@ describe('buildDashboardState', () => {
     const phases = (approachId: string | null) =>
       approachId === 'rpi' ? ['research', 'plan', 'implement'] : [];
     const state = buildDashboardState(store, t.id, undefined, undefined, phases);
-    expect(state.approach).toEqual({ id: 'rpi', phases: ['research', 'plan', 'implement'] });
+    expect(state.approach).toEqual({
+      id: 'rpi',
+      phases: ['research', 'plan', 'implement'],
+      reported: [],
+    });
   });
 
   it('has no approach when the ticket was never given one', () => {
@@ -173,13 +178,89 @@ describe('buildDashboardState', () => {
     expect(buildDashboardState(store, t.id).approach).toBeNull();
   });
 
-  it('keeps fix off the rail and carries it as the branch', () => {
-    // The bug: projecting all seven stage keys onto a line drew fix as a step
+  it('keeps fix off the track — it is drawn on the gate it retries', () => {
+    // The bug: projecting all eight stage keys onto a line drew fix as a step
     // between review and ship, a forward path the graph does not have.
     const t = createTicket(store, { key: 'R-1', title: 't' });
     const state = buildDashboardState(store, t.id);
-    expect(state.rail.main.map((c) => c.stageKey)).not.toContain('fix');
-    expect(state.rail.branch.stageKey).toBe('fix');
+    expect(state.rail.main.map((s) => s.cell.stageKey)).not.toContain('fix');
+    expect(state.rail.main.every((s) => s.retry === null)).toBe(true);
+  });
+
+  it('marks the current segment needs-you when the ticket is parked at ship', () => {
+    // ship is a CONFIRM stage: nothing runs, and the ticket waits on a click.
+    // Every other surface already reports this; the rail was the last that did not.
+    const t = createTicket(store, { key: 'N-1', title: 't' });
+    setStage(store, t.id, 'ship', { status: 'pending' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needsUser).toBe(true);
+    expect(ship.needs).toEqual({ detail: 'ready to open the PRs', action: 'Confirm ship' });
+    expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
+  });
+
+  it('puts needs-you on impl when the agent is the one waiting', () => {
+    const t = createTicket(store, { key: 'N-2', title: 't' });
+    setStage(store, t.id, 'impl', { status: 'running' });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'impl', agent_state = 'waiting' WHERE id = ?")
+      .run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    const impl = state.rail.main.find((s) => s.cell.stageKey === 'impl')!;
+    expect(impl.needsUser).toBe(true);
+    expect(impl.needs?.action).toBe('Open session');
+    expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
+  });
+
+  it('leaves every segment clear when nothing is blocked on the user', () => {
+    const t = createTicket(store, { key: 'N-3', title: 't' });
+    setStage(store, t.id, 'impl', { status: 'running' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(store, t.id);
+    expect(state.rail.main.some((s) => s.needsUser)).toBe(false);
+    expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
+  });
+
+  it('draws the meter with the manifest’s narrowed uat budget', () => {
+    // The meter must draw exactly the attempts the driver will spend, or it lies
+    // about how many retries are left.
+    const t = createTicket(store, { key: 'N-4', title: 't' });
+    setStage(store, t.id, 'uat', { status: 'failed', attempt: 1 });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined, undefined,
+      () => 1,
+    );
+    const uat = state.rail.main.find((s) => s.cell.stageKey === 'uat')!;
+    expect(uat.retry).toMatchObject({ spent: 1, cap: 1 });
+  });
+
+  it('reports which declared phases the agent has actually marked', () => {
+    // Declared is not observed: an unmarked phase renders hollow and must never
+    // be claimed as done.
+    const t = createTicket(store, { key: 'N-5', title: 't' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+    setStage(store, t.id, 'impl', { status: 'running' });
+    recordPhaseMark(store, {
+      ticketId: t.id,
+      stageKey: 'impl',
+      attempt: 0,
+      phaseName: 'research',
+      markedAt: '2026-08-02T10:00:00.000Z',
+    });
+
+    const state = buildDashboardState(store, t.id, undefined, undefined, () => [
+      'research', 'plan', 'implement',
+    ]);
+    expect(state.approach).toMatchObject({
+      id: 'rpi',
+      phases: ['research', 'plan', 'implement'],
+      reported: ['research'],
+    });
   });
 
   it('precomputes a strip for every stage, so any stage can be selected', () => {

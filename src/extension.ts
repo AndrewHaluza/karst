@@ -117,6 +117,7 @@ import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
 import { settleMergeGates } from './workflow/mergeGate.js';
+import { capForGate } from './workflow/fixAttempts.js';
 import { findTicketPr } from './store/prs.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
@@ -1506,6 +1507,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
+    // The rail's retry meter must draw the budget the driver will actually
+    // spend, so it resolves through the SAME rule fixResumeDecision uses.
+    (gate) => capForGate(gate, currentManifest()?.uat?.maxFixAttempts),
   );
 
   binder = new TerminalDashboardBinder({
