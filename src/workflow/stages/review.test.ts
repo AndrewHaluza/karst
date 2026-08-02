@@ -10,6 +10,7 @@ import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest } from '../../manifest/fixtures.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
+import { runUat, type UatDeps } from './uat.js';
 
 const now = (): string => '2026-08-01T10:00:00.000Z';
 
@@ -613,5 +614,121 @@ describe('runReview', () => {
     // zero-length run rather than as "karst had nothing to ask".
     expect(second!.startedAt).toBeNull();
     expect(second!.endedAt).toBeNull();
+  });
+});
+
+/**
+ * R7 (independent signal) compares the identity `runReview` records for its own
+ * gates against the identity `runUat` recorded for its. The rule everywhere
+ * else in this file exercises `sameGateIdentity` against HANDCRAFTED
+ * `recordGateRun` calls, which proves nothing about whether the two real
+ * writers actually agree on what a "repo"/"command"/"args" is — that is
+ * exactly the hazard Task 7 introduces (e.g. one writer recording a repository
+ * NAME and the other a PATH would silently disable R7 while every handcrafted
+ * test stayed green). These tests run BOTH stages through their real
+ * orchestration code (`runUat` then `runReview`) against the same target and
+ * assert on the resulting verdict, so a divergence between the writers would
+ * fail here even though it fails nowhere else in this file.
+ */
+describe('runUat and runReview record identities R7 can actually compare (differential)', () => {
+  let store: Store;
+  let id: number;
+  let uatArtifactDir: string;
+  let reviewArtifactDir: string;
+
+  const target = { repo: '/web', path: '/wt/web', names: ['web'] };
+
+  function uatDeps(over: Partial<UatDeps> = {}): UatDeps {
+    return {
+      now,
+      planTargets: async () => ({ kind: 'targets', targets: [target] }),
+      probe: () => ({ kind: 'ok', scripts: { test: 'vitest run' } }),
+      runGates: async (gates) => ({
+        kind: 'ran',
+        results: gates.map((g) => ({
+          name: g.name,
+          exitCode: 0,
+          output: 'ok',
+          startedAt: now(),
+          endedAt: now(),
+        })),
+      }),
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+    uatArtifactDir = mkdtempSync(join(tmpdir(), 'karst-uat-diff-'));
+    reviewArtifactDir = mkdtempSync(join(tmpdir(), 'karst-review-diff-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(uatArtifactDir, { recursive: true, force: true });
+    rmSync(reviewArtifactDir, { recursive: true, force: true });
+  });
+
+  it('review re-invoking the SAME command UAT ran is caught by R7, using each writer’s real identity', async () => {
+    // UAT's only discoverable script is `test`, so it records `npm test`
+    // against `/web` through its own real code path (`resolveGates` ->
+    // `runGateList` -> `commitGateOutcome`).
+    const uatRes = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir: uatArtifactDir, manifest: manifest({}) },
+      uatDeps(),
+    );
+    expect(uatRes).toEqual({ kind: 'advanced', next: 'review' });
+
+    // Review probes the SAME repository and finds only the SAME `test` script,
+    // so it too resolves to `npm test` against `/web` — through ITS real code
+    // path, independently. If either writer disagreed on what `repo` means (a
+    // name vs. a path) or dropped `command`/`args`, this would silently pass
+    // instead of failing R7.
+    const reviewRes = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir: reviewArtifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({ kind: 'targets', targets: [target] }),
+        probe: () => ({ kind: 'ok', scripts: { test: 'vitest run' } }),
+      }),
+    );
+    expect(reviewRes).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(reviewStage(store, id).verdict).toContain('review asked no question uat does not');
+
+    // Confirm both writers actually recorded a rich, matching identity — not
+    // that they degraded to name comparison by accident.
+    const rows = listGateRuns(store, id);
+    const uatRow = rows.find((r) => r.stageKey === 'uat')!;
+    const reviewRow = rows.find((r) => r.stageKey === 'review')!;
+    expect(uatRow.repo).toBe('/web');
+    expect(uatRow.command).toBe('npm');
+    expect(uatRow.args).toEqual(['test']);
+    expect(reviewRow.repo).toBe(uatRow.repo);
+    expect(reviewRow.command).toBe(uatRow.command);
+    expect(reviewRow.args).toEqual(uatRow.args);
+  });
+
+  it('review asking an ADDITIONAL question beyond UAT’s real invocation still passes', async () => {
+    const uatRes = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir: uatArtifactDir, manifest: manifest({}) },
+      uatDeps(),
+    );
+    expect(uatRes).toEqual({ kind: 'advanced', next: 'review' });
+
+    // Review's repository also defines `lint`, which UAT never probes for —
+    // one real independent question is enough to satisfy R7.
+    const reviewRes = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir: reviewArtifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({ kind: 'targets', targets: [target] }),
+        probe: () => ({ kind: 'ok', scripts: { test: 'vitest run', lint: 'eslint .' } }),
+      }),
+    );
+    expect(reviewRes).toEqual({ kind: 'advanced', next: 'ship' });
   });
 });

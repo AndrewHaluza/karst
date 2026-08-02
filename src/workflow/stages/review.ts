@@ -105,6 +105,11 @@ export async function runReview(
       exitCode: entry.result.exitCode,
       startedAt: entry.result.startedAt ?? null,
       endedAt: entry.result.endedAt ?? null,
+      // v21 invocation identity — recorded here too so a LATER review run (or a
+      // future rule) can compare against what THIS run actually invoked.
+      repo: entry.identity.repo,
+      command: entry.identity.command,
+      args: entry.identity.args,
     }));
     // The changes surface is evidence exactly like a gate, recorded ONLY when a
     // real `openDiff` ran — appended here rather than folded into `entries` so

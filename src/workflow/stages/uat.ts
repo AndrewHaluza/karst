@@ -144,6 +144,11 @@ export async function runUat(
       exitCode: entry.result.exitCode,
       startedAt: entry.result.startedAt ?? null,
       endedAt: entry.result.endedAt ?? null,
+      // v21 invocation identity — what review's R7 compares its own gates
+      // against, so this side must carry exactly what actually ran.
+      repo: entry.identity.repo,
+      command: entry.identity.command,
+      args: entry.identity.args,
     }));
     return commitGateOutcome(store, {
       ticketId: opts.ticketId,

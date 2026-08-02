@@ -76,6 +76,15 @@ CREATE TABLE IF NOT EXISTS stages (
 -- gate) — that is NOT unique. `transition` bumps `attempt` only on the failed
 -- branch, so review-fail (attempt->1) -> fix -> review-pass files two distinct
 -- invocations under attempt 1. `run_at` is what groups one invocation's rows.
+-- v21 invocation-identity columns (kept in sync with migrations.ts v21 ALTERs).
+-- What the gate actually invoked, so review's R7 ("did I ask a question UAT
+-- didn't") can compare on the command that ran instead of the display name
+-- alone. All three are NULLable and NEVER backfilled: a row recorded before
+-- v21 genuinely does not know what argv produced it, and inventing one would
+-- make R7 compare against a guess. `args` is a JSON array (SQLite has no array
+-- type), and the one non-invocation row this table carries — 'changes',
+-- recorded when the review stage opened the Changes panel — legitimately
+-- leaves all three NULL forever, because it names no command.
 CREATE TABLE IF NOT EXISTS gate_runs (
   id            INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS run order
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
@@ -85,7 +94,10 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   gate_name     TEXT NOT NULL,        -- lint | typecheck | test
   exit_code     INTEGER,              -- NULL = repo defines no such script (NOT a pass)
   started_at    TEXT,
-  ended_at      TEXT
+  ended_at      TEXT,
+  repo          TEXT,                 -- v21: the repository path invoked, NULL = pre-v21 row
+  command       TEXT,                 -- v21: the binary invoked (e.g. 'npm'), NULL = pre-v21 row
+  args          TEXT                  -- v21: JSON array of argv, NULL = pre-v21 row
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 

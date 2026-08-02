@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -49,6 +49,12 @@ function ticketColumns(db: Database): Set<string> {
  * date or json type). Mirror schema.sql for fresh DBs.
  */
 const V16_PR_COLUMNS = ['head_ref', 'base_ref', 'created_at', 'merged_at', 'comments'] as const;
+
+/**
+ * v21 invocation-identity columns on `gate_runs`, all TEXT. Mirror schema.sql
+ * for fresh DBs. `args` is a JSON array (SQLite has no array type).
+ */
+const V21_GATE_RUN_COLUMNS = ['repo', 'command', 'args'] as const;
 
 /**
  * v17's token_usage table + aggregation indexes, for a legacy DB being upgraded.
@@ -456,6 +462,28 @@ export function migrate(db: Database): void {
             WHERE NOT EXISTS (SELECT 1 FROM stages s
                                WHERE s.ticket_id = t.id AND s.stage_key = 'merge')`,
       );
+    }
+  }
+
+  if (current < 21) {
+    // v21 adds the invocation-identity columns to `gate_runs` (repo/command/args)
+    // so review's R7 ("did I ask a question UAT didn't") can compare on what
+    // actually ran instead of the display name alone. Guarded like every other
+    // column addition: a fresh DB already carries them via schema.sql, and this
+    // only fires for a legacy DB being upgraded.
+    //
+    // NOTHING IS BACKFILLED. A pre-v21 row genuinely does not know what argv
+    // produced it — that information was never captured — and inventing one
+    // would make R7 compare against a guess rather than an absence. Every
+    // reader treats a NULL identity as "no identity", never as a match or a
+    // mismatch it can assert with confidence.
+    const gateRunCols = tableColumns(db, 'gate_runs');
+    if (gateRunCols.size > 0) {
+      for (const col of V21_GATE_RUN_COLUMNS) {
+        if (!gateRunCols.has(col)) {
+          db.exec(`ALTER TABLE gate_runs ADD COLUMN ${col} TEXT`);
+        }
+      }
     }
   }
 

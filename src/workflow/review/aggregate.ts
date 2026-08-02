@@ -7,12 +7,13 @@ export type { AggregateEntry };
 /**
  * What a gate invocation WAS, as review compares its own gates against UAT's.
  *
- * `name` is the recorded `gate_runs.gate_name` and is all that table carries
- * today; `repo`/`command`/`args` are optional so Task 7 can enrich the row
- * without changing `aggregateReview`'s signature or any call site here. Review
- * knows its own full invocation, UAT's side is read back out of the store — so
- * the two sides are asymmetric until that task lands, and `sameGateIdentity`
- * says exactly how they are compared in the meantime.
+ * `name` is the recorded `gate_runs.gate_name`; `repo`/`command`/`args` (v21)
+ * are the invocation identity and are optional because a row recorded before
+ * those columns existed carries none — `uatIdentitiesFrom` maps that row's NULL
+ * columns to `undefined` rather than a guess. Review always constructs its own
+ * identities with every field present; UAT's side, read back out of the store,
+ * may or may not carry them depending on when the row was written.
+ * `sameGateIdentity` says exactly how the two are compared either way.
  */
 export interface GateIdentity {
   /** `<gate> (<label>)` — the name a stage records for one gate of one target. */
@@ -91,13 +92,13 @@ function sameArgs(a: readonly string[], b: readonly string[]): boolean {
 /**
  * Whether two gate invocations are the same question.
  *
- * Compared on the strongest ground BOTH sides carry. Once `gate_runs` records the
- * invocation (Task 7) that is `{repo, command, args}` — the tuple `uat/aggregate.ts`
- * already uses, and the one that survives a gate being renamed. Until then the
- * UAT side has only the recorded name, so the comparison degrades to that name,
- * which is why review builds its own identities with the SAME `<gate> (<label>)`
- * naming a stage records. Widening the table therefore tightens this comparison
- * on its own, with no signature to change.
+ * Compared on the strongest ground BOTH sides carry. `gate_runs` records the
+ * invocation as `{repo, command, args}` (v21) — the tuple `uat/aggregate.ts`
+ * already uses, and the one that survives a gate being renamed. A row written
+ * before those columns existed has none, so the comparison degrades to the
+ * recorded name for THAT row, which is why review builds its own identities
+ * with the SAME `<gate> (<label>)` naming a stage records — the fallback still
+ * has something correct to compare when one side is a legacy row.
  */
 export function sameGateIdentity(a: GateIdentity, b: GateIdentity): boolean {
   if (a.command !== undefined && b.command !== undefined) {
@@ -142,7 +143,16 @@ export function uatIdentitiesFrom(runs: readonly GateRun[]): GateIdentity[] {
   if (latest === null) return [];
   return mine
     .filter((r) => r.runAt === latest && r.exitCode !== null)
-    .map((r) => ({ name: r.gateName }));
+    .map((r) => ({
+      name: r.gateName,
+      // NULL on a pre-v21 row (never backfilled) maps to undefined, not to an
+      // empty/guessed value — `sameGateIdentity` reads undefined as "this side
+      // carries nothing richer" and falls back to comparing `name`, which is
+      // exactly the degraded comparison this row's actual identity is unknown.
+      repo: r.repo ?? undefined,
+      command: r.command ?? undefined,
+      args: r.args ?? undefined,
+    }));
 }
 
 /**

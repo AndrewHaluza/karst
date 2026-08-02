@@ -27,6 +27,9 @@ function run(
     exitCode,
     startedAt: null,
     endedAt: null,
+    repo: null,
+    command: null,
+    args: null,
     ...extra,
   };
 }

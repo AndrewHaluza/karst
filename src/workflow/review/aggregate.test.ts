@@ -256,6 +256,11 @@ describe('uatIdentitiesFrom', () => {
     gateName: string,
     exitCode: number | null,
     runAt: string,
+    identity: { repo: string | null; command: string | null; args: string[] | null } = {
+      repo: null,
+      command: null,
+      args: null,
+    },
   ): GateRun {
     return {
       id: nextId++,
@@ -267,6 +272,7 @@ describe('uatIdentitiesFrom', () => {
       exitCode,
       startedAt: null,
       endedAt: null,
+      ...identity,
     };
   }
 
@@ -294,5 +300,74 @@ describe('uatIdentitiesFrom', () => {
 
   it('has nothing to say when UAT never recorded a batch', () => {
     expect(uatIdentitiesFrom([])).toEqual([]);
+  });
+
+  it('carries the v21 invocation identity when the row has one', () => {
+    const runs = [
+      row('uat', 'test (web)', 0, AT, { repo: '/web', command: 'npm', args: ['test'] }),
+    ];
+    expect(uatIdentitiesFrom(runs)).toEqual([
+      { name: 'test (web)', repo: '/web', command: 'npm', args: ['test'] },
+    ]);
+  });
+
+  it('maps a NULL identity column to undefined, never to a guessed value', () => {
+    // A row recorded before v21 (or never given an identity) must read as "no
+    // identity", not as e.g. an empty-string repo that could accidentally
+    // equal a legitimate empty value elsewhere.
+    const runs = [row('uat', 'test (web)', 0, AT)];
+    const [identity] = uatIdentitiesFrom(runs);
+    expect(identity).toEqual({ name: 'test (web)' });
+    expect(identity!.repo).toBeUndefined();
+    expect(identity!.command).toBeUndefined();
+    expect(identity!.args).toBeUndefined();
+  });
+
+  // The mixed case: one UAT row recorded before v21 (no identity) beside one
+  // recorded after (full identity) — both from the SAME latest batch, which is
+  // realistic for a monorepo mid-upgrade where only some rows were re-run.
+  it('a legacy (null-identity) row and a v21 (rich-identity) row compare independently', () => {
+    const runs = [
+      row('uat', 'legacy (web)', 0, AT), // pre-v21: no identity
+      row('uat', 'test (web)', 0, AT, { repo: '/web', command: 'npm', args: ['test'] }),
+    ];
+    const identities = uatIdentitiesFrom(runs);
+    expect(identities).toEqual([
+      { name: 'legacy (web)' },
+      { name: 'test (web)', repo: '/web', command: 'npm', args: ['test'] },
+    ]);
+
+    // The legacy row cannot be matched on the rich tuple — it has none — so
+    // `sameGateIdentity` falls back to comparing `name` for it specifically,
+    // even though the OTHER UAT row in the same batch carries a full identity.
+    // This is the correct degradation: a NULL identity proves nothing about
+    // sameness either way, so review's re-ask of "legacy (web)" is judged on
+    // the recorded name alone, exactly as it was before this table carried
+    // identity at all.
+    const reviewOfLegacyByName: GateIdentity = {
+      name: 'legacy (web)',
+      repo: '/web',
+      command: 'npm',
+      args: ['run', 'legacy'],
+    };
+    expect(sameGateIdentity(identities[0]!, reviewOfLegacyByName)).toBe(true);
+
+    const reviewOfLegacyByDifferentName: GateIdentity = {
+      name: 'renamed (web)',
+      repo: '/web',
+      command: 'npm',
+      args: ['run', 'legacy'],
+    };
+    expect(sameGateIdentity(identities[0]!, reviewOfLegacyByDifferentName)).toBe(false);
+
+    // The rich UAT row, by contrast, is compared on the full tuple — a
+    // renamed gate with the SAME command still matches.
+    const reviewOfTestRenamed: GateIdentity = {
+      name: 'suite (web)',
+      repo: '/web',
+      command: 'npm',
+      args: ['test'],
+    };
+    expect(sameGateIdentity(identities[1]!, reviewOfTestRenamed)).toBe(true);
   });
 });
