@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
@@ -261,14 +260,42 @@ describe('review findings evidence', () => {
 
   // `stages` is keyed (ticket_id, stage_key) and a retry OVERWRITES it, so this
   // table is the only place a prior review attempt's findings survive. That
-  // property is only true while nothing can rewrite or remove a row — a single
+  // property holds only while nothing can rewrite or remove a row — a single
   // UPDATE or DELETE reaching `review_findings` would silently turn evidence
-  // into current state. Asserted against the module's own source, the way the
-  // read-only registry assertion in `diagnostics/collectMetadata.test.ts` is:
-  // a behavioural test can only prove the writers it happens to know about.
+  // into current state.
+  //
+  // Intercepted at `prepare`, the way `diagnostics/collectMetadata.test.ts`
+  // asserts its registry reads are read-only: every statement the module
+  // actually issues is inspected, so an UPDATE assembled by interpolation or
+  // reached through a helper is caught just the same. A source scan would see
+  // only literal SQL in this one file.
   it('never UPDATEs or DELETEs — the table is append-only evidence', () => {
-    const source = readFileSync(new URL('./reviewFindings.ts', import.meta.url), 'utf8');
-    const statements = source.match(/\b(UPDATE|DELETE)\s+(FROM\s+)?review_findings\b/gi) ?? [];
-    expect(statements).toEqual([]);
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const originalPrepare = store.db.prepare.bind(store.db);
+    const statements: string[] = [];
+    const recordingStore = {
+      ...store,
+      db: new Proxy(store.db, {
+        get(target, property, receiver) {
+          if (property !== 'prepare') return Reflect.get(target, property, receiver);
+          return (sql: string) => {
+            statements.push(sql);
+            return originalPrepare(sql);
+          };
+        },
+      }),
+    } as Store;
+
+    recordFindings(recordingStore, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-02T10:00:00Z',
+      findings: [finding(), finding({ severity: 'low' })],
+    });
+    listFindings(recordingStore, t.id);
+    latestFindingBatch(recordingStore, t.id);
+
+    expect(statements.length).toBeGreaterThan(0);
+    expect(statements.filter((sql) => /\b(UPDATE|DELETE)\b/i.test(sql))).toEqual([]);
   });
 });
