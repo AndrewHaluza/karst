@@ -116,6 +116,7 @@ import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
 import { settleMergeGates } from './workflow/mergeGate.js';
 import { findTicketPr } from './store/prs.js';
+import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
@@ -1423,6 +1424,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // mutually referential); read only when a panel is actually open, which
         // is long after activation has run.
         () => runPrSync(true),
+        // Same deferred-reference pattern as `runPrSync` above: `maybeDrive` is
+        // declared further down `activate`, read only once a panel is open.
+        (id) => maybeDrive(id, 'stage-resume'),
       ),
     () => worktreePathContext(currentManifest(), logger.warn),
     () => currentManifest()?.ticketLabelTemplate,
@@ -3183,6 +3187,11 @@ function makeDashboardActions(
   // background tick respects. Project-scoped like the tick itself, so it takes no
   // ticket: the panel is asking for a fresher answer, not a narrower one.
   refreshPrs: () => Promise<void>,
+  // Kick the §5.4-safe driver nudge (`maybeDrive`) after a block is cleared.
+  // Passed in rather than reached from here because it lives in `activate`'s
+  // scope, alongside every other driver trigger (hook, sweep, session close) —
+  // resume is just one more trigger, not a special path.
+  driveAfterResume: (ticketId: number) => void,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -3296,6 +3305,16 @@ function makeDashboardActions(
     // action already uses; `SessionManager.openSession` resolves --resume vs.
     // a fresh launch on its own.
     resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
+    // Resume a parked gate stage (§ blocked state visible). All the "is this
+    // even valid" checking lives in `resumeBlockedStage` (vscode-free, unit
+    // tested) — this stays a thin binding: apply it, and only on success
+    // refresh the panel and kick the same driver trigger every other resume
+    // path uses.
+    resumeStage: (msgTicketId, stageKey) => {
+      if (!resumeBlockedStage(store, ticketId, msgTicketId, stageKey)) return;
+      afterServerChange();
+      driveAfterResume(ticketId);
+    },
     // Opens the onboarding edit page on the new ticket so the user can type
     // the actual follow-up ask straight away — the command itself copies
     // repos/approach/agent/model from this ticket.

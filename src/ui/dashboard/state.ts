@@ -48,8 +48,13 @@ export interface DashboardState {
   agentSession: AgentSessionView;
   stepper: StepperCell[];
   /**
-   * The stepper cell the ticket currently sits on — the one the "Now" line and
-   * the fault card describe. Null when the ticket sits at no stage at all.
+   * The stepper cell the ticket currently sits on — the one the "Now" line,
+   * the fault card, and the blocked banner (§ blocked state visible) all
+   * describe. `currentStage.blocked` is set only while a gate stage (uat,
+   * review) sits parked (`parkGateStage`/`clearStageBlock`,
+   * `store/stageBlocks.ts`) — the webview reads it directly to show the
+   * banner and pass its `stageKey` back on the Resume click. Null when the
+   * ticket sits at no stage at all.
    */
   currentStage: StepperCell | null;
   /**

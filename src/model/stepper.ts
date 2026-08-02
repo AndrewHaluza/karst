@@ -1,4 +1,4 @@
-import { STAGE_KEYS, type StageKey, type StageStatus } from './types.js';
+import { STAGE_KEYS, type BlockerKind, type StageKey, type StageStatus } from './types.js';
 
 /**
  * One stepper cell — a stage node in a workflow stepper (§14). Shared by the
@@ -21,6 +21,13 @@ export interface StepperCell {
   startedAt?: string;
   endedAt?: string;
   attempt?: number;
+  /**
+   * Why karst could not ask this stage's question — set only while the stage is
+   * parked (`parkGateStage`/`clearStageBlock`, `store/stageBlocks.ts`). Absent
+   * (never null) exactly like every other detail field here: a stage that has
+   * never been blocked has nothing to say about it.
+   */
+  blocked?: { kind: BlockerKind; reason: string; at: string };
 }
 
 /**
@@ -36,11 +43,27 @@ export interface StepperStageRow {
   startedAt?: string | null;
   endedAt?: string | null;
   attempt?: number;
+  blockedKind?: BlockerKind | null;
+  blockedReason?: string | null;
+  blockedAt?: string | null;
 }
 
 /** Drop a nullish value so it never lands in the cell as an explicit null. */
 function detail<T>(key: string, value: T | null | undefined): Record<string, T> {
   return value === null || value === undefined ? {} : { [key]: value };
+}
+
+/**
+ * The stage's block, or nothing. Keyed off `blockedKind` alone — a park always
+ * writes all three fields in one transaction (`parkGateStage`), so a present
+ * kind with an absent reason/at would mean the store lied, not that there is
+ * partial information to show.
+ */
+function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['blocked']> | Record<string, never> {
+  if (!row?.blockedKind) return {};
+  return {
+    blocked: { kind: row.blockedKind, reason: row.blockedReason ?? '', at: row.blockedAt ?? '' },
+  };
 }
 
 /**
@@ -61,6 +84,7 @@ export function buildStepper(stages: readonly StepperStageRow[]): StepperCell[] 
       ...detail('startedAt', row?.startedAt),
       ...detail('endedAt', row?.endedAt),
       ...detail('attempt', row?.attempt),
+      ...blockedDetail(row),
     };
   });
 }

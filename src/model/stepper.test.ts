@@ -75,4 +75,28 @@ describe('buildStepper', () => {
       status: 'pending',
     });
   });
+
+  it('carries a blocked stage its kind, reason and when it happened', () => {
+    const cells = buildStepper([
+      {
+        stageKey: 'review',
+        status: 'running',
+        blockedKind: 'nothing-to-run',
+        blockedReason: 'no target resolved',
+        blockedAt: '2026-07-16T10:00:00.000Z',
+      },
+    ]);
+    expect(cells.find((c) => c.stageKey === 'review')!.blocked).toEqual({
+      kind: 'nothing-to-run',
+      reason: 'no target resolved',
+      at: '2026-07-16T10:00:00.000Z',
+    });
+  });
+
+  it('omits blocked entirely when the stage carries no blockedKind', () => {
+    const cells = buildStepper([
+      { stageKey: 'review', status: 'running', blockedKind: null, blockedReason: null, blockedAt: null },
+    ]);
+    expect(cells.find((c) => c.stageKey === 'review')!.blocked).toBeUndefined();
+  });
 });

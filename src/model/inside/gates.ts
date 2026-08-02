@@ -51,8 +51,9 @@ function gateOp(run: GateRun): StageOp {
   return {
     status: run.exitCode === null ? 'note' : run.exitCode === 0 ? 'pass' : 'fail',
     name: run.gateName,
-    // No command to quote: the row keeps the gate's name and its exit code, not
-    // the argv that produced it.
+    // The row states the gate's name and its exit code. `gate_runs` also
+    // carries the argv that produced it now (`run.command`/`run.args`, v21),
+    // but this summary line stays terse on purpose.
     detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}`,
     duration: formatDuration(run.startedAt, run.endedAt),
   };
@@ -63,10 +64,18 @@ function gateOp(run: GateRun): StageOp {
  * plainly doing something — the fact that the list is not knowable yet. A
  * finished stage with no rows shows nothing: those gates predate this record,
  * and a pending row on a passed stage would be a false promise.
+ *
+ * Never shown once the stage is blocked: the block row states the reason
+ * nothing ran, and pairing it with the generic "resolved per repository"
+ * filler would say the same thing twice with different confidence.
  */
 function recordedOps(batch: readonly GateRun[], cell: StepperCell): StageOp[] {
   const ops = batch.filter((r) => r.gateName !== CHANGES_GATE).map(gateOp);
-  if (ops.length === 0 && (cell.status === 'running' || cell.status === 'pending')) {
+  if (
+    ops.length === 0 &&
+    !cell.blocked &&
+    (cell.status === 'running' || cell.status === 'pending')
+  ) {
     return [
       {
         status: 'pending',
@@ -79,6 +88,29 @@ function recordedOps(batch: readonly GateRun[], cell: StepperCell): StageOp[] {
   return ops;
 }
 
+/**
+ * The row naming why a blocked stage could not ask its question — fail-styled
+ * because a park is not progress, even though it consumed no attempt.
+ */
+function blockedOp(blocked: NonNullable<StepperCell['blocked']>): StageOp {
+  return {
+    status: 'fail',
+    name: 'blocked',
+    detail: blocked.reason,
+    duration: '',
+  };
+}
+
+/**
+ * A gate stage's rows: whatever evidence ran, plus the block row when the
+ * stage is currently parked. Shared by both gate stages (`review`, `uat`) —
+ * both commit through `commitGateOutcome` and both can park.
+ */
+function gateOps(cell: StepperCell, runs: readonly GateRun[], stageKey: StageKey): StageOp[] {
+  const ops = recordedOps(latestBatch(runs, stageKey), cell);
+  return cell.blocked ? [...ops, blockedOp(cell.blocked)] : ops;
+}
+
 export function reviewInside(
   cell: StepperCell,
   runs: readonly GateRun[],
@@ -87,7 +119,7 @@ export function reviewInside(
   const running = cell.status === 'running';
   const finished = cell.status === 'passed' || cell.status === 'failed';
   const batch = latestBatch(runs, 'review');
-  const ops = recordedOps(batch, cell);
+  const ops = gateOps(cell, runs, 'review');
 
   // This row states what happened, never what review merely intended to do.
   // `openDiff` is an optional host dependency (`DriveTicketDeps.openDiff`) —
@@ -102,26 +134,32 @@ export function reviewInside(
   // `vscode.diff` (that only fires once a human clicks a file row inside the
   // panel). Claiming "diff opened" here would assert a control the run never
   // performed, the exact defect this row exists to close.
+  //
+  // Skipped entirely while blocked: the block row already states why the
+  // panel has not opened, and "opens when the gate finishes" would promise a
+  // finish the park just refused to reach.
   const changesRun = batch.find((r) => r.gateName === CHANGES_GATE);
-  if (running) {
-    ops.push({
-      status: 'note',
-      name: CHANGES_GATE,
-      detail: 'the changes panel opens for you when the gate finishes, pass or fail',
-      duration: '',
-    });
-  } else if (finished && changesRun) {
-    ops.push({
-      status: 'pass',
-      name: CHANGES_GATE,
-      detail: 'changes panel opened for review',
-      duration: formatDuration(changesRun.startedAt, changesRun.endedAt),
-    });
+  if (!cell.blocked) {
+    if (running) {
+      ops.push({
+        status: 'note',
+        name: CHANGES_GATE,
+        detail: 'the changes panel opens for you when the gate finishes, pass or fail',
+        duration: '',
+      });
+    } else if (finished && changesRun) {
+      ops.push({
+        status: 'pass',
+        name: CHANGES_GATE,
+        detail: 'changes panel opened for review',
+        duration: formatDuration(changesRun.startedAt, changesRun.endedAt),
+      });
+    }
   }
 
   return inside(cell, now, ops);
 }
 
 export function uatInside(cell: StepperCell, runs: readonly GateRun[], now: string): StageInside {
-  return inside(cell, now, recordedOps(latestBatch(runs, 'uat'), cell));
+  return inside(cell, now, gateOps(cell, runs, 'uat'));
 }

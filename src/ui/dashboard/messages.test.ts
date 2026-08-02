@@ -27,6 +27,7 @@ function actions(): DashboardActions {
     refreshPrs: vi.fn(),
     toggleBind: vi.fn(),
     switchAgent: vi.fn(),
+    resumeStage: vi.fn(),
   };
 }
 
@@ -277,5 +278,31 @@ describe('routeAction', () => {
     })).toEqual({ type: 'switch-agent' });
     routeAction({ type: 'switch-agent', provider: 'evil' }, a);
     expect(a.switchAgent).toHaveBeenCalledOnce();
+  });
+
+  it('parses a well-formed stage-resume and dispatches it with both fields', () => {
+    const a = actions();
+    expect(parseWebviewMessage({ type: 'stage-resume', ticketId: 7, stageKey: 'review' })).toEqual({
+      type: 'stage-resume',
+      ticketId: 7,
+      stageKey: 'review',
+    });
+    routeAction({ type: 'stage-resume', ticketId: 7, stageKey: 'review' }, a);
+    expect(a.resumeStage).toHaveBeenCalledWith(7, 'review');
+  });
+
+  it('drops stage-resume with a non-numeric ticketId', () => {
+    expect(
+      parseWebviewMessage({ type: 'stage-resume', ticketId: '7', stageKey: 'review' }),
+    ).toBeNull();
+  });
+
+  it('drops stage-resume with an unrecognized stage key', () => {
+    expect(
+      parseWebviewMessage({ type: 'stage-resume', ticketId: 7, stageKey: 'nonsense' }),
+    ).toBeNull();
+    expect(
+      parseWebviewMessage({ type: 'stage-resume', ticketId: 7 }),
+    ).toBeNull();
   });
 });

@@ -161,6 +161,40 @@ describe('reviewInside', () => {
     const ops = reviewInside(cell('review', 'passed'), [run('uat', 'test (web)', 1)], NOW).ops;
     expect(ops).toEqual([]);
   });
+
+  it('renders a fail-styled row naming why a blocked stage could not ask its question', () => {
+    const blockedCell = cell('review', 'running', {
+      blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW },
+    });
+    const ops = reviewInside(blockedCell, [], NOW).ops;
+    expect(ops).toEqual([
+      { status: 'fail', name: 'blocked', detail: 'no target resolved', duration: '' },
+    ]);
+  });
+
+  it('keeps whatever gate evidence ran before the block, alongside the block row', () => {
+    const blockedCell = cell('review', 'running', {
+      blocked: { kind: 'capability-missing', reason: 'api: cannot read package.json', at: NOW },
+    });
+    const ops = reviewInside(blockedCell, [run('review', 'lint (web)', 0)], NOW).ops;
+    expect(ops.map((o) => o.name)).toEqual(['lint (web)', 'blocked']);
+    expect(ops.at(-1)).toMatchObject({
+      status: 'fail',
+      detail: 'api: cannot read package.json',
+    });
+  });
+
+  it('says nothing else is unresolved once a block already explains why', () => {
+    // Without a block, an empty batch on a running/pending stage shows the
+    // "resolved per repository" filler — but once a block exists, THAT is the
+    // reason nothing ran, and doubling it with the generic filler would confuse
+    // rather than inform.
+    const blockedCell = cell('review', 'running', {
+      blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW },
+    });
+    const ops = reviewInside(blockedCell, [], NOW).ops;
+    expect(ops.find((o) => o.name === 'gates')).toBeUndefined();
+  });
 });
 
 describe('uatInside', () => {

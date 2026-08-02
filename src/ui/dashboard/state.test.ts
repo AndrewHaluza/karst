@@ -126,6 +126,24 @@ describe('buildDashboardState', () => {
     });
   });
 
+  it('carries a blocked stage’s kind/reason/at through to currentStage', () => {
+    const t = createTicket(store, { key: 'PROJ-4', title: 'parked' });
+    setStage(store, t.id, 'review', {
+      status: 'running',
+      blockedKind: 'nothing-to-run',
+      blockedReason: 'no target resolved',
+      blockedAt: '2026-07-16T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.currentStage?.blocked).toEqual({
+      kind: 'nothing-to-run',
+      reason: 'no target resolved',
+      at: '2026-07-16T10:00:00.000Z',
+    });
+  });
+
   it('falls back to the not-started line when the ticket sits at no stage', () => {
     const t = createTicket(store, { key: 'PROJ-3', title: 'fresh' });
     store.db.prepare('UPDATE tickets SET stage_current = NULL WHERE id = ?').run(t.id);
