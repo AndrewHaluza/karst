@@ -245,6 +245,32 @@ describe('dashboard webview.html', () => {
     );
   });
 
+  it('outlines a focused segment in the segment’s own shape, with a working fallback', () => {
+    // Same defect as the selection ring, one state further: an `outline` is a
+    // rectangle, `clip-path` clips a child's rendering, so the focus ring's
+    // vertical strokes fell inside the two notches and were cut — a border that
+    // visibly did not close around the arrow it belonged to. The ring is drawn
+    // as a SHAPE instead: the chevron minus a smaller chevron (`evenodd`).
+    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(ring, 'the chevron ring is not behind an @supports guard').not.toBe('');
+    expect(ring).toContain('clip-path:polygon(evenodd,');
+    // The inner chevron is offset PERPENDICULARLY to the edge — derived from the
+    // edge length, never the same px in both axes, which would splay the
+    // diagonals and taper the ring.
+    expect(ring).toContain('var(--trk-diag)');
+    expect(HTML).toMatch(/--trk-diag:hypot\(var\(--trk-notch\),var\(--trk-half\)\)/);
+    // Both ends of the lane carry one notch, not two.
+    expect(ring).toContain('.track .seg:first-child .pick:focus-visible');
+    expect(ring).toContain('.track .seg:last-child .pick:focus-visible');
+    // The guard exists because a browser that cannot compute the ring would drop
+    // the clip-path and keep the fill — a focus-coloured block over the whole
+    // segment. Outside it, the plain outline must survive as the indicator.
+    const outside = HTML.replace(ring, '');
+    expect(outside).toMatch(
+      /\.track \.seg \.pick:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/,
+    );
+  });
+
   it('names the track’s two controls for a screen reader, not just a hover title', () => {
     // Both are glyph-or-shape only — aria-label and title must carry the SAME
     // string (UI-R21/R24).
@@ -727,7 +753,14 @@ describe('dashboard webview.html', () => {
     // instead of holding a floor, so there is no minimum width to declare. `46px`
     // replaces it — the lane's own height, the one piece of the track's geometry
     // the space scale has no step for.
-    const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px'];
+    // The four `1px` are ONE value in one place: the `@supports` probe that
+    // guards the track's chevron focus ring (`calc(1px * hypot(1px,1px) / 1px)`).
+    // A feature query cannot be written in tokens — a `var()` inside the
+    // condition makes it parse as valid on every browser, which is exactly the
+    // question being asked — so the probe is literal by construction. It is a
+    // type test, not geometry: nothing is drawn at 1px because of it.
+    const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
+      '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
     const found = [...withoutComments.matchAll(/[0-9]+(\.[0-9]+)?px/g)].map((m) => m[0]);

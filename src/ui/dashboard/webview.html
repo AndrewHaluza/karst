@@ -99,7 +99,13 @@
      dimension with no scale match (the closed 0–26px scale stops well short of a
      control strip), the same UI-R04 exception the deleted 560px floor carried. */
   .track{position:relative;--trk-h:46px;
-    --trk-notch:var(--k-space-6);--trk-tick-w:var(--k-space-2);--trk-tick-h:var(--k-space-6)}
+    --trk-notch:var(--k-space-6);--trk-tick-w:var(--k-space-2);--trk-tick-h:var(--k-space-6);
+    /* Half the lane and the length of one chevron edge. Both exist only so the
+       focus ring below can be inset PERPENDICULARLY to that edge; they are
+       derived from the two dimensions above, never written down, so a change to
+       either keeps the ring parallel to the shape it outlines. */
+    --trk-half:calc(var(--trk-h) / 2);
+    --trk-diag:hypot(var(--trk-notch),var(--trk-half))}
 
   /* overflow-x:auto, NEVER hidden. The three degradation steps below keep the
      track inside its lane at every width a VS Code panel can be dragged to (300px,
@@ -147,8 +153,91 @@
   /* The select control fills the wrapper, so the WHOLE segment is the hit area
      while still being one real <button> for Tab and Enter (UI-R09). */
   .track .seg .pick{position:absolute;inset:0;background:transparent;border:0;padding:0;cursor:pointer}
+  /* The rectangular baseline, and the fallback if the ring below cannot be
+     computed. It is honest about what it is: two bars, because an `outline` is
+     a rectangle and the chevron clip cuts its left and right strokes away. */
   .track .seg .pick:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
     outline-offset:calc(var(--k-focus-offset) * -1)}
+
+  /* ── the focus ring, in the segment's own shape ───────────────────────────
+     An outline (or an inset shadow — same rectangle) cannot outline a chevron:
+     `clip-path` clips a CHILD's rendering, so the vertical strokes fall inside
+     the two notches and are cut, leaving a border that visibly does not close
+     around the arrow it belongs to. So the ring is drawn as a SHAPE: `.pick` is
+     filled with the focus colour and clipped to the chevron MINUS a smaller
+     chevron (`evenodd`), which leaves exactly the band between them.
+
+     The inner chevron is the outer one offset PERPENDICULARLY — not by the same
+     px horizontally and vertically, which would splay the diagonals and taper
+     the ring. For an edge of length `--trk-diag` over a half-height of
+     `--trk-half`, an inset of `q` moves the tip by `q · diag / half` and the
+     top/bottom corners by `q · (diag ∓ notch) / half` (the notch is concave on
+     the left, convex on the right — hence the two signs). All three fall out of
+     the two dimensions the segment is already drawn from, so the ring stays
+     parallel to the shape at any lane height or notch depth.
+
+     The outer boundary is inset by one `--k-focus-offset` rather than sitting on
+     the segment's own edge: coincident with the parent's clip, the antialiased
+     outermost pixel is what gets cut, and the ring reads as broken again.
+
+     @supports, because a browser without `hypot()` (or without length division
+     in `calc()`) would drop the `clip-path` and keep the `background` — a solid
+     focus-coloured fill over the whole segment. The guard keeps such a browser
+     on the plain outline above, which is a working focus indicator. */
+  @supports (width: calc(1px * hypot(1px,1px) / 1px)){
+    .track .seg .pick:focus-visible{
+      /* q for each boundary: the outer edge, and the inner edge one ring-width
+         further in. Two focus widths, not one — a 1px band is what the diagonals
+         eat first, and a focus indicator may not be the thing that degrades. */
+      --rq-o:var(--k-focus-offset);
+      --rq-i:calc(var(--k-focus-offset) + var(--k-focus-w) * 2);
+      --rt-o:calc(var(--rq-o) * var(--trk-diag) / var(--trk-half));
+      --rr-o:calc(var(--rq-o) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
+      --rl-o:calc(var(--rq-o) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
+      --rt-i:calc(var(--rq-i) * var(--trk-diag) / var(--trk-half));
+      --rr-i:calc(var(--rq-i) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
+      --rl-i:calc(var(--rq-i) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
+      outline:0;background:var(--k-focus);
+      clip-path:polygon(evenodd,
+        var(--rl-o) var(--rq-o),
+        calc(100% - var(--trk-notch) - var(--rr-o)) var(--rq-o),
+        calc(100% - var(--rt-o)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr-o)) calc(100% - var(--rq-o)),
+        var(--rl-o) calc(100% - var(--rq-o)),
+        calc(var(--trk-notch) + var(--rt-o)) 50%,
+        var(--rl-i) var(--rq-i),
+        calc(100% - var(--trk-notch) - var(--rr-i)) var(--rq-i),
+        calc(100% - var(--rt-i)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr-i)) calc(100% - var(--rq-i)),
+        var(--rl-i) calc(100% - var(--rq-i)),
+        calc(var(--trk-notch) + var(--rt-i)) 50%)}
+    /* The ends of the lane have one notch, not two — same rule as the segment
+       shapes above, and for the same reason: a wedge at the outer end would
+       point at nothing. A square corner insets by q in both axes. */
+    .track .seg:first-child .pick:focus-visible{
+      clip-path:polygon(evenodd,
+        var(--rq-o) var(--rq-o),
+        calc(100% - var(--trk-notch) - var(--rr-o)) var(--rq-o),
+        calc(100% - var(--rt-o)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr-o)) calc(100% - var(--rq-o)),
+        var(--rq-o) calc(100% - var(--rq-o)),
+        var(--rq-i) var(--rq-i),
+        calc(100% - var(--trk-notch) - var(--rr-i)) var(--rq-i),
+        calc(100% - var(--rt-i)) 50%,
+        calc(100% - var(--trk-notch) - var(--rr-i)) calc(100% - var(--rq-i)),
+        var(--rq-i) calc(100% - var(--rq-i)))}
+    .track .seg:last-child .pick:focus-visible{
+      clip-path:polygon(evenodd,
+        var(--rl-o) var(--rq-o),
+        calc(100% - var(--rq-o)) var(--rq-o),
+        calc(100% - var(--rq-o)) calc(100% - var(--rq-o)),
+        var(--rl-o) calc(100% - var(--rq-o)),
+        calc(var(--trk-notch) + var(--rt-o)) 50%,
+        var(--rl-i) var(--rq-i),
+        calc(100% - var(--rq-i)) var(--rq-i),
+        calc(100% - var(--rq-i)) calc(100% - var(--rq-i)),
+        var(--rl-i) calc(100% - var(--rq-i)),
+        calc(var(--trk-notch) + var(--rt-i)) 50%)}}
   .track .seg > *:not(.pick){position:relative;z-index:1;pointer-events:none}
   /* The two REAL controls take their events back from the select overlay. */
   .track .seg > .go,.track .seg > .fixm{pointer-events:auto}

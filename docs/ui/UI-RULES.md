@@ -281,6 +281,14 @@ appears on `:focus-visible`, not only on `:hover`, and is dismissible with
 Every focusable element shows `outline: var(--k-focus-w) solid var(--k-focus)` at
 `var(--k-focus-offset)`. `outline:none` without a replacement ring is refused.
 
+A replacement ring need not be an `outline`: an element that is not rectangular
+cannot be outlined by one, because `outline` is a rectangle and a `clip-path`
+cuts whatever falls outside the shape — the dashboard track's chevron segments
+lost the ring's vertical strokes inside their notches. Such an element may draw
+the ring as a shape instead (there, `--k-focus` filling the segment clipped to
+the chevron minus a smaller chevron), as long as `--k-focus` is what draws it and
+the fallback for a browser that cannot compute the shape is the plain outline.
+
 **Motivating defect:** `sidebar` and `welcome` define **no** `:focus-visible`
 rule at all; `usage` covers only bare `button`.
 
