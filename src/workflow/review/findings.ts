@@ -205,8 +205,17 @@ interface FileRejection {
 /** `file` result: either a trusted in-worktree relative path, or a rejection sample the caller aggregates. */
 type FileResolution = { readonly file: string; readonly rejection?: undefined } | { readonly file: null; readonly rejection?: FileRejection };
 
-/** C0/C1 control characters and DEL — a legal path segment never needs one, and a newline in particular would forge extra rows in any line-oriented rendering of `file`. */
-const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
+/**
+ * C0 controls, DEL and the C1 range — a legal path segment never needs one, and
+ * a newline in particular would forge extra rows in any line-oriented rendering
+ * of `file`.
+ *
+ * C1 (0x80-0x9F) is included to match the range `model/diagnosticText.ts` strips
+ * from `title`/`detail`: `file` is rendered beside them, so the narrower range
+ * would have left one field accepting bytes its neighbours reject. NEL (0x85) is
+ * a line break to some consumers, which is the same forging risk as `\n`.
+ */
+const CONTROL_CHAR = /[\x00-\x1f\x7f-\x9f]/;
 
 /**
  * Validate a reported `file`. `undefined`/`null`/`''` is "not file-scoped" —
