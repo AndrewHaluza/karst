@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 /** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -485,6 +485,39 @@ export function migrate(db: Database): void {
         }
       }
     }
+  }
+
+  if (current < 22) {
+    // v22 adds review's Lane B evidence table (§6.7 `review_findings`) —
+    // structured findings an agent reports about a ticket's diff, append-only
+    // like gate_runs and phase_marks. A whole new table, so the step is the
+    // same DDL as schema.sql rather than an ALTER, and every statement is IF
+    // NOT EXISTS — a fresh DB (already carrying it) and a re-open are both
+    // no-ops.
+    //
+    // Nothing is backfilled. There are no historical findings to derive: no
+    // prior karst ever asked an agent this question or recorded an answer, so
+    // an in-flight or already-reviewed ticket simply shows none until its next
+    // review run.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS review_findings (
+        id          INTEGER PRIMARY KEY,
+        ticket_id   INTEGER NOT NULL,
+        attempt     INTEGER NOT NULL,
+        run_at      TEXT NOT NULL,
+        severity    TEXT NOT NULL,
+        repo        TEXT NOT NULL,
+        file        TEXT,
+        line        INTEGER,
+        title       TEXT NOT NULL,
+        detail      TEXT NOT NULL,
+        source      TEXT NOT NULL,
+        created_at  TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_review_findings_ticket ON review_findings(ticket_id, run_at, id)',
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
