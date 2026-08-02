@@ -70,7 +70,43 @@ interface GateRunRow {
   args: string | null; // JSON array, or NULL
 }
 
+/**
+ * Parse the stored `args` JSON column, tolerating bad data. `null` returns
+ * `null` — no identity was given, nothing to parse. Anything else that fails
+ * to parse, or parses to something other than an array of strings (a number,
+ * an object, `[1, 2]`), also returns `null` rather than throwing: this read
+ * path is on both the review-stage rendering path and the R7 aggregation
+ * path, and `gate_runs` is append-only evidence — one corrupted historical
+ * row must degrade, not take the panel (or the aggregation) down. Matches the
+ * house convention (`parseFiles` in mergeChecks.ts, `parseSelectedRepos` in
+ * tickets.ts): data written by this module is always well-formed, so this
+ * guards the boundary, not the writer.
+ */
+function parseArgs(raw: string | null): string[] | null {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((v): v is string => typeof v === 'string')) {
+      return parsed;
+    }
+  } catch {
+    // fall through to the null return below
+  }
+  return null;
+}
+
 function rowToGateRun(r: GateRunRow): GateRun {
+  const args = parseArgs(r.args);
+  // A row whose `args` column was PRESENT but did not parse to a string[] is
+  // corrupted, and none of what it claims to have invoked can be trusted —
+  // reading `repo`/`command` off it while only blanking `args` would leave
+  // `sameGateIdentity` comparing a garbled row's args as `[]` (its "both sides
+  // carry a command" branch reads `args ?? []`), which could accidentally
+  // MATCH a genuinely different, argument-less invocation of the same
+  // repo+command. So a corrupted `args` degrades the WHOLE identity to
+  // absent, exactly like a pre-v21 row that never carried one — never a
+  // partial, guessed identity.
+  const corrupt = r.args !== null && args === null;
   return {
     id: r.id,
     ticketId: r.ticket_id,
@@ -81,9 +117,9 @@ function rowToGateRun(r: GateRunRow): GateRun {
     exitCode: r.exit_code,
     startedAt: r.started_at,
     endedAt: r.ended_at,
-    repo: r.repo,
-    command: r.command,
-    args: r.args === null ? null : (JSON.parse(r.args) as string[]),
+    repo: corrupt ? null : r.repo,
+    command: corrupt ? null : r.command,
+    args,
   };
 }
 

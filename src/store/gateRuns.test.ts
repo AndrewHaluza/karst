@@ -190,4 +190,60 @@ describe('gate run evidence', () => {
     expect(run.command).toBeNull();
     expect(run.args).toBeNull();
   });
+
+  /** Insert a row directly, bypassing `recordGateRun`, to simulate corruption. */
+  function insertRawArgs(store: Store, ticketId: number, rawArgs: string): void {
+    store.db
+      .prepare(
+        `INSERT INTO gate_runs
+           (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, repo, command, args)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(ticketId, 'review', 0, '2026-08-02T10:00:00.000Z', 'test (web)', 0, '/web', 'npm', rawArgs);
+  }
+
+  it('degrades unparseable args to no identity at all, without throwing', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, 'not json');
+
+    expect(() => listGateRuns(store, t.id)).not.toThrow();
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    // repo/command degrade WITH args, not left dangling on their own: a
+    // partial identity would let `sameGateIdentity` treat the corrupted row's
+    // missing args as `[]` and accidentally match a genuinely different,
+    // argument-less invocation of the same repo+command.
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
+
+  it('degrades JSON that parses but is not a string array (an object) to no identity', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, '{"not":"an array"}');
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
+
+  it('degrades JSON that parses but is not a string array (a number) to no identity', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, '42');
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
+
+  it('degrades a mixed array (some non-string elements) to no identity', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, '["test", 1]');
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
 });
