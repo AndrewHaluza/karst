@@ -114,6 +114,18 @@ const CASES: Case[] = [
     },
   },
   {
+    rule: 'R5',
+    what: 'a skipped gate never hides a real failure beside it',
+    entries: [testWebSkipped, lintWebRed],
+    uat: [],
+    opts: REQUIRED,
+    expect: {
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'gates failed: lint (web)' },
+      warnings: [],
+    },
+  },
+  {
     rule: 'R5 > R7',
     what: 'a red gate outranks the independence rule, because a gate is cheaper to act on',
     entries: [testWebRed],

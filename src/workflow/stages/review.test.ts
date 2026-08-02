@@ -562,6 +562,29 @@ describe('runReview', () => {
     expect(contents).toContain('# typecheck (/wt/web, exit 0)');
   });
 
+  it('says a gate was skipped in the artifact rather than claiming it passed', async () => {
+    // A skipped gate alongside one that ran — an all-skipped run is its own
+    // case (it blocks), so this fixture keeps one gate answered to isolate the
+    // artifact wording under test.
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g, i) =>
+            i === 0
+              ? { name: g.name, exitCode: null, output: 'no "lint" script — nothing to run' }
+              : { name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() },
+          ),
+        }),
+      }),
+    );
+    const contents = readFileSync(reviewStage(store, id).artifactPath!, 'utf8');
+    expect(contents).toContain('# lint (/wt/web, skipped)');
+    expect(contents).not.toContain('# lint (/wt/web, exit 0)');
+  });
+
   it('stores the timings a gate reports and leaves a gate that never ran without any', async () => {
     await runReview(
       store,
