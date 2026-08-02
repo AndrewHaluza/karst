@@ -952,7 +952,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // Scope is complete the moment its worktrees exist (scope has only a
           // pass edge → impl; it is not a gate). Pass it so the ticket advances
           // to impl running — the agent session opens in the impl worktree.
-          transition(localStore, ticketId, 'scope', { kind: 'passed' });
+          //
+          // Submit doubles as the edit surface for an already-started ticket
+          // (repos/approach changed after the fact), so `scope` may already
+          // have passed by the time this runs — mirror settleMergeStage's
+          // idiom rather than let transition() throw its internal invariant
+          // string onto the page: only advance the run that is genuinely
+          // still at scope, a ticket already past it just needs its session
+          // opened.
+          if (getTicket(localStore, ticketId).stageCurrent === 'scope') {
+            transition(localStore, ticketId, 'scope', { kind: 'passed' });
+          }
           provider.refresh();
           // Await so a launch failure (missing worktree, terminal spawn throw)
           // surfaces as a failed start instead of a silent stall with the ticket
