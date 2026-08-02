@@ -231,17 +231,34 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/\.track \.seg[^{]*\{[^}]*color:var\(--k-success-fg\)/);
   });
 
-  it('draws selection inside the chevron clip, so the highlight is the segment’s own shape', () => {
+  it('marks the selected segment with the segment’s own shape, never a stray edge', () => {
     // A segment is a CHEVRON (clip-path), and `clip-path` clips a child's
     // rendering — so a rectangular ring on the inset `.pick` lost its left and
     // right strokes in the two notches and survived as two detached horizontal
-    // bars. Worse at the ends of the lane: the ring's square corners sat inside
-    // the lane's `--k-radius-lg`, which read as the highlight being shifted off
-    // the block it marks. An inset shadow on the SEGMENT is clipped by the very
-    // polygon that draws it, so the mark can never disagree with the shape.
-    expect(HTML).toMatch(/\.track \.seg\.sel\{[^}]*box-shadow:inset/);
-    expect(HTML, 'the ring is back on the rectangular overlay').not.toMatch(
-      /\.track \.seg\.sel \.pick\{/,
+    // bars; at the ends of the lane its square corners sat inside the lane's
+    // `--k-radius-lg`, which read as the mark being shifted off the block it
+    // marks. The underline that replaced it had the same problem from the other
+    // side: it read as a stray bottom border on the segment. Selection is drawn
+    // as the chevron ring, sharing one shape with focus.
+    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(ring).toContain('.track .seg.sel .pick,');
+    expect(ring).toContain('.track .seg:first-child.sel .pick,');
+    expect(ring).toContain('.track .seg:last-child.sel .pick,');
+    // Focus outranks selection on a segment that is both, so it is stated LAST —
+    // and it is what drops the outline, so the two can never both be missing.
+    const focusLast = ring.lastIndexOf('.track .seg .pick:focus-visible{outline:0');
+    expect(focusLast, 'focus does not win the ring colour').toBeGreaterThan(
+      ring.indexOf('.track .seg.sel .pick,'),
+    );
+    // The baseline survives for a browser that cannot compute the shape — and
+    // the guard turns it off rather than painting both.
+    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:inset[^}]*var\(--k-series-2\)\}/);
+    expect(ring).toContain('.track .seg.sel{box-shadow:none}');
+    // …which only works if the baseline is declared BEFORE the guard: same
+    // specificity, so a later baseline would win and the underline would come
+    // back underneath the ring.
+    expect(HTML.indexOf('.track .seg.sel{box-shadow:inset')).toBeLessThan(
+      HTML.indexOf('@supports (width: calc(1px * hypot'),
     );
   });
 

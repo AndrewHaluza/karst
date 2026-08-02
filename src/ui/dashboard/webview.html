@@ -159,13 +159,35 @@
   .track .seg .pick:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
     outline-offset:calc(var(--k-focus-offset) * -1)}
 
-  /* ── the focus ring, in the segment's own shape ───────────────────────────
+  /* Selection is a MARK, never a fill — status already owns fill and the stage
+     owns hue, and all three must stay independently readable, so it keeps its
+     own off-ramp purple (the shared categorical token, UI-R08).
+     This is the BASELINE, replaced by the chevron ring above wherever that can
+     be computed. It is an inset shadow on the SEGMENT rather than a ring on the
+     inset `.pick` because `clip-path` clips a child's rendering: a rectangular
+     ring lost its left and right strokes inside the two notches, and at the ends
+     of the lane its square corners sat inside the lane's own `--k-radius-lg`, so
+     the mark read as SHIFTED off the block it marks. An underline is clipped by
+     the very polygon that draws the segment, so it cannot disagree with the
+     shape — it just says less than the ring does. */
+  .track .seg.sel{box-shadow:inset 0 calc(var(--k-border-w) * -3) 0 var(--k-series-2)}
+
+  /* ── the selection and focus rings, in the segment's own shape ───────────
      An outline (or an inset shadow — same rectangle) cannot outline a chevron:
      `clip-path` clips a CHILD's rendering, so the vertical strokes fall inside
      the two notches and are cut, leaving a border that visibly does not close
-     around the arrow it belongs to. So the ring is drawn as a SHAPE: `.pick` is
-     filled with the focus colour and clipped to the chevron MINUS a smaller
-     chevron (`evenodd`), which leaves exactly the band between them.
+     around the arrow it belongs to. The first attempt at that was the selection
+     ring; the underline it became read as a stray bottom border on the segment,
+     which is the same complaint from the other side — a mark that is not the
+     shape it marks. So the ring is drawn as a SHAPE: `.pick` is filled and
+     clipped to the chevron MINUS a smaller chevron (`evenodd`), which leaves
+     exactly the band between them.
+
+     ONE shape, two states. Selection wears the shared categorical purple
+     (UI-R08) and focus wears `--k-focus` and OUTRANKS it — a focused segment is
+     already the selected one in every case the user can reach by keyboard, and
+     two concentric bands say nothing the colour does not. `aria-pressed` carries
+     selection either way, so nothing is lost while the ring is showing focus.
 
      The inner chevron is the outer one offset PERPENDICULARLY — not by the same
      px horizontally and vertically, which would splay the diagonals and taper
@@ -182,13 +204,15 @@
 
      @supports, because a browser without `hypot()` (or without length division
      in `calc()`) would drop the `clip-path` and keep the `background` — a solid
-     focus-coloured fill over the whole segment. The guard keeps such a browser
-     on the plain outline above, which is a working focus indicator. */
+     fill over the whole segment. The guard keeps such a browser on the plain
+     outline and the underline above, both of which still say what they mean. */
   @supports (width: calc(1px * hypot(1px,1px) / 1px)){
+    .track .seg.sel{box-shadow:none}
+    .track .seg.sel .pick,
     .track .seg .pick:focus-visible{
       /* q for each boundary: the outer edge, and the inner edge one ring-width
          further in. Two focus widths, not one — a 1px band is what the diagonals
-         eat first, and a focus indicator may not be the thing that degrades. */
+         eat first, and neither of these marks may be the thing that degrades. */
       --rq-o:var(--k-focus-offset);
       --rq-i:calc(var(--k-focus-offset) + var(--k-focus-w) * 2);
       --rt-o:calc(var(--rq-o) * var(--trk-diag) / var(--trk-half));
@@ -197,7 +221,7 @@
       --rt-i:calc(var(--rq-i) * var(--trk-diag) / var(--trk-half));
       --rr-i:calc(var(--rq-i) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
       --rl-i:calc(var(--rq-i) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
-      outline:0;background:var(--k-focus);
+      background:var(--k-series-2);
       clip-path:polygon(evenodd,
         var(--rl-o) var(--rq-o),
         calc(100% - var(--trk-notch) - var(--rr-o)) var(--rq-o),
@@ -214,6 +238,7 @@
     /* The ends of the lane have one notch, not two — same rule as the segment
        shapes above, and for the same reason: a wedge at the outer end would
        point at nothing. A square corner insets by q in both axes. */
+    .track .seg:first-child.sel .pick,
     .track .seg:first-child .pick:focus-visible{
       clip-path:polygon(evenodd,
         var(--rq-o) var(--rq-o),
@@ -226,6 +251,7 @@
         calc(100% - var(--rt-i)) 50%,
         calc(100% - var(--trk-notch) - var(--rr-i)) calc(100% - var(--rq-i)),
         var(--rq-i) calc(100% - var(--rq-i)))}
+    .track .seg:last-child.sel .pick,
     .track .seg:last-child .pick:focus-visible{
       clip-path:polygon(evenodd,
         var(--rl-o) var(--rq-o),
@@ -237,24 +263,13 @@
         calc(100% - var(--rq-i)) var(--rq-i),
         calc(100% - var(--rq-i)) calc(100% - var(--rq-i)),
         var(--rl-i) calc(100% - var(--rq-i)),
-        calc(var(--trk-notch) + var(--rt-i)) 50%)}}
+        calc(var(--trk-notch) + var(--rt-i)) 50%)}
+    /* Last, so focus wins the colour on a segment that is both. The outline goes
+       with it — the ring IS the indicator now (UI-R23). */
+    .track .seg .pick:focus-visible{outline:0;background:var(--k-focus)}}
   .track .seg > *:not(.pick){position:relative;z-index:1;pointer-events:none}
   /* The two REAL controls take their events back from the select overlay. */
   .track .seg > .go,.track .seg > .fixm{pointer-events:auto}
-  /* Selection is a MARK, never a fill — status already owns fill and the stage
-     owns hue, and all three must stay independently readable, so it keeps its
-     own off-ramp purple (the shared categorical token, UI-R08).
-     It is drawn on the SEGMENT, as an inset shadow, because `clip-path` clips a
-     child's rendering: a ring on the inset `.pick` lost its left and right
-     strokes inside the two notches and survived as two detached horizontal bars
-     that stopped short of the chevron tips. At the ends of the lane it was
-     worse — the ring's square corners sat inside the lane's own
-     `--k-radius-lg`, so the highlight read as SHIFTED off the block it marks.
-     An inset shadow on the segment is clipped by the very polygon that draws
-     the segment, so the mark cannot disagree with the shape at either end. An
-     underline rather than a full ring for the same reason a ring was chosen
-     first: it must not read as a second fill. */
-  .track .seg.sel{box-shadow:inset 0 calc(var(--k-border-w) * -3) 0 var(--k-series-2)}
 
   /* Untravelled: neutral, and explicitly so. A pending segment must not wear its
      stage hue at full strength — that is what "travelled ground" means here. */
