@@ -220,10 +220,26 @@ export async function runReview(
     const scriptProbe = probe(target.path);
     const resolution = resolveGates(scriptProbe, [], REVIEW_PROBE_SCRIPTS);
 
-    // R2/R3 per target: karst could not ask this repository anything. Park
-    // rather than reduce — earlier targets already ran, so their rows go down
-    // with the park.
     if (resolution.kind === 'unavailable') {
+      // R3 is decided ACROSS every target, so "this repository answers none of
+      // review's questions" is not a park on its own — it is one target
+      // contributing no entry, and `aggregateReview` parks only if NO target
+      // contributed one. Returning here instead would discard the green of a
+      // target already run, never probe the ones after it, make the outcome
+      // depend on target order, and leave every mixed-stack ticket (a Go
+      // service, a docs package, anything without a package.json — `absent`
+      // resolves here too) permanently unprogressable. It is still recorded:
+      // an absence a human cannot see reads the same as a repository karst
+      // never met.
+      if (resolution.blocker === 'nothing-to-run') {
+        sections.push(`# ${label} (nothing to run)\n${resolution.reason}`);
+        continue;
+      }
+
+      // R2, which IS per target: karst could not READ this repository. That is
+      // environmental, a human has to act on it, and no other target's green
+      // answers it — so it parks, and the completed targets' rows go down with
+      // the park.
       const reason = `${label}: ${resolution.reason}`;
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }

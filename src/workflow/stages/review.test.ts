@@ -243,6 +243,83 @@ describe('runReview', () => {
     expect(reviewStage(store, id).attempt).toBe(0);
   });
 
+  // R3 is decided ACROSS every target, never per target. A repository that
+  // answers none of review's questions (a Go service, a docs package, anything
+  // with no package.json) says nothing on its own — parking the whole run on it
+  // discards the green target beside it, depends on target order, and leaves a
+  // mixed-stack ticket unprogressable without a human clearing the block every
+  // single run.
+  it('a target with no runnable script does not park a run another target answered', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/svc', path: '/wt/svc', names: ['svc'] },
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+          ],
+        }),
+        probe: (cwd) =>
+          cwd === '/wt/web' ? { kind: 'ok', scripts: ALL_SCRIPTS } : { kind: 'absent' },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual([
+      'lint (web)',
+      'typecheck (web)',
+      'test (web)',
+    ]);
+    // The repository that answered nothing is still named in the log — an
+    // absence a human cannot see is indistinguishable from one karst never met.
+    expect(readFileSync(reviewStage(store, id).artifactPath!, 'utf8')).toContain('svc');
+  });
+
+  // ...and the order of that target must not change the outcome.
+  it('reaches the same verdict whichever way round the scriptless target sorts', async () => {
+    const probeOf = (cwd: string) =>
+      cwd === '/wt/web' ? ({ kind: 'ok', scripts: ALL_SCRIPTS } as const) : ({ kind: 'absent' } as const);
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/svc', path: '/wt/svc', names: ['svc'] },
+          ],
+        }),
+        probe: probeOf,
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+  });
+
+  // A repository karst could not READ is still a park, even beside a green one:
+  // capability-missing is environmental and a human has to act on it.
+  it('still parks on an unreadable target beside one that answered', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/svc', path: '/wt/svc', names: ['svc'] },
+          ],
+        }),
+        probe: (cwd) =>
+          cwd === '/wt/web'
+            ? { kind: 'ok', scripts: ALL_SCRIPTS }
+            : { kind: 'io-error', message: 'EACCES' },
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+  });
+
   it('every gate reporting null blocks nothing-to-run, keeping the rows that say so', async () => {
     const res = await runReview(
       store,
