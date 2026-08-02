@@ -27,13 +27,19 @@
  *   against a row corrupted after this one wrote it (fail open, since the
  *   writer is trusted); this one is guarding against a model that said
  *   something we do not understand (fail closed, since the writer is not).
- * - `file` must be a string, contain no `..` path segment, not be absolute,
- *   and resolve inside `ctx.worktreePath` once joined to it. Any failure —
- *   traversal, an absolute path, a non-string value — does NOT drop the
- *   finding: the finding's text can still be true even when its claimed
- *   location cannot be trusted, so only the location is discarded
- *   (`file: null`). A `file` that was present but rejected is logged, since
- *   that is the shape a path-injection attempt takes.
+ * - `file` must be a string with no control character, contain no `..` path
+ *   segment, not be absolute, and resolve inside `ctx.worktreePath` once
+ *   joined to it. A control character (including a newline or NUL) is
+ *   rejected outright — unlike prose, a path containing one is not a path
+ *   that could have been meant, and an unescaped newline would forge extra
+ *   rows in any line-oriented rendering of `file`. Any rejection — traversal,
+ *   an absolute path, a control character, a non-string value — does NOT
+ *   drop the finding: the finding's text can still be true even when its
+ *   claimed location cannot be trusted, so only the location is discarded
+ *   (`file: null`). Rejections are counted, never logged one at a time, and
+ *   folded into a single aggregate warning per `parseFindings` call — a
+ *   hostile document that pads every finding with a bad `file` must not be
+ *   able to turn one call into thousands of log lines.
  * - `line` must be a finite, positive integer. Anything else (0, negative,
  *   a float, a non-number) nulls the line — not the whole finding, for the
  *   same reason a bad `file` does not: a line number is refinement of a
@@ -45,10 +51,11 @@
  * - `title`/`detail` are collapsed to one line and capped via
  *   `model/diagnosticText.ts`'s `collapseDiagnostic` — the same shared
  *   collapse-then-cap every other piece of untrusted CLI/model prose in this
- *   codebase goes through before reaching a rendered surface. A finding with
- *   no usable `title` is dropped (nothing to show); a missing `detail`
- *   defaults to `''` rather than dropping the finding, since a title alone
- *   can still be actionable.
+ *   codebase goes through before reaching a rendered surface, which also
+ *   strips control/ANSI/bidi-override characters before collapsing
+ *   whitespace. A finding with no usable `title` is dropped (nothing to
+ *   show); a missing `detail` defaults to `''` rather than dropping the
+ *   finding, since a title alone can still be actionable.
  * - `repo` is NEVER read from the model's output. It is always `ctx.repo` —
  *   the target this invocation was scoped to. A model claiming its own
  *   finding belongs to a different repository would let one target's output
@@ -60,9 +67,17 @@
  * it is logged as "nothing recognized", distinctly from the silent `[]` a
  * genuinely empty result (`[]`, `{"findings":[]}`) produces — the two must
  * not look identical in the logs, or a parse failure reads as "the model
- * found nothing" forever. Exceeding `ctx.max` truncates and logs the drop
- * count for the same reason: a silent truncation reads as "that was all of
- * them".
+ * found nothing" forever. The same distinction holds one layer deeper: a
+ * document that parses as JSON but never carries a findings-shaped container
+ * anywhere (findings nested an extra level, a provider's own output-format
+ * envelope) also warns rather than silently returning `[]` — an explicit
+ * empty container (`[]`, `{"findings":[]}`) stays silent, since that IS a
+ * clean review. Exceeding `ctx.max` truncates and logs the drop count for
+ * the same reason: a silent truncation reads as "that was all of them" — and
+ * the kept `max` are chosen by severity (critical first, stable within a
+ * rank), not by document order, so attacker-controlled ordering cannot push
+ * a real `critical` past the cap by padding the document with low-severity
+ * noise ahead of it.
  *
  * No filesystem or network I/O happens here (mirrors `cliFailure.ts` /
  * `tokenUsage.ts`): `ctx.worktreePath` is used only for lexical path
@@ -144,20 +159,29 @@ function parseJsonEvents(text: string): unknown[] {
   return values;
 }
 
+/** One parsed JSON value's contribution: candidates, and whether a findings-shaped container was recognized at all (independent of whether it was empty). */
+interface FindingCandidates {
+  candidates: unknown[];
+  /** True if this value WAS a findings-shaped container — a bare array, a `findings` array, or a bare finding object — even if it carried zero findings. False if the container shape itself was never recognized (e.g. findings nested one level deeper than expected, or a provider envelope). */
+  recognized: boolean;
+}
+
 /**
  * The finding-shaped candidates carried by one parsed JSON value: a bare
  * array of findings, an object's `findings` array, or (a JSONL line that is
  * itself one finding) the object alone. Anything else — a number, a bare
- * string, `null`, an object with neither shape — contributes nothing.
+ * string, `null`, an object with neither shape — contributes nothing, and is
+ * reported as unrecognized so the caller can tell "found nothing" apart from
+ * "couldn't find the findings".
  */
-function findingCandidatesFrom(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
+function findingCandidatesFrom(value: unknown): FindingCandidates {
+  if (Array.isArray(value)) return { candidates: value, recognized: true };
   if (isPlainRecord(value)) {
     const nested = value['findings'];
-    if (Array.isArray(nested)) return nested;
-    if ('severity' in value || 'title' in value) return [value];
+    if (Array.isArray(nested)) return { candidates: nested, recognized: true };
+    if ('severity' in value || 'title' in value) return { candidates: [value], recognized: true };
   }
-  return [];
+  return { candidates: [], recognized: false };
 }
 
 function parseSeverityStrict(raw: unknown): Severity | null {
@@ -173,28 +197,39 @@ function parseLine(raw: unknown): number | null {
     : null;
 }
 
+/** A rejected `file`, kept ONLY for the caller to fold into one aggregate warning — never logged individually (a hostile document can carry thousands of these). */
+interface FileRejection {
+  readonly sample: string;
+}
+
+/** `file` result: either a trusted in-worktree relative path, or a rejection sample the caller aggregates. */
+type FileResolution = { readonly file: string; readonly rejection?: undefined } | { readonly file: null; readonly rejection?: FileRejection };
+
+/** C0/C1 control characters and DEL — a legal path segment never needs one, and a newline in particular would forge extra rows in any line-oriented rendering of `file`. */
+const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
+
 /**
  * Validate a reported `file`. `undefined`/`null`/`''` is "not file-scoped" —
  * an ordinary, unlogged outcome. Anything present but untrustworthy (a
- * non-string, an absolute path, a `..` segment, a path that resolves outside
- * `ctx.worktreePath` once joined to it) is rejected — logged, and the
- * finding is kept with `file: null` rather than dropped.
+ * non-string, an absolute path, a `..` segment, a control character, a path
+ * that resolves outside `ctx.worktreePath` once joined to it) is rejected —
+ * reported back as a `rejection` for the caller to aggregate into one
+ * warning, and the finding is kept with `file: null` rather than dropped.
  */
-function resolveFileField(raw: unknown, ctx: ParseFindingsContext, warn: WarnFn): string | null {
-  if (raw === undefined || raw === null) return null;
+function resolveFileField(raw: unknown, ctx: ParseFindingsContext): FileResolution {
+  if (raw === undefined || raw === null) return { file: null };
 
-  const reject = (): null => {
-    const shown =
-      typeof raw === 'string' ? collapseDiagnostic(raw, 200) : `(non-string: ${typeof raw})`;
-    warn(
-      `review findings: ${ctx.repo} reported an untrustworthy file location — kept the finding, dropped the location. Reported value: ${shown}`,
-    );
-    return null;
-  };
+  const reject = (): FileResolution => ({
+    file: null,
+    rejection: {
+      sample: typeof raw === 'string' ? collapseDiagnostic(raw, 200) : `(non-string: ${typeof raw})`,
+    },
+  });
 
   if (typeof raw !== 'string') return reject();
+  if (CONTROL_CHAR.test(raw)) return reject();
   const candidate = raw.trim();
-  if (candidate === '') return null;
+  if (candidate === '') return { file: null };
   if (isAbsolute(candidate)) return reject();
 
   const segments = candidate.split(/[/\\]+/);
@@ -206,35 +241,64 @@ function resolveFileField(raw: unknown, ctx: ParseFindingsContext, warn: WarnFn)
   const insideWorktree = rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
   if (!insideWorktree) return reject();
 
-  return rel;
+  return { file: rel };
 }
 
-/** One raw JSON value, validated into a `Finding` — or `null` if it cannot be trusted enough to keep at all. */
-function parseOneFinding(item: unknown, ctx: ParseFindingsContext, warn: WarnFn): Finding | null {
-  if (!isPlainRecord(item)) return null;
+/** One raw JSON value, validated into a `Finding` — or `null` if it cannot be trusted enough to keep at all. Any file rejection is returned, never logged here, so a hostile document cannot flood the log one line per finding. */
+function parseOneFinding(
+  item: unknown,
+  ctx: ParseFindingsContext,
+): { finding: Finding | null; fileRejection?: FileRejection } {
+  if (!isPlainRecord(item)) return { finding: null };
 
   const severity = parseSeverityStrict(item['severity']);
-  if (severity === null) return null;
+  if (severity === null) return { finding: null };
 
   const rawTitle = item['title'];
   const title = typeof rawTitle === 'string' ? rawTitle.trim() : '';
-  if (title === '') return null;
+  if (title === '') return { finding: null };
 
   const rawDetail = item['detail'];
   const detail = typeof rawDetail === 'string' ? rawDetail : '';
 
-  const file = resolveFileField(item['file'], ctx, warn);
-  const line = file === null ? null : parseLine(item['line']);
+  const fileResolution = resolveFileField(item['file'], ctx);
+  const line = fileResolution.file === null ? null : parseLine(item['line']);
 
   return {
-    severity,
-    repo: ctx.repo,
-    file,
-    line,
-    title: collapseDiagnostic(title, TITLE_MAX),
-    detail: collapseDiagnostic(detail, DETAIL_MAX),
-    source: AGENT_SOURCE,
+    finding: {
+      severity,
+      repo: ctx.repo,
+      file: fileResolution.file,
+      line,
+      title: collapseDiagnostic(title, TITLE_MAX),
+      detail: collapseDiagnostic(detail, DETAIL_MAX),
+      source: AGENT_SOURCE,
+    },
+    fileRejection: fileResolution.rejection,
   };
+}
+
+/** Rank for the truncation sort — lower survives a cut first. Not the display order; report order is preserved within a rank via a stable sort. */
+const SEVERITY_RANK: Readonly<Record<Severity, number>> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+};
+
+/**
+ * Sort by severity (critical first), stable — ties keep their original
+ * report order. Used ONLY when truncating: attacker-controlled ordering
+ * must not decide which findings survive a `max` cut, or padding a document
+ * with low-severity noise ahead of a real `critical` silently turns a
+ * would-be `failed` review into a pass.
+ */
+function bySeverityStable(findings: readonly Finding[]): Finding[] {
+  return findings
+    .map((finding, index) => ({ finding, index }))
+    .sort((a, b) => SEVERITY_RANK[a.finding.severity] - SEVERITY_RANK[b.finding.severity] || a.index - b.index)
+    .map(({ finding }) => finding);
 }
 
 /**
@@ -256,20 +320,37 @@ export function parseFindings(
     return [];
   }
 
-  const candidates = events.flatMap((event) => findingCandidatesFrom(event));
+  const eventCandidates = events.map((event) => findingCandidatesFrom(event));
+  const candidates = eventCandidates.flatMap((c) => c.candidates);
+  const anyRecognized = eventCandidates.some((c) => c.recognized);
+
   const parsed: Finding[] = [];
+  const fileRejections: FileRejection[] = [];
   for (const candidate of candidates) {
-    const finding = parseOneFinding(candidate, ctx, warn);
+    const { finding, fileRejection } = parseOneFinding(candidate, ctx);
     if (finding !== null) parsed.push(finding);
+    if (fileRejection !== undefined) fileRejections.push(fileRejection);
+  }
+
+  if (!anyRecognized) {
+    warn(
+      `review findings: ${ctx.repo}'s output parsed as JSON but carried no findings-shaped content — treated as zero findings.`,
+    );
+  }
+
+  if (fileRejections.length > 0) {
+    warn(
+      `review findings: ${ctx.repo} reported ${fileRejections.length} untrustworthy file location(s) — kept the findings, dropped the locations. First rejected value: ${fileRejections[0]?.sample}`,
+    );
   }
 
   const max = Math.max(0, Math.floor(ctx.max));
   if (parsed.length > max) {
     const dropped = parsed.length - max;
     warn(
-      `review findings: ${ctx.repo} reported ${parsed.length} findings, above the max of ${max} — dropped ${dropped}, kept the first ${max}.`,
+      `review findings: ${ctx.repo} reported ${parsed.length} findings, above the max of ${max} — dropped ${dropped}, kept the first ${max} by severity.`,
     );
-    return parsed.slice(0, max);
+    return bySeverityStable(parsed).slice(0, max);
   }
 
   return parsed;
