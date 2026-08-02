@@ -39,7 +39,7 @@ export type UatTargetSelection =
  * double-write): every name that maps to the path is preserved and merged,
  * never dropped, because service identity stays keyed by repository NAME
  * (distinct ports, distinct `servers` rows) and per-repository gate overrides
- * in `resolveUatGates` are keyed by that same name.
+ * in `declaredGatesFor` are keyed by that same name.
  *
  * Non-runnable repositories are included: they are still source trees with
  * suites, and `manifest/runnable.ts` draws the boot line separately.

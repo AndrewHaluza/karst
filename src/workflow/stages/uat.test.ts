@@ -231,7 +231,7 @@ describe('runUat', () => {
   });
 
   // A malformed package.json is a repository defect an agent CAN fix, so it must
-  // reach a verdict rather than park — `resolveUatGates` returns zero gates for it
+  // reach a verdict rather than park — `resolveGates` returns zero gates for it
   // and only the stage can turn that into a named failure.
   it('a malformed package.json -> a failing verdict naming the file, not a block', async () => {
     const res = await runUat(

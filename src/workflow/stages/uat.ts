@@ -12,13 +12,10 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { REVIEW_GATES } from '../gates/scripts.js';
+import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
+import { runGateList } from '../gates/runList.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
-import {
-  resolveUatGates,
-  runUatGates,
-  type GateResolution,
-  type ResolvedGate,
-} from '../uat/gates.js';
+import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
 import { aggregateUat, type AggregateEntry, type GateIdentity } from '../uat/aggregate.js';
 
 /**
@@ -26,8 +23,9 @@ import { aggregateUat, type AggregateEntry, type GateIdentity } from '../uat/agg
  *
  * Plan the affected repositories, resolve each one's gate list (explicit config
  * else a package.json probe), run them, and reduce. The verdict conjunction lives
- * in `uat/aggregate.ts` and the gate mechanics in `uat/gates.ts`, because this
- * file was 134 lines and would be 600–900 if every mechanism landed in it.
+ * in `uat/aggregate.ts` and the gate mechanics in `gates/resolve.ts`/`gates/runList.ts`
+ * (UAT's own config shape stays in `uat/gates.ts`), because this file was 134
+ * lines and would be 600–900 if every mechanism landed in it.
  *
  * Returns `StageRunResult`: a run that could not ask its question parks durably
  * (`parkGateStage`) rather than transitioning or throwing, and consumes no
@@ -47,7 +45,7 @@ export interface RunUatOpts {
 export interface UatDeps {
   planTargets?: typeof planUatTargets;
   probe?: (cwd: string) => ScriptProbe;
-  runGates?: typeof runUatGates;
+  runGates?: typeof runGateList;
   git?: GitRunner;
   now?: () => string;
 }
@@ -79,7 +77,7 @@ function identityKey(gate: ResolvedGate): string {
  * The gates for ONE target, which may back several manifest entries.
  *
  * `planUatTargets` collapses entries sharing a `repoPath` into one worktree, and
- * `resolveUatGates` is keyed by a single repository NAME — so reading only the
+ * `declaredGatesFor` is keyed by a single repository NAME — so reading only the
  * first name would silently drop the second entry's `uat.repositories.<name>.gates`
  * override. Every name is resolved and the results unioned.
  *
@@ -103,7 +101,7 @@ function resolveTargetGates(
   let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
 
   for (const name of keys) {
-    const resolved = resolveUatGates(probe, config, name);
+    const resolved = resolveGates(probe, declaredGatesFor(config, name), PROBE_SCRIPTS);
     if (resolved.kind === 'unavailable') {
       unavailable ??= resolved;
       continue;
@@ -212,7 +210,7 @@ export async function runUat(
   const now = deps.now ?? nowIso;
   const planTargets = deps.planTargets ?? planUatTargets;
   const probe = deps.probe ?? probeScripts;
-  const runGates = deps.runGates ?? runUatGates;
+  const runGates = deps.runGates ?? runGateList;
   const git = deps.git ?? defaultGitRunner;
   const runAt = now();
 
@@ -296,7 +294,7 @@ export async function runUat(
     });
 
     for (const [index, result] of run.results.entries()) {
-      // Zipped by POSITION: `runUatGates` emits one result per gate in order, and
+      // Zipped by POSITION: `runGateList` emits one result per gate in order, and
       // two manifest entries sharing a worktree can declare the same gate name,
       // so a name lookup would attach the wrong identity to the row.
       const gate = resolution.gates[index];
