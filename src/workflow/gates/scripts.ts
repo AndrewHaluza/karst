@@ -50,8 +50,12 @@ export const REVIEW_PROBE_SCRIPTS: readonly string[] = REVIEW_GATES.map((gate) =
  * conventional entry point and usually the cheapest suite in the repo, and
  * cheapest-first is what makes a failing gate fail fast.
  *
- * Sharing REVIEW_GATES' `test` entry is still true here and still not enough on
- * its own — see `uat/aggregate.ts`, which checks the identities that actually RAN.
+ * `test` no longer duplicates a `REVIEW_GATES` entry — Task 9 removed `test`
+ * from review's default list for exactly that reason (see `REVIEW_GATES`'s own
+ * comment above). That was never what `uat/aggregate.ts`'s overlap warning
+ * depends on, though: it compares the gate IDENTITIES that actually RAN, not
+ * these constants, so a project that explicitly configures an overlapping
+ * `uat.gates`/`review.gates` pair still triggers it correctly either way.
  */
 export const UAT_GATES: readonly GateSpec[] = [
   { name: 'test', script: 'test', args: ['test'] },

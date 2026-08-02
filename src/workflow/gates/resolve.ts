@@ -4,13 +4,20 @@ import type { ScriptProbe } from './probe.js';
 export type GateKind = 'script' | 'command';
 
 /**
- * The shared shape of one declared gate. Both UAT's `UatGateDef`
- * (`manifest/types.ts`) and review's future declared-gate type describe this same
- * thing plus their own scoping fields (`repo`, `report`); `resolveGates` only
- * needs this much, so callers pass their manifest type straight through rather
- * than converting it.
+ * What `resolveGates` needs from one declared gate — deliberately NOT named
+ * `GateDef`: the manifest's `GateDef` (`manifest/types.ts`, shared by
+ * `UatGateDef` and `ReviewConfig.gates`) is the config-authored shape and
+ * additionally carries `repo` (and, for UAT, `report`); a caller filters and
+ * strips those manifest-only fields before reaching this module
+ * (`declaredGatesFor`/`declaredReviewGatesFor` already resolve `repo` scoping
+ * down to "does this gate apply here"), so what lands here is a narrower,
+ * resolution-only shape. The manifest type is still assignable straight
+ * through without conversion — it is a structural superset of this one — but
+ * the two describe different questions ("what did the author declare" vs
+ * "what does resolution need") and having them share a name was a
+ * maintenance trap once review's manifest type stopped being hypothetical.
  */
-export interface GateDef {
+export interface DeclaredGate {
   name: string;
   kind: GateKind;
   script?: string; // kind: 'script' — the package.json script
@@ -36,7 +43,7 @@ export type GateResolution =
   | { kind: 'gates'; gates: ResolvedGate[] }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
-function resolveDeclared(gate: GateDef): ResolvedGate {
+function resolveDeclared(gate: DeclaredGate): ResolvedGate {
   if (gate.kind === 'command') {
     // Spawned without a shell, so there is no quoting surface to get wrong.
     return {
@@ -71,7 +78,7 @@ function resolveDeclared(gate: GateDef): ResolvedGate {
  */
 export function resolveGates(
   probe: ScriptProbe,
-  declared: readonly GateDef[],
+  declared: readonly DeclaredGate[],
   probeList: readonly string[],
 ): GateResolution {
   // Explicit gates always win — checked before the probe result matters at

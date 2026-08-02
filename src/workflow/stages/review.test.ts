@@ -8,7 +8,7 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
+import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import { runUat, type UatDeps } from './uat.js';
 
@@ -86,6 +86,81 @@ describe('runReview', () => {
     ]);
     expect(listGateRuns(store, id).every((r) => r.stageKey === 'review')).toBe(true);
     expect(new Set(listGateRuns(store, id).map((r) => r.runAt)).size).toBe(1);
+  });
+
+  // Every other test in this file either supplies no `manifest.review` at all
+  // or overrides only `uat`, so none of them would notice a regression that
+  // disconnected `manifest.review` from what review actually runs — the pure
+  // `resolveReviewGates`/`declaredReviewGatesFor` unit tests
+  // (`workflow/review/gates.test.ts`) prove the function is correct in
+  // isolation, not that `runReview` calls it with the manifest it was given.
+  // These two drive the real orchestration path with a POPULATED
+  // `manifest.review` to prove the wiring itself.
+  it('runs the gates declared in manifest.review instead of probing', async () => {
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) }),
+      },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+        }),
+        // The repository answers every default review script. If the declared
+        // config were not reaching gate resolution, all four (lint, typecheck,
+        // build, format) would run instead of only the one declared here.
+        probe: () => ({ kind: 'ok', scripts: ALL_SCRIPTS }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['lint (web)']);
+  });
+
+  it('a per-repository gate override in manifest.review reaches only that repository', async () => {
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest(
+          {},
+          {
+            review: reviewConfig({
+              gates: [{ name: 'lint', kind: 'script', script: 'lint' }],
+              repositories: {
+                api: {
+                  gates: [{ name: 'govet', kind: 'command', command: 'go', args: ['vet', './...'] }],
+                },
+              },
+            }),
+          },
+        ),
+      },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+        // Nothing to probe for — every gate below must come from declared
+        // config, or this run would block nothing-to-run instead of shipping.
+        probe: () => ({ kind: 'ok', scripts: {} }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    // `web` has no override, so it keeps the global `lint` gate; `api`'s
+    // override REPLACES the global list with `govet` — it does not also run
+    // `lint`, proving the override is per-repository, not additive.
+    expect(listGateRuns(store, id).map((r) => r.gateName).sort()).toEqual(
+      ['govet (api)', 'lint (web)'].sort(),
+    );
   });
 
   it('a single red gate -> routes to fix and files the evidence under the attempt that ran', async () => {

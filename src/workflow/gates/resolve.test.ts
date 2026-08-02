@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveGates, type GateDef } from './resolve.js';
+import { resolveGates, type DeclaredGate } from './resolve.js';
 
 // UAT's own list — used here only as one concrete `probeList` value. The point
 // of these tests is that `resolveGates` treats it as data, not a constant it
@@ -58,7 +58,7 @@ describe('resolveGates', () => {
   });
 
   it('prefers explicit gates over the probe and marks them required', () => {
-    const declared: GateDef[] = [{ name: 'integration', kind: 'script', script: 'test:integration' }];
+    const declared: DeclaredGate[] = [{ name: 'integration', kind: 'script', script: 'test:integration' }];
     const res = resolveGates(
       { kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } },
       declared,
@@ -78,7 +78,7 @@ describe('resolveGates', () => {
   });
 
   it('renders a command gate as argv with no shell', () => {
-    const declared: GateDef[] = [
+    const declared: DeclaredGate[] = [
       { name: 'gotest', kind: 'command', command: 'go', args: ['test', './...'] },
     ];
     const res = resolveGates({ kind: 'ok', scripts: {} }, declared, PROBE_LIST);
@@ -96,7 +96,7 @@ describe('resolveGates', () => {
   // that explicit gates always win. Fixed by resolving declared gates first and
   // only consulting the probe when none apply.
   it('lets declared gates win over an unreadable package.json', () => {
-    const declared: GateDef[] = [{ name: 'gotest', kind: 'command', command: 'go', args: ['test'] }];
+    const declared: DeclaredGate[] = [{ name: 'gotest', kind: 'command', command: 'go', args: ['test'] }];
     const res = resolveGates({ kind: 'io-error', message: 'EACCES' }, declared, PROBE_LIST);
     expect(res.kind).toBe('gates');
     if (res.kind !== 'gates') return;
@@ -104,7 +104,7 @@ describe('resolveGates', () => {
   });
 
   it('lets declared gates win over a malformed package.json', () => {
-    const declared: GateDef[] = [{ name: 'gotest', kind: 'command', command: 'go', args: ['test'] }];
+    const declared: DeclaredGate[] = [{ name: 'gotest', kind: 'command', command: 'go', args: ['test'] }];
     const res = resolveGates({ kind: 'malformed', message: 'Unexpected token' }, declared, PROBE_LIST);
     expect(res.kind).toBe('gates');
     if (res.kind !== 'gates') return;
