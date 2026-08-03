@@ -1171,6 +1171,94 @@ describe('UI-R13 — action-result is handled', () => {
   });
 });
 
+describe('project facts (manifest path & resolved project id)', () => {
+  it('renders a read-only <dl>, not inputs, so Save can never write these back', () => {
+    const generalStart = HTML.indexOf('id="section-general"');
+    const generalEnd = HTML.indexOf('<!-- Git -->');
+    const section = HTML.slice(generalStart, generalEnd);
+    expect(section).toContain('id="projectFacts"');
+    expect(section).toContain('<dl class="facts">');
+    expect(section).toContain('id="factManifestPath"');
+    expect(section).toContain('id="factProjectSlug"');
+    expect(section).toContain('id="factSlugDerived"');
+    expect(section).toContain('id="openManifestBtn"');
+  });
+
+  it('never adds the facts to SECTION_FIELDS — they must not enter the draft', () => {
+    expect(SECTION_FIELDS.general).not.toContain('manifestPath');
+    expect(SECTION_FIELDS.general).not.toContain('projectSlug');
+  });
+
+  it('the Open karst.yml button posts through the pending action runtime (UI-R11)', () => {
+    expect(HTML).toMatch(/postAction\(el\('openManifestBtn'\),\s*'open-manifest'/);
+  });
+
+  it("renderProjectFacts fills the facts from the host-pushed state, marking a derived id", () => {
+    const source = `
+      let manifestPath = '';
+      let projectSlug = { value: '', derived: true };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFacts')}
+      manifestPath = '/work/proj/.karst/karst.yml';
+      projectSlug = { value: 'my-proj', derived: true };
+      renderProjectFacts();
+      ({
+        path: elements.factManifestPath.textContent,
+        slug: elements.factProjectSlug.textContent,
+        derivedHidden: elements.factSlugDerived.hidden,
+      });
+    `;
+    const result = runInNewContext(source, {}) as {
+      path: string;
+      slug: string;
+      derivedHidden: boolean;
+    };
+    expect(result.path).toBe('/work/proj/.karst/karst.yml');
+    expect(result.slug).toBe('my-proj');
+    expect(result.derivedHidden).toBe(false);
+  });
+
+  it('renderProjectFacts hides the derived chip when the id is explicit', () => {
+    const source = `
+      let manifestPath = 'x';
+      let projectSlug = { value: '', derived: true };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFacts')}
+      projectSlug = { value: 'explicit-id', derived: false };
+      renderProjectFacts();
+      elements.factSlugDerived.hidden;
+    `;
+    const result = runInNewContext(source, {});
+    expect(result).toBe(true);
+  });
+
+  it('falls back to (unresolved) when the host has not supplied the facts yet', () => {
+    const source = `
+      let manifestPath = '';
+      let projectSlug = { value: '', derived: true };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFacts')}
+      renderProjectFacts();
+      ({ path: elements.factManifestPath.textContent, slug: elements.factProjectSlug.textContent });
+    `;
+    const result = runInNewContext(source, {}) as { path: string; slug: string };
+    expect(result.path).toBe('(unresolved)');
+    expect(result.slug).toBe('(unresolved)');
+  });
+});
+
 describe('ClickUp reload buttons', () => {
   /**
    * These two fetches predate `action-result` and settle through their own

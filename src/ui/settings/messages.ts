@@ -27,7 +27,8 @@ export type SettingsWebviewMessage =
   | { type: 'get-approach-command-body'; approachId: string; command: string }
   | { type: 'fetch-ticket-statuses'; listId: string; teamId?: string }
   | { type: 'fetch-ticket-lists'; teamId: string }
-  | { type: 'browse-repo-path'; name: string };
+  | { type: 'browse-repo-path'; name: string }
+  | { type: 'open-manifest' };
 
 /** Host → webview messages. */
 export type SettingsHostMessage =
@@ -95,6 +96,8 @@ export interface SettingsActions {
   fetchTicketLists(teamId: string): void | Promise<void>;
   /** Open a native folder picker for a repository's repoPath. */
   browseRepoPath(name: string): void | Promise<void>;
+  /** Open this window's karst.yml in an editor (`karst.openManifest`). */
+  openManifest(): void | Promise<void>;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -168,6 +171,8 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
       return str('teamId') ? { type: 'fetch-ticket-lists', teamId: raw.teamId as string } : null;
     case 'browse-repo-path':
       return str('name') ? { type: 'browse-repo-path', name: raw.name as string } : null;
+    case 'open-manifest':
+      return { type: 'open-manifest' };
     default:
       return null;
   }
@@ -219,5 +224,7 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return actions.fetchTicketLists(msg.teamId);
     case 'browse-repo-path':
       return actions.browseRepoPath(msg.name);
+    case 'open-manifest':
+      return actions.openManifest();
   }
 }

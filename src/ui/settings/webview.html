@@ -120,6 +120,13 @@
   /* Inline per-field validation message on repository cards — see
      applyFieldValidationUI; only ever shown for a field the user has touched. */
   .field-error{color:var(--k-danger);font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
+  /* Read-only host facts (General tab) — a <dl>, never inputs, so nothing here
+     can enter the editable draft. */
+  dl.facts{margin:var(--k-space-2) var(--k-space-0) var(--k-space-0)}
+  dl.facts dt{font-size:var(--k-text-xs);color:var(--k-text-dim);opacity:.7;margin-top:var(--k-space-3)}
+  dl.facts dd{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0);display:flex;
+    align-items:center;gap:var(--k-space-3)}
+  dl.facts code{font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
 
   .content{flex:1 1 auto;overflow:auto;padding:var(--k-space-8) var(--k-space-9)}
   .section{max-width:calc(var(--k-space-8) * 38)}
@@ -484,6 +491,22 @@
 
           <label for="f-defaultModel">Default model</label>
           <select id="f-defaultModel"></select>
+
+          <div class="field-group" id="projectFacts">
+            <label>This project</label>
+            <dl class="facts">
+              <dt>Manifest</dt>
+              <dd><code id="factManifestPath"></code>
+                <button type="button" class="k-btn k-btn--secondary k-btn--sm fixed"
+                        id="openManifestBtn"
+                        aria-label="Open karst.yml in an editor"
+                        title="Open karst.yml in an editor">Open karst.yml</button></dd>
+              <dt>Project id</dt>
+              <dd><code id="factProjectSlug"></code>
+                <span class="chip" id="factSlugDerived" hidden
+                      title="No id: in karst.yml — derived from the workspace path, changes if it moves">derived</span></dd>
+            </dl>
+          </div>
         </div>
       </div>
     </div>
@@ -993,6 +1016,11 @@
   // Compatibility knowledge is deliberately broader than the picker catalog:
   // bundled ids remain known while newly discovered ids are added.
   let modelCompatibility = { claude: [], codex: [], antigravity: [] };
+  // manifestPath/projectSlug: read-only host facts pushed alongside `state`
+  // (§ state.ts SettingsState.manifestPath/projectSlug). Never part of the
+  // draft manifest — SECTION_FIELDS excludes them so Save cannot write them.
+  let manifestPath = '';
+  let projectSlug = { value: '', derived: true };
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
@@ -1431,6 +1459,17 @@
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
+    renderProjectFacts();
+  }
+
+  // The two read-only host facts (§ state.ts): this window's manifest file and
+  // its resolved project identity. `projectSlug.derived: true` means the
+  // manifest declares no `id:` and the host fell back to a path-derived slug —
+  // the case worth flagging, because it changes if the repo moves.
+  function renderProjectFacts() {
+    el('factManifestPath').textContent = manifestPath || '(unresolved)';
+    el('factProjectSlug').textContent = (projectSlug && projectSlug.value) || '(unresolved)';
+    el('factSlugDerived').hidden = !(projectSlug && projectSlug.derived);
   }
 
   // Live preview of the label template against a representative sample ticket,
@@ -3031,6 +3070,8 @@
   el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
   el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
 
+  el('openManifestBtn').addEventListener('click', () => postAction(el('openManifestBtn'), 'open-manifest'));
+
   // The host's answer to set-token/clear-token. The token is keychain state, not
   // manifest state, so this NEVER touches `draft` — a full `state` push would
   // replace the draft with the saved manifest, and the token is set mid-setup,
@@ -3147,6 +3188,8 @@
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
+        manifestPath = msg.state.manifestPath || '';
+        projectSlug = msg.state.projectSlug || { value: '', derived: true };
         confirmInstallId = null;
         valid = !msg.state.error;
         lastValidationError = msg.state.error; // before updateSaveEnabled: nav markers read it

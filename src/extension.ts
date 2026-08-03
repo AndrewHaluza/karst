@@ -1189,6 +1189,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       makeProvider: (config) => makeTicketingProvider(config, fetch, makeTokenProvider(context)),
       modelCatalog: () => modelCatalog,
+      openManifest: async () => {
+        await vscode.commands.executeCommand('karst.openManifest');
+      },
     }),
     listInstalledApproachIds,
     () => hasToken(context),
@@ -1196,6 +1199,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     listApproachCommands,
     logError,
     () => modelCatalog,
+    (): { value: string; derived: boolean } => {
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      const root = folder?.uri.fsPath ?? '';
+      const manifest = currentManifest();
+      return { value: resolveProjectSlug(manifest?.id, root), derived: manifest?.id === undefined };
+    },
   );
 
   // Discovery is deliberately detached from activation: bundled models render
