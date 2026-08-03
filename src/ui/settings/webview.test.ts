@@ -14,8 +14,9 @@ import {
   mergeSection,
 } from './sections.js';
 import { validateManifest } from '../../manifest/schema.js';
-import type { Manifest } from '../../manifest/types.js';
+import type { GateDef, Manifest } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import { gateSummary as hostGateSummary } from './gateDraft.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -1013,6 +1014,7 @@ describe('UI-R10b — destructive controls use the danger variant', () => {
     { attr: 'data-uninstall', variant: 'k-btn--danger' },
     { attr: 'data-delete-agent', variant: 'k-btn--danger' },
     { attr: 'id="approachDrawerDelete"', variant: 'k-btn--danger' },
+    { attr: 'data-remove-gate', variant: 'k-iconbtn--danger' },
   ];
   it.each(destructive)('$attr carries $variant', ({ attr, variant }) => {
     const idx = HTML.indexOf(attr);
@@ -1352,10 +1354,18 @@ describe('settings quality tab (UAT + review scalars)', () => {
       };
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
       const draft = ${JSON.stringify(draft)};
+      ${functionSource('gateSummary')}
+      ${functionSource('renderGateList')}
+      ${functionSource('syncGateRepoSelects')}
       ${functionSource('renderQuality')}
       renderQuality();
     `;
-    runInNewContext(source, { el });
+    runInNewContext(source, {
+      el,
+      esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+      document: { querySelector: () => null },
+    });
     const out: Record<string, { value: unknown; checked: unknown }> = {};
     for (const [id, node] of elements) out[id] = { value: node.value, checked: node.checked };
     return out;
@@ -1414,10 +1424,18 @@ describe('settings quality tab (UAT + review scalars)', () => {
       };
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
       const draft = {};
+      ${functionSource('gateSummary')}
+      ${functionSource('renderGateList')}
+      ${functionSource('syncGateRepoSelects')}
       ${functionSource('renderQuality')}
       renderQuality();
     `;
-    runInNewContext(source, { el });
+    runInNewContext(source, {
+      el,
+      esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+      document: { querySelector: () => null },
+    });
     const select = elements.get('f-findingsSeverity')!;
     for (const s of ['critical', 'high', 'medium', 'low', 'info', 'none']) {
       expect(select.innerHTML, s).toContain(`value="${s}"`);
@@ -1434,5 +1452,126 @@ describe('settings quality tab (UAT + review scalars)', () => {
     // whichever later task adds them.
     expect(HTML).not.toMatch(/draft\.uat\s*=\s*\{[^.]*maxFixAttempts/);
     expect(HTML).not.toMatch(/draft\.review\s*=\s*\{[^.]*maxFixAttempts/);
+  });
+});
+
+/**
+ * Task 11: the shared gate editor mounted into #qualityGates. ONE renderer
+ * (renderGateList) parameterized by 'uat' | 'review' so the two blocks cannot
+ * diverge, mirroring src/ui/settings/gateDraft.ts the way SECTION_FIELDS and
+ * the placeholder-transform engine are already mirrored (UI-R34).
+ */
+describe('settings quality tab — gate editor', () => {
+  function escMirror(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c);
+  }
+
+  it('renders every gate exactly as the host summarises it', () => {
+    const webviewGateSummary = runInNewContext(
+      `(${functionSource('gateSummary')})`,
+      {},
+    ) as (gate: GateDef) => string;
+    const cases: GateDef[] = [
+      { name: 'test', kind: 'script', script: 'test' },
+      { name: 'e2e', kind: 'command', command: 'npx', args: ['playwright', 'test'] },
+      { name: 'build', kind: 'script', script: 'build', repo: 'frontend' },
+      { name: 'a', kind: 'script' },
+      { name: 'a', kind: 'command', command: 'npx', args: [] },
+      { name: 'a', kind: 'command', command: '' },
+    ];
+    for (const gate of cases) {
+      expect(webviewGateSummary(gate)).toBe(hostGateSummary(gate));
+    }
+  });
+
+  function loadRenderGateList(repositories: Record<string, unknown>): (block: string, gates: GateDef[]) => string {
+    const source = `
+      const draft = { repositories: ${JSON.stringify(repositories)} };
+      ${functionSource('gateSummary')}
+      ${functionSource('renderGateList')}
+      renderGateList
+    `;
+    return runInNewContext(source, { esc: escMirror }) as (block: string, gates: GateDef[]) => string;
+  }
+
+  it('scopes a gate to a repository from the declared repositories only', () => {
+    const renderGateList = loadRenderGateList({ api: {}, web: {} });
+    const html = renderGateList('uat', [{ name: 'build', kind: 'script', script: 'build' }]);
+    const select = html.match(/<select aria-label="Gate 1 repository"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('repo select not found in rendered row');
+    // '' is "every target" — the absent-repo case, which must stay selectable.
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options).toEqual(['', 'api', 'web']);
+  });
+
+  it('renders a script gate row with name/kind/script/repo fields and data attributes', () => {
+    const renderGateList = loadRenderGateList({ api: {} });
+    const html = renderGateList('uat', [{ name: 'test', kind: 'script', script: 'test', repo: 'api' }]);
+    expect(html).toContain('data-gate-block="uat"');
+    expect(html).toContain('data-gate-idx="0"');
+    expect(html).toContain('aria-label="Gate 1 name"');
+    expect(html).toContain('aria-label="Gate 1 kind"');
+    expect(html).toContain('aria-label="Gate 1 script"');
+    expect(html).toContain('aria-label="Gate 1 repository"');
+    expect(html).toContain('data-gate-field="name"');
+    expect(html).toContain('data-gate-field="script"');
+    expect(html).toContain('data-gate-field="repo"');
+    expect(html).not.toContain('aria-label="Gate 1 command"');
+    expect(html).toContain('npm run test');
+    expect(html).toContain('data-remove-gate="uat"');
+    expect(html).toContain('aria-label="Remove gate 1"');
+    expect(html).toContain('title="Remove gate 1"');
+  });
+
+  it('renders a command gate row with command/args fields instead of script', () => {
+    const renderGateList = loadRenderGateList({});
+    const html = renderGateList('review', [
+      { name: 'e2e', kind: 'command', command: 'npx', args: ['playwright', 'test'] },
+    ]);
+    expect(html).toContain('data-gate-field="command"');
+    expect(html).toContain('data-gate-field="args"');
+    expect(html).not.toContain('data-gate-field="script"');
+    expect(html).toContain('value="npx"');
+    expect(html).toContain('value="playwright test"');
+    expect(html).toContain('npx playwright test');
+    expect(html).toContain('data-gate-block="review"');
+  });
+
+  it('escapes gate field values injected into the row', () => {
+    const renderGateList = loadRenderGateList({});
+    const html = renderGateList('uat', [{ name: '<img src=x onerror=alert(1)>', kind: 'script', script: 's' }]);
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('renders the Add gate button for the block', () => {
+    const renderGateList = loadRenderGateList({});
+    const html = renderGateList('uat', []);
+    expect(html).toContain('data-add-gate="uat"');
+    expect(html).toContain('+ Add gate');
+  });
+
+  it('mounts both blocks into #qualityGates and syncs repo selects after render', () => {
+    const body = HTML.slice(
+      HTML.indexOf('function renderQuality('),
+      HTML.indexOf("el('f-ticketTeamId').addEventListener"),
+    );
+    expect(body).toMatch(/renderGateList\(\s*'uat'/);
+    expect(body).toMatch(/renderGateList\(\s*'review'/);
+    expect(body).toContain("el('qualityGates')");
+  });
+
+  it('writes gate edits back by spreading the existing block, never rebuilding it', () => {
+    // The Quality scalars (Task 9) never write; this task's gate editor does,
+    // and must obey the same spread-not-rebuild rule mergeSection depends on.
+    expect(HTML).toMatch(/draft\.uat\s*=\s*\{\s*\.\.\.\(draft\.uat \|\| \{\}\)/);
+    expect(HTML).toMatch(/draft\.review\s*=\s*\{\s*\.\.\.\(draft\.review \|\| \{\}\)/);
+  });
+
+  it('mirrors gateDraft.ts helpers used to add/switch/remove gates', () => {
+    expect(HTML).toMatch(/function emptyGate\(\)/);
+    expect(HTML).toMatch(/function setGateKind\(/);
+    expect(HTML).toMatch(/function gateSummary\(/);
   });
 });
