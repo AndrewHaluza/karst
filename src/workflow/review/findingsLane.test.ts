@@ -67,6 +67,22 @@ describe('runFindingsLane', () => {
     });
   });
 
+  it("threads the target's base ref into the prompt sent to the adapter", async () => {
+    let capturedPrompt: string | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { prompt: string }) => {
+      capturedPrompt = headlessOpts.prompt;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [{ repo: '/web', worktreePath: '/wt/web', baseRef: 'develop' }],
+      ticketId: 1,
+    });
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(capturedPrompt).toContain('develop');
+  });
+
   it('a failed call contributes no findings for that target but does not throw', async () => {
     const outcome = await runFindingsLane({
       config: CONFIG,
@@ -239,5 +255,25 @@ describe('buildFindingsPrompt', () => {
     const prompt = buildFindingsPrompt('/web');
     expect(prompt).toContain('/web');
     expect(prompt).toContain('JSON array');
+  });
+
+  // `worktrees.base_ref` is already in hand at the call site (`stages/review.ts`)
+  // — without naming it, a wrong diff range can fail a ticket over an
+  // unrelated commit at the shipped `blockingSeverity: 'high'`.
+  it('names the base branch when one is known', () => {
+    const prompt = buildFindingsPrompt('/web', 'develop');
+    expect(prompt).toContain('develop');
+    expect(prompt).not.toContain('its base branch.');
+  });
+
+  // A missing base ref must degrade to the prior, generic wording — never emit
+  // the literal string "undefined" into a prompt an agent will read.
+  it('falls back to the generic wording when the base ref is unknown', () => {
+    const withNull = buildFindingsPrompt('/web', null);
+    const withUndefined = buildFindingsPrompt('/web');
+    expect(withNull).not.toContain('undefined');
+    expect(withUndefined).not.toContain('undefined');
+    expect(withNull).toContain('its base branch.');
+    expect(withUndefined).toContain('its base branch.');
   });
 });

@@ -253,11 +253,19 @@ export async function runReview(
     }
   }
 
+  // `worktrees.base_ref` per repository path, so the findings prompt can name
+  // the exact range it must diff against instead of asking the agent to guess.
+  const baseRefByRepo = new Map(worktrees.map((w) => [w.repo, w.baseRef]));
+
   // Resolves the config default, and (spec §8.14) skips the AI call entirely
   // when R3/R4/R5 already decided the run — see `planAndRunFindingsLane`.
   const { outcome: findingsLane, blockingSeverity } = await planAndRunFindingsLane({
     entries,
-    targets: targets.map((t) => ({ repo: t.repo, worktreePath: t.path })),
+    targets: targets.map((t) => ({
+      repo: t.repo,
+      worktreePath: t.path,
+      baseRef: baseRefByRepo.get(t.repo) ?? null,
+    })),
     findingsConfig: opts.manifest?.review?.findings,
     adapter: deps.findingsAdapter,
     ticketId: opts.ticketId,

@@ -890,6 +890,38 @@ describe('review findings lane (Lane B)', () => {
     expect(listFindings(store, id)).toHaveLength(1);
   });
 
+  // I3: `worktrees.base_ref` is already in hand at this call site — the
+  // findings prompt must name it rather than leaving the agent to guess "its
+  // base branch", which at `blockingSeverity: 'high'` can fail a ticket over
+  // a commit that was never part of its diff.
+  it("threads the worktree's base ref into the findings prompt", async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
+    let capturedPrompt: string | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { prompt: string }) => {
+      capturedPrompt = headlessOpts.prompt;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const adapter: AgentAdapter = { ...findingsAgent(), runHeadless };
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps({
+        findingsAdapter: adapter,
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(capturedPrompt).toContain('develop');
+  });
+
   // A failed/garbage agent call must not break the stage: the run still
   // reaches a verdict decided by its gates, never a park.
   it('a failed agent call still reaches a gate-based verdict, contributing no findings', async () => {

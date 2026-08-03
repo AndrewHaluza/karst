@@ -26,6 +26,13 @@ export interface FindingsLaneTarget {
   repo: string;
   /** The repository's worktree root; both the call's `cwd` and `parseFindings`'s containment root. */
   worktreePath: string;
+  /**
+   * `worktrees.base_ref` for this target — the PLAIN branch name, exactly as
+   * stored (never `origin/<base>`; consumers derive that themselves, same
+   * convention as everywhere else `base_ref` is read). Null/undefined when
+   * karst has no worktree row for this target, or none is known yet.
+   */
+  baseRef?: string | null;
 }
 
 export interface RunFindingsLaneOpts {
@@ -42,10 +49,23 @@ export interface RunFindingsLaneOpts {
   warn?: WarnFn;
 }
 
-/** The request. Strict output rules because the default answer from a chat-tuned model is prose. */
-export function buildFindingsPrompt(repo: string): string {
+/**
+ * The request. Strict output rules because the default answer from a
+ * chat-tuned model is prose.
+ *
+ * `baseRef` is the PLAIN branch name (`worktrees.base_ref`), never a doubled
+ * `origin/origin/...` — a missing/null ref falls back to the prior, generic
+ * wording rather than ever interpolating the literal string "undefined" into
+ * a prompt the agent will read. Naming it matters: at the shipped
+ * `blockingSeverity: 'high'`, an agent that guesses the wrong range can fail
+ * the ticket over a commit that was never part of its diff.
+ */
+export function buildFindingsPrompt(repo: string, baseRef?: string | null): string {
+  const baseClause = baseRef
+    ? `against its base branch, \`${baseRef}\` (compare against \`origin/${baseRef}\` when available, otherwise the local \`${baseRef}\`).`
+    : `against its base branch.`;
   return [
-    `Review the uncommitted and committed changes in this worktree (repository: ${repo}) against its base branch.`,
+    `Review the uncommitted and committed changes in this worktree (repository: ${repo}) ${baseClause}`,
     `Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.`,
     ``,
     `Output rules (strict):`,
@@ -83,7 +103,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     if (opts.signal?.aborted) break;
     try {
       const result = await adapter.runHeadless({
-        prompt: buildFindingsPrompt(target.repo),
+        prompt: buildFindingsPrompt(target.repo, target.baseRef),
         cwd: target.worktreePath,
         signal: opts.signal,
         tracking: { callSite: 'review-findings', ticketId: opts.ticketId },
