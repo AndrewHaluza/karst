@@ -437,6 +437,7 @@
   <button class="nav-btn" data-section="approaches">Approaches</button>
   <button class="nav-btn" data-section="agents">Agents</button>
   <button class="nav-btn" data-section="ticketing">Ticketing</button>
+  <button class="nav-btn" data-section="quality">Quality</button>
 </nav>
 
 <div class="main">
@@ -698,6 +699,12 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Quality tab: owns uat/review. Controls land in a later task; this
+         section is intentionally empty plumbing (see sections.ts doc comment
+         for the spread-not-rebuild warning). -->
+    <div class="section hidden" id="section-quality">
     </div>
   </div>
 </div>
@@ -1083,7 +1090,7 @@
   // webview.test.ts pins both mirrors AND runs overlaySections against the host's
   // mergeSection, because a drift here would save a different set of fields than
   // the host writes.
-  const SETTINGS_SECTIONS = ['general', 'git', 'services', 'approaches', 'agents', 'ticketing'];
+  const SETTINGS_SECTIONS = ['general', 'git', 'services', 'approaches', 'agents', 'ticketing', 'quality'];
   const SECTION_LABELS = {
     general: 'General',
     git: 'Git',
@@ -1091,6 +1098,7 @@
     approaches: 'Approaches',
     agents: 'Agents',
     ticketing: 'Ticketing',
+    quality: 'Quality',
   };
   const SECTION_FIELDS = {
     general: [
@@ -1102,6 +1110,7 @@
     approaches: ['approaches'],
     agents: ['agents'],
     ticketing: ['ticketing'],
+    quality: ['uat', 'review'],
   };
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }

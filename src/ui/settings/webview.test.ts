@@ -668,8 +668,10 @@ describe('settings tab-scoped save', () => {
       'general',
       'services',
     ]);
-    // A key the UI does not own must never make a tab look dirty.
-    expect(dirtySectionsOf({ ...base, uat: { maxFixAttempts: 3 } }, base)).toEqual([]);
+    // A key no section owns must never make a tab look dirty.
+    expect(dirtySectionsOf({ ...base, id: 'karst' }, base)).toEqual([]);
+    // uat is now owned by the quality tab.
+    expect(dirtySectionsOf({ ...base, uat: { maxFixAttempts: 3 } }, base)).toEqual(['quality']);
   });
 
   it('treats a cleared optional field as a change', () => {
