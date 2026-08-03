@@ -323,4 +323,3 @@ review:
     enabled: true
     blockingSeverity: high
     maxFindings: 50
-    # agent: reviewer   # a key of the `agents:` map above

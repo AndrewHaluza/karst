@@ -280,7 +280,6 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
  */
 export interface ReviewFindingsConfig {
   enabled: boolean;
-  agent?: string;
   blockingSeverity: Severity | 'none';
   maxFindings: number;
 }

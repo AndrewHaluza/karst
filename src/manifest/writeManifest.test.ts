@@ -236,7 +236,7 @@ describe('writeManifest', () => {
             { name: 'lint', kind: 'script', script: 'lint' },
             { name: 'clippy', kind: 'command', command: 'cargo', args: ['clippy', '--', '-D', 'warnings'] },
           ],
-          findings: { enabled: false, agent: 'reviewer', blockingSeverity: 'critical', maxFindings: 25 },
+          findings: { enabled: false, blockingSeverity: 'critical', maxFindings: 25 },
           repositories: { backend: { gates: [{ name: 'lint', kind: 'script', script: 'lint:ci' }] } },
         },
         agentProvider: 'codex',

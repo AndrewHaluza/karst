@@ -122,18 +122,20 @@ describe('validateReview', () => {
       );
     });
 
-    it('refuses a blank agent', () => {
-      expect(() => validateReview({ findings: { agent: '' } }, [])).toThrow(/review.findings.agent/);
-    });
-
-    it('parses an explicit agent and can disable the lane', () => {
+    // `findings.agent` was dead configuration — nothing in the findings lane
+    // ever read it (the lane's adapter is resolved the same way as every
+    // other AI call site, not from this key). Deleted rather than validated:
+    // an unknown key is silently ignored, same as any other manifest surface
+    // that has not declared it, and setting it does nothing rather than
+    // throwing.
+    it('ignores a findings.agent key rather than reading it into config', () => {
       const config = validateReview({ findings: { enabled: false, agent: 'reviewer' } }, []);
       expect(config?.findings).toEqual({
         enabled: false,
-        agent: 'reviewer',
         blockingSeverity: 'high',
         maxFindings: 50,
       });
+      expect(config?.findings).not.toHaveProperty('agent');
     });
   });
 });

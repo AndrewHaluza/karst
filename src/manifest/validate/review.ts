@@ -22,12 +22,6 @@ function validateFindings(raw: unknown): ReviewFindingsConfig {
     }
     findings.enabled = raw.enabled;
   }
-  if (raw.agent !== undefined) {
-    if (typeof raw.agent !== 'string' || raw.agent.trim().length === 0) {
-      throw new ManifestError('review.findings.agent must be a non-empty string');
-    }
-    findings.agent = raw.agent;
-  }
   if (raw.blockingSeverity !== undefined) {
     if (
       typeof raw.blockingSeverity !== 'string' ||
