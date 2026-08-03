@@ -217,15 +217,28 @@ export interface TicketingConfig {
   startStatus?: string;
 }
 
-export type UatGateKind = 'script' | 'command';
-export interface UatGateDef {
+export type GateKind = 'script' | 'command';
+
+/**
+ * Shared shape of one declared gate — the config surface UAT's `gates:` and
+ * review's `gates:` both offer authors. `resolveGates`'s own `GateDef`
+ * (`workflow/gates/resolve.ts`) needs only this much, so callers pass either
+ * this or `UatGateDef` straight through rather than converting it. UAT extends
+ * this with its own (currently inert) `report` field instead of redeclaring
+ * the base fields a second time.
+ */
+export interface GateDef {
   name: string;
-  kind: UatGateKind;
+  kind: GateKind;
   script?: string; // kind: 'script' — the package.json script
   command?: string; // kind: 'command' — the binary, spawned without a shell
   args?: string[]; // kind: 'command'
   repo?: string; // manifest repository name; absent = every target
-  report?: string; // repo-relative report path, inert in Phase 1
+}
+
+/** UAT's gate shape: `GateDef` plus a repo-relative report path, inert in Phase 1. */
+export interface UatGateDef extends GateDef {
+  report?: string;
 }
 export interface UatAuthBootstrap {
   path: string;
@@ -252,6 +265,45 @@ export interface UatConfig {
   authBootstrap?: UatAuthBootstrap;
   author?: UatAuthor;
   repositories: Record<string, UatRepositoryOverride>;
+}
+
+/** Closed severity vocabulary for review findings (§6.7's `review_findings.severity`). */
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+/**
+ * Review's Lane B config (Tasks 11–13 build the lane itself; this block only
+ * carries its configuration). `enabled: true` / `blockingSeverity: 'high'` are
+ * a deliberate deviation from the design spec's advisory-only recommendation
+ * (§10 O4 recommends `none`, lane off) — the human partner's explicit call:
+ * critical/high findings should fail review to `fix` until the lane is proven
+ * out, not sit as unread evidence.
+ */
+export interface ReviewFindingsConfig {
+  enabled: boolean;
+  blockingSeverity: Severity | 'none';
+  maxFindings: number;
+}
+
+/**
+ * `review:` manifest block (§6.3). Deliberately smaller than `UatConfig` — no
+ * env, no secrets, no origins, no auth, no testDir: review reads the diff and
+ * runs static gates, it does not stand up a system under test.
+ *
+ * Per-repository `gates` in `repositories` REPLACE the global list for that
+ * repository, exactly like `UatRepositoryOverride.gates` — never additive
+ * (`declaredGatesFor`'s semantics, `uat/gates.ts:73-84`, mirrored for review by
+ * `declaredReviewGatesFor`, `review/gates.ts`).
+ *
+ * No `approval` key: human approval in review was ruled out entirely (the
+ * design spec's §6.3 lists `approval: auto | human`), so the only value the
+ * key could carry — `'human'` — does not exist. Do not add one speculatively.
+ */
+export interface ReviewConfig {
+  maxFixAttempts: number;
+  requireIndependentSignal: boolean;
+  gates?: GateDef[];
+  findings: ReviewFindingsConfig;
+  repositories: Record<string, { gates?: GateDef[] }>;
 }
 
 export interface Manifest {
@@ -319,4 +371,9 @@ export interface Manifest {
    * them early is harmless.
    */
   uat?: UatConfig;
+  /**
+   * Review gates. Absent yields the default pipeline: karst probes
+   * package.json for `REVIEW_PROBE_SCRIPTS` (`workflow/gates/scripts.ts`).
+   */
+  review?: ReviewConfig;
 }

@@ -131,12 +131,17 @@ describe('browse-repo-path', () => {
     expect(parseSettingsMessage({ type: 'browse-repo-path' })).toBeNull();
     expect(parseSettingsMessage({ type: 'browse-repo-path', name: '' })).toBeNull();
   });
+
+  it('parses open-manifest', () => {
+    expect(parseSettingsMessage({ type: 'open-manifest' })).toEqual({ type: 'open-manifest' });
+  });
 });
 
 describe('routeSettingsAction', () => {
   function spies(): SettingsActions & { calls: Record<string, unknown[]> } {
     const calls: Record<string, unknown[]> = {
       browseRepoPath: [],
+      openManifest: [],
       save: [],
       validate: [],
       requestState: [],
@@ -171,6 +176,7 @@ describe('routeSettingsAction', () => {
       fetchTicketStatuses: (listId, teamId) => { calls['fetchTicketStatuses']!.push({ listId, teamId }); },
       fetchTicketLists: (teamId) => { calls['fetchTicketLists']!.push(teamId); },
       browseRepoPath: (name) => { calls['browseRepoPath']!.push(name); },
+      openManifest: () => { calls['openManifest']!.push(true); },
     };
   }
 
@@ -196,6 +202,7 @@ describe('routeSettingsAction', () => {
     routeSettingsAction({ type: 'delete-agent', name: 'r' }, a);
     routeSettingsAction({ type: 'get-approach-command-body', approachId: 'rpi', command: '/rpi:research' }, a);
     routeSettingsAction({ type: 'browse-repo-path', name: 'backend' }, a);
+    routeSettingsAction({ type: 'open-manifest' }, a);
     expect(a.calls.save).toEqual([{ manifest: draft, section: undefined }]);
     expect(a.calls.validate).toEqual([draft]);
     expect(a.calls.requestState).toEqual([true]);
@@ -210,6 +217,7 @@ describe('routeSettingsAction', () => {
     expect(a.calls.deleteAgent).toEqual(['r']);
     expect(a.calls.getApproachCommandBody).toEqual([{ approachId: 'rpi', command: '/rpi:research' }]);
     expect(a.calls.browseRepoPath).toEqual(['backend']);
+    expect(a.calls.openManifest).toEqual([true]);
   });
 
   it('ignores malformed messages (no throw, no action)', () => {

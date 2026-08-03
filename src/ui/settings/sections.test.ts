@@ -51,9 +51,11 @@ describe('settings sections — vocabulary', () => {
         'host',
         'portRange',
         'repositories',
+        'review',
         'terminalNameTemplate',
         'ticketLabelTemplate',
         'ticketing',
+        'uat',
         'worktreePathDisplay',
       ].sort(),
     );
@@ -92,7 +94,7 @@ describe('settings sections — mergeSection', () => {
     expect('ticketLabelTemplate' in merged).toBe(false);
   });
 
-  it('preserves fields no section owns (uat, id)', () => {
+  it('preserves fields the general tab does not own (uat, id)', () => {
     const base: Manifest = {
       ...BASE,
       id: 'karst',
@@ -109,6 +111,25 @@ describe('settings sections — mergeSection', () => {
 
     expect(merged.id).toBe('karst');
     expect(merged.uat).toEqual(base.uat);
+  });
+
+  it('a quality save leaves every other section untouched', () => {
+    const incoming: Manifest = {
+      ...BASE,
+      uat: {
+        maxFixAttempts: 9,
+        env: {},
+        secrets: [],
+        passthrough: [],
+        origins: [],
+        repositories: {},
+      },
+      host: 'evil',
+    };
+    const merged = mergeSection(BASE, incoming, 'quality');
+
+    expect(merged.uat?.maxFixAttempts).toBe(9);
+    expect(merged.host).toBe(BASE.host);
   });
 
   it('never mutates either input', () => {

@@ -49,6 +49,14 @@ export interface SettingsState {
   approachCommands: Record<string, string[]>;
   models: ModelCatalog;
   modelCompatibility: ModelCatalog;
+  /** Absolute path of the manifest this window reads. Displayed, never edited. */
+  manifestPath: string;
+  /**
+   * The project identity tickets are scoped by. `derived: true` means the
+   * manifest declares no `id:` and the host fell back to a path-derived slug —
+   * which changes if the repo moves, so it is the case worth showing.
+   */
+  projectSlug: { value: string; derived: boolean };
 }
 
 /** Build the initial settings state from a manifest (valid or last-known). */
@@ -61,6 +69,8 @@ export function buildSettingsState(
   agents: SettingsAgentRow[] = [],
   approachCommands: Record<string, string[]> = {},
   models: ModelCatalog = bundledModelCatalog(),
+  manifestPath = '',
+  projectSlug: { value: string; derived: boolean } = { value: '', derived: true },
 ): SettingsState {
   return {
     manifest,
@@ -72,5 +82,7 @@ export function buildSettingsState(
     approachCommands,
     models,
     modelCompatibility: compatibilityModelCatalog(models),
+    manifestPath,
+    projectSlug,
   };
 }

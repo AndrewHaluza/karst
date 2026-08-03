@@ -3,6 +3,7 @@ import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { isHttpUrl } from '../shared/url.js';
 import type { WorktreeStats } from './worktreeStats.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
+import { STAGE_KEYS, type StageKey } from '../../model/types.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -49,7 +50,15 @@ export type WebviewMessage =
    */
   | { type: 'toggle-bind' }
   /** Request the host-owned picker for this panel's current live session. */
-  | { type: 'switch-agent' };
+  | { type: 'switch-agent' }
+  /**
+   * Resume a parked gate stage (§ blocked state visible). Carries the ticket
+   * AND the stage it believes is blocked — the host still validates both
+   * against the ticket it actually owns before touching the store: a stale
+   * panel, a race with an already-cleared block, or a ticket that has since
+   * moved to another stage must not be resumable by this message.
+   */
+  | { type: 'stage-resume'; ticketId: number; stageKey: StageKey };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -130,6 +139,13 @@ export interface DashboardActions {
   toggleBind: () => void | Promise<void>;
   /** Switch the panel's live agent session through the host-owned picker. */
   switchAgent: () => void | Promise<void>;
+  /**
+   * Clear a stage's block and try to drive it forward. Takes the message's
+   * `ticketId`/`stageKey` VERBATIM (not pre-validated) so the host can apply
+   * every check — same ticket, same current stage, actually blocked — in one
+   * place, right against the store it is about to mutate.
+   */
+  resumeStage: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
 }
 
 /**
@@ -210,9 +226,24 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // session before switching, so no webview-supplied target can be trusted.
     case 'switch-agent':
       return { type: 'switch-agent' };
+    // Both fields are required and typed here, at the boundary — a missing or
+    // malformed one drops the whole message rather than resuming with a
+    // guessed ticket or an invalid stage.
+    case 'stage-resume':
+      return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
+        ? { type: 'stage-resume', ticketId: m.ticketId as number, stageKey: m.stageKey }
+        : null;
     default:
       return null;
   }
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function isStageKey(v: unknown): v is StageKey {
+  return typeof v === 'string' && (STAGE_KEYS as readonly string[]).includes(v);
 }
 
 /**
@@ -277,5 +308,7 @@ export function routeAction(raw: unknown, actions: DashboardActions): void | Pro
       return actions.toggleBind();
     case 'switch-agent':
       return actions.switchAgent();
+    case 'stage-resume':
+      return actions.resumeStage(msg.ticketId, msg.stageKey);
   }
 }

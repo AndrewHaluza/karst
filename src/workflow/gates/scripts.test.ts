@@ -1,39 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { readPackageScripts, REVIEW_GATES, UAT_GATES } from './scripts.js';
-
-describe('readPackageScripts', () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'karst-scripts-'));
-  });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
-
-  it('reads the scripts a repo actually defines', () => {
-    writeFileSync(
-      join(dir, 'package.json'),
-      JSON.stringify({ name: 'x', scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' } }),
-    );
-    expect(readPackageScripts(dir)).toEqual({ test: 'vitest run', typecheck: 'tsc --noEmit' });
-  });
-
-  it('reports no scripts rather than throwing when there is no package.json', () => {
-    // A non-node repo must not crash the gate — it simply answers nothing.
-    expect(readPackageScripts(dir)).toEqual({});
-  });
-
-  it('reports no scripts when package.json is unreadable or malformed', () => {
-    writeFileSync(join(dir, 'package.json'), '{ not json');
-    expect(readPackageScripts(dir)).toEqual({});
-  });
-
-  it('reports no scripts when package.json has no scripts block', () => {
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
-    expect(readPackageScripts(dir)).toEqual({});
-  });
-});
+import { describe, it, expect } from 'vitest';
+import { REVIEW_GATES, UAT_GATES } from './scripts.js';
 
 describe('REVIEW_GATES', () => {
   it('names the package.json script each gate depends on', () => {
@@ -43,8 +9,31 @@ describe('REVIEW_GATES', () => {
     expect(REVIEW_GATES.map((g) => [g.name, g.script])).toEqual([
       ['lint', 'lint'],
       ['typecheck', 'typecheck'],
-      ['test', 'test'],
+      ['build', 'build'],
+      ['format', 'format:check'],
     ]);
+  });
+
+  // `npm run format` conventionally rewrites files in place (prettier --write,
+  // gofmt -w, …), and ship's `git add -A` would commit that rewrite as if the
+  // ticket authored it. `format:check` is also the only variant of the two
+  // that can meaningfully FAIL — a rewriting gate almost always exits 0.
+  it('runs the check variant of format, not the writer', () => {
+    const formatGate = REVIEW_GATES.find((g) => g.name === 'format');
+    expect(formatGate).toEqual({
+      name: 'format',
+      script: 'format:check',
+      args: ['run', 'format:check'],
+    });
+  });
+
+  // `test` used to be here too, which meant every review run duplicated UAT's
+  // own gate list (`UAT_GATES` below) on the same worktree — the exact
+  // condition `requireIndependentSignal` (R7, `review/aggregate.ts`) exists to
+  // catch. Removing it here closes the duplication at the source rather than
+  // only failing tickets downstream once R7 lands.
+  it('does not duplicate UAT_GATES\' test gate', () => {
+    expect(REVIEW_GATES.map((g) => g.name)).not.toContain('test');
   });
 });
 

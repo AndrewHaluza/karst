@@ -21,6 +21,7 @@ import { validateRepository } from './validate/repository.js';
 import { assertSharedRepoBaselineBranches } from './baselineBranch.js';
 import { validateGraph } from './validate/graph.js';
 import { validateUat } from './validate/uat.js';
+import { validateReview } from './validate/review.js';
 import {
   validateArtifactTemplate,
   type ArtifactConventionName,
@@ -417,5 +418,6 @@ export function validateManifest(raw: unknown): Manifest {
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),
     uat: validateUat(raw.uat),
+    review: validateReview(raw.review, Object.keys(repositories)),
   };
 }

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { aggregateUat, sameIdentity, type AggregateEntry, type GateIdentity } from './aggregate.js';
+import type { GateRun } from '../../store/gateRuns.js';
+import {
+  aggregateUat,
+  reviewIdentitiesFrom,
+  sameIdentity,
+  type AggregateEntry,
+  type GateIdentity,
+} from './aggregate.js';
 
 const npmTest: GateIdentity = { repo: '/web', command: 'npm', args: ['test'] };
 const npmE2e: GateIdentity = { repo: '/web', command: 'npm', args: ['run', 'e2e'] };
@@ -78,5 +85,75 @@ describe('sameIdentity', () => {
     expect(sameIdentity(npmTest, { ...npmTest })).toBe(true);
     expect(sameIdentity(npmTest, npmE2e)).toBe(false);
     expect(sameIdentity(npmTest, { ...npmTest, repo: '/api' })).toBe(false);
+  });
+});
+
+describe('reviewIdentitiesFrom', () => {
+  let nextId = 1;
+  const AT = '2026-08-01T10:00:00.000Z';
+  function row(
+    stageKey: 'uat' | 'review',
+    gateName: string,
+    exitCode: number | null,
+    runAt: string,
+    identity: { repo: string | null; command: string | null; args: string[] | null } = {
+      repo: null,
+      command: null,
+      args: null,
+    },
+  ): GateRun {
+    return {
+      id: nextId++,
+      ticketId: 1,
+      stageKey,
+      attempt: 0,
+      runAt,
+      gateName,
+      exitCode,
+      startedAt: null,
+      endedAt: null,
+      ...identity,
+    };
+  }
+
+  it("reads review's latest recorded batch, chosen by the greatest stamp — not a fixed gate list", () => {
+    // The stale batch sits LAST; picking "the end of the array" would return
+    // it, exactly like `uatIdentitiesFrom`'s own guard against array order.
+    const runs = [
+      row('review', 'lint (web)', 0, AT, { repo: '/web', command: 'npm', args: ['run', 'lint'] }),
+      row('review', 'old (web)', 0, '2026-08-01T09:00:00.000Z', {
+        repo: '/web',
+        command: 'npm',
+        args: ['run', 'old'],
+      }),
+    ];
+    expect(reviewIdentitiesFrom(runs)).toEqual([{ repo: '/web', command: 'npm', args: ['run', 'lint'] }]);
+  });
+
+  it("ignores another stage's rows", () => {
+    expect(
+      reviewIdentitiesFrom([row('uat', 'test (web)', 0, AT, { repo: '/web', command: 'npm', args: ['test'] })]),
+    ).toEqual([]);
+  });
+
+  it('counts only the gates that RAN — a skipped one asked nothing', () => {
+    expect(
+      reviewIdentitiesFrom([
+        row('review', 'lint (web)', null, AT, { repo: '/web', command: 'npm', args: ['run', 'lint'] }),
+        row('review', 'build (web)', 0, AT, { repo: '/web', command: 'npm', args: ['run', 'build'] }),
+      ]),
+    ).toEqual([{ repo: '/web', command: 'npm', args: ['run', 'build'] }]);
+  });
+
+  it('has nothing to say when review never recorded a batch', () => {
+    expect(reviewIdentitiesFrom([])).toEqual([]);
+  });
+
+  // Unlike review's own `uatIdentitiesFrom`, this module's `GateIdentity` has no
+  // name-only degradation — repo/command/args are all required — so a row
+  // recorded before the v21 identity columns existed contributes no identity
+  // at all rather than a guessed one.
+  it('drops a row with no v21 identity rather than guessing one', () => {
+    expect(reviewIdentitiesFrom([row('review', 'lint (web)', 0, AT)])).toEqual([]);
   });
 });

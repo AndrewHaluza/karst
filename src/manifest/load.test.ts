@@ -1121,6 +1121,139 @@ describe('ticketing', () => {
   });
 });
 
+describe('review', () => {
+  it('is undefined when the block is absent', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).review).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applies every default, including the findings lane ON at high severity', () => {
+    const yaml = `${VALID}\nreview: {}\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).review).toEqual({
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+        repositories: {},
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses declared gates and a per-repository override', () => {
+    const yaml =
+      `${VALID}\nreview:\n  maxFixAttempts: 5\n  requireIndependentSignal: false\n` +
+      `  gates:\n    - { name: lint, kind: script, script: lint }\n` +
+      `  repositories:\n    backend: { gates: [{ name: lint, kind: script, script: lint:ci }] }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const review = loadManifest(path).review!;
+      expect(review.maxFixAttempts).toBe(5);
+      expect(review.requireIndependentSignal).toBe(false);
+      expect(review.gates).toEqual([{ name: 'lint', kind: 'script', script: 'lint' }]);
+      expect(review.repositories).toEqual({
+        backend: { gates: [{ name: 'lint', kind: 'script', script: 'lint:ci' }] },
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Validation is the point of this block: an unknown gate kind is refused
+  // with the offending field named, not silently defaulted or dropped.
+  it('refuses an unknown gate kind, naming the review field', () => {
+    const yaml = `${VALID}\nreview:\n  gates:\n    - { name: x, kind: shell }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /review.gates "x".kind must be one of: script, command/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Cross-referenced against the manifest's own declared repositories —
+  // `backend`/`frontend` are declared in `VALID`, `staging` is not.
+  it('refuses a review.repositories entry naming an undeclared repository', () => {
+    const yaml = `${VALID}\nreview:\n  repositories:\n    staging: { gates: [] }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /review.repositories "staging" is not a declared repository/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-positive maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: 0\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a negative maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: -1\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-integer maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: 1.5\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-numeric maxFixAttempts', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: "three"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.maxFixAttempts/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-boolean requireIndependentSignal', () => {
+    const yaml = `${VALID}\nreview:\n  requireIndependentSignal: "yes"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.requireIndependentSignal/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses an unknown findings.blockingSeverity', () => {
+    const yaml = `${VALID}\nreview:\n  findings:\n    blockingSeverity: urgent\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.findings.blockingSeverity/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('agentProvider', () => {
   it("defaults to 'claude' when omitted", () => {
     const { path, cleanup } = fixture(VALID);
@@ -1437,6 +1570,42 @@ conventions:
       expect(() => loadManifest(path)).toThrow(
         /conventions\.commitMessage.*\{description\}/,
       );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('notices channel', () => {
+  it('reports inert keys as notices, not warnings', () => {
+    const yaml = `${VALID}\nuat:\n  maxFixAttempts: 2\n  secrets: [STRIPE_KEY]\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const { notices, warnings } = loadManifestWithDiagnostics(path);
+      expect(notices.some((n) => n.includes('uat.secrets'))).toBe(true);
+      // Inactive is not the same claim as wrong.
+      expect(warnings).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('warns when a uat.env value looks like a credential', () => {
+    const yaml = `${VALID}\nuat:\n  env:\n    STRIPE_KEY: sk_live_abcdefghijklmnopqrstuvwx\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const { warnings } = loadManifestWithDiagnostics(path);
+      expect(warnings.some((w) => w.includes('uat.env') && w.includes('uat.secrets'))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('has no notices for a manifest declaring only wired keys', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: 2\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifestWithDiagnostics(path).notices).toEqual([]);
     } finally {
       cleanup();
     }

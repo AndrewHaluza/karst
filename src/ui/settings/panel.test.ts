@@ -64,6 +64,7 @@ function make(
       fetchTicketStatuses: () => {},
       fetchTicketLists: () => {},
       browseRepoPath: () => {},
+      openManifest: () => {},
     }),
     () => [],
     hasToken,
@@ -193,6 +194,7 @@ describe('SettingsManager', () => {
           fetchTicketStatuses: () => {},
           fetchTicketLists: () => {},
           browseRepoPath: () => {},
+          openManifest: () => {},
         }),
       );
       await mgr.open();

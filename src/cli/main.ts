@@ -10,12 +10,12 @@ import { runPhaseCommand } from './phase.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
 /**
- * Write each manifest diagnostic to stderr, one line, prefixed `karst: ` — the
- * same convention as the fatal-error path in `fail()`. stdout is machine-read
- * JSON/markdown, so diagnostics must never land there.
+ * Write each manifest diagnostic (warning or notice) to stderr, one line,
+ * prefixed `karst: ` — the same convention as the fatal-error path in `fail()`.
+ * stdout is machine-read JSON/markdown, so diagnostics must never land there.
  */
-function writeManifestWarnings(warnings: readonly string[]): void {
-  for (const w of warnings) process.stderr.write(`karst: ${w}\n`);
+function writeManifestDiagnostics(diagnostics: readonly string[]): void {
+  for (const d of diagnostics) process.stderr.write(`karst: ${d}\n`);
 }
 
 /**
@@ -27,8 +27,9 @@ function writeManifestWarnings(warnings: readonly string[]): void {
 function loadProjectSlug(manifestPath: string | undefined): string | undefined {
   if (!manifestPath) return undefined;
   try {
-    const { manifest, warnings } = loadManifestWithDiagnostics(manifestPath);
-    writeManifestWarnings(warnings);
+    const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
+    writeManifestDiagnostics(warnings);
+    writeManifestDiagnostics(notices);
     return manifest.id;
   } catch {
     return undefined;
@@ -103,7 +104,8 @@ export function runCli(argv: string[]): string {
     if (manifestPath) {
       try {
         const loaded = loadManifestWithDiagnostics(manifestPath);
-        writeManifestWarnings(loaded.warnings);
+        writeManifestDiagnostics(loaded.warnings);
+        writeManifestDiagnostics(loaded.notices);
         manifest = loaded.manifest;
       } catch (e) {
         // A missing/invalid manifest is non-fatal — services just won't render.

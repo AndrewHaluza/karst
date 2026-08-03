@@ -30,6 +30,15 @@ export interface RunHeadlessOpts {
   resume?: string; // session_id to continue
   model?: string;
   tracking?: UsageTracking;
+  /**
+   * Aborts this call, when the core honors it. Optional and best-effort like
+   * `resume`/`allowedTools`: no adapter today threads it into its child
+   * process, so a Stop pressed mid-call is not yet a kill — but the review
+   * findings lane (§ task 13) threads its stage-run signal this far so that
+   * future adapter work has a single place to wire real cancellation into,
+   * rather than inventing a second opts shape when it lands.
+   */
+  signal?: AbortSignal;
 }
 
 export interface HeadlessResult {

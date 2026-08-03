@@ -104,6 +104,7 @@ describe('reconcileOnStart', () => {
 
   it('leaves a running non-terminal stage alone (it is genuinely re-runnable)', () => {
     const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' }); // impl running
     transition(store, id, 'impl', { kind: 'passed' }); // uat running
 
     reconcileOnStart(store, () => false);
@@ -133,6 +134,9 @@ describe('reconcileOnStart', () => {
     // every pending stage — so boot re-derived `review` and the ticket silently
     // walked backwards, losing the confirm it was waiting on.
     const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+    transition(store, id, 'uat', { kind: 'passed' }); // now at review
     transition(store, id, 'review', { kind: 'passed' }); // parks at ship
 
     reconcileOnStart(store, () => false);

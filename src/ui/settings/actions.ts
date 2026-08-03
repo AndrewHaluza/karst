@@ -13,6 +13,8 @@ import { mergeSection, type SettingsSection } from './sections.js';
 export interface SettingsActionsCtx {
   post(message: SettingsHostMessage): void;
   manifestPath: string;
+  /** The project identity this window resolved (§ state.ts `projectSlug`). */
+  projectSlug: { value: string; derived: boolean };
 }
 
 /** Injected host dependencies (real ones bound in extension.ts). */
@@ -87,6 +89,8 @@ export interface SettingsActionsDeps {
    * Resolves the chosen absolute path, or undefined if the user cancelled.
    */
   browseForFolder(): Promise<string | undefined>;
+  /** Open this window's karst.yml in an editor (runs `karst.openManifest`). */
+  openManifest(): void | Promise<void>;
 }
 
 export type SettingsActionsFactory = (ctx: SettingsActionsCtx) => SettingsActions;
@@ -124,6 +128,8 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           deps.listAgentRows(),
           deps.listApproachCommands(),
           deps.modelCatalog(),
+          ctx.manifestPath,
+          ctx.projectSlug,
         ),
       });
     }
@@ -441,6 +447,14 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           ctx.post({ type: 'ticket-lists', lists: await provider.listLists() });
         } catch (e) {
           ctx.post({ type: 'ticket-lists-error', message: errorMessage(e) });
+        }
+      },
+
+      async openManifest(): Promise<void> {
+        try {
+          await deps.openManifest();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
         }
       },
     };

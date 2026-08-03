@@ -1279,6 +1279,29 @@ setTimeout(() => {
     expect(res.prs).toHaveLength(2);
   });
 
+  // The guard on the tail transition (only advance when still AT ship) is not
+  // enough on its own: the head `setStage(..., 'ship', {status:'running', ...})`
+  // ran unconditionally, so a re-run past ship would leave the `ship` row stuck
+  // `running` — blue/in-progress on the dashboard — beside a ticket already
+  // parked at `merge`, a state that could not occur before this guard existed
+  // (the old unconditional tail transition always repaired it back to
+  // `passed`). Both writes must agree on whether this run is genuinely at ship.
+  it('a re-run past ship leaves the ship row exactly as the first run left it', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const { gh } = fakeGh();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+    const afterFirst = getTicket(store, id);
+    expect(afterFirst.stageCurrent).toBe('merge');
+    expect(afterFirst.stages.find((s) => s.stageKey === 'ship')!.status).toBe('passed');
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+    const afterSecond = getTicket(store, id);
+    expect(afterSecond.stageCurrent).toBe('merge');
+    // Not 'running': the re-run's head setStage must have been skipped too.
+    expect(afterSecond.stages.find((s) => s.stageKey === 'ship')!.status).toBe('passed');
+  });
+
   // The dashboard used to render this as free text on the Now line; it now
   // reads it as structured per-repo/per-step rows inside the Inside block, so
   // ship must emit run→pass pairs in the order the work happens.

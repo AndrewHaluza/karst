@@ -77,9 +77,17 @@ describe('capForGate', () => {
     expect(capForGate('uat', undefined)).toBe(FIX_ATTEMPT_CAP);
   });
 
-  it('ignores uatMax for review — only UAT’s budget is configurable', () => {
-    // `uat.maxFixAttempts` can never narrow a gate it does not name; review
-    // keeps the default until its own redesign.
+  it('ignores uatMax for review — a gate’s budget is its own manifest key', () => {
+    // `uat.maxFixAttempts` can never narrow a gate it does not name.
     expect(capForGate('review', 1)).toBe(FIX_ATTEMPT_CAP);
+  });
+
+  it('honours a narrowed review budget, and never lets it narrow uat', () => {
+    expect(capForGate('review', undefined, 2)).toBe(2);
+    expect(capForGate('uat', undefined, 2)).toBe(FIX_ATTEMPT_CAP);
+  });
+
+  it('falls back to the default cap when review declares no budget', () => {
+    expect(capForGate('review', undefined, undefined)).toBe(FIX_ATTEMPT_CAP);
   });
 });

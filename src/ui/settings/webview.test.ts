@@ -14,8 +14,15 @@ import {
   mergeSection,
 } from './sections.js';
 import { validateManifest } from '../../manifest/schema.js';
-import type { Manifest } from '../../manifest/types.js';
-import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import type { GateDef, Manifest } from '../../manifest/types.js';
+import {
+  manifest as buildManifest,
+  runnableRepo,
+  slot,
+  uat as buildUat,
+  review as buildReview,
+} from '../../manifest/fixtures.js';
+import { gateSummary as hostGateSummary } from './gateDraft.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -668,8 +675,10 @@ describe('settings tab-scoped save', () => {
       'general',
       'services',
     ]);
-    // A key the UI does not own must never make a tab look dirty.
-    expect(dirtySectionsOf({ ...base, uat: { maxFixAttempts: 3 } }, base)).toEqual([]);
+    // A key no section owns must never make a tab look dirty.
+    expect(dirtySectionsOf({ ...base, id: 'karst' }, base)).toEqual([]);
+    // uat is now owned by the quality tab.
+    expect(dirtySectionsOf({ ...base, uat: { maxFixAttempts: 3 } }, base)).toEqual(['quality']);
   });
 
   it('treats a cleared optional field as a change', () => {
@@ -1011,6 +1020,7 @@ describe('UI-R10b — destructive controls use the danger variant', () => {
     { attr: 'data-uninstall', variant: 'k-btn--danger' },
     { attr: 'data-delete-agent', variant: 'k-btn--danger' },
     { attr: 'id="approachDrawerDelete"', variant: 'k-btn--danger' },
+    { attr: 'data-remove-gate', variant: 'k-iconbtn--danger' },
   ];
   it.each(destructive)('$attr carries $variant', ({ attr, variant }) => {
     const idx = HTML.indexOf(attr);
@@ -1057,6 +1067,54 @@ describe('UI-R14b — the approach drawer does not close before its result', () 
     const errorCase = HTML.slice(HTML.indexOf("case 'error':"), HTML.indexOf("case 'saved':"));
     expect(errorCase).toContain('showApproachDrawerError(msg.message)');
     expect(errorCase).not.toContain('closeApproachDrawer()');
+  });
+});
+
+describe('approach drawer save preserves undrawn keys', () => {
+  function rebuildApproachFromDrawer(
+    existing: Record<string, unknown> | null,
+    fields: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return runInNewContext(`(${functionSource('rebuildApproachFromDrawer')})`, {})(
+      existing,
+      fields,
+    ) as Record<string, unknown>;
+  }
+
+  it('preserves approach keys the drawer does not render when editing', () => {
+    // An approach carrying a workflow — exactly the shipped `rpi` shape.
+    const before = {
+      id: 'rpi',
+      label: 'Research → Plan → Implement',
+      entrypoint: 'research',
+      enabled: true,
+      workflow: [
+        { name: 'describe' },
+        { name: 'research', command: '/rpi:research' },
+      ],
+    };
+
+    const after = rebuildApproachFromDrawer(before, {
+      id: 'rpi',
+      label: 'Research → Plan → Implement (edited)',
+      description: '',
+      entrypoint: 'research',
+      sourceType: 'none',
+      recommended: false,
+    });
+
+    expect(after.label).toBe('Research → Plan → Implement (edited)');
+    expect(after.workflow).toEqual(before.workflow);
+  });
+
+  it('clears a drawer-owned optional field that the user blanked', () => {
+    const before = { id: 'x', label: 'X', description: 'old', entrypoint: 'e', enabled: true };
+    const after = rebuildApproachFromDrawer(before, {
+      id: 'x', label: 'X', description: '', entrypoint: 'e',
+      sourceType: 'none', recommended: false,
+    });
+    expect(after.description).toBeUndefined();
+    expect(after.entrypoint).toBe('e');
   });
 });
 
@@ -1123,6 +1181,94 @@ describe('UI-R13 — action-result is handled', () => {
   });
 });
 
+describe('project facts (manifest path & resolved project id)', () => {
+  it('renders a read-only <dl>, not inputs, so Save can never write these back', () => {
+    const generalStart = HTML.indexOf('id="section-general"');
+    const generalEnd = HTML.indexOf('<!-- Git -->');
+    const section = HTML.slice(generalStart, generalEnd);
+    expect(section).toContain('id="projectFacts"');
+    expect(section).toContain('<dl class="facts">');
+    expect(section).toContain('id="factManifestPath"');
+    expect(section).toContain('id="factProjectSlug"');
+    expect(section).toContain('id="factSlugDerived"');
+    expect(section).toContain('id="openManifestBtn"');
+  });
+
+  it('never adds the facts to SECTION_FIELDS — they must not enter the draft', () => {
+    expect(SECTION_FIELDS.general).not.toContain('manifestPath');
+    expect(SECTION_FIELDS.general).not.toContain('projectSlug');
+  });
+
+  it('the Open karst.yml button posts through the pending action runtime (UI-R11)', () => {
+    expect(HTML).toMatch(/postAction\(el\('openManifestBtn'\),\s*'open-manifest'/);
+  });
+
+  it("renderProjectFacts fills the facts from the host-pushed state, marking a derived id", () => {
+    const source = `
+      let manifestPath = '';
+      let projectSlug = { value: '', derived: true };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFacts')}
+      manifestPath = '/work/proj/.karst/karst.yml';
+      projectSlug = { value: 'my-proj', derived: true };
+      renderProjectFacts();
+      ({
+        path: elements.factManifestPath.textContent,
+        slug: elements.factProjectSlug.textContent,
+        derivedHidden: elements.factSlugDerived.hidden,
+      });
+    `;
+    const result = runInNewContext(source, {}) as {
+      path: string;
+      slug: string;
+      derivedHidden: boolean;
+    };
+    expect(result.path).toBe('/work/proj/.karst/karst.yml');
+    expect(result.slug).toBe('my-proj');
+    expect(result.derivedHidden).toBe(false);
+  });
+
+  it('renderProjectFacts hides the derived chip when the id is explicit', () => {
+    const source = `
+      let manifestPath = 'x';
+      let projectSlug = { value: '', derived: true };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFacts')}
+      projectSlug = { value: 'explicit-id', derived: false };
+      renderProjectFacts();
+      elements.factSlugDerived.hidden;
+    `;
+    const result = runInNewContext(source, {});
+    expect(result).toBe(true);
+  });
+
+  it('falls back to (unresolved) when the host has not supplied the facts yet', () => {
+    const source = `
+      let manifestPath = '';
+      let projectSlug = { value: '', derived: true };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFacts')}
+      renderProjectFacts();
+      ({ path: elements.factManifestPath.textContent, slug: elements.factProjectSlug.textContent });
+    `;
+    const result = runInNewContext(source, {}) as { path: string; slug: string };
+    expect(result.path).toBe('(unresolved)');
+    expect(result.slug).toBe('(unresolved)');
+  });
+});
+
 describe('ClickUp reload buttons', () => {
   /**
    * These two fetches predate `action-result` and settle through their own
@@ -1155,5 +1301,634 @@ describe('ClickUp reload buttons', () => {
 
   it('carries the failure message into the settle rather than only the inline hint', () => {
     expect(HTML).toMatch(/endFetch\((?:lists|statuses)RequestId,\s*false,\s*msg\.message\)/);
+  });
+});
+
+describe('settings quality tab (UAT + review scalars)', () => {
+  it('nav entry and section exist, with the gates mount point left empty', () => {
+    expect(HTML).toContain('<button class="nav-btn" data-section="quality">Quality</button>');
+    expect(HTML).toContain('<div class="section hidden" id="section-quality">');
+    expect(HTML).toContain('id="qualityGates"');
+  });
+
+  it('provides every DOM id the draft-sync task depends on', () => {
+    for (const id of [
+      'f-uatMaxFix',
+      'f-reviewMaxFix',
+      'f-reviewIndependent',
+      'f-findingsEnabled',
+      'f-findingsSeverity',
+      'f-findingsMax',
+    ]) {
+      expect(HTML, id).toContain(`id="${id}"`);
+      // Every input/select carries a matching <label for>.
+      expect(HTML, `${id} label`).toContain(`for="${id}"`);
+    }
+  });
+
+  /**
+   * Mirrors validate/review.ts defaultFindings()/validateReview() and
+   * validate/uat.ts's maxFixAttempts fallback so the mirror can't silently
+   * drift from the validators it stands in for.
+   */
+  it('mirrors the validators exactly', () => {
+    expect(HTML).toContain("const UAT_DEFAULTS = { maxFixAttempts: 3 };");
+    expect(HTML).toContain(
+      "const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];",
+    );
+    expect(HTML).toMatch(
+      /const REVIEW_DEFAULTS = \{\s*maxFixAttempts: 3,\s*requireIndependentSignal: true,\s*findings: \{ enabled: true, blockingSeverity: 'high', maxFindings: 50 \},\s*\};/,
+    );
+  });
+
+  function fakeEl(id: string) {
+    return { id, value: '' as unknown, checked: false, innerHTML: '' };
+  }
+
+  function runRenderQuality(draft: Record<string, unknown>): Record<string, { value: unknown; checked: unknown }> {
+    const elements = new Map<string, ReturnType<typeof fakeEl>>();
+    const el = (id: string) => {
+      if (!elements.has(id)) elements.set(id, fakeEl(id));
+      return elements.get(id)!;
+    };
+    const source = `
+      const UAT_DEFAULTS = { maxFixAttempts: 3 };
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
+      const draft = ${JSON.stringify(draft)};
+      ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
+      ${functionSource('renderGateList')}
+      ${functionSource('renderOverridesSection')}
+      ${functionSource('syncGateRepoSelects')}
+      ${functionSource('renderQuality')}
+      renderQuality();
+    `;
+    runInNewContext(source, {
+      el,
+      esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+      document: { querySelector: () => null },
+    });
+    const out: Record<string, { value: unknown; checked: unknown }> = {};
+    for (const [id, node] of elements) out[id] = { value: node.value, checked: node.checked };
+    return out;
+  }
+
+  function field(
+    result: Record<string, { value: unknown; checked: unknown }>,
+    id: string,
+  ): { value: unknown; checked: unknown } {
+    const found = result[id];
+    if (!found) throw new Error(`renderQuality never touched ${id}`);
+    return found;
+  }
+
+  it('renders review findings defaults as blocking when the block is absent', () => {
+    // The manifest default is enabled/high by design — a control that renders
+    // "off" would imply review is advisory when it actually blocks (S4).
+    const result = runRenderQuality({});
+    expect(field(result, 'f-findingsEnabled').checked).toBe(true);
+    expect(field(result, 'f-findingsSeverity').value).toBe('high');
+    expect(field(result, 'f-findingsMax').value).toBe(50);
+    expect(field(result, 'f-reviewIndependent').checked).toBe(true);
+    expect(field(result, 'f-reviewMaxFix').value).toBe(3);
+    expect(field(result, 'f-uatMaxFix').value).toBe(3);
+  });
+
+  it('hydrates from explicit values when the blocks are present', () => {
+    const result = runRenderQuality({
+      uat: { maxFixAttempts: 5 },
+      review: {
+        maxFixAttempts: 2,
+        requireIndependentSignal: false,
+        findings: { enabled: false, blockingSeverity: 'none', maxFindings: 10 },
+      },
+    });
+    expect(field(result, 'f-uatMaxFix').value).toBe(5);
+    expect(field(result, 'f-reviewMaxFix').value).toBe(2);
+    expect(field(result, 'f-reviewIndependent').checked).toBe(false);
+    expect(field(result, 'f-findingsEnabled').checked).toBe(false);
+    expect(field(result, 'f-findingsSeverity').value).toBe('none');
+    expect(field(result, 'f-findingsMax').value).toBe(10);
+  });
+
+  it('populates the severity select from the SEVERITIES vocabulary', () => {
+    const elements = new Map<string, ReturnType<typeof fakeEl>>();
+    const el = (id: string) => {
+      if (!elements.has(id)) elements.set(id, fakeEl(id));
+      return elements.get(id)!;
+    };
+    const source = `
+      const UAT_DEFAULTS = { maxFixAttempts: 3 };
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
+      const draft = {};
+      ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
+      ${functionSource('renderGateList')}
+      ${functionSource('renderOverridesSection')}
+      ${functionSource('syncGateRepoSelects')}
+      ${functionSource('renderQuality')}
+      renderQuality();
+    `;
+    runInNewContext(source, {
+      el,
+      esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+      document: { querySelector: () => null },
+    });
+    const select = elements.get('f-findingsSeverity')!;
+    for (const s of ['critical', 'high', 'medium', 'low', 'info', 'none']) {
+      expect(select.innerHTML, s).toContain(`value="${s}"`);
+    }
+  });
+
+  it('renderAll wires renderQuality in so tab switches stay current', () => {
+    const body = HTML.slice(HTML.indexOf('function renderAll('), HTML.indexOf('function refreshModelCatalog('));
+    expect(body).toContain('renderQuality();');
+  });
+
+  it('never rebuilds draft.uat or draft.review wholesale (mergeSection deletes absent fields)', () => {
+    // Task 9 ships no write-back handlers yet; this guards the invariant for
+    // whichever later task adds them.
+    expect(HTML).not.toMatch(/draft\.uat\s*=\s*\{[^.]*maxFixAttempts/);
+    expect(HTML).not.toMatch(/draft\.review\s*=\s*\{[^.]*maxFixAttempts/);
+  });
+});
+
+/**
+ * Task 11: the shared gate editor mounted into #qualityGates. ONE renderer
+ * (renderGateList) parameterized by 'uat' | 'review' so the two blocks cannot
+ * diverge, mirroring src/ui/settings/gateDraft.ts the way SECTION_FIELDS and
+ * the placeholder-transform engine are already mirrored (UI-R34).
+ */
+describe('settings quality tab — gate editor', () => {
+  function escMirror(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c);
+  }
+
+  it('renders every gate exactly as the host summarises it', () => {
+    const webviewGateSummary = runInNewContext(
+      `(${functionSource('gateSummary')})`,
+      {},
+    ) as (gate: GateDef) => string;
+    const cases: GateDef[] = [
+      { name: 'test', kind: 'script', script: 'test' },
+      { name: 'e2e', kind: 'command', command: 'npx', args: ['playwright', 'test'] },
+      { name: 'build', kind: 'script', script: 'build', repo: 'frontend' },
+      { name: 'a', kind: 'script' },
+      { name: 'a', kind: 'command', command: 'npx', args: [] },
+      { name: 'a', kind: 'command', command: '' },
+    ];
+    for (const gate of cases) {
+      expect(webviewGateSummary(gate)).toBe(hostGateSummary(gate));
+    }
+  });
+
+  function loadRenderGateList(repositories: Record<string, unknown>): (block: string, gates: GateDef[]) => string {
+    const source = `
+      const draft = { repositories: ${JSON.stringify(repositories)} };
+      ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
+      ${functionSource('renderGateList')}
+      renderGateList
+    `;
+    return runInNewContext(source, { esc: escMirror }) as (block: string, gates: GateDef[]) => string;
+  }
+
+  it('scopes a gate to a repository from the declared repositories only', () => {
+    const renderGateList = loadRenderGateList({ api: {}, web: {} });
+    const html = renderGateList('uat', [{ name: 'build', kind: 'script', script: 'build' }]);
+    const select = html.match(/<select aria-label="Gate 1 repository"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('repo select not found in rendered row');
+    // '' is "every target" — the absent-repo case, which must stay selectable.
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options).toEqual(['', 'api', 'web']);
+  });
+
+  it('renders a script gate row with name/kind/script/repo fields and data attributes', () => {
+    const renderGateList = loadRenderGateList({ api: {} });
+    const html = renderGateList('uat', [{ name: 'test', kind: 'script', script: 'test', repo: 'api' }]);
+    expect(html).toContain('data-gate-block="uat"');
+    expect(html).toContain('data-gate-idx="0"');
+    expect(html).toContain('aria-label="Gate 1 name"');
+    expect(html).toContain('aria-label="Gate 1 kind"');
+    expect(html).toContain('aria-label="Gate 1 script"');
+    expect(html).toContain('aria-label="Gate 1 repository"');
+    expect(html).toContain('data-gate-field="name"');
+    expect(html).toContain('data-gate-field="script"');
+    expect(html).toContain('data-gate-field="repo"');
+    expect(html).not.toContain('aria-label="Gate 1 command"');
+    expect(html).toContain('npm run test');
+    expect(html).toContain('data-remove-gate="uat"');
+    expect(html).toContain('aria-label="Remove gate 1"');
+    expect(html).toContain('title="Remove gate 1"');
+  });
+
+  it('renders a command gate row with command/args fields instead of script', () => {
+    const renderGateList = loadRenderGateList({});
+    const html = renderGateList('review', [
+      { name: 'e2e', kind: 'command', command: 'npx', args: ['playwright', 'test'] },
+    ]);
+    expect(html).toContain('data-gate-field="command"');
+    expect(html).toContain('data-gate-field="args"');
+    expect(html).not.toContain('data-gate-field="script"');
+    expect(html).toContain('value="npx"');
+    expect(html).toContain('value="playwright test"');
+    expect(html).toContain('npx playwright test');
+    expect(html).toContain('data-gate-block="review"');
+  });
+
+  it('escapes gate field values injected into the row', () => {
+    const renderGateList = loadRenderGateList({});
+    const html = renderGateList('uat', [{ name: '<img src=x onerror=alert(1)>', kind: 'script', script: 's' }]);
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('renders a repo <select> for a global gate row, with the declared repositories as options', () => {
+    const renderGateList = loadRenderGateList({ api: {}, web: {} });
+    const html = renderGateList('uat', [{ name: 'build', kind: 'script', script: 'build' }]);
+    const row = html.slice(0, html.indexOf('data-add-gate'));
+    expect(row).toContain('data-gate-field="repo"');
+    const select = row.match(/<select aria-label="Gate 1 repository"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('repo select not found in rendered row');
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options).toEqual(['', 'api', 'web']);
+  });
+
+  it('renders no repo <select> for an override gate row, and names the owning repo as text instead', () => {
+    const renderGateList = loadRenderGateList({ api: {}, web: {} });
+    const html = renderGateList('uat:api', [{ name: 'lint', kind: 'script', script: 'lint', repo: 'web' }]);
+    const row = html.slice(0, html.indexOf('data-add-gate'));
+    expect(row).not.toContain('data-gate-field="repo"');
+    expect(row).not.toMatch(/aria-label="Gate 1 repository"/);
+    expect(row).toContain('Runs in api');
+    // The dead `gate.repo` value already on disk (here 'web') is left alone —
+    // this fix stops OFFERING the control, it never rewrites the user's file.
+  });
+
+  it('escapes an override repository name containing HTML in the static text', () => {
+    const renderGateList = loadRenderGateList({ '<x>': {} });
+    const html = renderGateList('uat:<x>', [{ name: 'lint', kind: 'script', script: 'lint' }]);
+    expect(html).not.toContain('Runs in <x>');
+    expect(html).toContain('Runs in &lt;x&gt;');
+  });
+
+  it('renders the Add gate button for the block', () => {
+    const renderGateList = loadRenderGateList({});
+    const html = renderGateList('uat', []);
+    expect(html).toContain('data-add-gate="uat"');
+    expect(html).toContain('+ Add gate');
+  });
+
+  it('mounts both blocks into #qualityGates and syncs repo selects after render', () => {
+    const body = HTML.slice(
+      HTML.indexOf('function renderQuality('),
+      HTML.indexOf("el('f-ticketTeamId').addEventListener"),
+    );
+    expect(body).toMatch(/renderGateList\(\s*'uat'/);
+    expect(body).toMatch(/renderGateList\(\s*'review'/);
+    expect(body).toContain("el('qualityGates')");
+  });
+
+  it('writes gate edits back by spreading the existing block, never rebuilding it', () => {
+    // The Quality scalars (Task 9) never write; this task's gate editor does,
+    // and must obey the same spread-not-rebuild rule mergeSection depends on.
+    expect(HTML).toMatch(/draft\.uat\s*=\s*\{\s*\.\.\.\(draft\.uat \|\| \{\}\)/);
+    expect(HTML).toMatch(/draft\.review\s*=\s*\{\s*\.\.\.\(draft\.review \|\| \{\}\)/);
+  });
+
+  it('mirrors gateDraft.ts helpers used to add/switch/remove gates', () => {
+    expect(HTML).toMatch(/function emptyGate\(\)/);
+    expect(HTML).toMatch(/function setGateKind\(/);
+    expect(HTML).toMatch(/function gateSummary\(/);
+  });
+});
+
+/**
+ * Task 13: per-repository gate overrides. uat.repositories.<name>.gates /
+ * review.repositories.<name>.gates REPLACE the block's global list for that
+ * repository (declaredGatesFor / declaredReviewGatesFor) rather than adding
+ * to it — the opposite of how "add a gate for this repo" reads. A
+ * newly-created override is seeded with a COPY of the global list so the
+ * replacement is visible instead of silently meaning "this repo runs no
+ * gates".
+ */
+describe('settings quality tab — per-repository gate overrides', () => {
+  function escMirror(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c);
+  }
+
+  function overrideSandbox(draft: Record<string, unknown>): Record<string, unknown> {
+    const sandbox: Record<string, unknown> = { draft, markDirty: () => {}, renderQuality: () => {} };
+    const source = `
+      function clone(v) { return JSON.parse(JSON.stringify(v)); }
+      ${functionSource('updateUat')}
+      ${functionSource('updateReview')}
+      ${functionSource('addRepoOverride')}
+      ${functionSource('removeRepoOverride')}
+    `;
+    runInNewContext(source, sandbox);
+    return sandbox;
+  }
+
+  it('prefills a new per-repo override with the global list, so replacement is visible', () => {
+    const draft = {
+      repositories: { api: {}, web: {} },
+      review: {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+        gates: [{ name: 'build', kind: 'script', script: 'build' }],
+        repositories: {},
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    runInNewContext("addRepoOverride('review', 'api')", sandbox);
+    const result = sandbox.draft as { review: { repositories: Record<string, { gates: unknown[] }> } };
+    expect(result.review.repositories.api!.gates).toEqual([
+      { name: 'build', kind: 'script', script: 'build' },
+    ]);
+  });
+
+  it('seeds the override with a COPY, not a shared reference — editing it never mutates the global list', () => {
+    const draft = {
+      repositories: { api: {} },
+      review: { gates: [{ name: 'build', kind: 'script', script: 'build' }], repositories: {} },
+    };
+    const sandbox = overrideSandbox(draft);
+    runInNewContext("addRepoOverride('review', 'api')", sandbox);
+    const result = sandbox.draft as {
+      review: {
+        gates: Array<Record<string, unknown>>;
+        repositories: Record<string, { gates: Array<Record<string, unknown>> }>;
+      };
+    };
+    result.review.repositories.api!.gates[0]!.name = 'renamed';
+    expect(result.review.gates[0]!.name).toBe('build');
+  });
+
+  it('removing an override deletes the repo key, falling back to the global list', () => {
+    const draft = {
+      repositories: { api: {} },
+      uat: {
+        gates: [{ name: 'test', kind: 'script', script: 'test' }],
+        repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    runInNewContext("removeRepoOverride('uat', 'api')", sandbox);
+    const result = sandbox.draft as { uat: { repositories: Record<string, unknown> } };
+    expect(result.uat.repositories.api).toBeUndefined();
+  });
+
+  it('says the override replaces rather than extends', () => {
+    const start = HTML.indexOf('id="overrideHint"');
+    expect(start).toBeGreaterThan(-1);
+    const snippet = HTML.slice(start, start + 200);
+    expect(snippet).toMatch(/replaces/i);
+  });
+
+  it('parseGateBlock splits an override block into base + repo, leaving a global block untouched', () => {
+    const parseGateBlock = runInNewContext(`(${functionSource('parseGateBlock')})`, {}) as (
+      block: string,
+    ) => { base: string; repo: string | null };
+    expect(parseGateBlock('review')).toEqual({ base: 'review', repo: null });
+    expect(parseGateBlock('review:api')).toEqual({ base: 'review', repo: 'api' });
+  });
+
+  it('gatesOf/writeGates route an override block to repositories[repo].gates, preserving the global list', () => {
+    const sandbox: Record<string, unknown> = {
+      draft: {
+        review: {
+          gates: [{ name: 'build', kind: 'script', script: 'build' }],
+          repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+        },
+      },
+      markDirty: () => {},
+    };
+    const source = `
+      ${functionSource('updateUat')}
+      ${functionSource('updateReview')}
+      ${functionSource('parseGateBlock')}
+      ${functionSource('gatesOf')}
+      ${functionSource('writeGates')}
+      writeGates('review:api', gatesOf('review:api').concat([{ name: 'extra', kind: 'script', script: 'extra' }]));
+    `;
+    runInNewContext(source, sandbox);
+    const draft = sandbox.draft as {
+      review: { gates: unknown[]; repositories: { api: { gates: unknown[] } } };
+    };
+    expect(draft.review.gates).toEqual([{ name: 'build', kind: 'script', script: 'build' }]);
+    expect(draft.review.repositories.api.gates).toHaveLength(2);
+  });
+
+  function loadRenderOverridesSection(
+    repositories: Record<string, unknown>,
+  ): (block: string, repositories: Record<string, { gates?: unknown[] }>) => string {
+    const source = `
+      const draft = { repositories: ${JSON.stringify(repositories)} };
+      ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
+      ${functionSource('renderGateList')}
+      ${functionSource('renderOverridesSection')}
+      renderOverridesSection
+    `;
+    return runInNewContext(source, { esc: escMirror }) as (
+      block: string,
+      repositories: Record<string, { gates?: unknown[] }>,
+    ) => string;
+  }
+
+  it('offers only declared repositories in the override picker', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {}, web: {} });
+    const html = renderOverridesSection('review', {});
+    const select = html.match(/<select[^>]*data-override-picker="review"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('override picker select not found');
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options.sort()).toEqual(['api', 'web']);
+  });
+
+  it('excludes an already-overridden repository from the picker', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {}, web: {} });
+    const html = renderOverridesSection('review', { api: { gates: [] } });
+    const select = html.match(/<select[^>]*data-override-picker="review"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('override picker select not found');
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options).toEqual(['web']);
+  });
+
+  it('renders each override using renderGateList, addressed by block:repo, with a remove control', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {} });
+    const html = renderOverridesSection('review', {
+      api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] },
+    });
+    expect(html).toContain('data-gate-block="review:api"');
+    expect(html).toContain('data-remove-override="review"');
+    expect(html).toContain('data-override-repo="api"');
+    expect(html).toContain('aria-label="Remove api override"');
+    expect(html).toContain('title="Remove api override"');
+  });
+
+  it('escapes a repository name injected into the override card', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ '<x>': {} });
+    const html = renderOverridesSection('review', { '<x>': { gates: [] } });
+    expect(html).not.toContain('<x>override');
+    expect(html).toContain('&lt;x&gt;');
+  });
+
+  it('mounts renderOverridesSection into #qualityGates for both blocks', () => {
+    const body = HTML.slice(
+      HTML.indexOf('function renderQuality('),
+      HTML.indexOf("el('f-ticketTeamId').addEventListener"),
+    );
+    expect(body).toMatch(/renderOverridesSection\(\s*'uat'/);
+    expect(body).toMatch(/renderOverridesSection\(\s*'review'/);
+  });
+
+  it('add/remove-override handlers route through addRepoOverride/removeRepoOverride, never a direct draft assignment', () => {
+    expect(HTML).toContain('t.dataset.addOverride');
+    expect(HTML).toContain('t.dataset.removeOverride');
+    expect(HTML).toContain('addRepoOverride(block, repo)');
+    expect(HTML).toContain('removeRepoOverride(t.dataset.removeOverride, t.dataset.overrideRepo)');
+  });
+});
+
+/**
+ * Task 12: the guard for Task 8's trap. Quality renders only the wired
+ * scalars (Task 9) and the gate editor (Task 11), but `uat`/`review` are
+ * whole-field section members (SECTION_FIELDS.quality) — mergeSection
+ * REPLACES the entire block with whatever the draft posts. Every Quality
+ * write must therefore spread the block as it stands rather than rebuild it
+ * from the rendered controls, or a save would erase uat.secrets, uat.env,
+ * uat.origins, and review.repositories — the same class of defect as the
+ * approach-drawer clobber (S1).
+ *
+ * `simulateQualityEdit` exercises the REAL updateUat/updateReview/
+ * updateFindings functions straight out of webview.html (never a
+ * reimplementation), then the result is fed through the REAL mergeSection
+ * from sections.ts — that combination is what makes the guard meaningful.
+ */
+describe('settings quality tab — draft updaters preserve inert manifest keys', () => {
+  function simulateQualityEdit(
+    onDisk: Manifest,
+    edits: { uatMaxFixAttempts?: number; reviewMaxFixAttempts?: number },
+  ): Manifest {
+    const sandbox: Record<string, unknown> = {
+      draft: JSON.parse(JSON.stringify(onDisk)),
+      markDirty: () => {},
+    };
+    const calls: string[] = [];
+    if (edits.uatMaxFixAttempts !== undefined) {
+      calls.push(`updateUat({ maxFixAttempts: ${JSON.stringify(edits.uatMaxFixAttempts)} });`);
+    }
+    if (edits.reviewMaxFixAttempts !== undefined) {
+      calls.push(`updateReview({ maxFixAttempts: ${JSON.stringify(edits.reviewMaxFixAttempts)} });`);
+    }
+    const source = `
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      ${functionSource('updateUat')}
+      ${functionSource('updateReview')}
+      ${functionSource('updateFindings')}
+      ${calls.join('\n')}
+    `;
+    runInNewContext(source, sandbox);
+    return sandbox.draft as Manifest;
+  }
+
+  const baseManifest = buildManifest(
+    { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
+    { approaches: [], agents: {}, ticketing: { provider: 'manual' } },
+  );
+
+  it('preserves inert uat keys when the quality tab is saved', () => {
+    const onDisk: Manifest = {
+      ...baseManifest,
+      uat: buildUat({
+        maxFixAttempts: 3,
+        env: { BASE_URL: 'http://localhost:3000' },
+        secrets: ['STRIPE_KEY'],
+        origins: ['https://api.stripe.com'],
+      }),
+    };
+    // The webview renders only maxFixAttempts and gates. Saving must not erase
+    // the rest — mergeSection deletes fields absent from the posted draft, and
+    // rebuilding draft.uat from the rendered controls would omit them.
+    const posted = simulateQualityEdit(onDisk, { uatMaxFixAttempts: 7 });
+    const merged = mergeSection(onDisk, posted, 'quality');
+
+    expect(merged.uat?.maxFixAttempts).toBe(7);
+    expect(merged.uat?.secrets).toEqual(['STRIPE_KEY']);
+    expect(merged.uat?.env).toEqual({ BASE_URL: 'http://localhost:3000' });
+    expect(merged.uat?.origins).toEqual(['https://api.stripe.com']);
+  });
+
+  it('preserves review.repositories overrides when editing global review gates', () => {
+    const onDisk: Manifest = {
+      ...baseManifest,
+      review: buildReview({
+        maxFixAttempts: 3,
+        repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+      }),
+    };
+    const posted = simulateQualityEdit(onDisk, { reviewMaxFixAttempts: 5 });
+    const merged = mergeSection(onDisk, posted, 'quality');
+    expect(merged.review?.maxFixAttempts).toBe(5);
+    expect(merged.review?.repositories?.api?.gates).toHaveLength(1);
+  });
+
+  it('updateFindings deep-merges over REVIEW_DEFAULTS.findings, never dropping a sibling key', () => {
+    const sandbox: Record<string, unknown> = {
+      draft: { review: { findings: { enabled: false, blockingSeverity: 'critical', maxFindings: 5 } } },
+      markDirty: () => {},
+    };
+    const source = `
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      ${functionSource('updateReview')}
+      ${functionSource('updateFindings')}
+      updateFindings({ maxFindings: 12 });
+    `;
+    runInNewContext(source, sandbox);
+    const draft = sandbox.draft as { review: { findings: Record<string, unknown> } };
+    expect(draft.review.findings).toEqual({
+      enabled: false,
+      blockingSeverity: 'critical',
+      maxFindings: 12,
+    });
+  });
+
+  it('no Quality handler assigns draft.uat or draft.review directly outside updateUat/updateReview', () => {
+    // Everything after renderGateList's helpers must route through the three
+    // updaters. This greps the whole Quality region (gate editor start ->
+    // end of the file's quality-adjacent listeners) for a raw assignment.
+    const start = HTML.indexOf('function gatesOf(');
+    const end = HTML.indexOf('el(\'f-ticketTeamId\')');
+    const body = HTML.slice(start, end);
+    // Strip the updater bodies themselves (the only legal assignment sites).
+    const withoutUpdaters = body
+      .replace(functionSource('updateUat'), '')
+      .replace(functionSource('updateReview'), '');
+    expect(withoutUpdaters).not.toMatch(/draft\.uat\s*=/);
+    expect(withoutUpdaters).not.toMatch(/draft\.review\s*=/);
   });
 });

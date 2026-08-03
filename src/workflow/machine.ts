@@ -76,9 +76,22 @@ export function transition(
   }
 
   const apply = store.db.transaction(() => {
+    // Guarded BEFORE premutate and before any write: `transition` used to check
+    // only that a row existed for `from`, never that it was the ticket's CURRENT
+    // stage — so a transition could be authored from a stage the ticket already
+    // left, and two windows sweeping the same ticket could both advance it. The
+    // refusal must mutate nothing, including the premutate evidence write, so it
+    // runs first inside the transaction.
+    const ticket = getTicket(store, ticketId);
+    if (ticket.stageCurrent !== from) {
+      throw new Error(
+        `stage '${from}' is not ticket ${ticketId}'s current stage (${ticket.stageCurrent})`,
+      );
+    }
+
     if (premutate) premutate();
 
-    const current = getTicket(store, ticketId).stages.find((s) => s.stageKey === from);
+    const current = ticket.stages.find((s) => s.stageKey === from);
     if (!current) throw new Error(`ticket ${ticketId} has no stage '${from}'`);
 
     if (verdict.kind === 'passed') {

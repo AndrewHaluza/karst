@@ -6,7 +6,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
-import { listGateRuns } from '../../store/gateRuns.js';
+import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { runUat, type UatDeps } from './uat.js';
@@ -16,7 +16,7 @@ const now = () => '2026-07-30T10:00:00.000Z';
 function deps(over: Partial<UatDeps> = {}): UatDeps {
   return {
     now,
-    planTargets: async () => [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+    planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }] }),
     probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
     runGates: async (gates) => ({
       kind: 'ran',
@@ -103,6 +103,70 @@ describe('runUat', () => {
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
   });
 
+  // `planTargets` (`planUatTargets`) can itself report `unavailable` — a git
+  // probe failure means karst could not even determine which repositories are
+  // affected, before any gate ever ran. This is a different seam than
+  // `resolveTargetGates`'s `unavailable` above: that one fires per-target,
+  // after targets are already known; this one fires before targets exist at
+  // all, so it must be asserted at the `runUat` level and not inferred from
+  // `planUatTargets`'s own propagation test in a different file.
+  it('an unavailable target selection blocks with the propagated blocker and reason, before any gate runs', async () => {
+    const reason = 'cannot determine review changes in /wt/web: baseline unavailable';
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({ kind: 'unavailable', blocker: 'capability-missing', reason }),
+      }),
+    );
+    // The real observable outcome: the exact StageRunResult returned...
+    expect(res).toEqual({ kind: 'blocked', blocker: 'capability-missing', reason });
+    // ...the stage actually parked in the store, carrying the same blocker and
+    // reason...
+    expect(stageBlock(store, id, 'uat')).toEqual({
+      kind: 'capability-missing',
+      reason,
+      at: now(),
+    });
+    // ...no verdict was written (still sitting at uat, never advanced)...
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    // ...and no attempt was consumed — a park is not a failed attempt.
+    expect(uatStage(store, id).attempt).toBe(0);
+    // Nothing ran before the park landed.
+    expect(listGateRuns(store, id)).toEqual([]);
+  });
+
+  // An `unavailable` selection (karst could not even ask which repositories are
+  // affected) and a genuine `{kind:'targets', targets: []}` (karst asked and the
+  // answer is "nothing is affected") must stay distinguishable at this seam —
+  // collapsing them is exactly the vacuous-green bug this task closes: an
+  // environmental failure must never read as "nothing to test".
+  it('keeps an unavailable selection and a genuine empty target list apart', async () => {
+    const unavailable = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'unavailable',
+          blocker: 'capability-missing',
+          reason: 'cannot determine review changes in /wt/web: baseline unavailable',
+        }),
+      }),
+    );
+    expect(unavailable).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+
+    const id2 = createTicketFlow(store, { key: 'T-2', title: 't2' }).id;
+    transition(store, id2, 'scope', { kind: 'passed' });
+    transition(store, id2, 'impl', { kind: 'passed' });
+    const empty = await runUat(
+      store,
+      { ticketId: id2, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+    );
+    expect(empty).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(empty).not.toMatchObject({ blocker: 'capability-missing' });
+  });
+
   it('a stopped run yields no verdict and no attempt', async () => {
     const res = await runUat(
       store,
@@ -115,15 +179,63 @@ describe('runUat', () => {
   });
 
   it('writes the overlap warning into the artifact when nothing is independent', async () => {
+    // The overlap check now compares against review's RECORDED batch (Task
+    // 10), not a hard-coded gate list — `review.gates` is configurable since
+    // Task 9, so only what review actually ran can prove the overlap. An
+    // explicit `uat.gates: [lint]` is what makes UAT run the same identity a
+    // prior review run recorded.
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-07-30T09:00:00.000Z',
+      gates: [
+        { gateName: 'lint (/wt/web)', exitCode: 0, repo: '/web', command: 'npm', args: ['run', 'lint'] },
+      ],
+    });
     await runUat(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir },
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) }),
+      },
       deps({
-        probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }),
+        probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
       }),
     );
     const path = uatStage(store, id).artifactPath!;
     expect(readFileSync(path, 'utf8')).toContain('asked no question review does not');
+  });
+
+  // A prior review run against a DIFFERENT command is not the same question —
+  // proves the comparison is genuinely reading the recorded identity, not just
+  // "review ran at all for this ticket".
+  it('does not warn when the recorded review batch asked a different question', async () => {
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-07-30T09:00:00.000Z',
+      gates: [
+        { gateName: 'build (/wt/web)', exitCode: 0, repo: '/web', command: 'npm', args: ['run', 'build'] },
+      ],
+    });
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) }),
+      },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
+      }),
+    );
+    const path = uatStage(store, id).artifactPath!;
+    expect(readFileSync(path, 'utf8')).not.toContain('asked no question review does not');
   });
 
   it('clears a previous block when a fresh run reaches a verdict', async () => {
@@ -146,10 +258,13 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
       deps({
-        planTargets: async () => [
-          { repo: '/web', path: '/wt/web', names: ['web'] },
-          { repo: '/api', path: '/wt/api', names: ['api'] },
-        ],
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
         runGates: async (gates, cwd) => {
           ran.push(cwd);
           return {
@@ -164,7 +279,7 @@ describe('runUat', () => {
   });
 
   // A malformed package.json is a repository defect an agent CAN fix, so it must
-  // reach a verdict rather than park — `resolveUatGates` returns zero gates for it
+  // reach a verdict rather than park — `resolveGates` returns zero gates for it
   // and only the stage can turn that into a named failure.
   it('a malformed package.json -> a failing verdict naming the file, not a block', async () => {
     const res = await runUat(
@@ -206,10 +321,13 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
       deps({
-        planTargets: async () => [
-          { repo: '/web', path: '/wt/web', names: ['web'] },
-          { repo: '/api', path: '/wt/api', names: ['api'] },
-        ],
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
         probe: (cwd) =>
           cwd === '/wt/web'
             ? { kind: 'ok', scripts: { test: 'vitest' } }
@@ -255,7 +373,7 @@ describe('runUat', () => {
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => [] }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
     expect(res).toMatchObject({ reason: expect.stringContaining('/unmapped') });
@@ -267,7 +385,7 @@ describe('runUat', () => {
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => [] }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
     expect(res).toMatchObject({ reason: expect.stringContaining('no worktree') });
@@ -296,7 +414,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -331,7 +449,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -367,7 +485,12 @@ describe('runUat', () => {
           },
         ),
       },
-      deps({ planTargets: async () => [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        }),
+      }),
     );
     // `npm test` duplicates review; `npx pw` does not, so the run asked something new.
     expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).not.toContain(
@@ -382,10 +505,13 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, signal: controller.signal, manifest: manifest({}) },
       deps({
-        planTargets: async () => [
-          { repo: '/web', path: '/wt/web', names: ['web'] },
-          { repo: '/api', path: '/wt/api', names: ['api'] },
-        ],
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
         runGates: async (gates, _cwd, opts) => {
           seen.push(opts?.signal);
           return {

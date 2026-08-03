@@ -14,9 +14,10 @@ import type { Manifest } from '../../manifest/types.js';
  * out-of-band writers — `setAgentEnabled`, `setApproachEnabled`, the approach
  * drawer — cannot be clobbered by a stale draft that was loaded before they ran.
  *
- * Fields no section claims (`id`, `uat`) are never editable here and always
- * survive from the base, so a tab-scoped save can't erase config the UI does not
- * render. The "exactly one section" split is pinned by sections.test.ts.
+ * Fields no section claims (`id`) are never editable here and always survive
+ * from the base. The Quality tab claims `uat`/`review` but renders only the
+ * keys with live consumers, so its editors MUST spread the existing block
+ * rather than rebuild it — see docs/config-ui-coverage.md, D1/D3.
  */
 export const SETTINGS_SECTIONS = [
   'general',
@@ -25,6 +26,7 @@ export const SETTINGS_SECTIONS = [
   'approaches',
   'agents',
   'ticketing',
+  'quality',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -37,6 +39,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
   approaches: 'Approaches',
   agents: 'Agents',
   ticketing: 'Ticketing',
+  quality: 'Quality',
 };
 
 export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]> = {
@@ -55,6 +58,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
   approaches: ['approaches'],
   agents: ['agents'],
   ticketing: ['ticketing'],
+  quality: ['uat', 'review'],
 };
 
 export function isSettingsSection(value: unknown): value is SettingsSection {

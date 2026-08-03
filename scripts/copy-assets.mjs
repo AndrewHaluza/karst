@@ -17,7 +17,11 @@ const assets = [
   'ui/gettingStarted/webview.html',
   'store/schema.sql',
 ]; // sourced from src/
-const rootAssets = ['karst.example.yml']; // sourced from the repo root
+// Sourced from the repo root. The setup runbook travels the same way the
+// manifest template does: it is written into the TARGET project at scaffold
+// time (src/manifest/setupGuide.ts), so it must exist next to the compiled
+// output — it is not documentation for this repository.
+const rootAssets = ['karst.example.yml', 'karst.uat-review-setup.md'];
 
 for (const rel of assets) {
   const from = join(root, 'src', rel);

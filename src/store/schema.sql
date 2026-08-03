@@ -76,6 +76,15 @@ CREATE TABLE IF NOT EXISTS stages (
 -- gate) — that is NOT unique. `transition` bumps `attempt` only on the failed
 -- branch, so review-fail (attempt->1) -> fix -> review-pass files two distinct
 -- invocations under attempt 1. `run_at` is what groups one invocation's rows.
+-- v21 invocation-identity columns (kept in sync with migrations.ts v21 ALTERs).
+-- What the gate actually invoked, so review's R7 ("did I ask a question UAT
+-- didn't") can compare on the command that ran instead of the display name
+-- alone. All three are NULLable and NEVER backfilled: a row recorded before
+-- v21 genuinely does not know what argv produced it, and inventing one would
+-- make R7 compare against a guess. `args` is a JSON array (SQLite has no array
+-- type), and the one non-invocation row this table carries — 'changes',
+-- recorded when the review stage opened the Changes panel — legitimately
+-- leaves all three NULL forever, because it names no command.
 CREATE TABLE IF NOT EXISTS gate_runs (
   id            INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS run order
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
@@ -85,7 +94,10 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   gate_name     TEXT NOT NULL,        -- lint | typecheck | test
   exit_code     INTEGER,              -- NULL = repo defines no such script (NOT a pass)
   started_at    TEXT,
-  ended_at      TEXT
+  ended_at      TEXT,
+  repo          TEXT,                 -- v21: the repository path invoked, NULL = pre-v21 row
+  command       TEXT,                 -- v21: the binary invoked (e.g. 'npm'), NULL = pre-v21 row
+  args          TEXT                  -- v21: JSON array of argv, NULL = pre-v21 row
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 
@@ -109,6 +121,54 @@ CREATE TABLE IF NOT EXISTS phase_marks (
   marked_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stage_key, id);
+
+-- Review findings an agent (or, per the schema, a human) reported about a
+-- ticket's diff — review's Lane B evidence (§6.7 `review_findings`).
+-- APPEND-ONLY, exactly like gate_runs and phase_marks: a finding is an event,
+-- many per stage, and `stages` is keyed (ticket_id, stage_key) and overwritten
+-- by a retry, so this table is the only place a prior attempt's findings
+-- survive. Never UPDATEd.
+--
+-- The identity is the surrogate `id`, not a natural key — same reasoning as
+-- gate_runs: a fail->fix->pass cycle files two invocations under one
+-- `attempt`, so (ticket, attempt) is not unique. `attempt` is read BEFORE any
+-- bump, so a batch is filed under the attempt that produced it. `run_at` is
+-- the batch stamp shared by every finding of one review invocation;
+-- `latestFindingBatch` (store/reviewFindings.ts) picks by greatest `run_at`,
+-- never by array position (the `inside/gates.ts:19-30` rule) — insertion
+-- order is not a query contract.
+--
+-- `severity` is TEXT rather than an enum (SQLite has none) but is a CLOSED
+-- vocabulary — critical | high | medium | low | info, `manifest/types.ts`'s
+-- `Severity` — enforced where untrusted model output is parsed (a later task
+-- drops an unrecognized severity rather than storing it). `recordFindings`
+-- itself is typed against that union rather than re-checking at runtime, so a
+-- value outside it can only arrive from a foreign write or a future karst's
+-- wider vocabulary — which reads degrade on rather than throw.
+--
+-- `file` carries no absolute path and no `..` segment (validated where the
+-- finding is parsed, not here); NULL = not file-scoped. `line` NULL = whole
+-- file. `repo` is NOT NULL — '' states "not repo-scoped" rather than using
+-- NULL for two different absences.
+--
+-- No column can hold the diff itself, for the same reason `token_usage` has
+-- no text column: this table is read on the review panel's render path.
+CREATE TABLE IF NOT EXISTS review_findings (
+  id          INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS report order
+  ticket_id   INTEGER NOT NULL,     -- -> tickets.id
+  attempt     INTEGER NOT NULL,     -- review's attempt when this batch landed
+  run_at      TEXT NOT NULL,        -- batch stamp: one review invocation
+  severity    TEXT NOT NULL,        -- critical | high | medium | low | info (closed set)
+  repo        TEXT NOT NULL,        -- worktrees.repo; '' when not repo-scoped
+  file        TEXT,                 -- repo-relative, validated; NULL = not file-scoped
+  line        INTEGER,              -- NULL = whole file
+  title       TEXT NOT NULL,        -- capped at TITLE_MAX, single line
+  detail      TEXT NOT NULL,        -- capped at DETAIL_MAX
+  source      TEXT NOT NULL,        -- 'agent' | 'human'
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_review_findings_ticket
+  ON review_findings(ticket_id, run_at, id);
 
 CREATE TABLE IF NOT EXISTS worktrees (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id

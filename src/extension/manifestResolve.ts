@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
 import { generateProjectSlug } from '../project/slug.js';
+import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 
 /**
  * Manifest resolution for the activation layer (§7.1 wiring). Kept out of
@@ -11,10 +12,11 @@ import { generateProjectSlug } from '../project/slug.js';
  * surfaces its own user-facing message, so callers just check for `undefined`.
  */
 
-// This module compiles to `dist/extension/`, and the bundled example yml is
-// copied to `dist/karst.example.yml` — one level up from here.
+// This module compiles to `dist/extension/`, and the bundled root assets are
+// copied to `dist/` — one level up from here.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXAMPLE_YML = join(HERE, '..', 'karst.example.yml');
+const SETUP_GUIDE = join(HERE, '..', SETUP_GUIDE_FILENAME);
 
 /** The resolved manifest path (config-pointed, workspace-relative), or throws. */
 export function manifestPathOrThrow(): string {
@@ -66,9 +68,17 @@ export async function scaffoldManifest(): Promise<void> {
   const withId = `id: ${generateProjectSlug(folder.uri.fsPath)}\n\n${template}`;
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, withId);
+  // The gates runbook lands beside the manifest the agent is about to fill in.
+  // Best-effort: a missing or unreadable asset must never cost the user their
+  // karst.yml, which is the whole point of this call.
+  try {
+    writeSetupGuide(manifestPath, readFileSync(SETUP_GUIDE, 'utf8'));
+  } catch {
+    /* the manifest is what matters; the guide is reference material */
+  }
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifestPath));
   void vscode.window.showInformationMessage(
-    "Created karst.yml — set each repository's repoPath, then try again.",
+    `Created karst.yml — set each repository's repoPath, then try again. Quality-gate setup runbook: ${SETUP_GUIDE_FILENAME}`,
   );
 }
 
@@ -77,8 +87,18 @@ export async function scaffoldManifest(): Promise<void> {
  * template when absent. Returns the loaded `Manifest`, or `undefined` when the
  * caller should stop (no folder, no/invalid manifest, or a scaffold was just
  * created). Shared by the spin and ticket-form commands.
+ *
+ * `info` is only for inert-key notices (§ config-ui-coverage) — deliberately
+ * NOT a toast like the `warnings` loop below. This resolves on every ordinary
+ * spin/create/edit, not just once, and a notice names a key that "must not
+ * read as broken" (see `manifest/load.ts`); a popup on every routine action
+ * would read as exactly that. Defaults to a no-op so this stays silent unless
+ * a caller opts in (extension.ts's activate() passes `logger.info`), same
+ * shape as `worktreePathContext`'s `warn`/`info` injection.
  */
-export async function resolveManifest(): Promise<Manifest | undefined> {
+export async function resolveManifest(
+  info: (message: string) => void = () => {},
+): Promise<Manifest | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     void vscode.window.showErrorMessage('Open a folder before using Karst.');
@@ -105,12 +125,13 @@ export async function resolveManifest(): Promise<Manifest | undefined> {
   }
 
   try {
-    const { manifest, warnings } = loadManifestWithDiagnostics(manifestPath);
+    const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
     // Non-fatal: a legacy `services:` manifest still loads, but the author
     // should know it's deprecated. One toast per resolve (not per repository).
     for (const w of warnings) {
       void vscode.window.showWarningMessage(`Karst manifest: ${w}`);
     }
+    for (const n of notices) info(`karst.yml: ${n}`);
     return manifest;
   } catch (err) {
     void vscode.window.showErrorMessage(

@@ -242,6 +242,14 @@ export async function shipTicket(
   const title = ticket.title ?? ticket.key ?? `Ticket ${opts.ticketId}`;
   const key = ticket.key ?? String(opts.ticketId);
   const conventions = opts.conventions ?? opts.manifest?.conventions;
+  // A crash-recovery re-run can land here after an EARLIER call already
+  // advanced the ticket past `ship` (§5.3 idempotency). One read, reused below
+  // to gate both the head `setStage` and the tail `transition`: writing either
+  // one unconditionally on such a re-run would resurrect the `ship` row as
+  // `running` beside a ticket already parked at `merge` (or beyond) — a state
+  // that never existed before this guard, since the old unconditional tail
+  // transition used to repair it back to `passed` on every call.
+  const atShip = ticket.stageCurrent === 'ship';
 
   const insert = store.db.prepare(
     "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, 'open')",
@@ -253,8 +261,11 @@ export async function shipTicket(
   );
 
   // A retry re-runs this stage: clear any reason the last attempt recorded, so a
-  // stale failure can't outlive the run that fixed it.
-  setStage(store, opts.ticketId, 'ship', { status: 'running', verdict: null, endedAt: null });
+  // stale failure can't outlive the run that fixed it. Only when the ticket is
+  // actually still at ship — see `atShip` above.
+  if (atShip) {
+    setStage(store, opts.ticketId, 'ship', { status: 'running', verdict: null, endedAt: null });
+  }
 
   const prs: ShippedPr[] = [];
   try {
@@ -477,7 +488,15 @@ export async function shipTicket(
   // PRs opened → ship passes → `merge`, the stage that owns the gap between "the
   // PR exists" and "the work landed". Ship's own job ends here and its verdict is
   // still unaffected by merge state: a conflicted branch is a shipped branch.
-  transition(store, opts.ticketId, 'ship', { kind: 'passed' });
+  //
+  // Guarded the same way `settleMergeStage` guards its own transition, and with
+  // the SAME `atShip` read the head `setStage` above used — not a fresh one:
+  // both writes describe the same run, so they must agree on whether that run
+  // started genuinely at ship. Only the run that finds the ticket still AT ship
+  // is the one that should advance it (or touch the `ship` row at all).
+  if (atShip) {
+    transition(store, opts.ticketId, 'ship', { kind: 'passed' });
+  }
 
   // A ticket that delivered no diff in any repo has nothing to land, so it would
   // otherwise park at `merge` forever waiting for a PR that will never exist.

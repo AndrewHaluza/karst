@@ -994,6 +994,38 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/\.dhead \.keypill\.local\{border-style:dashed;color:var\(--k-text-dim\);\s*\n\s*background:transparent;cursor:default\}/);
   });
 
+  it('renders a blocked banner from state.currentStage.blocked, hidden by default', () => {
+    expect(HTML).toContain('<div class="fault blocked hidden" id="blocked">');
+    expect(HTML).toMatch(/function renderBlocked\(state\)/);
+    expect(HTML).toMatch(/cell && cell\.blocked/);
+    expect(HTML).toMatch(/box\.classList\.toggle\('hidden', !blocked\)/);
+    expect(HTML).toContain('renderBlocked(state);');
+  });
+
+  it('resumes a blocked stage on its own dataset key, never the rail\'s selection one', () => {
+    // The rail's stage-selection click handler matches ANY `[data-stage]`
+    // ancestor via `closest`, so the Resume button must use a differently
+    // named attribute — `data-stagekey` — or clicking it would also silently
+    // re-point the Inside panel to whatever stage it names.
+    const renderBlockedBody = HTML.slice(
+      HTML.indexOf('function renderBlocked(state)'),
+      HTML.indexOf('// The fault card scans the FLAT stepper'),
+    );
+    expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
+    expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
+    expect(renderBlockedBody).not.toMatch(/data-stage="/);
+  });
+
+  it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
+    const generic = HTML.slice(
+      HTML.indexOf('// Every other posting control settles'),
+      HTML.indexOf('window.addEventListener'),
+    );
+    expect(generic).toMatch(
+      /btn\.dataset\.stagekey[\s\S]{0,200}post\(\{ type: act, ticketId: lastState\.ticketId, stageKey: btn\.dataset\.stagekey, requestId \}\)/,
+    );
+  });
+
   it('leaves stop-driver unreachable from the rendered UI (tracked, not silently wired)', () => {
     // No control in this file posts stop-driver — confirmed here so a future
     // edit does not accidentally wire it up without updating the host/tests
