@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
 import { generateProjectSlug } from '../project/slug.js';
+import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 
 /**
  * Manifest resolution for the activation layer (§7.1 wiring). Kept out of
@@ -11,10 +12,11 @@ import { generateProjectSlug } from '../project/slug.js';
  * surfaces its own user-facing message, so callers just check for `undefined`.
  */
 
-// This module compiles to `dist/extension/`, and the bundled example yml is
-// copied to `dist/karst.example.yml` — one level up from here.
+// This module compiles to `dist/extension/`, and the bundled root assets are
+// copied to `dist/` — one level up from here.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXAMPLE_YML = join(HERE, '..', 'karst.example.yml');
+const SETUP_GUIDE = join(HERE, '..', SETUP_GUIDE_FILENAME);
 
 /** The resolved manifest path (config-pointed, workspace-relative), or throws. */
 export function manifestPathOrThrow(): string {
@@ -66,9 +68,17 @@ export async function scaffoldManifest(): Promise<void> {
   const withId = `id: ${generateProjectSlug(folder.uri.fsPath)}\n\n${template}`;
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, withId);
+  // The gates runbook lands beside the manifest the agent is about to fill in.
+  // Best-effort: a missing or unreadable asset must never cost the user their
+  // karst.yml, which is the whole point of this call.
+  try {
+    writeSetupGuide(manifestPath, readFileSync(SETUP_GUIDE, 'utf8'));
+  } catch {
+    /* the manifest is what matters; the guide is reference material */
+  }
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifestPath));
   void vscode.window.showInformationMessage(
-    "Created karst.yml — set each repository's repoPath, then try again.",
+    `Created karst.yml — set each repository's repoPath, then try again. Quality-gate setup runbook: ${SETUP_GUIDE_FILENAME}`,
   );
 }
 
