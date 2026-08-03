@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -466,7 +466,24 @@ export function migrate(db: Database): void {
   }
 
   if (current < 21) {
-    // v21 adds the invocation-identity columns to `gate_runs` (repo/command/args)
+    // v21 records a server's working directory, so a live pid can be tied back
+    // to the tree it serves. Without it, removing a worktree left its dev server
+    // running forever: reparented to init, holding ~1 GB and its port, serving a
+    // directory that no longer exists (869ed2n50).
+    //
+    // Not backfilled, and deliberately not guessed: `repo` is a repository NAME
+    // while worktrees are keyed by PATH, and several repository entries may
+    // share one worktree — the mapping is not derivable from the registry. A
+    // NULL cwd reads as "unknown" everywhere it is consumed, so a legacy row is
+    // never reaped on a guess.
+    const serverCols = tableColumns(db, 'servers');
+    if (serverCols.size > 0 && !serverCols.has('cwd')) {
+      db.exec('ALTER TABLE servers ADD COLUMN cwd TEXT');
+    }
+  }
+
+  if (current < 22) {
+    // v22 adds the invocation-identity columns to `gate_runs` (repo/command/args)
     // so review's R7 ("did I ask a question UAT didn't") can compare on what
     // actually ran instead of the display name alone. Guarded like every other
     // column addition: a fresh DB already carries them via schema.sql, and this
@@ -487,8 +504,8 @@ export function migrate(db: Database): void {
     }
   }
 
-  if (current < 22) {
-    // v22 adds review's Lane B evidence table (§6.7 `review_findings`) —
+  if (current < 23) {
+    // v23 adds review's Lane B evidence table (§6.7 `review_findings`) —
     // structured findings an agent reports about a ticket's diff, append-only
     // like gate_runs and phase_marks. A whole new table, so the step is the
     // same DDL as schema.sql rather than an ALTER, and every statement is IF

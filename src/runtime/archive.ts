@@ -4,6 +4,7 @@ import type { Store } from '../store/db.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { PortAllocator } from '../resolver/allocator.js';
 import { createWorktree, removeWorktree, canonicalPath, type WorktreeRecord } from './worktree.js';
+import type { ReapedServer } from './worktreeServers.js';
 import {
   recordArchive,
   getArchiveByPath,
@@ -22,6 +23,14 @@ export interface ArchiveResult {
   outcome: 'archived' | 'skipped';
   reason?: string;
   archiveRef: string;
+  /**
+   * Servers that were running inside the worktree and had to be dealt with
+   * before it could be removed. Carried out so the caller reports them: an
+   * archive that silently kills a running dev server — or that silently could
+   * not — is the same invisibility this fix exists to end (869ed2n50). Empty on
+   * a skip, and empty in the normal case where nothing was running.
+   */
+  reapedServers: ReapedServer[];
 }
 
 export interface RestoreResult {
@@ -78,10 +87,15 @@ export async function archiveWorktree(
   const { ticketId, repoPath, path, branch, baseRef } = target;
 
   if (!existsSync(path)) {
-    return { outcome: 'skipped', reason: 'folder already gone', archiveRef: '' };
+    return { outcome: 'skipped', reason: 'folder already gone', archiveRef: '', reapedServers: [] };
   }
   if (!(await isRegistered(runner, repoPath, path))) {
-    return { outcome: 'skipped', reason: 'orphan folder (not a registered worktree)', archiveRef: '' };
+    return {
+      outcome: 'skipped',
+      reason: 'orphan folder (not a registered worktree)',
+      archiveRef: '',
+      reapedServers: [],
+    };
   }
 
   const slug = slugOf(path);
@@ -119,7 +133,7 @@ export async function archiveWorktree(
     depsMode: 'inherited',
     adopted: false,
   };
-  removeWorktree(store, record, allocator);
+  const reapedServers = removeWorktree(store, record, allocator);
 
   recordArchive(store, {
     ticketId,
@@ -131,7 +145,7 @@ export async function archiveWorktree(
     method: 'git-ref',
   });
 
-  return { outcome: 'archived', archiveRef };
+  return { outcome: 'archived', archiveRef, reapedServers };
 }
 
 /**

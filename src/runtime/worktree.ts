@@ -1,10 +1,17 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { PortAllocator } from '../resolver/allocator.js';
 import { prepareCommand } from './command.js';
 import { KARST_EXCLUDE_RULES } from './karstExcludes.js';
+import { canonicalPath } from './pathScope.js';
+import { stopServersUnder, type ReapedServer } from './worktreeServers.js';
+
+// `canonicalPath` moved to the leaf `pathScope.ts` (this module now depends on
+// `worktreeServers.ts`, which needs it too — keeping it here would be a cycle).
+// Re-exported because every existing consumer imports it from this module.
+export { canonicalPath } from './pathScope.js';
 
 export interface WorktreeRecord {
   ticketId: number;
@@ -55,26 +62,6 @@ export function worktreePaths(
     path: join(repoPath, '.karst', 'worktrees', slug),
     branch: branch && branch.trim() !== '' ? branch : `karst/${slug}`,
   };
-}
-
-/**
- * Canonicalize a path for equality against `git worktree list` output. git prints
- * the real (symlink-resolved) path — e.g. macOS `/var/…` → `/private/var/…` — so a
- * raw `join()`-built path won't string-match. Resolves the deepest existing
- * ancestor, then re-appends the missing tail, so it works whether or not the leaf
- * exists yet.
- */
-export function canonicalPath(p: string): string {
-  let head = p;
-  const tail: string[] = [];
-  while (!existsSync(head)) {
-    const parent = dirname(head);
-    if (parent === head) return p; // reached root without an existing ancestor
-    tail.unshift(basename(head));
-    head = parent;
-  }
-  const base = realpathSync(head);
-  return tail.length ? join(base, ...tail) : base;
 }
 
 /** True if a local branch `<branch>` already exists in `repoPath` (never throws). */
@@ -226,14 +213,31 @@ export function createWorktree(
 }
 
 /**
- * Tear down a worktree: remove it via git, delete its `worktrees` row, and
- * release the ticket's port allocations [L5] so ports free on teardown (§8.4).
+ * Tear down a worktree: stop the servers running inside it, remove it via git,
+ * delete its `worktrees` row, and release the ticket's port allocations [L5] so
+ * ports free on teardown (§8.4).
+ *
+ * The server stop comes FIRST and is not optional. Hot services are spawned
+ * `detached` (their own session, no controlling tty), so once the tree is gone
+ * nothing can reach them: they reparent to init, keep their port bound and their
+ * memory held, and serve a directory that no longer exists — invisibly, because
+ * the registry row leaves with the ticket (869ed2n50). This is the single choke
+ * point for worktree removal, so archiving, bulk archiving and spin teardown all
+ * inherit it. Best-effort by construction: `stopServersUnder` isolates each kill,
+ * because cleanup must never fail a removal the user asked for.
+ *
+ * RETURNS what it stopped, and callers with somewhere to say it must say it — a
+ * reap nothing reports is the failure mode this whole change exists to end. Spin
+ * teardown is the one caller that legitimately ignores the value: it stops the
+ * servers its own run started BEFORE removing anything, so by the time this runs
+ * there is nothing left for it to find.
  */
 export function removeWorktree(
   store: Store,
   record: WorktreeRecord,
   allocator: PortAllocator,
-): void {
+): ReapedServer[] {
+  const reaped = stopServersUnder(store, record.path);
   try {
     // --force because the linked worktree may have untracked build artifacts.
     git(record.repoPath, ['worktree', 'remove', '--force', record.path]);
@@ -247,6 +251,7 @@ export function removeWorktree(
     // failed removal would leak the ticket's allocation forever (§8.4).
     allocator.release(record.ticketId);
   }
+  return reaped;
 }
 
 /**

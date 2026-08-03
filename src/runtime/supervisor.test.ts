@@ -190,10 +190,20 @@ describe('server supervisor', () => {
     expect(health.status).toBe(200);
 
     const row = store.db
-      .prepare('SELECT pid, port, status, log_path FROM servers WHERE id = ?')
-      .get(rec.id) as { pid: number; port: number; status: string; log_path: string };
+      .prepare('SELECT pid, port, status, log_path, cwd FROM servers WHERE id = ?')
+      .get(rec.id) as {
+      pid: number;
+      port: number;
+      status: string;
+      log_path: string;
+      cwd: string | null;
+    };
     expect(row.status).toBe('running');
     expect(row.pid).toBe(rec.pid);
+    // The directory is what ties this pid to the tree it serves: removing that
+    // tree reaps the process, and a boot sweep can spot one whose tree is gone.
+    // Without it a removed worktree leaves a detached server running forever.
+    expect(row.cwd).toBe(dir);
 
     stopServer(store, rec.id);
   });

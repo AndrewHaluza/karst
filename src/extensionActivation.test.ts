@@ -35,6 +35,26 @@ describe('extension activation', () => {
     expect(source).toContain('if (result.completedTicket) await onTicketCompleted();');
   });
 
+  // `removeWorktree` reaps the servers it removes a tree out from under, but it
+  // can only see removals karst performs. A worktree deleted by anything else —
+  // or a server leaked by a build that predates that fix — is reachable only
+  // from a sweep, and an unreaped one is invisible: detached, reparented to
+  // init, holding its port and ~1 GB while serving a deleted directory.
+  it('sweeps servers whose directory is gone on activation, and says which it stopped', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // A source assertion, like every case in this file: `extension.ts` imports
+    // `vscode` and cannot load under vitest. It pins the WIRING only — that the
+    // sweep is called at activation and its result reported — without pinning
+    // exact formatting, so a reflow of the statement (line wrap, spacing) can't
+    // break this for no behavioral reason. What the sweep decides, and what it
+    // is allowed to signal, are behavioural and are pinned where they can
+    // actually run: `worktreeServers.test.ts` (real detached processes) and
+    // `serverIdentity.test.ts`.
+    expect(source).toMatch(/reapStaleServers\(localStore\)/);
+    expect(source).toMatch(/reapStaleServers\(localStore\)[\s\S]{0,80}?logger\.info\(\s*describeReap\(/);
+  });
+
   it('reconciles terminals VS Code revives after the activation scan', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'extension.ts'),
