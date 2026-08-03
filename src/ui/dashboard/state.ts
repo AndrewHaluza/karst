@@ -16,6 +16,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { buildStageInside, type StageInside } from '../../model/inside/index.js';
 import { listGateRuns } from '../../store/gateRuns.js';
+import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
@@ -220,6 +221,7 @@ export function buildDashboardState(
     inside: buildStageInside({
       stepper,
       gateRuns: listGateRuns(store, ticketId),
+      findings: listFindings(store, ticketId),
       worktrees,
       prs,
       mergeChecks,

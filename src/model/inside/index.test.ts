@@ -16,6 +16,7 @@ function build(
   return buildStageInside({
     stepper: buildStepper(rows),
     gateRuns: [],
+    findings: [],
     worktrees: [],
     prs: [],
     session: { sessionId: null, agentState: null, model: null },
@@ -341,6 +342,7 @@ describe('buildStageInside', () => {
       const all = buildStageInside({
         stepper: buildStepper(rows),
         gateRuns: [],
+        findings: [],
         worktrees: [],
         prs: [],
         session: { sessionId: null, agentState: null, model: null },

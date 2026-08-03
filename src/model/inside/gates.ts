@@ -1,4 +1,6 @@
 import type { GateRun } from '../../store/gateRuns.js';
+import type { Finding } from '../../store/reviewFindings.js';
+import { collapseDiagnostic } from '../diagnosticText.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { formatDuration, inside, type StageInside, type StageOp } from './types.js';
@@ -111,9 +113,60 @@ function gateOps(cell: StepperCell, runs: readonly GateRun[], stageKey: StageKey
   return cell.blocked ? [...ops, blockedOp(cell.blocked)] : ops;
 }
 
+/**
+ * The most recently recorded findings batch — the same greatest-`runAt`
+ * reduction `latestBatch` (above) documents for `gate_runs`, applied to
+ * `review_findings` rows. Duplicated rather than imported from
+ * `store/reviewFindings.ts`'s own `latestFindingBatch` for the same reason
+ * that function gives for not sharing this one: the store layer must not
+ * depend on `model/`, so each side keeps its own copy of a selection rule
+ * simple enough that drift between them would be caught by either module's
+ * own tests.
+ */
+function latestFindingsBatch(findings: readonly Finding[]): Finding[] {
+  const latest = findings.reduce<string | null>(
+    (max, f) => (max === null || f.runAt > max ? f.runAt : max),
+    null,
+  );
+  return latest === null ? [] : findings.filter((f) => f.runAt === latest);
+}
+
+/** Findings at or above this severity read as fail-styled — they are the ones that can fail the ticket. */
+const BLOCKING_STATUS_SEVERITIES: ReadonlySet<Finding['severity']> = new Set(['critical', 'high']);
+
+/** Cap on a finding row's rendered detail — a list row, not a log line. */
+const FINDING_DETAIL_MAX = 200;
+
+/**
+ * One finding as a row. `title`/`detail` are untrusted agent text — collapsed
+ * to one line and capped here even though `parseFindings` already did it once
+ * at the write-time boundary (`workflow/review/findings.ts`), the same
+ * defense-in-depth `model/stepper.ts` applies to `verdict`/`blocked.reason`:
+ * this render boundary must not depend on an earlier one having run.
+ *
+ * `repo` is deliberately not shown per-row — every row here already belongs
+ * to one ticket's one review run, and `file` (when present) is the more
+ * useful location.
+ */
+function findingOp(finding: Finding): StageOp {
+  const location = finding.file
+    ? finding.line
+      ? `${finding.file}:${finding.line}`
+      : finding.file
+    : null;
+  const title = collapseDiagnostic(finding.title, FINDING_DETAIL_MAX);
+  return {
+    status: BLOCKING_STATUS_SEVERITIES.has(finding.severity) ? 'fail' : 'note',
+    name: finding.severity,
+    detail: location ? `${title} — ${location}` : title,
+    duration: '',
+  };
+}
+
 export function reviewInside(
   cell: StepperCell,
   runs: readonly GateRun[],
+  findings: readonly Finding[],
   now: string,
 ): StageInside {
   const running = cell.status === 'running';
@@ -155,6 +208,15 @@ export function reviewInside(
         duration: formatDuration(changesRun.startedAt, changesRun.endedAt),
       });
     }
+
+    // Findings are review's own evidence, visible on the same terms as its
+    // gate rows and the changes row above — I2 (spec §6.6): before this, a
+    // finding was read only by the fix brief and `karst context`, never
+    // rendered anywhere a human looks. Skipped while blocked for the same
+    // reason the changes row is: a park already states why nothing ran, and a
+    // stale prior-attempt finding rendered beside it would read as fresh
+    // evidence about a run that never happened.
+    ops.push(...latestFindingsBatch(findings).map(findingOp));
   }
 
   return inside(cell, now, ops);

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { GateRun } from '../../store/gateRuns.js';
+import type { Finding } from '../../store/reviewFindings.js';
+import type { Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { reviewInside, uatInside } from './gates.js';
@@ -34,6 +36,25 @@ function run(
   };
 }
 
+let nextFindingId = 1;
+function finding(severity: Severity, extra: Partial<Finding> = {}): Finding {
+  return {
+    id: nextFindingId++,
+    ticketId: 1,
+    attempt: 0,
+    runAt: '2026-07-20T12:00:00.000Z',
+    severity,
+    repo: '/web',
+    file: null,
+    line: null,
+    title: 'x',
+    detail: 'y',
+    source: 'agent',
+    createdAt: '2026-07-20T12:00:00.000Z',
+    ...extra,
+  };
+}
+
 describe('reviewInside', () => {
   // Review resolves its gates from the repository's package.json at RUNTIME,
   // per target, so the recorded rows ARE the list. Matching them against a
@@ -45,12 +66,12 @@ describe('reviewInside', () => {
       run('review', 'typecheck (web)', 0),
       run('review', 'test (api)', 0),
     ];
-    const ops = reviewInside(cell('review', 'passed'), runs, NOW).ops;
+    const ops = reviewInside(cell('review', 'passed'), runs, [], NOW).ops;
     expect(ops.map((o) => o.name)).toEqual(['lint (web)', 'typecheck (web)', 'test (api)']);
   });
 
   it('reads a failing gate as failed, naming the exit code', () => {
-    const ops = reviewInside(cell('review', 'failed'), [run('review', 'lint (web)', 1)], NOW).ops;
+    const ops = reviewInside(cell('review', 'failed'), [run('review', 'lint (web)', 1)], [], NOW).ops;
     const lint = ops.find((o) => o.name === 'lint (web)')!;
     expect(lint.status).toBe('fail');
     expect(lint.detail).toContain('exit 1');
@@ -59,7 +80,7 @@ describe('reviewInside', () => {
   it('never reads a gate the repo cannot answer as a pass', () => {
     // exitCode null means there was no script to run. Showing it green would
     // claim a check karst never made.
-    const ops = reviewInside(cell('review', 'passed'), [run('review', 'lint (web)', null)], NOW).ops;
+    const ops = reviewInside(cell('review', 'passed'), [run('review', 'lint (web)', null)], [], NOW).ops;
     const lint = ops.find((o) => o.name === 'lint (web)')!;
     expect(lint.status).toBe('note');
     expect(lint.status).not.toBe('pass');
@@ -69,7 +90,7 @@ describe('reviewInside', () => {
   it('renders only the latest batch when a gate has been run more than once', () => {
     const first = run('review', 'lint (web)', 1, { runAt: '2026-07-20T12:00:00.000Z' });
     const second = run('review', 'lint (web)', 0, { runAt: '2026-07-20T12:20:00.000Z' });
-    const ops = reviewInside(cell('review', 'passed'), [first, second], NOW).ops;
+    const ops = reviewInside(cell('review', 'passed'), [first, second], [], NOW).ops;
     expect(ops).toHaveLength(1);
     expect(ops[0]!.status).toBe('pass');
   });
@@ -80,17 +101,18 @@ describe('reviewInside', () => {
     // change would surface a stale run with nothing failing to say so.
     const older = run('review', 'lint (web)', 1, { runAt: '2026-07-20T12:00:00.000Z' });
     const newer = run('review', 'lint (web)', 0, { runAt: '2026-07-20T12:20:00.000Z' });
-    const ops = reviewInside(cell('review', 'passed'), [newer, older], NOW).ops;
+    const ops = reviewInside(cell('review', 'passed'), [newer, older], [], NOW).ops;
     expect(ops[0]!.status).toBe('pass');
   });
 
   it('states the changes surface as still to come while the gate runs, and as opened once a real openDiff recorded it', () => {
-    const running = reviewInside(cell('review', 'running'), [], NOW).ops;
+    const running = reviewInside(cell('review', 'running'), [], [], NOW).ops;
     expect(running.at(-1)).toMatchObject({ name: 'changes', status: 'note' });
 
     const done = reviewInside(
       cell('review', 'failed'),
       [run('review', 'lint (web)', 1), run('review', 'changes', 0)],
+      [],
       NOW,
     ).ops;
     // review opens the changes surface on both verdicts, so this is observed,
@@ -105,6 +127,7 @@ describe('reviewInside', () => {
     const ops = reviewInside(
       cell('review', 'passed'),
       [run('review', 'lint (web)', 0), run('review', 'changes', 0)],
+      [],
       NOW,
     ).ops;
     expect(ops.filter((o) => o.name === 'changes')).toHaveLength(1);
@@ -115,15 +138,15 @@ describe('reviewInside', () => {
     // A finished stage with real gate evidence but no recorded 'changes' run
     // means no `openDiff` was wired for that run (e.g. no host supplied one).
     // The row must say nothing, never claim a control nobody performed.
-    const done = reviewInside(cell('review', 'passed'), [run('review', 'lint (web)', 0)], NOW).ops;
+    const done = reviewInside(cell('review', 'passed'), [run('review', 'lint (web)', 0)], [], NOW).ops;
     expect(done.find((o) => o.name === 'changes')).toBeUndefined();
 
-    const failed = reviewInside(cell('review', 'failed'), [run('review', 'lint (web)', 1)], NOW).ops;
+    const failed = reviewInside(cell('review', 'failed'), [run('review', 'lint (web)', 1)], [], NOW).ops;
     expect(failed.find((o) => o.name === 'changes')).toBeUndefined();
   });
 
   it('names no changes row before the stage has run — nothing opened or promised yet', () => {
-    const ops = reviewInside(cell('review', 'pending'), [], NOW).ops;
+    const ops = reviewInside(cell('review', 'pending'), [], [], NOW).ops;
     expect(ops.find((o) => o.name === 'changes')).toBeUndefined();
   });
 
@@ -134,14 +157,14 @@ describe('reviewInside', () => {
         endedAt: '2026-07-20T12:00:06.400Z',
       }),
     ];
-    const ops = reviewInside(cell('review', 'passed'), runs, NOW).ops;
+    const ops = reviewInside(cell('review', 'passed'), runs, [], NOW).ops;
     expect(ops.find((o) => o.name === 'lint (web)')!.duration).toBe('6.4s');
   });
 
   it('says the gates are not known yet before the stage has run', () => {
     // Review cannot name its gates before it probes a repository for them, so
     // it says that rather than promising a list it may not run.
-    const strip = reviewInside(cell('review', 'pending'), [], NOW);
+    const strip = reviewInside(cell('review', 'pending'), [], [], NOW);
     expect(strip.ops).toEqual([
       { status: 'pending', name: 'gates', detail: 'resolved per repository when the stage runs', duration: '' },
     ]);
@@ -152,13 +175,13 @@ describe('reviewInside', () => {
   it('shows nothing for a finished stage that recorded no gates', () => {
     // A finished stage with no rows predates this record; inventing one would be
     // a guess, and a pending row on a passed stage would be a false promise.
-    expect(reviewInside(cell('review', 'passed'), [], NOW).ops).toEqual([]);
+    expect(reviewInside(cell('review', 'passed'), [], [], NOW).ops).toEqual([]);
   });
 
   it('ignores gate rows belonging to another stage', () => {
     // A uat failure is not review evidence. With nothing of its own recorded,
     // review has nothing to show — not a borrowed red row.
-    const ops = reviewInside(cell('review', 'passed'), [run('uat', 'test (web)', 1)], NOW).ops;
+    const ops = reviewInside(cell('review', 'passed'), [run('uat', 'test (web)', 1)], [], NOW).ops;
     expect(ops).toEqual([]);
   });
 
@@ -166,7 +189,7 @@ describe('reviewInside', () => {
     const blockedCell = cell('review', 'running', {
       blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW },
     });
-    const ops = reviewInside(blockedCell, [], NOW).ops;
+    const ops = reviewInside(blockedCell, [], [], NOW).ops;
     expect(ops).toEqual([
       { status: 'fail', name: 'blocked', detail: 'no target resolved', duration: '' },
     ]);
@@ -176,7 +199,7 @@ describe('reviewInside', () => {
     const blockedCell = cell('review', 'running', {
       blocked: { kind: 'capability-missing', reason: 'api: cannot read package.json', at: NOW },
     });
-    const ops = reviewInside(blockedCell, [run('review', 'lint (web)', 0)], NOW).ops;
+    const ops = reviewInside(blockedCell, [run('review', 'lint (web)', 0)], [], NOW).ops;
     expect(ops.map((o) => o.name)).toEqual(['lint (web)', 'blocked']);
     expect(ops.at(-1)).toMatchObject({
       status: 'fail',
@@ -192,8 +215,108 @@ describe('reviewInside', () => {
     const blockedCell = cell('review', 'running', {
       blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW },
     });
-    const ops = reviewInside(blockedCell, [], NOW).ops;
+    const ops = reviewInside(blockedCell, [], [], NOW).ops;
     expect(ops.find((o) => o.name === 'gates')).toBeUndefined();
+  });
+
+  // I2 (spec §6.6): findings must be visible in `reviewInside`, not just the
+  // fix brief and `karst context`. A user whose ticket just failed review
+  // must be able to see what the finding actually said.
+  describe('findings', () => {
+    it('appends a row per finding from the latest batch, after the gate rows', () => {
+      const ops = reviewInside(
+        cell('review', 'failed'),
+        [run('review', 'lint (web)', 0)],
+        [finding('high', { title: 'missing null check' })],
+        NOW,
+      ).ops;
+      expect(ops.map((o) => o.name)).toEqual(['lint (web)', 'high']);
+      expect(ops[1]!.detail).toContain('missing null check');
+    });
+
+    it('renders a location when the finding is file-scoped', () => {
+      const ops = reviewInside(
+        cell('review', 'failed'),
+        [],
+        [finding('high', { title: 'oops', file: 'src/foo.ts', line: 42 })],
+        NOW,
+      ).ops;
+      expect(ops[0]!.detail).toContain('src/foo.ts:42');
+    });
+
+    it('renders a whole-file location with no line when line is null', () => {
+      const ops = reviewInside(
+        cell('review', 'failed'),
+        [],
+        [finding('high', { title: 'oops', file: 'src/foo.ts', line: null })],
+        NOW,
+      ).ops;
+      expect(ops[0]!.detail).toContain('src/foo.ts');
+      expect(ops[0]!.detail).not.toContain('src/foo.ts:');
+    });
+
+    // Blocking severities read as fail-styled — they can be the reason the
+    // ticket failed — while sub-threshold severities are informational.
+    it('maps critical/high to fail and medium/low/info to note', () => {
+      const ops = reviewInside(
+        cell('review', 'failed'),
+        [],
+        [
+          finding('critical'),
+          finding('high'),
+          finding('medium'),
+          finding('low'),
+          finding('info'),
+        ],
+        NOW,
+      ).ops;
+      expect(ops.map((o) => o.status)).toEqual(['fail', 'fail', 'note', 'note', 'note']);
+    });
+
+    it('shows only the latest batch, so a superseded attempt does not double the list', () => {
+      const ops = reviewInside(
+        cell('review', 'failed'),
+        [],
+        [
+          finding('high', { runAt: '2026-07-20T11:00:00.000Z', title: 'stale' }),
+          finding('low', { runAt: '2026-07-20T12:00:00.000Z', title: 'fresh' }),
+        ],
+        NOW,
+      ).ops;
+      expect(ops).toHaveLength(1);
+      expect(ops[0]!.detail).toContain('fresh');
+    });
+
+    it('shows nothing when the latest batch found nothing', () => {
+      const ops = reviewInside(cell('review', 'passed'), [run('review', 'lint (web)', 0)], [], NOW).ops;
+      expect(ops.map((o) => o.name)).toEqual(['lint (web)']);
+    });
+
+    // A block already states why nothing ran; a stale prior-attempt finding
+    // rendered alongside it would look like fresh evidence about a run that
+    // never happened.
+    it('suppresses findings entirely while the stage is blocked', () => {
+      const blockedCell = cell('review', 'running', {
+        blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW },
+      });
+      const ops = reviewInside(blockedCell, [], [finding('critical')], NOW).ops;
+      expect(ops.find((o) => o.name === 'critical')).toBeUndefined();
+    });
+
+    // Untrusted agent text: collapsed to one line and capped, exactly like
+    // every other model-authored string reaching a rendered surface —
+    // defense-in-depth even though `parseFindings` already collapsed it once
+    // at the write-time boundary.
+    it('collapses a multi-line or oversized title before it reaches the row', () => {
+      const ops = reviewInside(
+        cell('review', 'failed'),
+        [],
+        [finding('high', { title: 'line one\nline two\n\ttabbed' })],
+        NOW,
+      ).ops;
+      expect(ops[0]!.detail).not.toContain('\n');
+      expect(ops[0]!.detail).not.toContain('\t');
+    });
   });
 });
 
