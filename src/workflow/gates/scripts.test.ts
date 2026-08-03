@@ -10,8 +10,21 @@ describe('REVIEW_GATES', () => {
       ['lint', 'lint'],
       ['typecheck', 'typecheck'],
       ['build', 'build'],
-      ['format', 'format'],
+      ['format', 'format:check'],
     ]);
+  });
+
+  // `npm run format` conventionally rewrites files in place (prettier --write,
+  // gofmt -w, …), and ship's `git add -A` would commit that rewrite as if the
+  // ticket authored it. `format:check` is also the only variant of the two
+  // that can meaningfully FAIL — a rewriting gate almost always exits 0.
+  it('runs the check variant of format, not the writer', () => {
+    const formatGate = REVIEW_GATES.find((g) => g.name === 'format');
+    expect(formatGate).toEqual({
+      name: 'format',
+      script: 'format:check',
+      args: ['run', 'format:check'],
+    });
   });
 
   // `test` used to be here too, which meant every review run duplicated UAT's

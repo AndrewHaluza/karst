@@ -29,7 +29,7 @@ export const REVIEW_GATES: readonly GateSpec[] = [
   { name: 'lint', script: 'lint', args: ['run', 'lint'] },
   { name: 'typecheck', script: 'typecheck', args: ['run', 'typecheck'] },
   { name: 'build', script: 'build', args: ['run', 'build'] },
-  { name: 'format', script: 'format', args: ['run', 'format'] },
+  { name: 'format', script: 'format:check', args: ['run', 'format:check'] },
 ];
 
 /**

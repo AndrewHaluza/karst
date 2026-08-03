@@ -21,7 +21,7 @@ const ALL_SCRIPTS = {
   lint: 'eslint .',
   typecheck: 'tsc --noEmit',
   build: 'tsc -b',
-  format: 'prettier --check .',
+  'format:check': 'prettier --check .',
 };
 
 /**
@@ -104,7 +104,7 @@ describe('runReview', () => {
       'lint (/wt/web)',
       'typecheck (/wt/web)',
       'build (/wt/web)',
-      'format (/wt/web)',
+      'format:check (/wt/web)',
     ]);
     expect(listGateRuns(store, id).every((r) => r.stageKey === 'review')).toBe(true);
     expect(new Set(listGateRuns(store, id).map((r) => r.runAt)).size).toBe(1);
@@ -374,7 +374,7 @@ describe('runReview', () => {
       'lint (web)',
       'typecheck (web)',
       'build (web)',
-      'format (web)',
+      'format:check (web)',
     ]);
     // The repository that answered nothing is still named in the log — an
     // absence a human cannot see is indistinguishable from one karst never met.
