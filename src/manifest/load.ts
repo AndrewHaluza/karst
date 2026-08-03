@@ -4,6 +4,8 @@ import type { Manifest } from './types.js';
 import { validateManifest } from './schema.js';
 import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
+import { detectInertKeys } from './inertKeys.js';
+import { uatEnvWarnings } from './validate/uat.js';
 
 export type { Manifest } from './types.js';
 export { ManifestError } from './error.js';
@@ -11,11 +13,18 @@ export { ManifestError } from './error.js';
 export interface LoadedManifestResult {
   manifest: Manifest;
   /**
-   * Non-fatal notices — today, that the file still uses the legacy `services:`
-   * key. The host surfaces these; the CLI writes them to stderr. Empty for a
-   * current file.
+   * Non-fatal problems: the file uses the legacy `services:` key, or a
+   * `uat.env` value looks like a pasted credential. Something the author
+   * should change.
    */
   warnings: string[];
+  /**
+   * Non-fatal FACTS: keys the file declares that no code reads yet (D1). Not a
+   * problem and not the author's mistake, so kept out of `warnings` — a project
+   * configuring UAT ahead of Phase 2 must not read as broken. INFO, mirroring
+   * `catalogDiagnosticSeverity`'s split.
+   */
+  notices: string[];
 }
 
 /**
@@ -47,7 +56,15 @@ export function loadManifestWithDiagnostics(path: string): LoadedManifestResult 
 
   try {
     const { raw, warnings } = migrateLegacyManifest(parsed);
-    return { manifest: validateManifest(raw), warnings };
+    const manifest = validateManifest(raw);
+    return {
+      manifest,
+      // uatEnvWarnings has existed since UAT landed and was called by nothing,
+      // so this check has never run. It is a warning, never a block: it cannot
+      // be reliable, and the mistake it catches is the likely one.
+      warnings: [...warnings, ...(manifest.uat ? uatEnvWarnings(manifest.uat) : [])],
+      notices: detectInertKeys(raw),
+    };
   } catch (e) {
     throw e instanceof ManifestError ? e.withPath(path) : e;
   }

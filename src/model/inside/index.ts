@@ -1,4 +1,5 @@
 import type { GateRun } from '../../store/gateRuns.js';
+import type { Finding } from '../../store/reviewFindings.js';
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { WorktreeView } from '../../store/dashboard.js';
 import type { MergeCheckRow } from '../../store/mergeChecks.js';
@@ -38,6 +39,13 @@ export interface ShipPrView {
 export interface StageInsideInput {
   stepper: readonly StepperCell[];
   gateRuns: readonly GateRun[];
+  /**
+   * Every review finding recorded for this ticket, ticket-wide and
+   * unfiltered — `reviewInside` reduces to the latest batch itself (same
+   * convention as `gateRuns`/`marks`: selection is a pure decision made in
+   * this model layer, where it is testable without a DB).
+   */
+  findings: readonly Finding[];
   worktrees: readonly WorktreeView[];
   prs: readonly ShipPrView[];
   /**
@@ -285,7 +293,7 @@ function stripFor(key: StageKey, cell: StepperCell, input: StageInsideInput): St
     case 'uat':
       return uatInside(cell, input.gateRuns, input.now);
     case 'review':
-      return reviewInside(cell, input.gateRuns, input.now);
+      return reviewInside(cell, input.gateRuns, input.findings, input.now);
     case 'fix':
       return fixInside(cell, input.session.sessionId, input.fixAttempts, input.now);
     case 'ship':

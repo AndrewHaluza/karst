@@ -112,6 +112,7 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
+import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
@@ -119,6 +120,7 @@ import { mergeTicketPr } from './workflow/mergePr.js';
 import { settleMergeGates } from './workflow/mergeGate.js';
 import { capForGate } from './workflow/fixAttempts.js';
 import { findTicketPr } from './store/prs.js';
+import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
@@ -433,7 +435,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
-  }), () => worktreePathContext(currentManifest(), logger.warn), () => currentManifest()?.ticketLabelTemplate, logError,
+  }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider);
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
@@ -841,11 +843,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const loadSettingsState = (): LoadedManifest => {
     const path = manifestPathOrThrow();
     try {
-      const { manifest, warnings } = loadManifestWithDiagnostics(path);
+      const { manifest, warnings, notices } = loadManifestWithDiagnostics(path);
       // Non-fatal: log to the Karst output channel rather than a toast — the
       // Settings page the user just opened is where they'd fix it, and the
       // migrate.ts warning tells them to Save here to write the new shape.
       for (const w of warnings) logger.warn(`karst.yml: ${w}`);
+      for (const n of notices) logger.info(`karst.yml: ${n}`);
       return { manifest, error: null };
     } catch (e) {
       return {
@@ -987,7 +990,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // Scope is complete the moment its worktrees exist (scope has only a
           // pass edge → impl; it is not a gate). Pass it so the ticket advances
           // to impl running — the agent session opens in the impl worktree.
-          transition(localStore, ticketId, 'scope', { kind: 'passed' });
+          //
+          // Submit doubles as the edit surface for an already-started ticket
+          // (repos/approach changed after the fact), so `scope` may already
+          // have passed by the time this runs — mirror settleMergeStage's
+          // idiom rather than let transition() throw its internal invariant
+          // string onto the page: only advance the run that is genuinely
+          // still at scope, a ticket already past it just needs its session
+          // opened.
+          if (getTicket(localStore, ticketId).stageCurrent === 'scope') {
+            transition(localStore, ticketId, 'scope', { kind: 'passed' });
+          }
           provider.refresh();
           // Await so a launch failure (missing worktree, terminal spawn throw)
           // surfaces as a failed start instead of a silent stall with the ticket
@@ -1229,6 +1242,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       makeProvider: (config) => makeTicketingProvider(config, fetch, makeTokenProvider(context)),
       modelCatalog: () => modelCatalog,
+      openManifest: async () => {
+        await vscode.commands.executeCommand('karst.openManifest');
+      },
     }),
     listInstalledApproachIds,
     () => hasToken(context),
@@ -1236,6 +1252,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     listApproachCommands,
     logError,
     () => modelCatalog,
+    (): { value: string; derived: boolean } => {
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      const root = folder?.uri.fsPath ?? '';
+      const manifest = currentManifest();
+      return { value: resolveProjectSlug(manifest?.id, root), derived: manifest?.id === undefined };
+    },
   );
 
   // Discovery is deliberately detached from activation: bundled models render
@@ -1348,7 +1370,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     makeChangesPanelHost(context, brandIcon),
     (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
     async (ticketId, signal) => {
-      const pathContext = worktreePathContext(currentManifest(), logger.warn);
+      const pathContext = worktreePathContext(currentManifest(), logger.warn, logger.info);
       const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
         label: repoDisplayPath(worktree.repo, pathContext),
         path: worktree.path,
@@ -1466,8 +1488,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // mutually referential); read only when a panel is actually open, which
         // is long after activation has run.
         () => runPrSync(true),
+        // Same deferred-reference pattern as `runPrSync` above: `maybeDrive` is
+        // declared further down `activate`, read only once a panel is open.
+        (id) => maybeDrive(id, 'stage-resume'),
       ),
-    () => worktreePathContext(currentManifest(), logger.warn),
+    () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
     // Live ticketing config so the dashboard links to the source board (§ C3).
     () => currentManifest()?.ticketing,
@@ -1509,7 +1534,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
     // spend, so it resolves through the SAME rule fixResumeDecision uses.
-    (gate) => capForGate(gate, currentManifest()?.uat?.maxFixAttempts),
+    (gate) =>
+      capForGate(
+        gate,
+        currentManifest()?.uat?.maxFixAttempts,
+        currentManifest()?.review?.maxFixAttempts,
+      ),
   );
 
   binder = new TerminalDashboardBinder({
@@ -1681,7 +1711,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
           resumeFix: (id, _gate, attempts) => resumeFixSession(id, attempts),
+          // Reveals the ticket's Changes panel (`TicketChangesManager`,
+          // already wired above) — it does NOT itself call `openTicketDiff`/
+          // `vscode.diff`; that only fires once the human clicks a file row
+          // inside the panel. That distinction is deliberate: `vscode.diff`
+          // compares exactly two documents, `openTicketDiff` is scoped to one
+          // file at a time, and a review's affected set is an unbounded list
+          // of changed files across N targets — auto-opening a diff editor
+          // per file per target would fling open an unbounded, unprompted
+          // stack of tabs with no way for the user to decline. The Changes
+          // panel is the surface this codebase already has for presenting a
+          // ticket's full change set to a human without doing that, and
+          // reaching a specific file's real diff from it is one click away.
+          // `reviewInside`/the persisted 'changes' evidence are worded to
+          // match this exactly — "changes panel opened", never "diff
+          // opened". The panel aggregates every worktree for a ticket, so
+          // revealing it by ticket id covers every affected target review
+          // calls this for; `cwd` names nothing further to open.
+          openDiff: (id) => changes.open(id),
+          // Review's findings lane (Lane B). Same instrumented, per-ticket
+          // resolution every other AI call in karst goes through
+          // (`currentAgentAdapter` → `instrument(resolveAdapter(...))`), so
+          // findings spend is attributed exactly like `pr-description`/
+          // `fix-resume` — no second wiring path to keep in sync.
+          agentAdapter: (id) => currentAgentAdapter(id),
           log: (message) => logger.info(message),
+          // Findings-lane boundary diagnostics (a failed AI call, garbage
+          // output, an untrustworthy `file`) — routed to `Logger.warn` so
+          // they read as warnings in the output channel rather than as
+          // routine `info` progress lines or (absent this) the invisible
+          // extension-host console.
+          warn: (message) => logger.warn(message),
         },
         ticketId,
       );
@@ -1715,7 +1775,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
-      renderFixBrief(label, t.stages) ??
+      renderFixBrief(label, t.stages, latestFindingBatch(localStore, ticketId)) ??
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
     const marker = renderDoneMarkerInstruction(
       buildCliStagePrefix(context, dbPath, 'fix'),
@@ -1948,7 +2008,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Shared entry: resolve the manifest, remember it for ticket-form actions, and
   // open the create-mode page. Used by both createTicket and the ticket-form command.
   const openTicketFormCreate = async (): Promise<void> => {
-    const manifest = await resolveManifest();
+    const manifest = await resolveManifest(logger.info);
     if (!manifest) return; // no folder / scaffolded / invalid — message shown
     manifests.set(manifest, manifestPathOrThrow());
     ticketForm.openCreate();
@@ -2147,7 +2207,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // its reason and log, so point the agent at them instead of a vague
       // "continue". `currentStage` carries both (state.ts → buildStepper).
       const fixBrief =
-        t.stageCurrent === 'fix' ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages) : null;
+        t.stageCurrent === 'fix'
+          ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages, latestFindingBatch(localStore, ticketId))
+          : null;
       let seedPrompt = resumeId
         ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}\n\n${markerInstruction}`
         : initialPrompt;
@@ -2269,7 +2331,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // deep inside that, long after the user stopped watching.
       if (!guardCapability('worktrees') || !guardCapability('gates')) return;
 
-      const manifest = await resolveManifest();
+      const manifest = await resolveManifest(logger.info);
       if (!manifest) return; // no folder / scaffolded / invalid — message already shown
 
       // Ticket label (key — title) for all the spin chrome, not the raw id.
@@ -2354,7 +2416,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.editTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      const manifest = await resolveManifest();
+      const manifest = await resolveManifest(logger.info);
       if (!manifest) return;
       manifests.set(manifest, manifestPathOrThrow());
       ticketForm.openEdit(ticketId);
@@ -2378,7 +2440,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       provider.refresh();
-      const manifest = await resolveManifest();
+      const manifest = await resolveManifest(logger.info);
       if (manifest) manifests.set(manifest, manifestPathOrThrow());
       ticketForm.openEdit(child.id);
       void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
@@ -2536,6 +2598,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // loadSettingsState reads the file: valid → typed values, invalid → raw
       // fallback + the error, shown inline. No toast either way.
       settings.open();
+    }),
+    vscode.commands.registerCommand('karst.openManifest', async () => {
+      // Opens the FILE, deliberately — not the settings panel. Config karst
+      // parses but does not render (docs/config-ui-coverage.md, D1) is only
+      // reachable here, so this must work even when the manifest is invalid.
+      let path: string;
+      try {
+        path = manifestPathOrThrow();
+      } catch {
+        void vscode.window.showWarningMessage('Karst: no workspace folder is open.');
+        return;
+      }
+      if (!existsSync(path)) {
+        void vscode.window.showWarningMessage(
+          `Karst: no manifest at ${path}. Run onboarding to scaffold one.`,
+        );
+        return;
+      }
+      const doc = await vscode.workspace.openTextDocument(path);
+      await vscode.window.showTextDocument(doc);
     }),
     vscode.commands.registerCommand('karst.openGettingStarted', () => gettingStarted.open()),
     // Reprobe on demand: the user installs a tool in a terminal, clicks the status
@@ -2774,14 +2856,16 @@ export async function deactivate(): Promise<void> {
  * manifest when available, else quietly loads it (no prompts — the dashboard
  * shouldn't nag). Returns undefined (→ absolute paths) when nothing is resolvable.
  *
- * `warn` is only invoked on the fallback disk-read (the common case reuses
- * `current`, already surfaced by whoever resolved it) — defaults to a no-op so
- * this stays silent, matching the "no prompts" contract, unless a caller opts
- * into logging (extension.ts's activate() passes `logger.warn`).
+ * `warn`/`info` are only invoked on the fallback disk-read (the common case
+ * reuses `current`, already surfaced by whoever resolved it) — each defaults to
+ * a no-op so this stays silent, matching the "no prompts" contract, unless a
+ * caller opts into logging (extension.ts's activate() passes `logger.warn`/
+ * `logger.info`).
  */
 function worktreePathContext(
   current: Manifest | undefined,
   warn: (message: string) => void = () => {},
+  info: (message: string) => void = () => {},
 ): PathContext | undefined {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) return undefined;
@@ -2791,6 +2875,7 @@ function worktreePathContext(
     try {
       const loaded = loadManifestWithDiagnostics(manifestPathOrThrow());
       for (const w of loaded.warnings) warn(`karst.yml: ${w}`);
+      for (const n of loaded.notices) info(`karst.yml: ${n}`);
       manifest = loaded.manifest;
     } catch {
       return undefined; // no/invalid manifest — fall back to absolute paths
@@ -3232,6 +3317,11 @@ function makeDashboardActions(
   // background tick respects. Project-scoped like the tick itself, so it takes no
   // ticket: the panel is asking for a fresher answer, not a narrower one.
   refreshPrs: () => Promise<void>,
+  // Kick the §5.4-safe driver nudge (`maybeDrive`) after a block is cleared.
+  // Passed in rather than reached from here because it lives in `activate`'s
+  // scope, alongside every other driver trigger (hook, sweep, session close) —
+  // resume is just one more trigger, not a special path.
+  driveAfterResume: (ticketId: number) => void,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -3345,6 +3435,16 @@ function makeDashboardActions(
     // action already uses; `SessionManager.openSession` resolves --resume vs.
     // a fresh launch on its own.
     resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
+    // Resume a parked gate stage (§ blocked state visible). All the "is this
+    // even valid" checking lives in `resumeBlockedStage` (vscode-free, unit
+    // tested) — this stays a thin binding: apply it, and only on success
+    // refresh the panel and kick the same driver trigger every other resume
+    // path uses.
+    resumeStage: (msgTicketId, stageKey) => {
+      if (!resumeBlockedStage(store, ticketId, msgTicketId, stageKey)) return;
+      afterServerChange();
+      driveAfterResume(ticketId);
+    },
     // Opens the ticket form in edit mode on the new ticket so the user can type
     // the actual follow-up ask straight away — the command itself copies
     // repos/approach/agent/model from this ticket.

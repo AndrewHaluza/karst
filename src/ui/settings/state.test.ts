@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildSettingsState } from './state.js';
 import type { Manifest } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
-import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { bundledModelCatalog, type ModelCatalog } from '../../agent/modelCatalog.js';
 
 const M: Manifest = buildManifest(
   {
@@ -117,5 +117,28 @@ describe('buildSettingsState', () => {
     expect(s.modelCompatibility.codex.map((model) => model.id)).toContain('codex-remote');
     expect(s.modelCompatibility.codex.map((model) => model.id)).toContain('gpt-5.6-sol');
     expect(s.modelCompatibility.claude.map((model) => model.id)).toContain('claude-opus-4-8');
+  });
+
+  it('carries the manifest path and the resolved project slug', () => {
+    const state = buildSettingsState(
+      M,
+      null,
+      [],
+      false,
+      ['claude'],
+      [],
+      {},
+      bundledModelCatalog(),
+      '/work/proj/.karst/karst.yml',
+      { value: 'my-proj', derived: false },
+    );
+    expect(state.manifestPath).toBe('/work/proj/.karst/karst.yml');
+    expect(state.projectSlug).toEqual({ value: 'my-proj', derived: false });
+  });
+
+  it('defaults manifestPath and projectSlug when not provided', () => {
+    const state = buildSettingsState(M);
+    expect(state.manifestPath).toBe('');
+    expect(state.projectSlug).toEqual({ value: '', derived: true });
   });
 });

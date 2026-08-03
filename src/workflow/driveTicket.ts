@@ -1,10 +1,11 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
+import type { AgentAdapter } from '../agent/adapter.js';
 import { getTicket } from '../store/tickets.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import { runUat } from './stages/uat.js';
-import { runReview } from './stages/review.js';
+import { runReview, type OpenDiff } from './stages/review.js';
 import {
   capForGate,
   countFixAttempts,
@@ -35,9 +36,11 @@ export function fixResumeDecision(
 ): FixResumeDecision {
   const gate = lastFailedGate(stages);
   if (!gate) return { kind: 'no-failed-gate' };
-  // The rule lives in `capForGate` so the meter the dashboard draws and the
-  // budget spent here can never be two different numbers.
-  const cap = capForGate(gate, manifest?.uat?.maxFixAttempts);
+  // Each gate's budget is its own manifest key: `uat.maxFixAttempts` can never
+  // narrow review's budget, nor `review.maxFixAttempts` uat's. The rule lives in
+  // `capForGate` so the meter the dashboard draws and the budget spent here can
+  // never be two different numbers.
+  const cap = capForGate(gate, manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
   const attempts = countFixAttempts(stages, gate);
   return fixAttemptsRemain(attempts, cap)
     ? { kind: 'resume', gate, attempts }
@@ -55,7 +58,37 @@ export interface DriveTicketDeps {
   signal?: AbortSignal;
   /** Called only when a fix attempt remains; the host owns how it resumes. */
   resumeFix: (ticketId: number, gate: GateStageKey, attempts: number) => void;
+  /**
+   * Surfaces the ticket's changes for a human to review. Absent means nothing
+   * does — review then records no 'changes' evidence for that run, and
+   * `reviewInside` shows no row rather than claim one nobody performed. The
+   * host wires its existing ticket-stack surface here
+   * (`TicketChangesManager.open`); that panel is itself backed by the
+   * `openTicketDiff`/`vscode.diff` call already in `extension.ts`, but only
+   * once a human clicks a file row inside it — this call alone does not open
+   * a diff editor, only the panel. `driveTicket` never authors a second
+   * surface of its own.
+   */
+  openDiff?: OpenDiff;
+  /**
+   * The agent core review's findings lane (Lane B) asks about the diff.
+   * Absent means no agent core is available — `capability-missing` (spec
+   * §8.14), never a failure. A function (not a bound value) because the host
+   * resolves it per-ticket (a ticket's own `agentProvider` may differ from
+   * the manifest default) and instruments it for token-usage attribution the
+   * same way every other AI call in karst is (`agent/instrumentedAdapter.ts`).
+   */
+  agentAdapter?: (ticketId: number) => AgentAdapter;
   log: (message: string) => void;
+  /**
+   * Where the findings lane's boundary diagnostics land (a failed AI call, an
+   * unparseable response, an untrustworthy `file`) — threaded straight into
+   * `ReviewDeps.warn`. Absent falls back all the way to `parseFindings`'s own
+   * `console.warn` default; the host binds this to its `Logger.warn`, kept
+   * distinct from `log` (which is `Logger.info`) so these read as warnings
+   * in the output channel, not as routine progress lines.
+   */
+  warn?: (message: string) => void;
 }
 
 /**
@@ -117,19 +150,23 @@ export async function driveTicket(
             manifest: deps.manifest(),
             signal: controller.signal,
           }),
-        // `runReview` still always transitions and returns a ReviewOutcome, so
-        // its result is adapted here from the ticket's post-transition stage.
-        // Review's redesign is out of scope for this phase.
+        // `runReview` reports its own StageRunResult too, so it is passed
+        // through verbatim for the same reason: a park re-labelled 'advanced'
+        // at the ticket's unchanged stage sends the driver round the same
+        // blocked gate forever. `deps.openDiff` is threaded straight through —
+        // absent here means absent there, never a no-op default.
         runReview: (id, cwd) =>
-          review(deps.store, {
-            ticketId: id,
-            cwd,
-            artifactDir: deps.artifactDirFor(id),
-            manifest: deps.manifest(),
-          }).then(() => ({
-            kind: 'advanced' as const,
-            next: getTicket(deps.store, id).stageCurrent as StageKey,
-          })),
+          review(
+            deps.store,
+            {
+              ticketId: id,
+              cwd,
+              artifactDir: deps.artifactDirFor(id),
+              manifest: deps.manifest(),
+              signal: controller.signal,
+            },
+            { openDiff: deps.openDiff, findingsAdapter: deps.agentAdapter?.(id), warn: deps.warn },
+          ),
       },
       ticketId,
     );

@@ -80,10 +80,15 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     makeProvider: () => ({ async updateStatus() {}, async listStatuses() { return []; } }),
     modelCatalog: () => REMOTE_MODELS,
     browseForFolder: async () => undefined,
+    openManifest: () => { order.push('openManifest'); },
     ...overrides,
   };
   const factory = buildSettingsActions(deps);
-  const actions = factory({ post: (m) => posted.push(m), manifestPath: '/tmp/karst.yml' });
+  const actions = factory({
+    post: (m) => posted.push(m),
+    manifestPath: '/tmp/karst.yml',
+    projectSlug: { value: 'proj', derived: false },
+  });
   return { actions, posted, order };
 }
 
@@ -868,5 +873,21 @@ describe('fetchTicketLists', () => {
     const { actions, posted } = harness({ makeProvider: () => ({ async updateStatus() {} }) });
     await actions.fetchTicketLists('9001');
     expect(posted).toContainEqual({ type: 'ticket-lists-error', message: 'This provider cannot list lists.' });
+  });
+});
+
+describe('settings actions — openManifest', () => {
+  it('delegates to the injected opener', async () => {
+    const { actions, order } = harness();
+    await actions.openManifest();
+    expect(order).toEqual(['openManifest']);
+  });
+
+  it('posts a panel error when the opener rejects', async () => {
+    const { actions, posted } = harness({
+      openManifest: async () => { throw new Error('no active editor'); },
+    });
+    await actions.openManifest();
+    expect(posted).toContainEqual({ type: 'error', message: 'no active editor' });
   });
 });

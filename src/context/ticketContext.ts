@@ -14,8 +14,10 @@
 import type { AttachmentKind } from '../attachments/kinds.js';
 import { attachmentPath } from '../attachments/paths.js';
 import type { Store } from '../store/db.js';
+import type { StageKey } from '../model/types.js';
+import type { Severity } from '../manifest/types.js';
 import { listAttachments } from '../store/attachments.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, type TicketWithStages } from '../store/tickets.js';
 import {
   listWorktreesByTicket,
   listServersByTicket,
@@ -23,6 +25,9 @@ import {
 } from '../store/dashboard.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
+import { listGateRuns } from '../store/gateRuns.js';
+import { latestFindingBatch } from '../store/reviewFindings.js';
+import { latestBatch } from '../model/inside/gates.js';
 import type { Manifest } from '../manifest/types.js';
 import { isRunnable } from '../manifest/runnable.js';
 
@@ -66,6 +71,44 @@ export interface TicketContextAttachment {
   kind: AttachmentKind;
   path: string;
   name: string;
+}
+
+/** One recorded gate from the current (or explaining) stage's latest batch. */
+export interface TicketContextGate {
+  name: string;
+  exitCode: number | null;
+}
+
+/** One review finding from the latest batch — the same fields `fixBrief.ts` renders. */
+export interface TicketContextFinding {
+  severity: Severity;
+  repo: string;
+  file: string | null;
+  line: number | null;
+  title: string;
+  detail: string;
+}
+
+/**
+ * Read-only stage/gate/finding state for a session re-pulling context on
+ * demand (§ context loader, closes G15: "an agent re-pulling context mid-fix
+ * cannot see which gate failed").
+ *
+ * Ordinarily the ticket's CURRENT stage. The one exception is `fix`, which
+ * records no gate evidence of its own — there this names the most recently
+ * FAILED gate stage (`uat` or `review`) instead, since that is the question a
+ * fix session actually needs answered. `gates`/`findings` are the LATEST
+ * recorded batch only (never full history — `karst context` is current
+ * state, not an audit log); `findings` is empty for anything but `review`,
+ * since only review's Lane B ever writes them.
+ */
+export interface TicketContextStage {
+  stageKey: string;
+  status: string;
+  verdict: string | null;
+  blocked: { kind: string; reason: string } | null;
+  gates: TicketContextGate[];
+  findings: TicketContextFinding[];
 }
 
 /** The completed ticket this one continues work from, or null for an ordinary ticket. */
@@ -114,6 +157,28 @@ export interface TicketContext {
   /** Set when this ticket was created via "create follow-up" from a completed parent. */
   parent: TicketContextParent | null;
   repos: TicketContextRepo[];
+  /** Read-only stage/gate/finding state (§ context loader, closes G15). Null only for a stage key not present on the ticket's own rows — should not happen in practice. */
+  stage: TicketContextStage | null;
+}
+
+/** The gate stages — the only ones that record `gate_runs`/`review_findings` evidence. Mirrors `agent/fixBrief.ts`'s own `GATES`, kept local rather than a shared import so this leaf module (consumed by both the launch seed and the CLI) has no dependency on `workflow/`. */
+const GATE_STAGES: readonly StageKey[] = ['uat', 'review'];
+
+/**
+ * The stage row whose gate/finding evidence a session actually wants.
+ * Ordinarily the ticket's current stage; at `fix` (which records no gate
+ * evidence of its own) this is the most recently FAILED gate stage instead —
+ * the question a fix session needs answered is "what did I fail", not "what
+ * `fix` itself reports", which is always empty.
+ */
+function relevantStageRow(t: TicketWithStages): TicketWithStages['stages'][number] | undefined {
+  if (t.stageCurrent === 'fix') {
+    const failedGate = t.stages.find(
+      (s) => (GATE_STAGES as readonly string[]).includes(s.stageKey) && s.status === 'failed',
+    );
+    if (failedGate) return failedGate;
+  }
+  return t.stages.find((s) => s.stageKey === t.stageCurrent);
 }
 
 /**
@@ -176,6 +241,34 @@ export function buildTicketContext(
     };
   })();
 
+  const stageRow = relevantStageRow(t);
+  const stage: TicketContextStage | null = stageRow
+    ? {
+        stageKey: stageRow.stageKey,
+        status: stageRow.status,
+        verdict: stageRow.verdict,
+        blocked: stageRow.blockedKind
+          ? { kind: stageRow.blockedKind, reason: stageRow.blockedReason ?? '' }
+          : null,
+        gates: latestBatch(listGateRuns(store, ticketId), stageRow.stageKey).map((g) => ({
+          name: g.gateName,
+          exitCode: g.exitCode,
+        })),
+        // Findings are review-only evidence (Lane B writes nothing for uat).
+        findings:
+          stageRow.stageKey === 'review'
+            ? latestFindingBatch(store, ticketId).map((f) => ({
+                severity: f.severity,
+                repo: f.repo,
+                file: f.file,
+                line: f.line,
+                title: f.title,
+                detail: f.detail,
+              }))
+            : [],
+      }
+    : null;
+
   return {
     key: t.key,
     title: t.title,
@@ -221,6 +314,7 @@ export function buildTicketContext(
           })),
     parent,
     repos,
+    stage,
   };
 }
 
@@ -245,6 +339,31 @@ export function renderTicketContext(ctx: TicketContext): string {
 
   const brief = ctx.brief?.trim();
   if (brief) parts.push(`## Context brief\n${brief}`);
+
+  if (ctx.stage) {
+    const s = ctx.stage;
+    const lines = [`- stage: ${s.stageKey} (${s.status})`];
+    if (s.verdict) lines.push(`- verdict: ${s.verdict}`);
+    if (s.blocked) lines.push(`- blocked: ${s.blocked.kind} — ${s.blocked.reason}`);
+    if (s.gates.length > 0) {
+      lines.push(
+        '- gates:',
+        ...s.gates.map(
+          (g) => `  - ${g.name}: ${g.exitCode === null ? 'skipped' : `exit ${g.exitCode}`}`,
+        ),
+      );
+    }
+    if (s.findings.length > 0) {
+      lines.push(
+        '- findings:',
+        ...s.findings.map((f) => {
+          const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ''})` : '';
+          return `  - [${f.severity}] ${f.title}${loc}`;
+        }),
+      );
+    }
+    parts.push(`## Current stage\n${lines.join('\n')}`);
+  }
 
   if (ctx.attachments.length > 0) {
     const rows = ctx.attachments.map((a) => {

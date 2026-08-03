@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planUatTargets } from './targets.js';
+import { planUatTargets, type UatTarget } from './targets.js';
 import { manifest, repo, svc } from '../../manifest/fixtures.js';
 import type { GitRunner } from '../../integrations/git.js';
 
@@ -9,15 +9,25 @@ const changed: GitRunner = async (args) =>
     ? { exitCode: 0, stdout: ' M src/a.ts\n', stderr: '' }
     : { exitCode: 0, stdout: '', stderr: '' };
 
+/** Unwraps the `targets` arm, failing loudly if the selection came back unavailable. */
+function targetsOf(selection: Awaited<ReturnType<typeof planUatTargets>>): UatTarget[] {
+  if (selection.kind !== 'targets') {
+    throw new Error(`expected targets, got unavailable: ${selection.reason}`);
+  }
+  return selection.targets;
+}
+
 describe('planUatTargets', () => {
   it('deduplicates two repository entries that share one repoPath', async () => {
-    const targets = await planUatTargets(
-      manifest({
-        api: repo({ repoPath: '/mono', service: svc() }),
-        worker: repo({ repoPath: '/mono', service: svc() }),
-      }),
-      [{ repo: '/mono', path: '/wt/mono', baseRef: null }],
-      changed,
+    const targets = targetsOf(
+      await planUatTargets(
+        manifest({
+          api: repo({ repoPath: '/mono', service: svc() }),
+          worker: repo({ repoPath: '/mono', service: svc() }),
+        }),
+        [{ repo: '/mono', path: '/wt/mono', baseRef: null }],
+        changed,
+      ),
     );
     // One monorepo, one worktree, one run of npm test — but both names, because
     // service identity stays keyed by repository NAME (distinct ports, distinct
@@ -28,25 +38,29 @@ describe('planUatTargets', () => {
   });
 
   it('returns every affected worktree, not just the alphabetically first', async () => {
-    const targets = await planUatTargets(
-      manifest({
-        api: repo({ repoPath: '/api', service: svc() }),
-        web: repo({ repoPath: '/web', service: svc() }),
-      }),
-      [
-        { repo: '/web', path: '/wt/web', baseRef: null },
-        { repo: '/api', path: '/wt/api', baseRef: null },
-      ],
-      changed,
+    const targets = targetsOf(
+      await planUatTargets(
+        manifest({
+          api: repo({ repoPath: '/api', service: svc() }),
+          web: repo({ repoPath: '/web', service: svc() }),
+        }),
+        [
+          { repo: '/web', path: '/wt/web', baseRef: null },
+          { repo: '/api', path: '/wt/api', baseRef: null },
+        ],
+        changed,
+      ),
     );
     expect(targets.map((t) => t.path).sort()).toEqual(['/wt/api', '/wt/web']);
   });
 
   it('includes a non-runnable repository as a gate target', async () => {
-    const targets = await planUatTargets(
-      manifest({ docs: repo({ repoPath: '/docs' }) }),
-      [{ repo: '/docs', path: '/wt/docs', baseRef: null }],
-      changed,
+    const targets = targetsOf(
+      await planUatTargets(
+        manifest({ docs: repo({ repoPath: '/docs' }) }),
+        [{ repo: '/docs', path: '/wt/docs', baseRef: null }],
+        changed,
+      ),
     );
     expect(targets).toHaveLength(1);
   });
@@ -62,18 +76,42 @@ describe('planUatTargets', () => {
   // double-written `worktrees` table row would produce) must still collapse
   // to one gate run with the union of names, not one run per row.
   it('collapses two worktree rows that carry the same repo path, merging their names', async () => {
-    const targets = await planUatTargets(
-      manifest({
-        api: repo({ repoPath: '/mono', service: svc() }),
-        worker: repo({ repoPath: '/mono', service: svc() }),
-      }),
-      [
-        { repo: '/mono', path: '/wt/mono', baseRef: null },
-        { repo: '/mono', path: '/wt/mono', baseRef: null },
-      ],
-      changed,
+    const targets = targetsOf(
+      await planUatTargets(
+        manifest({
+          api: repo({ repoPath: '/mono', service: svc() }),
+          worker: repo({ repoPath: '/mono', service: svc() }),
+        }),
+        [
+          { repo: '/mono', path: '/wt/mono', baseRef: null },
+          { repo: '/mono', path: '/wt/mono', baseRef: null },
+        ],
+        changed,
+      ),
     );
     expect(targets).toHaveLength(1);
     expect(targets[0]!.names.sort()).toEqual(['api', 'worker']);
+  });
+
+  // A git probe failure is environmental, not a selection result — it must
+  // propagate as `unavailable` rather than being swallowed into "no targets",
+  // which `runUat` would otherwise mistake for a `nothing-to-run` block instead
+  // of a `capability-missing` one.
+  it('propagates a git failure as unavailable rather than collapsing it to no targets', async () => {
+    const failing: GitRunner = async () => ({
+      exitCode: 128,
+      stdout: '',
+      stderr: 'baseline unavailable',
+    });
+    const selection = await planUatTargets(
+      manifest({ api: repo({ repoPath: '/api', service: svc() }) }),
+      [{ repo: '/api', path: '/wt/api', baseRef: null }],
+      failing,
+    );
+    expect(selection).toEqual({
+      kind: 'unavailable',
+      blocker: 'capability-missing',
+      reason: expect.stringContaining('baseline unavailable'),
+    });
   });
 });

@@ -21,6 +21,7 @@ import type {
   Manifest,
   PortSlot,
   RepositoryDef,
+  ReviewConfig,
   ServiceDef,
   UatConfig,
 } from './types.js';
@@ -105,6 +106,17 @@ export function uat(over: Partial<UatConfig> = {}): UatConfig {
     secrets: [],
     passthrough: [],
     origins: [],
+    repositories: {},
+    ...over,
+  };
+}
+
+/** A review block. Defaults match `validateReview({}, [])` so tests start from the real default. */
+export function review(over: Partial<ReviewConfig> = {}): ReviewConfig {
+  return {
+    maxFixAttempts: 3,
+    requireIndependentSignal: true,
+    findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
     repositories: {},
     ...over,
   };

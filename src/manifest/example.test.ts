@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
 import { loadManifestWithDiagnostics } from './load.js';
+import { detectInertKeys } from './inertKeys.js';
 
 /**
  * `karst.example.yml` is documentation-as-config: it is what a new user copies
@@ -29,5 +32,27 @@ describe('karst.example.yml', () => {
     const tooling = manifest.repositories.tooling!;
     expect(tooling.service).toBeUndefined();
     expect(tooling.signals).toContain('tooling');
+  });
+
+  it('declares no avoidable inert key — the example must teach shape, never dead config', () => {
+    const parsed = load(readFileSync(path, 'utf8')) as unknown;
+    // uat's inert keys are all OPTIONAL — the example demonstrates their shape
+    // as comments and must never declare them live. If this fails, an edit
+    // uncommented one: either re-comment it, or — if the key gained a
+    // consumer — drop it from INERT_* in src/manifest/inertKeys.ts.
+    //
+    // `agents.*.role` is excluded on purpose: validateAgents (schema.ts)
+    // REQUIRES `role` on every declared agent while nothing reads it, so any
+    // manifest with agents unavoidably reports this notice — that is not a
+    // mistake for the example to avoid, it is exactly the fact `notices`
+    // exists to surface (see inertKeys.ts's explicit wording for this case).
+    const avoidable = detectInertKeys(parsed).filter((notice) => !notice.startsWith('agents.'));
+    expect(avoidable).toEqual([]);
+  });
+
+  it('documents the inert keys it comments out', () => {
+    // The marker is what tells a reader those commented blocks are inactive by
+    // design rather than merely unset.
+    expect(readFileSync(path, 'utf8')).toContain('NOT YET ACTIVE');
   });
 });

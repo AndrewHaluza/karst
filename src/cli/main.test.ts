@@ -216,4 +216,36 @@ repositories:
       writeSpy.mockRestore();
     }
   });
+
+  it('writes inert-key notices to stderr, keeping stdout clean JSON', () => {
+    const manifestWithInertKeys = join(dir, 'inert.yml');
+    writeFileSync(
+      manifestWithInertKeys,
+      `
+id: proj3
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+uat:
+  secrets:
+    - API_KEY
+  origins:
+    - http://localhost:3000
+`,
+    );
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const out = runCli(['context', 'K-1', '--db', dbPath, '--manifest', manifestWithInertKeys, '--json']);
+      const written = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(written).toContain('uat.secrets');
+      expect(written).toContain('not yet active');
+      // stdout is consumed by an agent — it must stay parseable.
+      expect(() => JSON.parse(out)).not.toThrow();
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
 });

@@ -120,6 +120,13 @@
   /* Inline per-field validation message on repository cards — see
      applyFieldValidationUI; only ever shown for a field the user has touched. */
   .field-error{color:var(--k-danger);font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
+  /* Read-only host facts (General tab) — a <dl>, never inputs, so nothing here
+     can enter the editable draft. */
+  dl.facts{margin:var(--k-space-2) var(--k-space-0) var(--k-space-0)}
+  dl.facts dt{font-size:var(--k-text-xs);color:var(--k-text-dim);opacity:.7;margin-top:var(--k-space-3)}
+  dl.facts dd{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0);display:flex;
+    align-items:center;gap:var(--k-space-3)}
+  dl.facts code{font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
 
   .content{flex:1 1 auto;overflow:auto;padding:var(--k-space-8) var(--k-space-9)}
   .section{max-width:calc(var(--k-space-8) * 38)}
@@ -295,6 +302,24 @@
     border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
   }
   .approach-group-header:first-child{margin-top:var(--k-space-0)}
+
+  /* ---- quality tab: shared gate editor (uat.gates / review.gates) ---- */
+  .gate-row{
+    display:flex;gap:var(--k-space-3);align-items:center;flex-wrap:wrap;
+    padding:var(--k-space-3) var(--k-space-0);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .gate-row input[type="text"],.gate-row select{flex:1 1 auto;min-width:calc(var(--k-space-8) * 3)}
+  .gate-summary{
+    flex:1 1 100%;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);
+  }
+
+  /* ---- quality tab: per-repository gate overrides ---- */
+  .override-card{
+    margin-top:var(--k-space-4);padding:var(--k-space-4);
+    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-sm);
+  }
+  .override-card-head{justify-content:space-between}
+  .override-repo{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm)}
   .roster-card{
     display:flex;border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     margin-bottom:var(--k-space-5);overflow:hidden;
@@ -430,6 +455,7 @@
   <button class="nav-btn" data-section="approaches">Approaches</button>
   <button class="nav-btn" data-section="agents">Agents</button>
   <button class="nav-btn" data-section="ticketing">Ticketing</button>
+  <button class="nav-btn" data-section="quality">Quality</button>
 </nav>
 
 <div class="main">
@@ -484,6 +510,22 @@
 
           <label for="f-defaultModel">Default model</label>
           <select id="f-defaultModel"></select>
+
+          <div class="field-group" id="projectFacts">
+            <label>This project</label>
+            <dl class="facts">
+              <dt>Manifest</dt>
+              <dd><code id="factManifestPath"></code>
+                <button type="button" class="k-btn k-btn--secondary k-btn--sm fixed"
+                        id="openManifestBtn"
+                        aria-label="Open karst.yml in an editor"
+                        title="Open karst.yml in an editor">Open karst.yml</button></dd>
+              <dt>Project id</dt>
+              <dd><code id="factProjectSlug"></code>
+                <span class="chip" id="factSlugDerived" hidden
+                      title="No id: in karst.yml — derived from the workspace path, changes if it moves">derived</span></dd>
+            </dl>
+          </div>
         </div>
       </div>
     </div>
@@ -674,6 +716,56 @@
             <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Quality tab: owns uat/review. #qualityGates is mounted by
+         renderQuality() -> renderGateList('uat'|'review', ...) — the shared
+         gate-list editor for uat.gates/review.gates — plus
+         renderOverridesSection() for the per-repository overrides
+         (uat.repositories/review.repositories): an override REPLACES the
+         block's global list for that repository rather than adding to it
+         (declaredGatesFor/declaredReviewGatesFor), so a newly-added override
+         is seeded with a COPY of the global list (addRepoOverride) and
+         #overrideHint says so explicitly. See sections.ts doc comment for the
+         spread-not-rebuild warning: no handler here may rebuild draft.uat or
+         draft.review wholesale, or it would erase fields this tab does not
+         render (uat.secrets, uat.env, ...) — writeGates() spreads the
+         existing block. -->
+    <div class="section hidden" id="section-quality">
+      <div class="card open">
+        <div class="card-head"><span class="card-title">UAT</span></div>
+        <div class="card-body form">
+          <label for="f-uatMaxFix">Max fix attempts</label>
+          <input type="number" min="1" id="f-uatMaxFix" />
+          <div class="field-hint">Fix→UAT→fix retries before the ticket parks. UAT only.</div>
+        </div>
+      </div>
+      <div class="card open">
+        <div class="card-head"><span class="card-title">Review</span></div>
+        <div class="card-body form">
+          <label for="f-reviewMaxFix">Max fix attempts</label>
+          <input type="number" min="1" id="f-reviewMaxFix" />
+          <div class="toggle" style="margin-top:10px">
+            <input type="checkbox" id="f-reviewIndependent" />
+            <label for="f-reviewIndependent">Require independent signal</label>
+          </div>
+          <div class="field-hint">A pass needs evidence beyond the agent's own claim.</div>
+          <div class="toggle" style="margin-top:10px">
+            <input type="checkbox" id="f-findingsEnabled" />
+            <label for="f-findingsEnabled">Agent findings</label>
+          </div>
+          <label for="f-findingsSeverity">Blocking severity</label>
+          <select id="f-findingsSeverity"></select>
+          <div class="field-hint">Findings at or above this severity fail review to <code>fix</code>.
+            <code>none</code> makes them advisory.</div>
+          <label for="f-findingsMax">Max findings</label>
+          <input type="number" min="1" id="f-findingsMax" />
+        </div>
+      </div>
+      <div class="card open">
+        <div class="card-head"><span class="card-title">Gates</span></div>
+        <div class="card-body" id="qualityGates"></div>
       </div>
     </div>
   </div>
@@ -993,10 +1085,62 @@
   // Compatibility knowledge is deliberately broader than the picker catalog:
   // bundled ids remain known while newly discovered ids are added.
   let modelCompatibility = { claude: [], codex: [], antigravity: [] };
+  // manifestPath/projectSlug: read-only host facts pushed alongside `state`
+  // (§ state.ts SettingsState.manifestPath/projectSlug). Never part of the
+  // draft manifest — SECTION_FIELDS excludes them so Save cannot write them.
+  let manifestPath = '';
+  let projectSlug = { value: '', derived: true };
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
   const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity'];
+
+  // Mirrors validate/review.ts defaultFindings() and validateReview()'s
+  // fallbacks. An absent block renders as what it DOES, not as empty (S4):
+  // an absent `review:` still blocks at `high` with independent-signal
+  // required, so a control rendering "off"/empty would misrepresent it.
+  const REVIEW_DEFAULTS = {
+    maxFixAttempts: 3,
+    requireIndependentSignal: true,
+    findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+  };
+  // Mirrors validate/uat.ts's maxFixAttempts fallback.
+  const UAT_DEFAULTS = { maxFixAttempts: 3 };
+  const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
+
+  // Mirrors src/ui/settings/gateDraft.ts (S2: ONE gate shape shared by uat.gates
+  // and review.gates, so the two editors cannot diverge on validation or
+  // display). The webview cannot import TypeScript — webview.test.ts pins
+  // every one of these against the host module (UI-R34). A drift here would
+  // validate or summarise a gate differently than the host does.
+  function emptyGate() {
+    return { name: '', kind: 'script', script: '' };
+  }
+  function setGateKind(gate, kind) {
+    if (kind === 'script') {
+      const { command, args, ...rest } = gate;
+      return { ...rest, kind: 'script', script: '' };
+    }
+    const { script, ...rest } = gate;
+    return { ...rest, kind: 'command', command: '', args: [] };
+  }
+  function validateGateDraft(gate) {
+    if (!gate.name || gate.name.trim().length === 0) return 'Gate needs a name.';
+    if (gate.kind === 'script') {
+      if (!gate.script || gate.script.trim().length === 0) {
+        return `Gate "${gate.name}" needs a package.json script.`;
+      }
+      return null;
+    }
+    if (!gate.command || gate.command.trim().length === 0) {
+      return `Gate "${gate.name}" needs a command.`;
+    }
+    return null;
+  }
+  function gateSummary(gate) {
+    if (gate.kind === 'script') return `npm run ${gate.script ?? ''}`.trim();
+    return [gate.command ?? '', ...(gate.args ?? [])].join(' ').trim();
+  }
 
   // Mirrors the strict host-side vocabulary for display only. The host's
   // validateManifest call remains authoritative for syntax and token errors.
@@ -1055,7 +1199,7 @@
   // webview.test.ts pins both mirrors AND runs overlaySections against the host's
   // mergeSection, because a drift here would save a different set of fields than
   // the host writes.
-  const SETTINGS_SECTIONS = ['general', 'git', 'services', 'approaches', 'agents', 'ticketing'];
+  const SETTINGS_SECTIONS = ['general', 'git', 'services', 'approaches', 'agents', 'ticketing', 'quality'];
   const SECTION_LABELS = {
     general: 'General',
     git: 'Git',
@@ -1063,6 +1207,7 @@
     approaches: 'Approaches',
     agents: 'Agents',
     ticketing: 'Ticketing',
+    quality: 'Quality',
   };
   const SECTION_FIELDS = {
     general: [
@@ -1074,6 +1219,7 @@
     approaches: ['approaches'],
     agents: ['agents'],
     ticketing: ['ticketing'],
+    quality: ['uat', 'review'],
   };
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
@@ -1431,6 +1577,17 @@
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
+    renderProjectFacts();
+  }
+
+  // The two read-only host facts (§ state.ts): this window's manifest file and
+  // its resolved project identity. `projectSlug.derived: true` means the
+  // manifest declares no `id:` and the host fell back to a path-derived slug —
+  // the case worth flagging, because it changes if the repo moves.
+  function renderProjectFacts() {
+    el('factManifestPath').textContent = manifestPath || '(unresolved)';
+    el('factProjectSlug').textContent = (projectSlug && projectSlug.value) || '(unresolved)';
+    el('factSlugDerived').hidden = !(projectSlug && projectSlug.derived);
   }
 
   // Live preview of the label template against a representative sample ticket,
@@ -1963,6 +2120,31 @@
       markDirty(); renderServices();
       return;
     }
+    // ---- Quality tab: shared gate editor (uat.gates / review.gates) ----
+    if (t.dataset.addGate) {
+      const block = t.dataset.addGate;
+      writeGates(block, [...gatesOf(block), emptyGate()]);
+      markDirty(); renderQuality();
+      return;
+    }
+    if (t.dataset.removeGate) {
+      const block = t.dataset.removeGate, idx = Number(t.dataset.gateIdx);
+      writeGates(block, gatesOf(block).filter((_, i) => i !== idx));
+      markDirty(); renderQuality();
+      return;
+    }
+    if (t.dataset.addOverride) {
+      const block = t.dataset.addOverride;
+      const picker = document.querySelector('select[data-override-picker="' + block + '"]');
+      const repo = picker ? picker.value : '';
+      if (!repo) return;
+      addRepoOverride(block, repo);
+      return;
+    }
+    if (t.dataset.removeOverride) {
+      removeRepoOverride(t.dataset.removeOverride, t.dataset.overrideRepo);
+      return;
+    }
     if (t.dataset.editApproach !== undefined) {
       const approach = (draft.approaches || []).find((a) => a.id === t.dataset.editApproach);
       if (approach) openApproachDrawer('edit', approach);
@@ -2076,6 +2258,23 @@
       markDirty();
       return;
     }
+    // Quality tab: gate name/script/command/args — kind and repo are <select>s,
+    // handled below in the `change` listener.
+    if (t.dataset.gateField === 'name' || t.dataset.gateField === 'script' || t.dataset.gateField === 'command') {
+      const block = t.dataset.gateBlock, idx = Number(t.dataset.gateIdx), field = t.dataset.gateField;
+      const gates = gatesOf(block).map((g, i) => (i === idx ? { ...g, [field]: t.value } : g));
+      writeGates(block, gates);
+      markDirty();
+      return;
+    }
+    if (t.dataset.gateField === 'args') {
+      const block = t.dataset.gateBlock, idx = Number(t.dataset.gateIdx);
+      const args = t.value.split(/\s+/).filter(Boolean);
+      const gates = gatesOf(block).map((g, i) => (i === idx ? { ...g, args } : g));
+      writeGates(block, gates);
+      markDirty();
+      return;
+    }
   });
 
   document.addEventListener('change', (e) => {
@@ -2096,6 +2295,33 @@
       if (!dep) return;
       dep[field] = t.value;
       markDirty(); renderServices();
+      return;
+    }
+    // Quality tab: switching a gate's kind re-renders (script vs. command/args
+    // fields differ), so it goes through setGateKind — never a bare field
+    // assignment, or the fields belonging to the OTHER kind would linger.
+    if (t.dataset.gateField === 'kind') {
+      const block = t.dataset.gateBlock, idx = Number(t.dataset.gateIdx);
+      const gates = gatesOf(block).map((g, i) => (i === idx ? setGateKind(g, t.value) : g));
+      writeGates(block, gates);
+      markDirty(); renderQuality();
+      return;
+    }
+    // repo needs no re-render: syncGateRepoSelects already reflects the value
+    // the user just picked, and rebuilding the row mid-interaction would drop
+    // focus from the control they're using.
+    if (t.dataset.gateField === 'repo') {
+      const block = t.dataset.gateBlock, idx = Number(t.dataset.gateIdx);
+      const gates = gatesOf(block).map((g, i) => {
+        if (i !== idx) return g;
+        if (!t.value) {
+          const { repo, ...rest } = g;
+          return rest;
+        }
+        return { ...g, repo: t.value };
+      });
+      writeGates(block, gates);
+      markDirty();
       return;
     }
     // set-approach-enabled / set-agent-enabled are handled in the `click`
@@ -2384,6 +2610,33 @@
   // that adds/edits an approach; the global validate/save never sees a
   // partial or blank-id entry. On any failure: show an inline error and
   // keep the drawer open (never post a partial manifest).
+  // Pure: existing entry + the drawer's fields → the entry to store. Extracted
+  // from the save handler so it is testable — the clobber it fixes was
+  // invisible precisely because this logic lived inside an event handler.
+  // `fields` is what the drawer read: {id, label, description, entrypoint,
+  // sourceType, recommended, source?}.
+  function rebuildApproachFromDrawer(existing, fields) {
+    const approach = {
+      // Spread the existing entry first so keys this drawer does not render —
+      // `workflow` today, anything added to ApproachDef later — survive an edit.
+      // Every drawer-owned field below overwrites it, so this is not a merge of
+      // stale values; it is only a floor for fields the form has no control for.
+      ...(existing || {}),
+      id: fields.id,
+      label: fields.label,
+      enabled: existing ? existing.enabled !== false : true,
+    };
+    // Optional fields are DELETED when cleared, not left at their old value —
+    // the drawer owns them, and `...existing` would otherwise resurrect them.
+    if (fields.description) approach.description = fields.description;
+    else delete approach.description;
+    if (fields.entrypoint) approach.entrypoint = fields.entrypoint;
+    else delete approach.entrypoint;
+    if (fields.source) approach.source = fields.source; else delete approach.source;
+    if (fields.recommended) approach.recommended = true; else delete approach.recommended;
+    return approach;
+  }
+
   function submitApproachDrawer() {
     const id = el('af-id').value.trim();
     const label = el('af-label').value.trim();
@@ -2425,15 +2678,9 @@
       ? (draft.approaches || []).find((a) => a.id === approachDrawerEditId)
       : null;
 
-    const approach = {
-      id: finalId,
-      label,
-      ...(description ? { description } : {}),
-      ...(entrypoint ? { entrypoint } : {}),
-      ...(source ? { source } : {}),
-      enabled: existing ? existing.enabled !== false : true,
-      ...(recommended ? { recommended: true } : {}),
-    };
+    const approach = rebuildApproachFromDrawer(existing, {
+      id: finalId, label, description, entrypoint, source, recommended,
+    });
 
     const clearOthers = (a) => (recommended ? { ...a, recommended: false } : a);
     let nextApproaches;
@@ -3000,6 +3247,266 @@
       requestTicketLists();
     }
   }
+  // ONE renderer for both blocks (S2, gateDraft.ts doc comment): uat.gates and
+  // review.gates are the same GateDef shape, so a single parameterized
+  // renderer is what keeps the two editors from forking on markup or
+  // behavior. `repo` options are ['', ...declared repository names] — '' is
+  // "every target", not "none", and must stay selectable even with an empty
+  // manifest.
+  function renderGateList(block, gates) {
+    const repoOpts = ['']
+      .concat(Object.keys(draft.repositories || {}))
+      .map((r) => `<option value="${esc(r)}">${r ? esc(r) : 'every target'}</option>`)
+      .join('');
+    // An override row's repository is already fixed by the override itself
+    // (block === 'uat:<repo>' / 'review:<repo>') — declaredGatesFor /
+    // declaredReviewGatesFor return the override array AS-IS, never filtered
+    // by gate.repo. Offering the repo <select> there let a user "scope" a
+    // gate to a repository that would never be consulted. So an override row
+    // gets static text naming the owning repo instead of the control; a
+    // global row keeps the select, where per-gate `repo` is meaningful.
+    const { repo: overrideRepo } = parseGateBlock(block);
+    const rows = (gates || []).map((g, i) => (
+      `<div class="gate-row" data-gate-block="${block}" data-gate-idx="${i}">`
+      + `<input type="text" aria-label="Gate ${i + 1} name" data-gate-field="name"`
+      + ` data-gate-block="${block}" data-gate-idx="${i}" value="${esc(g.name || '')}"/>`
+      + `<select aria-label="Gate ${i + 1} kind" data-gate-field="kind"`
+      + ` data-gate-block="${block}" data-gate-idx="${i}">`
+      + `<option value="script"${g.kind === 'script' ? ' selected' : ''}>script</option>`
+      + `<option value="command"${g.kind === 'command' ? ' selected' : ''}>command</option>`
+      + `</select>`
+      + (g.kind === 'script'
+        ? `<input type="text" aria-label="Gate ${i + 1} script" data-gate-field="script"`
+          + ` data-gate-block="${block}" data-gate-idx="${i}" value="${esc(g.script || '')}"/>`
+        : `<input type="text" aria-label="Gate ${i + 1} command" data-gate-field="command"`
+          + ` data-gate-block="${block}" data-gate-idx="${i}" value="${esc(g.command || '')}"/>`
+          + `<input type="text" aria-label="Gate ${i + 1} arguments" data-gate-field="args"`
+          + ` data-gate-block="${block}" data-gate-idx="${i}"`
+          + ` placeholder="space-separated" value="${esc((g.args || []).join(' '))}"/>`)
+      + (overrideRepo === null
+        ? `<select aria-label="Gate ${i + 1} repository" data-gate-field="repo"`
+          + ` data-gate-block="${block}" data-gate-idx="${i}">${repoOpts}</select>`
+        : `<span class="gate-summary">Runs in ${esc(overrideRepo)}</span>`)
+      + `<span class="gate-summary">${esc(gateSummary(g))}</span>`
+      + `<button type="button" class="k-iconbtn k-iconbtn--danger"`
+      + ` data-remove-gate="${block}" data-gate-idx="${i}"`
+      + ` aria-label="Remove gate ${i + 1}" title="Remove gate ${i + 1}">&times;</button>`
+      + `</div>`
+    )).join('');
+    return rows
+      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm"`
+      + ` data-add-gate="${block}">+ Add gate</button>`;
+  }
+
+  // A `selected` attribute in the repoOpts template string is error-prone for
+  // an empty value (a blank `value=""` vs. genuinely absent), so the repo
+  // select's current value is set here, after the row exists in the DOM,
+  // rather than baked into renderGateList's markup.
+  function syncGateRepoSelects(block, gates) {
+    (gates || []).forEach((g, i) => {
+      const sel = document.querySelector(
+        'select[data-gate-field="repo"][data-gate-block="' + block + '"][data-gate-idx="' + i + '"]',
+      );
+      if (sel) sel.value = g.repo || '';
+    });
+  }
+
+  // A gate row addresses either the global list ('uat' | 'review') or a
+  // per-repository override ('uat:api' | 'review:api'). renderGateList's own
+  // markup never changes for this — only the block string it's given carries
+  // the extra addressing — so gatesOf/writeGates are the one place that
+  // decodes it, and add/remove/edit (which all key off `data-gate-block`)
+  // route to the right place with no other change.
+  function parseGateBlock(block) {
+    const i = block.indexOf(':');
+    return i < 0 ? { base: block, repo: null } : { base: block.slice(0, i), repo: block.slice(i + 1) };
+  }
+
+  // Reads the CURRENT gates for a block off the draft (never a stale local
+  // copy), so add/remove/edit always start from what the last render used.
+  function gatesOf(block) {
+    const { base, repo } = parseGateBlock(block);
+    const cfg = (base === 'uat' ? draft.uat : draft.review) || {};
+    if (repo !== null) return ((cfg.repositories || {})[repo] || {}).gates || [];
+    return cfg.gates || [];
+  }
+
+  // Quality's ONLY three write paths. `uat`/`review` are whole-field section
+  // members (SECTION_FIELDS.quality) — mergeSection REPLACES the entire block
+  // with whatever gets posted, and this tab renders only a fraction of each
+  // block's keys (uat.secrets, uat.env, uat.origins, …
+  // have no control here). So every write SPREADS the block as it stands and
+  // overrides just the patched keys; rebuilding either block from the
+  // rendered controls would silently erase everything this tab doesn't show
+  // — the same class of defect as the approach-drawer clobber (S1). No
+  // Quality handler may assign draft.uat or draft.review directly outside
+  // these three functions. Guarded by "preserves inert uat keys when the
+  // quality tab is saved" (webview.test.ts).
+  function updateUat(patch) {
+    draft.uat = { ...(draft.uat || {}), ...patch };
+    markDirty();
+  }
+
+  function updateReview(patch) {
+    draft.review = { ...(draft.review || {}), ...patch };
+    markDirty();
+  }
+
+  // Deep-merges over REVIEW_DEFAULTS.findings (never just the current draft)
+  // so a partially-specified review.findings — or an absent one — can't lose
+  // a sibling key to an edit of just one findings field.
+  function updateFindings(patch) {
+    updateReview({
+      findings: { ...REVIEW_DEFAULTS.findings, ...(draft.review?.findings || {}), ...patch },
+    });
+  }
+
+  // Gates route through updateUat/updateReview like every other Quality
+  // write; kept as a named helper since every gate call site already reads
+  // "write these gates back" rather than "patch this block". An override
+  // block ('uat:api') patches repositories[repo].gates instead of the
+  // top-level gates list, spreading repositories the same way updateUat/
+  // updateReview spread their own block — a sibling repo's override must
+  // survive an edit to this one.
+  function writeGates(block, gates) {
+    const { base, repo } = parseGateBlock(block);
+    const update = base === 'uat' ? updateUat : updateReview;
+    if (repo !== null) {
+      const cfg = (base === 'uat' ? draft.uat : draft.review) || {};
+      update({
+        repositories: {
+          ...(cfg.repositories || {}),
+          [repo]: { ...((cfg.repositories || {})[repo]), gates },
+        },
+      });
+      return;
+    }
+    update({ gates });
+  }
+
+  // A per-repo list REPLACES the global one (declaredGatesFor /
+  // declaredReviewGatesFor), which is the opposite of how "add a gate for this
+  // repo" reads. Seeding the new override with the global list makes the
+  // replacement visible: the user edits a copy rather than starting from an
+  // empty list that silently means "this repo runs nothing". `clone` (below)
+  // is a deep copy — a shared reference would make editing the override
+  // mutate the global list out from under it.
+  function addRepoOverride(block, repo) {
+    const blockDraft = draft[block] || {};
+    const seed = clone(blockDraft.gates || []);
+    const update = block === 'uat' ? updateUat : updateReview;
+    update({
+      repositories: {
+        ...(blockDraft.repositories || {}),
+        [repo]: { gates: seed },
+      },
+    });
+    renderQuality();
+  }
+
+  // Deletes the repo's key entirely — never sets an empty override — so the
+  // repository falls back to the global list (an empty `gates: []` override
+  // would instead mean "this repo runs nothing", per declaredGatesFor).
+  function removeRepoOverride(block, repo) {
+    const blockDraft = draft[block] || {};
+    const repositories = { ...(blockDraft.repositories || {}) };
+    delete repositories[repo];
+    const update = block === 'uat' ? updateUat : updateReview;
+    update({ repositories });
+    renderQuality();
+  }
+
+  // Per-repository gate overrides (S3). Reuses renderGateList for each
+  // override's rows — block is 'uat:<repo>' / 'review:<repo>', the same
+  // addressing gatesOf/writeGates decode — rather than a second renderer.
+  // Only DECLARED repositories are offered: an unknown review.repositories
+  // name is a hard manifest-load failure (validate/review.ts); uat.repositories
+  // accepts any key, but the picker stays restricted to declared names for
+  // both blocks so the two controls behave identically and a typo can never
+  // silently create a dead override.
+  function renderOverridesSection(block, repositories) {
+    const declared = Object.keys(draft.repositories || {});
+    const overridden = declared.filter((r) => repositories[r]);
+    const available = declared.filter((r) => !repositories[r]);
+    const cards = overridden.map((repo) => (
+      `<div class="override-card">`
+      + `<div class="row override-card-head"><span class="override-repo">${esc(repo)}</span>`
+      + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-override="${block}"`
+      + ` data-override-repo="${esc(repo)}" aria-label="Remove ${esc(repo)} override"`
+      + ` title="Remove ${esc(repo)} override">&times;</button>`
+      + `</div>`
+      + renderGateList(block + ':' + repo, (repositories[repo] || {}).gates || [])
+      + `</div>`
+    )).join('');
+    const picker = available.length
+      ? `<div class="row">`
+        + `<select aria-label="Repository to override" data-override-picker="${block}">`
+        + available.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('')
+        + `</select>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-override="${block}">+ Add repository override</button>`
+        + `</div>`
+      : '';
+    return `<div class="approach-group-header">Repository overrides</div>` + cards + picker;
+  }
+
+  function renderQuality() {
+    const uat = draft.uat || UAT_DEFAULTS;
+    const review = draft.review || REVIEW_DEFAULTS;
+    const findings = review.findings || REVIEW_DEFAULTS.findings;
+    el('f-uatMaxFix').value = uat.maxFixAttempts != null ? uat.maxFixAttempts : UAT_DEFAULTS.maxFixAttempts;
+    el('f-reviewMaxFix').value = review.maxFixAttempts != null ? review.maxFixAttempts : REVIEW_DEFAULTS.maxFixAttempts;
+    el('f-reviewIndependent').checked = review.requireIndependentSignal != null
+      ? Boolean(review.requireIndependentSignal)
+      : REVIEW_DEFAULTS.requireIndependentSignal;
+    el('f-findingsEnabled').checked = findings.enabled != null ? Boolean(findings.enabled) : REVIEW_DEFAULTS.findings.enabled;
+    el('f-findingsSeverity').innerHTML = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join('');
+    el('f-findingsSeverity').value = findings.blockingSeverity || REVIEW_DEFAULTS.findings.blockingSeverity;
+    el('f-findingsMax').value = findings.maxFindings != null ? findings.maxFindings : REVIEW_DEFAULTS.findings.maxFindings;
+    const uatGates = uat.gates || [];
+    const reviewGates = review.gates || [];
+    const uatRepositories = uat.repositories || {};
+    const reviewRepositories = review.repositories || {};
+    el('qualityGates').innerHTML =
+      '<div class="approach-group-header">UAT gates</div>'
+      + renderGateList('uat', uatGates)
+      + renderOverridesSection('uat', uatRepositories)
+      + '<div class="approach-group-header">Review gates</div>'
+      + renderGateList('review', reviewGates)
+      + renderOverridesSection('review', reviewRepositories)
+      + '<div class="field-hint" id="overrideHint">A repository override <strong>replaces</strong>'
+      + ' the gates above for that repository — it does not add to them.</div>';
+    syncGateRepoSelects('uat', uatGates);
+    syncGateRepoSelects('review', reviewGates);
+    Object.keys(uatRepositories).forEach((repo) => {
+      syncGateRepoSelects('uat:' + repo, (uatRepositories[repo] || {}).gates || []);
+    });
+    Object.keys(reviewRepositories).forEach((repo) => {
+      syncGateRepoSelects('review:' + repo, (reviewRepositories[repo] || {}).gates || []);
+    });
+  }
+
+  // Quality scalars — every one routes through updateUat/updateReview/
+  // updateFindings (never a direct draft.uat/draft.review assignment), per
+  // the spread-preserving contract those three enforce.
+  el('f-uatMaxFix').addEventListener('input', () => {
+    updateUat({ maxFixAttempts: Number(el('f-uatMaxFix').value) || 1 });
+  });
+  el('f-reviewMaxFix').addEventListener('input', () => {
+    updateReview({ maxFixAttempts: Number(el('f-reviewMaxFix').value) || 1 });
+  });
+  el('f-reviewIndependent').addEventListener('change', () => {
+    updateReview({ requireIndependentSignal: el('f-reviewIndependent').checked });
+  });
+  el('f-findingsEnabled').addEventListener('change', () => {
+    updateFindings({ enabled: el('f-findingsEnabled').checked });
+  });
+  el('f-findingsSeverity').addEventListener('change', () => {
+    updateFindings({ blockingSeverity: el('f-findingsSeverity').value });
+  });
+  el('f-findingsMax').addEventListener('input', () => {
+    updateFindings({ maxFindings: Number(el('f-findingsMax').value) || 1 });
+  });
+
   el('f-ticketTeamId').addEventListener('input', () => {
     const v = el('f-ticketTeamId').value.trim();
     const cfg = ticketingCfg();
@@ -3009,6 +3516,8 @@
   });
   el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
   el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
+
+  el('openManifestBtn').addEventListener('click', () => postAction(el('openManifestBtn'), 'open-manifest'));
 
   // The host's answer to set-token/clear-token. The token is keychain state, not
   // manifest state, so this NEVER touches `draft` — a full `state` push would
@@ -3053,6 +3562,7 @@
     renderApproaches();
     renderAgents();
     renderTicketing();
+    renderQuality();
   }
 
   function refreshModelCatalog(models, compatibility) {
@@ -3126,6 +3636,8 @@
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
+        manifestPath = msg.state.manifestPath || '';
+        projectSlug = msg.state.projectSlug || { value: '', derived: true };
         confirmInstallId = null;
         valid = !msg.state.error;
         lastValidationError = msg.state.error; // before updateSaveEnabled: nav markers read it

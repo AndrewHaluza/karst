@@ -77,8 +77,18 @@ export async function scaffoldManifest(): Promise<void> {
  * template when absent. Returns the loaded `Manifest`, or `undefined` when the
  * caller should stop (no folder, no/invalid manifest, or a scaffold was just
  * created). Shared by the spin and ticket-form commands.
+ *
+ * `info` is only for inert-key notices (§ config-ui-coverage) — deliberately
+ * NOT a toast like the `warnings` loop below. This resolves on every ordinary
+ * spin/create/edit, not just once, and a notice names a key that "must not
+ * read as broken" (see `manifest/load.ts`); a popup on every routine action
+ * would read as exactly that. Defaults to a no-op so this stays silent unless
+ * a caller opts in (extension.ts's activate() passes `logger.info`), same
+ * shape as `worktreePathContext`'s `warn`/`info` injection.
  */
-export async function resolveManifest(): Promise<Manifest | undefined> {
+export async function resolveManifest(
+  info: (message: string) => void = () => {},
+): Promise<Manifest | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     void vscode.window.showErrorMessage('Open a folder before using Karst.');
@@ -105,12 +115,13 @@ export async function resolveManifest(): Promise<Manifest | undefined> {
   }
 
   try {
-    const { manifest, warnings } = loadManifestWithDiagnostics(manifestPath);
+    const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
     // Non-fatal: a legacy `services:` manifest still loads, but the author
     // should know it's deprecated. One toast per resolve (not per repository).
     for (const w of warnings) {
       void vscode.window.showWarningMessage(`Karst manifest: ${w}`);
     }
+    for (const n of notices) info(`karst.yml: ${n}`);
     return manifest;
   } catch (err) {
     void vscode.window.showErrorMessage(

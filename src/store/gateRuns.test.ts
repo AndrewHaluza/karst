@@ -137,4 +137,113 @@ describe('gate run evidence', () => {
     });
     expect(listGateRuns(store, t.id)).toEqual([]);
   });
+
+  it('round-trips the v21 invocation identity — repo, command and a JSON args array', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T12:00:00.000Z',
+      gates: [
+        { gateName: 'test (web)', exitCode: 0, repo: '/web', command: 'npm', args: ['test'] },
+      ],
+    });
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.repo).toBe('/web');
+    expect(run.command).toBe('npm');
+    expect(run.args).toEqual(['test']);
+  });
+
+  it('stores no args as null, never as an empty-string sentinel', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T12:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0, repo: '/web', command: 'npm', args: [] }],
+    });
+
+    const run = listGateRuns(store, t.id)[0]!;
+    // An empty args array is a real, meaningful value (a command with no argv)
+    // and must round-trip as [], distinct from "no identity given" (null).
+    expect(run.args).toEqual([]);
+  });
+
+  it('defaults repo/command/args to null when a caller gives none — the "changes" evidence row', () => {
+    // The 'changes' row review records when the Changes panel opened is not a
+    // gate invocation and carries no identity; every legacy row before v21
+    // reads the same way.
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T12:00:00.000Z',
+      gates: [{ gateName: 'changes', exitCode: 0 }],
+    });
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+    expect(run.args).toBeNull();
+  });
+
+  /** Insert a row directly, bypassing `recordGateRun`, to simulate corruption. */
+  function insertRawArgs(store: Store, ticketId: number, rawArgs: string): void {
+    store.db
+      .prepare(
+        `INSERT INTO gate_runs
+           (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, repo, command, args)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(ticketId, 'review', 0, '2026-08-02T10:00:00.000Z', 'test (web)', 0, '/web', 'npm', rawArgs);
+  }
+
+  it('degrades unparseable args to no identity at all, without throwing', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, 'not json');
+
+    expect(() => listGateRuns(store, t.id)).not.toThrow();
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    // repo/command degrade WITH args, not left dangling on their own: a
+    // partial identity would let `sameGateIdentity` treat the corrupted row's
+    // missing args as `[]` and accidentally match a genuinely different,
+    // argument-less invocation of the same repo+command.
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
+
+  it('degrades JSON that parses but is not a string array (an object) to no identity', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, '{"not":"an array"}');
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
+
+  it('degrades JSON that parses but is not a string array (a number) to no identity', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, '42');
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
+
+  it('degrades a mixed array (some non-string elements) to no identity', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    insertRawArgs(store, t.id, '["test", 1]');
+
+    const run = listGateRuns(store, t.id)[0]!;
+    expect(run.args).toBeNull();
+    expect(run.repo).toBeNull();
+    expect(run.command).toBeNull();
+  });
 });

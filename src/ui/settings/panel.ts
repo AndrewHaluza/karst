@@ -59,6 +59,11 @@ export class SettingsManager {
     private readonly logError: LogError = (m, e) => console.error(m, e),
     /** Current launch-model catalog, refreshed independently of the manifest. */
     private readonly modelCatalog: () => ModelCatalog = bundledModelCatalog,
+    /** The project identity this window resolved (§ state.ts `projectSlug`). */
+    private readonly projectSlug: () => SettingsState['projectSlug'] = () => ({
+      value: '',
+      derived: true,
+    }),
   ) {}
 
   async open(): Promise<void> {
@@ -72,6 +77,7 @@ export class SettingsManager {
     const actions: SettingsActions = this.actionsFactory({
       post: (message) => panel.postMessage(message),
       manifestPath: this.manifestPath(),
+      projectSlug: this.projectSlug(),
     });
 
     panel.onDidReceiveMessage((raw) => {
@@ -135,6 +141,8 @@ export class SettingsManager {
         this.listAgentRows(),
         this.listApproachCommands(),
         this.modelCatalog(),
+        this.manifestPath(),
+        this.projectSlug(),
       ),
     });
   }

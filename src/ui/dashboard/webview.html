@@ -815,6 +815,11 @@
   <div id="inside"></div>
   <!-- Inline fault card for a failed stage: reason + timings + [Open log]. -->
   <div class="fault hidden" id="fault"></div>
+  <!-- The blocked banner: why the CURRENT stage could not ask its question,
+       plus [Resume]. Shares the `.fault` visual language (DESIGN-SYSTEM.md
+       maps `--k-failed` to "failed · blocked") — never both at once, since a
+       blocked stage sits at running/pending, not failed. -->
+  <div class="fault blocked hidden" id="blocked"></div>
   <!-- What is happening and what the user can do next (state.now). -->
   <div class="now" id="now"></div></div>
 
@@ -1227,6 +1232,29 @@
         ? `<div class="facts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-stage-log"`
           + ` data-path="${esc(failed.artifactPath)}" title="Open this stage's log file in an editor">Open log</button></div>`
         : '');
+  }
+
+  // The blocked banner: why karst could not ask the CURRENT stage's question
+  // (`parkGateStage`/`clearStageBlock`, § blocked state visible), plus the one
+  // recovery action. Reads `state.currentStage.blocked` only — a stage that
+  // isn't the ticket's current one is never the thing a Resume click here
+  // could act on, so there is nothing to show for it.
+  function renderBlocked(state) {
+    const box = el('blocked');
+    const cell = state.currentStage;
+    const blocked = cell && cell.blocked;
+    box.classList.toggle('hidden', !blocked);
+    if (!blocked) { box.innerHTML = ''; return; }
+    const title = `${STAGE_TITLE[cell.stageKey] || cell.stageKey} is blocked`;
+    box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
+      + `<div class="freason">${esc(blocked.reason)}</div>`
+      + `<div class="facts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="stage-resume"`
+      // `data-stagekey`, NOT `data-stage`: the rail's view-selection click
+      // handler matches ANY `[data-stage]` ancestor (closest()), and this
+      // button living inside the blocked banner must never also reselect
+      // which stage's Inside panel is showing.
+      + ` data-stagekey="${esc(cell.stageKey)}"`
+      + ` title="Clear the block and let karst try this stage again">Resume</button></div>`;
   }
 
   // One sentence + at most one button. The copy is built host-side (model/nowLine)
@@ -1656,6 +1684,7 @@
     renderInside(shippingView(state, sel), sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
+    renderBlocked(state);
     renderNow(state.now, state.agentSession);
     renderServers(state);
     renderWorktrees(state.worktrees);
@@ -1844,6 +1873,13 @@
     else if (btn.dataset.url) post({ type: act, url: btn.dataset.url, requestId });
     // The repo NAMES the conflict; the host resolves it to a worktree itself.
     else if (btn.dataset.repo) post({ type: act, repo: btn.dataset.repo, requestId });
+    // stage-resume: the message carries ITS OWN ticketId/stageKey (the host
+    // validates both against the ticket it actually owns before touching the
+    // store — see messages.ts) rather than trusting the panel's notion of
+    // "current", which a stale render could have gotten wrong.
+    else if (btn.dataset.stagekey) {
+      post({ type: act, ticketId: lastState.ticketId, stageKey: btn.dataset.stagekey, requestId });
+    }
     else post({ type: act, requestId });
     // Optimistic clipboard confirmation (UI-R15) rides ALONGSIDE the pending
     // state above, not instead of it — the button still reports whatever the

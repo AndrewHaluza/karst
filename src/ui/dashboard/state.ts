@@ -16,6 +16,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { buildStageInside, type StageInside } from '../../model/inside/index.js';
 import { listGateRuns } from '../../store/gateRuns.js';
+import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
@@ -56,8 +57,13 @@ export interface DashboardState {
   agentSession: AgentSessionView;
   stepper: StepperCell[];
   /**
-   * The stepper cell the ticket currently sits on — the one the "Now" line and
-   * the fault card describe. Null when the ticket sits at no stage at all.
+   * The stepper cell the ticket currently sits on — the one the "Now" line,
+   * the fault card, and the blocked banner (§ blocked state visible) all
+   * describe. `currentStage.blocked` is set only while a gate stage (uat,
+   * review) sits parked (`parkGateStage`/`clearStageBlock`,
+   * `store/stageBlocks.ts`) — the webview reads it directly to show the
+   * banner and pass its `stageKey` back on the Resume click. Null when the
+   * ticket sits at no stage at all.
    */
   currentStage: StepperCell | null;
   /**
@@ -263,6 +269,7 @@ export function buildDashboardState(
     inside: buildStageInside({
       stepper,
       gateRuns: listGateRuns(store, ticketId),
+      findings: listFindings(store, ticketId),
       worktrees,
       prs,
       mergeChecks,

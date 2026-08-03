@@ -8,7 +8,7 @@ import { createTicketFlow } from './stages/create.js';
 import { scopeTicket } from './stages/scope.js';
 import { markImplementDone } from './stages/implement.js';
 import { runUat, type UatDeps } from './stages/uat.js';
-import { runReview, type GateRunner } from './stages/review.js';
+import { runReview, type ReviewDeps } from './stages/review.js';
 import { runFix } from './stages/fix.js';
 import { shipTicket } from './stages/ship.js';
 import { advanceTicketOnShip } from './stages/done.js';
@@ -45,23 +45,44 @@ function uatDeps(exitCode: number): UatDeps {
 }
 const PASS = uatDeps(0);
 const FAIL = uatDeps(1);
-const GATES_PASS: GateRunner = async () => [
-  { name: 'lint', exitCode: 0, output: 'ok' },
-  { name: 'typecheck', exitCode: 0, output: 'ok' },
-  { name: 'test', exitCode: 0, output: 'ok' },
-];
-const GATES_FAIL: GateRunner = async () => [
-  { name: 'lint', exitCode: 1, output: 'lint broke' },
-  { name: 'typecheck', exitCode: 0, output: 'ok' },
-  { name: 'test', exitCode: 0, output: 'ok' },
-];
-
+/**
+ * Review resolves its gates from the same package.json probe UAT does, so the
+ * spine fakes the probe and the runner and leaves resolution, aggregation and
+ * transition real. `lint`/`typecheck` are what make this review ask something
+ * UAT (which probes `test`/`e2e`) does not — the independence rule of §6.4 R7.
+ */
 const adapter: AgentAdapter = {
   runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'PR body.' }),
   buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
   requiredBinary: 'claude',
   capabilities: { lifecycleEvents: true, resume: true },
 };
+
+/**
+ * The findings lane (Lane B) defaults to ON (constraints.md), so this spine
+ * needs an agent core wired for review or every gate-clean run would park
+ * capability-missing instead of reaching ship. `adapter`'s raw output ('PR
+ * body.') is not JSON, which is exactly the "garbage response" case the lane
+ * must degrade gracefully from — zero findings, verdict still decided by the
+ * gates. That is deliberate here: this spine is about the STAGE MACHINE, not
+ * Lane B, which has its own dedicated coverage in `stages/review.test.ts`.
+ */
+function reviewDeps(exitCode: number): ReviewDeps {
+  return {
+    probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .', typecheck: 'tsc', test: 'vitest' } }),
+    runGates: async (gates) => ({
+      kind: 'ran',
+      results: gates.map((g) => ({
+        name: g.name,
+        exitCode,
+        output: exitCode === 0 ? 'ok' : 'red',
+      })),
+    }),
+    findingsAdapter: adapter,
+  };
+}
+const GATES_PASS = reviewDeps(0);
+const GATES_FAIL = reviewDeps(1);
 // `pr view` is ship's "already shipped?" probe; a fresh branch has no PR, which
 // gh reports as a nonzero exit. Answered explicitly rather than letting the
 // create response stand in for it.

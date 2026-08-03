@@ -1,4 +1,5 @@
-import { STAGE_KEYS, type StageKey, type StageStatus } from './types.js';
+import { STAGE_KEYS, type BlockerKind, type StageKey, type StageStatus } from './types.js';
+import { collapseDiagnostic } from './diagnosticText.js';
 
 /**
  * One stepper cell — a stage node in a workflow stepper (§14). Shared by the
@@ -21,6 +22,13 @@ export interface StepperCell {
   startedAt?: string;
   endedAt?: string;
   attempt?: number;
+  /**
+   * Why karst could not ask this stage's question — set only while the stage is
+   * parked (`parkGateStage`/`clearStageBlock`, `store/stageBlocks.ts`). Absent
+   * (never null) exactly like every other detail field here: a stage that has
+   * never been blocked has nothing to say about it.
+   */
+  blocked?: { kind: BlockerKind; reason: string; at: string };
 }
 
 /**
@@ -36,11 +44,43 @@ export interface StepperStageRow {
   startedAt?: string | null;
   endedAt?: string | null;
   attempt?: number;
+  blockedKind?: BlockerKind | null;
+  blockedReason?: string | null;
+  blockedAt?: string | null;
 }
 
 /** Drop a nullish value so it never lands in the cell as an explicit null. */
 function detail<T>(key: string, value: T | null | undefined): Record<string, T> {
   return value === null || value === undefined ? {} : { [key]: value };
+}
+
+/**
+ * `verdict`/`blockedReason` are untrusted CLI/git prose (e.g. raw `git
+ * status` stderr, `workflow/gates/targets.ts`) — unbounded, possibly
+ * multi-line, and this is the ONE place both reach the cell that every
+ * rendered surface (fault card, blocked banner, Inside op row) reads from.
+ * Collapsed to one line and capped here, not per-surface, so no renderer can
+ * forget to.
+ */
+function collapsedReason(value: string | null | undefined): string | null | undefined {
+  return value == null ? value : collapseDiagnostic(value);
+}
+
+/**
+ * The stage's block, or nothing. Keyed off `blockedKind` alone — a park always
+ * writes all three fields in one transaction (`parkGateStage`), so a present
+ * kind with an absent reason/at would mean the store lied, not that there is
+ * partial information to show.
+ */
+function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['blocked']> | Record<string, never> {
+  if (!row?.blockedKind) return {};
+  return {
+    blocked: {
+      kind: row.blockedKind,
+      reason: collapseDiagnostic(row.blockedReason ?? ''),
+      at: row.blockedAt ?? '',
+    },
+  };
 }
 
 /**
@@ -56,11 +96,12 @@ export function buildStepper(stages: readonly StepperStageRow[]): StepperCell[] 
     return {
       stageKey,
       status: row?.status ?? 'pending',
-      ...detail('reason', row?.verdict),
+      ...detail('reason', collapsedReason(row?.verdict)),
       ...detail('artifactPath', row?.artifactPath),
       ...detail('startedAt', row?.startedAt),
       ...detail('endedAt', row?.endedAt),
       ...detail('attempt', row?.attempt),
+      ...blockedDetail(row),
     };
   });
 }
