@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -456,6 +456,23 @@ export function migrate(db: Database): void {
             WHERE NOT EXISTS (SELECT 1 FROM stages s
                                WHERE s.ticket_id = t.id AND s.stage_key = 'merge')`,
       );
+    }
+  }
+
+  if (current < 21) {
+    // v21 records a server's working directory, so a live pid can be tied back
+    // to the tree it serves. Without it, removing a worktree left its dev server
+    // running forever: reparented to init, holding ~1 GB and its port, serving a
+    // directory that no longer exists (869ed2n50).
+    //
+    // Not backfilled, and deliberately not guessed: `repo` is a repository NAME
+    // while worktrees are keyed by PATH, and several repository entries may
+    // share one worktree — the mapping is not derivable from the registry. A
+    // NULL cwd reads as "unknown" everywhere it is consumed, so a legacy row is
+    // never reaped on a guess.
+    const serverCols = tableColumns(db, 'servers');
+    if (serverCols.size > 0 && !serverCols.has('cwd')) {
+      db.exec('ALTER TABLE servers ADD COLUMN cwd TEXT');
     }
   }
 

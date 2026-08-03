@@ -157,7 +157,20 @@ CREATE TABLE IF NOT EXISTS servers (
   pid           INTEGER,
   status        TEXT NOT NULL,        -- running | stopped
   log_path      TEXT,
-  started_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  -- The directory the process was spawned in (v21) — normally a ticket's
+  -- worktree. It is what ties a live pid to the tree it serves, so removing that
+  -- tree can reap the servers it leaves behind and a boot sweep can spot a
+  -- server whose directory is gone. NULL for rows written before v21: unknown,
+  -- never assumed.
+  --
+  -- Placed LAST, matching where the v21 migration's `ALTER TABLE ADD COLUMN`
+  -- necessarily puts it on an upgraded DB (SQLite always appends) — a fresh DB
+  -- and a migrated one would otherwise disagree on column order. Nothing reads
+  -- `servers` by position (every query here names its columns), so the order
+  -- has no behavioral effect either way; this just keeps the two schemas
+  -- byte-for-byte comparable.
+  cwd           TEXT
 );
 
 -- One PR per (ticket, repo). `status` and every v16 metadata column below are

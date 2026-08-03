@@ -121,6 +121,7 @@ import { capForGate } from './workflow/fixAttempts.js';
 import { findTicketPr } from './store/prs.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
+import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
@@ -451,6 +452,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (swept > 0) logger.info(`karst: swept ${swept} stale hook-settings file(s)`);
   } catch (err) {
     logError('karst: hook-settings sweep failed', err);
+  }
+  // Stale-server sweep: a hot service whose working directory is gone cannot be
+  // serving anything valid, yet it keeps its port bound and its memory held —
+  // detached, reparented to init, unreachable by any hangup (869ed2n50).
+  // `removeWorktree` reaps the servers it removes the tree out from under, so
+  // this covers only what that cannot see: an already-leaked process from an
+  // older build, and a worktree removed by something other than karst (a hand-run
+  // `git worktree remove`, the IDE's git extension, an `rm -rf`). Reported, never
+  // silent — waste nothing surfaces is how two ~1 GB servers ran for three days.
+  //
+  // GLOBAL, not project-scoped, for the same reason `reconcileOnStart`'s server
+  // pass is: the registry is shared by every window, and a server serving a
+  // deleted tree is wrong in whichever project owns it — scoping the sweep would
+  // leave it running until that project's window happened to open, which for an
+  // abandoned project is never. What makes that safe is not the scope but the
+  // attribution: `serverIdentity.ts` requires evidence that the live pid is
+  // still the recorded server, so this can never signal another window's live
+  // process, let alone a stranger's. Rows it cannot attribute are cleared, not
+  // killed, and every line says which path it acted on.
+  try {
+    for (const s of reapStaleServers(localStore)) logger.info(describeReap(s));
+  } catch (err) {
+    logError('karst: stale-server sweep failed', err);
   }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package
@@ -2393,13 +2417,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         for (const w of listWorktreesByTicket(localStore, ticketId)) {
           if (!w.branch) continue;
           try {
-            await archiveWorktree(defaultGitRunner, localStore, allocator, {
+            const r = await archiveWorktree(defaultGitRunner, localStore, allocator, {
               ticketId,
               repoPath: w.repo,
               path: w.path,
               branch: w.branch,
               baseRef: w.baseRef ?? w.branch,
             });
+            // Archiving removes the tree out from under anything running in it,
+            // so whatever had to be stopped is named here. A kill that FAILED is
+            // a live server serving a deleted tree — the exact orphan this
+            // ticket exists to end — so it is a warning, not a log line.
+            for (const s of r.reapedServers) {
+              logger.info(describeReap(s));
+              if (s.outcome === 'kill-failed') {
+                void vscode.window.showWarningMessage(describeReap(s));
+              }
+            }
           } catch (err) {
             channel.appendLine(`archive worktree failed for ${w.path}: ${String(err)}`);
             void vscode.window.showWarningMessage(`Worktree not archived: ${String(err)}`);
@@ -2461,9 +2495,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const summary = await archiveInactiveWorktrees(defaultGitRunner, localStore, allocator, {
         projectId: currentProject()?.id,
       });
+      // Say what the sweep had to stop to remove those trees. An unattended
+      // bulk archive is the last place a killed — or unkillable — dev server may
+      // go unsaid; a kill that FAILED leaves a live server serving a deleted
+      // tree, the exact orphan this ticket exists to end, so it gets the same
+      // warning the single-ticket archive command raises for it, not just a log
+      // line. Aggregated into one message rather than one popup per row, since a
+      // sweep can touch many worktrees at once.
+      for (const s of summary.reapedServers) logger.info(describeReap(s));
+      const stopped = summary.reapedServers.filter((s) => s.outcome === 'killed').length;
+      const stillRunning = summary.reapedServers.filter((s) => s.outcome === 'kill-failed');
       void vscode.window.showInformationMessage(
-        `Karst: archived ${summary.archived} worktree(s), skipped ${summary.skipped}, failed ${summary.failed}.`,
+        `Karst: archived ${summary.archived} worktree(s), skipped ${summary.skipped}, failed ${summary.failed}` +
+          (stopped > 0 ? `, stopped ${stopped} running server(s).` : '.'),
       );
+      if (stillRunning.length > 0) {
+        void vscode.window.showWarningMessage(
+          `Karst: could not stop ${stillRunning.length} server(s) still running in archived ` +
+            `worktrees — ${stillRunning.map((s) => `'${s.repo}' (pid ${s.pid ?? 'unknown'})`).join(', ')}.`,
+        );
+      }
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),

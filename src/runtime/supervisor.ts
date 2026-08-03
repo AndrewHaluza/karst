@@ -138,6 +138,13 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   exitedBadly.catch(() => {});
 
   const pid = child.pid;
+  // Captured HERE, not at the INSERT below: the row is written only after the
+  // health check passes, which can be seconds (or, for a slow build, much
+  // longer) after the process actually started. `serverIdentity.ts` attributes
+  // a live pid partly by matching this timestamp against the OS's own report of
+  // when that pid started — recording the health-check-passed moment instead
+  // would systematically skew every comparison by however long that check took.
+  const spawnedAt = new Date().toISOString();
   if (pid === undefined) {
     // No pid means the spawn failed; the reason is a tick behind us on the
     // 'error' event. Wait for it rather than throw a bare "no pid" — but never
@@ -180,10 +187,18 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
 
   const info = store.db
     .prepare(
-      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
-       VALUES (?, ?, ?, ?, ?, 'running', ?)`,
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+       VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
     )
-    .run(opts.ticketId, opts.service, opts.host, opts.port, pid, opts.logPath);
+    // `cwd` is recorded because the child is spawned `detached` — its own session
+    // with no controlling tty — so nothing can ever reach it by hanging up a
+    // terminal. The directory is the only remaining handle that ties this pid to
+    // the tree it serves, and removing that tree (archive) or finding it gone (a
+    // boot sweep) is what reaps it. `started_at` is written explicitly (the
+    // captured `spawnedAt`, not the schema's `datetime('now')` default) for the
+    // same reason: it is the other half of that attribution. See
+    // runtime/worktreeServers.ts and runtime/serverIdentity.ts.
+    .run(opts.ticketId, opts.service, opts.host, opts.port, pid, opts.logPath, opts.cwd, spawnedAt);
 
   return {
     id: Number(info.lastInsertRowid),
@@ -220,6 +235,19 @@ export function stopServer(store: Store, id: number): void {
     // Group kill so a launcher's grandchildren (Vite etc.) die with it.
     killTree(row.pid);
   }
+  markServerStopped(store, id);
+}
+
+/**
+ * Record a server as stopped WITHOUT signalling anything.
+ *
+ * The row half of `stopServer`, separated because a reap may reach a row whose
+ * pid it must not signal — one the OS has since reissued to an unrelated process
+ * (see `runtime/serverIdentity.ts`). Such a row is still stale and still has to
+ * stop claiming to be running; what it must not do is take a stranger's process
+ * group with it. Idempotent.
+ */
+export function markServerStopped(store: Store, id: number): void {
   store.db.prepare("UPDATE servers SET status = 'stopped', pid = NULL WHERE id = ?").run(id);
 }
 

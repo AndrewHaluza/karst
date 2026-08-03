@@ -277,6 +277,36 @@ describe('worktree lifecycle', () => {
     expect(ports.n).toBe(0); // released
   });
 
+  // The orphan class this closes (869ed2n50): a dev server karst started inside
+  // the worktree is spawned `detached`, so removing the tree leaves it running
+  // with no controlling tty, reparented to init, still holding its port and
+  // memory while serving a directory that no longer exists — and its row goes
+  // with the ticket, so nothing surfaces it. The removal is the last moment both
+  // the pid and the path are known.
+  it('removeWorktree stops the servers running inside it before deleting the tree', () => {
+    const alloc = makePortAllocator(store, [4000, 4999]);
+    const rec = createWorktree(store, { ticketId: 1, repoPath: repo.path, slug: 'x', baseRef: 'develop' });
+    const insert = store.db.prepare(
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd)
+       VALUES (1, ?, 'localhost', 3000, NULL, 'running', '/l', ?)`,
+    );
+    const inside = Number(insert.run('frontend', join(rec.path, 'packages', 'web')).lastInsertRowid);
+    const elsewhere = Number(insert.run('backend', repo.path).lastInsertRowid);
+
+    const reaped = removeWorktree(store, rec, alloc);
+
+    // Returned, not swallowed: the caller owns the output channel, and a reap
+    // nothing reports is the invisibility this fix exists to end.
+    expect(reaped.map((r) => [r.id, r.reason])).toEqual([[inside, 'worktree-removed']]);
+
+    const statusOf = (id: number): string =>
+      (store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as { status: string })
+        .status;
+    expect(statusOf(inside)).toBe('stopped');
+    // A server outside the removed tree is untouched — it still serves something.
+    expect(statusOf(elsewhere)).toBe('running');
+  });
+
   // A refreshed base (see `pullBaseRef`) may live under a different ref than the
   // recorded one — `origin/develop` when the local branch could not be
   // fast-forwarded. The worktree must be cut from THAT, while `base_ref` keeps

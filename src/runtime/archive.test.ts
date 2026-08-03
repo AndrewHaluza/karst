@@ -97,6 +97,47 @@ describe('archive/restore worktree', () => {
   });
 
   // A templated branch may carry slashes of its own (`karst/feat/<slug>`). The
+  // Archiving removes the tree out from under whatever was running in it. The
+  // caller owns the output channel, so the result has to CARRY what was stopped
+  // — a reap nothing reports is the invisibility this fix exists to end
+  // (869ed2n50: two ~1 GB dev servers, three days, nothing on any surface).
+  it('carries the servers it had to stop out to the caller', async () => {
+    const rec = spinWorktree();
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd)
+         VALUES (1, 'frontend', 'localhost', 3005, NULL, 'running', '/l', ?)`,
+      )
+      .run(rec.path);
+
+    const res = await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1,
+      repoPath: repo.path,
+      path: rec.path,
+      branch: rec.branch,
+      baseRef: 'develop',
+    });
+
+    expect(res.reapedServers.map((s) => [s.repo, s.cwd, s.reason])).toEqual([
+      ['frontend', rec.path, 'worktree-removed'],
+    ]);
+  });
+
+  it('reports no servers when the archive was skipped, rather than omitting the field', async () => {
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    const res = await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1,
+      repoPath: repo.path,
+      path: join(repo.path, '.karst', 'worktrees', 'never-existed'),
+      branch: 'karst/never',
+      baseRef: 'develop',
+    });
+
+    expect(res.outcome).toBe('skipped');
+    expect(res.reapedServers).toEqual([]);
+  });
+
   // archive slug comes from the worktree PATH, not from stripping a `karst/`
   // prefix off the branch, so the ref stays flat and restore reuses the stored
   // branch verbatim instead of re-deriving it.
