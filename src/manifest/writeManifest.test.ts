@@ -4,8 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load as yamlLoad } from 'js-yaml';
 import { writeManifest } from './write.js';
-import { loadManifest } from './load.js';
+import { loadManifest, loadManifestWithDiagnostics } from './load.js';
+import { review as reviewFixture } from './fixtures.js';
 import type { Manifest } from './types.js';
+import { mergeSection } from '../ui/settings/sections.js';
 
 // Includes an unknown top-level key (`extraTopLevel`) and an unmodeled repository
 // sub-key (`repositories.backend.customField`) that must SURVIVE a write.
@@ -450,6 +452,84 @@ conventions:
       // portRange min > max — validateManifest throws.
       const bad: Manifest = { ...m, portRange: [9000, 1000] };
       expect(() => writeManifest(path, bad)).toThrow(/portRange/);
+      expect(readFileSync(path, 'utf8')).toBe(before); // untouched
+    } finally {
+      cleanup();
+    }
+  });
+
+  // The proof task for the whole Quality-tab phase: edit → validate →
+  // writeManifest → reload → the edit is there and NOTHING ELSE MOVED.
+  // Exercises the real writeManifest/loadManifestWithDiagnostics/mergeSection
+  // together (no mocks) — a mocked collaborator here would prove nothing about
+  // the round trip. Strengthened over the plan's version with a per-repo
+  // review override (Task 13), since a naive overlay could drop it.
+  it('round-trips a quality save through writeManifest, including a per-repo override', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      writeManifest(path, {
+        ...m,
+        uat: {
+          maxFixAttempts: 3,
+          env: { A: 'b' },
+          secrets: ['K'],
+          passthrough: [],
+          origins: [],
+          repositories: {},
+        },
+        review: reviewFixture(),
+      });
+
+      const { manifest: onDisk } = loadManifestWithDiagnostics(path);
+
+      // Simulate the Quality tab's spread-preserving updaters
+      // (updateUat/updateReview, webview.html): patch one uat field and add a
+      // per-repo review gate override, spreading everything else untouched.
+      const posted: Manifest = {
+        ...onDisk,
+        uat: { ...onDisk.uat!, maxFixAttempts: 9 },
+        review: {
+          ...onDisk.review!,
+          repositories: {
+            ...onDisk.review!.repositories,
+            backend: { gates: [{ name: 'lint', kind: 'script', script: 'lint:ci' }] },
+          },
+        },
+      };
+      writeManifest(path, mergeSection(onDisk, posted, 'quality'));
+
+      const { manifest: after, notices } = loadManifestWithDiagnostics(path);
+      expect(after.uat?.maxFixAttempts).toBe(9);
+      expect(after.uat?.secrets).toEqual(['K']);
+      expect(after.uat?.env).toEqual({ A: 'b' });
+      expect(after.review?.repositories.backend).toEqual({
+        gates: [{ name: 'lint', kind: 'script', script: 'lint:ci' }],
+      });
+
+      // Nothing outside `quality` moved.
+      expect(after.host).toBe(onDisk.host);
+      expect(after.baselineBranch).toBe(onDisk.baselineBranch);
+      expect(after.repositories).toEqual(onDisk.repositories);
+
+      // The inert keys survived a UI save, so they must still be reported.
+      expect(notices.some((n) => n.includes('uat.secrets'))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // The other half of the proof: an invalid edit must never reach disk, and
+  // the thrown error must name the field, not just "invalid manifest". Routed
+  // through writeManifest itself (not a bare validateManifest call) because
+  // that is the exact seam the Quality tab's Save goes through.
+  it('rejects an invalid quality draft without writing, naming the field', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const before = readFileSync(path, 'utf8');
+      const m = loadManifest(path);
+      const invalid: Manifest = { ...m, review: { ...reviewFixture(), maxFixAttempts: 0 } };
+      expect(() => writeManifest(path, invalid)).toThrow(/review\.maxFixAttempts/);
       expect(readFileSync(path, 'utf8')).toBe(before); // untouched
     } finally {
       cleanup();
