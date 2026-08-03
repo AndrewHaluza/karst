@@ -1576,6 +1576,42 @@ conventions:
   });
 });
 
+describe('notices channel', () => {
+  it('reports inert keys as notices, not warnings', () => {
+    const yaml = `${VALID}\nuat:\n  maxFixAttempts: 2\n  secrets: [STRIPE_KEY]\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const { notices, warnings } = loadManifestWithDiagnostics(path);
+      expect(notices.some((n) => n.includes('uat.secrets'))).toBe(true);
+      // Inactive is not the same claim as wrong.
+      expect(warnings).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('warns when a uat.env value looks like a credential', () => {
+    const yaml = `${VALID}\nuat:\n  env:\n    STRIPE_KEY: sk_live_abcdefghijklmnopqrstuvwx\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const { warnings } = loadManifestWithDiagnostics(path);
+      expect(warnings.some((w) => w.includes('uat.env') && w.includes('uat.secrets'))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('has no notices for a manifest declaring only wired keys', () => {
+    const yaml = `${VALID}\nreview:\n  maxFixAttempts: 2\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifestWithDiagnostics(path).notices).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('placeholder transforms in manifest templates', () => {
   it('accepts a valid transform in every template field', () => {
     const { path, cleanup } = fixture(
