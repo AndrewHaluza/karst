@@ -3282,14 +3282,43 @@
     const cfg = (block === 'uat' ? draft.uat : draft.review) || {};
     return cfg.gates || [];
   }
-  // Writes gates back by SPREADING the existing uat/review block, never
-  // rebuilding it — mergeSection deletes any manifest field this tab does not
-  // repost (uat.secrets, uat.env, review.repositories, …). Task 12 extracts
-  // this into named updateUat/updateReview helpers; written spread-preserving
-  // now so that extraction is mechanical.
+
+  // Quality's ONLY three write paths. `uat`/`review` are whole-field section
+  // members (SECTION_FIELDS.quality) — mergeSection REPLACES the entire block
+  // with whatever gets posted, and this tab renders only a fraction of each
+  // block's keys (uat.secrets, uat.env, uat.origins, review.repositories, …
+  // have no control here). So every write SPREADS the block as it stands and
+  // overrides just the patched keys; rebuilding either block from the
+  // rendered controls would silently erase everything this tab doesn't show
+  // — the same class of defect as the approach-drawer clobber (S1). No
+  // Quality handler may assign draft.uat or draft.review directly outside
+  // these three functions. Guarded by "preserves inert uat keys when the
+  // quality tab is saved" (webview.test.ts).
+  function updateUat(patch) {
+    draft.uat = { ...(draft.uat || {}), ...patch };
+    markDirty();
+  }
+
+  function updateReview(patch) {
+    draft.review = { ...(draft.review || {}), ...patch };
+    markDirty();
+  }
+
+  // Deep-merges over REVIEW_DEFAULTS.findings (never just the current draft)
+  // so a partially-specified review.findings — or an absent one — can't lose
+  // a sibling key to an edit of just one findings field.
+  function updateFindings(patch) {
+    updateReview({
+      findings: { ...REVIEW_DEFAULTS.findings, ...(draft.review?.findings || {}), ...patch },
+    });
+  }
+
+  // Gates route through updateUat/updateReview like every other Quality
+  // write; kept as a named helper since every gate call site already reads
+  // "write these gates back" rather than "patch this block".
   function writeGates(block, gates) {
-    if (block === 'uat') draft.uat = { ...(draft.uat || {}), gates };
-    else draft.review = { ...(draft.review || {}), gates };
+    if (block === 'uat') updateUat({ gates });
+    else updateReview({ gates });
   }
 
   function renderQuality() {
@@ -3315,6 +3344,28 @@
     syncGateRepoSelects('uat', uatGates);
     syncGateRepoSelects('review', reviewGates);
   }
+
+  // Quality scalars — every one routes through updateUat/updateReview/
+  // updateFindings (never a direct draft.uat/draft.review assignment), per
+  // the spread-preserving contract those three enforce.
+  el('f-uatMaxFix').addEventListener('input', () => {
+    updateUat({ maxFixAttempts: Number(el('f-uatMaxFix').value) || 1 });
+  });
+  el('f-reviewMaxFix').addEventListener('input', () => {
+    updateReview({ maxFixAttempts: Number(el('f-reviewMaxFix').value) || 1 });
+  });
+  el('f-reviewIndependent').addEventListener('change', () => {
+    updateReview({ requireIndependentSignal: el('f-reviewIndependent').checked });
+  });
+  el('f-findingsEnabled').addEventListener('change', () => {
+    updateFindings({ enabled: el('f-findingsEnabled').checked });
+  });
+  el('f-findingsSeverity').addEventListener('change', () => {
+    updateFindings({ blockingSeverity: el('f-findingsSeverity').value });
+  });
+  el('f-findingsMax').addEventListener('input', () => {
+    updateFindings({ maxFindings: Number(el('f-findingsMax').value) || 1 });
+  });
 
   el('f-ticketTeamId').addEventListener('input', () => {
     const v = el('f-ticketTeamId').value.trim();

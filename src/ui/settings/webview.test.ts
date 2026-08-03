@@ -15,7 +15,13 @@ import {
 } from './sections.js';
 import { validateManifest } from '../../manifest/schema.js';
 import type { GateDef, Manifest } from '../../manifest/types.js';
-import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import {
+  manifest as buildManifest,
+  runnableRepo,
+  slot,
+  uat as buildUat,
+  review as buildReview,
+} from '../../manifest/fixtures.js';
 import { gateSummary as hostGateSummary } from './gateDraft.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
@@ -1573,5 +1579,132 @@ describe('settings quality tab — gate editor', () => {
     expect(HTML).toMatch(/function emptyGate\(\)/);
     expect(HTML).toMatch(/function setGateKind\(/);
     expect(HTML).toMatch(/function gateSummary\(/);
+  });
+});
+
+/**
+ * Task 12: the guard for Task 8's trap. Quality renders only the wired
+ * scalars (Task 9) and the gate editor (Task 11), but `uat`/`review` are
+ * whole-field section members (SECTION_FIELDS.quality) — mergeSection
+ * REPLACES the entire block with whatever the draft posts. Every Quality
+ * write must therefore spread the block as it stands rather than rebuild it
+ * from the rendered controls, or a save would erase uat.secrets, uat.env,
+ * uat.origins, and review.repositories — the same class of defect as the
+ * approach-drawer clobber (S1).
+ *
+ * `simulateQualityEdit` exercises the REAL updateUat/updateReview/
+ * updateFindings functions straight out of webview.html (never a
+ * reimplementation), then the result is fed through the REAL mergeSection
+ * from sections.ts — that combination is what makes the guard meaningful.
+ */
+describe('settings quality tab — draft updaters preserve inert manifest keys', () => {
+  function simulateQualityEdit(
+    onDisk: Manifest,
+    edits: { uatMaxFixAttempts?: number; reviewMaxFixAttempts?: number },
+  ): Manifest {
+    const sandbox: Record<string, unknown> = {
+      draft: JSON.parse(JSON.stringify(onDisk)),
+      markDirty: () => {},
+    };
+    const calls: string[] = [];
+    if (edits.uatMaxFixAttempts !== undefined) {
+      calls.push(`updateUat({ maxFixAttempts: ${JSON.stringify(edits.uatMaxFixAttempts)} });`);
+    }
+    if (edits.reviewMaxFixAttempts !== undefined) {
+      calls.push(`updateReview({ maxFixAttempts: ${JSON.stringify(edits.reviewMaxFixAttempts)} });`);
+    }
+    const source = `
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      ${functionSource('updateUat')}
+      ${functionSource('updateReview')}
+      ${functionSource('updateFindings')}
+      ${calls.join('\n')}
+    `;
+    runInNewContext(source, sandbox);
+    return sandbox.draft as Manifest;
+  }
+
+  const baseManifest = buildManifest(
+    { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
+    { approaches: [], agents: {}, ticketing: { provider: 'manual' } },
+  );
+
+  it('preserves inert uat keys when the quality tab is saved', () => {
+    const onDisk: Manifest = {
+      ...baseManifest,
+      uat: buildUat({
+        maxFixAttempts: 3,
+        env: { BASE_URL: 'http://localhost:3000' },
+        secrets: ['STRIPE_KEY'],
+        origins: ['https://api.stripe.com'],
+      }),
+    };
+    // The webview renders only maxFixAttempts and gates. Saving must not erase
+    // the rest — mergeSection deletes fields absent from the posted draft, and
+    // rebuilding draft.uat from the rendered controls would omit them.
+    const posted = simulateQualityEdit(onDisk, { uatMaxFixAttempts: 7 });
+    const merged = mergeSection(onDisk, posted, 'quality');
+
+    expect(merged.uat?.maxFixAttempts).toBe(7);
+    expect(merged.uat?.secrets).toEqual(['STRIPE_KEY']);
+    expect(merged.uat?.env).toEqual({ BASE_URL: 'http://localhost:3000' });
+    expect(merged.uat?.origins).toEqual(['https://api.stripe.com']);
+  });
+
+  it('preserves review.repositories overrides when editing global review gates', () => {
+    const onDisk: Manifest = {
+      ...baseManifest,
+      review: buildReview({
+        maxFixAttempts: 3,
+        repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+      }),
+    };
+    const posted = simulateQualityEdit(onDisk, { reviewMaxFixAttempts: 5 });
+    const merged = mergeSection(onDisk, posted, 'quality');
+    expect(merged.review?.maxFixAttempts).toBe(5);
+    expect(merged.review?.repositories?.api?.gates).toHaveLength(1);
+  });
+
+  it('updateFindings deep-merges over REVIEW_DEFAULTS.findings, never dropping a sibling key', () => {
+    const sandbox: Record<string, unknown> = {
+      draft: { review: { findings: { enabled: false, blockingSeverity: 'critical', maxFindings: 5 } } },
+      markDirty: () => {},
+    };
+    const source = `
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      ${functionSource('updateReview')}
+      ${functionSource('updateFindings')}
+      updateFindings({ maxFindings: 12 });
+    `;
+    runInNewContext(source, sandbox);
+    const draft = sandbox.draft as { review: { findings: Record<string, unknown> } };
+    expect(draft.review.findings).toEqual({
+      enabled: false,
+      blockingSeverity: 'critical',
+      maxFindings: 12,
+    });
+  });
+
+  it('no Quality handler assigns draft.uat or draft.review directly outside updateUat/updateReview', () => {
+    // Everything after renderGateList's helpers must route through the three
+    // updaters. This greps the whole Quality region (gate editor start ->
+    // end of the file's quality-adjacent listeners) for a raw assignment.
+    const start = HTML.indexOf('function gatesOf(');
+    const end = HTML.indexOf('el(\'f-ticketTeamId\')');
+    const body = HTML.slice(start, end);
+    // Strip the updater bodies themselves (the only legal assignment sites).
+    const withoutUpdaters = body
+      .replace(functionSource('updateUat'), '')
+      .replace(functionSource('updateReview'), '');
+    expect(withoutUpdaters).not.toMatch(/draft\.uat\s*=/);
+    expect(withoutUpdaters).not.toMatch(/draft\.review\s*=/);
   });
 });
