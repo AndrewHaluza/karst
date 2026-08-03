@@ -110,6 +110,7 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
+import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
@@ -1657,6 +1658,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // revealing it by ticket id covers every affected target review
           // calls this for; `cwd` names nothing further to open.
           openDiff: (id) => changes.open(id),
+          // Review's findings lane (Lane B). Same instrumented, per-ticket
+          // resolution every other AI call in karst goes through
+          // (`currentAgentAdapter` → `instrument(resolveAdapter(...))`), so
+          // findings spend is attributed exactly like `pr-description`/
+          // `fix-resume` — no second wiring path to keep in sync.
+          agentAdapter: (id) => currentAgentAdapter(id),
           log: (message) => logger.info(message),
         },
         ticketId,
@@ -1691,7 +1698,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
-      renderFixBrief(label, t.stages) ??
+      renderFixBrief(label, t.stages, latestFindingBatch(localStore, ticketId)) ??
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
     const marker = renderDoneMarkerInstruction(
       buildCliStagePrefix(context, dbPath, 'fix'),
@@ -2123,7 +2130,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // its reason and log, so point the agent at them instead of a vague
       // "continue". `currentStage` carries both (state.ts → buildStepper).
       const fixBrief =
-        t.stageCurrent === 'fix' ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages) : null;
+        t.stageCurrent === 'fix'
+          ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages, latestFindingBatch(localStore, ticketId))
+          : null;
       let seedPrompt = resumeId
         ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}\n\n${markerInstruction}`
         : initialPrompt;

@@ -33,7 +33,7 @@ const CHANGES_GATE = 'changes';
  * `attempt` cannot be used for this either: it only increments on failure, so a
  * fail-then-pass pair sits at the same attempt.
  */
-function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateRun[] {
+export function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateRun[] {
   const mine = runs.filter((r) => r.stageKey === stageKey);
   const latest = mine.reduce<string | null>(
     (max, r) => (max === null || r.runAt > max ? r.runAt : max),

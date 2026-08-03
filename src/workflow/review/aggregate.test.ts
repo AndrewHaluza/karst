@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import type { GateRun } from '../../store/gateRuns.js';
+import type { FindingInput } from '../../store/reviewFindings.js';
 import type { AggregateEntry } from '../uat/aggregate.js';
 import {
   aggregateReview,
+  gatesOutcomeBeforeFindings,
   malformedPackageJsonEntry,
   sameGateIdentity,
   uatIdentitiesFrom,
   type AggregateOutcome,
+  type FindingsLaneOutcome,
   type GateIdentity,
 } from './aggregate.js';
 
@@ -31,15 +34,22 @@ const malformedWeb = malformedPackageJsonEntry('/web', 'web', 'Unexpected token 
 const uatRanTest: GateIdentity = { name: 'test (web)' };
 const uatRanE2e: GateIdentity = { name: 'e2e (web)' };
 
-const REQUIRED = { requireIndependentSignal: true };
-const RELAXED = { requireIndependentSignal: false };
+const NOT_RUN: FindingsLaneOutcome = { kind: 'not-run' };
+
+const REQUIRED = { requireIndependentSignal: true, findingsBlockingSeverity: 'none' as const };
+const RELAXED = { requireIndependentSignal: false, findingsBlockingSeverity: 'none' as const };
+
+function finding(severity: FindingInput['severity'], title = 'x'): FindingInput {
+  return { severity, repo: '/web', file: null, line: null, title, detail: '', source: 'agent' };
+}
 
 interface Case {
   rule: string;
   what: string;
   entries: AggregateEntry[];
   uat: GateIdentity[];
-  opts: { requireIndependentSignal: boolean };
+  findingsLane?: FindingsLaneOutcome;
+  opts: { requireIndependentSignal: boolean; findingsBlockingSeverity: 'none' | FindingInput['severity'] };
   expect: AggregateOutcome;
 }
 
@@ -204,7 +214,9 @@ const CASES: Case[] = [
 describe('aggregateReview', () => {
   for (const c of CASES) {
     it(`${c.rule}: ${c.what}`, () => {
-      expect(aggregateReview(c.entries, c.uat, c.opts)).toEqual(c.expect);
+      expect(aggregateReview(c.entries, c.uat, c.findingsLane ?? NOT_RUN, c.opts)).toEqual(
+        c.expect,
+      );
     });
   }
 
@@ -212,18 +224,122 @@ describe('aggregateReview', () => {
     const entries = [lintWeb, testWebRed];
     const uat = [uatRanTest];
     const before = JSON.stringify({ entries, uat });
-    aggregateReview(entries, uat, REQUIRED);
+    aggregateReview(entries, uat, NOT_RUN, REQUIRED);
     expect(JSON.stringify({ entries, uat })).toBe(before);
   });
 
-  // R6 (findings) is Tasks 11–13. There is no findings input yet, so the chain
-  // must simply not match it — never a stubbed lane that could fail a ticket on
-  // evidence nothing produces.
-  it('R6: with no findings input the chain falls through it untouched', () => {
-    expect(aggregateReview([lintWeb], [], REQUIRED)).toEqual({
+  // Task 13 fills R6. A lane that never ran (disabled, or short-circuited by
+  // R3–R5) must fall through untouched — never a stubbed lane that could fail
+  // a ticket on evidence nothing produced.
+  it('R6: a lane that never ran falls through it untouched', () => {
+    expect(aggregateReview([lintWeb], [], NOT_RUN, REQUIRED)).toEqual({
       kind: 'verdict',
       verdict: { kind: 'passed' },
       warnings: [],
+    });
+  });
+
+  it('R6: a finding at the configured threshold fails, naming the severities', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('high'), finding('high')] };
+    expect(
+      aggregateReview([lintWeb], [], lane, {
+        requireIndependentSignal: true,
+        findingsBlockingSeverity: 'high',
+      }),
+    ).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'review findings: 2 high' },
+      warnings: [],
+    });
+  });
+
+  it('R6: a finding above the threshold (more severe) also fails', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')] };
+    expect(
+      aggregateReview([lintWeb], [], lane, {
+        requireIndependentSignal: true,
+        findingsBlockingSeverity: 'high',
+      }),
+    ).toMatchObject({ kind: 'verdict', verdict: { kind: 'failed' } });
+  });
+
+  it('R6: a finding below the threshold is recorded evidence, not a failure', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('medium')] };
+    expect(
+      aggregateReview([lintWeb], [], lane, {
+        requireIndependentSignal: true,
+        findingsBlockingSeverity: 'high',
+      }),
+    ).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
+  });
+
+  it("R6: blockingSeverity 'none' never fails a ticket, however severe the findings", () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical'), finding('critical')] };
+    expect(
+      aggregateReview([lintWeb], [], lane, {
+        requireIndependentSignal: true,
+        findingsBlockingSeverity: 'none',
+      }),
+    ).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
+  });
+
+  it('R6: capability-missing blocks rather than failing — the agent core could not be asked', () => {
+    const lane: FindingsLaneOutcome = {
+      kind: 'capability-missing',
+      reason: 'no agent core available',
+    };
+    expect(
+      aggregateReview([lintWeb], [], lane, {
+        requireIndependentSignal: true,
+        findingsBlockingSeverity: 'high',
+      }),
+    ).toEqual({ kind: 'blocked', blocker: 'capability-missing', reason: 'no agent core available' });
+  });
+
+  it('R5 > R6: a red gate wins over a blocking finding — gates are cheaper to act on', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')] };
+    expect(
+      aggregateReview([testWebRed], [], lane, {
+        requireIndependentSignal: true,
+        findingsBlockingSeverity: 'high',
+      }),
+    ).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'gates failed: test (web)' },
+      warnings: [],
+    });
+  });
+
+  it('R6 > R7: a blocking finding wins over the independent-signal rule', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')] };
+    expect(
+      aggregateReview([testWeb], [uatRanTest], lane, {
+        requireIndependentSignal: true,
+        findingsBlockingSeverity: 'high',
+      }),
+    ).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'review findings: 1 critical' },
+      warnings: [],
+    });
+  });
+});
+
+describe('gatesOutcomeBeforeFindings', () => {
+  it('returns null once gates leave nothing else to decide, so R6 gets to run', () => {
+    expect(gatesOutcomeBeforeFindings([lintWeb])).toBeNull();
+  });
+
+  it('mirrors R3/R4/R5 exactly, so stages/review.ts can short-circuit before an AI call', () => {
+    expect(gatesOutcomeBeforeFindings([testWebRed])).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'gates failed: test (web)' },
+      warnings: [],
+    });
+    expect(gatesOutcomeBeforeFindings([])).toEqual({
+      kind: 'blocked',
+      blocker: 'nothing-to-run',
+      reason: 'no gates resolved for this ticket',
     });
   });
 });

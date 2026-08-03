@@ -51,6 +51,22 @@ const FAIL = uatDeps(1);
  * transition real. `lint`/`typecheck` are what make this review ask something
  * UAT (which probes `test`/`e2e`) does not — the independence rule of §6.4 R7.
  */
+const adapter: AgentAdapter = {
+  runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'PR body.' }),
+  buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
+  requiredBinary: 'claude',
+  capabilities: { lifecycleEvents: true, resume: true },
+};
+
+/**
+ * The findings lane (Lane B) defaults to ON (constraints.md), so this spine
+ * needs an agent core wired for review or every gate-clean run would park
+ * capability-missing instead of reaching ship. `adapter`'s raw output ('PR
+ * body.') is not JSON, which is exactly the "garbage response" case the lane
+ * must degrade gracefully from — zero findings, verdict still decided by the
+ * gates. That is deliberate here: this spine is about the STAGE MACHINE, not
+ * Lane B, which has its own dedicated coverage in `stages/review.test.ts`.
+ */
 function reviewDeps(exitCode: number): ReviewDeps {
   return {
     probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .', typecheck: 'tsc', test: 'vitest' } }),
@@ -62,17 +78,11 @@ function reviewDeps(exitCode: number): ReviewDeps {
         output: exitCode === 0 ? 'ok' : 'red',
       })),
     }),
+    findingsAdapter: adapter,
   };
 }
 const GATES_PASS = reviewDeps(0);
 const GATES_FAIL = reviewDeps(1);
-
-const adapter: AgentAdapter = {
-  runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'PR body.' }),
-  buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
-  requiredBinary: 'claude',
-  capabilities: { lifecycleEvents: true, resume: true },
-};
 // `pr view` is ship's "already shipped?" probe; a fresh branch has no PR, which
 // gh reports as a nonzero exit. Answered explicitly rather than letting the
 // create response stand in for it.

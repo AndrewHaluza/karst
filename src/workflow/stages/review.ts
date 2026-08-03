@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
+import type { AgentAdapter } from '../../agent/adapter.js';
 import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
+import type { FindingInput } from '../../store/reviewFindings.js';
 import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
@@ -20,6 +22,7 @@ import {
   DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
   type AggregateEntry,
 } from '../review/aggregate.js';
+import { planAndRunFindingsLane } from '../review/findingsLane.js';
 
 /**
  * Review stage — orchestration only.
@@ -71,6 +74,13 @@ export interface ReviewDeps {
    * quietly "succeeds" is exactly the lie this closes.
    */
   openDiff?: OpenDiff;
+  /**
+   * The agent core the findings lane (Lane B) asks about the diff. Absent
+   * means no agent core is available — `capability-missing` (spec §8.14) when
+   * `review.findings.enabled` and the gates haven't already decided the
+   * outcome, never a failure: an agent that cannot be asked is environmental.
+   */
+  findingsAdapter?: AgentAdapter;
 }
 
 export async function runReview(
@@ -94,8 +104,17 @@ export async function runReview(
   // `openDiff` (not the absence of one) actually shows the human anything.
   let diffOpened = false;
 
-  /** Write the log and commit the outcome with everything collected so far. */
-  const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
+  /**
+   * Write the log and commit the outcome with everything collected so far.
+   * `findings` defaults to empty — every early-return path (R1/R2, malformed
+   * probes, a stopped run) never reached the lane, so there is nothing to
+   * record; only the final call after `runFindingsLane` passes any.
+   */
+  const finish = (
+    outcome: RunOutcome,
+    notes: readonly string[] = [],
+    findings: readonly FindingInput[] = [],
+  ): StageRunResult => {
     mkdirSync(opts.artifactDir, { recursive: true });
     const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
     writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
@@ -123,6 +142,7 @@ export async function runReview(
       artifactPath,
       gates,
       outcome,
+      findings,
     });
   };
 
@@ -224,17 +244,42 @@ export async function runReview(
     }
   }
 
-  const outcome = aggregateReview(entries, uatIdentitiesFrom(listGateRuns(store, opts.ticketId)), {
-    // Manifest value wins; absent manifest, absent `review:` block, or an
-    // absent key all fall back to the same default (`true`) — a review that
-    // re-asks only UAT's questions has added no signal.
-    requireIndependentSignal:
-      opts.manifest?.review?.requireIndependentSignal ?? DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
+  // Resolves the config default, and (spec §8.14) skips the AI call entirely
+  // when R3/R4/R5 already decided the run — see `planAndRunFindingsLane`.
+  const { outcome: findingsLane, blockingSeverity } = await planAndRunFindingsLane({
+    entries,
+    targets: targets.map((t) => ({ repo: t.repo, worktreePath: t.path })),
+    findingsConfig: opts.manifest?.review?.findings,
+    adapter: deps.findingsAdapter,
+    ticketId: opts.ticketId,
+    signal: opts.signal,
   });
+  const collectedFindings: readonly FindingInput[] =
+    findingsLane.kind === 'ran' ? findingsLane.findings : [];
+
+  const outcome = aggregateReview(
+    entries,
+    uatIdentitiesFrom(listGateRuns(store, opts.ticketId)),
+    findingsLane,
+    {
+      // Manifest value wins; absent manifest, absent `review:` block, or an
+      // absent key all fall back to the same default (`true`) — a review that
+      // re-asks only UAT's questions has added no signal.
+      requireIndependentSignal:
+        opts.manifest?.review?.requireIndependentSignal ?? DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
+      findingsBlockingSeverity: blockingSeverity,
+    },
+  );
   if (outcome.kind === 'blocked') {
-    return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
-      outcome.reason,
-    ]);
+    return finish(
+      { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason },
+      [outcome.reason],
+      collectedFindings,
+    );
   }
-  return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+  return finish(
+    { kind: 'verdict', verdict: outcome.verdict },
+    outcome.warnings,
+    collectedFindings,
+  );
 }

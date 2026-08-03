@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import type { BlockerKind, StageKey, StageRunResult, Verdict } from '../../model/types.js';
 import { setStage, stageAttempt } from '../../store/stages.js';
 import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
+import { recordFindings, type FindingInput } from '../../store/reviewFindings.js';
 import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
 import { transition } from '../machine.js';
 
@@ -20,6 +21,14 @@ export interface CommitGateOutcomeInput {
   /** Whatever evidence exists. Empty is legitimate — nothing ran. */
   gates: readonly GateRunInput[];
   outcome: RunOutcome;
+  /**
+   * Review's Lane B evidence for this run (empty/absent for every other gate
+   * stage — `uat.ts` never passes this). Recorded in the SAME transaction as
+   * the outcome below, exactly like `gates`: findings are append-only
+   * evidence just like `gate_runs`, and a verdict must never commit separately
+   * from what produced it.
+   */
+  findings?: readonly FindingInput[];
 }
 
 /**
@@ -41,18 +50,35 @@ export function commitGateOutcome(
   store: Store,
   input: CommitGateOutcomeInput,
 ): StageRunResult {
-  const { ticketId, stageKey, runAt, artifactPath, gates, outcome } = input;
+  const { ticketId, stageKey, runAt, artifactPath, gates, outcome, findings } = input;
+
+  // Findings share the batch's `runAt` and the same pre-bump `attempt` gates
+  // read — recorded from inside whichever transaction below actually commits,
+  // never on its own, so a batch never lands without the outcome it belongs to.
+  const recordFindingsIfAny = (): void => {
+    if (!findings || findings.length === 0) return;
+    recordFindings(store, {
+      ticketId,
+      attempt: stageAttempt(store, ticketId, stageKey),
+      runAt,
+      findings,
+    });
+  };
 
   if (outcome.kind === 'blocked') {
-    parkGateStage(store, {
-      ticketId,
-      stageKey,
-      kind: outcome.blocker,
-      reason: outcome.reason,
-      runAt,
-      gates,
-      artifactPath,
+    const apply = store.db.transaction(() => {
+      parkGateStage(store, {
+        ticketId,
+        stageKey,
+        kind: outcome.blocker,
+        reason: outcome.reason,
+        runAt,
+        gates,
+        artifactPath,
+      });
+      recordFindingsIfAny();
     });
+    apply();
     return { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason };
   }
 
@@ -68,6 +94,7 @@ export function commitGateOutcome(
           gates,
         });
       }
+      recordFindingsIfAny();
       setStage(store, ticketId, stageKey, { artifactPath });
     });
     apply();
@@ -87,6 +114,7 @@ export function commitGateOutcome(
       runAt,
       gates,
     });
+    recordFindingsIfAny();
   });
   return { kind: 'advanced', next };
 }

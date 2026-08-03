@@ -3,6 +3,9 @@ import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketOnboarding } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
+import { setStage } from '../store/stages.js';
+import { recordGateRun } from '../store/gateRuns.js';
+import { recordFindings } from '../store/reviewFindings.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
@@ -218,6 +221,108 @@ describe('buildTicketContext', () => {
   });
 });
 
+describe('ticket context — stage/gate/finding state (closes G15)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('carries the current stage, its latest gates and its findings when at review', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+    setStage(store, t.id, 'review', { status: 'running' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 1 }],
+    });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      findings: [
+        { severity: 'critical', repo: '/web', file: 'src/db.ts', line: 42, title: 'SQL injection', detail: 'd', source: 'agent' },
+      ],
+    });
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage).toEqual({
+      stageKey: 'review',
+      status: 'running',
+      verdict: null,
+      blocked: null,
+      gates: [{ name: 'lint (web)', exitCode: 1 }],
+      findings: [
+        { severity: 'critical', repo: '/web', file: 'src/db.ts', line: 42, title: 'SQL injection', detail: 'd' },
+      ],
+    });
+    const md = renderTicketContext(ctx);
+    expect(md).toContain('## Current stage');
+    expect(md).toContain('- lint (web): exit 1');
+    expect(md).toContain('- [critical] SQL injection (src/db.ts:42)');
+  });
+
+  it('falls back to the failed gate stage when parked at fix, since fix records no evidence of its own', () => {
+    const t = createTicket(store, { key: 'PROJ-2', title: 't' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'review findings: 1 critical',
+    });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      findings: [
+        { severity: 'critical', repo: '/web', file: null, line: null, title: 'boom', detail: '', source: 'agent' },
+      ],
+    });
+    setStage(store, t.id, 'fix', { status: 'running' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('fix', t.id);
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.stageKey).toBe('review');
+    expect(ctx.stage?.verdict).toBe('review findings: 1 critical');
+    expect(ctx.stage?.findings).toHaveLength(1);
+  });
+
+  it('carries no findings for a non-review stage, even with a recorded batch elsewhere', () => {
+    const t = createTicket(store, { key: 'PROJ-3', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+    setStage(store, t.id, 'uat', { status: 'running' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.stageKey).toBe('uat');
+    expect(ctx.stage?.gates).toEqual([{ name: 'test (web)', exitCode: 0 }]);
+    expect(ctx.stage?.findings).toEqual([]);
+  });
+
+  it('names a block, when the current stage is parked', () => {
+    const t = createTicket(store, { key: 'PROJ-4', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+    setStage(store, t.id, 'review', {
+      status: 'running',
+      blockedKind: 'capability-missing',
+      blockedReason: 'no agent core available',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.blocked).toEqual({
+      kind: 'capability-missing',
+      reason: 'no agent core available',
+    });
+    expect(renderTicketContext(ctx)).toContain('- blocked: capability-missing — no agent core available');
+  });
+});
+
 describe('renderTicketContext', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
@@ -352,8 +457,9 @@ describe('renderTicketContext', () => {
     const t = createTicket(store, { key: '', title: '' });
     const ctx = buildTicketContext(store, undefined, t.id);
     const md = renderTicketContext(ctx);
-    // Only a heading fallback, no data sections.
-    expect(md).toBe('# Ticket: Untitled ticket');
+    // A freshly created ticket seeds a `stages` row (§11) — a bare "where is
+    // this ticket" line is not the kind of empty section this test is about.
+    expect(md).toBe('# Ticket: Untitled ticket\n\n## Current stage\n- stage: scope (pending)');
     expect(md).not.toContain('## Prompt');
     expect(md).not.toContain('## Worktrees');
   });

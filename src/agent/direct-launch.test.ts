@@ -52,6 +52,7 @@ describe('direct approach launch path (integration)', () => {
             unknown: false,
           },
         ],
+        stage: null,
       });
       const seed = buildSessionSeed(contextMarkdown, approachPrompt);
       expect(seed).toBeDefined();

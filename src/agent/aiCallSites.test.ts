@@ -13,6 +13,7 @@ describe('aiCallSites', () => {
     expect(AI_CALL_SITES).toContain('signal-suggestion');
     expect(AI_CALL_SITES).toContain('pr-description');
     expect(AI_CALL_SITES).toContain('fix-resume');
+    expect(AI_CALL_SITES).toContain('review-findings');
   });
 
   it('files an undeclared call under a site that is itself a known id', () => {

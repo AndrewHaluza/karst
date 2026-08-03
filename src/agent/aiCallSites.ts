@@ -24,6 +24,8 @@ export const AI_CALL_SITES = [
   'pr-description',
   /** The fix stage resuming a session to address failing gates. */
   'fix-resume',
+  /** Review's Lane B — asking an agent for structured findings over a target's diff. */
+  'review-findings',
   /** An instrumented call that declared no site (see the module doc). */
   'unknown',
 ] as const;
@@ -44,6 +46,7 @@ const LABELS: Record<AiCallSite, string> = {
   'signal-suggestion': 'Signal suggestion',
   'pr-description': 'PR description',
   'fix-resume': 'Fix resume',
+  'review-findings': 'Review findings',
   unknown: 'Undeclared',
 };
 

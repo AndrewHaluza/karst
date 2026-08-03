@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
+import type { AgentAdapter } from '../agent/adapter.js';
 import { getTicket } from '../store/tickets.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import { runUat } from './stages/uat.js';
@@ -70,6 +71,15 @@ export interface DriveTicketDeps {
    * surface of its own.
    */
   openDiff?: OpenDiff;
+  /**
+   * The agent core review's findings lane (Lane B) asks about the diff.
+   * Absent means no agent core is available — `capability-missing` (spec
+   * §8.14), never a failure. A function (not a bound value) because the host
+   * resolves it per-ticket (a ticket's own `agentProvider` may differ from
+   * the manifest default) and instruments it for token-usage attribution the
+   * same way every other AI call in karst is (`agent/instrumentedAdapter.ts`).
+   */
+  agentAdapter?: (ticketId: number) => AgentAdapter;
   log: (message: string) => void;
 }
 
@@ -138,13 +148,17 @@ export async function driveTicket(
         // blocked gate forever. `deps.openDiff` is threaded straight through —
         // absent here means absent there, never a no-op default.
         runReview: (id, cwd) =>
-          review(deps.store, {
-            ticketId: id,
-            cwd,
-            artifactDir: deps.artifactDirFor(id),
-            manifest: deps.manifest(),
-            signal: controller.signal,
-          }, { openDiff: deps.openDiff }),
+          review(
+            deps.store,
+            {
+              ticketId: id,
+              cwd,
+              artifactDir: deps.artifactDirFor(id),
+              manifest: deps.manifest(),
+              signal: controller.signal,
+            },
+            { openDiff: deps.openDiff, findingsAdapter: deps.agentAdapter?.(id) },
+          ),
       },
       ticketId,
     );

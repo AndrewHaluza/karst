@@ -3,10 +3,12 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
+import type { AgentAdapter } from '../../agent/adapter.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
+import { listFindings } from '../../store/reviewFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
@@ -21,6 +23,25 @@ const ALL_SCRIPTS = {
   build: 'tsc -b',
   format: 'prettier --check .',
 };
+
+/**
+ * The findings lane defaults to ON (constraints.md), so a review that reaches
+ * gate-clean would otherwise call the findings agent — and every test in this
+ * file except the ones specifically about the lane wants that call to be a
+ * silent, clean no-op, exactly as if nothing was found. `findingsAgent()`
+ * below builds a fake `AgentAdapter` for tests that DO want to control what
+ * comes back.
+ */
+function findingsAgent(raw = '[]'): AgentAdapter {
+  return {
+    requiredBinary: 'fake',
+    capabilities: { lifecycleEvents: false, resume: false },
+    buildInteractiveCommand: () => {
+      throw new Error('not used by the findings lane');
+    },
+    runHeadless: async () => ({ sessionId: '', verdict: null, raw }),
+  };
+}
 
 function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
   return {
@@ -40,6 +61,7 @@ function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
         endedAt: now(),
       })),
     }),
+    findingsAdapter: findingsAgent(),
     ...over,
   };
 }
@@ -746,6 +768,187 @@ describe('runReview', () => {
     // zero-length run rather than as "karst had nothing to ask".
     expect(second!.startedAt).toBeNull();
     expect(second!.endedAt).toBeNull();
+  });
+});
+
+describe('review findings lane (Lane B)', () => {
+  let store: Store;
+  let id: number;
+  let artifactDir: string;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    walkToReview(store, id);
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-review-findings-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  // spec §8.14: findings.enabled on, but no agent core available, is NOT a
+  // review failure — it is capability-missing, parked for a human, exactly
+  // like an unreadable repository (R2).
+  it('a missing agent core is capability-missing blocked, not a failure', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ findingsAdapter: undefined }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(stageBlock(store, id, 'review')?.kind).toBe('capability-missing');
+    expect(listFindings(store, id)).toEqual([]);
+  });
+
+  // spec §8.14: "If gates already produced a failure, R5 wins and no agent
+  // call is made at all."
+  it('a gate failure short-circuits before any AI call is made', async () => {
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const adapter: AgentAdapter = { ...findingsAgent(), runHeadless };
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        findingsAdapter: adapter,
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({
+            name: g.name,
+            exitCode: g.name === 'lint' ? 1 : 0,
+            output: 'lint error',
+            startedAt: now(),
+            endedAt: now(),
+          })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(runHeadless).not.toHaveBeenCalled();
+    expect(listFindings(store, id)).toEqual([]);
+  });
+
+  it('blockingSeverity: none never fails a ticket, however severe the findings', async () => {
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest(
+          {},
+          {
+            review: reviewConfig({
+              findings: { enabled: true, blockingSeverity: 'none', maxFindings: 50 },
+            }),
+          },
+        ),
+      },
+      deps({
+        findingsAdapter: findingsAgent(
+          JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }]),
+        ),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    // Still recorded as evidence even though it never blocked anything.
+    expect(listFindings(store, id)).toHaveLength(1);
+    expect(listFindings(store, id)[0]!.severity).toBe('critical');
+  });
+
+  it('a critical finding fails review to fix, at the configured threshold', async () => {
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig() }), // default: enabled, blockingSeverity 'high'
+      },
+      deps({
+        findingsAdapter: findingsAgent(
+          JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }]),
+        ),
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'advanced', next: 'fix' });
+    expect(reviewStage(store, id).verdict).toContain('review findings: 1 critical');
+  });
+
+  it('a low finding is recorded but does not block', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps({
+        findingsAdapter: findingsAgent(
+          JSON.stringify([{ severity: 'low', title: 'nit', detail: 'style only' }]),
+        ),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(listFindings(store, id)).toHaveLength(1);
+  });
+
+  // A failed/garbage agent call must not break the stage: the run still
+  // reaches a verdict decided by its gates, never a park.
+  it('a failed agent call still reaches a gate-based verdict, contributing no findings', async () => {
+    const adapter: AgentAdapter = {
+      ...findingsAgent(),
+      runHeadless: async () => {
+        throw new Error('spawn ENOENT');
+      },
+    };
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ findingsAdapter: adapter }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(listFindings(store, id)).toEqual([]);
+  });
+
+  it('a garbage (unparseable) agent response still reaches a gate-based verdict', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ findingsAdapter: findingsAgent('sure, looks fine to me!') }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(listFindings(store, id)).toEqual([]);
+  });
+
+  it('findings land in the SAME transaction as the verdict that failed on them', async () => {
+    store.db.prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?').run(id, 'review');
+    await expect(
+      runReview(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+        deps({
+          findingsAdapter: findingsAgent(
+            JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }]),
+          ),
+        }),
+      ),
+    ).rejects.toThrow(/has no stage 'review'/);
+    // The transition never committed, so neither did the findings that would
+    // have ridden along inside it.
+    expect(listFindings(store, id)).toEqual([]);
+  });
+
+  it('records findings under the SAME batch stamp as the gates that ran beside them', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps({
+        findingsAdapter: findingsAgent(
+          JSON.stringify([{ severity: 'low', title: 'nit', detail: '' }]),
+        ),
+      }),
+    );
+    const gateRunAt = new Set(listGateRuns(store, id).map((r) => r.runAt));
+    const findingRunAt = new Set(listFindings(store, id).map((f) => f.runAt));
+    expect(findingRunAt).toEqual(gateRunAt);
   });
 });
 
