@@ -1938,7 +1938,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Shared entry: resolve the manifest, remember it for onboarding actions, and
   // open the create-mode page. Used by both createTicket and openOnboarding.
   const openOnboardingCreate = async (): Promise<void> => {
-    const manifest = await resolveManifest();
+    const manifest = await resolveManifest(logger.info);
     if (!manifest) return; // no folder / scaffolded / invalid — message shown
     manifests.set(manifest, manifestPathOrThrow());
     onboarding.openCreate();
@@ -2261,7 +2261,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // deep inside that, long after the user stopped watching.
       if (!guardCapability('worktrees') || !guardCapability('gates')) return;
 
-      const manifest = await resolveManifest();
+      const manifest = await resolveManifest(logger.info);
       if (!manifest) return; // no folder / scaffolded / invalid — message already shown
 
       // Ticket label (key — title) for all the spin chrome, not the raw id.
@@ -2340,7 +2340,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.editTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      const manifest = await resolveManifest();
+      const manifest = await resolveManifest(logger.info);
       if (!manifest) return;
       manifests.set(manifest, manifestPathOrThrow());
       onboarding.openEdit(ticketId);
@@ -2364,7 +2364,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       provider.refresh();
-      const manifest = await resolveManifest();
+      const manifest = await resolveManifest(logger.info);
       if (manifest) manifests.set(manifest, manifestPathOrThrow());
       onboarding.openEdit(child.id);
       void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
