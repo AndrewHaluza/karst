@@ -169,7 +169,10 @@ approaches:
     # no source: built-in
 
 # Configured agents per workflow role. `command` is optional (a role can be
-# declared before its runner is wired).
+# declared before its runner is wired). `role` below is REQUIRED by validation
+# but read by nothing yet (same D1 "declared but not yet active" status as the
+# commented uat keys below) — it cannot be omitted or commented out, so this is
+# not a mistake to fix, just a fact karst reports at load.
 agents:
   research: { role: research }
   plan: { role: plan }
