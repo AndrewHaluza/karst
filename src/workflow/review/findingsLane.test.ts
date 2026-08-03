@@ -77,6 +77,64 @@ describe('runFindingsLane', () => {
     expect(outcome).toEqual({ kind: 'ran', findings: [] });
   });
 
+  // Finding 1: a failed/rejected call must not be silent — the lane still
+  // degrades to `ran` with no findings (the call must never break the
+  // stage), but the failure is described and reported through `warn` rather
+  // than swallowed, so a broken lane is distinguishable from a clean review.
+  it('warns with a one-line, capped description of a rejected call, and still reports ran/no findings', async () => {
+    const warn = vi.fn();
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(() => Promise.reject(new Error('boom'))),
+      targets: [TARGET],
+      ticketId: 1,
+      warn,
+    });
+    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message] = warn.mock.calls[0] as [string];
+    expect(message).toContain('/web');
+    expect(message).toContain('boom');
+    expect(message).not.toContain('\n');
+    expect(message.length).toBeLessThanOrEqual(8_000);
+  });
+
+  it('collapses a multi-line, oversized failure message to one capped line before warning', async () => {
+    const warn = vi.fn();
+    const huge = `first line\nsecond line\n${'x'.repeat(9_000)}`;
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(() => Promise.reject(new Error(huge))),
+      targets: [TARGET],
+      ticketId: 1,
+      warn,
+    });
+    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message] = warn.mock.calls[0] as [string];
+    expect(message).not.toContain('\n');
+    // The raw failure text was collapsed-then-capped before it was folded into
+    // the warn line, so the whole message stays well short of the input size.
+    expect(message.length).toBeLessThan(huge.length);
+  });
+
+  it('threads a supplied warn into parseFindings for a real lane run, never the console', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.fn();
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter('not json at all'),
+      targets: [TARGET],
+      ticketId: 1,
+      warn,
+    });
+    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('not recognizable JSON');
+    expect(consoleWarn).not.toHaveBeenCalled();
+    consoleWarn.mockRestore();
+  });
+
   it('a garbage response parses to zero findings, not a thrown error', async () => {
     const outcome = await runFindingsLane({
       config: CONFIG,
@@ -159,6 +217,20 @@ describe('planAndRunFindingsLane', () => {
     });
     expect(outcome).toEqual({ kind: 'ran', findings: [] });
     expect(blockingSeverity).toBe('high'); // DEFAULT_REVIEW_FINDINGS
+  });
+
+  it('threads a supplied warn down into the lane it runs', async () => {
+    const warn = vi.fn();
+    const { outcome } = await planAndRunFindingsLane({
+      entries: [entry(0)],
+      targets: [TARGET],
+      adapter: adapter(() => Promise.reject(new Error('boom'))),
+      ticketId: 1,
+      warn,
+    });
+    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('boom');
   });
 });
 

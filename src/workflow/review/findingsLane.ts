@@ -12,6 +12,7 @@
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ReviewFindingsConfig, Severity } from '../../manifest/types.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
+import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { parseFindings, type WarnFn } from './findings.js';
 import {
   gatesOutcomeBeforeFindings,
@@ -94,10 +95,18 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           opts.warn,
         ),
       );
-    } catch {
-      // See the doc comment: a failed/garbage call must not break the stage.
-      // Nothing is added for this target; the next target still gets its own
-      // chance, and the run as a whole still reports `ran`.
+    } catch (error) {
+      // See the doc comment: a failed/garbage call must not break the stage —
+      // degrading to `ran` with no findings for this target is still correct.
+      // What changes is that the failure is no longer silent: a missing CLI,
+      // a 429, a timeout or a crash all reach `warn` (one line, capped) rather
+      // than being indistinguishable from "the agent looked and found
+      // nothing" — the call is still billed either way, so the silence was
+      // the actual defect, not the degradation.
+      const message = error instanceof Error ? error.message : String(error);
+      opts.warn?.(
+        `review findings: ${target.repo} — call failed, contributing no findings: ${collapseDiagnostic(message)}`,
+      );
     }
   }
 
@@ -112,6 +121,7 @@ export interface PlanAndRunFindingsLaneOpts {
   adapter?: AgentAdapter;
   ticketId: number;
   signal?: AbortSignal;
+  warn?: WarnFn;
 }
 
 /**
@@ -134,6 +144,7 @@ export async function planAndRunFindingsLane(
           targets: opts.targets,
           ticketId: opts.ticketId,
           signal: opts.signal,
+          warn: opts.warn,
         })
       : { kind: 'not-run' };
   return { outcome, blockingSeverity: config.blockingSeverity };

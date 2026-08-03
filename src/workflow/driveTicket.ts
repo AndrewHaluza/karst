@@ -81,6 +81,15 @@ export interface DriveTicketDeps {
    */
   agentAdapter?: (ticketId: number) => AgentAdapter;
   log: (message: string) => void;
+  /**
+   * Where the findings lane's boundary diagnostics land (a failed AI call, an
+   * unparseable response, an untrustworthy `file`) — threaded straight into
+   * `ReviewDeps.warn`. Absent falls back all the way to `parseFindings`'s own
+   * `console.warn` default; the host binds this to its `Logger.warn`, kept
+   * distinct from `log` (which is `Logger.info`) so these read as warnings
+   * in the output channel, not as routine progress lines.
+   */
+  warn?: (message: string) => void;
 }
 
 /**
@@ -157,7 +166,7 @@ export async function driveTicket(
               manifest: deps.manifest(),
               signal: controller.signal,
             },
-            { openDiff: deps.openDiff, findingsAdapter: deps.agentAdapter?.(id) },
+            { openDiff: deps.openDiff, findingsAdapter: deps.agentAdapter?.(id), warn: deps.warn },
           ),
       },
       ticketId,

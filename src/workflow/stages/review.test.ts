@@ -918,6 +918,28 @@ describe('review findings lane (Lane B)', () => {
     expect(listFindings(store, id)).toEqual([]);
   });
 
+  // Finding 2 (pin): the stage must actually SUPPLY its `warn` dependency to
+  // the lane, not merely accept one — a `parseFindings` boundary warning
+  // (untrusted-agent-output diagnostics) raised during a real run must reach
+  // the injected `warn`, never the extension-host console. If a future
+  // refactor stops threading `deps.warn` through to `planAndRunFindingsLane`,
+  // this test fails instead of the warning silently reverting to
+  // `console.warn`.
+  it('supplies its warn dependency to the findings lane, reaching it instead of the console', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.fn();
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ findingsAdapter: findingsAgent('sure, looks fine to me!'), warn }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(warn).toHaveBeenCalled();
+    expect(warn.mock.calls.some(([message]) => message.includes('not recognizable JSON'))).toBe(true);
+    expect(consoleWarn).not.toHaveBeenCalled();
+    consoleWarn.mockRestore();
+  });
+
   it('findings land in the SAME transaction as the verdict that failed on them', async () => {
     store.db.prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?').run(id, 'review');
     await expect(

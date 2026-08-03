@@ -23,6 +23,7 @@ import {
   type AggregateEntry,
 } from '../review/aggregate.js';
 import { planAndRunFindingsLane } from '../review/findingsLane.js';
+import type { WarnFn } from '../review/findings.js';
 
 /**
  * Review stage — orchestration only.
@@ -81,6 +82,14 @@ export interface ReviewDeps {
    * outcome, never a failure: an agent that cannot be asked is environmental.
    */
   findingsAdapter?: AgentAdapter;
+  /**
+   * Where the findings lane's boundary diagnostics land (a failed AI call,
+   * an unparseable response, an untrustworthy `file`) — threaded through to
+   * `planAndRunFindingsLane`/`parseFindings`. Absent falls all the way back
+   * to `parseFindings`'s own `console.warn` default; the host always supplies
+   * one bound to `Logger.warn` so these reach karst's output channel instead.
+   */
+  warn?: WarnFn;
 }
 
 export async function runReview(
@@ -253,6 +262,7 @@ export async function runReview(
     adapter: deps.findingsAdapter,
     ticketId: opts.ticketId,
     signal: opts.signal,
+    warn: deps.warn,
   });
   const collectedFindings: readonly FindingInput[] =
     findingsLane.kind === 'ran' ? findingsLane.findings : [];

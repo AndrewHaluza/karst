@@ -1665,6 +1665,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // `fix-resume` — no second wiring path to keep in sync.
           agentAdapter: (id) => currentAgentAdapter(id),
           log: (message) => logger.info(message),
+          // Findings-lane boundary diagnostics (a failed AI call, garbage
+          // output, an untrustworthy `file`) — routed to `Logger.warn` so
+          // they read as warnings in the output channel rather than as
+          // routine `info` progress lines or (absent this) the invisible
+          // extension-host console.
+          warn: (message) => logger.warn(message),
         },
         ticketId,
       );
