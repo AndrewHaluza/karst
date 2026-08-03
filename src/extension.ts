@@ -2523,6 +2523,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // fallback + the error, shown inline. No toast either way.
       settings.open();
     }),
+    vscode.commands.registerCommand('karst.openManifest', async () => {
+      // Opens the FILE, deliberately — not the settings panel. Config karst
+      // parses but does not render (docs/config-ui-coverage.md, D1) is only
+      // reachable here, so this must work even when the manifest is invalid.
+      let path: string;
+      try {
+        path = manifestPathOrThrow();
+      } catch {
+        void vscode.window.showWarningMessage('Karst: no workspace folder is open.');
+        return;
+      }
+      if (!existsSync(path)) {
+        void vscode.window.showWarningMessage(
+          `Karst: no manifest at ${path}. Run onboarding to scaffold one.`,
+        );
+        return;
+      }
+      const doc = await vscode.workspace.openTextDocument(path);
+      await vscode.window.showTextDocument(doc);
+    }),
     vscode.commands.registerCommand('karst.openGettingStarted', () => welcome.open()),
     // Reprobe on demand: the user installs a tool in a terminal, clicks the status
     // bar, and karst answers without a window reload. No polling — nothing else

@@ -144,6 +144,11 @@
         "icon": "$(gear)"
       },
       {
+        "command": "karst.openManifest",
+        "title": "Karst: Open karst.yml",
+        "icon": "$(file-code)"
+      },
+      {
         "command": "karst.openGettingStarted",
         "title": "Karst: Getting Started"
       },
