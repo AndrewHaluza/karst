@@ -400,7 +400,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
-  }), () => worktreePathContext(currentManifest(), logger.warn), () => currentManifest()?.ticketLabelTemplate, logError,
+  }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider);
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
@@ -808,11 +808,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const loadSettingsState = (): LoadedManifest => {
     const path = manifestPathOrThrow();
     try {
-      const { manifest, warnings } = loadManifestWithDiagnostics(path);
+      const { manifest, warnings, notices } = loadManifestWithDiagnostics(path);
       // Non-fatal: log to the Karst output channel rather than a toast — the
       // Settings page the user just opened is where they'd fix it, and the
       // migrate.ts warning tells them to Save here to write the new shape.
       for (const w of warnings) logger.warn(`karst.yml: ${w}`);
+      for (const n of notices) logger.info(`karst.yml: ${n}`);
       return { manifest, error: null };
     } catch (e) {
       return {
@@ -1307,7 +1308,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     makeChangesPanelHost(context),
     (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
     async (ticketId, signal) => {
-      const pathContext = worktreePathContext(currentManifest(), logger.warn);
+      const pathContext = worktreePathContext(currentManifest(), logger.warn, logger.info);
       const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
         label: repoDisplayPath(worktree.repo, pathContext),
         path: worktree.path,
@@ -1429,7 +1430,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // declared further down `activate`, read only once a panel is open.
         (id) => maybeDrive(id, 'stage-resume'),
       ),
-    () => worktreePathContext(currentManifest(), logger.warn),
+    () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
     // Live ticketing config so the dashboard links to the source board (§ C3).
     () => currentManifest()?.ticketing,
@@ -2759,14 +2760,16 @@ export async function deactivate(): Promise<void> {
  * manifest when available, else quietly loads it (no prompts — the dashboard
  * shouldn't nag). Returns undefined (→ absolute paths) when nothing is resolvable.
  *
- * `warn` is only invoked on the fallback disk-read (the common case reuses
- * `current`, already surfaced by whoever resolved it) — defaults to a no-op so
- * this stays silent, matching the "no prompts" contract, unless a caller opts
- * into logging (extension.ts's activate() passes `logger.warn`).
+ * `warn`/`info` are only invoked on the fallback disk-read (the common case
+ * reuses `current`, already surfaced by whoever resolved it) — each defaults to
+ * a no-op so this stays silent, matching the "no prompts" contract, unless a
+ * caller opts into logging (extension.ts's activate() passes `logger.warn`/
+ * `logger.info`).
  */
 function worktreePathContext(
   current: Manifest | undefined,
   warn: (message: string) => void = () => {},
+  info: (message: string) => void = () => {},
 ): PathContext | undefined {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) return undefined;
@@ -2776,6 +2779,7 @@ function worktreePathContext(
     try {
       const loaded = loadManifestWithDiagnostics(manifestPathOrThrow());
       for (const w of loaded.warnings) warn(`karst.yml: ${w}`);
+      for (const n of loaded.notices) info(`karst.yml: ${n}`);
       manifest = loaded.manifest;
     } catch {
       return undefined; // no/invalid manifest — fall back to absolute paths

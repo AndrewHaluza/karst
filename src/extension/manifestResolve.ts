@@ -105,11 +105,14 @@ export async function resolveManifest(): Promise<Manifest | undefined> {
   }
 
   try {
-    const { manifest, warnings } = loadManifestWithDiagnostics(manifestPath);
+    const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
     // Non-fatal: a legacy `services:` manifest still loads, but the author
     // should know it's deprecated. One toast per resolve (not per repository).
     for (const w of warnings) {
       void vscode.window.showWarningMessage(`Karst manifest: ${w}`);
+    }
+    for (const n of notices) {
+      void vscode.window.showInformationMessage(`Karst manifest: ${n}`);
     }
     return manifest;
   } catch (err) {
