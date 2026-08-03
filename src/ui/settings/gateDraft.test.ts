@@ -41,4 +41,23 @@ describe('gate draft helpers', () => {
     expect(gateSummary({ name: 'e2e', kind: 'command', command: 'npx', args: ['playwright', 'test'] }))
       .toBe('npx playwright test');
   });
+
+  it('preserves repo across a kind switch — repo belongs to neither kind', () => {
+    const scriptGate = { name: 'e2e', kind: 'script' as const, script: 'test', repo: 'frontend' };
+    expect(setGateKind(scriptGate, 'command')).toEqual({
+      name: 'e2e', kind: 'command', command: '', args: [], repo: 'frontend',
+    });
+    const commandGate = {
+      name: 'e2e', kind: 'command' as const, command: 'npx', args: ['playwright'], repo: 'frontend',
+    };
+    expect(setGateKind(commandGate, 'script')).toEqual({
+      name: 'e2e', kind: 'script', script: '', repo: 'frontend',
+    });
+  });
+
+  it('summarises a half-filled gate without dangling whitespace', () => {
+    expect(gateSummary({ name: 'a', kind: 'script' })).toBe('npm run');
+    expect(gateSummary({ name: 'a', kind: 'command', command: 'npx', args: [] })).toBe('npx');
+    expect(gateSummary({ name: 'a', kind: 'command', command: '' })).toBe('');
+  });
 });
