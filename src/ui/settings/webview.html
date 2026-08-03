@@ -2384,6 +2384,33 @@
   // that adds/edits an approach; the global validate/save never sees a
   // partial or blank-id entry. On any failure: show an inline error and
   // keep the drawer open (never post a partial manifest).
+  // Pure: existing entry + the drawer's fields → the entry to store. Extracted
+  // from the save handler so it is testable — the clobber it fixes was
+  // invisible precisely because this logic lived inside an event handler.
+  // `fields` is what the drawer read: {id, label, description, entrypoint,
+  // sourceType, recommended, source?}.
+  function rebuildApproachFromDrawer(existing, fields) {
+    const approach = {
+      // Spread the existing entry first so keys this drawer does not render —
+      // `workflow` today, anything added to ApproachDef later — survive an edit.
+      // Every drawer-owned field below overwrites it, so this is not a merge of
+      // stale values; it is only a floor for fields the form has no control for.
+      ...(existing || {}),
+      id: fields.id,
+      label: fields.label,
+      enabled: existing ? existing.enabled !== false : true,
+    };
+    // Optional fields are DELETED when cleared, not left at their old value —
+    // the drawer owns them, and `...existing` would otherwise resurrect them.
+    if (fields.description) approach.description = fields.description;
+    else delete approach.description;
+    if (fields.entrypoint) approach.entrypoint = fields.entrypoint;
+    else delete approach.entrypoint;
+    if (fields.source) approach.source = fields.source; else delete approach.source;
+    if (fields.recommended) approach.recommended = true; else delete approach.recommended;
+    return approach;
+  }
+
   function submitApproachDrawer() {
     const id = el('af-id').value.trim();
     const label = el('af-label').value.trim();
@@ -2425,15 +2452,9 @@
       ? (draft.approaches || []).find((a) => a.id === approachDrawerEditId)
       : null;
 
-    const approach = {
-      id: finalId,
-      label,
-      ...(description ? { description } : {}),
-      ...(entrypoint ? { entrypoint } : {}),
-      ...(source ? { source } : {}),
-      enabled: existing ? existing.enabled !== false : true,
-      ...(recommended ? { recommended: true } : {}),
-    };
+    const approach = rebuildApproachFromDrawer(existing, {
+      id: finalId, label, description, entrypoint, source, recommended,
+    });
 
     const clearOthers = (a) => (recommended ? { ...a, recommended: false } : a);
     let nextApproaches;

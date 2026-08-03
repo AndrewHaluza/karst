@@ -1060,6 +1060,54 @@ describe('UI-R14b — the approach drawer does not close before its result', () 
   });
 });
 
+describe('approach drawer save preserves undrawn keys', () => {
+  function rebuildApproachFromDrawer(
+    existing: Record<string, unknown> | null,
+    fields: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return runInNewContext(`(${functionSource('rebuildApproachFromDrawer')})`, {})(
+      existing,
+      fields,
+    ) as Record<string, unknown>;
+  }
+
+  it('preserves approach keys the drawer does not render when editing', () => {
+    // An approach carrying a workflow — exactly the shipped `rpi` shape.
+    const before = {
+      id: 'rpi',
+      label: 'Research → Plan → Implement',
+      entrypoint: 'research',
+      enabled: true,
+      workflow: [
+        { name: 'describe' },
+        { name: 'research', command: '/rpi:research' },
+      ],
+    };
+
+    const after = rebuildApproachFromDrawer(before, {
+      id: 'rpi',
+      label: 'Research → Plan → Implement (edited)',
+      description: '',
+      entrypoint: 'research',
+      sourceType: 'none',
+      recommended: false,
+    });
+
+    expect(after.label).toBe('Research → Plan → Implement (edited)');
+    expect(after.workflow).toEqual(before.workflow);
+  });
+
+  it('clears a drawer-owned optional field that the user blanked', () => {
+    const before = { id: 'x', label: 'X', description: 'old', entrypoint: 'e', enabled: true };
+    const after = rebuildApproachFromDrawer(before, {
+      id: 'x', label: 'X', description: '', entrypoint: 'e',
+      sourceType: 'none', recommended: false,
+    });
+    expect(after.description).toBeUndefined();
+    expect(after.entrypoint).toBe('e');
+  });
+});
+
 describe('UI-R12 — Save is disabled while a save is in flight', () => {
   it('updateSaveEnabled folds karstIsPending(saveBtn) into the disabled computation', () => {
     const fn = functionSource('updateSaveEnabled');
