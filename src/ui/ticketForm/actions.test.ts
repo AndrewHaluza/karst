@@ -9,16 +9,16 @@ import {
   getTicket,
   getTicketByKey,
   listTickets,
-  updateTicketOnboarding,
+  updateTicketFields,
 } from '../../store/tickets.js';
 import {
-  buildOnboardingActions,
-  type OnboardingActionsDeps,
+  buildTicketFormActions,
+  type TicketFormActionsDeps,
   type StartTicketResult,
   type StartTicketOptions,
 } from './actions.js';
-import type { OnboardingActionsCtx } from './panel.js';
-import type { OnboardingHostMessage } from './messages.js';
+import type { TicketFormActionsCtx } from './panel.js';
+import type { TicketFormHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 function freshStorage(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'karst-onboarding-attachments-'));
+  const dir = mkdtempSync(join(tmpdir(), 'karst-ticket-form-attachments-'));
   dirs.push(dir);
   return dir;
 }
@@ -103,8 +103,8 @@ function fakeAdapter(): AgentAdapter {
  * posts; `bindTicket` flips it to edit mode so persist-on-fetch can rebind a
  * create panel to its new draft.
  */
-function mkCtx(ticketId?: number): OnboardingActionsCtx & {
-  posted: OnboardingHostMessage[];
+function mkCtx(ticketId?: number): TicketFormActionsCtx & {
+  posted: TicketFormHostMessage[];
   pushes: number;
   statePushes: number;
   boundTicketId?: number;
@@ -113,7 +113,7 @@ function mkCtx(ticketId?: number): OnboardingActionsCtx & {
   let boundId = ticketId;
   let pushes = 0;
   let closes = 0;
-  const posted: OnboardingHostMessage[] = [];
+  const posted: TicketFormHostMessage[] = [];
   const ctx = {
     posted,
     get pushes() {
@@ -128,7 +128,7 @@ function mkCtx(ticketId?: number): OnboardingActionsCtx & {
     get closes() {
       return closes;
     },
-    post: (m: OnboardingHostMessage) => posted.push(m),
+    post: (m: TicketFormHostMessage) => posted.push(m),
     pushState: () => {
       pushes += 1;
     },
@@ -145,8 +145,8 @@ function mkCtx(ticketId?: number): OnboardingActionsCtx & {
       closes += 1;
     },
   };
-  return ctx as OnboardingActionsCtx & {
-    posted: OnboardingHostMessage[];
+  return ctx as TicketFormActionsCtx & {
+    posted: TicketFormHostMessage[];
     pushes: number;
     statePushes: number;
     boundTicketId?: number;
@@ -154,9 +154,9 @@ function mkCtx(ticketId?: number): OnboardingActionsCtx & {
   };
 }
 
-describe('buildOnboardingActions', () => {
+describe('buildTicketFormActions', () => {
   let store: Store;
-  let deps: OnboardingActionsDeps;
+  let deps: TicketFormActionsDeps;
   let onCreated: ReturnType<typeof vi.fn<() => void>>;
   let writeSignals: ReturnType<typeof vi.fn<(p: string, s: string, sig: string[]) => void>>;
   let reloadManifest: ReturnType<typeof vi.fn<() => void>>;
@@ -199,21 +199,21 @@ describe('buildOnboardingActions', () => {
       ? createTicket(store, { key: `ATT-${Math.random()}`, title: 'attachments' }).id
       : undefined;
     const ctx = mkCtx(ticketId);
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
     return { actions, ctx, deps, ticketId };
   }
 
   it('fetchSource posts the brief and persists it for an existing ticket', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m),
       pushState: () => {},
       mode: 'edit',
       ticketId: t.id,
       bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.fetchSource('CU-9');
     // busy on/off + brief posted
@@ -229,7 +229,7 @@ describe('buildOnboardingActions', () => {
     deps.provider = fakeProvider({
       fetchTicket: vi.fn(async () => ({ ...BRIEF, attachments })),
     });
-    const actions = buildOnboardingActions(deps)(mkCtx(t.id));
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
     await actions.fetchSource('CU-9');
     return getTicket(store, t.id).brief ?? '';
   }
@@ -273,7 +273,7 @@ describe('buildOnboardingActions', () => {
 
   it('fetchSource in create mode persists a draft, binds it, and scores repos', async () => {
     const ctx = mkCtx(); // create mode: no ticket yet
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.fetchSource('CU-42');
 
@@ -293,7 +293,7 @@ describe('buildOnboardingActions', () => {
 
   it('fetchSource twice on one create panel updates the same draft, no duplicate', async () => {
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.fetchSource('CU-42');
     await actions.fetchSource('CU-99');
@@ -308,7 +308,7 @@ describe('buildOnboardingActions', () => {
       }),
     });
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.fetchSource('CU-42');
     expect(ctx.ticketId).toBeUndefined(); // half-bound state never happens
@@ -317,9 +317,9 @@ describe('buildOnboardingActions', () => {
 
   it('fetchSource posts an error when the provider rejects', async () => {
     deps.provider = fakeProvider({ fetchTicket: vi.fn(async () => { throw new Error('boom'); }) });
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.fetchSource('CU-9');
     const err = posted.find((m) => m.type === 'error') as { message: string } | undefined;
@@ -327,9 +327,9 @@ describe('buildOnboardingActions', () => {
   });
 
   it('suggestSignals posts the suggested words for a service', async () => {
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.suggestSignals('fe');
     const s = posted.find((m) => m.type === 'signals-suggested') as
@@ -341,8 +341,8 @@ describe('buildOnboardingActions', () => {
 
   it('saveSignals writes to the manifest and re-pushes state', async () => {
     let pushes = 0;
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     actions.saveSignals('be', ['api', 'endpoint']);
     expect(deps.writeSignals).toHaveBeenCalledWith('/tmp/karst.yml', 'be', ['api', 'endpoint']);
@@ -352,13 +352,13 @@ describe('buildOnboardingActions', () => {
   it('saveSignals reloads the manifest BEFORE re-pushing state (so the gate clears)', async () => {
     const order: string[] = [];
     reloadManifest.mockImplementation(() => order.push('reload'));
-    const ctx: OnboardingActionsCtx = {
+    const ctx: TicketFormActionsCtx = {
       post: () => {},
       pushState: () => order.push('push'),
       mode: 'create',
       bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     actions.saveSignals('be', ['api']);
     expect(reloadManifest).toHaveBeenCalledTimes(1);
@@ -367,9 +367,9 @@ describe('buildOnboardingActions', () => {
 
   it('saveSignals does not reload or push when the write throws', async () => {
     writeSignals.mockImplementation(() => { throw new Error('bad yml'); });
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     actions.saveSignals('be', ['api']);
     expect(reloadManifest).not.toHaveBeenCalled();
@@ -377,8 +377,8 @@ describe('buildOnboardingActions', () => {
   });
 
   it('submit in create mode creates a ticket with the entered fields', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null });
     const tickets = listTickets(store);
@@ -391,8 +391,8 @@ describe('buildOnboardingActions', () => {
   });
 
   it('submit generates a unique key when the key field is left blank (manual creation)', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: '', title: 'no key please', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const tickets = listTickets(store);
@@ -401,15 +401,15 @@ describe('buildOnboardingActions', () => {
   });
 
   it('a blank key is derived from the title, not a random MANUAL- id', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     expect(listTickets(store)[0]!.key).toBe('FIX-LOGIN-REDIRECT');
   });
 
   it('two blank-key submissions of the SAME title still get distinct keys', async () => {
-    const mk = () => buildOnboardingActions(deps)({
+    const mk = () => buildTicketFormActions(deps)({
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
     });
     const fields = { key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null };
@@ -421,10 +421,10 @@ describe('buildOnboardingActions', () => {
   });
 
   it('two blank-key submissions generate distinct keys — no collision', async () => {
-    const actionsA = buildOnboardingActions(deps)({
+    const actionsA = buildTicketFormActions(deps)({
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
     });
-    const actionsB = buildOnboardingActions(deps)({
+    const actionsB = buildTicketFormActions(deps)({
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
     });
 
@@ -435,8 +435,8 @@ describe('buildOnboardingActions', () => {
   });
 
   it('submit persists the create-mode repo + approach selection before starting', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null, ticketType: null });
     const t = getTicket(store, listTickets(store)[0]!.id);
@@ -445,16 +445,16 @@ describe('buildOnboardingActions', () => {
   });
 
   it('submit persists the per-ticket model when chosen, and leaves it null on inherit', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8', ticketType: null });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBe('claude-opus-4-8');
   });
 
   it('submit persists the chosen agentProvider on a newly created ticket', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
       key: 'NEW-P', title: 't', description: '', repos: [], approach: null, agent: null,
@@ -464,16 +464,16 @@ describe('buildOnboardingActions', () => {
   });
 
   it('submit with a null model leaves the ticket inheriting the default', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBeNull();
   });
 
   it('submit persists the agent selection when present', async () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
       key: 'NEW-A', title: 't', description: '', repos: [], approach: null, agent: 'reviewer', model: null, ticketType: null,
@@ -484,12 +484,12 @@ describe('buildOnboardingActions', () => {
 
   it('submit binds the create panel to the new draft before starting it', async () => {
     let bound: number | undefined;
-    const ctx: OnboardingActionsCtx = {
+    const ctx: TicketFormActionsCtx = {
       post: () => {}, pushState: () => {}, mode: 'create',
       bindTicket: (id) => { bound = id; },
       close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const id = listTickets(store)[0]!.id;
@@ -499,8 +499,8 @@ describe('buildOnboardingActions', () => {
 
   it('submit in edit mode updates key/title of the existing ticket', async () => {
     const t = createTicket(store, { key: 'OLD', title: 'old' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
     const reloaded = getTicket(store, t.id);
@@ -512,7 +512,7 @@ describe('buildOnboardingActions', () => {
 
   it('submit hands off to the dashboard and closes the panel once the ticket starts', async () => {
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
       key: 'NEW-D', title: 't', description: '', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null,
@@ -530,7 +530,7 @@ describe('buildOnboardingActions', () => {
   // The pull switch is a LAUNCH choice, not a stored field: submit forwards
   // whatever the page said, and its absence means "pull" (the default).
   it('submit forwards an explicit pull opt-out to startTicket', async () => {
-    const actions = buildOnboardingActions(deps)(mkCtx());
+    const actions = buildTicketFormActions(deps)(mkCtx());
 
     await actions.submit({
       key: 'NEW-P', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null, pullBase: false,
@@ -552,7 +552,7 @@ describe('buildOnboardingActions', () => {
     });
     openDashboard.mockImplementation(() => order.push('dashboard'));
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     const done = actions.submit({
       key: 'NEW-O', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
@@ -567,7 +567,7 @@ describe('buildOnboardingActions', () => {
   it('submit keeps the panel open and posts the reason when the ticket cannot start', async () => {
     startTicket.mockResolvedValue({ ok: false, message: 'Select at least one repository.' });
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
       key: 'NEW-F', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
@@ -587,7 +587,7 @@ describe('buildOnboardingActions', () => {
   it('submit posts the error and keeps the panel open when startTicket throws', async () => {
     startTicket.mockRejectedValue(new Error('worktree exists'));
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
       key: 'NEW-T', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
@@ -603,7 +603,7 @@ describe('buildOnboardingActions', () => {
   it('submit in edit mode also hands off to the dashboard and closes the panel', async () => {
     const t = createTicket(store, { key: 'OLD-D', title: 'old' });
     const ctx = mkCtx(t.id);
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
       key: 'OLD-D', title: 'new', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
@@ -615,7 +615,7 @@ describe('buildOnboardingActions', () => {
 
   it('save in create mode persists a ticket WITHOUT starting it', async () => {
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({
       key: 'DRAFT-1', title: 'a draft', description: 'no run yet', repos: [], approach: null, agent: null, model: null, ticketType: null,
@@ -639,7 +639,7 @@ describe('buildOnboardingActions', () => {
 
   it('save generates a unique key when the key field is left blank (manual creation)', async () => {
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({ key: '', title: 'a draft', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
@@ -650,7 +650,7 @@ describe('buildOnboardingActions', () => {
 
   it('save persists repos/approach/agent/model exactly like submit does', async () => {
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({
       key: 'DRAFT-2', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', ticketType: null,
@@ -665,7 +665,7 @@ describe('buildOnboardingActions', () => {
 
   it('save binds the create panel to the new draft (retrievable afterward)', async () => {
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({ key: 'DRAFT-3', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
@@ -677,7 +677,7 @@ describe('buildOnboardingActions', () => {
   it('save in edit mode updates the existing ticket WITHOUT starting it, no duplicate', async () => {
     const t = createTicket(store, { key: 'OLD-S', title: 'old' });
     const ctx = mkCtx(t.id);
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({ key: 'NEW-S', title: 'new title', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
@@ -691,7 +691,7 @@ describe('buildOnboardingActions', () => {
   it('save in edit mode with a blank key assigns a fresh generated key, never persists empty', async () => {
     const t = createTicket(store, { key: 'HAD-1', title: 'old' });
     const ctx = mkCtx(t.id);
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({ key: '', title: 'old', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
@@ -702,7 +702,7 @@ describe('buildOnboardingActions', () => {
 
   it('save posts busy on/off around the persist and pushes fresh state on success', async () => {
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({ key: 'DRAFT-4', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
@@ -714,7 +714,7 @@ describe('buildOnboardingActions', () => {
   it('save posts a user-facing error and persists nothing when the store rejects the write', async () => {
     store.close();
     const ctx = mkCtx();
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.save({ key: 'DRAFT-5', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
 
@@ -729,20 +729,20 @@ describe('buildOnboardingActions', () => {
 
   it('analyze posts busy on, persists the coupled result, and posts analysis, then busy off', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
     deps.adapter = analyzerAdapter(
       '{"prompt":"Add an X button","approach":"rpi","repos":["fe"],"reason":"UI-only change"}',
     );
-    const posted: OnboardingHostMessage[] = [];
+    const posted: TicketFormHostMessage[] = [];
     let pushes = 0;
-    const ctx: OnboardingActionsCtx = {
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m),
       pushState: () => { pushes += 1; },
       mode: 'edit',
       ticketId: t.id,
       bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
 
@@ -771,17 +771,17 @@ describe('buildOnboardingActions', () => {
   it('analyze never overwrites the approach the user already selected', async () => {
     const t = createTicket(store, { key: 'P-A', title: 't' });
     // The ticket already carries a launched approach (stored verbatim).
-    updateTicketOnboarding(store, t.id, {
+    updateTicketFields(store, t.id, {
       brief: 'the brief text', selectedRepos: [], approach: 'superpowers:writing-plans',
     });
     deps.adapter = analyzerAdapter(
       '{"prompt":"Add an X button","approach":"rpi","repos":[],"reason":"plan first"}',
     );
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
 
@@ -793,15 +793,15 @@ describe('buildOnboardingActions', () => {
 
   it('analyze never overwrites the ticket type the user already picked', async () => {
     const t = createTicket(store, { key: 'P-T', title: 't' });
-    updateTicketOnboarding(store, t.id, { brief: 'the brief text', type: 'chore' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', type: 'chore' });
     deps.adapter = analyzerAdapter(
       '{"prompt":"p","approach":"rpi","repos":[],"reason":"r","type":"feat"}',
     );
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
 
@@ -812,13 +812,13 @@ describe('buildOnboardingActions', () => {
 
   it('analyze posts an error and busy off when the adapter rejects', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { brief: 'the brief text' });
+    updateTicketFields(store, t.id, { brief: 'the brief text' });
     deps.adapter = { ...fakeAdapter(), runHeadless: vi.fn(async () => { throw new Error('agent down'); }) };
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
 
@@ -831,12 +831,12 @@ describe('buildOnboardingActions', () => {
     deps.adapter = analyzerAdapter(
       '{"prompt":"Rename the button","approach":"rpi","repos":["fe"],"reason":"trivial"}',
     );
-    const posted: OnboardingHostMessage[] = [];
+    const posted: TicketFormHostMessage[] = [];
     let pushes = 0;
-    const ctx: OnboardingActionsCtx = {
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => { pushes += 1; }, mode: 'create', bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('rename the settings button');
 
@@ -846,9 +846,9 @@ describe('buildOnboardingActions', () => {
   });
 
   it('analyze is a no-op with no bound ticket AND no live prompt (nothing to reason over)', async () => {
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
     expect(posted).toEqual([]);
@@ -856,11 +856,11 @@ describe('buildOnboardingActions', () => {
 
   it('analyze is a no-op when the ticket has neither a brief nor a prompt', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' }); // no description/brief
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
     expect(posted).toEqual([]);
@@ -873,11 +873,11 @@ describe('buildOnboardingActions', () => {
       return { sessionId: 's', verdict: null, raw: '{"prompt":"p","approach":"rpi","repos":["be"],"reason":"from prompt"}' };
     });
     deps.adapter = { ...fakeAdapter(), runHeadless };
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('Add a rate limiter');
 
@@ -889,12 +889,12 @@ describe('buildOnboardingActions', () => {
   it('analyze is a no-op when no approaches are available (adapter not called)', async () => {
     listInstalledIds.mockReturnValue([]); // rpi is sourced → unavailable, and no built-ins
     const t = createTicket(store, { key: 'P-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { brief: 'the brief text' });
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    updateTicketFields(store, t.id, { brief: 'the brief text' });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
     expect(posted).toEqual([]);
@@ -908,12 +908,12 @@ describe('buildOnboardingActions', () => {
       '{"prompt":"p","approach":"direct","repos":["fe"],"reason":"tiny change"}',
     );
     const t = createTicket(store, { key: 'P-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { brief: 'the brief text' });
-    const posted: OnboardingHostMessage[] = [];
-    const ctx: OnboardingActionsCtx = {
+    updateTicketFields(store, t.id, { brief: 'the brief text' });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
     };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
 
@@ -925,8 +925,8 @@ describe('buildOnboardingActions', () => {
 
   it('setApproach and setRepos persist onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P', title: 't' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setApproach('rpi');
     actions.setRepos(['fe', 'be']);
@@ -937,16 +937,16 @@ describe('buildOnboardingActions', () => {
 
   it('setAgent persists onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P-A', title: 't' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setAgent('reviewer');
     expect(getTicket(store, t.id).agent).toBe('reviewer');
   });
 
   it('setAgent is a no-op in create mode with no bound ticket', () => {
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     expect(() => actions.setAgent('reviewer')).not.toThrow();
     expect(listTickets(store)).toHaveLength(0);
@@ -954,8 +954,8 @@ describe('buildOnboardingActions', () => {
 
   it('setModel persists onto an existing ticket, and empty clears it to inherit', () => {
     const t = createTicket(store, { key: 'P-M', title: 't' });
-    const ctx: OnboardingActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
-    const actions = buildOnboardingActions(deps)(ctx);
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setModel('claude-sonnet-5');
     expect(getTicket(store, t.id).model).toBe('claude-sonnet-5');
@@ -966,7 +966,7 @@ describe('buildOnboardingActions', () => {
   it('setProvider persists onto an existing ticket, re-pushes state, and empty clears it to inherit', () => {
     const t = createTicket(store, { key: 'P-PR', title: 't' });
     const ctx = mkCtx(t.id);
-    const actions = buildOnboardingActions(deps)(ctx);
+    const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setProvider('codex');
     expect(getTicket(store, t.id).agentProvider).toBe('codex');

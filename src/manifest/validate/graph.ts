@@ -71,8 +71,8 @@ export function validateGraph(repositories: Record<string, RepositoryDef>): void
 
 /**
  * A repository is "classified" once it declares at least one signal word. The
- * onboarding classify-gate uses this to decide whether to prompt for signals
- * before ticket onboarding proceeds. Applies to non-runnable repositories too —
+ * the ticket-form classify-gate uses this to decide whether to prompt for signals
+ * before the ticket form proceeds. Applies to non-runnable repositories too —
  * a docs-only repo still has to be routable, or no ticket could reach it.
  */
 export function isRepoClassified(repo: RepositoryDef): boolean {

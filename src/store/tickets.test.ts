@@ -10,13 +10,14 @@ import {
   generateTicketKey,
   ticketLabel,
   updateTicketCore,
-  updateTicketOnboarding,
+  updateTicketFields,
   archiveTicket,
   unarchiveTicket,
   deleteTicket,
   listTickets,
   listArchivedTickets,
   setSessionId,
+  clearApproachFromTickets,
   type Ticket,
 } from './tickets.js';
 import { setStage } from './stages.js';
@@ -185,7 +186,7 @@ describe('ticket + stage persistence', () => {
     expect(() => getTicket(store, 9999)).toThrow(/not found|unknown/i);
   });
 
-  it('new tickets default the onboarding fields', () => {
+  it('new tickets default the ticket-form fields', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
     const full = getTicket(store, t.id);
     expect(full.description).toBeNull();
@@ -220,9 +221,9 @@ describe('ticket + stage persistence', () => {
     expect(full.stageCurrent).toBe('scope'); // untouched
   });
 
-  it('updateTicketOnboarding round-trips brief, approach, and selected repos', () => {
+  it('updateTicketFields round-trips brief, approach, and selected repos', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, {
+    updateTicketFields(store, t.id, {
       description: 'a desc',
       brief: 'the brief',
       sourceRef: 'CU-123',
@@ -241,9 +242,9 @@ describe('ticket + stage persistence', () => {
     expect(full.selectedRepos).toEqual(['frontend', 'backend']);
   });
 
-  it('updateTicketOnboarding persists agent selection independently', () => {
+  it('updateTicketFields persists agent selection independently', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { agent: 'reviewer' });
+    updateTicketFields(store, t.id, { agent: 'reviewer' });
     const full = getTicket(store, t.id);
     expect(full.agent).toBe('reviewer');
   });
@@ -253,16 +254,16 @@ describe('ticket + stage persistence', () => {
     expect(getTicket(store, t.id).model).toBeNull();
   });
 
-  it('updateTicketOnboarding round-trips the per-ticket model', () => {
+  it('updateTicketFields round-trips the per-ticket model', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { model: 'claude-opus-4-8' });
+    updateTicketFields(store, t.id, { model: 'claude-opus-4-8' });
     expect(getTicket(store, t.id).model).toBe('claude-opus-4-8');
   });
 
   it('an empty-string model clears the selection back to inherit (null)', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { model: 'claude-sonnet-5' });
-    updateTicketOnboarding(store, t.id, { model: '' });
+    updateTicketFields(store, t.id, { model: 'claude-sonnet-5' });
+    updateTicketFields(store, t.id, { model: '' });
     expect(getTicket(store, t.id).model).toBeNull();
   });
 
@@ -271,22 +272,22 @@ describe('ticket + stage persistence', () => {
     expect(getTicket(store, t.id).agentProvider).toBeNull();
   });
 
-  it('updateTicketOnboarding round-trips the per-ticket agentProvider', () => {
+  it('updateTicketFields round-trips the per-ticket agentProvider', () => {
     const t = createTicket(store, { key: 'K-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { agentProvider: 'codex' });
+    updateTicketFields(store, t.id, { agentProvider: 'codex' });
     expect(getTicket(store, t.id).agentProvider).toBe('codex');
   });
 
   it('an empty-string agentProvider clears the selection back to inherit (null)', () => {
     const t = createTicket(store, { key: 'K-1', title: 't' });
-    updateTicketOnboarding(store, t.id, { agentProvider: 'antigravity' });
-    updateTicketOnboarding(store, t.id, { agentProvider: '' });
+    updateTicketFields(store, t.id, { agentProvider: 'antigravity' });
+    updateTicketFields(store, t.id, { agentProvider: '' });
     expect(getTicket(store, t.id).agentProvider).toBeNull();
   });
 
-  it('reads back null for a row with an invalid agent_provider written outside updateTicketOnboarding (defense-in-depth)', () => {
+  it('reads back null for a row with an invalid agent_provider written outside updateTicketFields (defense-in-depth)', () => {
     const t = createTicket(store, { key: 'K-1', title: 't' });
-    // Bypass updateTicketOnboarding entirely — simulates a hand-edited DB row
+    // Bypass updateTicketFields entirely — simulates a hand-edited DB row
     // or a value left over from a provider later removed from IMPLEMENTED_PROVIDERS.
     store.db.prepare('UPDATE tickets SET agent_provider = ? WHERE id = ?').run('evil', t.id);
     expect(getTicket(store, t.id).agentProvider).toBeNull();
@@ -297,16 +298,16 @@ describe('ticket + stage persistence', () => {
     expect(getTicket(store, t.id).type).toBeNull();
   });
 
-  it('updateTicketOnboarding round-trips the conventional type', () => {
+  it('updateTicketFields round-trips the conventional type', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { type: 'fix' });
+    updateTicketFields(store, t.id, { type: 'fix' });
     expect(getTicket(store, t.id).type).toBe('fix');
   });
 
   it('an empty-string type clears the selection back to inherit (null)', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { type: 'chore' });
-    updateTicketOnboarding(store, t.id, { type: '' });
+    updateTicketFields(store, t.id, { type: 'chore' });
+    updateTicketFields(store, t.id, { type: '' });
     expect(getTicket(store, t.id).type).toBeNull();
   });
 
@@ -315,14 +316,14 @@ describe('ticket + stage persistence', () => {
   // a template render.
   it('rejects a type outside the curated vocabulary', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    expect(() => updateTicketOnboarding(store, t.id, { type: 'feature' })).toThrow(/type/i);
+    expect(() => updateTicketFields(store, t.id, { type: 'feature' })).toThrow(/type/i);
     expect(getTicket(store, t.id).type).toBeNull();
   });
 
-  it('updateTicketOnboarding patches only the supplied fields', () => {
+  it('updateTicketFields patches only the supplied fields', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
-    updateTicketOnboarding(store, t.id, { approach: 'tdd' });
-    updateTicketOnboarding(store, t.id, { brief: 'later' });
+    updateTicketFields(store, t.id, { approach: 'tdd' });
+    updateTicketFields(store, t.id, { brief: 'later' });
     const full = getTicket(store, t.id);
     expect(full.approach).toBe('tdd'); // untouched by the second patch
     expect(full.brief).toBe('later');
@@ -510,5 +511,58 @@ describe('project scoping', () => {
     expect(a.id).not.toBe(b.id);
     expect(getTicketByKey(store, 'PROJ-1', { projectId: PROJ_A })?.id).toBe(a.id);
     expect(getTicketByKey(store, 'PROJ-1', { projectId: PROJ_B })?.id).toBe(b.id);
+  });
+});
+
+/**
+ * Uninstalling an approach removes the package directory, so every ticket still
+ * pointing at that approach holds a dangling reference — and a launch from one
+ * of those tickets is exactly what produces the "produced no method prompt or
+ * loadable artifacts" warning. Clearing the reference is part of the uninstall,
+ * not a display concern (869eckp0x).
+ */
+describe('clearApproachFromTickets', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const PROJ_A = 1;
+  const PROJ_B = 2;
+
+  it('clears the reference from every ticket bound to the approach', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    const b = createTicket(store, { key: 'A-2', title: 'b', projectId: PROJ_A });
+    updateTicketFields(store, a.id, { approach: 'superpowers:writing-plans' });
+    updateTicketFields(store, b.id, { approach: 'superpowers:writing-plans' });
+
+    expect(clearApproachFromTickets(store, 'superpowers:writing-plans', { projectId: PROJ_A })).toBe(2);
+    expect(getTicket(store, a.id).approach).toBeNull();
+    expect(getTicket(store, b.id).approach).toBeNull();
+  });
+
+  it('leaves tickets on other approaches untouched', () => {
+    const keep = createTicket(store, { key: 'A-1', title: 'keep', projectId: PROJ_A });
+    updateTicketFields(store, keep.id, { approach: 'direct' });
+
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(0);
+    expect(getTicket(store, keep.id).approach).toBe('direct');
+  });
+
+  it('is project-scoped — another window’s tickets are never touched', () => {
+    const mine = createTicket(store, { key: 'A-1', title: 'mine', projectId: PROJ_A });
+    const theirs = createTicket(store, { key: 'B-1', title: 'theirs', projectId: PROJ_B });
+    updateTicketFields(store, mine.id, { approach: 'rpi' });
+    updateTicketFields(store, theirs.id, { approach: 'rpi' });
+
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(1);
+    expect(getTicket(store, mine.id).approach).toBeNull();
+    expect(getTicket(store, theirs.id).approach).toBe('rpi');
+  });
+
+  it('is idempotent — a repeat uninstall clears nothing more', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: PROJ_A });
+    updateTicketFields(store, a.id, { approach: 'rpi' });
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(1);
+    expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(0);
   });
 });

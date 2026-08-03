@@ -16,9 +16,9 @@
  */
 
 export const AI_CALL_SITES = [
-  /** Onboarding's coupled ticket analyzer (prompt + approach + repos + type). */
+  /** The ticket form's coupled ticket analyzer (prompt + approach + repos + type). */
   'ticket-analysis',
-  /** Onboarding's per-repository signal-word suggestion. */
+  /** The ticket form's per-repository signal-word suggestion. */
   'signal-suggestion',
   /** The ship stage asking for a PR body. */
   'pr-description',

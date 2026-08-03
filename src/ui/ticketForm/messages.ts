@@ -1,4 +1,4 @@
-import type { OnboardingState } from './state.js';
+import type { TicketFormState } from './state.js';
 import type { ContextBrief } from '../../integrations/ticketing.js';
 import { isHttpUrl } from '../shared/url.js';
 import { isKnownProvider } from '../../agent/registry.js';
@@ -6,8 +6,8 @@ import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
 
 /**
- * Onboarding webview ↔ host message protocol (§ onboarding). The webview is a
- * trust boundary: `parseOnboardingMessage` validates every discriminant AND its
+ * Ticket-form webview ↔ host message protocol (§ ticket form). The webview is a
+ * trust boundary: `parseTicketFormMessage` validates every discriminant AND its
  * companion fields before anything reaches a host action (which may touch the
  * filesystem or spawn the agent). Mirrors dashboard/messages.ts.
  */
@@ -45,7 +45,7 @@ export interface SubmitFields extends TicketDraftFields {
   pullBase?: boolean;
 }
 
-export type OnboardingMessage =
+export type TicketFormMessage =
   | { type: 'fetch-source'; ref: string }
   | { type: 'suggest-signals'; service: string }
   | { type: 'save-signals'; service: string; signals: string[] }
@@ -81,11 +81,11 @@ export type OnboardingMessage =
  * rendered. Every member here has a matching case in the webview's `setBusy`;
  * `webview.test.ts` pins the two together so they cannot drift apart again.
  */
-export type OnboardingBusyKind = 'fetch' | 'suggest' | 'submit' | 'analyze' | 'save';
+export type TicketFormBusyKind = 'fetch' | 'suggest' | 'submit' | 'analyze' | 'save';
 
 /** Host → webview messages: state pushes + async results. */
-export type OnboardingHostMessage =
-  | { type: 'state'; state: OnboardingState }
+export type TicketFormHostMessage =
+  | { type: 'state'; state: TicketFormState }
   | { type: 'brief'; brief: ContextBrief }
   | { type: 'signals-suggested'; service: string; signals: string[] }
   | {
@@ -97,11 +97,11 @@ export type OnboardingHostMessage =
       ticketType: string;
     }
   | { type: 'error'; message: string }
-  | { type: 'busy'; what: OnboardingBusyKind; on: boolean }
+  | { type: 'busy'; what: TicketFormBusyKind; on: boolean }
   | ActionResultMessage;
 
 /**
- * The host-side side-effects an onboarding page can trigger.
+ * The host-side side-effects a ticket form can trigger.
  *
  * Every method's return type is widened from `() => void` to
  * `() => void | Promise<void>` (§ `docs/ui/DESIGN-SYSTEM.md` §5.3, UI-R13) — a
@@ -112,7 +112,7 @@ export type OnboardingHostMessage =
  * save) keep doing exactly that — their messages carry no `requestId`, so
  * `reportAction` acks and says nothing further.
  */
-export interface OnboardingActions {
+export interface TicketFormActions {
   fetchSource: (ref: string) => void | Promise<void>;
   suggestSignals: (service: string) => void | Promise<void>;
   saveSignals: (service: string, signals: string[]) => void | Promise<void>;
@@ -195,11 +195,11 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
 }
 
 /**
- * Narrow an untrusted webview message to an `OnboardingMessage`, validating the
+ * Narrow an untrusted webview message to an `TicketFormMessage`, validating the
  * discriminant and every companion field. Returns null for anything malformed so
  * a crafted message can't drive a host action with bad input.
  */
-export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
+export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
   const str = (k: string): boolean => typeof m[k] === 'string' && (m[k] as string).length > 0;
@@ -283,11 +283,11 @@ export function parseOnboardingMessage(raw: unknown): OnboardingMessage | null {
  * boundary; unknown/malformed shapes are ignored so a stray message can't crash
  * the host.
  */
-export function routeOnboardingAction(
+export function routeTicketFormAction(
   raw: unknown,
-  actions: OnboardingActions,
+  actions: TicketFormActions,
 ): void | Promise<void> {
-  const msg = parseOnboardingMessage(raw);
+  const msg = parseTicketFormMessage(raw);
   if (!msg) return;
   switch (msg.type) {
     case 'fetch-source':

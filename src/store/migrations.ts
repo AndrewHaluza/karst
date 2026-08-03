@@ -8,7 +8,7 @@ const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 /** Bump when the schema changes; drives forward migrations. */
 export const SCHEMA_VERSION = 22;
 
-/** v2 onboarding columns added to `tickets`; mirror schema.sql for fresh DBs. */
+/** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
   'description',
   'brief',
@@ -25,7 +25,7 @@ const V2_TICKET_COLUMNS = [
  * an existing DB never wipes data. Later versions append numbered steps here,
  * gated on the DB's current `user_version`.
  *
- * v2 adds onboarding columns to `tickets`. A fresh DB already has them (schema.sql
+ * v2 adds ticket-field columns to `tickets`. A fresh DB already has them (schema.sql
  * carries them); the ALTERs below only run for a legacy v1 DB being upgraded, and
  * each is guarded against the "already present" case so the step is idempotent.
  */

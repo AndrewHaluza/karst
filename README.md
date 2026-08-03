@@ -140,6 +140,26 @@ Built with strict TDD (RED → GREEN). ESM (`.js` import suffixes,
 `moduleResolution: bundler`), strict TS with `noUncheckedIndexedAccess`. See
 [`CLAUDE.md`](./CLAUDE.md) for the full set of conventions and gotchas.
 
+### Getting Started
+
+**Getting Started** is the fresh-install panel (`Karst: Getting Started`, or it
+opens itself on first activation): a live setup checklist, a short tour of how
+Karst works, and a **Report an issue** entry. The panel is
+[`src/ui/gettingStarted/`](./src/ui/gettingStarted/) — it is the only surface
+that carries the "Getting Started" name. The create/edit ticket page is the
+*ticket form* ([`src/ui/ticketForm/`](./src/ui/ticketForm/)); it used to be
+called "onboarding", which claimed a meaning it did not have.
+
+**Report an issue** hands off to the existing `karst.reportIssue` flow rather
+than opening a second reporting path. It collects Karst's own diagnostics
+(runtime versions, stage/gate state, effective configuration, bounded logs),
+redacts secrets and paths, and shows you the finished report before anything
+leaves the machine; approving it opens a prefilled GitHub issue in the browser,
+which you still submit yourself. Ticket descriptions and other prompt-like text
+are excluded unless you opt in during the review step. Use it when Karst itself
+misbehaves — a ticket stuck at a stage, a gate that will not run, a blank panel
+— not for work items in your own project.
+
 ### Spinning a ticket
 
 A freshly created ticket sits at `scope` with no worktree. To make it live:
@@ -193,7 +213,7 @@ conventions:
 - `{repo}` is the current repository name from the manifest.
 - `{type}` is the conventional-commit type: the ticket's own, else
   `conventions.defaultType`, else `feat`. A ticket's type is picked on the
-  onboarding page, and the AI prefill fills it in like any other analyzed field.
+  ticket form, and the AI prefill fills it in like any other analyzed field.
 - `{scope}` is the repository's optional `scope:` field, falling back to its
   manifest name.
 - `{description}` is the agent-generated PR summary, falling back to the final

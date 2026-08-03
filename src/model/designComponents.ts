@@ -8,7 +8,7 @@
  * described as "the button that uses `--vscode-button-background`"; `sidebar`'s
  * `.tool` and `.ia` were two icon buttons with different box sizes, radii and
  * hover alphas IN ONE FILE; `settings` had no destructive styling at all, so
- * "Delete agent" rendered identically to "Cancel"; and `onboarding` applied a
+ * "Delete agent" rendered identically to "Cancel"; and `ticketForm` applied a
  * `.ghost` class that no stylesheet anywhere defined, so the ghost button
  * silently rendered as a primary.
  *
@@ -142,8 +142,32 @@ const BUTTON = `
   border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
   border-radius:var(--k-radius-circle);
   animation:k-spin var(--k-dur-spin) linear infinite}
-.k-btn.is-success{color:var(--k-success);border-color:var(--k-success)}
-.k-btn.is-success::before{content:"\\2713";flex:none;border:0;animation:none;width:auto;height:auto}
+.k-btn.is-success:not(.k-btn--row){color:var(--k-success);border-color:var(--k-success)}
+.k-btn.is-success:not(.k-btn--row)::before{
+  content:"\\2713";flex:none;border:0;animation:none;width:auto;height:auto}
+
+/* The ROW modifier — composed WITH a variant (\`k-btn--ghost k-btn--row\`), never
+   instead of one. It says "this control is a row in a list", and the only thing
+   it changes is how the row reports success.
+
+   The button-shaped flash is a check glyph in the leading slot plus a
+   --k-success border. A row is not button-shaped: it is full-width, often its
+   own grid, and its content is the data. So the glyph was auto-placed into that
+   grid — landing beside the diff view's status letter, which read as "M ✓", and
+   pushing the path onto a second line — while the border boxed the whole row
+   green. Every click on a list item or a file row animated that in and out.
+
+   Success still has to be VISIBLE (UI-R13), and for these rows it is a handoff:
+   an editor or a panel opens, and the flash only has to say "that one". So it
+   becomes the row's own highlight — the same wash the platform uses for a
+   selected row — which is a state a row already has a vocabulary for.
+
+   Scoped off at the source above rather than overridden here: an override would
+   need a border-color VALUE, and a row composes with ghost (hairline), link (no
+   border) and secondary, which do not share one. */
+.k-btn--row{justify-content:flex-start;width:100%;text-align:left}
+.k-btn--row.is-success{background:var(--k-surface-selected)}
+.k-btn--row.is-success::before{content:none}
 `.trim();
 
 // ── Icon button ──────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { collapseDiagnostic } from './diagnosticText.js';
 
 /**
  * One stepper cell — a stage node in a workflow stepper (§14). Shared by the
- * dashboard (live, per-server view) and the onboarding edit page (read-only
+ * dashboard (live, per-server view) and the ticket form in edit mode (read-only
  * progress glance) so both order and shape stay identical.
  *
  * Beyond `status`, a cell carries the machine truth the stage row already
@@ -33,7 +33,7 @@ export interface StepperCell {
 
 /**
  * A stage row as the stepper reads it. Only `stageKey`/`status` are required so
- * callers with a partial projection (e.g. tests, the onboarding glance) still
+ * callers with a partial projection (e.g. tests, the ticket-form glance) still
  * work; the store's `Stage` satisfies it.
  */
 export interface StepperStageRow {

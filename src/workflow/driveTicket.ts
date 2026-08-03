@@ -7,10 +7,10 @@ import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.j
 import { runUat } from './stages/uat.js';
 import { runReview, type OpenDiff } from './stages/review.js';
 import {
+  capForGate,
   countFixAttempts,
   fixAttemptsRemain,
   lastFailedGate,
-  FIX_ATTEMPT_CAP,
   type GateStageKey,
 } from './fixAttempts.js';
 
@@ -37,11 +37,10 @@ export function fixResumeDecision(
   const gate = lastFailedGate(stages);
   if (!gate) return { kind: 'no-failed-gate' };
   // Each gate's budget is its own manifest key: `uat.maxFixAttempts` can never
-  // narrow review's budget, nor `review.maxFixAttempts` uat's.
-  const cap =
-    gate === 'uat'
-      ? (manifest?.uat?.maxFixAttempts ?? FIX_ATTEMPT_CAP)
-      : (manifest?.review?.maxFixAttempts ?? FIX_ATTEMPT_CAP);
+  // narrow review's budget, nor `review.maxFixAttempts` uat's. The rule lives in
+  // `capForGate` so the meter the dashboard draws and the budget spent here can
+  // never be two different numbers.
+  const cap = capForGate(gate, manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
   const attempts = countFixAttempts(stages, gate);
   return fixAttemptsRemain(attempts, cap)
     ? { kind: 'resume', gate, attempts }

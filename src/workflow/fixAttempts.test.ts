@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { countFixAttempts, lastFailedGate, fixAttemptsRemain, FIX_ATTEMPT_CAP } from './fixAttempts.js';
+import {
+  countFixAttempts,
+  lastFailedGate,
+  fixAttemptsRemain,
+  capForGate,
+  FIX_ATTEMPT_CAP,
+} from './fixAttempts.js';
 
 describe('countFixAttempts', () => {
   it('counts one gate stage only', () => {
@@ -59,5 +65,29 @@ describe('fixAttemptsRemain', () => {
     expect(fixAttemptsRemain(2, 2)).toBe(false);
     expect(fixAttemptsRemain(FIX_ATTEMPT_CAP - 1)).toBe(true);
     expect(fixAttemptsRemain(FIX_ATTEMPT_CAP)).toBe(false);
+  });
+});
+
+describe('capForGate', () => {
+  it('honours a narrowed uat budget', () => {
+    expect(capForGate('uat', 1)).toBe(1);
+  });
+
+  it('falls back to the default cap when uat declares no budget', () => {
+    expect(capForGate('uat', undefined)).toBe(FIX_ATTEMPT_CAP);
+  });
+
+  it('ignores uatMax for review — a gate’s budget is its own manifest key', () => {
+    // `uat.maxFixAttempts` can never narrow a gate it does not name.
+    expect(capForGate('review', 1)).toBe(FIX_ATTEMPT_CAP);
+  });
+
+  it('honours a narrowed review budget, and never lets it narrow uat', () => {
+    expect(capForGate('review', undefined, 2)).toBe(2);
+    expect(capForGate('uat', undefined, 2)).toBe(FIX_ATTEMPT_CAP);
+  });
+
+  it('falls back to the default cap when review declares no budget', () => {
+    expect(capForGate('review', undefined, undefined)).toBe(FIX_ATTEMPT_CAP);
   });
 });

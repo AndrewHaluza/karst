@@ -54,6 +54,20 @@ export function lastFailedGate(
 }
 
 /**
+ * The fix budget for ONE gate. Each gate's budget is its own manifest key —
+ * `uat.maxFixAttempts` can never narrow a gate it does not name, nor
+ * `review.maxFixAttempts` uat's — and an unconfigured gate keeps the default.
+ *
+ * Extracted from `fixResumeDecision` so the driver (which SPENDS the budget) and
+ * the rail's retry meter (which draws one tick per allowed attempt) resolve the
+ * same number. A meter with more ticks than the driver will spend is a lie about
+ * how many retries are left, which is the one thing the meter exists to say.
+ */
+export function capForGate(gate: GateStageKey, uatMax?: number, reviewMax?: number): number {
+  return gate === 'uat' ? (uatMax ?? FIX_ATTEMPT_CAP) : (reviewMax ?? FIX_ATTEMPT_CAP);
+}
+
+/**
  * True while the ticket still has an auto-resume left after `attempts` failures.
  * `cap` is caller-supplied so each gate can honour its own manifest override —
  * `uat.maxFixAttempts` for uat, `review.maxFixAttempts` for review

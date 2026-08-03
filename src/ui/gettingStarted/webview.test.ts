@@ -22,11 +22,11 @@ function scriptBlock(): string {
 }
 
 /**
- * Text-level guards on the welcome webview (Task 3.1 of the UI remediation
+ * Text-level guards on the Getting Started webview (Task 3.1 of the UI remediation
  * plan). Standalone HTML with no DOM harness — same rationale as every other
  * `webview.test.ts` in this repo (STYLE-GUIDE §5).
  */
-describe('welcome webview.html', () => {
+describe('gettingStarted webview.html', () => {
   it('carries the design-system markers ahead of any file-local rule (UI-R03)', () => {
     const style = styleBlock();
     expect(style.trimStart().startsWith('/*KARST_DS_CSS*/')).toBe(true);
@@ -128,6 +128,33 @@ describe('welcome webview.html', () => {
   it('the create-manifest button carries a title, because its effect (writing to disk) is not confined to the screen', () => {
     const script = scriptBlock();
     expect(script).toContain("b.title = 'Write a starter karst.yml to the workspace root'");
+  });
+
+  it('carries a Report an issue entry on the page (§ report an issue)', () => {
+    expect(HTML).toContain('Report an issue');
+    expect(HTML).toContain('id="report-issue"');
+  });
+
+  it('tells the reader what Report an issue does, when to use it, and where the report goes', () => {
+    // The ticket asks for a short usage description, not a bare button: a
+    // reporter who cannot tell what gets sent will not press it. Assert the
+    // three facts individually so a copy edit that drops one still fails.
+    const body = HTML.slice(HTML.indexOf('<body>'), HTML.indexOf('<script>'));
+    const section = body.slice(body.indexOf('Report an issue'));
+    // What it does + where it goes.
+    expect(section).toMatch(/redact/i);
+    expect(section).toMatch(/GitHub/);
+    // When to click it.
+    expect(section).toMatch(/wrong|misbehav|stuck|unexpected/i);
+    // Nothing leaves the machine unreviewed.
+    expect(section).toMatch(/review|before/i);
+  });
+
+  it('routes #report-issue through karstAction, not a bare onclick (UI-R11, R12)', () => {
+    const script = scriptBlock();
+    expect(script).not.toContain("getElementById('report-issue').onclick");
+    expect(script).toContain("karstAction(document.getElementById('report-issue')");
+    expect(script).toMatch(/post\('report-issue',\s*requestId\)/);
   });
 
   it('esc() is not needed here: rendering goes through textContent/createElement, never innerHTML interpolation', () => {

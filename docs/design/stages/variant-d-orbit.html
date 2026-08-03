@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Variant D — Orbit rail</title>
+<style>
+  /* ── Variant D: "Orbit rail" ──────────────────────────────────────────────
+     Thesis: `fix` is not a place on the map. It is a RETRY CYCLE on the gate
+     that failed.
+
+     The graph proves it. `fix` is reached only by a failed verdict, from `uat`
+     or `review`, and its only outgoing edge returns to `uat`. Nothing can ever
+     be "after" fix. So the ticket never leaves the gate's neighbourhood, and
+     drawing fix as a seventh station — below the rail, in its own band — buys
+     permanent layout for a stage that on most tickets never runs at all, and
+     leaves a control on screen announcing `fix idle`, which is a control saying
+     that nothing is happening.
+
+     Here the loop is drawn ON the gate it is retrying, and drawn NOT AT ALL when
+     it is not. The band is gone. So is the toggle, and so is the empty state.
+
+     THE SIGNATURE: the attempt cap is geometry. The orbit around a retried gate
+     is divided into FIX_ATTEMPT_CAP arcs, one filled per attempt spent — so
+     "one retry left before this parks" is something you can see rather than
+     something you have to read. karst shows that nowhere today.
+
+     Two identities meet at one node and stay separable: the NODE keeps its own
+     stage hue (this is still uat's column, and uat is still what failed), while
+     the ORBIT carries fix's red. Hue says where, orbit says what is being spent.
+
+     `review ─fail→ fix ─pass→ uat` is the one case where the loop spans two
+     columns, so it is the one case that draws a return arc — short, thin, and
+     only then. When `uat` is the gate that failed the return is zero-length and
+     nothing is drawn, which is the common case.
+
+     Built from CSS, not SVG — a viewBox stretched to a percentage-width rail
+     scales strokes non-uniformly. Colours are the real tokens' dark values,
+     hardcoded because a mockup has no host theme. ------------------------- */
+  :root{
+    --bg:#1f1f1f; --panel:#252526; --border:#3c3c3c; --border-soft:#2d2d2d;
+    --text:#cccccc; --dim:#9d9d9d; --faint:#6e7681;
+
+    /* status ramp — model/palette.ts */
+    --k-pending:#6e7681; --k-running:#3794ff; --k-attention:#cca700;
+    --k-passed:#4bb64b; --k-failed:#f14c4c; --k-series-2:#8a63d2;
+    --k-knockout:#0b0b0b;
+
+    /* stage ramp — model/stagePalette.ts (dark) */
+    --stage-scope:#a371f7; --stage-impl:#7f7bf5; --stage-uat:#d18616;
+    --stage-review:#2ea8b5; --stage-fix:#f14c4c; --stage-ship:#d162c4;
+    --stage-merge:#c14bb4; --stage-done:#4bb64b;
+
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 var(--ui);padding:28px 24px 60px}
+  h1{font-size:15px;margin:0 0 2px;font-weight:600}
+  .sub{color:var(--dim);font-size:12px;margin:0 0 26px;max-width:78ch}
+  .case{margin:0 0 26px;border:1px solid var(--border-soft);border-radius:12px;background:var(--panel);overflow:hidden}
+  .case > h2{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+    margin:0;padding:10px 16px;border-bottom:1px solid var(--border-soft);font-weight:700}
+  .case > .note{font-size:11.5px;color:var(--dim);margin:0;padding:8px 16px 0}
+
+  .rail{padding:26px 18px 12px;overflow-x:auto}
+  /* Column geometry stays DERIVED: a flex row of --cols equal columns, so column
+     n centers at (n + .5)/cols. Add a stage and everything below moves with it. */
+  .track{min-width:560px;--cols:7;--impl:1;--uat:2;--review:3}
+  .main{display:flex;align-items:flex-start}
+  .st{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0;
+    --stg:var(--k-pending)}
+  /* Declared AFTER .st: same specificity, so source order decides. Declared
+     before, every node fell back to pending grey and the stage ramp was dead. */
+  .stg-scope{--stg:var(--stage-scope)} .stg-impl{--stg:var(--stage-impl)}
+  .stg-uat{--stg:var(--stage-uat)} .stg-review{--stg:var(--stage-review)}
+  .stg-fix{--stg:var(--stage-fix)} .stg-ship{--stg:var(--stage-ship)}
+  .stg-merge{--stg:var(--stage-merge)} .stg-done{--stg:var(--stage-done)}
+
+  /* CONNECTOR. A travelled connector is a gradient out of the previous stage's
+     hue into this one — the ticket moving, not a generic green bar. */
+  .st .seg{position:absolute;top:16px;left:-50%;width:100%;height:3px;border-radius:2px;
+    background:var(--border);z-index:0}
+  .st:first-child .seg{display:none}
+  .st .seg.lit{background:linear-gradient(90deg,var(--prev),var(--stg))}
+  .st .seg.active{background:linear-gradient(90deg,var(--prev),var(--k-running))}
+  .st .seg.broken{background-color:transparent;
+    background-image:repeating-linear-gradient(90deg,var(--k-failed) 0 4px,transparent 4px 8px)}
+
+  .st .node{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+    background:var(--panel);border:2px solid var(--stg);color:var(--stg);
+    position:relative;z-index:2;font-size:13px;font-weight:700;line-height:1;
+    padding:0;cursor:pointer;font-family:inherit;transition:box-shadow 180ms ease}
+  .st .node:hover{filter:brightness(1.25)}
+  .st .node:focus-visible{outline:4px solid var(--k-series-2);outline-offset:6px}
+  .st.passed .node,.st.running .node{background:var(--stg);border-color:var(--stg);color:var(--k-knockout)}
+  .st.passed .node{box-shadow:0 0 0 4px color-mix(in srgb,var(--stg) 18%,transparent)}
+  .st.running .node{box-shadow:0 0 0 5px color-mix(in srgb,var(--stg) 22%,transparent)}
+  .st.failed .node{background:transparent;border-style:dashed;color:var(--stg)}
+  .st.skipped .node{background:var(--k-pending);border-color:var(--k-pending);color:var(--k-knockout);opacity:.55}
+
+  /* NEEDS-YOU. Amber ring outside the stage hue, a corner badge, and the reason
+     in the meta line — three carriers, so colour is never alone. */
+  .st.needs .node{box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--k-attention)}
+  .st.needs .node::after{content:"";position:absolute;top:-3px;right:-3px;width:10px;height:10px;
+    border-radius:50%;background:var(--k-attention);border:2px solid var(--panel)}
+  .st.sel .node{outline:3px solid var(--k-series-2);outline-offset:6px}
+
+  .st .lbl{margin-top:9px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--stg);text-align:center}
+  .st.pending .lbl{color:var(--faint)}
+  .st .meta{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:3px;min-height:14px;white-space:nowrap}
+  .st.needs .meta{color:var(--k-attention)}
+  .st .meta .fx{color:var(--stage-fix)}
+  .st .meta .fx.spent{color:var(--faint)}
+
+  /* ── THE ORBIT ────────────────────────────────────────────────────────────
+     One arc per allowed attempt, filled per attempt spent. Rendered ONLY on a
+     gate that has actually been through the loop, so an untouched rail carries
+     no trace of it. The conic gradient is built in JS from FIX_ATTEMPT_CAP: the
+     cap is a constant of the machine, not a number to hardcode in CSS. */
+  .st .orbit{position:absolute;top:-12px;left:50%;width:58px;height:58px;margin-left:-29px;
+    border-radius:50%;z-index:1;pointer-events:none;
+    -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 4px),#000 calc(100% - 4px));
+    mask:radial-gradient(farthest-side,transparent calc(100% - 4px),#000 calc(100% - 4px))}
+  /* Rotation is the only thing that says "running". Under reduced motion it
+     stops and the arcs remain, so the cap stays readable either way. */
+  .st .orbit.live{animation:orbit 5.5s linear infinite}
+  @keyframes orbit{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.st .orbit.live{animation:none}.spin{animation:none}}
+
+  .spin{display:block;width:13px;height:13px;border-radius:50%;border:2px solid currentColor;
+    border-top-color:transparent;animation:spin 900ms linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ── the sub row ──────────────────────────────────────────────────────────
+     What used to be a 106px band is now a slim row that exists only when it has
+     something in it: impl's approach, and — in the one case that needs it — the
+     return arc from review back to uat. */
+  /* min-height:0 — the row must cost nothing when it holds nothing. A fixed
+     floor here is how the old band survived as dead space on tickets that never
+     failed a gate and never chose an approach. */
+  .sub{position:relative;margin-top:2px;min-height:0}
+  /* The arc is the one absolutely-positioned tenant, so it is the one that has
+     to reserve its own height. */
+  .sub.witharc{min-height:38px}
+
+  /* review ─fail→ fix ─pass→ uat is the only loop that spans two columns, so it
+     is the only one that draws a path. Thin, short, and gone otherwise. */
+  .retarc{position:absolute;top:0;height:16px;
+    left:calc((var(--uat) + .5) / var(--cols) * 100%);
+    right:calc(100% - (var(--review) + .5) / var(--cols) * 100%);
+    border:2px solid var(--stage-fix);border-top:none;border-radius:0 0 10px 10px;opacity:.9}
+  .retarc::before{content:"▲";position:absolute;top:-9px;left:-6px;font-size:10px;line-height:1;color:var(--stage-fix)}
+  .retarc .t{position:absolute;top:16px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:10px;color:var(--stage-fix);white-space:nowrap}
+
+  /* impl's approach: a cartridge DOCKED to impl's node by a nub. It is impl's
+     property, so it hangs off impl — and with the band gone there is nothing
+     else at this depth for it to be confused with. */
+  /* In normal flow, not absolute: the row's height must come from what is in it.
+     Absolute, the row collapsed to nothing and the cartridge overlapped whatever
+     came after the rail. */
+  .cart{margin-left:calc((var(--impl) + .5) / var(--cols) * 100%);
+    transform:translateX(-50%);display:inline-flex;flex-direction:column;align-items:center;
+    max-width:calc((var(--uat) - var(--impl)) / var(--cols) * 200% - 40px)}
+  .cart .nub{width:3px;height:9px;background:var(--border);border-radius:2px}
+  .cart.active .nub{background:var(--k-running)}
+  .cart .chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;
+    border:1px solid var(--border);border-radius:999px;background:#2b2b2c;
+    padding:3px 9px;font-family:var(--mono);font-size:10px;color:var(--dim);cursor:pointer}
+  .cart .chip:focus-visible{outline:2px solid var(--k-series-2);outline-offset:2px}
+  .cart .chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cart.active .chip{border-color:var(--k-running);color:var(--text)}
+  .cart.done .chip{border-color:var(--k-passed);color:var(--k-passed)}
+  .cart .chip .chev{color:var(--faint);font-size:9px}
+  .cart .phases{margin-top:6px;border:1px solid var(--border);border-radius:6px;background:#232324;
+    padding:6px 8px;font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap}
+  .cart .phases b{color:var(--text);font-weight:600}
+
+  /* A parked confirm stage is the one thing the user must do, so the rail says
+     it in words and offers the action. The host still owns the confirmation. */
+  .cta{margin:10px 18px 14px;display:flex;align-items:center;gap:10px;
+    border:1px solid color-mix(in srgb,var(--k-attention) 45%,transparent);
+    border-left:3px solid var(--k-attention);border-radius:8px;
+    background:color-mix(in srgb,var(--k-attention) 8%,transparent);padding:8px 12px}
+  .cta .w{font-size:11.5px;color:var(--text);flex:1}
+  .cta .w b{color:var(--k-attention);font-weight:600}
+  .cta button{font:inherit;font-size:11px;border:1px solid var(--k-attention);border-radius:5px;
+    background:transparent;color:var(--k-attention);padding:3px 10px;cursor:pointer}
+  .cta button:hover{background:color-mix(in srgb,var(--k-attention) 16%,transparent)}
+
+  .legend{display:flex;flex-wrap:wrap;gap:16px;font-size:11px;color:var(--dim);
+    border-top:1px solid var(--border-soft);padding:10px 18px;margin-top:8px}
+  .legend i{display:inline-block;width:22px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+  .legend .ring{width:14px;height:14px;border-radius:50%;border:3px solid var(--stage-fix);
+    border-right-color:var(--border);border-bottom-color:var(--border);vertical-align:-3px}
+</style>
+</head>
+<body>
+<h1>Variant D — Orbit rail</h1>
+<p class="sub"><b>fix</b> is a retry cycle on the gate that failed, not a seventh station. It is drawn on
+that gate and drawn nowhere when it has not run — so the band, the toggle and the <code>fix idle</code>
+empty state all disappear. The orbit's arcs are the attempt cap: one per allowed attempt, filled per
+attempt spent.</p>
+
+<div id="out"></div>
+
+<script>
+const MAIN = ['scope','impl','uat','review','ship','merge','done'];
+const HUE = {scope:'--stage-scope',impl:'--stage-impl',uat:'--stage-uat',review:'--stage-review',
+  ship:'--stage-ship',merge:'--stage-merge',done:'--stage-done'};
+const GLYPH = {passed:'✓',failed:'✕',pending:'·',skipped:'–'};
+/* workflow/fixAttempts.ts */
+const FIX_ATTEMPT_CAP = 3;
+const esc = (s)=>String(s).replace(/[&<>"]/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* The orbit's conic gradient, built from the cap rather than written out: the
+   cap is a constant of the machine and the drawing must follow it, not the other
+   way round. `spent` arcs take fix's red; the rest stay track grey. */
+function orbitGradient(spent, live){
+  const slot = 360 / FIX_ATTEMPT_CAP;
+  const gap = 9;
+  const on = live ? 'var(--stage-fix)' : 'color-mix(in srgb,var(--stage-fix) 55%,transparent)';
+  const off = 'var(--border)';
+  const stops = [];
+  for (let i = 0; i < FIX_ATTEMPT_CAP; i++){
+    const a = i * slot, b = a + slot - gap;
+    stops.push(`${i < spent ? on : off} ${a}deg ${b}deg`, `transparent ${b}deg ${a + slot}deg`);
+  }
+  return `conic-gradient(from -90deg,${stops.join(',')})`;
+}
+
+const CASES = [
+  { h:'1 · Not started',
+    note:'No orbit anywhere, no band, no toggle. A ticket that has never failed a gate carries no trace of the fix loop — which is most tickets, most of the time.',
+    stages:{scope:'pending'}, sel:'scope' },
+
+  { h:'2 · Implementing',
+    note:'The row under the rail holds one thing: impl\'s approach, docked to impl\'s node by a nub. With the loop gone from this depth there is nothing here it could be mistaken for.',
+    stages:{scope:'passed',impl:'running'}, sel:'impl',
+    approach:{id:'rpi',phases:['describe','research','plan','implement'],open:true},
+    metas:{scope:'2m 14s',impl:'8m'} },
+
+  { h:'3 · UAT failed — fix running, attempt 2 of 3',
+    note:'The loop is drawn where it is happening. uat keeps its own hue and its own ✕ — uat is still what failed — while the orbit around it carries fix\'s red and spins. Two arcs filled, one left: the cap is visible, not buried in a caption.',
+    stages:{scope:'passed',impl:'passed',uat:'failed'}, sel:'uat',
+    fix:{gate:'uat',spent:2,live:true},
+    approach:{id:'rpi',phases:['describe','research','plan','implement'],done:true},
+    metas:{scope:'2m 14s',impl:'41m'} },
+
+  { h:'4 · Review failed — the one loop that spans two columns',
+    note:'review ─fail→ fix ─pass→ uat is the only case where the ticket moves backwards across the rail, so it is the only case that draws a path. Short, thin, and absent otherwise — where the shipped rail draws a bracket permanently.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'failed'}, sel:'review',
+    fix:{gate:'review',spent:1,live:true,arc:true},
+    approach:{id:'rpi',phases:['describe','research','plan','implement'],done:true},
+    metas:{scope:'2m 14s',impl:'41m',uat:'2 gates'} },
+
+  { h:'5 · Ship — parked on you',
+    note:'ship is a CONFIRM stage: karst never opens a PR on its own. Amber ring, corner badge, the reason in the meta line, and a forward connector that stays dead. uat keeps its spent orbit, dimmed — a record that the loop was used, not a live alarm.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'passed',ship:'pending'},
+    needs:'ship', sel:'ship', fix:{gate:'uat',spent:2,live:false},
+    cta:{w:'<b>Ship</b> is waiting on you — 2 repositories have changes to push.',b:'Confirm ship'},
+    approach:{id:'rpi',phases:['describe','research','plan','implement'],done:true},
+    metas:{scope:'2m 14s',impl:'41m',uat:'2 gates',review:'clean',ship:'needs you'} },
+
+  { h:'6 · Merge — conflicted',
+    note:'Same needs-you treatment, different words. A conflict is a wording difference, not a new state: merge has no failed edge, so it must never render as a red stage a retry could clear.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'passed',ship:'passed',merge:'pending'},
+    needs:'merge', sel:'merge', conflict:true, fix:{gate:'uat',spent:2,live:false},
+    cta:{w:'<b>Merge</b> is blocked — <code>karst-extention</code> no longer merges cleanly into <code>develop</code>.',b:'Resolve conflicts'},
+    approach:{id:'rpi',phases:['describe','research','plan','implement'],done:true},
+    metas:{scope:'2m 14s',impl:'41m',uat:'2 gates',review:'clean',ship:'2 PRs',merge:'conflict'} },
+
+  { h:'7 · Done',
+    note:'One travelled path — each connector a gradient out of the previous stage\'s hue into the next. The spent orbit stays as the record of what the ticket cost to get here.',
+    stages:{scope:'passed',impl:'passed',uat:'passed',review:'passed',ship:'passed',merge:'passed',done:'passed'},
+    sel:'done', fix:{gate:'uat',spent:2,live:false},
+    approach:{id:'rpi',phases:['describe','research','plan','implement'],done:true},
+    metas:{scope:'2m 14s',impl:'41m',uat:'2 gates',review:'clean',ship:'2 PRs',merge:'2 merged'} },
+];
+
+/* The connector INTO a node: lit once the previous stage passed, active while it
+   runs, broken when it failed, and DEAD when the previous stage is parked on the
+   user — there is no travel to draw yet. */
+function segClass(prevKey, prevStatus, needs){
+  if (prevKey === undefined) return '';
+  if (prevStatus === 'failed') return 'broken';
+  if (prevKey === needs) return '';
+  if (prevStatus === 'passed') return 'lit';
+  if (prevStatus === 'running') return 'active';
+  return '';
+}
+
+function render(c){
+  const st = c.stages || {}, metas = c.metas || {}, fx = c.fix;
+
+  const nodes = MAIN.map((k,i)=>{
+    const status = st[k] || 'pending';
+    const prevKey = i ? MAIN[i-1] : undefined;
+    const prevStatus = prevKey ? (st[prevKey] || 'pending') : undefined;
+    const needs = c.needs === k;
+    const cls = [status, needs?'needs':'', c.sel===k?'sel':''].filter(Boolean).join(' ');
+    const glyph = status === 'running' ? '<span class="spin"></span>'
+      : (needs && c.conflict ? '⚠' : (GLYPH[status] || '·'));
+
+    const orb = fx && fx.gate === k
+      ? `<div class="orbit ${fx.live?'live':''}" style="background:${orbitGradient(fx.spent, fx.live)}"></div>` : '';
+    /* The accessible name carries BOTH facts: a screen reader must not have to
+       infer a running fix loop from a ring it cannot see. */
+    const name = fx && fx.gate === k
+      ? `${k}: ${needs?'needs you':status} — fix attempt ${fx.spent} of ${FIX_ATTEMPT_CAP}${fx.live?', running':''}`
+      : `${k}: ${needs?'needs you':status}`;
+
+    let meta = esc(metas[k] || '');
+    if (fx && fx.gate === k){
+      const cap = `<span class="fx ${fx.live?'':'spent'}">fix ${fx.spent}/${FIX_ATTEMPT_CAP}</span>`;
+      meta = meta ? `${meta} · ${cap}` : cap;
+    }
+
+    return `<div class="st stg-${k} ${cls}" style="--prev:var(${HUE[prevKey] || '--k-passed'})">
+      <div class="seg ${segClass(prevKey, prevStatus, c.needs)}"></div>
+      ${orb}
+      <button type="button" class="node" aria-pressed="${c.sel===k}"
+        aria-label="${esc(name)}" title="${esc(name)}">${glyph}</button>
+      <div class="lbl">${k}</div>
+      <div class="meta">${meta}</div>
+    </div>`;
+  }).join('');
+
+  const ap = c.approach;
+  const cart = ap ? `<div class="cart ${ap.done?'done':(ap.open?'active':'')}">
+      <div class="nub"></div>
+      <button type="button" class="chip" title="Approach driving impl — ${esc(ap.id)}, ${ap.phases.length} phases">
+        <span class="nm">${esc(ap.id)}</span><span class="chev">▾</span></button>
+      ${ap.open?`<div class="phases">${ap.phases.map((p,i)=>i===3?`<b>${esc(p)}</b>`:esc(p)).join(' → ')}</div>`:''}
+    </div>` : '';
+
+  const arc = fx && fx.arc
+    ? `<div class="retarc" title="fix ─pass→ uat (revalidate)"><span class="t">revalidate</span></div>` : '';
+
+  const cta = c.cta ? `<div class="cta"><span class="w">${c.cta.w}</span>
+      <button type="button">${esc(c.cta.b)}</button></div>` : '';
+
+  return `<section class="case">
+    <h2>${esc(c.h)}</h2>
+    <p class="note">${c.note}</p>
+    <div class="rail"><div class="track">
+      <div class="main">${nodes}</div>
+      <div class="sub ${arc?'witharc':''}">${arc}${cart}</div>
+    </div></div>
+    ${cta}
+    <div class="legend">
+      <span><i style="background:linear-gradient(90deg,var(--stage-uat),var(--stage-review))"></i>travelled</span>
+      <span><i class="ring"></i>fix attempts spent / left</span>
+      <span><i style="background:var(--k-attention)"></i>needs you</span>
+      <span><i style="background:var(--border)"></i>not travelled</span>
+    </div>
+  </section>`;
+}
+
+document.getElementById('out').innerHTML = CASES.map(render).join('');
+</script>
+</body>
+</html>

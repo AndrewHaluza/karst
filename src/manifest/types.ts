@@ -61,7 +61,7 @@ export interface RepositoryDef {
   /**
    * Repo-classifier signal words (title/description/tag tokens that point a
    * ticket at this repository). Authored ahead of ticket time; empty/absent =
-   * the repository is "unclassified" and the onboarding classify-gate prompts
+   * the repository is "unclassified" and the ticket-form classify-gate prompts
    * for signals. `validateManifest` always populates this (defaulting `[]`); it
    * is optional on the type only so hand-built fixtures need not supply it. Read
    * it via `isRepoClassified` / `?? []`, never assume presence.
@@ -115,7 +115,7 @@ export type ApproachSource =
     };
 
 /**
- * A single phase in an approach's workflow (§ onboarding). `command` is a
+ * A single phase in an approach's workflow (§ ticket form). `command` is a
  * native slash command to invoke for the phase (e.g. "/rpi:research");
  * absent when the phase has no dispatchable command.
  */
@@ -126,7 +126,7 @@ export interface WorkflowPhase {
 }
 
 /**
- * A development approach offered on the onboarding page (§ onboarding). `id` is
+ * A development approach offered on the ticket form (§ ticket form). `id` is
  * the stable key persisted on a ticket; `recommended` marks the default pick
  * (at most one). `source` is absent for hand-authored/custom approaches (no fetch).
  * Extensible: custom approaches are just more entries.
@@ -328,7 +328,7 @@ export interface Manifest {
    */
   repositories: Record<string, RepositoryDef>;
   /**
-   * Onboarding development approaches; `validateManifest` always sets this
+   * Ticket-form development approaches; `validateManifest` always sets this
    * (`[]` when none configured). Optional on the type only so hand-built
    * fixtures need not supply it.
    */

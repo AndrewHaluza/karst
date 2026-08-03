@@ -23,7 +23,15 @@ import { mergeGateState } from '../../workflow/mergeGate.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
-import { countFixAttempts, lastFailedGate } from '../../workflow/fixAttempts.js';
+import {
+  FIX_ATTEMPT_CAP,
+  countFixAttempts,
+  lastFailedGate,
+  type GateStageKey,
+} from '../../workflow/fixAttempts.js';
+import { needsUser } from '../../model/ticketGlyph.js';
+import { railNeeds } from '../../model/railNeeds.js';
+import { reportedPhases } from '../../model/inside/agent.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
@@ -94,9 +102,10 @@ export interface DashboardState {
   /** Synthesized context brief, shown as a hover on the provider link; or null. */
   brief: string | null;
   /**
-   * The stage graph as it is drawn: the forward path, plus the fix return
-   * channel that hangs below it. `stepper` above stays the flat canonical
-   * projection; this is the shape the rail renders.
+   * The stage graph as it is drawn: one segmented track the ticket travels
+   * through, each segment carrying its own status, whether the ticket is there,
+   * whether it is blocked on the user, and — on the gate that was retried — the
+   * fix loop's meter. `stepper` above stays the flat canonical projection.
    */
   rail: StageRail;
   /**
@@ -106,12 +115,18 @@ export interface DashboardState {
    */
   inside: Record<StageKey, StageInside>;
   /**
-   * The approach driving impl, and the workflow phases it DECLARES. The phases
-   * carry no per-phase state and never will: impl exposes no deterministic
-   * sub-signal (the no-inference guarantee), so they describe what the agent was
-   * asked to do, not what karst watched it do.
+   * The approach driving impl, the workflow phases it DECLARES, and the phases
+   * the agent actually REPORTED by running a marker command.
+   *
+   * Declared is not observed — impl exposes no deterministic sub-signal (the
+   * no-inference guarantee), so `phases` describes what the agent was asked to
+   * do. `reported` is the one thing that may fill a phase pip: a phase mark is a
+   * fact with a timestamp, the same class of evidence as the impl done marker,
+   * and its absence stays evidence of nothing. Read through the SAME derivation
+   * the Inside strip lists (`reportedPhases`) — two answers to "which phase is
+   * the agent in" is the same class of bug as two answers to needs-you.
    */
-  approach: { id: string; phases: string[] } | null;
+  approach: { id: string; phases: string[]; reported: string[] } | null;
 }
 
 /**
@@ -145,6 +160,14 @@ export function buildDashboardState(
   defaultProvider?: AgentProvider,
   /** Live session/model context, injected by the extension host. */
   agentContext: DashboardAgentContext = {},
+  /**
+   * The fix budget for ONE gate, so the retry meter draws exactly as many ticks
+   * as the driver will spend. Injected (the state builder never reads the
+   * manifest) and defaults to the graph's own cap — a caller that cannot resolve
+   * the manifest degrades to the real backstop rather than to a number that
+   * would misreport how many retries remain.
+   */
+  fixCapFor: (gate: GateStageKey) => number = () => FIX_ATTEMPT_CAP,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const resolvedProvider = resolveProvider(ticket.agentProvider, defaultProvider);
@@ -181,6 +204,20 @@ export function buildDashboardState(
   const mergeChecks = listMergeChecksByTicket(store, ticketId);
   const phases = approachPhases(ticket.approach);
 
+  // ONE read of the merge gate for the whole snapshot: the Now line and the
+  // track's needs-you wording must not describe the same three-valued fact from
+  // two different reads.
+  const mergeGate = mergeGateState(store, ticketId);
+  // ONE read of the marks, for the same reason — the Inside strip and the impl
+  // segment's pips are two views of one set of facts.
+  const marks = listPhaseMarks(store, ticketId);
+  // The needs-you derivation every other surface already honours. Consulted, not
+  // re-derived: a second answer to "is this blocked on the user" is exactly the
+  // bug the single derivation exists to prevent.
+  const blocked = needsUser(ticket);
+  const implCell = stepper.find((c) => c.stageKey === 'impl') ?? null;
+  const reported = implCell ? reportedPhases(marks, implCell).map((m) => m.phaseName) : [];
+
   // ONE clock read per push: the merge rows and the stage strip must not date
   // from two different instants.
   const now = nowIso();
@@ -203,7 +240,7 @@ export function buildDashboardState(
       // Read from the same two tables the PR panel and the merge rows below
       // render, so the sentence at the top of the panel and the buttons under it
       // can never disagree about which repo is holding the ticket up.
-      mergeGate: mergeGateState(store, ticketId),
+      mergeGate,
     }),
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only
@@ -217,7 +254,18 @@ export function buildDashboardState(
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
     brief: ticket.brief,
-    rail: buildStageRail(stepper, fixAttempts),
+    rail: buildStageRail(stepper, ticket.stages, {
+      current: ticket.stageCurrent,
+      needsUser: blocked,
+      needs: blocked
+        ? railNeeds({
+            stage: ticket.stageCurrent,
+            agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
+            mergeGate,
+          })
+        : null,
+      capFor: fixCapFor,
+    }),
     inside: buildStageInside({
       stepper,
       gateRuns: listGateRuns(store, ticketId),
@@ -232,10 +280,10 @@ export function buildDashboardState(
       },
       selectedRepos: ticket.selectedRepos,
       phases,
-      marks: listPhaseMarks(store, ticketId),
+      marks,
       fixAttempts,
       now,
     }),
-    approach: ticket.approach ? { id: ticket.approach, phases } : null,
+    approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
   };
 }

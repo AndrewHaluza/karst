@@ -1,11 +1,11 @@
 import type { Manifest } from '../../manifest/types.js';
 
 /**
- * The deterministic repo classifier (§ onboarding). Signal words are authored
+ * The deterministic repo classifier (§ ticket form). Signal words are authored
  * ahead of ticket time on each repository (`RepositoryDef.signals`); at ticket
  * time we score each repository by how many of its signals appear as whole-word
  * tokens in the ticket's title + description + tags. NO AI, NO network — pure
- * and testable. The onboarding page seeds its repo checkboxes from this ranking;
+ * and testable. The ticket form seeds its repo checkboxes from this ranking;
  * the user confirms or corrects.
  *
  * Runnability is irrelevant here: classification is about which SOURCE TREE the

@@ -200,8 +200,10 @@
       font-size: var(--k-text-md);
       overflow-wrap: anywhere;
     }
-    /* A real interactive treatment from the ghost button variant, plus grid
-       placement only (STYLE-GUIDE §4): no local background/border/padding/
+    /* A real interactive treatment from the ghost button variant plus the row
+       modifier (full width, left-aligned, and a success flash that is the row's
+       own highlight instead of a check badge — see designComponents), with grid
+       placement only local (STYLE-GUIDE §4): no local background/border/padding/
        radius/font-size, so this can never again de-style into an unrecognizable
        row the way the old reset (border:0; border-radius:0; text-align:left)
        did. */
@@ -209,8 +211,6 @@
       display: grid;
       grid-template-columns: var(--rail) minmax(0, 1fr);
       gap: var(--k-space-4);
-      width: 100%;
-      text-align: left;
       margin-top: var(--k-space-1);
     }
     /* The primitive's own ::before spinner is a flex-model leading icon; on a
@@ -366,7 +366,7 @@
     function fileRow(file) {
       const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
       const label = STATUS_LABEL[file.status] || 'Modified';
-      return `<button type="button" class="k-btn k-btn--ghost file" data-change-id="${esc(file.changeId)}">`
+      return `<button type="button" class="k-btn k-btn--ghost k-btn--row file" data-change-id="${esc(file.changeId)}">`
         + `<span class="file-path">${esc(shown)}</span>`
         + `<span class="status status-${esc(file.status)}" role="img" aria-label="${esc(label)}">${STATUS[file.status] || 'M'}</span>`
         + `</button>`;

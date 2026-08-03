@@ -114,60 +114,233 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toContain('renderStepper(state.stepper)');
   });
 
-  it('renders fix as the optional branch, never on the main line', () => {
-    // The regression net for the flattening bug: fix must stay off the forward
-    // path. The main-line nodes are built by mapping rail.main with an
-    // interpolated data-stage; fix carries its own literal data-stage="fix" and
-    // is gated behind `showFix`, so it can only be the branch, never a step.
-    expect(HTML).toContain('data-stage="fix"');
-    const showFixAt = HTML.search(/showFix\s*=/);
-    const fixAt = HTML.indexOf('data-stage="fix"');
-    expect(showFixAt).toBeGreaterThan(-1);
-    expect(fixAt).toBeGreaterThan(showFixAt);
+  it('keeps fix off the forward path — it is drawn on the gate it retries', () => {
+    // The regression net for the flattening bug, restated for the track: `fix` is
+    // reached only by a failed verdict and its only edge returns to uat, so it can
+    // never be a segment. It appears exactly once, as the retry meter's own
+    // data-stage — which is also how it stays selectable now the node is gone.
+    expect(HTML).toContain('rail.main.map');
+    expect(HTML).not.toMatch(/rail\.(branch|geometry|armed|cap)\b/);
+    expect(HTML.match(/data-stage="fix"/g)).toHaveLength(1);
+    expect(HTML).toMatch(/class="fixm [^"]*"[^>]*data-stage="fix"/);
   });
 
-  it('renders the fix branch status and paints a successful fix green', () => {
-    expect(HTML).toContain('const fixClass = STEP_CLASS[rail.branch.status]');
-    expect(HTML).toContain('fixnode ${fixClass}');
-    expect(HTML).toContain("rail.branch.status === 'passed'");
-    expect(HTML).toMatch(/\.loop \.fixnode\.done \.node\{[^}]*--stg-color:var\(--k-passed\)/);
+  it('draws the retry meter only on the gate that carries the loop', () => {
+    // Not on fix, not on every gate, and not at all before the loop is entered —
+    // the host decides that (model/stageRail.ts) and the webview only renders
+    // what it is given.
+    expect(HTML).toMatch(/if \(s\.retry\) extra \+= renderMeter\(s\.retry\)/);
+    expect(HTML).toMatch(/function renderMeter\(retry\)/);
   });
 
-  it('hides the fix branch by default, behind an expand/collapse toggle', () => {
-    // fix is a RETURN CHANNEL reached only on a failed gate, so it must not eat
-    // graph space on a ticket that never looped. It rides behind a toggle and a
-    // `collapsed` loop state instead of rendering unconditionally.
-    expect(HTML).toContain('data-fixtoggle');
-    expect(HTML).toContain('fixExpanded');
-    expect(HTML).toMatch(/showFix\s*=/);
-    // The collapse is CSS-driven, so a `.loop.collapsed` rule must exist to hide
-    // the branch and reclaim the band's height.
-    expect(HTML).toMatch(/\.loop\.collapsed\{/);
+  it('draws one tick per ALLOWED attempt, from the host’s cap', () => {
+    // A meter with more ticks than the driver will spend lies about how many
+    // retries are left, which is the one thing the meter exists to say. The cap
+    // comes from the manifest via the host; a literal 3 here would ignore a
+    // narrowed uat.maxFixAttempts.
+    expect(HTML).toContain('{ length: retry.cap }');
+    expect(HTML).not.toMatch(/length:\s*3\b/);
+    expect(HTML).toContain('i < retry.spent');
   });
 
-  it('forces the fix branch open while the loop is armed', () => {
-    // Armed = fix is running or a gate has failed. Hiding a live loop would hide
-    // the very state the user needs, so `showFix` must key off `armed`.
-    expect(HTML).toMatch(/showFix\s*=[^;]*\brail\.armed\b/);
+  it('never nests a button inside a button — the parser would close the outer one', () => {
+    // The segment is a <div> wrapper holding the select control AND, when the
+    // stage is parked on the user, the action control. Nested, the parser closes
+    // the outer button and the whole track loses its structure.
+    expect(HTML).toMatch(/<div class="seg stg-\$\{esc\(k\)\}/);
+    expect(HTML).not.toMatch(/<button[^>]*class="pick"[^>]*>[^<]*<button/);
   });
 
-  it('persists the fix toggle beside the host state, like the selection', () => {
-    // Same reasoning as `sel`: it is a webview concern, so it rides alongside the
-    // host snapshot in setState and is restored on reload.
-    expect(HTML).toMatch(/setState\(\{ state:[^}]*fixExpanded/);
-    expect(HTML).toMatch(/fixExpanded\s*=\s*[^;]*restored/);
-  });
-
-  it('makes every stage node a real button, so the rail is keyboard-reachable', () => {
-    expect(HTML).toMatch(/<button type="button" class="node"/);
+  it('makes every segment a real button, so the track is keyboard-reachable', () => {
+    expect(HTML).toMatch(/<button type="button" class="pick"/);
     expect(HTML).toContain('aria-pressed');
+    // Never a clickable div (UI-R09): the wrapper carries no handler of its own.
+    expect(HTML).not.toMatch(/<div class="seg[^"]*"[^>]*data-stage=/);
   });
 
-  it('names every rail/fix node for a screen reader, not just a hover title', () => {
-    // Icon-only (a glyph or a spinner character, never text) — aria-label and
-    // title must carry the SAME string (UI-R21/R24).
-    expect(HTML).toMatch(/aria-label="\$\{nodeName\}" title="\$\{nodeName\}"/);
-    expect(HTML).toMatch(/aria-label="\$\{fixNodeName\}" title="\$\{fixNodeName\}"/);
+  it('puts the retry loop in the accessible name, not only in the meter', () => {
+    // Everything the narrow steps drop must already be in the name, because the
+    // name does not degrade — the attempt count and the return target included.
+    expect(HTML).toContain('fix ${s.retry.spent}/${s.retry.cap}');
+    expect(HTML).toContain('revalidates from ${s.retry.returnsTo}');
+  });
+
+  it('says needs-you in words, not only in the amber', () => {
+    // UI-R28: four carriers — wash, glyph, the reason, the action.
+    expect(HTML).toMatch(/needs \? `\$\{title\}: needs you`/);
+    expect(HTML).toContain("const NEEDS_GLYPH");
+    expect(HTML).toContain("const CONFLICT_GLYPH");
+    expect(HTML).toMatch(/s\.needs \? s\.needs\.detail/);
+  });
+
+  it('reads needs-you from the host, never re-deriving it in the webview', () => {
+    // A second answer to "is this blocked on the user" is exactly what the single
+    // derivation (model/ticketGlyph.needsUser) exists to prevent.
+    const track = HTML.slice(
+      HTML.indexOf('function renderTrack('),
+      HTML.indexOf('function renderPips('),
+    );
+    expect(track).toMatch(/s\.needsUser === true/);
+    // No stage-name test and no status test: `needsConfirm(stage) && pending` is
+    // the host's answer, and asking it a second time here is how two surfaces
+    // start disagreeing about whether a ticket is blocked.
+    expect(track).not.toMatch(/=== 'ship'|=== 'merge'|'pending'/);
+  });
+
+  it('makes the needs-you button navigational, never a second actor', () => {
+    // karst never performs an irreversible step from the track: merge is per-repo
+    // and its confirmation modal lives in the host, so a track-level Merge button
+    // could neither pick a repo nor carry the confirmation.
+    expect(HTML).toContain('data-goto');
+    expect(HTML).toMatch(/function gotoAction\(\)/);
+    const fn = HTML.slice(HTML.indexOf('function gotoAction()'));
+    const body = fn.slice(0, fn.indexOf('\n  }'));
+    expect(body).toContain('scrollIntoView');
+    expect(body, 'the track posts nothing').not.toContain('post(');
+  });
+
+  it('fills a phase pip only for a phase the agent reported', () => {
+    // Declared is not observed. A hollow pip means "not reported", never "not
+    // done" — karst records no per-phase state it was not explicitly told.
+    expect(HTML).toContain('approach.reported');
+    expect(HTML).toMatch(/done\.has\(p\)/);
+    expect(HTML).toContain('not reported');
+  });
+
+  it('names the approach on impl even when it declares no phases', () => {
+    // An approach with an empty `workflow` (the built-in `direct`, or a package
+    // that ships prompts only) is still the thing driving impl, and the current
+    // segment is the one place the panel says so. Returning early on an empty
+    // `phases` left the widest segment on the track completely blank.
+    const fn = HTML.slice(HTML.indexOf('function renderPips('));
+    const body = fn.slice(0, fn.indexOf('\n  }'));
+    expect(body, 'an approach with no phases renders nothing').not.toMatch(
+      /if \(!phases\.length\) return ''/,
+    );
+    expect(body).toContain('approach.id');
+  });
+
+  it('keeps the current segment’s text legible on its own wash (UI-R29)', () => {
+    // `--k-success-fg` is the KNOCKOUT foreground — `--vscode-editor-background`,
+    // paired with a saturated feedback FILL. The running segment is not a fill:
+    // it is a 34% wash of the stage hue over the lane, so the knockout resolves
+    // to (near) the background it sits on — dark-on-dark in a dark theme and
+    // white-on-lavender in a light one. The wash is designed to carry ordinary
+    // body text, so it takes ordinary body text.
+    expect(HTML).toMatch(/\.track \.seg\.running\{[^}]*color:var\(--k-text\)/);
+    expect(HTML).not.toMatch(/\.track \.seg[^{]*\{[^}]*color:var\(--k-success-fg\)/);
+  });
+
+  it('marks the selected segment with the segment’s own shape, never a stray edge', () => {
+    // A segment is a CHEVRON (clip-path), and `clip-path` clips a child's
+    // rendering — so a rectangular ring on the inset `.pick` lost its left and
+    // right strokes in the two notches and survived as two detached horizontal
+    // bars; at the ends of the lane its square corners sat inside the lane's
+    // `--k-radius-lg`, which read as the mark being shifted off the block it
+    // marks. The underline that replaced it had the same problem from the other
+    // side: it read as a stray bottom border on the segment. Selection is drawn
+    // as the chevron ring, sharing one shape with focus.
+    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(ring).toContain('.track .seg.sel .pick,');
+    expect(ring).toContain('.track .seg:first-child.sel .pick,');
+    expect(ring).toContain('.track .seg:last-child.sel .pick,');
+    // Focus outranks selection on a segment that is both, so it is stated LAST —
+    // and it is what drops the outline, so the two can never both be missing.
+    const focusLast = ring.lastIndexOf('.track .seg .pick:focus-visible{outline:0');
+    expect(focusLast, 'focus does not win the ring colour').toBeGreaterThan(
+      ring.indexOf('.track .seg.sel .pick,'),
+    );
+    // The baseline survives for a browser that cannot compute the shape — and
+    // the guard turns it off rather than painting both.
+    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:inset[^}]*var\(--k-series-2\)\}/);
+    expect(ring).toContain('.track .seg.sel{box-shadow:none}');
+    // …which only works if the baseline is declared BEFORE the guard: same
+    // specificity, so a later baseline would win and the underline would come
+    // back underneath the ring.
+    expect(HTML.indexOf('.track .seg.sel{box-shadow:inset')).toBeLessThan(
+      HTML.indexOf('@supports (width: calc(1px * hypot'),
+    );
+  });
+
+  it('draws the ring flush to the segment, joined without crossing itself', () => {
+    // Brace-balanced, not `[\s\S]*?\n  }` — this test asserts on what the guard
+    // does NOT contain, so an over-capture that ran into the next rule would
+    // read a later `--k-focus-offset` as this block's.
+    const at = HTML.indexOf('@supports (width: calc(1px * hypot');
+    let depth = 0;
+    let end = at;
+    for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+      if (HTML[i] === '{') depth += 1;
+      else if (HTML[i] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          end = i + 1;
+          break;
+        }
+      }
+    }
+    const ring = HTML.slice(at, end);
+    expect(ring, 'the chevron ring is not behind an @supports guard').toContain('clip-path');
+    // FLUSH. An outer boundary inset by `--k-focus-offset` read as a hairline gap
+    // all the way round, and at the ends of the lane its square corners sat
+    // inside the lane's own `--k-radius-lg`. On the segment's own edge, the
+    // lane's rounded overflow clips ring and segment identically.
+    expect(ring, 'the ring is inset off the segment edge').not.toContain('--k-focus-offset');
+    for (const [, points] of ring.matchAll(/clip-path:polygon\(evenodd,([\s\S]*?)\)\}/g)) {
+      const pts = points!
+        .split(/,(?![^(]*\))/)
+        .map((p) => p.replace(/\s+/g, ' ').trim());
+      // Each ring opens on the segment's own polygon: its first point is the
+      // segment's, and every outer point is free of the inset vars.
+      expect(pts[0], `ring does not start on the segment corner: ${pts[0]}`).toBe('0 0');
+      // ZERO-AREA SLIT. `polygon()` is ONE contour with no move-to, so the two
+      // connectors that reach the hole REPLACE the inner edge they jump across —
+      // and that edge, with the band it bounds, is simply gone from the shape.
+      // Both earlier orderings lost the ring's left stroke that way. So the outer
+      // loop closes on its own first point, and the inner loop starts AND ends on
+      // one point: the two connectors coincide and cancel, and no edge is lost.
+      const outerEnd = pts.indexOf('0 0', 1);
+      expect(outerEnd, 'the outer loop is not closed before the hole').toBeGreaterThan(2);
+      expect(pts[outerEnd + 1], 'the hole does not close on the point it opened on')
+        .toBe(pts[pts.length - 1]);
+      // Every inner point is derived perpendicularly; none is a bare axis inset.
+      for (const p of pts.slice(outerEnd + 1)) {
+        expect(p, `inner point is not inset from the edge: ${p}`).toMatch(/var\(--r[tlrq]\)/);
+      }
+    }
+  });
+
+  it('outlines a focused segment in the segment’s own shape, with a working fallback', () => {
+    // Same defect as the selection ring, one state further: an `outline` is a
+    // rectangle, `clip-path` clips a child's rendering, so the focus ring's
+    // vertical strokes fell inside the two notches and were cut — a border that
+    // visibly did not close around the arrow it belonged to. The ring is drawn
+    // as a SHAPE instead: the chevron minus a smaller chevron (`evenodd`).
+    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(ring, 'the chevron ring is not behind an @supports guard').not.toBe('');
+    expect(ring).toContain('clip-path:polygon(evenodd,');
+    // The inner chevron is offset PERPENDICULARLY to the edge — derived from the
+    // edge length, never the same px in both axes, which would splay the
+    // diagonals and taper the ring.
+    expect(ring).toContain('var(--trk-diag)');
+    expect(HTML).toMatch(/--trk-diag:hypot\(var\(--trk-notch\),var\(--trk-half\)\)/);
+    // Both ends of the lane carry one notch, not two.
+    expect(ring).toContain('.track .seg:first-child .pick:focus-visible');
+    expect(ring).toContain('.track .seg:last-child .pick:focus-visible');
+    // The guard exists because a browser that cannot compute the ring would drop
+    // the clip-path and keep the fill — a focus-coloured block over the whole
+    // segment. Outside it, the plain outline must survive as the indicator.
+    const outside = HTML.replace(ring, '');
+    expect(outside).toMatch(
+      /\.track \.seg \.pick:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/,
+    );
+  });
+
+  it('names the track’s two controls for a screen reader, not just a hover title', () => {
+    // Both are glyph-or-shape only — aria-label and title must carry the SAME
+    // string (UI-R21/R24).
+    expect(HTML).toMatch(/aria-label="\$\{esc\(aria\)\}" title="\$\{esc\(aria\)\}"/);
+    expect(HTML).toMatch(/aria-label="\$\{esc\(label\)\}" title="\$\{esc\(label\)\}"/);
   });
 
   it('keeps the selection beside the host state, never inside it', () => {
@@ -209,56 +382,78 @@ describe('dashboard webview.html', () => {
    * exists so the fix cannot be quietly deleted by someone tidying the CSS.
    * Re-verifying the pixels needs F5 (or the iframe harness).
    */
-  it('keeps the rail scroll container padded, so the ring is not sliced off', () => {
-    // overflow-x:auto forces overflow-y to compute to auto, so .railwrap clips
-    // vertically too — and the nodes sit flush against its content top. Without
-    // padding-top the selection ring (4px out) and focus outline (5px out) were
-    // cut off flat and the selected node rendered as an open arc.
-    // --k-space-3 is 6px (DESIGN-SYSTEM.md §2.2), which clears the 5px reach —
-    // padding-top is now the token, not a raw literal (UI-R04).
-    expect(HTML).toMatch(/\.railwrap\{[^}]*overflow-x:auto[^}]*padding-top:var\(--k-space-3\)/);
+  it('keeps the lane scrollable, never clipped', () => {
+    // overflow:hidden is what turned an over-wide track into an INVISIBLE defect:
+    // the current segment's own action button was clipped away with nothing to
+    // say so, and the two-step degradation only looked correct because of it. A
+    // scrollbar is something the user can act on; silent clipping is not.
+    expect(HTML).toMatch(/\.lane\{[^}]*overflow-x:auto/);
+    expect(HTML).not.toMatch(/\.lane\{[^}]*overflow:hidden/);
+    // …and the wrapper no longer needs a scroller of its own.
+    expect(HTML).not.toMatch(/\.railwrap\{[^}]*overflow-x:auto/);
   });
 
-  it('keeps the rail mask opaque, because it is a mask and not just a tint', () => {
-    // The nodes fill with the surface token to mask the connector running
-    // under them, and the selection ring's inner gap is painted in it. A
-    // `transparent` fallback made both masks stop masking on any theme without
-    // editorWidget.background: the rail drew straight through the node.
-    // --k-surface (designTokens.ts) IS that value — no local --panel-bg
-    // re-declaration remains to drift from it (UI-R05).
-    expect(HTML).not.toMatch(/--panel-bg:/);
-    expect(HTML).toContain('.st .node{width:var(--k-control-h-lg);height:var(--k-control-h-lg);border-radius:var(--k-radius-circle);');
-    expect(HTML).toMatch(/\.st \.node\{[\s\S]*?background:var\(--k-surface\)/);
+  it('degrades in three measured steps, each of which drops something', () => {
+    // Two was the first draft and it did not fit: at a 397px lane five of the
+    // eight mockup cases were still over after `tight`.
+    for (const step of ['snug', 'tight', 'bare']) {
+      const rules = HTML.match(new RegExp(`\\.track\\.${step}[^{]*\\{[^}]*\\}`, 'g')) ?? [];
+      expect(rules.length, `no .track.${step} rule`).toBeGreaterThan(0);
+      expect(
+        rules.some((r) => /display:none|min-width:0|padding/.test(r)),
+        `.track.${step} drops nothing`,
+      ).toBe(true);
+    }
   });
 
-  it('separates the focus outline from the selection ring by colour', () => {
-    // Both were --st-sel at overlapping radii (ring 0–4px, outline 3–5px), so
-    // they fused into one slab and focus was invisible on the selected node.
-    // Now token-built (UI-R04): outline width/offset are calc() combos of the
-    // base --k-focus-w/--k-focus-offset tokens, doubled off the standard
-    // 1px/1px every other focusable in this file uses.
-    expect(HTML).toMatch(/\.st \.node:focus-visible\{outline:calc\(var\(--k-focus-w\) \* 2\) solid var\(--k-focus\)/);
-    expect(HTML).toMatch(/\.fixnode \.node:focus-visible\{outline:calc\(var\(--k-focus-w\) \* 2\) solid var\(--k-focus\)/);
-    expect(HTML, 'the selection ring is what keeps --k-series-2').toContain('var(--k-series-2)');
-    expect(HTML).not.toMatch(/--st-sel/);
+  it('never hides the current segment’s name or its action, at any step', () => {
+    // The floor: the name says where the ticket is and the button says what is
+    // wanted. Both survive to 300px; only annotations are given up.
+    const hiders = HTML.match(/\.track\.(?:snug|tight|bare)[^{]*\{[^}]*display:none[^}]*\}/g) ?? [];
+    for (const rule of hiders) {
+      const selector = rule.slice(0, rule.indexOf('{'));
+      expect(selector, 'a step hides the current segment’s name').not.toMatch(/\.seg\.cur \.nm[,{\s]*$/);
+      expect(selector, 'a step hides the current segment’s action').not.toMatch(/\.seg\.cur \.go/);
+    }
   });
 
-  it('pulses the armed fix node by scale only, never opacity', () => {
-    // That node sits ON the bracket's bottom edge and its fill is what masks it;
-    // fading it let the dashed bracket show through the fill and the ring.
-    const kf = HTML.match(/@keyframes node-pulse\{[^}]*\}[^}]*\}/)?.[0] ?? '';
-    expect(kf).toContain('scale(1.09)');
-    expect(kf, 'opacity in node-pulse unmasks the bracket underneath').not.toContain('opacity');
+  it('measures rather than positions — the track pushes no geometry from the host', () => {
+    // The old rail bolted a second lane to specific columns with calc() inputs
+    // written inline from state.rail.geometry. There is no second lane, so the
+    // one measurement left picks a class and positions nothing.
+    expect(HTML).toContain('lane.scrollWidth > lane.clientWidth');
+    expect(HTML).not.toMatch(/--cols:\$\{/);
+    expect(HTML).toMatch(/window\.addEventListener\('resize', place\)/);
   });
 
-  it('never lifts a rail column into its own stacking context', () => {
-    // .st is position:relative with z-index:auto ON PURPOSE: that keeps every
-    // .seg (z-index:0) and every .node (z-index:1) in the one root stacking
-    // context, so each node — ring and outline included — paints above every
-    // connector. Giving .st a z-index makes it a stacking context, which drags
-    // its own .seg up with it and stabs the PREVIOUS node in the rail.
-    expect(HTML).not.toMatch(/\.st\.sel[^{]*\{[^}]*z-index/);
-    expect(HTML).not.toMatch(/\.st:focus-within[^{]*\{[^}]*z-index/);
+  it('lets the stage palette win the hue, because the segment never claims it', () => {
+    // `.track .seg` is (0,2,0); the injected `stg-<stage>` classes are (0,1,0), so
+    // a `color`/`--stg-color` on the scoped rule beats them at ANY source order
+    // and every travelled segment renders neutral grey — which silently kills the
+    // one thing the wash exists to say. The old `.st` rule tied at (0,1,0) and
+    // lost to the later injection; scoping is what broke that tie.
+    const base = HTML.match(/\.track \.seg\{[^}]*\}/)?.[0] ?? '';
+    expect(base, 'the base segment rule must not set a colour').not.toMatch(/(^|[;{])color:/);
+    expect(base, 'the base segment rule must not set --stg-color').not.toContain('--stg-color:');
+    // Untravelled is neutral by its own class, not by the base rule's default.
+    expect(HTML).toMatch(/\.track \.seg\.pending\{color:var\(--k-text-faint\)\}/);
+    expect(HTML).toMatch(/pending: 'pending'/);
+  });
+
+  it('scopes every track selector, so it cannot collide with the strip', () => {
+    // The dashboard already owns `.act` (the activity strip) and `.ph*`; an
+    // unscoped `.seg`/`.fixm` would silently restyle them.
+    expect(HTML).not.toMatch(/^\s*\.seg\{/m);
+    expect(HTML).not.toMatch(/^\s*\.fixm\{/m);
+    expect(HTML).toMatch(/\.track \.seg\{/);
+    expect(HTML).toMatch(/\.track \.fixm\{/);
+  });
+
+  it('stops the spinner and the needs-you breathe under reduced motion (UI-R30)', () => {
+    const rm = HTML.match(/@media \(prefers-reduced-motion:reduce\)\{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(rm).toContain('.spin');
+    expect(rm).toContain('.track .seg.needs');
+    expect(rm).toContain('animation:none');
   });
 
   /**
@@ -619,7 +814,18 @@ describe('dashboard webview.html', () => {
     // explanatory comment in the file; this test pins the set so a NEW raw px
     // cannot slip in silently, and shrinking the set (by adding a token) is
     // always welcome.
-    const ALLOWED = ['560px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px'];
+    // `560px` left with the old rail: the track degrades in three measured steps
+    // instead of holding a floor, so there is no minimum width to declare. `46px`
+    // replaces it — the lane's own height, the one piece of the track's geometry
+    // the space scale has no step for.
+    // The four `1px` are ONE value in one place: the `@supports` probe that
+    // guards the track's chevron focus ring (`calc(1px * hypot(1px,1px) / 1px)`).
+    // A feature query cannot be written in tokens — a `var()` inside the
+    // condition makes it parse as valid on every browser, which is exactly the
+    // question being asked — so the probe is literal by construction. It is a
+    // type test, not geometry: nothing is drawn at 1px because of it.
+    const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
+      '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
     const found = [...withoutComments.matchAll(/[0-9]+(\.[0-9]+)?px/g)].map((m) => m[0]);
@@ -702,8 +908,8 @@ describe('dashboard webview.html', () => {
    */
   it('gives every icon-only control a matching aria-label and title', () => {
     const iconOnlyBlocks = [
-      /aria-label="\$\{nodeName\}" title="\$\{nodeName\}"/, // rail node
-      /aria-label="\$\{fixNodeName\}" title="\$\{fixNodeName\}"/, // fix node
+      /aria-label="\$\{esc\(aria\)\}" title="\$\{esc\(aria\)\}"/, // track segment select
+      /aria-label="\$\{esc\(label\)\}" title="\$\{esc\(label\)\}"/, // the retry meter
       /aria-label="\$\{esc\(disabledWhy \|\| label\)\}" title="\$\{esc\(disabledWhy \|\| label\)\}"/, // iact()
       /aria-label="Copy branch name" title="Copy branch name"/, // copy-worktree-branch
       /aria-label="Show ticket changes"[\s\S]{0,80}title="Show ticket changes"/, // wtChanges
@@ -757,18 +963,18 @@ describe('dashboard webview.html', () => {
   });
 
   it('gives every rounded pill in the file the shared .k-chip primitive (UI-R08)', () => {
-    // keypill, fixtoggle, approach .aid / .none, and the PR status pill all
-    // build on one shared shape instead of four divergent bespoke radii.
+    // keypill and the PR status pill build on one shared shape instead of
+    // divergent bespoke radii. The fixtoggle and the approach chips left with the
+    // branch band: the track carries the fix loop inside the gate it retries and
+    // the approach inside impl's own segment, so neither is a pill any more.
     expect(HTML).toMatch(/class="k-chip keypill/);
-    expect(HTML).toMatch(/class="k-chip fixtoggle/);
-    expect(HTML).toMatch(/class="k-chip aid"/);
-    expect(HTML).toMatch(/class="k-chip none"/);
     expect(HTML).toMatch(/class="k-chip pst pst-/);
+    expect(HTML).not.toMatch(/class="k-chip fixtoggle/);
   });
 
-  it('resolves the three purples (selection ring, merged badge, merged timestamp) to one token', () => {
+  it('resolves the three purples (selection mark, merged badge, merged timestamp) to one token', () => {
     expect(HTML).not.toMatch(/#8957e5|#a371f7|#8a63d2|#c297ff/);
-    expect(HTML).toMatch(/\.st\.sel \.node\{box-shadow:[^}]*var\(--k-series-2\)/);
+    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:[^}]*var\(--k-series-2\)/);
     expect(HTML).toMatch(/\.pr \.pst-merged\{background:var\(--k-series-2\)/);
     expect(HTML).toMatch(/\.pmeta \.pmerged\{color:var\(--k-series-2\)/);
   });
@@ -776,7 +982,9 @@ describe('dashboard webview.html', () => {
   it('gives every native <summary> disclosure its own focus-visible ring', () => {
     // <summary> is neither a <button> nor an <a>/<input>, so the primitives'
     // generic :focus-visible rule never reaches it.
-    expect(HTML).toMatch(/\.approach > summary:focus-visible \.aid\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
+    // The approach disclosure left with the branch band — impl's phases are pips
+    // inside impl's own segment now, so there is nothing to open.
+    expect(HTML).not.toMatch(/\.approach > summary/);
     expect(HTML).toMatch(/\.mgd summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
     expect(HTML).toMatch(/\.pcms summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
   });

@@ -76,7 +76,7 @@ export async function scaffoldManifest(): Promise<void> {
  * Resolve the workspace's manifest, offering to scaffold one from the bundled
  * template when absent. Returns the loaded `Manifest`, or `undefined` when the
  * caller should stop (no folder, no/invalid manifest, or a scaffold was just
- * created). Shared by the spin and onboarding commands.
+ * created). Shared by the spin and ticket-form commands.
  *
  * `info` is only for inert-key notices (§ config-ui-coverage) — deliberately
  * NOT a toast like the `warnings` loop below. This resolves on every ordinary
@@ -132,7 +132,7 @@ export async function resolveManifest(
 }
 
 /**
- * A safe empty manifest for onboarding to render against before a real one is
+ * A safe empty manifest for the ticket form to render against before a real one is
  * resolved (no repositories/approaches). Commands set the real manifest before
  * opening; this is only the getter's fallback.
  *

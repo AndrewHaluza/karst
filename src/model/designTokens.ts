@@ -37,6 +37,13 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   '--k-bg': 'var(--vscode-editor-background)',
   '--k-surface': 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
   '--k-surface-hover': 'var(--vscode-list-hoverBackground, rgba(127,127,127,.16))',
+  // A row that is selected, or that was just acted on. The INACTIVE selection
+  // wash on purpose: the active one is a saturated fill themes pair with their
+  // own foreground, and a row keeps `--k-text` — so the active variant is the
+  // one that can fail contrast (UI-R29). This is also what a row's success
+  // flash uses, because "I just opened this" is selection, not "passed".
+  '--k-surface-selected':
+    'var(--vscode-list-inactiveSelectionBackground, var(--k-surface-hover))',
   '--k-surface-sunken': 'var(--vscode-editor-background)',
   '--k-border': 'var(--vscode-panel-border, rgba(128,128,128,.35))',
   '--k-border-strong': 'var(--vscode-contrastBorder, var(--vscode-panel-border))',

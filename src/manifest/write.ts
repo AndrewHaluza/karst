@@ -7,7 +7,7 @@ import type { Manifest } from './types.js';
 
 /**
  * Write repo-classifier signal words back into `.karst/karst.yml` for one
- * repository (§ onboarding classify-gate). Read → migrate → copy → validate →
+ * repository (§ ticket-form classify-gate). Read → migrate → copy → validate →
  * serialize → write. Re-validating before write guarantees we never persist a
  * manifest the loader would reject.
  *

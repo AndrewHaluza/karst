@@ -1,4 +1,4 @@
-- create ticket onboarding flow; (we should follow general idea to have specific tools and scripts for repetitive non AI parts of our flow; no tokens burn for operational tasks)
+- create ticket flow; (we should follow general idea to have specific tools and scripts for repetitive non AI parts of our flow; no tokens burn for operational tasks)
    - when new ticket is added we should show user some page\modal to set ticket number, then it will be fetched info from ticket-board (will start with clickup, then will extend with other platforms - jira, trello, etc) 
     krast.yml or in app config(maybe better to use DB?)
     examples:

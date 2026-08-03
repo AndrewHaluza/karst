@@ -4,6 +4,7 @@ import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
+import type { GateStageKey } from '../../workflow/fixAttempts.js';
 import {
   buildDashboardState,
   type DashboardAgentContext,
@@ -135,6 +136,13 @@ export class DashboardManager {
     private readonly agentContext?: () => DashboardAgentContext,
     /** Live Git totals, delivered separately from the synchronous store state. */
     private readonly loadStats?: WorktreeStatsLoader,
+    /**
+     * The fix budget for one gate, from the live manifest, so the rail's retry
+     * meter draws the number of attempts the driver will actually spend.
+     * Optional: an unresolved manifest degrades to the graph's own cap rather
+     * than to a number that would misreport how many retries remain.
+     */
+    private readonly fixCapFor?: (gate: GateStageKey) => number,
   ) {}
 
   /**
@@ -225,6 +233,7 @@ export class DashboardManager {
       this.isRepoRunnable,
       this.defaultProvider?.(),
       this.agentContext?.(),
+      this.fixCapFor,
     );
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);

@@ -32,7 +32,7 @@ export function createTicketFlow(store: Store, input: CreateTicketInput): Ticket
 
   // Idempotent by key *within a project*: recreating (or refetching) the same
   // ticket reuses the existing row instead of duplicating it. Existing fields
-  // are left untouched; callers refresh onboarding fields separately.
+  // are left untouched; callers refresh ticket fields separately.
   const existing = getTicketByKey(store, input.key, scope);
   if (existing) {
     // Resurrect: an archived ticket recreated by key returns to the active list

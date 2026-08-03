@@ -55,11 +55,11 @@ const styleSource = (html: string): string =>
 const LITERAL_BUDGET: Record<string, number> = {
   dashboard: 10,
   diffs: 1,
-  onboarding: 0,
+  ticketForm: 0,
   settings: 0,
   sidebar: 0,
   usage: 0,
-  welcome: 0,
+  gettingStarted: 0,
 };
 
 describe('UI conformance — discovery', () => {
@@ -67,11 +67,11 @@ describe('UI conformance — discovery', () => {
     expect([...WEBVIEWS].sort()).toEqual([
       'dashboard',
       'diffs',
-      'onboarding',
+      'gettingStarted',
       'settings',
       'sidebar',
+      'ticketForm',
       'usage',
-      'welcome',
     ]);
   });
 
@@ -119,11 +119,17 @@ describe.each(WEBVIEWS)('UI conformance — %s', (name) => {
   });
 
   it('never strips an outline without replacing the ring (UI-R23)', () => {
+    // The replacement need not be an `outline`. An `outline` is a RECTANGLE, and
+    // a clipped element (the dashboard track's chevron segments) cuts whatever
+    // falls outside its shape — there, the ring's vertical strokes vanished into
+    // the notches. Such an element draws the ring as a shape instead. What is
+    // non-negotiable is that `--k-focus` is what draws it, in the same block that
+    // dropped the outline, so a strip can never leave nothing behind.
     for (const m of styles.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
       const body = m[2]!;
       if (!/outline:\s*(?:none|0)\b/.test(body)) continue;
       expect(body, `outline removed with no replacement: ${m[1]!.trim()}`).toMatch(
-        /outline(?:-\w+)?:\s*[^;]*var\(--k-focus/,
+        /(?:outline(?:-\w+)?|box-shadow|border(?:-\w+)?|background(?:-color)?):\s*[^;]*var\(--k-focus/,
       );
     }
   });

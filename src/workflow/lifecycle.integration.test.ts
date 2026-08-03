@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { getTicket, updateTicketOnboarding } from '../store/tickets.js';
+import { getTicket, updateTicketFields } from '../store/tickets.js';
 import { createTicketFlow } from './stages/create.js';
 import { scopeTicket } from './stages/scope.js';
 import { markImplementDone } from './stages/implement.js';
@@ -163,7 +163,7 @@ describe('MVP lifecycle (workflow spine)', () => {
 
     // update the external ticket status via the provider seam — addressed by the
     // provider's own ref, which a fetched ticket carries.
-    updateTicketOnboarding(store, id, { sourceRef: 'CU-abc123' });
+    updateTicketFields(store, id, { sourceRef: 'CU-abc123' });
     const updates: { ref: string; status: string }[] = [];
     const provider: TicketingProvider = {
       async updateStatus(ref, status) {

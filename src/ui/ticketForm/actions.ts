@@ -6,7 +6,7 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import {
   getTicket,
   updateTicketCore,
-  updateTicketOnboarding,
+  updateTicketFields,
   generateTicketKey,
 } from '../../store/tickets.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
@@ -16,8 +16,8 @@ import {
   analyzeTicket,
   type AnalyzeServiceInput,
 } from '../../workflow/classify/analyze.js';
-import type { OnboardingActions, TicketDraftFields } from './messages.js';
-import type { OnboardingActionsCtx, OnboardingActionsFactory } from './panel.js';
+import type { TicketFormActions, TicketDraftFields } from './messages.js';
+import type { TicketFormActionsCtx, TicketFormActionsFactory } from './panel.js';
 import {
   ingestFile,
   ingestBytes,
@@ -46,7 +46,7 @@ import {
 } from '../../store/attachments.js';
 
 /**
- * Host-side onboarding logic (§ onboarding), independent of `vscode`. It ties
+ * Host-side ticket-form logic (§ ticket form), independent of `vscode`. It ties
  * the ticketing provider, agent adapter, signal writeback, and ticket store into
  * the actions the webview drives. Kept out of the panel manager so it is unit-
  * testable with fakes; the activation layer supplies the real deps.
@@ -59,12 +59,12 @@ import {
 
 /**
  * Outcome of the finish handoff. A failure is a REASON, not a throw, so the
- * onboarding page can show it inline and stay open for a retry (e.g. no repos
+ * ticket form can show it inline and stay open for a retry (e.g. no repos
  * selected) instead of the user staring at a page that did nothing.
  */
 export type StartTicketResult = { ok: true } | { ok: false; message: string };
 
-/** Per-launch choices the onboarding page makes for a start it is triggering. */
+/** Per-launch choices the ticket form makes for a start it is triggering. */
 export interface StartTicketOptions {
   /**
    * Refresh each scoped repository's baseline branch from the remote before its
@@ -74,7 +74,7 @@ export interface StartTicketOptions {
   pullBase: boolean;
 }
 
-export interface OnboardingActionsDeps {
+export interface TicketFormActionsDeps {
   store: Store;
   manifest: Manifest;
   manifestPath: string;
@@ -154,14 +154,14 @@ function scoredRepos(manifest: Manifest, brief: ContextBrief): string[] {
 }
 
 /**
- * Create-or-update the ticket from onboarding's draft fields, and persist the
+ * Create-or-update the ticket from the ticket form's draft fields, and persist the
  * repo/approach/agent/model selection — the part `submit` and `save` share.
  * Binds a create-mode panel to the new ticket. Does NOT touch startTicket;
  * callers decide whether a run follows.
  */
 function persistDraft(
-  ctx: OnboardingActionsCtx,
-  deps: OnboardingActionsDeps,
+  ctx: TicketFormActionsCtx,
+  deps: TicketFormActionsDeps,
   input: TicketDraftFields,
 ): number {
   // The key is optional on the webview's manual-entry path (§ manual ticket
@@ -177,7 +177,7 @@ function persistDraft(
   if (ctx.ticketId !== undefined) {
     updateTicketCore(deps.store, ctx.ticketId, { key, title: input.title });
     if (input.description) {
-      updateTicketOnboarding(deps.store, ctx.ticketId, { description: input.description });
+      updateTicketFields(deps.store, ctx.ticketId, { description: input.description });
     }
     ticketId = ctx.ticketId;
   } else {
@@ -190,10 +190,10 @@ function persistDraft(
     ctx.bindTicket(t.id);
     ticketId = t.id;
   }
-  // Finishing onboarding (submit) or saving a draft (save) is the only chance
+  // Finishing the ticket form (submit) or saving a draft (save) is the only chance
   // to record repo/approach/agent/model in pure create mode — the ticket
   // didn't exist before now, so setRepos/setApproach/setAgent never ran.
-  updateTicketOnboarding(deps.store, ticketId, {
+  updateTicketFields(deps.store, ticketId, {
     selectedRepos: input.repos,
     ...(input.approach !== null ? { approach: input.approach } : {}),
     ...(input.agent !== null ? { agent: input.agent } : {}),
@@ -206,10 +206,10 @@ function persistDraft(
   return ticketId;
 }
 
-export function buildOnboardingActions(
-  deps: OnboardingActionsDeps,
-): OnboardingActionsFactory {
-  return (ctx: OnboardingActionsCtx): OnboardingActions => {
+export function buildTicketFormActions(
+  deps: TicketFormActionsDeps,
+): TicketFormActionsFactory {
+  return (ctx: TicketFormActionsCtx): TicketFormActions => {
     /**
      * Ensure this panel is bound to a persisted ticket, minting a draft if it is
      * not. There is no attachment without a `ticket_id` — the directory is named
@@ -483,7 +483,7 @@ export function buildOnboardingActions(
         }
 
         // Now bound (either pre-existing or the just-created draft).
-        updateTicketOnboarding(deps.store, ctx.ticketId!, {
+        updateTicketFields(deps.store, ctx.ticketId!, {
           sourceRef: ref,
           sourceFetchedAt: new Date().toISOString(),
           brief: renderBrief(brief),
@@ -541,19 +541,19 @@ export function buildOnboardingActions(
 
     setRepos(repos: string[]): void {
       if (ctx.ticketId !== undefined) {
-        updateTicketOnboarding(deps.store, ctx.ticketId, { selectedRepos: repos });
+        updateTicketFields(deps.store, ctx.ticketId, { selectedRepos: repos });
       }
     },
 
     setApproach(id: string): void {
       if (ctx.ticketId !== undefined) {
-        updateTicketOnboarding(deps.store, ctx.ticketId, { approach: id });
+        updateTicketFields(deps.store, ctx.ticketId, { approach: id });
       }
     },
 
     setAgent(id: string): void {
       if (ctx.ticketId !== undefined) {
-        updateTicketOnboarding(deps.store, ctx.ticketId, { agent: id });
+        updateTicketFields(deps.store, ctx.ticketId, { agent: id });
       }
     },
 
@@ -561,7 +561,7 @@ export function buildOnboardingActions(
       // An empty id is the "Inherit (settings)" choice — persisted as '' which
       // the store maps to NULL (inherit the manifest default at launch).
       if (ctx.ticketId !== undefined) {
-        updateTicketOnboarding(deps.store, ctx.ticketId, { model: id });
+        updateTicketFields(deps.store, ctx.ticketId, { model: id });
       }
     },
 
@@ -572,7 +572,7 @@ export function buildOnboardingActions(
       // re-filters the model picker (§ model/provider compatibility), and the
       // next state push is what carries the re-filtered `models` list down.
       if (ctx.ticketId !== undefined) {
-        updateTicketOnboarding(deps.store, ctx.ticketId, { agentProvider: id });
+        updateTicketFields(deps.store, ctx.ticketId, { agentProvider: id });
         ctx.pushState();
       }
     },
@@ -581,12 +581,12 @@ export function buildOnboardingActions(
       // Empty id = "Inherit (settings)": '' clears the column to NULL, so the
       // manifest's `conventions.defaultType` applies again.
       if (ctx.ticketId !== undefined) {
-        updateTicketOnboarding(deps.store, ctx.ticketId, { type: id });
+        updateTicketFields(deps.store, ctx.ticketId, { type: id });
       }
     },
 
     async analyze(livePrompt: string): Promise<void> {
-      // Match the onboarding picker: offer built-in (sourceless) approaches
+      // Match the ticket-form picker: offer built-in (sourceless) approaches
       // always, sourced ones only when installed. Otherwise the analyzer could
       // never pick `direct`/`single-subagent`, or pick one that won't launch.
       const installedIds = new Set(deps.listInstalledIds());
@@ -631,7 +631,7 @@ export function buildOnboardingActions(
           // here silently overwrote a chosen approach (ticket 869e889uh). It rides
           // the `analysis` post below for the page to surface; committing it needs
           // an explicit set-approach / save / submit.
-          updateTicketOnboarding(deps.store, ctx.ticketId, {
+          updateTicketFields(deps.store, ctx.ticketId, {
             description: analysis.prompt,
             selectedRepos: analysis.repos,
             // Prefill the type only while the ticket has none: like the approach,
@@ -665,7 +665,7 @@ export function buildOnboardingActions(
     async submit(input): Promise<void> {
       const ticketId = persistDraft(ctx, deps, input);
 
-      // Finishing onboarding hands the ticket off to the workflow: scope its
+      // Finishing the ticket form hands the ticket off to the workflow: scope its
       // selected repos (worktrees, no servers) and launch the agent session.
       // Awaited so the page stays put (busy) while the launch runs, and the
       // handoff only happens once the ticket is really running.

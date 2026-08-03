@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, updateTicketOnboarding } from '../../store/tickets.js';
+import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { createFollowUpTicket, TicketNotDoneError } from './followUp.js';
 
 describe('createFollowUpTicket', () => {
@@ -25,7 +25,7 @@ describe('createFollowUpTicket', () => {
       title: overrides.title ?? 'Ship the thing',
       projectId: overrides.projectId,
     });
-    updateTicketOnboarding(store, t.id, {
+    updateTicketFields(store, t.id, {
       approach: overrides.approach,
       agent: overrides.agent,
       selectedRepos: overrides.selectedRepos ?? ['frontend'],
