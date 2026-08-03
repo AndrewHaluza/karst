@@ -701,10 +701,47 @@
       </div>
     </div>
 
-    <!-- Quality tab: owns uat/review. Controls land in a later task; this
-         section is intentionally empty plumbing (see sections.ts doc comment
-         for the spread-not-rebuild warning). -->
+    <!-- Quality tab: owns uat/review. Gate editing (uat.gates/review.gates,
+         per-repo overrides) is a later task — #qualityGates below is left as
+         an empty mount point. See sections.ts doc comment for the
+         spread-not-rebuild warning: no handler here may rebuild draft.uat or
+         draft.review wholesale, or it would erase fields this tab does not
+         render (uat.secrets, uat.env, review.repositories, ...). -->
     <div class="section hidden" id="section-quality">
+      <div class="card open">
+        <div class="card-head"><span class="card-title">UAT</span></div>
+        <div class="card-body form">
+          <label for="f-uatMaxFix">Max fix attempts</label>
+          <input type="number" min="1" id="f-uatMaxFix" />
+          <div class="field-hint">Fix→UAT→fix retries before the ticket parks. UAT only.</div>
+        </div>
+      </div>
+      <div class="card open">
+        <div class="card-head"><span class="card-title">Review</span></div>
+        <div class="card-body form">
+          <label for="f-reviewMaxFix">Max fix attempts</label>
+          <input type="number" min="1" id="f-reviewMaxFix" />
+          <div class="toggle" style="margin-top:10px">
+            <input type="checkbox" id="f-reviewIndependent" />
+            <label for="f-reviewIndependent">Require independent signal</label>
+          </div>
+          <div class="field-hint">A pass needs evidence beyond the agent's own claim.</div>
+          <div class="toggle" style="margin-top:10px">
+            <input type="checkbox" id="f-findingsEnabled" />
+            <label for="f-findingsEnabled">Agent findings</label>
+          </div>
+          <label for="f-findingsSeverity">Blocking severity</label>
+          <select id="f-findingsSeverity"></select>
+          <div class="field-hint">Findings at or above this severity fail review to <code>fix</code>.
+            <code>none</code> makes them advisory.</div>
+          <label for="f-findingsMax">Max findings</label>
+          <input type="number" min="1" id="f-findingsMax" />
+        </div>
+      </div>
+      <div class="card open">
+        <div class="card-head"><span class="card-title">Gates</span></div>
+        <div class="card-body" id="qualityGates"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -1032,6 +1069,19 @@
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
   const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity'];
+
+  // Mirrors validate/review.ts defaultFindings() and validateReview()'s
+  // fallbacks. An absent block renders as what it DOES, not as empty (S4):
+  // an absent `review:` still blocks at `high` with independent-signal
+  // required, so a control rendering "off"/empty would misrepresent it.
+  const REVIEW_DEFAULTS = {
+    maxFixAttempts: 3,
+    requireIndependentSignal: true,
+    findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+  };
+  // Mirrors validate/uat.ts's maxFixAttempts fallback.
+  const UAT_DEFAULTS = { maxFixAttempts: 3 };
+  const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
 
   // Mirrors the strict host-side vocabulary for display only. The host's
   // validateManifest call remains authoritative for syntax and token errors.
@@ -3069,6 +3119,23 @@
       requestTicketLists();
     }
   }
+  // Gate editing (uat.gates/review.gates, per-repo overrides) is a later
+  // task — #qualityGates is left as an empty mount point.
+  function renderQuality() {
+    const uat = draft.uat || UAT_DEFAULTS;
+    const review = draft.review || REVIEW_DEFAULTS;
+    const findings = review.findings || REVIEW_DEFAULTS.findings;
+    el('f-uatMaxFix').value = uat.maxFixAttempts != null ? uat.maxFixAttempts : UAT_DEFAULTS.maxFixAttempts;
+    el('f-reviewMaxFix').value = review.maxFixAttempts != null ? review.maxFixAttempts : REVIEW_DEFAULTS.maxFixAttempts;
+    el('f-reviewIndependent').checked = review.requireIndependentSignal != null
+      ? Boolean(review.requireIndependentSignal)
+      : REVIEW_DEFAULTS.requireIndependentSignal;
+    el('f-findingsEnabled').checked = findings.enabled != null ? Boolean(findings.enabled) : REVIEW_DEFAULTS.findings.enabled;
+    el('f-findingsSeverity').innerHTML = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join('');
+    el('f-findingsSeverity').value = findings.blockingSeverity || REVIEW_DEFAULTS.findings.blockingSeverity;
+    el('f-findingsMax').value = findings.maxFindings != null ? findings.maxFindings : REVIEW_DEFAULTS.findings.maxFindings;
+  }
+
   el('f-ticketTeamId').addEventListener('input', () => {
     const v = el('f-ticketTeamId').value.trim();
     const cfg = ticketingCfg();
@@ -3124,6 +3191,7 @@
     renderApproaches();
     renderAgents();
     renderTicketing();
+    renderQuality();
   }
 
   function refreshModelCatalog(models, compatibility) {

@@ -1295,3 +1295,144 @@ describe('ClickUp reload buttons', () => {
     expect(HTML).toMatch(/endFetch\((?:lists|statuses)RequestId,\s*false,\s*msg\.message\)/);
   });
 });
+
+describe('settings quality tab (UAT + review scalars)', () => {
+  it('nav entry and section exist, with the gates mount point left empty', () => {
+    expect(HTML).toContain('<button class="nav-btn" data-section="quality">Quality</button>');
+    expect(HTML).toContain('<div class="section hidden" id="section-quality">');
+    expect(HTML).toContain('id="qualityGates"');
+  });
+
+  it('provides every DOM id the draft-sync task depends on', () => {
+    for (const id of [
+      'f-uatMaxFix',
+      'f-reviewMaxFix',
+      'f-reviewIndependent',
+      'f-findingsEnabled',
+      'f-findingsSeverity',
+      'f-findingsMax',
+    ]) {
+      expect(HTML, id).toContain(`id="${id}"`);
+      // Every input/select carries a matching <label for>.
+      expect(HTML, `${id} label`).toContain(`for="${id}"`);
+    }
+  });
+
+  /**
+   * Mirrors validate/review.ts defaultFindings()/validateReview() and
+   * validate/uat.ts's maxFixAttempts fallback so the mirror can't silently
+   * drift from the validators it stands in for.
+   */
+  it('mirrors the validators exactly', () => {
+    expect(HTML).toContain("const UAT_DEFAULTS = { maxFixAttempts: 3 };");
+    expect(HTML).toContain(
+      "const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];",
+    );
+    expect(HTML).toMatch(
+      /const REVIEW_DEFAULTS = \{\s*maxFixAttempts: 3,\s*requireIndependentSignal: true,\s*findings: \{ enabled: true, blockingSeverity: 'high', maxFindings: 50 \},\s*\};/,
+    );
+  });
+
+  function fakeEl(id: string) {
+    return { id, value: '' as unknown, checked: false, innerHTML: '' };
+  }
+
+  function runRenderQuality(draft: Record<string, unknown>): Record<string, { value: unknown; checked: unknown }> {
+    const elements = new Map<string, ReturnType<typeof fakeEl>>();
+    const el = (id: string) => {
+      if (!elements.has(id)) elements.set(id, fakeEl(id));
+      return elements.get(id)!;
+    };
+    const source = `
+      const UAT_DEFAULTS = { maxFixAttempts: 3 };
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
+      const draft = ${JSON.stringify(draft)};
+      ${functionSource('renderQuality')}
+      renderQuality();
+    `;
+    runInNewContext(source, { el });
+    const out: Record<string, { value: unknown; checked: unknown }> = {};
+    for (const [id, node] of elements) out[id] = { value: node.value, checked: node.checked };
+    return out;
+  }
+
+  function field(
+    result: Record<string, { value: unknown; checked: unknown }>,
+    id: string,
+  ): { value: unknown; checked: unknown } {
+    const found = result[id];
+    if (!found) throw new Error(`renderQuality never touched ${id}`);
+    return found;
+  }
+
+  it('renders review findings defaults as blocking when the block is absent', () => {
+    // The manifest default is enabled/high by design — a control that renders
+    // "off" would imply review is advisory when it actually blocks (S4).
+    const result = runRenderQuality({});
+    expect(field(result, 'f-findingsEnabled').checked).toBe(true);
+    expect(field(result, 'f-findingsSeverity').value).toBe('high');
+    expect(field(result, 'f-findingsMax').value).toBe(50);
+    expect(field(result, 'f-reviewIndependent').checked).toBe(true);
+    expect(field(result, 'f-reviewMaxFix').value).toBe(3);
+    expect(field(result, 'f-uatMaxFix').value).toBe(3);
+  });
+
+  it('hydrates from explicit values when the blocks are present', () => {
+    const result = runRenderQuality({
+      uat: { maxFixAttempts: 5 },
+      review: {
+        maxFixAttempts: 2,
+        requireIndependentSignal: false,
+        findings: { enabled: false, blockingSeverity: 'none', maxFindings: 10 },
+      },
+    });
+    expect(field(result, 'f-uatMaxFix').value).toBe(5);
+    expect(field(result, 'f-reviewMaxFix').value).toBe(2);
+    expect(field(result, 'f-reviewIndependent').checked).toBe(false);
+    expect(field(result, 'f-findingsEnabled').checked).toBe(false);
+    expect(field(result, 'f-findingsSeverity').value).toBe('none');
+    expect(field(result, 'f-findingsMax').value).toBe(10);
+  });
+
+  it('populates the severity select from the SEVERITIES vocabulary', () => {
+    const elements = new Map<string, ReturnType<typeof fakeEl>>();
+    const el = (id: string) => {
+      if (!elements.has(id)) elements.set(id, fakeEl(id));
+      return elements.get(id)!;
+    };
+    const source = `
+      const UAT_DEFAULTS = { maxFixAttempts: 3 };
+      const REVIEW_DEFAULTS = {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      };
+      const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
+      const draft = {};
+      ${functionSource('renderQuality')}
+      renderQuality();
+    `;
+    runInNewContext(source, { el });
+    const select = elements.get('f-findingsSeverity')!;
+    for (const s of ['critical', 'high', 'medium', 'low', 'info', 'none']) {
+      expect(select.innerHTML, s).toContain(`value="${s}"`);
+    }
+  });
+
+  it('renderAll wires renderQuality in so tab switches stay current', () => {
+    const body = HTML.slice(HTML.indexOf('function renderAll('), HTML.indexOf('function refreshModelCatalog('));
+    expect(body).toContain('renderQuality();');
+  });
+
+  it('never rebuilds draft.uat or draft.review wholesale (mergeSection deletes absent fields)', () => {
+    // Task 9 ships no write-back handlers yet; this guards the invariant for
+    // whichever later task adds them.
+    expect(HTML).not.toMatch(/draft\.uat\s*=\s*\{[^.]*maxFixAttempts/);
+    expect(HTML).not.toMatch(/draft\.review\s*=\s*\{[^.]*maxFixAttempts/);
+  });
+});
