@@ -1,6 +1,6 @@
 # Karst manifest — copy to `karst.yml` and point repoPath at your real repos.
-# Resolved by the `karst.manifestPath` setting (default ./karst.yml), relative
-# to the workspace root.
+# Resolved by the `karst.manifestPath` setting (default ./.karst/karst.yml),
+# relative to the workspace root.
 #
 # A REPOSITORY is the primary entity: a git repo karst can worktree, scope to a
 # ticket, classify and ship. Every hot repo's repoPath must be a real git repo
@@ -177,6 +177,41 @@ agents:
   implement-be: { role: implement }
   test: { role: test }
   review: { role: review }
+
+# UAT gates. ABSENT (the default) yields the probe pipeline: karst looks for
+# known package.json scripts. Only two keys under `uat:` are read today —
+# `maxFixAttempts` and `gates` (plus per-repository `gates`).
+uat:
+  # WIRED. Fix→UAT→fix retries before the ticket parks. Narrows UAT only; review
+  # has its own `review.maxFixAttempts`.
+  maxFixAttempts: 3
+  # WIRED. Replaces the probe. `kind: command` is argv-based and spawned without
+  # a shell — it is what keeps UAT usable from Go, Rust, Java and Python repos.
+  gates:
+    - { name: test, kind: script, script: test }
+    - { name: e2e, kind: command, command: npx, args: [playwright, test], repo: frontend }
+  repositories:
+    frontend:
+      # WIRED, and it REPLACES the global list for this repository — it is not
+      # additive. A repo listed here runs exactly these gates.
+      gates:
+        - { name: test, kind: script, script: test:unit }
+
+  # ---- NOT YET ACTIVE -------------------------------------------------------
+  # Everything below is validated at load and read by nothing. karst preserves
+  # it across a Settings Save and reports it at load as "declared but not yet
+  # active" (see docs/config-ui-coverage.md, decision D1). Declaring it early is
+  # harmless; expecting it to DO anything is not.
+  #
+  # testDir: e2e
+  # env:
+  #   BASE_URL: http://localhost:3000
+  # secrets: [STRIPE_KEY]        # KEY NAMES ONLY — never values. karst.yml is
+  #                              # committed; a value here is a leaked credential.
+  # passthrough: [HOME, PATH]
+  # origins: [https://api.stripe.com]
+  # authBootstrap: { path: .auth/state.json, secrets: [SESSION_TOKEN] }
+  # author: { agent: uat-author, enabled: true }
 
 # Optional project-wide conventions for the git artifacts KARST ITSELF creates:
 # the ticket's worktree BRANCH (scope stage) and the fallback commit + new pull

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
 import { loadManifestWithDiagnostics } from './load.js';
+import { detectInertKeys } from './inertKeys.js';
 
 /**
  * `karst.example.yml` is documentation-as-config: it is what a new user copies
@@ -29,5 +32,17 @@ describe('karst.example.yml', () => {
     const tooling = manifest.repositories.tooling!;
     expect(tooling.service).toBeUndefined();
     expect(tooling.signals).toContain('tooling');
+  });
+
+  it('annotates every inert key it demonstrates', () => {
+    const text = readFileSync(path, 'utf8');
+    // Whatever the example chooses to show, an inert key must carry the marker on
+    // or above its line — otherwise the file teaches config that does nothing.
+    const parsed = load(text) as unknown;
+    for (const notice of detectInertKeys(parsed)) {
+      expect(text, `example demonstrates ${notice} without marking it inactive`).toContain(
+        'NOT YET ACTIVE',
+      );
+    }
   });
 });
