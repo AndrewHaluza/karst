@@ -312,6 +312,14 @@
   .gate-summary{
     flex:1 1 100%;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);
   }
+
+  /* ---- quality tab: per-repository gate overrides ---- */
+  .override-card{
+    margin-top:var(--k-space-4);padding:var(--k-space-4);
+    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-sm);
+  }
+  .override-card-head{justify-content:space-between}
+  .override-repo{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm)}
   .roster-card{
     display:flex;border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     margin-bottom:var(--k-space-5);overflow:hidden;
@@ -713,12 +721,17 @@
 
     <!-- Quality tab: owns uat/review. #qualityGates is mounted by
          renderQuality() -> renderGateList('uat'|'review', ...) — the shared
-         gate-list editor for uat.gates/review.gates. Per-repository overrides
-         (uat.repositories/review.repositories) are a later task. See
-         sections.ts doc comment for the spread-not-rebuild warning: no
-         handler here may rebuild draft.uat or draft.review wholesale, or it
-         would erase fields this tab does not render (uat.secrets, uat.env,
-         review.repositories, ...) — writeGates() spreads the existing block. -->
+         gate-list editor for uat.gates/review.gates — plus
+         renderOverridesSection() for the per-repository overrides
+         (uat.repositories/review.repositories): an override REPLACES the
+         block's global list for that repository rather than adding to it
+         (declaredGatesFor/declaredReviewGatesFor), so a newly-added override
+         is seeded with a COPY of the global list (addRepoOverride) and
+         #overrideHint says so explicitly. See sections.ts doc comment for the
+         spread-not-rebuild warning: no handler here may rebuild draft.uat or
+         draft.review wholesale, or it would erase fields this tab does not
+         render (uat.secrets, uat.env, ...) — writeGates() spreads the
+         existing block. -->
     <div class="section hidden" id="section-quality">
       <div class="card open">
         <div class="card-head"><span class="card-title">UAT</span></div>
@@ -2120,6 +2133,18 @@
       markDirty(); renderQuality();
       return;
     }
+    if (t.dataset.addOverride) {
+      const block = t.dataset.addOverride;
+      const picker = document.querySelector('select[data-override-picker="' + block + '"]');
+      const repo = picker ? picker.value : '';
+      if (!repo) return;
+      addRepoOverride(block, repo);
+      return;
+    }
+    if (t.dataset.removeOverride) {
+      removeRepoOverride(t.dataset.removeOverride, t.dataset.overrideRepo);
+      return;
+    }
     if (t.dataset.editApproach !== undefined) {
       const approach = (draft.approaches || []).find((a) => a.id === t.dataset.editApproach);
       if (approach) openApproachDrawer('edit', approach);
@@ -3276,17 +3301,30 @@
     });
   }
 
+  // A gate row addresses either the global list ('uat' | 'review') or a
+  // per-repository override ('uat:api' | 'review:api'). renderGateList's own
+  // markup never changes for this — only the block string it's given carries
+  // the extra addressing — so gatesOf/writeGates are the one place that
+  // decodes it, and add/remove/edit (which all key off `data-gate-block`)
+  // route to the right place with no other change.
+  function parseGateBlock(block) {
+    const i = block.indexOf(':');
+    return i < 0 ? { base: block, repo: null } : { base: block.slice(0, i), repo: block.slice(i + 1) };
+  }
+
   // Reads the CURRENT gates for a block off the draft (never a stale local
   // copy), so add/remove/edit always start from what the last render used.
   function gatesOf(block) {
-    const cfg = (block === 'uat' ? draft.uat : draft.review) || {};
+    const { base, repo } = parseGateBlock(block);
+    const cfg = (base === 'uat' ? draft.uat : draft.review) || {};
+    if (repo !== null) return ((cfg.repositories || {})[repo] || {}).gates || [];
     return cfg.gates || [];
   }
 
   // Quality's ONLY three write paths. `uat`/`review` are whole-field section
   // members (SECTION_FIELDS.quality) — mergeSection REPLACES the entire block
   // with whatever gets posted, and this tab renders only a fraction of each
-  // block's keys (uat.secrets, uat.env, uat.origins, review.repositories, …
+  // block's keys (uat.secrets, uat.env, uat.origins, …
   // have no control here). So every write SPREADS the block as it stands and
   // overrides just the patched keys; rebuilding either block from the
   // rendered controls would silently erase everything this tab doesn't show
@@ -3315,10 +3353,90 @@
 
   // Gates route through updateUat/updateReview like every other Quality
   // write; kept as a named helper since every gate call site already reads
-  // "write these gates back" rather than "patch this block".
+  // "write these gates back" rather than "patch this block". An override
+  // block ('uat:api') patches repositories[repo].gates instead of the
+  // top-level gates list, spreading repositories the same way updateUat/
+  // updateReview spread their own block — a sibling repo's override must
+  // survive an edit to this one.
   function writeGates(block, gates) {
-    if (block === 'uat') updateUat({ gates });
-    else updateReview({ gates });
+    const { base, repo } = parseGateBlock(block);
+    const update = base === 'uat' ? updateUat : updateReview;
+    if (repo !== null) {
+      const cfg = (base === 'uat' ? draft.uat : draft.review) || {};
+      update({
+        repositories: {
+          ...(cfg.repositories || {}),
+          [repo]: { ...((cfg.repositories || {})[repo]), gates },
+        },
+      });
+      return;
+    }
+    update({ gates });
+  }
+
+  // A per-repo list REPLACES the global one (declaredGatesFor /
+  // declaredReviewGatesFor), which is the opposite of how "add a gate for this
+  // repo" reads. Seeding the new override with the global list makes the
+  // replacement visible: the user edits a copy rather than starting from an
+  // empty list that silently means "this repo runs nothing". `clone` (below)
+  // is a deep copy — a shared reference would make editing the override
+  // mutate the global list out from under it.
+  function addRepoOverride(block, repo) {
+    const blockDraft = draft[block] || {};
+    const seed = clone(blockDraft.gates || []);
+    const update = block === 'uat' ? updateUat : updateReview;
+    update({
+      repositories: {
+        ...(blockDraft.repositories || {}),
+        [repo]: { gates: seed },
+      },
+    });
+    renderQuality();
+  }
+
+  // Deletes the repo's key entirely — never sets an empty override — so the
+  // repository falls back to the global list (an empty `gates: []` override
+  // would instead mean "this repo runs nothing", per declaredGatesFor).
+  function removeRepoOverride(block, repo) {
+    const blockDraft = draft[block] || {};
+    const repositories = { ...(blockDraft.repositories || {}) };
+    delete repositories[repo];
+    const update = block === 'uat' ? updateUat : updateReview;
+    update({ repositories });
+    renderQuality();
+  }
+
+  // Per-repository gate overrides (S3). Reuses renderGateList for each
+  // override's rows — block is 'uat:<repo>' / 'review:<repo>', the same
+  // addressing gatesOf/writeGates decode — rather than a second renderer.
+  // Only DECLARED repositories are offered: an unknown review.repositories
+  // name is a hard manifest-load failure (validate/review.ts); uat.repositories
+  // accepts any key, but the picker stays restricted to declared names for
+  // both blocks so the two controls behave identically and a typo can never
+  // silently create a dead override.
+  function renderOverridesSection(block, repositories) {
+    const declared = Object.keys(draft.repositories || {});
+    const overridden = declared.filter((r) => repositories[r]);
+    const available = declared.filter((r) => !repositories[r]);
+    const cards = overridden.map((repo) => (
+      `<div class="override-card">`
+      + `<div class="row override-card-head"><span class="override-repo">${esc(repo)}</span>`
+      + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-override="${block}"`
+      + ` data-override-repo="${esc(repo)}" aria-label="Remove ${esc(repo)} override"`
+      + ` title="Remove ${esc(repo)} override">&times;</button>`
+      + `</div>`
+      + renderGateList(block + ':' + repo, (repositories[repo] || {}).gates || [])
+      + `</div>`
+    )).join('');
+    const picker = available.length
+      ? `<div class="row">`
+        + `<select aria-label="Repository to override" data-override-picker="${block}">`
+        + available.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('')
+        + `</select>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-override="${block}">+ Add repository override</button>`
+        + `</div>`
+      : '';
+    return `<div class="approach-group-header">Repository overrides</div>` + cards + picker;
   }
 
   function renderQuality() {
@@ -3336,13 +3454,25 @@
     el('f-findingsMax').value = findings.maxFindings != null ? findings.maxFindings : REVIEW_DEFAULTS.findings.maxFindings;
     const uatGates = uat.gates || [];
     const reviewGates = review.gates || [];
+    const uatRepositories = uat.repositories || {};
+    const reviewRepositories = review.repositories || {};
     el('qualityGates').innerHTML =
       '<div class="approach-group-header">UAT gates</div>'
       + renderGateList('uat', uatGates)
+      + renderOverridesSection('uat', uatRepositories)
       + '<div class="approach-group-header">Review gates</div>'
-      + renderGateList('review', reviewGates);
+      + renderGateList('review', reviewGates)
+      + renderOverridesSection('review', reviewRepositories)
+      + '<div class="field-hint" id="overrideHint">A repository override <strong>replaces</strong>'
+      + ' the gates above for that repository — it does not add to them.</div>';
     syncGateRepoSelects('uat', uatGates);
     syncGateRepoSelects('review', reviewGates);
+    Object.keys(uatRepositories).forEach((repo) => {
+      syncGateRepoSelects('uat:' + repo, (uatRepositories[repo] || {}).gates || []);
+    });
+    Object.keys(reviewRepositories).forEach((repo) => {
+      syncGateRepoSelects('review:' + repo, (reviewRepositories[repo] || {}).gates || []);
+    });
   }
 
   // Quality scalars — every one routes through updateUat/updateReview/

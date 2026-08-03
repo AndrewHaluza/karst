@@ -1362,6 +1362,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const draft = ${JSON.stringify(draft)};
       ${functionSource('gateSummary')}
       ${functionSource('renderGateList')}
+      ${functionSource('renderOverridesSection')}
       ${functionSource('syncGateRepoSelects')}
       ${functionSource('renderQuality')}
       renderQuality();
@@ -1432,6 +1433,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const draft = {};
       ${functionSource('gateSummary')}
       ${functionSource('renderGateList')}
+      ${functionSource('renderOverridesSection')}
       ${functionSource('syncGateRepoSelects')}
       ${functionSource('renderQuality')}
       renderQuality();
@@ -1579,6 +1581,195 @@ describe('settings quality tab — gate editor', () => {
     expect(HTML).toMatch(/function emptyGate\(\)/);
     expect(HTML).toMatch(/function setGateKind\(/);
     expect(HTML).toMatch(/function gateSummary\(/);
+  });
+});
+
+/**
+ * Task 13: per-repository gate overrides. uat.repositories.<name>.gates /
+ * review.repositories.<name>.gates REPLACE the block's global list for that
+ * repository (declaredGatesFor / declaredReviewGatesFor) rather than adding
+ * to it — the opposite of how "add a gate for this repo" reads. A
+ * newly-created override is seeded with a COPY of the global list so the
+ * replacement is visible instead of silently meaning "this repo runs no
+ * gates".
+ */
+describe('settings quality tab — per-repository gate overrides', () => {
+  function escMirror(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c);
+  }
+
+  function overrideSandbox(draft: Record<string, unknown>): Record<string, unknown> {
+    const sandbox: Record<string, unknown> = { draft, markDirty: () => {}, renderQuality: () => {} };
+    const source = `
+      function clone(v) { return JSON.parse(JSON.stringify(v)); }
+      ${functionSource('updateUat')}
+      ${functionSource('updateReview')}
+      ${functionSource('addRepoOverride')}
+      ${functionSource('removeRepoOverride')}
+    `;
+    runInNewContext(source, sandbox);
+    return sandbox;
+  }
+
+  it('prefills a new per-repo override with the global list, so replacement is visible', () => {
+    const draft = {
+      repositories: { api: {}, web: {} },
+      review: {
+        maxFixAttempts: 3,
+        requireIndependentSignal: true,
+        findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+        gates: [{ name: 'build', kind: 'script', script: 'build' }],
+        repositories: {},
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    runInNewContext("addRepoOverride('review', 'api')", sandbox);
+    const result = sandbox.draft as { review: { repositories: Record<string, { gates: unknown[] }> } };
+    expect(result.review.repositories.api!.gates).toEqual([
+      { name: 'build', kind: 'script', script: 'build' },
+    ]);
+  });
+
+  it('seeds the override with a COPY, not a shared reference — editing it never mutates the global list', () => {
+    const draft = {
+      repositories: { api: {} },
+      review: { gates: [{ name: 'build', kind: 'script', script: 'build' }], repositories: {} },
+    };
+    const sandbox = overrideSandbox(draft);
+    runInNewContext("addRepoOverride('review', 'api')", sandbox);
+    const result = sandbox.draft as {
+      review: {
+        gates: Array<Record<string, unknown>>;
+        repositories: Record<string, { gates: Array<Record<string, unknown>> }>;
+      };
+    };
+    result.review.repositories.api!.gates[0]!.name = 'renamed';
+    expect(result.review.gates[0]!.name).toBe('build');
+  });
+
+  it('removing an override deletes the repo key, falling back to the global list', () => {
+    const draft = {
+      repositories: { api: {} },
+      uat: {
+        gates: [{ name: 'test', kind: 'script', script: 'test' }],
+        repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    runInNewContext("removeRepoOverride('uat', 'api')", sandbox);
+    const result = sandbox.draft as { uat: { repositories: Record<string, unknown> } };
+    expect(result.uat.repositories.api).toBeUndefined();
+  });
+
+  it('says the override replaces rather than extends', () => {
+    const start = HTML.indexOf('id="overrideHint"');
+    expect(start).toBeGreaterThan(-1);
+    const snippet = HTML.slice(start, start + 200);
+    expect(snippet).toMatch(/replaces/i);
+  });
+
+  it('parseGateBlock splits an override block into base + repo, leaving a global block untouched', () => {
+    const parseGateBlock = runInNewContext(`(${functionSource('parseGateBlock')})`, {}) as (
+      block: string,
+    ) => { base: string; repo: string | null };
+    expect(parseGateBlock('review')).toEqual({ base: 'review', repo: null });
+    expect(parseGateBlock('review:api')).toEqual({ base: 'review', repo: 'api' });
+  });
+
+  it('gatesOf/writeGates route an override block to repositories[repo].gates, preserving the global list', () => {
+    const sandbox: Record<string, unknown> = {
+      draft: {
+        review: {
+          gates: [{ name: 'build', kind: 'script', script: 'build' }],
+          repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+        },
+      },
+      markDirty: () => {},
+    };
+    const source = `
+      ${functionSource('updateUat')}
+      ${functionSource('updateReview')}
+      ${functionSource('parseGateBlock')}
+      ${functionSource('gatesOf')}
+      ${functionSource('writeGates')}
+      writeGates('review:api', gatesOf('review:api').concat([{ name: 'extra', kind: 'script', script: 'extra' }]));
+    `;
+    runInNewContext(source, sandbox);
+    const draft = sandbox.draft as {
+      review: { gates: unknown[]; repositories: { api: { gates: unknown[] } } };
+    };
+    expect(draft.review.gates).toEqual([{ name: 'build', kind: 'script', script: 'build' }]);
+    expect(draft.review.repositories.api.gates).toHaveLength(2);
+  });
+
+  function loadRenderOverridesSection(
+    repositories: Record<string, unknown>,
+  ): (block: string, repositories: Record<string, { gates?: unknown[] }>) => string {
+    const source = `
+      const draft = { repositories: ${JSON.stringify(repositories)} };
+      ${functionSource('gateSummary')}
+      ${functionSource('renderGateList')}
+      ${functionSource('renderOverridesSection')}
+      renderOverridesSection
+    `;
+    return runInNewContext(source, { esc: escMirror }) as (
+      block: string,
+      repositories: Record<string, { gates?: unknown[] }>,
+    ) => string;
+  }
+
+  it('offers only declared repositories in the override picker', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {}, web: {} });
+    const html = renderOverridesSection('review', {});
+    const select = html.match(/<select[^>]*data-override-picker="review"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('override picker select not found');
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options.sort()).toEqual(['api', 'web']);
+  });
+
+  it('excludes an already-overridden repository from the picker', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {}, web: {} });
+    const html = renderOverridesSection('review', { api: { gates: [] } });
+    const select = html.match(/<select[^>]*data-override-picker="review"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('override picker select not found');
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options).toEqual(['web']);
+  });
+
+  it('renders each override using renderGateList, addressed by block:repo, with a remove control', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {} });
+    const html = renderOverridesSection('review', {
+      api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] },
+    });
+    expect(html).toContain('data-gate-block="review:api"');
+    expect(html).toContain('data-remove-override="review"');
+    expect(html).toContain('data-override-repo="api"');
+    expect(html).toContain('aria-label="Remove api override"');
+    expect(html).toContain('title="Remove api override"');
+  });
+
+  it('escapes a repository name injected into the override card', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ '<x>': {} });
+    const html = renderOverridesSection('review', { '<x>': { gates: [] } });
+    expect(html).not.toContain('<x>override');
+    expect(html).toContain('&lt;x&gt;');
+  });
+
+  it('mounts renderOverridesSection into #qualityGates for both blocks', () => {
+    const body = HTML.slice(
+      HTML.indexOf('function renderQuality('),
+      HTML.indexOf("el('f-ticketTeamId').addEventListener"),
+    );
+    expect(body).toMatch(/renderOverridesSection\(\s*'uat'/);
+    expect(body).toMatch(/renderOverridesSection\(\s*'review'/);
+  });
+
+  it('add/remove-override handlers route through addRepoOverride/removeRepoOverride, never a direct draft assignment', () => {
+    expect(HTML).toContain('t.dataset.addOverride');
+    expect(HTML).toContain('t.dataset.removeOverride');
+    expect(HTML).toContain('addRepoOverride(block, repo)');
+    expect(HTML).toContain('removeRepoOverride(t.dataset.removeOverride, t.dataset.overrideRepo)');
   });
 });
 
