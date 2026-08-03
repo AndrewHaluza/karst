@@ -3258,6 +3258,14 @@
       .concat(Object.keys(draft.repositories || {}))
       .map((r) => `<option value="${esc(r)}">${r ? esc(r) : 'every target'}</option>`)
       .join('');
+    // An override row's repository is already fixed by the override itself
+    // (block === 'uat:<repo>' / 'review:<repo>') — declaredGatesFor /
+    // declaredReviewGatesFor return the override array AS-IS, never filtered
+    // by gate.repo. Offering the repo <select> there let a user "scope" a
+    // gate to a repository that would never be consulted. So an override row
+    // gets static text naming the owning repo instead of the control; a
+    // global row keeps the select, where per-gate `repo` is meaningful.
+    const { repo: overrideRepo } = parseGateBlock(block);
     const rows = (gates || []).map((g, i) => (
       `<div class="gate-row" data-gate-block="${block}" data-gate-idx="${i}">`
       + `<input type="text" aria-label="Gate ${i + 1} name" data-gate-field="name"`
@@ -3275,8 +3283,10 @@
           + `<input type="text" aria-label="Gate ${i + 1} arguments" data-gate-field="args"`
           + ` data-gate-block="${block}" data-gate-idx="${i}"`
           + ` placeholder="space-separated" value="${esc((g.args || []).join(' '))}"/>`)
-      + `<select aria-label="Gate ${i + 1} repository" data-gate-field="repo"`
-      + ` data-gate-block="${block}" data-gate-idx="${i}">${repoOpts}</select>`
+      + (overrideRepo === null
+        ? `<select aria-label="Gate ${i + 1} repository" data-gate-field="repo"`
+          + ` data-gate-block="${block}" data-gate-idx="${i}">${repoOpts}</select>`
+        : `<span class="gate-summary">Runs in ${esc(overrideRepo)}</span>`)
       + `<span class="gate-summary">${esc(gateSummary(g))}</span>`
       + `<button type="button" class="k-iconbtn k-iconbtn--danger"`
       + ` data-remove-gate="${block}" data-gate-idx="${i}"`

@@ -1361,6 +1361,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
       const draft = ${JSON.stringify(draft)};
       ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
       ${functionSource('renderGateList')}
       ${functionSource('renderOverridesSection')}
       ${functionSource('syncGateRepoSelects')}
@@ -1432,6 +1433,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
       const draft = {};
       ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
       ${functionSource('renderGateList')}
       ${functionSource('renderOverridesSection')}
       ${functionSource('syncGateRepoSelects')}
@@ -1497,6 +1499,7 @@ describe('settings quality tab — gate editor', () => {
     const source = `
       const draft = { repositories: ${JSON.stringify(repositories)} };
       ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
       ${functionSource('renderGateList')}
       renderGateList
     `;
@@ -1551,6 +1554,35 @@ describe('settings quality tab — gate editor', () => {
     const html = renderGateList('uat', [{ name: '<img src=x onerror=alert(1)>', kind: 'script', script: 's' }]);
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('&lt;img');
+  });
+
+  it('renders a repo <select> for a global gate row, with the declared repositories as options', () => {
+    const renderGateList = loadRenderGateList({ api: {}, web: {} });
+    const html = renderGateList('uat', [{ name: 'build', kind: 'script', script: 'build' }]);
+    const row = html.slice(0, html.indexOf('data-add-gate'));
+    expect(row).toContain('data-gate-field="repo"');
+    const select = row.match(/<select aria-label="Gate 1 repository"[^>]*>([\s\S]*?)<\/select>/);
+    if (!select) throw new Error('repo select not found in rendered row');
+    const options = [...select[1]!.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(options).toEqual(['', 'api', 'web']);
+  });
+
+  it('renders no repo <select> for an override gate row, and names the owning repo as text instead', () => {
+    const renderGateList = loadRenderGateList({ api: {}, web: {} });
+    const html = renderGateList('uat:api', [{ name: 'lint', kind: 'script', script: 'lint', repo: 'web' }]);
+    const row = html.slice(0, html.indexOf('data-add-gate'));
+    expect(row).not.toContain('data-gate-field="repo"');
+    expect(row).not.toMatch(/aria-label="Gate 1 repository"/);
+    expect(row).toContain('Runs in api');
+    // The dead `gate.repo` value already on disk (here 'web') is left alone —
+    // this fix stops OFFERING the control, it never rewrites the user's file.
+  });
+
+  it('escapes an override repository name containing HTML in the static text', () => {
+    const renderGateList = loadRenderGateList({ '<x>': {} });
+    const html = renderGateList('uat:<x>', [{ name: 'lint', kind: 'script', script: 'lint' }]);
+    expect(html).not.toContain('Runs in <x>');
+    expect(html).toContain('Runs in &lt;x&gt;');
   });
 
   it('renders the Add gate button for the block', () => {
@@ -1709,6 +1741,7 @@ describe('settings quality tab — per-repository gate overrides', () => {
     const source = `
       const draft = { repositories: ${JSON.stringify(repositories)} };
       ${functionSource('gateSummary')}
+      ${functionSource('parseGateBlock')}
       ${functionSource('renderGateList')}
       ${functionSource('renderOverridesSection')}
       renderOverridesSection
