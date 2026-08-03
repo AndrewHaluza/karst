@@ -181,7 +181,11 @@ agents:
   test: { role: test }
   review: { role: review }
 
-# UAT gates. ABSENT (the default) yields the probe pipeline: karst looks for
+# UAT gates. Step-by-step runbook for this block and `review:` below (which
+# stage a check belongs to, script vs command gates, the independent-signal
+# rule, failure playbook) sits beside this file: karst.uat-review-setup.md
+#
+# ABSENT (the default) yields the probe pipeline: karst looks for
 # known package.json scripts. Only two keys under `uat:` are read today —
 # `maxFixAttempts` and `gates` (plus per-repository `gates`).
 uat:

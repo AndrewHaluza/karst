@@ -34,4 +34,6 @@ package-lock.json
 .vscode/**
 
 # Keep: dist/**, node_modules/** (better-sqlite3 loaded at runtime),
-#       package.json, README.md, karst.example.yml, media/**
+#       package.json, README.md, karst.example.yml,
+#       karst.uat-review-setup.md (both root assets are copied into dist/,
+#       which is what scaffolding reads), media/**
