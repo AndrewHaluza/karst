@@ -15,6 +15,7 @@ import { runGateList } from '../gates/runList.js';
 import { noTargetsReason } from '../gates/targets.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
+import { getDisabledGates } from '../../store/ticketGates.js';
 import {
   aggregateReview,
   malformedPackageJsonEntry,
@@ -112,6 +113,15 @@ export async function runReview(
   // genuinely opened — never assumed from "the loop ran", since only a real
   // `openDiff` (not the absence of one) actually shows the human anything.
   let diffOpened = false;
+  // Read from the store at RESOLUTION time, never from anything cached: a
+  // toggle flipped mid-session must take effect on the very next gate run,
+  // which is the same live-read property `opts.manifest`'s getter gives the
+  // manifest itself.
+  const disabledNames = getDisabledGates(store, opts.ticketId).review;
+  // Kept OUT of `entries`: a skipped gate must not reach `aggregateReview` as
+  // an entry, where an exit-code-null row reads as "the repo has no such
+  // script". It is evidence, not a question that was asked.
+  const skippedGates: GateRunInput[] = [];
 
   /**
    * Write the log and commit the outcome with everything collected so far.
@@ -127,17 +137,20 @@ export async function runReview(
     mkdirSync(opts.artifactDir, { recursive: true });
     const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
     writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
-    const gates = entries.map<GateRunInput>((entry) => ({
-      gateName: entry.result.name,
-      exitCode: entry.result.exitCode,
-      startedAt: entry.result.startedAt ?? null,
-      endedAt: entry.result.endedAt ?? null,
-      // v21 invocation identity — recorded here too so a LATER review run (or a
-      // future rule) can compare against what THIS run actually invoked.
-      repo: entry.identity.repo,
-      command: entry.identity.command,
-      args: entry.identity.args,
-    }));
+    const gates = [
+      ...entries.map<GateRunInput>((entry) => ({
+        gateName: entry.result.name,
+        exitCode: entry.result.exitCode,
+        startedAt: entry.result.startedAt ?? null,
+        endedAt: entry.result.endedAt ?? null,
+        // v21 invocation identity — recorded here too so a LATER review run (or a
+        // future rule) can compare against what THIS run actually invoked.
+        repo: entry.identity.repo,
+        command: entry.identity.command,
+        args: entry.identity.args,
+      })),
+      ...skippedGates,
+    ];
     // The changes surface is evidence exactly like a gate, recorded ONLY when a
     // real `openDiff` ran — appended here rather than folded into `entries` so
     // it can never touch the verdict, which stays the deterministic-gate
@@ -180,7 +193,12 @@ export async function runReview(
   for (const target of targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path);
-    const resolution = resolveReviewGates(scriptProbe, opts.manifest?.review, target.names);
+    const resolution = resolveReviewGates(
+      scriptProbe,
+      opts.manifest?.review,
+      target.names,
+      disabledNames,
+    );
 
     if (resolution.kind === 'unavailable') {
       // R3 is decided ACROSS every target, so "this repository answers none of
@@ -204,6 +222,23 @@ export async function runReview(
       // the park.
       const reason = `${label}: ${resolution.reason}`;
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
+    }
+
+    // One row per gate the user switched off, carrying the identity it WOULD
+    // have been invoked with. No timing and no exit code, because none exists —
+    // `skipped` is what states the difference from a missing script.
+    for (const gate of resolution.skipped) {
+      skippedGates.push({
+        gateName: `${gate.name} (${label})`,
+        exitCode: null,
+        startedAt: null,
+        endedAt: null,
+        repo: target.repo,
+        command: gate.command,
+        args: gate.args,
+        skipped: true,
+      });
+      sections.push(`# ${gate.name} (${label}, skipped)\ndisabled for this ticket`);
     }
 
     // R4 — a malformed package.json resolves to zero gates and IS a failure
@@ -286,6 +321,7 @@ export async function runReview(
       requireIndependentSignal:
         opts.manifest?.review?.requireIndependentSignal ?? DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
       findingsBlockingSeverity: blockingSeverity,
+      disabledGateNames: skippedGates.map((g) => g.gateName),
     },
   );
   if (outcome.kind === 'blocked') {
