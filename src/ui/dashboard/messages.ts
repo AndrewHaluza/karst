@@ -2,8 +2,10 @@ import type { DashboardState } from './state.js';
 import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { isHttpUrl } from '../shared/url.js';
 import type { WorktreeStats } from './worktreeStats.js';
+import type { GateOptions } from './gateOptions.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
 import { STAGE_KEYS, type StageKey } from '../../model/types.js';
+import { GATE_STAGES, type GateStage } from '../../store/ticketGates.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -58,7 +60,17 @@ export type WebviewMessage =
    * panel, a race with an already-cleared block, or a ticket that has since
    * moved to another stage must not be resumable by this message.
    */
-  | { type: 'stage-resume'; ticketId: number; stageKey: StageKey };
+  | { type: 'stage-resume'; ticketId: number; stageKey: StageKey }
+  /**
+   * Switch ONE named gate off (or back on) for this ticket alone.
+   *
+   * Carries no ticket id: the panel closure already owns the ticket, exactly
+   * like `refresh-prs` and `merge-pr`, so a crafted message cannot aim a
+   * disable at another ticket. The stage is narrowed to the two that resolve
+   * gates at all, and the name is a bounded string matched against a RESOLVED
+   * gate name host-side — it never becomes a command.
+   */
+  | { type: 'set-disabled-gates'; stage: GateStage; name: string; disabled: boolean };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -71,6 +83,12 @@ export type HostMessage =
   | { type: 'worktree-stats'; stats: WorktreeStats[] }
   | { type: 'ship-progress'; event: ShipStepEvent }
   | { type: 'bind'; enabled: boolean }
+  /**
+   * The togglable gate names for this ticket. Its own message, not part of
+   * `DashboardState`, because resolving it probes the filesystem and
+   * `buildDashboardState` is synchronous — same split as `worktree-stats`.
+   */
+  | { type: 'gate-options'; options: GateOptions }
   | ActionResultMessage;
 
 /**
@@ -146,6 +164,12 @@ export interface DashboardActions {
    * place, right against the store it is about to mutate.
    */
   resumeStage: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
+  /**
+   * Switch one gate off (or on) for this ticket. Takes the stage and the gate
+   * NAME — never a command or a script — so the webview can express only which
+   * question to withdraw, never what to run.
+   */
+  setDisabledGate: (stage: GateStage, name: string, disabled: boolean) => void | Promise<void>;
 }
 
 /**
@@ -233,6 +257,18 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
         ? { type: 'stage-resume', ticketId: m.ticketId as number, stageKey: m.stageKey }
         : null;
+    // Every field is required and typed here, at the trust boundary. A blank or
+    // oversized name drops the whole message rather than being trimmed into
+    // something the host would then match against a real gate.
+    case 'set-disabled-gates': {
+      const name = typeof m.name === 'string' ? m.name.trim() : '';
+      return isGateStage(m.stage) &&
+        name.length > 0 &&
+        name.length <= MAX_GATE_NAME_CHARS &&
+        typeof m.disabled === 'boolean'
+        ? { type: 'set-disabled-gates', stage: m.stage, name, disabled: m.disabled }
+        : null;
+    }
     default:
       return null;
   }
@@ -245,6 +281,13 @@ function isFiniteNumber(v: unknown): v is number {
 function isStageKey(v: unknown): v is StageKey {
   return typeof v === 'string' && (STAGE_KEYS as readonly string[]).includes(v);
 }
+
+function isGateStage(v: unknown): v is GateStage {
+  return typeof v === 'string' && (GATE_STAGES as readonly string[]).includes(v);
+}
+
+/** Longest gate name accepted from a webview. Real names are short script keys. */
+const MAX_GATE_NAME_CHARS = 128;
 
 /**
  * Route an untrusted webview message to the matching action. The message is
@@ -310,5 +353,7 @@ export function routeAction(raw: unknown, actions: DashboardActions): void | Pro
       return actions.switchAgent();
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
+    case 'set-disabled-gates':
+      return actions.setDisabledGate(msg.stage, msg.name, msg.disabled);
   }
 }
