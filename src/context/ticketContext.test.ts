@@ -252,7 +252,7 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
       status: 'running',
       verdict: null,
       blocked: null,
-      gates: [{ name: 'lint (web)', exitCode: 1 }],
+      gates: [{ name: 'lint (web)', exitCode: 1, skipped: false }],
       findings: [
         { severity: 'critical', repo: '/web', file: 'src/db.ts', line: 42, title: 'SQL injection', detail: 'd' },
       ],
@@ -300,8 +300,32 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
 
     const ctx = buildTicketContext(store, undefined, t.id);
     expect(ctx.stage?.stageKey).toBe('uat');
-    expect(ctx.stage?.gates).toEqual([{ name: 'test (web)', exitCode: 0 }]);
+    expect(ctx.stage?.gates).toEqual([{ name: 'test (web)', exitCode: 0, skipped: false }]);
     expect(ctx.stage?.findings).toEqual([]);
+  });
+
+  it('names a skipped gate as disabled rather than as an absent script', () => {
+    const t = createTicket(store, { key: 'PROJ-4A', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+    setStage(store, t.id, 'uat', { status: 'running' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-04T10:00:00.000Z',
+      gates: [
+        { gateName: 'test', exitCode: 0 },
+        { gateName: 'e2e', exitCode: null, skipped: true },
+      ],
+    });
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.gates).toEqual([
+      { name: 'test', exitCode: 0, skipped: false },
+      { name: 'e2e', exitCode: null, skipped: true },
+    ]);
+    const md = renderTicketContext(ctx);
+    expect(md).toContain('disabled for this ticket');
   });
 
   it('names a block, when the current stage is parked', () => {
