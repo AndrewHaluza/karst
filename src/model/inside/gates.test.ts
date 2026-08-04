@@ -355,6 +355,26 @@ describe('uatInside', () => {
     expect(ops[0]!.detail).toContain('exit 3');
   });
 
+  it('renders a skipped gate as skip, worded as a user decision', () => {
+    const ops = uatInside(
+      cell('uat', 'passed'),
+      [run('uat', 'e2e', null, { skipped: true })],
+      NOW,
+    ).ops;
+    expect(ops).toEqual([
+      { status: 'skip', name: 'e2e', detail: 'Skipped — disabled by user', duration: '' },
+    ]);
+  });
+
+  it('keeps a missing-script row as a note, distinct from a skip', () => {
+    const ops = uatInside(
+      cell('uat', 'passed'),
+      [run('uat', 'e2e', null, { skipped: false })],
+      NOW,
+    ).ops;
+    expect(ops[0]).toEqual({ status: 'note', name: 'e2e', detail: 'nothing to run', duration: '' });
+  });
+
   it('shows only the latest batch, so a prior attempt does not double the list', () => {
     const ops = uatInside(
       cell('uat', 'failed'),

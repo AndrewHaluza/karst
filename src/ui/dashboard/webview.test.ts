@@ -1034,4 +1034,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/data-act="stop-driver"/);
   });
 
+  it('renders a glyph for every OpStatus the host can produce', () => {
+    const map = /const OP_GLYPH = \{([^}]*)\}/.exec(HTML)?.[1] ?? '';
+    for (const status of ['pass', 'fail', 'run', 'wait', 'pending', 'note', 'skip']) {
+      expect(map, `OP_GLYPH is missing ${status}`).toContain(`${status}:`);
+    }
+  });
+
 });

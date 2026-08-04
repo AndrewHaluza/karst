@@ -497,6 +497,11 @@
   /* A gate the repo cannot answer, or a phase karst cannot observe, is not a
      failure — say so plainly instead of dressing it as a status. */
   .op.note .ocmd{font-style:italic;opacity:.75}
+  /* A withdrawn question, not an unanswerable one: dimmed like `pending` but
+     glyphed distinctly, so it never reads as a gate still to come. */
+  .op.skip .oglyph{color:var(--k-text-faint)}
+  .op.skip{opacity:.7}
+  .op.skip .ocmd{font-style:italic}
 
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
@@ -866,7 +871,7 @@
   // difference and must never render as something a retry could clear.
   const NEEDS_GLYPH = '❚❚';
   const CONFLICT_GLYPH = '⚠';
-  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·' };
+  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·', skip: '⊘' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
   const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', merge: 'Merge', done: 'Done' };

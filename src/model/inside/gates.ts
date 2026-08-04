@@ -45,11 +45,23 @@ export function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateR
 }
 
 /**
- * One recorded gate as a row. A null exit code is a `note`, never a pass: it
- * means the repo defines no such script, so karst had no question to ask and the
- * gate says nothing about the ticket either way.
+ * One recorded gate as a row.
+ *
+ * Three distinct outcomes, and the difference between the last two is the whole
+ * point of the `skipped` column: `exitCode` 0/non-zero is a verdict; a null exit
+ * with `skipped` false means the repo defines no such script, so karst had no
+ * question to ask; a null exit with `skipped` true means the gate was there and
+ * the user switched it off for this ticket. Neither of the last two is a pass.
  */
 function gateOp(run: GateRun): StageOp {
+  if (run.skipped) {
+    return {
+      status: 'skip',
+      name: run.gateName,
+      detail: 'Skipped — disabled by user',
+      duration: '',
+    };
+  }
   return {
     status: run.exitCode === null ? 'note' : run.exitCode === 0 ? 'pass' : 'fail',
     name: run.gateName,
