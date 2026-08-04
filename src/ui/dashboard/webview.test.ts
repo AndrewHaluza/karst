@@ -1041,4 +1041,35 @@ describe('dashboard webview.html', () => {
     }
   });
 
+  it('renders a Gates panel with a per-gate toggle button', () => {
+    expect(HTML).toContain('id="gates"');
+    expect(HTML).toContain('data-act="set-disabled-gates"');
+  });
+
+  it('handles the gate-options host message', () => {
+    expect(HTML).toContain("msg.type === 'gate-options'");
+  });
+
+  it('gives every gate toggle a matching aria-label and title (UI-R19–R21)', () => {
+    const row = /function gateRow\([\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(row).toContain('aria-label="${esc(label)}"');
+    expect(row).toContain('title="${esc(label)}"');
+  });
+
+  it('uses a real button for the gate toggle, never a clickable div (UI-R09)', () => {
+    const row = /function gateRow\([\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(row).toContain('<button type="button"');
+    expect(row).not.toMatch(/<div[^>]*data-act=/);
+  });
+
+  it('reports pending on click and cannot be re-triggered while pending (UI-R11–R14)', () => {
+    const click = HTML.slice(
+      HTML.indexOf("if (act === 'set-disabled-gates')"),
+      HTML.indexOf("// Every other posting control settles"),
+    );
+    expect(click).toContain('karstIsPending(btn)');
+    expect(click).toContain('karstBeginPending(btn, requestId)');
+    expect(click).toContain("type: act");
+  });
+
 });
