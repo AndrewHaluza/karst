@@ -18,6 +18,7 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
+import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -112,6 +113,7 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
+import { getDisabledGates, setDisabledGates } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
@@ -1564,6 +1566,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         currentManifest()?.uat?.maxFixAttempts,
         currentManifest()?.review?.maxFixAttempts,
       ),
+    // Resolve a ticket's togglable gate names for the Gates panel. Reads the
+    // SAME live manifest getter `DriveTicketDeps.manifest` is bound to, so a
+    // mid-run `karst.yml` edit and a mid-run gate toggle are honored on
+    // identical terms.
+    buildGateOptionsLoader({ store: localStore, manifest: currentManifest }),
   );
 
   binder = new TerminalDashboardBinder({
@@ -3626,5 +3633,16 @@ function makeDashboardActions(
       })();
     },
     toggleBind,
+    // Returns a promise, so the button reports a REAL terminal outcome rather
+    // than a bare ack (UI-R13): the write is fast and local, so there is no
+    // reason to settle on anything weaker.
+    setDisabledGate: async (stage, name, disabled) => {
+      const current = getDisabledGates(store, ticketId)[stage];
+      const next = disabled ? [...current, name] : current.filter((n) => n !== name);
+      setDisabledGates(store, ticketId, stage, next);
+      // Re-push so the row re-renders from what was actually stored, never
+      // from what the click assumed.
+      afterServerChange();
+    },
   };
 }
