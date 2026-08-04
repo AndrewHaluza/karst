@@ -9,7 +9,9 @@ import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
-import { runUat, type UatDeps } from './uat.js';
+import { runUat, resolveTargetGates, type UatDeps } from './uat.js';
+import { setDisabledGates } from '../../store/ticketGates.js';
+import type { ScriptProbe } from '../gates/probe.js';
 
 const now = () => '2026-07-30T10:00:00.000Z';
 
@@ -550,5 +552,101 @@ describe('runUat', () => {
       runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps()),
     ).rejects.toThrow(/has no stage 'uat'/);
     expect(listGateRuns(store, id)).toEqual([]);
+  });
+
+  it('does not run a gate the ticket disabled', async () => {
+    setDisabledGates(store, id, 'uat', ['e2e']);
+    const invoked: string[] = [];
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({
+              name: g.name,
+              exitCode: 0,
+              output: '',
+              startedAt: now(),
+              endedAt: now(),
+            })),
+          };
+        },
+      }),
+    );
+    expect(invoked).toEqual(['test']);
+  });
+
+  it('records the disabled gate as a skipped row beside the gates that ran', async () => {
+    setDisabledGates(store, id, 'uat', ['e2e']);
+    await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    const rows = listGateRuns(store, id);
+    const skipped = rows.filter((r) => r.skipped);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]!.gateName).toContain('e2e');
+    expect(skipped[0]!.exitCode).toBeNull();
+    expect(skipped[0]!.startedAt).toBeNull();
+    expect(skipped[0]!.endedAt).toBeNull();
+    expect(rows.filter((r) => !r.skipped).map((r) => r.exitCode)).toEqual([0]);
+  });
+
+  it('a disabled gate never fails the stage', async () => {
+    setDisabledGates(store, id, 'uat', ['e2e']);
+    const result = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(result).toEqual({ kind: 'advanced', next: 'review' });
+  });
+
+  it('parks, naming the disable, when every uat gate is disabled', async () => {
+    setDisabledGates(store, id, 'uat', ['test', 'e2e']);
+    const result = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(result).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    if (result.kind !== 'blocked') throw new Error('unreachable');
+    expect(result.reason).toContain('disabled by user');
+    expect(result.reason).toContain('test');
+    expect(result.reason).toContain('e2e');
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+  });
+});
+
+describe('resolveTargetGates', () => {
+  const okProbe = (scripts: Record<string, string>): ScriptProbe => ({ kind: 'ok', scripts });
+
+  it('drops a disabled gate from the resolved list and reports it as skipped', () => {
+    const probe = okProbe({ test: 'vitest', e2e: 'playwright' });
+    const res = resolveTargetGates(probe, undefined, ['web'], ['e2e']);
+    expect(res.kind).toBe('gates');
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates.map((g) => g.name)).toEqual(['test']);
+    expect(res.skipped.map((g) => g.name)).toEqual(['e2e']);
+  });
+
+  it('reports an empty skipped list when nothing is disabled', () => {
+    const probe = okProbe({ test: 'vitest' });
+    const res = resolveTargetGates(probe, undefined, ['web']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.skipped).toEqual([]);
+  });
+
+  it('resolves to zero gates, all skipped, when every gate is disabled', () => {
+    const probe = okProbe({ test: 'vitest' });
+    const res = resolveTargetGates(probe, undefined, ['web'], ['test']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates).toEqual([]);
+    expect(res.skipped.map((g) => g.name)).toEqual(['test']);
+  });
+
+  it('leaves an unavailable resolution untouched — a disable cannot make an unreadable repo readable', () => {
+    const ioProbe: ScriptProbe = { kind: 'io-error', message: 'EACCES' };
+    const res = resolveTargetGates(ioProbe, undefined, ['web'], ['test']);
+    expect(res.kind).toBe('unavailable');
+  });
+
+  it('deduplicates skipped gates by name across repository entries sharing a worktree', () => {
+    const probe = okProbe({ test: 'vitest' });
+    const res = resolveTargetGates(probe, undefined, ['web', 'admin'], ['test']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.skipped.map((g) => g.name)).toEqual(['test']);
   });
 });

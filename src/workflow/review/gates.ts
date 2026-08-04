@@ -1,6 +1,7 @@
 import type { GateDef, ReviewConfig } from '../../manifest/types.js';
 import type { ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
+import { partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { REVIEW_PROBE_SCRIPTS } from '../gates/scripts.js';
 
 /**
@@ -50,12 +51,18 @@ function identityKey(gate: ResolvedGate): string {
  * repository with one runnable entry can still be asked something; the first
  * unavailability wins, since one probe backs every name and they therefore
  * agree.
+ *
+ * `disabledNames` (optional, defaults to none) is the ticket's own cut,
+ * applied ONCE over the deduplicated union — filtering earlier would report
+ * the same disabled gate several times for a worktree backing several
+ * repository entries.
  */
 export function resolveReviewGates(
   probe: ScriptProbe,
   config: ReviewConfig | undefined,
   names: readonly string[],
-): GateResolution {
+  disabledNames: readonly string[] = [],
+): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
   let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
@@ -76,9 +83,10 @@ export function resolveReviewGates(
     }
   }
 
-  const gates = [...byIdentity.values()];
-  if (gates.length > 0) return { kind: 'gates', gates };
-  // Zero gates and no unavailability is the malformed-package.json case, which
-  // the caller (`stages/review.ts`) turns into a named failure rather than a park.
-  return unavailable ?? { kind: 'gates', gates: [] };
+  const { kept, skipped } = partitionDisabled([...byIdentity.values()], disabledNames);
+  if (kept.length > 0 || skipped.length > 0) return { kind: 'gates', gates: kept, skipped };
+  // Zero gates, nothing disabled, and no unavailability is the malformed-
+  // package.json case, which the caller (`stages/review.ts`) turns into a
+  // named failure rather than a park.
+  return unavailable ?? { kind: 'gates', gates: [], skipped: [] };
 }

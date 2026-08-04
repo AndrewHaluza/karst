@@ -64,6 +64,7 @@ describe('resolveReviewGates', () => {
     expect(resolution).toEqual({
       kind: 'gates',
       gates: [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: 'lint', required: true }],
+      skipped: [],
     });
   });
 
@@ -102,5 +103,42 @@ describe('resolveReviewGates', () => {
     if (resolution.kind === 'gates') {
       expect(resolution.gates.map((g) => g.name)).toEqual(['lint']);
     }
+  });
+
+  it('drops a disabled gate from the resolved list and reports it as skipped', () => {
+    const probe = okProbe({ lint: 'eslint .', typecheck: 'tsc' });
+    const res = resolveReviewGates(probe, undefined, ['api'], ['lint']);
+    expect(res.kind).toBe('gates');
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates.map((g) => g.name)).toEqual(['typecheck']);
+    expect(res.skipped.map((g) => g.name)).toEqual(['lint']);
+  });
+
+  it('reports an empty skipped list when nothing is disabled', () => {
+    const probe = okProbe({ lint: 'eslint .' });
+    const res = resolveReviewGates(probe, undefined, ['api']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.skipped).toEqual([]);
+  });
+
+  it('resolves to zero gates, all skipped, when every gate is disabled', () => {
+    const probe = okProbe({ lint: 'eslint .' });
+    const res = resolveReviewGates(probe, undefined, ['api'], ['lint']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates).toEqual([]);
+    expect(res.skipped.map((g) => g.name)).toEqual(['lint']);
+  });
+
+  it('leaves an unavailable resolution untouched — a disable cannot make an unreadable repo readable', () => {
+    const ioProbe: ScriptProbe = { kind: 'io-error', message: 'EACCES' };
+    const res = resolveReviewGates(ioProbe, undefined, ['api'], ['lint']);
+    expect(res.kind).toBe('unavailable');
+  });
+
+  it('deduplicates skipped gates by name across repository entries sharing a worktree', () => {
+    const probe = okProbe({ lint: 'eslint .' });
+    const res = resolveReviewGates(probe, undefined, ['api', 'web'], ['lint']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.skipped.map((g) => g.name)).toEqual(['lint']);
   });
 });
