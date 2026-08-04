@@ -10,6 +10,9 @@ import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
+import { latestStageRun } from '../../store/stageRuns.js';
+import { openGateRun } from '../gates/evidence.js';
+import { commitGateOutcome } from '../gates/commit.js';
 import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import { runUat, type UatDeps } from './uat.js';
@@ -569,16 +572,17 @@ describe('runReview', () => {
     expect(stageBlock(store, id, 'review')).toBeNull();
   });
 
-  it('leaves no gate rows behind when the transition throws', async () => {
-    // Evidence is written inside the transition's transaction, so it and the
-    // verdict land together or not at all. Dropping the stage row makes the
-    // machine throw AFTER the premutate queued the gates — exactly the window a
-    // non-atomic write would leak through.
+  it('keeps the gate rows of a run whose transition throws, without advancing it', async () => {
+    // Evidence is written as each gate FINISHES, not when the run ends, so a
+    // run destroyed after its gates ran leaves exactly what it learned
+    // readable. The VERDICT is still all-or-nothing — the throw must not
+    // advance the ticket — but the two are no longer the same commit, because a
+    // host restart fires no abort signal and used to discard the lot.
     store.db.prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?').run(id, 'review');
     await expect(
       runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps()),
     ).rejects.toThrow(/has no stage 'review'/);
-    expect(listGateRuns(store, id)).toEqual([]);
+    expect(listGateRuns(store, id).length).toBeGreaterThan(0);
     expect(getTicket(store, id).stageCurrent).toBe('review');
   });
 
@@ -676,6 +680,28 @@ describe('runReview', () => {
       stageKey: 'review',
       attempt: 0,
     });
+  });
+
+  // The 'changes' row is one fact about the RUN ("did the surface open at
+  // all"), not one per repository — `diffOpened` only latches it on the first
+  // target, so a second and third target opening their own diff must not
+  // multiply the row.
+  it('records the changes evidence exactly once, however many targets opened it', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+        openDiff,
+      }),
+    );
+    expect(listGateRuns(store, id).filter((r) => r.gateName === 'changes')).toHaveLength(1);
   });
 
   it('records no changes evidence when nothing was wired to open it', async () => {
@@ -1047,7 +1073,7 @@ describe('review findings lane (Lane B)', () => {
     consoleWarn.mockRestore();
   });
 
-  it('findings land in the SAME transaction as the verdict that failed on them', async () => {
+  it('keeps the findings of a run whose transition throws', async () => {
     store.db.prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?').run(id, 'review');
     await expect(
       runReview(
@@ -1060,9 +1086,11 @@ describe('review findings lane (Lane B)', () => {
         }),
       ),
     ).rejects.toThrow(/has no stage 'review'/);
-    // The transition never committed, so neither did the findings that would
-    // have ridden along inside it.
-    expect(listFindings(store, id)).toEqual([]);
+    // Persisted the moment the lane returned, before any aggregation — these
+    // are completed model output the user already paid for (a single lane has
+    // cost 1.3M tokens). Holding them for the verdict is what let a host
+    // restart discard a whole run's findings with nothing recorded anywhere.
+    expect(listFindings(store, id).map((f) => f.title)).toEqual(['boom']);
   });
 
   it('records findings under the SAME batch stamp as the gates that ran beside them', async () => {
@@ -1078,6 +1106,56 @@ describe('review findings lane (Lane B)', () => {
     const gateRunAt = new Set(listGateRuns(store, id).map((r) => r.runAt));
     const findingRunAt = new Set(listFindings(store, id).map((f) => f.runAt));
     expect(findingRunAt).toEqual(gateRunAt);
+  });
+
+  it("records the run's manifest_hash when a manifest is supplied", async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps(),
+    );
+    expect(latestStageRun(store, id, 'review')?.manifestHash).not.toBeNull();
+  });
+
+  it('records no manifest_hash when no manifest is supplied', async () => {
+    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(latestStageRun(store, id, 'review')?.manifestHash).toBeNull();
+  });
+
+  // The mechanism `runReview` actually uses: `evidence.appendFindings` writes
+  // the moment the lane returns, from inside `planAndRunFindingsLane`'s caller
+  // — well before `aggregateReview` decides anything, and before
+  // `commitGateOutcome` is even invoked. `runReview`'s own gate rules make a
+  // 'blocked' outcome and a produced finding mutually exclusive in practice
+  // (the lane only ever runs once R3–R5 have already let the gates through,
+  // and R6's only block, capability-missing, is the one path that never calls
+  // the adapter at all) — so this exercises the same `evidence`/
+  // `commitGateOutcome` seam directly, proving the ordering holds regardless
+  // of what outcome ends up being committed, not just the one review's rules
+  // happen to reach today.
+  it('keeps a persisted finding when the outcome committed afterward is a park, not a verdict', async () => {
+    const runAt = now();
+    const evidence = openGateRun(store, { ticketId: id, stageKey: 'review', runAt });
+    evidence.appendFindings([
+      { repo: '/web', severity: 'low', title: 'nit', detail: 'style only', file: null, line: null, source: 'agent' },
+    ]);
+    // Already on disk before any outcome exists.
+    expect(listFindings(store, id)).toHaveLength(1);
+
+    commitGateOutcome(store, {
+      ticketId: id,
+      stageKey: 'review',
+      runAt,
+      artifactPath: join(artifactDir, 'manual.log'),
+      gates: [],
+      outcome: { kind: 'blocked', blocker: 'capability-missing', reason: 'no agent core available' },
+      stageRunId: evidence.runId,
+      now,
+    });
+
+    expect(listFindings(store, id)).toHaveLength(1);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(stageBlock(store, id, 'review')?.kind).toBe('capability-missing');
   });
 });
 

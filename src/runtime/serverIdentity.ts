@@ -1,6 +1,7 @@
 import { readlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { canonicalPath } from './pathScope.js';
+import { pidAlive } from './pidAlive.js';
 
 /**
  * Whether a recorded pid may still be SIGNALLED.
@@ -120,14 +121,7 @@ export function attributeServer(row: ServerIdentity, facts: ProcessFacts): Attri
 }
 
 /** `process.kill(pid, 0)` — a permission-denied answer still proves it exists. */
-function isAliveNow(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
+const isAliveNow = pidAlive;
 
 /**
  * Read a live process's cwd where the OS exposes it. Linux publishes it as a

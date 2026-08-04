@@ -24,6 +24,7 @@ function run(
     ticketId: 1,
     stageKey,
     attempt: 0,
+    stageRunId: null,
     runAt: '2026-07-20T12:00:00.000Z',
     gateName,
     exitCode,

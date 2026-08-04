@@ -5,6 +5,7 @@ import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
 import type { GateRunInput } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
+import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listGateRuns } from '../../store/gateRuns.js';
@@ -132,6 +133,18 @@ export async function runUat(
   const git = deps.git ?? defaultGitRunner;
   const runAt = now();
 
+  // Opened BEFORE anything runs, and durable. Everything below appends to it as
+  // it happens: a host restart mid-run must leave a readable record that this
+  // run existed and what it had already learned, since process death fires no
+  // abort signal and the `stopped` path therefore never runs.
+  const evidence = openGateRun(store, {
+    ticketId: opts.ticketId,
+    stageKey: 'uat',
+    runAt,
+    manifest: opts.manifest,
+    pid: process.pid,
+  });
+
   const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
 
   const entries: AggregateEntry[] = [];
@@ -145,23 +158,40 @@ export async function runUat(
   // which is the same live-read property `opts.manifest`'s getter gives the
   // manifest itself.
   const disabledNames = getDisabledGates(store, opts.ticketId).uat;
-  // Kept OUT of `entries`: a skipped gate must not reach `aggregateUat` as an
-  // entry, where an exit-code-null row reads as "the repo has no such script".
-  // It is evidence, not a question that was asked.
-  const skippedGates: GateRunInput[] = [];
   // The BARE gate names, kept beside the evidence rows rather than recovered
   // from them: a row's `gateName` is repo-decorated ("test (web)") because that
   // is what identifies an invocation, and the block reason already parenthesizes
   // the list — reusing it there nests the parentheses.
   const skippedNames: string[] = [];
 
-  /** Write the log and commit the outcome with everything collected so far. */
+  /**
+   * Write the log and commit the outcome.
+   *
+   * Carries NO gate rows: every one of them was appended the moment it was
+   * produced (`evidence.append`), so by here the store already holds this run's
+   * whole evidence and there is nothing left to hand over but the outcome — and
+   * the run id that closes the open `stage_runs` row.
+   */
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
     mkdirSync(opts.artifactDir, { recursive: true });
     const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}.log`);
     writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
-    const gates = [
-      ...entries.map<GateRunInput>((entry) => ({
+    return commitGateOutcome(store, {
+      ticketId: opts.ticketId,
+      stageKey: 'uat',
+      runAt,
+      artifactPath,
+      gates: [],
+      outcome,
+      stageRunId: evidence.runId,
+      now,
+    });
+  };
+
+  /** Append one target's gate rows the instant that target finishes running them. */
+  const recordEntries = (rows: readonly AggregateEntry[]): void => {
+    evidence.append(
+      rows.map<GateRunInput>((entry) => ({
         gateName: entry.result.name,
         exitCode: entry.result.exitCode,
         startedAt: entry.result.startedAt ?? null,
@@ -172,16 +202,7 @@ export async function runUat(
         command: entry.identity.command,
         args: entry.identity.args,
       })),
-      ...skippedGates,
-    ];
-    return commitGateOutcome(store, {
-      ticketId: opts.ticketId,
-      stageKey: 'uat',
-      runAt,
-      artifactPath,
-      gates,
-      outcome,
-    });
+    );
   };
 
   const planned = opts.manifest
@@ -221,7 +242,10 @@ export async function runUat(
     // have been invoked with. No timing and no exit code, because none exists —
     // `skipped` is what states the difference from a missing script.
     for (const gate of resolution.skipped) {
-      skippedGates.push({
+      // Kept OUT of `entries`: a skipped gate must not reach `aggregateUat` as
+      // an entry, where an exit-code-null row reads as "the repo has no such
+      // script". It is evidence, not a question that was asked.
+      evidence.append([{
         gateName: `${gate.name} (${label})`,
         exitCode: null,
         startedAt: null,
@@ -230,7 +254,7 @@ export async function runUat(
         command: gate.command,
         args: gate.args,
         skipped: true,
-      });
+      }]);
       skippedNames.push(gate.name);
       sections.push(`# ${gate.name} (${label}, skipped)\ndisabled for this ticket`);
     }
@@ -238,7 +262,7 @@ export async function runUat(
     // A malformed package.json resolves to zero gates and IS a failure about the
     // repository — an agent can fix it, so it must reach a verdict.
     if (resolution.gates.length === 0 && scriptProbe.kind === 'malformed') {
-      entries.push({
+      const malformed: AggregateEntry = {
         result: {
           name: `package.json (${label})`,
           exitCode: 1,
@@ -247,7 +271,9 @@ export async function runUat(
           endedAt: runAt,
         },
         identity: { repo: target.repo, command: 'node', args: ['--parse-package-json'] },
-      });
+      };
+      entries.push(malformed);
+      recordEntries([malformed]);
       sections.push(`# package.json (${label}, exit 1)\n${scriptProbe.message}`);
       continue;
     }
@@ -259,12 +285,13 @@ export async function runUat(
       scriptsAvailable: (script) => scripts[script] !== undefined,
     });
 
+    const produced: AggregateEntry[] = [];
     for (const [index, result] of run.results.entries()) {
       // Zipped by POSITION: `runGateList` emits one result per gate in order, and
       // two manifest entries sharing a worktree can declare the same gate name,
       // so a name lookup would attach the wrong identity to the row.
       const gate = resolution.gates[index];
-      entries.push({
+      produced.push({
         result: { ...result, name: `${result.name} (${label})` },
         identity: {
           repo: target.repo,
@@ -276,6 +303,8 @@ export async function runUat(
         `# ${result.name} (${label}, ${result.exitCode === null ? 'skipped' : `exit ${result.exitCode}`})\n${result.output}`,
       );
     }
+    entries.push(...produced);
+    recordEntries(produced);
 
     // A Stop yields no verdict and no attempt. What already finished is still
     // recorded — discarding it would make work that really happened unrecoverable.

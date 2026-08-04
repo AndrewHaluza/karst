@@ -37,6 +37,12 @@ export interface GateRun {
    * every row written before v24 — nothing was ever skipped then.
    */
   skipped: boolean;
+  /**
+   * v25: the `stage_runs` invocation that produced this row. NULL on a pre-v25
+   * row and on a batch written by a caller that opened no run — never
+   * backfilled, because a historical row cannot name a run nothing recorded.
+   */
+  stageRunId: number | null;
 }
 
 /** One gate as a runner reports it, before it has an id or a batch stamp. */
@@ -65,6 +71,8 @@ export interface GateRunBatch {
   attempt: number;
   runAt: string;
   gates: readonly GateRunInput[];
+  /** v25: the invocation these rows belong to. Absent for a caller with none. */
+  stageRunId?: number | null;
 }
 
 interface GateRunRow {
@@ -81,6 +89,7 @@ interface GateRunRow {
   command: string | null;
   args: string | null; // JSON array, or NULL
   skipped: number | null;
+  stage_run_id: number | null;
 }
 
 /**
@@ -136,6 +145,7 @@ function rowToGateRun(r: GateRunRow): GateRun {
     // Strictly `1`. A NULL is a pre-v24 row and a 0 is an explicit "it ran";
     // both are "not skipped", and neither is guessed at.
     skipped: r.skipped === 1,
+    stageRunId: r.stage_run_id,
   };
 }
 
@@ -147,13 +157,20 @@ function rowToGateRun(r: GateRunRow): GateRun {
  * Deliberately opens no transaction of its own: it is called from inside
  * `transition`'s premutate, so the gates and the verdict they produced commit
  * together or not at all.
+ *
+ * v25: a gate stage now calls this AS EACH GATE FINISHES (one-row batches,
+ * carrying the run's `stageRunId`) rather than once at the end. That is the
+ * whole point — an extension-host restart is process death, fires no abort
+ * signal, and used to discard every gate result the run had already produced.
+ * Rows are still filed under the attempt read BEFORE any bump, because the run
+ * reads it once when it opens.
  */
 export function recordGateRun(store: Store, batch: GateRunBatch): void {
   const insert = store.db.prepare(
     `INSERT INTO gate_runs
        (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at,
-        repo, command, args, skipped)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        repo, command, args, skipped, stage_run_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const g of batch.gates) {
     insert.run(
@@ -169,6 +186,7 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
       g.command ?? null,
       g.args ? JSON.stringify(g.args) : null,
       g.skipped ? 1 : null,
+      batch.stageRunId ?? null,
     );
   }
 }
@@ -183,7 +201,7 @@ export function listGateRuns(store: Store, ticketId: number): GateRun[] {
   return store.db
     .prepare(
       `SELECT id, ticket_id, stage_key, attempt, run_at, gate_name, exit_code,
-              started_at, ended_at, repo, command, args, skipped
+              started_at, ended_at, repo, command, args, skipped, stage_run_id
          FROM gate_runs
         WHERE ticket_id = ?
         ORDER BY id`,

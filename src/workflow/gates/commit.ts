@@ -4,7 +4,9 @@ import { setStage, stageAttempt } from '../../store/stages.js';
 import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
 import { recordFindings, type FindingInput } from '../../store/reviewFindings.js';
 import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
+import { closeStageRun, type StageRunOutcome } from '../../store/stageRuns.js';
 import { transition } from '../machine.js';
+import { nowIso } from '../../model/time.js';
 
 /** What a gate run decided, before any of it is written down. */
 export type RunOutcome =
@@ -29,6 +31,21 @@ export interface CommitGateOutcomeInput {
    * from what produced it.
    */
   findings?: readonly FindingInput[];
+  /**
+   * v25: the `stage_runs` row this outcome closes, when the caller opened one.
+   *
+   * A caller that opened a run has ALREADY written its evidence, gate by gate,
+   * as each one finished — so `gates` here is whatever is still unwritten
+   * (normally empty) and this id is what turns the open run into a finished
+   * one. Closing it is folded into the same transaction as the outcome: a run
+   * marked finished beside a stage that never committed its verdict would be
+   * the same lie, pointing the other way.
+   *
+   * Absent = the caller opened no run. Nothing is invented on this side.
+   */
+  stageRunId?: number | null;
+  /** Clock for the run's `ended_at`; injected so tests are deterministic. */
+  now?: () => string;
 }
 
 /**
@@ -50,7 +67,15 @@ export function commitGateOutcome(
   store: Store,
   input: CommitGateOutcomeInput,
 ): StageRunResult {
-  const { ticketId, stageKey, runAt, artifactPath, gates, outcome, findings } = input;
+  const { ticketId, stageKey, runAt, artifactPath, gates, outcome, findings, stageRunId } =
+    input;
+  const now = input.now ?? nowIso;
+
+  /** Close the caller's run, if it opened one. Always inside a transaction below. */
+  const closeRun = (kind: StageRunOutcome): void => {
+    if (stageRunId === undefined || stageRunId === null) return;
+    closeStageRun(store, stageRunId, kind, now());
+  };
 
   // Findings share the batch's `runAt` and the same pre-bump `attempt` gates
   // read — recorded from inside whichever transaction below actually commits,
@@ -75,8 +100,10 @@ export function commitGateOutcome(
         runAt,
         gates,
         artifactPath,
+        stageRunId,
       });
       recordFindingsIfAny();
+      closeRun('blocked');
     });
     apply();
     return { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason };
@@ -92,10 +119,12 @@ export function commitGateOutcome(
           attempt: stageAttempt(store, ticketId, stageKey),
           runAt,
           gates,
+          stageRunId,
         });
       }
       recordFindingsIfAny();
       setStage(store, ticketId, stageKey, { artifactPath });
+      closeRun('stopped');
     });
     apply();
     return { kind: 'stopped' };
@@ -113,8 +142,10 @@ export function commitGateOutcome(
       attempt: stageAttempt(store, ticketId, stageKey),
       runAt,
       gates,
+      stageRunId,
     });
     recordFindingsIfAny();
+    closeRun('advanced');
   });
   return { kind: 'advanced', next };
 }

@@ -28,6 +28,8 @@ import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckVie
 import { listGateRuns } from '../store/gateRuns.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
 import { latestBatch } from '../model/inside/gates.js';
+import { latestStageRun, previousStageRun } from '../store/stageRuns.js';
+import { isMarkerStage } from '../agent/markerStage.js';
 import type { Manifest } from '../manifest/types.js';
 import { isRunnable } from '../manifest/runnable.js';
 
@@ -116,6 +118,49 @@ export interface TicketContextStage {
   blocked: { kind: string; reason: string } | null;
   gates: TicketContextGate[];
   findings: TicketContextFinding[];
+  /**
+   * Where this stage's log was written, when it wrote one. A stage that says
+   * only "running" and names no artifact leaves a session with nothing to open
+   * but the SQLite file, which is exactly what the reporting session resorted to.
+   */
+  artifactPath: string | null;
+  /**
+   * The stage's most recent gate-run INVOCATION, or null when none was ever
+   * recorded (nothing has run since v25, or this is not a gate stage).
+   *
+   * Distinct from `stages.started_at`, which is written when the stage is
+   * ENTERED and never again — so a stage re-run by a later sweep reported an age
+   * 25 minutes older than the run actually in flight, and no consumer could tell.
+   * This is the run's own clock, and its status is what separates the three
+   * things "running with no gate rows" used to mean at once: never started (no
+   * run), in flight (`running`), destroyed (`stale`).
+   */
+  run: TicketContextStageRun | null;
+  /**
+   * True when the agent may advance this stage itself with the done marker
+   * (`impl`/`fix`). False at a gate stage, whose verdict comes from exit codes —
+   * firing the marker there is REFUSED, and the seed doc still told the agent to
+   * try, so an agent that trusted it reported a ticket advanced that was not.
+   */
+  agentCanAdvance: boolean;
+}
+
+/** One gate-run invocation, as a session needs to read it. */
+export interface TicketContextStageRun {
+  status: string;
+  outcome: string | null;
+  attempt: number;
+  /** When THIS run began — not when the stage was entered. */
+  startedAt: string;
+  endedAt: string | null;
+  /**
+   * True when the previous run of this stage resolved its gates from a
+   * different manifest revision (`manifest/gateRevision.ts`). A gate that FAILED
+   * and was then deleted from `karst.yml` otherwise reads, on the next attempt,
+   * as a stage that simply passed — the question was removed rather than
+   * answered, and nothing recorded the difference.
+   */
+  gateSetChanged: boolean;
 }
 
 /** The completed ticket this one continues work from, or null for an ordinary ticket. */
@@ -170,6 +215,14 @@ export interface TicketContext {
 
 /** The gate stages — the only ones that record `gate_runs`/`review_findings` evidence. Mirrors `agent/fixBrief.ts`'s own `GATES`, kept local rather than a shared import so this leaf module (consumed by both the launch seed and the CLI) has no dependency on `workflow/`. */
 const GATE_STAGES: readonly StageKey[] = ['uat', 'review'];
+
+/**
+ * The non-marker stages worth telling a session it cannot advance. `scope` and
+ * `done` are left out on purpose — no agent session exists at the first, and
+ * nothing follows the last, so the line would only be noise on a fresh or a
+ * finished ticket.
+ */
+const ADVISORY_STAGES: readonly string[] = ['uat', 'review', 'ship', 'merge'];
 
 /**
  * The stage row whose gate/finding evidence a session actually wants.
@@ -249,11 +302,32 @@ export function buildTicketContext(
   })();
 
   const stageRow = relevantStageRow(t);
+  const stageRun = stageRow ? latestStageRun(store, ticketId, stageRow.stageKey) : null;
+  const priorRun = stageRun ? previousStageRun(store, stageRun) : null;
   const stage: TicketContextStage | null = stageRow
     ? {
         stageKey: stageRow.stageKey,
         status: stageRow.status,
         verdict: stageRow.verdict,
+        artifactPath: stageRow.artifactPath,
+        agentCanAdvance: isMarkerStage(stageRow.stageKey),
+        run: stageRun
+          ? {
+              status: stageRun.status,
+              outcome: stageRun.outcome,
+              attempt: stageRun.attempt,
+              startedAt: stageRun.startedAt,
+              endedAt: stageRun.endedAt,
+              // Only a run that HAS a predecessor can differ from one, and only
+              // two runs that both recorded a hash can be compared: a null on
+              // either side is "unknown", never "changed".
+              gateSetChanged:
+                priorRun !== null &&
+                stageRun.manifestHash !== null &&
+                priorRun.manifestHash !== null &&
+                stageRun.manifestHash !== priorRun.manifestHash,
+            }
+          : null,
         blocked: stageRow.blockedKind
           ? { kind: stageRow.blockedKind, reason: stageRow.blockedReason ?? '' }
           : null,
@@ -353,6 +427,31 @@ export function renderTicketContext(ctx: TicketContext): string {
     const lines = [`- stage: ${s.stageKey} (${s.status})`];
     if (s.verdict) lines.push(`- verdict: ${s.verdict}`);
     if (s.blocked) lines.push(`- blocked: ${s.blocked.kind} — ${s.blocked.reason}`);
+    if (s.run) {
+      // The run's OWN clock and status. `- stage: review (running)` on its own
+      // was the whole of what a session could see, and it could not distinguish
+      // a stage that never started from one in flight from one whose host died
+      // mid-run — the ambiguity that cost a session ~40 minutes of digging
+      // through SQLite by hand.
+      const ended = s.run.endedAt ? `, ended ${s.run.endedAt}` : '';
+      const outcome = s.run.outcome ? ` → ${s.run.outcome}` : '';
+      lines.push(
+        `- gate run: ${s.run.status}${outcome} (attempt ${s.run.attempt}, started ${s.run.startedAt}${ended})`,
+      );
+      if (s.run.status === 'stale') {
+        lines.push(
+          '- note: the previous run of this stage was destroyed before it finished ' +
+            '(its process is gone). Its gate rows below are partial; the stage will run again.',
+        );
+      }
+      if (s.run.gateSetChanged) {
+        lines.push(
+          '- note: the gate set changed since the previous run — this attempt is not ' +
+            'answering the same questions the last one asked.',
+        );
+      }
+    }
+    if (s.artifactPath) lines.push(`- log: ${s.artifactPath}`);
     if (s.gates.length > 0) {
       lines.push(
         '- gates:',
@@ -373,6 +472,22 @@ export function renderTicketContext(ctx: TicketContext): string {
           const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ''})` : '';
           return `  - [${f.severity}] ${f.title}${loc}`;
         }),
+      );
+    }
+    if (!s.agentCanAdvance && ADVISORY_STAGES.includes(s.stageKey)) {
+      // The seeded marker command names `impl`; fired at one of these it is
+      // REFUSED, and the seed never said so — an agent that trusts it reports a
+      // ticket advanced that has not moved. So the refusal is stated up front,
+      // for the stages a live session can actually be sitting at. `scope` and
+      // `done` are excluded deliberately: no session exists at the first and
+      // nothing follows the last, so the line would be pure noise.
+      const why = (GATE_STAGES as readonly string[]).includes(s.stageKey)
+        ? 'its verdict comes from gate exit codes'
+        : 'karst advances it, not the agent';
+      lines.push(
+        `- note: \`${s.stageKey}\` is not an agent-advanced stage — ${why}, and the done ` +
+          'marker (`stage impl pass` / `stage fix pass`) is refused here. Nothing you run ' +
+          'advances this stage.',
       );
     }
     parts.push(`## Current stage\n${lines.join('\n')}`);

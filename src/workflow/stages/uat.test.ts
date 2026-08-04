@@ -6,6 +6,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
+import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
@@ -546,12 +547,23 @@ describe('runUat', () => {
     expect(available?.('lint')).toBe(false);
   });
 
-  it('leaves no gate rows behind when the transition throws', async () => {
+  it('keeps the gate rows of a run whose transition throws', async () => {
+    // Evidence is written as each gate FINISHES, not when the run ends, so a
+    // run destroyed after its gates ran — by a throw here, by process death in
+    // production — leaves exactly what it learned readable. Discarding it was
+    // the defect: an extension-host restart fires no abort signal, so the
+    // `stopped` path never runs and every result was silently thrown away.
     store.db.prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?').run(id, 'uat');
     await expect(
       runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps()),
     ).rejects.toThrow(/has no stage 'uat'/);
-    expect(listGateRuns(store, id)).toEqual([]);
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual([
+      'test (/wt/web)',
+      'e2e (/wt/web)',
+    ]);
+    // The verdict itself never committed, so the run is still open — which is
+    // what the next run (or the activation sweep) reads as a destroyed run.
+    expect(listStageRuns(store, id).map((r) => r.status)).toEqual(['running']);
   });
 
   it('does not run a gate the ticket disabled', async () => {
@@ -607,6 +619,93 @@ describe('runUat', () => {
     expect(result.reason).toContain('test');
     expect(result.reason).toContain('e2e');
     expect(getTicket(store, id).stageCurrent).toBe('uat');
+  });
+
+  // v25: the run existing at all, and what it ended as, is what resolves
+  // "zero gate_runs on a running stage" from three-way ambiguous to a fact —
+  // never started / in flight / destroyed. A pass must close it truthfully.
+  it('opens a stage run before the first gate and closes it finished/advanced on a pass', async () => {
+    const res = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    const runs = listStageRuns(store, id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ stageKey: 'uat', status: 'finished', outcome: 'advanced' });
+    expect(runs[0]!.endedAt).not.toBeNull();
+  });
+
+  it('closes the run blocked when the stage parks', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ probe: () => ({ kind: 'ok', scripts: { build: 'tsc' } }) }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked' });
+    expect(listStageRuns(store, id)).toMatchObject([{ status: 'finished', outcome: 'blocked' }]);
+  });
+
+  it('closes the run stopped when a Stop lands mid-flight', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ runGates: async () => ({ kind: 'stopped', results: [] }) }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(listStageRuns(store, id)).toMatchObject([{ status: 'finished', outcome: 'stopped' }]);
+  });
+
+  // Load-bearing: a reader (the activation sweep, another window's `karst
+  // context`) polling WHILE the gate is still executing must already see the
+  // open run and the skipped-gate row — not just whatever survives to the end.
+  // Discarding evidence until the run's very last line is the exact bug this
+  // whole design replaces.
+  it('makes the run and its skipped-gate row readable mid-run, before the gate that answers finishes', async () => {
+    setDisabledGates(store, id, 'uat', ['e2e']);
+    let midRunGateNames: string[] | undefined;
+    let midRunStatuses: string[] | undefined;
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => {
+          midRunGateNames = listGateRuns(store, id).map((r) => r.gateName);
+          midRunStatuses = listStageRuns(store, id).map((r) => r.status);
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({
+              name: g.name,
+              exitCode: 0,
+              output: '',
+              startedAt: now(),
+              endedAt: now(),
+            })),
+          };
+        },
+      }),
+    );
+    expect(midRunStatuses).toEqual(['running']);
+    expect(midRunGateNames).toEqual(['e2e (/wt/web)']);
+  });
+
+  it("stamps every gate row it writes with the run's own id", async () => {
+    await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    const run = listStageRuns(store, id)[0]!;
+    expect(listGateRuns(store, id).length).toBeGreaterThan(0);
+    expect(listGateRuns(store, id).every((r) => r.stageRunId === run.id)).toBe(true);
+  });
+
+  // A run still `running` when a second one opens is exactly the destroyed-run
+  // case a host restart produces: the driver single-flights, so a second open
+  // run for the same ticket+stage can only mean the first one's process died.
+  it('marks a still-open run stale the moment a fresh run of the same stage opens', async () => {
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-07-30T09:00:00.000Z',
+      startedAt: '2026-07-30T09:00:00.000Z',
+    });
+    await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(listStageRuns(store, id).map((r) => r.status)).toEqual(['stale', 'finished']);
   });
 });
 
