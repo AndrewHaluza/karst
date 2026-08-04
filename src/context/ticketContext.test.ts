@@ -6,6 +6,7 @@ import { insertAttachment } from '../store/attachments.js';
 import { setStage } from '../store/stages.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { recordFindings } from '../store/reviewFindings.js';
+import { openStageRun, closeStageRun } from '../store/stageRuns.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
@@ -256,6 +257,12 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
       findings: [
         { severity: 'critical', repo: '/web', file: 'src/db.ts', line: 42, title: 'SQL injection', detail: 'd' },
       ],
+      artifactPath: null,
+      // No `stage_runs` row was opened here — these gates were handcrafted, not
+      // produced by `runReview`. Null is the truthful answer, and it is a
+      // DIFFERENT fact from a run that opened and died (`stale`).
+      run: null,
+      agentCanAdvance: false,
     });
     const md = renderTicketContext(ctx);
     expect(md).toContain('## Current stage');
@@ -344,6 +351,174 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
       reason: 'no agent core available',
     });
     expect(renderTicketContext(ctx)).toContain('- blocked: capability-missing — no agent core available');
+  });
+});
+
+describe('ticket context — stage run state (v25, closes 869edna84)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function seedAt(stageKey: string): number {
+    const t = createTicket(store, { key: 'PROJ-R', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stageKey, t.id);
+    return t.id;
+  }
+
+  it("carries the latest run's status/attempt/startedAt/endedAt/outcome", () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'passed' });
+    const runId = openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 1,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    closeStageRun(store, runId, 'advanced', '2026-08-01T10:05:00.000Z');
+
+    const ctx = buildTicketContext(store, undefined, id);
+    expect(ctx.stage?.run).toEqual({
+      status: 'finished',
+      outcome: 'advanced',
+      attempt: 1,
+      startedAt: '2026-08-01T10:00:00.000Z',
+      endedAt: '2026-08-01T10:05:00.000Z',
+      gateSetChanged: false,
+    });
+  });
+
+  // The run's OWN clock, never `stages.started_at` — that column is written
+  // when the stage is ENTERED and not again, so a stage re-run by a later sweep
+  // used to report an age belonging to when it first arrived, not to the run
+  // actually in flight. Seeding a much older `started_at` on the stage row is
+  // what makes a regression that reads the wrong field fail here rather than
+  // pass by coincidence.
+  it("renders the RUN's own started timestamp, not the stage's", () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'running', startedAt: '2020-01-01T00:00:00.000Z' });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+
+    const md = renderTicketContext(buildTicketContext(store, undefined, id));
+    expect(md).toContain('- gate run: running (attempt 0, started 2026-08-01T10:00:00.000Z)');
+    expect(md).not.toContain('2020-01-01');
+  });
+
+  it('renders the destroyed-run note for a stale run', () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'running' });
+    const runId = openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      pid: 999999,
+    });
+    // What the activation sweep (`reconcileStageRuns`) would have done, had it
+    // run — asserted directly rather than through `isAlive`, since this test is
+    // about the RENDERING, not the sweep itself (covered in stageRuns.test.ts).
+    store.db.prepare("UPDATE stage_runs SET status = 'stale' WHERE id = ?").run(runId);
+
+    const md = renderTicketContext(buildTicketContext(store, undefined, id));
+    expect(md).toContain('the previous run of this stage was destroyed');
+  });
+
+  it('marks gateSetChanged only when both runs recorded a hash and the hashes differ', () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'running' });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:00:00.000Z',
+      startedAt: '2026-08-01T09:00:00.000Z',
+      manifestHash: 'hash-a',
+    });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 1,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      manifestHash: 'hash-b',
+    });
+
+    const ctx = buildTicketContext(store, undefined, id);
+    expect(ctx.stage?.run?.gateSetChanged).toBe(true);
+  });
+
+  // A gate deleted from `karst.yml` must never read as a gate that was fixed —
+  // a missing hash on either side is "unknown", not "changed".
+  it('leaves gateSetChanged false when either run recorded no hash', () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'running' });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:00:00.000Z',
+      startedAt: '2026-08-01T09:00:00.000Z',
+      manifestHash: null,
+    });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 1,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      manifestHash: 'hash-b',
+    });
+
+    const ctx = buildTicketContext(store, undefined, id);
+    expect(ctx.stage?.run?.gateSetChanged).toBe(false);
+  });
+
+  it('leaves gateSetChanged false when the run has no predecessor', () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'running' });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      manifestHash: 'hash-a',
+    });
+
+    const ctx = buildTicketContext(store, undefined, id);
+    expect(ctx.stage?.run?.gateSetChanged).toBe(false);
+  });
+
+  it.each(['review', 'ship', 'merge'])(
+    'renders the non-marker note at %s, since karst — not the agent — advances it',
+    (stageKey) => {
+      const id = seedAt(stageKey);
+      const md = renderTicketContext(buildTicketContext(store, undefined, id));
+      expect(md).toContain('is not an agent-advanced stage');
+    },
+  );
+
+  // `scope`/`done` carry no session to warn (no agent runs at the first, nothing
+  // follows the last) and `impl`/`fix` ARE agent-advanced — the note must be
+  // silent at all four.
+  it.each(['scope', 'done', 'impl', 'fix'])('does not render the non-marker note at %s', (stageKey) => {
+    const id = seedAt(stageKey);
+    const md = renderTicketContext(buildTicketContext(store, undefined, id));
+    expect(md).not.toContain('is not an agent-advanced stage');
+  });
+
+  it("renders the stage's artifact path as a log line", () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'running', artifactPath: '/tmp/review-ticket-1.log' });
+    const md = renderTicketContext(buildTicketContext(store, undefined, id));
+    expect(md).toContain('- log: /tmp/review-ticket-1.log');
   });
 });
 

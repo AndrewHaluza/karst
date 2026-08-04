@@ -126,6 +126,8 @@ import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
+import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
+import { pidAlive } from './runtime/pidAlive.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
@@ -480,6 +482,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const s of reapStaleServers(localStore)) logger.info(describeReap(s));
   } catch (err) {
     logError('karst: stale-server sweep failed', err);
+  }
+  // Stale gate-run sweep (F3). A gate run is now opened durably before its first
+  // gate starts, so a run whose extension host died mid-flight is still on
+  // record as `running` — a state nothing can leave on its own, since process
+  // death fires no abort signal and the `stopped` path therefore never ran.
+  // Marking it `stale` is what turns "a stage that has been running for 37
+  // minutes with nothing to show" into "the previous run was destroyed; this is
+  // a fresh one", with the destroyed run's partial gate rows still readable.
+  //
+  // GLOBAL for the same reason as the server pass above, and safe for the same
+  // reason: attribution, not scope. A run opened by ANOTHER LIVE window has a
+  // live pid and is left strictly alone; a run with no recorded pid is left
+  // alone too, because absence of evidence is not evidence that it died.
+  //
+  // Reported, never silent — an invisibly discarded run is the whole failure
+  // this closes, and a sweep that quietly corrected the data would repeat it.
+  try {
+    for (const s of reconcileStageRuns(localStore, pidAlive)) {
+      logger.info(describeStaleStageRun(s));
+    }
+  } catch (err) {
+    logError('karst: stale gate-run sweep failed', err);
   }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package

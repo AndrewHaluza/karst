@@ -501,6 +501,7 @@ describe('uatIdentitiesFrom', () => {
       ticketId: 1,
       stageKey,
       attempt: 0,
+      stageRunId: null,
       runAt,
       gateName,
       exitCode,

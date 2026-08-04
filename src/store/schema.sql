@@ -100,11 +100,42 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   repo          TEXT,                 -- v21: the repository path invoked, NULL = pre-v21 row
   command       TEXT,                 -- v21: the binary invoked (e.g. 'npm'), NULL = pre-v21 row
   args          TEXT,                 -- v21: JSON array of argv, NULL = pre-v21 row
-  skipped       INTEGER               -- v24: 1 = resolved but deliberately not run (user disabled it for
+  skipped       INTEGER,              -- v24: 1 = resolved but deliberately not run (user disabled it for
                                        -- this ticket). NULL/0 = it ran, or a pre-v24 row. DISTINCT from
                                        -- exit_code IS NULL, which means the repo defines no such script.
+  stage_run_id  INTEGER               -- v25: -> stage_runs.id, the invocation that produced this row.
+                                       -- NULL = a pre-v25 row, or a batch written by a caller that opened
+                                       -- no run. Never backfilled.
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
+
+-- v25: one row per GATE RUN INVOCATION, opened BEFORE the first gate starts.
+--
+-- `gate_runs` is written as each gate finishes, so it answers "what has this run
+-- learned so far" — but it cannot answer "is a run happening at all", which is
+-- the question a stage with zero rows leaves three-way ambiguous (never started
+-- / in flight / died). Only a row opened at entry can. The extension host can
+-- die at any instant and process death fires no abort signal, so in-memory
+-- bookkeeping (`DriverController.running`) is not evidence: a run that was
+-- killed mid-flight must still be readable afterwards, as `stale`.
+--
+-- Append-only, like gate_runs and phase_marks: a superseded run is marked, never
+-- deleted, because the fact that a previous attempt ran and was destroyed is
+-- exactly what was missing.
+CREATE TABLE IF NOT EXISTS stage_runs (
+  id             INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS run order
+  ticket_id      INTEGER NOT NULL,     -- -> tickets.id
+  stage_key      TEXT NOT NULL,        -- 'uat' | 'review' (GATE_STAGES)
+  attempt        INTEGER NOT NULL,     -- the stage's attempt when this run opened
+  run_at         TEXT NOT NULL,        -- the batch stamp its gate_runs rows share
+  status         TEXT NOT NULL,        -- 'running' | 'finished' | 'stale'
+  outcome        TEXT,                 -- 'advanced' | 'blocked' | 'stopped'; NULL while running
+  manifest_hash  TEXT,                 -- the gate-relevant config this run resolved from (v25)
+  pid            INTEGER,              -- the process that opened it; NULL = unknown, never guessed
+  started_at     TEXT NOT NULL,
+  ended_at       TEXT                  -- NULL while running AND on a stale run: when it died is unknown
+);
+CREATE INDEX IF NOT EXISTS idx_stage_runs_ticket ON stage_runs(ticket_id, stage_key, id);
 
 -- Phases an agent REPORTED entering during a marker stage. Append-only, like
 -- gate_runs and for the same reason: a phase is an event, many per stage, so it

@@ -24,6 +24,8 @@ export interface ParkGateStageInput {
    * land in ONE transaction — a park is an outcome, and an outcome has one writer.
    */
   artifactPath?: string;
+  /** v25: the invocation these gates belong to, when the caller opened one. */
+  stageRunId?: number | null;
 }
 
 /**
@@ -55,6 +57,7 @@ export function parkGateStage(store: Store, input: ParkGateStageInput): void {
         attempt: stageAttempt(store, input.ticketId, input.stageKey),
         runAt: input.runAt,
         gates: input.gates,
+        stageRunId: input.stageRunId,
       });
     }
     setStage(store, input.ticketId, input.stageKey, {

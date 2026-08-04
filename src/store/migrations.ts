@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -560,6 +560,46 @@ export function migrate(db: Database): void {
     const gateRunCols24 = tableColumns(db, 'gate_runs');
     if (gateRunCols24.size > 0 && !gateRunCols24.has('skipped')) {
       db.exec('ALTER TABLE gate_runs ADD COLUMN skipped INTEGER');
+    }
+  }
+
+  if (current < 25) {
+    // v25 makes a gate run itself durable. Before this, evidence existed only
+    // once the run FINISHED — so a host restart mid-run discarded every gate
+    // result and every finding it had already paid for, and left a stage
+    // reading `running` since a timestamp that belonged to a run which no
+    // longer existed.
+    //
+    // The new table is opened at run entry and closed at its outcome; the new
+    // `gate_runs.stage_run_id` ties each incrementally-written row back to the
+    // invocation that produced it. Both are additive and guarded, so a fresh DB
+    // (already carrying them via schema.sql) and a re-open are no-ops.
+    //
+    // NOTHING IS BACKFILLED. A historical gate_runs row cannot name a run that
+    // was never recorded, and no past run's liveness can be reconstructed — a
+    // synthesized `finished` row would assert exactly the fact this table exists
+    // to stop being guessed at.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS stage_runs (
+        id             INTEGER PRIMARY KEY,
+        ticket_id      INTEGER NOT NULL,
+        stage_key      TEXT NOT NULL,
+        attempt        INTEGER NOT NULL,
+        run_at         TEXT NOT NULL,
+        status         TEXT NOT NULL,
+        outcome        TEXT,
+        manifest_hash  TEXT,
+        pid            INTEGER,
+        started_at     TEXT NOT NULL,
+        ended_at       TEXT
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_stage_runs_ticket ON stage_runs(ticket_id, stage_key, id)',
+    );
+    const gateRunCols25 = tableColumns(db, 'gate_runs');
+    if (gateRunCols25.size > 0 && !gateRunCols25.has('stage_run_id')) {
+      db.exec('ALTER TABLE gate_runs ADD COLUMN stage_run_id INTEGER');
     }
   }
 
