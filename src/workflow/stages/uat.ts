@@ -12,9 +12,11 @@ import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { noTargetsReason } from '../gates/targets.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
+import { partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
+import { getDisabledGates } from '../../store/ticketGates.js';
 import {
   aggregateUat,
   reviewIdentitiesFrom,
@@ -76,12 +78,20 @@ function identityKey(gate: ResolvedGate): string {
  * Unavailable is only the answer when NO name produced a gate: a repository with
  * one runnable entry can still be asked something. The first unavailability wins,
  * since one probe backs every name and they therefore agree.
+ *
+ * `disabledNames` (optional, defaults to none) is the ticket's own cut, applied
+ * ONCE over the deduplicated union — filtering earlier would report the same
+ * disabled gate several times for a worktree backing several repository entries.
+ *
+ * Exported so `resolveTargetGates` is directly testable, mirroring
+ * `resolveReviewGates`'s export in `review/gates.ts`.
  */
-function resolveTargetGates(
+export function resolveTargetGates(
   probe: ScriptProbe,
   config: UatConfig | undefined,
   names: readonly string[],
-): GateResolution {
+  disabledNames: readonly string[] = [],
+): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
   let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
@@ -102,11 +112,12 @@ function resolveTargetGates(
     }
   }
 
-  const gates = [...byIdentity.values()];
-  if (gates.length > 0) return { kind: 'gates', gates };
-  // Zero gates and no unavailability is the malformed-package.json case, which
-  // the caller turns into a named failure rather than a park.
-  return unavailable ?? { kind: 'gates', gates: [] };
+  const { kept, skipped } = partitionDisabled([...byIdentity.values()], disabledNames);
+  if (kept.length > 0 || skipped.length > 0) return { kind: 'gates', gates: kept, skipped };
+  // Zero gates, nothing disabled, and no unavailability is the malformed-
+  // package.json case, which the caller turns into a named failure rather than
+  // a park.
+  return unavailable ?? { kind: 'gates', gates: [], skipped: [] };
 }
 
 export async function runUat(
@@ -129,23 +140,40 @@ export async function runUat(
   // review actually invoked can prove the overlap this warns about.
   const reviewIdentities: GateIdentity[] = reviewIdentitiesFrom(listGateRuns(store, opts.ticketId));
   const sections: string[] = [];
+  // Read from the store at RESOLUTION time, never from anything cached: a
+  // toggle flipped mid-session must take effect on the very next gate run,
+  // which is the same live-read property `opts.manifest`'s getter gives the
+  // manifest itself.
+  const disabledNames = getDisabledGates(store, opts.ticketId).uat;
+  // Kept OUT of `entries`: a skipped gate must not reach `aggregateUat` as an
+  // entry, where an exit-code-null row reads as "the repo has no such script".
+  // It is evidence, not a question that was asked.
+  const skippedGates: GateRunInput[] = [];
+  // The BARE gate names, kept beside the evidence rows rather than recovered
+  // from them: a row's `gateName` is repo-decorated ("test (web)") because that
+  // is what identifies an invocation, and the block reason already parenthesizes
+  // the list — reusing it there nests the parentheses.
+  const skippedNames: string[] = [];
 
   /** Write the log and commit the outcome with everything collected so far. */
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
     mkdirSync(opts.artifactDir, { recursive: true });
     const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}.log`);
     writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
-    const gates = entries.map<GateRunInput>((entry) => ({
-      gateName: entry.result.name,
-      exitCode: entry.result.exitCode,
-      startedAt: entry.result.startedAt ?? null,
-      endedAt: entry.result.endedAt ?? null,
-      // v21 invocation identity — what review's R7 compares its own gates
-      // against, so this side must carry exactly what actually ran.
-      repo: entry.identity.repo,
-      command: entry.identity.command,
-      args: entry.identity.args,
-    }));
+    const gates = [
+      ...entries.map<GateRunInput>((entry) => ({
+        gateName: entry.result.name,
+        exitCode: entry.result.exitCode,
+        startedAt: entry.result.startedAt ?? null,
+        endedAt: entry.result.endedAt ?? null,
+        // v21 invocation identity — what review's R7 compares its own gates
+        // against, so this side must carry exactly what actually ran.
+        repo: entry.identity.repo,
+        command: entry.identity.command,
+        args: entry.identity.args,
+      })),
+      ...skippedGates,
+    ];
     return commitGateOutcome(store, {
       ticketId: opts.ticketId,
       stageKey: 'uat',
@@ -179,7 +207,7 @@ export async function runUat(
   for (const target of targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path);
-    const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names);
+    const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames);
 
     // Environmental: karst could not ask this repository anything. Park rather
     // than reduce — a block is not a verdict about the ticket's code. Earlier
@@ -187,6 +215,24 @@ export async function runUat(
     if (resolution.kind === 'unavailable') {
       const reason = `${label}: ${resolution.reason}`;
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
+    }
+
+    // One row per gate the user switched off, carrying the identity it WOULD
+    // have been invoked with. No timing and no exit code, because none exists —
+    // `skipped` is what states the difference from a missing script.
+    for (const gate of resolution.skipped) {
+      skippedGates.push({
+        gateName: `${gate.name} (${label})`,
+        exitCode: null,
+        startedAt: null,
+        endedAt: null,
+        repo: target.repo,
+        command: gate.command,
+        args: gate.args,
+        skipped: true,
+      });
+      skippedNames.push(gate.name);
+      sections.push(`# ${gate.name} (${label}, skipped)\ndisabled for this ticket`);
     }
 
     // A malformed package.json resolves to zero gates and IS a failure about the
@@ -238,7 +284,11 @@ export async function runUat(
     }
   }
 
-  const outcome = aggregateUat(entries, reviewIdentities);
+  const outcome = aggregateUat(
+    entries,
+    reviewIdentities,
+    skippedNames,
+  );
   if (outcome.kind === 'blocked') {
     return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
       outcome.reason,

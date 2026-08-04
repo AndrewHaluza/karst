@@ -13,6 +13,7 @@ import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import { runUat, type UatDeps } from './uat.js';
+import { setDisabledGates } from '../../store/ticketGates.js';
 
 const now = (): string => '2026-08-01T10:00:00.000Z';
 
@@ -768,6 +769,80 @@ describe('runReview', () => {
     // zero-length run rather than as "karst had nothing to ask".
     expect(second!.startedAt).toBeNull();
     expect(second!.endedAt).toBeNull();
+  });
+
+  it('does not run a review gate the ticket disabled', async () => {
+    setDisabledGates(store, id, 'review', ['lint']);
+    const invoked: string[] = [];
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({
+              name: g.name,
+              exitCode: 0,
+              output: 'ok',
+              startedAt: now(),
+              endedAt: now(),
+            })),
+          };
+        },
+      }),
+    );
+    expect(invoked).not.toContain('lint');
+  });
+
+  it('records the disabled review gate as a skipped row', async () => {
+    setDisabledGates(store, id, 'review', ['lint']);
+    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    const skipped = listGateRuns(store, id).filter((r) => r.skipped);
+    expect(skipped.map((r) => r.stageKey)).toEqual(['review']);
+    expect(skipped[0]!.gateName).toContain('lint');
+    expect(skipped[0]!.exitCode).toBeNull();
+  });
+
+  it("a uat disable does not affect review's gates", async () => {
+    setDisabledGates(store, id, 'uat', ['lint']);
+    const invoked: string[] = [];
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({
+              name: g.name,
+              exitCode: 0,
+              output: 'ok',
+              startedAt: now(),
+              endedAt: now(),
+            })),
+          };
+        },
+      }),
+    );
+    expect(invoked).toContain('lint');
+  });
+
+  it('a disabled review gate never fails the stage', async () => {
+    setDisabledGates(store, id, 'review', ['lint']);
+    const result = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
+  });
+
+  it('parks, naming the disable, when every review gate is disabled', async () => {
+    setDisabledGates(store, id, 'review', ['lint', 'typecheck', 'build', 'format:check']);
+    const result = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(result).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    if (result.kind !== 'blocked') throw new Error('unreachable');
+    expect(result.reason).toContain('disabled by user');
+    expect(getTicket(store, id).stageCurrent).toBe('review');
   });
 });
 

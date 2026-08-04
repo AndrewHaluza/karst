@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   parent_ticket_id  INTEGER,              -- -> tickets.id; links a follow-up ticket to the parent it continues
   -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
+  -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
+  disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -97,7 +99,10 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   ended_at      TEXT,
   repo          TEXT,                 -- v21: the repository path invoked, NULL = pre-v21 row
   command       TEXT,                 -- v21: the binary invoked (e.g. 'npm'), NULL = pre-v21 row
-  args          TEXT                  -- v21: JSON array of argv, NULL = pre-v21 row
+  args          TEXT,                 -- v21: JSON array of argv, NULL = pre-v21 row
+  skipped       INTEGER               -- v24: 1 = resolved but deliberately not run (user disabled it for
+                                       -- this ticket). NULL/0 = it ran, or a pre-v24 row. DISTINCT from
+                                       -- exit_code IS NULL, which means the repo defines no such script.
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 

@@ -419,6 +419,47 @@ describe('gatesOutcomeBeforeFindings', () => {
       reason: 'no gates resolved for this ticket',
     });
   });
+
+  it('names the disable in the block reason when every gate was disabled — still a block, never a pass', () => {
+    expect(gatesOutcomeBeforeFindings([], ['lint', 'typecheck'])).toEqual({
+      kind: 'blocked',
+      blocker: 'nothing-to-run',
+      reason: 'all gates disabled by user for this ticket (lint, typecheck)',
+    });
+  });
+
+  it('keeps the ordinary reason when a gate resolved but a DIFFERENT one was disabled', () => {
+    expect(gatesOutcomeBeforeFindings([testWebSkipped], ['lint'])).toEqual({
+      kind: 'blocked',
+      blocker: 'nothing-to-run',
+      reason: 'no gate ran: test (web)',
+    });
+  });
+});
+
+describe('aggregateReview — disabled gates never reach the aggregator as an entry', () => {
+  it('passes on the gates that ran, unaffected by how many were disabled', () => {
+    // Task 6/7 keep a skipped gate OUT of `entries` entirely — this pins that a
+    // caller passing only the disabled NAMES (never a skipped entry) still
+    // reaches an ordinary pass off the gate that actually ran.
+    const outcome = aggregateReview([testWeb], [], NOT_RUN, {
+      ...REQUIRED,
+      disabledGateNames: ['lint'],
+    });
+    expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
+  });
+
+  it('blocks, naming the disable, when every gate was disabled and nothing ran', () => {
+    const outcome = aggregateReview([], [], NOT_RUN, {
+      ...REQUIRED,
+      disabledGateNames: ['lint'],
+    });
+    expect(outcome).toEqual({
+      kind: 'blocked',
+      blocker: 'nothing-to-run',
+      reason: 'all gates disabled by user for this ticket (lint)',
+    });
+  });
 });
 
 describe('sameGateIdentity', () => {
@@ -465,6 +506,7 @@ describe('uatIdentitiesFrom', () => {
       exitCode,
       startedAt: null,
       endedAt: null,
+      skipped: false,
       ...identity,
     };
   }

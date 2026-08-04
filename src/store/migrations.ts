@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -535,6 +535,32 @@ export function migrate(db: Database): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_review_findings_ticket ON review_findings(ticket_id, run_at, id)',
     );
+  }
+
+  if (current < 24) {
+    // v24 makes a gate disable-able for ONE ticket. Two columns, both nullable,
+    // both guarded like every other column addition — a fresh DB already carries
+    // them via schema.sql and a re-open is a no-op.
+    //
+    // `tickets.disabled_gates` is the override itself, shaped exactly like the
+    // nullable `model`/`type` columns before it: absent means "no override,
+    // run whatever resolution produced".
+    //
+    // `gate_runs.skipped` is deliberately NOT `exit_code IS NULL` reused. That
+    // already means "the repo defines no such script (NOT a pass)"; a gate that
+    // exists and was deliberately not run is a different fact, and conflating
+    // them would make a disabled gate read as an absent script.
+    //
+    // NOTHING IS BACKFILLED. No historical row was ever skipped — the feature
+    // did not exist — so NULL is the truthful answer, not 0 asserted as fact.
+    const ticketCols = tableColumns(db, 'tickets');
+    if (ticketCols.size > 0 && !ticketCols.has('disabled_gates')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN disabled_gates TEXT');
+    }
+    const gateRunCols24 = tableColumns(db, 'gate_runs');
+    if (gateRunCols24.size > 0 && !gateRunCols24.has('skipped')) {
+      db.exec('ALTER TABLE gate_runs ADD COLUMN skipped INTEGER');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

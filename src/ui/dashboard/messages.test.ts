@@ -28,6 +28,7 @@ function actions(): DashboardActions {
     toggleBind: vi.fn(),
     switchAgent: vi.fn(),
     resumeStage: vi.fn(),
+    setDisabledGate: vi.fn(),
   };
 }
 
@@ -304,5 +305,41 @@ describe('routeAction', () => {
     expect(
       parseWebviewMessage({ type: 'stage-resume', ticketId: 7 }),
     ).toBeNull();
+  });
+
+  it('parses a well-formed set-disabled-gates message', () => {
+    expect(parseWebviewMessage({ type: 'set-disabled-gates', stage: 'uat', name: 'e2e', disabled: true }))
+      .toEqual({ type: 'set-disabled-gates', stage: 'uat', name: 'e2e', disabled: true });
+  });
+
+  it('drops a set-disabled-gates message naming a stage that resolves no gates', () => {
+    for (const stage of ['ship', 'impl', 'merge', '', 'UAT']) {
+      expect(parseWebviewMessage({ type: 'set-disabled-gates', stage, name: 'e2e', disabled: true }))
+        .toBeNull();
+    }
+  });
+
+  it('drops a set-disabled-gates message with a missing, blank or non-string name', () => {
+    for (const name of [undefined, '', '   ', 7, { toString: () => 'e2e' }]) {
+      expect(parseWebviewMessage({ type: 'set-disabled-gates', stage: 'uat', name, disabled: true }))
+        .toBeNull();
+    }
+  });
+
+  it('drops a set-disabled-gates message whose disabled flag is not a boolean', () => {
+    expect(parseWebviewMessage({ type: 'set-disabled-gates', stage: 'uat', name: 'e2e', disabled: 'yes' }))
+      .toBeNull();
+  });
+
+  it('caps an absurdly long gate name rather than routing it', () => {
+    expect(parseWebviewMessage({
+      type: 'set-disabled-gates', stage: 'uat', name: 'x'.repeat(300), disabled: true,
+    })).toBeNull();
+  });
+
+  it('routes set-disabled-gates to setDisabledGate with all three fields', () => {
+    const a = actions();
+    routeAction({ type: 'set-disabled-gates', stage: 'review', name: 'lint', disabled: false }, a);
+    expect(a.setDisabledGate).toHaveBeenCalledWith('review', 'lint', false);
   });
 });

@@ -77,6 +77,13 @@ export interface TicketContextAttachment {
 export interface TicketContextGate {
   name: string;
   exitCode: number | null;
+  /**
+   * v24: carried separately from `exitCode` for the agent's sake as much as a
+   * human's — an agent told only "no exit code" would try to fix a
+   * package.json that is perfectly fine when the gate was actually disabled
+   * for this ticket.
+   */
+  skipped: boolean;
 }
 
 /** One review finding from the latest batch — the same fields `fixBrief.ts` renders. */
@@ -253,6 +260,7 @@ export function buildTicketContext(
         gates: latestBatch(listGateRuns(store, ticketId), stageRow.stageKey).map((g) => ({
           name: g.gateName,
           exitCode: g.exitCode,
+          skipped: g.skipped,
         })),
         // Findings are review-only evidence (Lane B writes nothing for uat).
         findings:
@@ -348,9 +356,14 @@ export function renderTicketContext(ctx: TicketContext): string {
     if (s.gates.length > 0) {
       lines.push(
         '- gates:',
-        ...s.gates.map(
-          (g) => `  - ${g.name}: ${g.exitCode === null ? 'skipped' : `exit ${g.exitCode}`}`,
-        ),
+        ...s.gates.map((g) => {
+          const state = g.skipped
+            ? 'skipped (disabled for this ticket)'
+            : g.exitCode === null
+              ? 'not run (no such script)'
+              : `exit ${g.exitCode}`;
+          return `  - ${g.name}: ${state}`;
+        }),
       );
     }
     if (s.findings.length > 0) {

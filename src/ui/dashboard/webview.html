@@ -497,6 +497,11 @@
   /* A gate the repo cannot answer, or a phase karst cannot observe, is not a
      failure — say so plainly instead of dressing it as a status. */
   .op.note .ocmd{font-style:italic;opacity:.75}
+  /* A withdrawn question, not an unanswerable one: dimmed like `pending` but
+     glyphed distinctly, so it never reads as a gate still to come. */
+  .op.skip .oglyph{color:var(--k-text-faint)}
+  .op.skip{opacity:.7}
+  .op.skip .ocmd{font-style:italic}
 
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
@@ -735,6 +740,18 @@
      block stays at description weight to read as a statement, not a prompt. */
   .svpanel .estate.dead .ehead{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}
   .svpanel .nomatch{padding:calc(var(--k-space-6) + var(--k-space-1));color:var(--k-text-faint);font-size:var(--k-text-md)}
+
+  /* Gates panel: one group per stage, one row per resolved gate name. */
+  #gates .blurb{padding:var(--k-space-5) var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .ggroup{margin-bottom:var(--k-space-4)}
+  .gtitle{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;
+    margin-bottom:var(--k-space-2);padding:0 var(--k-space-3)}
+  .gaterow{display:flex;align-items:center;gap:var(--k-space-4);
+    padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md)}
+  .gaterow:hover{background:var(--k-surface-hover)}
+  .gaterow.off .gname{text-decoration:line-through;color:var(--k-text-faint)}
+  .gaterow .gname{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1}
+  .gaterow .gstate{font-size:var(--k-text-xs);color:var(--k-text-dim)}
 </style>
 
 <!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
@@ -834,6 +851,11 @@
     aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now">
     <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914l1.09-.508A6.2 6.2 0 1 1 8 1.8V0l3 2.4-3 2.4V3Z"/></svg>
   </button></div><div class="pbody" id="prs"></div></div>
+  <!-- Resolved async, host-side, on its own gate-options message — same split
+       as Worktrees' stats — because listing what a ticket's UAT/review stages
+       would actually run needs a filesystem probe the synchronous state push
+       cannot do. Empty until that message lands. -->
+  <div class="panel span"><div class="phead">Gates<span class="count" id="gateCount"></span></div><div class="pbody" id="gates"></div></div>
 </div>
 
 <script>
@@ -866,7 +888,7 @@
   // difference and must never render as something a retry could clear.
   const NEEDS_GLYPH = '❚❚';
   const CONFLICT_GLYPH = '⚠';
-  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·' };
+  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·', skip: '⊘' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
   const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', merge: 'Merge', done: 'Done' };
@@ -884,6 +906,14 @@
   // Live Git totals are supplemental filesystem facts. They stay beside the
   // host's store snapshot and are cleared whenever a newer snapshot arrives.
   let worktreeStats = {};
+  // The gates a ticket's stages would actually run, and their disabled flags.
+  // Resolved async, host-side (a filesystem probe), so like worktreeStats it
+  // lives beside lastState rather than inside it. Deliberately NOT cleared on a
+  // state push: a push is always followed by a gate-options message, and
+  // blanking the list in between would flicker the section empty on every
+  // unrelated refresh. The follow-up message replaces it wholesale — including
+  // with an empty list when resolution fails — so it cannot go stale unnoticed.
+  let gateOptions = { uat: [], review: [] };
   // Ship-in-flight view state. `shipping` is set the instant the user clicks
   // Confirm ship — BEFORE any host round trip — so the click always registers
   // visibly. It stays true (overriding every state push, which still reads the
@@ -1689,6 +1719,46 @@
     renderServers(state);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
+    renderGates();
+  }
+
+  // One toggle row for one resolved gate. A real <button> (UI-R09), never a
+  // clickable div — data-stage/data-name/data-disabled carry everything the
+  // click handler needs to post `set-disabled-gates` without guessing at the
+  // ticket's current selection.
+  function gateRow(stage, opt) {
+    const label = (opt.disabled ? 'Enable ' : 'Disable ') + opt.name + ' for this ticket';
+    return `<div class="gaterow${opt.disabled ? ' off' : ''}">`
+      + `<span class="gname">${esc(opt.name)}</span>`
+      + `<span class="gstate">${opt.disabled ? 'disabled' : 'runs'}</span>`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm gtoggle"`
+      + ` data-act="set-disabled-gates" data-stage="${esc(stage)}" data-name="${esc(opt.name)}"`
+      + ` data-disabled="${opt.disabled ? '1' : '0'}"`
+      + ` aria-pressed="${opt.disabled ? 'true' : 'false'}"`
+      + ` aria-label="${esc(label)}" title="${esc(label)}">${opt.disabled ? 'Enable' : 'Disable'}</button>`
+      + `</div>`;
+  }
+
+  // Resolved gate names arrive on their own message (§ gateOptions), never
+  // inside `state` — so this reads the module-level `gateOptions`, not an
+  // argument, and is safe to call from both the state push (clears to empty)
+  // and the gate-options message handler (repopulates).
+  function renderGates() {
+    const uat = gateOptions.uat || [];
+    const review = gateOptions.review || [];
+    const countEl = el('gateCount');
+    if (countEl) countEl.textContent = String(uat.length + review.length);
+    const body = el('gates');
+    if (!body) return;
+    if (!uat.length && !review.length) {
+      body.innerHTML = '<div class="blurb">No gates resolved for this ticket yet.</div>';
+      return;
+    }
+    const group = (title, stage, opts) => opts.length
+      ? `<div class="ggroup"><div class="gtitle">${esc(title)}</div>`
+        + opts.map((o) => gateRow(stage, o)).join('') + '</div>'
+      : '';
+    body.innerHTML = group('UAT', 'uat', uat) + group('Review', 'review', review);
   }
 
   // The toggle's label stays "Bind terminal" in both states — a button that
@@ -1861,6 +1931,24 @@
       return;
     }
 
+    // Pending is set locally on click (UI-R11): the round trip is the thing
+    // being reported, so it can never also be the thing that starts the
+    // report. The label never changes while pending — the spinner (via
+    // karstBeginPending) carries that meaning, not a text swap.
+    if (act === 'set-disabled-gates') {
+      if (karstIsPending(btn) || btn.disabled) return;
+      const requestId = karstRequestId();
+      karstBeginPending(btn, requestId);
+      post({
+        type: act,
+        stage: btn.dataset.stage,
+        name: btn.dataset.name,
+        disabled: btn.dataset.disabled !== '1',
+        requestId,
+      });
+      return;
+    }
+
     // Every other posting control settles on the host's genuine `action-result`
     // ack (UI-R11–R14): pending on click, dropped (not queued) on a repeat,
     // and the runtime's own watchdog covers a host that never answers.
@@ -1947,6 +2035,15 @@
         (msg.stats || []).map((stats) => [stats.repo, stats]),
       );
       if (lastState) renderWorktrees(lastState.worktrees || []);
+      return;
+    }
+    // The togglable gate names, resolved async/host-side like worktree-stats.
+    // Overwrites the whole section (never merged) — the host recomputed it
+    // from scratch, and a merge could keep a name the current manifest no
+    // longer resolves.
+    if (msg.type === 'gate-options') {
+      gateOptions = msg.options || { uat: [], review: [] };
+      renderGates();
       return;
     }
     // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13).

@@ -8,8 +8,14 @@ import type { StepperCell } from '../stepper.js';
  * a pass or a fail — a gate the repo cannot answer, a phase karst does not
  * observe, a rule about what will happen next. Keeping it in the union is what
  * stops the panel inventing a verdict to fill a row.
+ *
+ * `skip` is narrower and is NOT a second `note`: the gate exists, the repository
+ * can answer it, and a human decided it should not be asked for this ticket. A
+ * `note` says karst had no question; a `skip` says the question was withdrawn,
+ * and a reader who cannot tell the two apart cannot tell a broken repo from a
+ * deliberate choice.
  */
-export type OpStatus = 'pass' | 'fail' | 'run' | 'wait' | 'pending' | 'note';
+export type OpStatus = 'pass' | 'fail' | 'run' | 'wait' | 'pending' | 'note' | 'skip';
 
 /** One line inside a stage: what karst did, or plainly why it cannot say. */
 export interface StageOp {

@@ -18,6 +18,7 @@ import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dash
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
+import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -112,6 +113,7 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
+import { getDisabledGates, setDisabledGates } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
@@ -151,6 +153,7 @@ import {
   emptyManifest,
   scaffoldManifest,
 } from './extension/manifestResolve.js';
+import { manifestWatchTarget } from './extension/manifestWatch.js';
 import { installApproach } from './approaches/fetch.js';
 import {
   cancelAllNpmCommands,
@@ -1564,7 +1567,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         currentManifest()?.uat?.maxFixAttempts,
         currentManifest()?.review?.maxFixAttempts,
       ),
+    // Resolve a ticket's togglable gate names for the Gates panel. Reads the
+    // SAME live manifest getter `DriveTicketDeps.manifest` is bound to, so a
+    // mid-run `karst.yml` edit and a mid-run gate toggle are honored on
+    // identical terms.
+    buildGateOptionsLoader({ store: localStore, manifest: currentManifest }),
   );
+
+  // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
+  // commit, `git checkout`) must reach an in-progress ticket without a session
+  // restart. It already would if the cache were fresh: `driveTicket` reads the
+  // manifest via the `currentManifest` getter (never a snapshot), so a gate
+  // re-run picks up whatever `reloadManifest` last cleared. What was missing is
+  // anything calling `reloadManifest` for a change karst did not make itself —
+  // the settings-save and ticket-form paths only cover writes karst performs.
+  //
+  // The watch is anchored on the RESOLVED path (`manifestPathOrThrow`, the same
+  // one rule every other reader goes through), never on the raw setting: the
+  // shipped default is './.karst/karst.yml' and a glob does not normalize that
+  // leading './', so a pattern built from the raw string matches nothing and the
+  // watcher silently never fires. `manifestWatchTarget` reduces it to a bare
+  // filename for exactly that reason, and is where the case is pinned.
+  //
+  // Registered here rather than beside `reloadManifest` because the refresh
+  // needs `dashboard`: the sidebar alone would leave an open panel showing gates
+  // the manifest no longer declares. `karst.manifestPath` is read once, at
+  // activation — repointing it needs a window reload, like the other settings
+  // this file reads at startup.
+  try {
+    const target = manifestWatchTarget(manifestPathOrThrow());
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(target.dir), target.base),
+    );
+    const onManifestFileChanged = (): void => {
+      reloadManifest();
+      provider.refresh();
+      dashboard.pushAll();
+    };
+    watcher.onDidChange(onManifestFileChanged);
+    watcher.onDidCreate(onManifestFileChanged);
+    watcher.onDidDelete(onManifestFileChanged);
+    context.subscriptions.push(watcher);
+  } catch {
+    // No workspace folder: there is no manifest to watch, and every other
+    // manifest reader already degrades the same way rather than failing
+    // activation.
+  }
 
   binder = new TerminalDashboardBinder({
     isEnabled: () => context.workspaceState.get<boolean>(BIND_TERMINAL_KEY) === true,
@@ -3626,5 +3674,16 @@ function makeDashboardActions(
       })();
     },
     toggleBind,
+    // Returns a promise, so the button reports a REAL terminal outcome rather
+    // than a bare ack (UI-R13): the write is fast and local, so there is no
+    // reason to settle on anything weaker.
+    setDisabledGate: async (stage, name, disabled) => {
+      const current = getDisabledGates(store, ticketId)[stage];
+      const next = disabled ? [...current, name] : current.filter((n) => n !== name);
+      setDisabledGates(store, ticketId, stage, next);
+      // Re-push so the row re-renders from what was actually stored, never
+      // from what the click assumed.
+      afterServerChange();
+    },
   };
 }

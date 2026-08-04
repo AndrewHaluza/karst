@@ -32,6 +32,7 @@ function run(
     repo: null,
     command: null,
     args: null,
+    skipped: false,
     ...extra,
   };
 }
@@ -352,6 +353,26 @@ describe('uatInside', () => {
     const ops = uatInside(cell('uat', 'failed'), [run('uat', 'test (web)', 3)], NOW).ops;
     expect(ops[0]).toMatchObject({ name: 'test (web)', status: 'fail' });
     expect(ops[0]!.detail).toContain('exit 3');
+  });
+
+  it('renders a skipped gate as skip, worded as a user decision', () => {
+    const ops = uatInside(
+      cell('uat', 'passed'),
+      [run('uat', 'e2e', null, { skipped: true })],
+      NOW,
+    ).ops;
+    expect(ops).toEqual([
+      { status: 'skip', name: 'e2e', detail: 'Skipped — disabled by user', duration: '' },
+    ]);
+  });
+
+  it('keeps a missing-script row as a note, distinct from a skip', () => {
+    const ops = uatInside(
+      cell('uat', 'passed'),
+      [run('uat', 'e2e', null, { skipped: false })],
+      NOW,
+    ).ops;
+    expect(ops[0]).toEqual({ status: 'note', name: 'e2e', detail: 'nothing to run', duration: '' });
   });
 
   it('shows only the latest batch, so a prior attempt does not double the list', () => {
