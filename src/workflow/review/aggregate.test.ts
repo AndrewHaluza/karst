@@ -465,6 +465,7 @@ describe('uatIdentitiesFrom', () => {
       exitCode,
       startedAt: null,
       endedAt: null,
+      skipped: false,
       ...identity,
     };
   }

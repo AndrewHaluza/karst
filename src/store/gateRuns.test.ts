@@ -246,4 +246,43 @@ describe('gate run evidence', () => {
     expect(run.repo).toBeNull();
     expect(run.command).toBeNull();
   });
+
+  it('records a skipped gate as skipped, with no exit code and no timing', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 1,
+      runAt: '2026-08-04T10:00:00.000Z',
+      gates: [{ gateName: 'e2e', exitCode: null, skipped: true }],
+    });
+    const [row] = listGateRuns(store, t.id);
+    expect(row!.skipped).toBe(true);
+    expect(row!.exitCode).toBeNull();
+    expect(row!.startedAt).toBeNull();
+    expect(row!.endedAt).toBeNull();
+  });
+
+  it('reads a gate that ran as not skipped', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 1,
+      runAt: '2026-08-04T10:00:00.000Z',
+      gates: [{ gateName: 'test', exitCode: 0 }],
+    });
+    expect(listGateRuns(store, t.id)[0]!.skipped).toBe(false);
+  });
+
+  it('reads a pre-v24 row (NULL skipped) as not skipped', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    store.db
+      .prepare(
+        `INSERT INTO gate_runs (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, skipped)
+         VALUES (?, 'uat', 1, '2026-08-04T10:00:00.000Z', 'test', 0, NULL)`,
+      )
+      .run(t.id);
+    expect(listGateRuns(store, t.id)[0]!.skipped).toBe(false);
+  });
 });

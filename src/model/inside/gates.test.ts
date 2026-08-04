@@ -32,6 +32,7 @@ function run(
     repo: null,
     command: null,
     args: null,
+    skipped: false,
     ...extra,
   };
 }

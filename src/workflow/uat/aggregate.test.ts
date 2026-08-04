@@ -112,6 +112,7 @@ describe('reviewIdentitiesFrom', () => {
       exitCode,
       startedAt: null,
       endedAt: null,
+      skipped: false,
       ...identity,
     };
   }
