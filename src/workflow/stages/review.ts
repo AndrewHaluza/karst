@@ -122,6 +122,11 @@ export async function runReview(
   // an entry, where an exit-code-null row reads as "the repo has no such
   // script". It is evidence, not a question that was asked.
   const skippedGates: GateRunInput[] = [];
+  // The BARE gate names, kept beside the evidence rows rather than recovered
+  // from them: a row's `gateName` is repo-decorated ("test (web)") because that
+  // is what identifies an invocation, and the block reason already parenthesizes
+  // the list — reusing it there nests the parentheses.
+  const skippedNames: string[] = [];
 
   /**
    * Write the log and commit the outcome with everything collected so far.
@@ -238,6 +243,7 @@ export async function runReview(
         args: gate.args,
         skipped: true,
       });
+      skippedNames.push(gate.name);
       sections.push(`# ${gate.name} (${label}, skipped)\ndisabled for this ticket`);
     }
 
@@ -321,7 +327,7 @@ export async function runReview(
       requireIndependentSignal:
         opts.manifest?.review?.requireIndependentSignal ?? DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
       findingsBlockingSeverity: blockingSeverity,
-      disabledGateNames: skippedGates.map((g) => g.gateName),
+      disabledGateNames: skippedNames,
     },
   );
   if (outcome.kind === 'blocked') {

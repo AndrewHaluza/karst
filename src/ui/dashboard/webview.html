@@ -908,8 +908,11 @@
   let worktreeStats = {};
   // The gates a ticket's stages would actually run, and their disabled flags.
   // Resolved async, host-side (a filesystem probe), so like worktreeStats it
-  // lives beside lastState rather than inside it and is cleared on every fresh
-  // state push, to be repopulated by the gate-options message that follows.
+  // lives beside lastState rather than inside it. Deliberately NOT cleared on a
+  // state push: a push is always followed by a gate-options message, and
+  // blanking the list in between would flicker the section empty on every
+  // unrelated refresh. The follow-up message replaces it wholesale — including
+  // with an empty list when resolution fails — so it cannot go stale unnoticed.
   let gateOptions = { uat: [], review: [] };
   // Ship-in-flight view state. `shipping` is set the instant the user clicks
   // Confirm ship — BEFORE any host round trip — so the click always registers

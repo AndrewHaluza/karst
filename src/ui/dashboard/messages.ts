@@ -257,9 +257,16 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
         ? { type: 'stage-resume', ticketId: m.ticketId as number, stageKey: m.stageKey }
         : null;
-    // Every field is required and typed here, at the trust boundary. A blank or
-    // oversized name drops the whole message rather than being trimmed into
-    // something the host would then match against a real gate.
+    // Every field is required and typed here, at the trust boundary: `stage` is
+    // narrowed to the closed `GATE_STAGES` set, and a blank or oversized name
+    // drops the whole message rather than reaching a store write.
+    //
+    // The name itself is stored VERBATIM — it is deliberately not checked
+    // against the resolved gate list. Resolution matches by exact name
+    // (`partitionDisabled`), so a name that no gate carries disables nothing;
+    // and a gate renamed in karst.yml must keep its stored entry rather than
+    // have it silently dropped, or renaming it back would lose the user's
+    // choice. Bounded, inert, and recoverable beats validated-and-forgotten.
     case 'set-disabled-gates': {
       const name = typeof m.name === 'string' ? m.name.trim() : '';
       return isGateStage(m.stage) &&
