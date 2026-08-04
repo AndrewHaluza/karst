@@ -395,6 +395,137 @@ describe('DashboardManager', () => {
     });
   });
 
+  describe('gate options', () => {
+    it('pushes gate options after the state push', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        async () => ({ uat: [{ name: 'e2e', disabled: true }], review: [] }),
+      );
+
+      mgr.openDashboard(t.id);
+
+      await vi.waitFor(() =>
+        expect(panels[0]!.posted).toContainEqual({
+          type: 'gate-options',
+          options: { uat: [{ name: 'e2e', disabled: true }], review: [] },
+        }),
+      );
+    });
+
+    it('does not post gate options to a panel that has been disposed', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const pending = deferred<{ uat: never[]; review: never[] }>();
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => pending.promise,
+      );
+
+      mgr.openDashboard(t.id);
+      panels[0]!.dispose();
+      pending.resolve({ uat: [], review: [] });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(panels[0]!.posted.some((p: any) => p.type === 'gate-options')).toBe(false);
+    });
+
+    it('never posts a stale gate-options result after a newer state push', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const resolvers: Array<(v: { uat: never[]; review: never[] }) => void> = [];
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => new Promise((r) => resolvers.push(r)),
+      );
+
+      mgr.openDashboard(t.id);
+      mgr.pushState(t.id);
+
+      resolvers[1]!({ uat: [], review: [] });
+      resolvers[0]!({ uat: [], review: [] });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(panels[0]!.posted.filter((p: any) => p.type === 'gate-options')).toHaveLength(1);
+    });
+
+    it('logs and posts nothing when gate resolution rejects', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const logged: unknown[] = [];
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store,
+        host,
+        () => ({}) as never,
+        undefined,
+        undefined,
+        undefined,
+        (m: string) => logged.push(m),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        async () => {
+          throw new Error('probe blew up');
+        },
+      );
+
+      mgr.openDashboard(t.id);
+
+      await vi.waitFor(() => expect(logged).toHaveLength(1));
+      expect(panels[0]!.posted.some((p: any) => p.type === 'gate-options')).toBe(false);
+    });
+  });
+
   describe('terminal binding', () => {
     const bind = (
       enabled: boolean,

@@ -13,6 +13,7 @@ import {
 } from './state.js';
 import { parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
+import type { GateOptionsLoader } from './gateOptions.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
@@ -89,6 +90,8 @@ export class DashboardManager {
   private readonly panels = new Map<number, DashboardPanel>();
   private readonly statsRequests = new Map<number, number>();
   private readonly statsControllers = new Map<number, AbortController>();
+  private readonly gateRequests = new Map<number, number>();
+  private readonly gateControllers = new Map<number, AbortController>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -143,6 +146,13 @@ export class DashboardManager {
      * than to a number that would misreport how many retries remain.
      */
     private readonly fixCapFor?: (gate: GateStageKey) => number,
+    /**
+     * Resolve this ticket's togglable gate names. Async and filesystem-touching,
+     * so it rides its own message rather than `DashboardState` — the same split
+     * `loadStats` uses, for the same reason. Absent → the Gates section stays
+     * empty, which is exactly the pre-feature panel.
+     */
+    private readonly loadGateOptions?: GateOptionsLoader,
   ) {}
 
   /**
@@ -196,9 +206,12 @@ export class DashboardManager {
     panel.onDidDispose(() => {
       if (this.panels.get(ticketId) !== panel) return;
       this.statsControllers.get(ticketId)?.abort();
+      this.gateControllers.get(ticketId)?.abort();
       this.panels.delete(ticketId);
       this.statsRequests.delete(ticketId);
       this.statsControllers.delete(ticketId);
+      this.gateRequests.delete(ticketId);
+      this.gateControllers.delete(ticketId);
     });
 
     this.refreshIcon(ticketId, panel);
@@ -238,6 +251,7 @@ export class DashboardManager {
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
     this.refreshIcon(ticketId, panel);
+    this.pushGateOptions(ticketId, panel);
   }
 
   /**
@@ -267,6 +281,34 @@ export class DashboardManager {
         if (this.statsRequests.get(ticketId) !== request) return;
         this.statsControllers.delete(ticketId);
         this.logError('karst: dashboard worktree stats failed', error);
+      },
+    );
+  }
+
+  /**
+   * Resolve and push the ticket's gate options. Only the latest request for a
+   * still-live panel may post — a slower earlier probe must never overwrite a
+   * newer answer, the same guard `pushWorktreeStats` carries.
+   */
+  private pushGateOptions(ticketId: number, panel: DashboardPanel): void {
+    if (!this.loadGateOptions) return;
+    this.gateControllers.get(ticketId)?.abort();
+    const controller = new AbortController();
+    this.gateControllers.set(ticketId, controller);
+    const request = (this.gateRequests.get(ticketId) ?? 0) + 1;
+    this.gateRequests.set(ticketId, request);
+    void this.loadGateOptions(ticketId, controller.signal).then(
+      (options) => {
+        if (this.panels.get(ticketId) !== panel) return;
+        if (this.gateRequests.get(ticketId) !== request) return;
+        this.gateControllers.delete(ticketId);
+        panel.postMessage({ type: 'gate-options', options });
+      },
+      (error) => {
+        if (this.panels.get(ticketId) !== panel) return;
+        if (this.gateRequests.get(ticketId) !== request) return;
+        this.gateControllers.delete(ticketId);
+        this.logError('karst: dashboard gate options failed', error);
       },
     );
   }
