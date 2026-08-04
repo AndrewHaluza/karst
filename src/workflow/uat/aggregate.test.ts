@@ -15,6 +15,38 @@ function entry(name: string, exitCode: number | null, identity: GateIdentity): A
   return { result: { name, exitCode, output: '' }, identity };
 }
 
+describe('aggregateUat — disabled gates never reach the aggregator as an entry', () => {
+  it('passes on the gates that ran, unaffected by how many were disabled', () => {
+    // Task 6/7 keep a skipped gate OUT of `entries` entirely — this pins that a
+    // caller passing only the disabled NAMES (never a skipped entry) still
+    // reaches an ordinary pass off the gate that actually ran.
+    const outcome = aggregateUat([entry('test', 0, npmTest)], [], ['e2e']);
+    expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
+  });
+
+  it('still blocks when nothing ran and nothing was disabled', () => {
+    expect(aggregateUat([], [], [])).toEqual({
+      kind: 'blocked',
+      blocker: 'nothing-to-run',
+      reason: 'no gates resolved for this ticket',
+    });
+  });
+
+  it('still blocks — never a pass — when every gate was disabled, naming the disable', () => {
+    const outcome = aggregateUat([], [], ['test', 'e2e']);
+    expect(outcome).toEqual({
+      kind: 'blocked',
+      blocker: 'nothing-to-run',
+      reason: 'all gates disabled by user for this ticket (test, e2e)',
+    });
+  });
+
+  it('still blocks when a gate resolved, none ran, and a DIFFERENT gate was disabled', () => {
+    const outcome = aggregateUat([entry('test', null, npmTest)], [], ['e2e']);
+    expect(outcome.kind).toBe('blocked');
+  });
+});
+
 describe('aggregateUat', () => {
   it('passes when every gate that ran exits 0 and one identity is independent', () => {
     const out = aggregateUat([entry('e2e', 0, npmE2e)], [npmTest]);

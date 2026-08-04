@@ -68,6 +68,14 @@ export interface AggregateReviewOpts {
    * ticket. Otherwise a finding at or above this severity fails review.
    */
   findingsBlockingSeverity: Severity | 'none';
+  /**
+   * The gate names this ticket switched off. Not evidence — the skipped rows in
+   * `gate_runs` are — but the one fact that lets R3's block NAME why nothing
+   * ran: "the repository offered nothing" vs "the user disabled everything
+   * that was offered". Both are still blocks; a per-ticket disable does not
+   * soften R3, it only names it correctly.
+   */
+  disabledGateNames?: readonly string[];
 }
 
 /**
@@ -223,12 +231,25 @@ export function uatIdentitiesFrom(runs: readonly GateRun[]): GateIdentity[] {
  */
 export function gatesOutcomeBeforeFindings(
   entries: readonly AggregateEntry[],
+  /**
+   * The gate names this ticket switched off (`AggregateReviewOpts.disabledGateNames`).
+   * Only changes the WORDING of the R3 block when NO entry resolved at all —
+   * it never turns the block into a pass.
+   */
+  disabledNames: readonly string[] = [],
 ): AggregateOutcome | null {
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
   // R3 — nothing answered. Not a pass: converting "asked nothing" into green is
   // the bug this design exists to close.
   if (ran.length === 0) {
+    if (entries.length === 0 && disabledNames.length > 0) {
+      return {
+        kind: 'blocked',
+        blocker: 'nothing-to-run',
+        reason: `all gates disabled by user for this ticket (${disabledNames.join(', ')})`,
+      };
+    }
     return {
       kind: 'blocked',
       blocker: 'nothing-to-run',
@@ -311,7 +332,7 @@ export function aggregateReview(
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
   // R3/R4/R5 — see `gatesOutcomeBeforeFindings`.
-  const gateOutcome = gatesOutcomeBeforeFindings(entries);
+  const gateOutcome = gatesOutcomeBeforeFindings(entries, opts.disabledGateNames ?? []);
   if (gateOutcome) return gateOutcome;
 
   // R6 — findings. `not-run` (disabled, or the lane was skipped because R3–R5
