@@ -847,7 +847,9 @@ describe('openStore', () => {
     expect(
       migrated.db.prepare('SELECT pid, status, cwd FROM servers WHERE ticket_id = 1').get(),
     ).toEqual({ pid: 4242, status: 'running', cwd: null });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(21);
+    // The FINAL version, not 21: `openStore` runs every pending step, so a
+    // legacy DB lands at SCHEMA_VERSION whichever step this case exercises.
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(24);
   });
 
   // Nothing reads `servers` by position — every query in the codebase names its
@@ -920,7 +922,9 @@ describe('openStore', () => {
       command: null,
       args: null,
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(22);
+    // The FINAL version, not 22: `openStore` runs every pending step, so a
+    // legacy DB lands at SCHEMA_VERSION whichever step this case exercises.
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(24);
 
     // Idempotence: reopening an already-migrated DB must not error or re-alter.
     migrated.close();
@@ -934,7 +938,7 @@ describe('openStore', () => {
     expect(reopenedCols.has('repo')).toBe(true);
     expect(reopenedCols.has('command')).toBe(true);
     expect(reopenedCols.has('args')).toBe(true);
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(22);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(24);
   });
 
   it('migrates a v22 DB to v23, adding review_findings without touching other tables', () => {
