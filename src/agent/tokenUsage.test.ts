@@ -48,11 +48,44 @@ describe('extractTokenUsage', () => {
 
   it('reads usage out of a JSONL stream where it is never the first line', () => {
     const usage = extractTokenUsage(CODEX_JSONL);
-    expect(usage?.inputTokens).toBe(200);
+    // `cached_input_tokens` is a SUBSET of `input_tokens` in this dialect, so
+    // the fresh input is 150 and the run cost 200 prompt tokens, not 250.
+    expect(usage?.inputTokens).toBe(150);
     expect(usage?.outputTokens).toBe(25);
     expect(usage?.cacheReadTokens).toBe(50);
-    expect(usage?.totalTokens).toBe(275);
+    expect(usage?.totalTokens).toBe(225);
     expect(usage?.estimated).toBe(false);
+  });
+
+  it('keeps a DISJOINT cache count whole — Anthropic does not fold it into input', () => {
+    // The same numbers under the other dialect: `cache_read_input_tokens` sits
+    // beside `input_tokens`, so nothing is subtracted and the total is larger.
+    const usage = extractTokenUsage(
+      '{"usage":{"input_tokens":200,"cache_read_input_tokens":50,"output_tokens":25}}',
+    );
+    expect(usage?.inputTokens).toBe(200);
+    expect(usage?.cacheReadTokens).toBe(50);
+    expect(usage?.totalTokens).toBe(275);
+  });
+
+  it('never lets an inclusive cache count drive fresh input negative', () => {
+    // A malformed or renormalized report must not produce a negative count that
+    // would subtract from a ticket's spend.
+    const usage = extractTokenUsage('{"usage":{"input_tokens":10,"cached_input_tokens":40}}');
+    expect(usage?.inputTokens).toBe(0);
+    expect(usage?.cacheReadTokens).toBe(40);
+    expect(usage?.totalTokens).toBe(40);
+  });
+
+  it('trusts a provider total over the inclusion rule it cannot see', () => {
+    // codex reports `total_tokens` as input + output with input INCLUSIVE of the
+    // cached part, i.e. exactly the number the subtraction reconstructs. When a
+    // provider states a total it is kept verbatim, so the two never disagree.
+    const usage = extractTokenUsage(
+      '{"usage":{"input_tokens":200,"cached_input_tokens":50,"output_tokens":25,"total_tokens":225}}',
+    );
+    expect(usage?.inputTokens).toBe(150);
+    expect(usage?.totalTokens).toBe(225);
   });
 
   it('sums usage across the turns of one JSONL run', () => {

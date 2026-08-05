@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_USAGE_LIMIT,
   DEFAULT_USAGE_RANGE,
+  DEFAULT_USAGE_SORT,
   type UsageSort,
 } from '../../store/tokenUsageQuery.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
@@ -54,7 +55,7 @@ export interface UsagePanelDeps {
 export class UsagePanelManager {
   private panel: UsagePanel | undefined;
   private rangeId: string = DEFAULT_USAGE_RANGE;
-  private sort: UsageSort = 'total';
+  private sort: UsageSort = DEFAULT_USAGE_SORT;
   private offset = 0;
 
   constructor(
