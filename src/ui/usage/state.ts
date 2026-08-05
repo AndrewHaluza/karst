@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_USAGE_LIMIT,
   DEFAULT_USAGE_RANGE,
+  DEFAULT_USAGE_SORT,
   parseUsageQuery,
   resolveUsageRange,
   USAGE_RANGES,
@@ -32,7 +33,7 @@ import { formatExactTokens, formatTokens, shareOfTotal } from '../../model/token
  * nothing", which is the one wrong answer this view must never give.
  */
 
-/** A formatted row of the by-stage / by-model breakdowns. */
+/** A formatted row of the by-call-site / by-model breakdowns. */
 export interface UsageBreakdownRow {
   key: string;
   label: string;
@@ -40,9 +41,16 @@ export interface UsageBreakdownRow {
   totalTokens: number;
   totalDisplay: string;
   totalExact: string;
+  /** The same spend in input-equivalents (`store/tokenWeights.ts`). */
+  effectiveDisplay: string;
+  effectiveExact: string;
   inputDisplay: string;
   outputDisplay: string;
-  /** Percentage of the range's total tokens, 0–100. Drives the bar width. */
+  /**
+   * Percentage of the range's EFFECTIVE total, 0–100. Drives the bar width, and
+   * it is the effective total on purpose: the rows are ranked on that number, so
+   * a bar sized off the raw sum would contradict the order it sits in.
+   */
   share: number;
   /** True when every call in this group had estimated counts. */
   estimated: boolean;
@@ -58,6 +66,8 @@ export interface UsageTicketRowView {
   totalTokens: number;
   totalDisplay: string;
   totalExact: string;
+  effectiveDisplay: string;
+  effectiveExact: string;
   inputDisplay: string;
   outputDisplay: string;
   /** Last call in range, ISO-8601 — the webview renders it as a local date. */
@@ -70,6 +80,8 @@ export interface UsageTotalsView {
   calls: number;
   totalDisplay: string;
   totalExact: string;
+  effectiveDisplay: string;
+  effectiveExact: string;
   inputDisplay: string;
   outputDisplay: string;
   cacheReadDisplay: string;
@@ -86,7 +98,14 @@ export interface UsageState {
   sort: UsageSort;
   sorts: { id: UsageSort; label: string }[];
   totals: UsageTotalsView;
-  byStage: UsageBreakdownRow[];
+  /**
+   * Spend per AI call site. NOT per workflow stage — karst meters its own
+   * headless calls (`agent/instrumentedAdapter.ts`) and nothing else, so the
+   * agent session a human drives in the terminal is absent by construction. The
+   * field was called `byStage` and the panel said "By stage", which read as
+   * "implementation cost nothing" rather than "implementation is not measured".
+   */
+  byCallSite: UsageBreakdownRow[];
   byModel: UsageBreakdownRow[];
   tickets: UsageTicketRowView[];
   page: { offset: number; limit: number; groups: number; hasPrev: boolean; hasNext: boolean };
@@ -106,6 +125,7 @@ export interface UsageStateInput {
 }
 
 const SORT_LABELS: Record<UsageSort, string> = {
+  effective: 'Effective tokens',
   total: 'Total tokens',
   input: 'Input tokens',
   output: 'Output tokens',
@@ -117,6 +137,8 @@ const EMPTY_TOTALS: UsageTotalsView = {
   calls: 0,
   totalDisplay: '0',
   totalExact: '0',
+  effectiveDisplay: '0',
+  effectiveExact: '0',
   inputDisplay: '0',
   outputDisplay: '0',
   cacheReadDisplay: '0',
@@ -148,9 +170,11 @@ function breakdown(
     totalTokens: row.totalTokens,
     totalDisplay: formatTokens(row.totalTokens),
     totalExact: formatExactTokens(row.totalTokens),
+    effectiveDisplay: formatTokens(row.effectiveTokens),
+    effectiveExact: formatExactTokens(row.effectiveTokens),
     inputDisplay: formatTokens(row.inputTokens),
     outputDisplay: formatTokens(row.outputTokens),
-    share: shareOfTotal(row.totalTokens, total),
+    share: shareOfTotal(row.effectiveTokens, total),
     estimated: row.calls > 0 && row.estimatedCalls === row.calls,
   }));
 }
@@ -161,6 +185,8 @@ function totalsView(stats: TokenUsageStats): UsageTotalsView {
     calls: t.calls,
     totalDisplay: formatTokens(t.totalTokens),
     totalExact: formatExactTokens(t.totalTokens),
+    effectiveDisplay: formatTokens(t.effectiveTokens),
+    effectiveExact: formatExactTokens(t.effectiveTokens),
     inputDisplay: formatTokens(t.inputTokens),
     outputDisplay: formatTokens(t.outputTokens),
     cacheReadDisplay: formatTokens(t.cacheReadTokens),
@@ -179,7 +205,7 @@ function base(rangeId: string, sort: UsageSort, offset: number, limit: number): 
     sort,
     sorts: USAGE_SORTS.map((id) => ({ id, label: SORT_LABELS[id] })),
     totals: EMPTY_TOTALS,
-    byStage: [],
+    byCallSite: [],
     byModel: [],
     tickets: [],
     page: { offset, limit, groups: 0, hasPrev: offset > 0, hasNext: false },
@@ -195,7 +221,7 @@ function base(rangeId: string, sort: UsageSort, offset: number, limit: number): 
  */
 export function buildUsageState(store: Store, input: UsageStateInput = {}): UsageState {
   const rangeId = input.rangeId ?? DEFAULT_USAGE_RANGE;
-  const sort = input.sort ?? 'total';
+  const sort = input.sort ?? DEFAULT_USAGE_SORT;
   const offset = input.offset ?? 0;
   const limit = input.limit ?? DEFAULT_USAGE_LIMIT;
   const now = input.now?.() ?? new Date();
@@ -212,13 +238,14 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   if (!parsed.ok) return { ...base(rangeId, sort, offset, limit), error: parsed.error };
 
   const stats = queryTokenUsageStats(store, parsed.query);
-  const total = stats.totals.totalTokens;
+  // Shares are of the effective total, matching the order the rows arrive in.
+  const total = stats.totals.effectiveTokens;
 
   return {
     ...base(rangeId, sort, offset, limit),
     empty: stats.totals.calls === 0,
     totals: totalsView(stats),
-    byStage: breakdown(stats.byCallSite, total, aiCallSiteLabel),
+    byCallSite: breakdown(stats.byCallSite, total, aiCallSiteLabel),
     byModel: breakdown(stats.byModel, total, modelLabel),
     tickets: stats.byTicket.map((row) => ({
       ticketId: row.ticketId,
@@ -228,10 +255,12 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
       totalTokens: row.totalTokens,
       totalDisplay: formatTokens(row.totalTokens),
       totalExact: formatExactTokens(row.totalTokens),
+      effectiveDisplay: formatTokens(row.effectiveTokens),
+      effectiveExact: formatExactTokens(row.effectiveTokens),
       inputDisplay: formatTokens(row.inputTokens),
       outputDisplay: formatTokens(row.outputTokens),
       lastAt: row.lastAt,
-      share: shareOfTotal(row.totalTokens, total),
+      share: shareOfTotal(row.effectiveTokens, total),
       estimated: row.calls > 0 && row.estimatedCalls === row.calls,
     })),
     page: {

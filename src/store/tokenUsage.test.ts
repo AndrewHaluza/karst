@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { recordTokenUsage, queryTokenUsageStats, EMPTY_USAGE_TOTALS } from './tokenUsage.js';
 import { parseUsageQuery, type UsageQuery } from './tokenUsageQuery.js';
+import { effectiveTokens } from './tokenWeights.js';
 
 function query(overrides: Partial<UsageQuery> = {}): UsageQuery {
   const parsed = parseUsageQuery(overrides);
@@ -136,6 +137,7 @@ describe('queryTokenUsageStats', () => {
       cacheReadTokens: 100,
       cacheWriteTokens: 3,
       totalTokens: 145,
+      effectiveTokens: effectiveTokens({ input: 30, output: 12, cacheRead: 100, cacheWrite: 3 }),
       estimatedCalls: 0,
       erroredCalls: 0,
     });
@@ -310,5 +312,63 @@ describe('queryTokenUsageStats', () => {
       .map((r) => (r as { detail: string }).detail)
       .join(' ');
     expect(plan).toMatch(/USING INDEX idx_token_usage/);
+  });
+});
+
+describe('effective (weighted) tokens', () => {
+  it('weights each count kind rather than summing them flat', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ input: 100, output: 100, cacheRead: 100, cacheWrite: 100 });
+    const stats = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(stats.totals.totalTokens).toBe(400);
+    expect(stats.totals.effectiveTokens).toBe(
+      effectiveTokens({ input: 100, output: 100, cacheRead: 100, cacheWrite: 100 }),
+    );
+  });
+
+  it('agrees with the JS reader on every grouping', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ callSite: 'pr-description', input: 20, output: 3000, cacheRead: 900_000, cacheWrite: 70_000 });
+    seed({ callSite: 'ticket-analysis', input: 2, output: 800, cacheRead: 17_000, cacheWrite: 27_000 });
+    const stats = queryTokenUsageStats(store, query({ projectId: 1 }));
+    const expected = (r: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }) =>
+      effectiveTokens({
+        input: r.inputTokens,
+        output: r.outputTokens,
+        cacheRead: r.cacheReadTokens,
+        cacheWrite: r.cacheWriteTokens,
+      });
+    for (const row of [...stats.byCallSite, ...stats.byModel, ...stats.byTicket, stats.totals]) {
+      expect(row.effectiveTokens).toBe(expected(row));
+    }
+  });
+
+  it('orders the breakdowns by effective tokens, not by the raw sum', () => {
+    ticket(1, 'K-1', 'One');
+    // Cache-heavy: biggest raw total, cheapest in input-equivalents.
+    seed({ callSite: 'review-findings', input: 0, output: 0, cacheRead: 1_000_000, cacheWrite: 0 });
+    // Write-heavy: smaller raw total, more expensive.
+    seed({ callSite: 'ticket-analysis', input: 0, output: 0, cacheRead: 0, cacheWrite: 200_000 });
+    const stats = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(stats.byCallSite.map((r) => r.key)).toEqual(['ticket-analysis', 'review-findings']);
+  });
+
+  it('sorts the per-ticket page by effective tokens when asked', () => {
+    ticket(1, 'K-1', 'Cache heavy');
+    ticket(2, 'K-2', 'Write heavy');
+    seed({ ticketId: 1, input: 0, output: 0, cacheRead: 1_000_000, cacheWrite: 0 });
+    seed({ ticketId: 2, input: 0, output: 0, cacheRead: 0, cacheWrite: 200_000 });
+    expect(
+      queryTokenUsageStats(store, query({ projectId: 1, sort: 'total' })).byTicket.map((r) => r.ticketId),
+    ).toEqual([1, 2]);
+    expect(
+      queryTokenUsageStats(store, query({ projectId: 1, sort: 'effective' })).byTicket.map((r) => r.ticketId),
+    ).toEqual([2, 1]);
+  });
+
+  it('reports 0 effective tokens for an empty range, never NULL', () => {
+    const stats = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(stats.totals.effectiveTokens).toBe(0);
+    expect(EMPTY_USAGE_TOTALS.effectiveTokens).toBe(0);
   });
 });

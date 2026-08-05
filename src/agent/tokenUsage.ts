@@ -11,7 +11,13 @@
  * keys wherever they sit — and one extractor keeps the numbers comparable
  * across cores instead of one dialect per adapter.
  *
- * Two rules make the stored numbers trustworthy:
+ * Three rules make the stored numbers trustworthy:
+ * - the four counts are DISJOINT once they leave here, and the two dialects do
+ *   not agree on that going in: Anthropic reports `cache_read_input_tokens`
+ *   beside an `input_tokens` that excludes it, while codex/OpenAI report
+ *   `cached_input_tokens` as a subset of theirs. Reading both as disjoint counted
+ *   every codex cache hit twice — at full price AND as a hit — so an inclusive
+ *   report has its cached part peeled back out of `input`;
  * - a provider total wins over a derived one, and a CUMULATIVE report (a running
  *   tally re-sent every event, as `total_token_usage`) is taken as-is rather
  *   than summed — summing a tally inflates the ticket's cost silently;
@@ -49,13 +55,22 @@ const OUTPUT_KEYS = [
   'completion_tokens',
   'completionTokens',
 ] as const;
-const CACHE_READ_KEYS = [
+/**
+ * Cache reads reported BESIDE the input count (Anthropic): `input_tokens`
+ * already excludes them, so they are added.
+ */
+const CACHE_READ_DISJOINT_KEYS = [
   'cache_read_input_tokens',
   'cacheReadInputTokens',
-  'cached_input_tokens',
-  'cachedInputTokens',
   'cache_read_tokens',
 ] as const;
+/**
+ * Cache reads reported as a SUBSET of the input count (codex/OpenAI): the cached
+ * part is already inside `input_tokens`. Read as disjoint they are counted
+ * twice — once at full price and once again as a cache hit — which inflates
+ * every codex run's prompt side by exactly the part that was cheapest.
+ */
+const CACHE_READ_INCLUSIVE_KEYS = ['cached_input_tokens', 'cachedInputTokens'] as const;
 const CACHE_WRITE_KEYS = [
   'cache_creation_input_tokens',
   'cacheCreationInputTokens',
@@ -86,7 +101,9 @@ function count(record: Record<string, unknown>, keys: readonly string[]): number
 function readCounts(record: Record<string, unknown>): Counts | null {
   const input = count(record, INPUT_KEYS);
   const output = count(record, OUTPUT_KEYS);
-  const cacheRead = count(record, CACHE_READ_KEYS);
+  const disjointRead = count(record, CACHE_READ_DISJOINT_KEYS);
+  const inclusiveRead = count(record, CACHE_READ_INCLUSIVE_KEYS);
+  const cacheRead = disjointRead ?? inclusiveRead;
   const cacheWrite = count(record, CACHE_WRITE_KEYS);
   const total = count(record, TOTAL_KEYS);
   if (
@@ -98,8 +115,15 @@ function readCounts(record: Record<string, unknown>): Counts | null {
   ) {
     return null;
   }
+  // An inclusive report's input already contains its cache read; peel it back
+  // out so the four counts are disjoint everywhere downstream. Never below zero
+  // — a count that contradicts itself must not subtract from a ticket's spend.
+  const freshInput =
+    disjointRead === undefined && inclusiveRead !== undefined
+      ? Math.max(0, (input ?? 0) - inclusiveRead)
+      : (input ?? 0);
   return {
-    input: input ?? 0,
+    input: freshInput,
     output: output ?? 0,
     cacheRead: cacheRead ?? 0,
     cacheWrite: cacheWrite ?? 0,
