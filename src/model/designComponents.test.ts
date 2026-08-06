@@ -100,6 +100,25 @@ describe('design system components', () => {
     expect(CSS, 'the badge treatment still reaches rows').toContain('.k-btn.is-success:not(.k-btn--row)');
   });
 
+  it('keeps a row from shifting on click (UI-R12)', () => {
+    const row = (CSS.match(/^\.k-btn--row[^{}]*\{[^}]*\}/gm) ?? []).join('\n');
+    // A row is a full-width list item; the compact-button scale effect shifts
+    // the whole row on mousedown. `:not(:disabled)` must survive so the rule
+    // still wins the specificity tie with the generic `.k-btn:active`.
+    expect(row, 'the row still scales on :active').toContain('.k-btn--row:active:not(:disabled){transform:none}');
+  });
+
+  it('gives every row the generic ::before pending spinner (UI-R11)', () => {
+    // The diffs view's file rows are `.k-btn--row` and their ONLY pending
+    // indicator is the generic `::before` spinner (re-positioned locally into
+    // the rail cell). A busy-suppression must live in the sidebar's own CSS,
+    // scoped to `.rowopen` — never here on `.k-btn--row`, or the diffs view
+    // would show a busy row with no spinner and a hidden status letter.
+    const busy = rulesFor('.k-btn');
+    expect(busy, 'the generic spinner rule is gone').toContain('.k-btn[aria-busy="true"]::before{');
+    expect(CSS, 'the DS suppresses the row spinner').not.toContain('.k-btn--row[aria-busy="true"]::before{content:none}');
+  });
+
   it('keeps every pointer target at or above the WCAG minimum (UI-R29)', () => {
     const icon = rulesFor('.k-iconbtn');
     expect(icon).toContain('var(--k-hit-min)');

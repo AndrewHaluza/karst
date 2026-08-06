@@ -56,17 +56,28 @@
   .rowopen.is-success{background:transparent}
   /* The pending spinner replaces only the status dot — not the whole glyph —
      so the karst mark stays visible and the row never shifts. The dot hides
-     and a same-size spinner takes its place (same absolute position).
-     Toggled by the MutationObserver below via .g-spinning on the glyph. */
+     and a same-size spinner takes its place (same absolute position). */
   .glyph .sdot-spin{
     display:none;position:absolute;right:calc(-1 * var(--k-space-2));bottom:calc(-1 * var(--k-space-2));
     width:var(--k-space-3);height:var(--k-space-3);
     border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
     border-radius:var(--k-radius-circle);animation:k-spin var(--k-dur-spin) linear infinite}
-  .glyph.g-spinning .sdot{display:none}
-  .glyph.g-spinning .sdot-spin{display:block}
+  /* The rowopen control IS the button that carries aria-busy (karstBeginPending),
+     and the glyph lives inside it — so the spinner swap is pure CSS on that
+     state, no MutationObserver needed. */
+  .rowopen[aria-busy="true"] .glyph .sdot{display:none}
+  .rowopen[aria-busy="true"] .glyph .sdot-spin{display:block}
+  /* The sidebar's rows spin their OWN dot — the generic `.k-btn[aria-busy]::before`
+     spinner (a leading flex icon) must not push the glyph aside as well. Scoped
+     to `.rowopen`, never `.k-btn--row`: the diffs view's file rows share that
+     class and their ONLY pending indicator is the generic ::before spinner. */
+  .rowopen[aria-busy="true"]::before{content:none}
 
-  .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  /* Override .k-iconbtn padding — the prototype chevron has zero inset. The
+     min-width/min-height stay at the .k-iconbtn defaults (--k-hit-min) so the
+     expand/collapse target keeps its WCAG 2.5.8 size (UI-R29). */
+  .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard);
+    padding:0}
   .ticket.open .chev{transform:rotate(90deg)}
 
   /* The row's main click target — opens the ticket dashboard. A real <button>
@@ -328,24 +339,6 @@
         + `</div></div>`;
     }).join('');
   }
-
-  // Sync the glyph spinner with aria-busy on the row open control.
-  // karstBeginPending/karstSettle toggle aria-busy; when busy, the status dot
-  // hides and a same-size spinner takes its place (no row shift).
-  new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      if (m.attributeName !== 'aria-busy') continue;
-      const rowEl = m.target.closest('.row');
-      if (!rowEl) continue;
-      const glyph = rowEl.querySelector('.glyph');
-      if (!glyph) continue;
-      if (m.target.getAttribute('aria-busy') === 'true') {
-        glyph.classList.add('g-spinning');
-      } else {
-        glyph.classList.remove('g-spinning');
-      }
-    }
-  }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['aria-busy'] });
 
   // ---- interactions ----
   let searchTimer;
