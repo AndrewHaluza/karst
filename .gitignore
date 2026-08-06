@@ -10,6 +10,11 @@ coverage/
 # Generated Codex lifecycle bridge. Repository-owned files elsewhere under
 # `.codex/` remain trackable.
 .codex/karst/
+# Generated Opencode bridge plugin — written at launch with a per-session hook
+# endpoint, so a committed copy carries a dead port + launch id and conflicts
+# with every worktree's regenerated one. Rule carries no trailing slash for the
+# same reason (see src/runtime/karstExcludes.ts).
+.opencode/plugins/karst-*
 # Materialized at launch by ClaudeAdapter.materializeApproach — a build product
 # of the approach package, never a source.
 .karst-plugin/
