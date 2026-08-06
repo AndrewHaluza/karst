@@ -88,14 +88,15 @@ describe('approach install → uninstall → reinstall cycle', () => {
     const base = makeDir('karst-approaches-');
     await installApproach(DEF, { fetchFn: fetchSkill('# v1'), baseDir: base, runCommand: noopRunCommand });
 
-    const { pkg, extraArgs } = launchContribution(base, DEF.id);
+    const { prompt, pkg, extraArgs } = launchContribution(base, DEF.id);
     expect(pkg?.entrypoint).toBe('writing-plans');
     expect(pkg?.artifacts).toContainEqual({
       kind: 'skill',
       relPath: 'skills/writing-plans/SKILL.md',
     });
-    // A skill-entrypoint approach has no `prompts/<entrypoint>.md` by design, so
-    // the launch's whole contribution is the materialized plugin dir.
+    // A skill-entrypoint approach resolves via the skills/ fallback (no flat
+    // prompts/ file), so the session gets both the method prompt and the plugin.
+    expect(prompt).toBe('# v1');
     expect(extraArgs).toContain('--plugin-dir');
   });
 

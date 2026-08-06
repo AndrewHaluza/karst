@@ -200,6 +200,17 @@ interface TrackedSession {
 export class SessionManager {
   private readonly terminals = new Map<number, TrackedSession>();
   private readonly cleanupByTerminal = new WeakMap<SessionTerminal, () => void>();
+  /**
+   * Handles of terminals karst disposed that may still appear in VS Code's
+   * `window.terminals` list during the async cleanup gap, keyed by ticket id
+   * to the exact disposed handle. Prevents `adoptRevivedSession` from
+   * re-adopting a terminal karst just disposed (race: agent core switch
+   * disposes the old terminal, then `openSession` picks it back up before VS
+   * Code removes it from the list). Keyed to the handle so only that
+   * terminal's own close releases it — a newer session closing first must not
+   * clear the guard while the disposed tab is still listed.
+   */
+  private readonly recentlyDisposed = new Map<number, SessionTerminal>();
 
   constructor(
     private readonly host: TerminalHost,
@@ -252,6 +263,13 @@ export class SessionManager {
       // is still current may clear the ticket or announce that its session ended.
       const wasCurrent = this.terminals.get(ticketId)?.terminal === terminal;
       if (wasCurrent) this.terminals.delete(ticketId);
+      // Once VS Code delivers the close event the terminal is gone from
+      // `window.terminals`, so the recently-disposed guard is no longer needed
+      // — but only the guarded terminal's own close may release it. A newer
+      // session's close delivering first still leaves the disposed tab listed.
+      if (this.recentlyDisposed.get(ticketId) === terminal) {
+        this.recentlyDisposed.delete(ticketId);
+      }
       try {
         // Materialized paths are ticket-scoped and a retry may reuse them. A
         // delayed close from the retired handle must not delete assets now owned
@@ -430,6 +448,11 @@ export class SessionManager {
    * needed, only proof that the tab is this ticket's and still running.
    */
   private adoptRevivedSession(ticketId: number): TrackedSession | undefined {
+    // After a karst-initiated disposal (e.g. agent core switch), VS Code may
+    // still list the terminal in `window.terminals` before its async cleanup
+    // removes it. Skip it so we create a fresh terminal instead of adopting
+    // one whose `.show()` would throw "Terminal has already been disposed".
+    if (this.recentlyDisposed.has(ticketId)) return undefined;
     for (const session of this.host.restoredSessions?.() ?? []) {
       if (session.ticketId !== ticketId || session.exited) continue;
       this.trackTerminal(ticketId, session.terminal, session.launchId);
@@ -492,6 +515,10 @@ export class SessionManager {
   disposeSession(ticketId: number): void {
     const tracked = this.terminals.get(ticketId);
     if (!tracked) return;
+    // Mark the ticket before removing it from the map so that a concurrent
+    // `adoptRevivedSession` call (during the async gap of an agent core
+    // switch) does not re-adopt the terminal VS Code has not yet cleaned up.
+    this.recentlyDisposed.set(ticketId, tracked.terminal);
     try {
       // Release this launch's assets while it still owns the ticket slot. A
       // retry can safely reuse the same paths as soon as this method returns.
