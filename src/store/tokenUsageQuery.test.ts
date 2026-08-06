@@ -29,15 +29,8 @@ describe('parseUsageQuery', () => {
       to: null,
       limit: DEFAULT_USAGE_LIMIT,
       offset: 0,
-      // Effective, not raw: an unsorted view must not rank by how many cached
-      // turns a call took (see `tokenWeights.ts`).
-      sort: 'effective',
+      sort: 'total',
     });
-  });
-
-  it('offers effective tokens as a sort key', () => {
-    expect(USAGE_SORTS).toContain('effective');
-    expect(ok({ sort: 'effective' }).sort).toBe('effective');
   });
 
   it('accepts a well-formed query', () => {

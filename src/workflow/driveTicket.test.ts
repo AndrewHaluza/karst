@@ -361,4 +361,42 @@ describe('driveTicket', () => {
 
     expect(runSignal?.aborted).toBe(false);
   });
+
+  it('threads onGateComplete to the uat runner, wired to onProgress', async () => {
+    let receivedOnGateComplete: unknown = 'unset';
+    const progressCalls: string[] = [];
+
+    await driveTicket(deps({ onProgress: (_id, stage, status) => progressCalls.push(`${stage}:${status}`) }), id, {
+      runUat: async (s, opts) => {
+        receivedOnGateComplete = opts.onGateComplete;
+        // Simulate a gate completing by invoking the callback.
+        opts.onGateComplete?.('test');
+        return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+      },
+      runReview: async (s, opts) => ({
+        kind: 'advanced',
+        next: transition(s, opts.ticketId, 'review', { kind: 'passed' }),
+      }),
+    });
+
+    expect(receivedOnGateComplete).toBeTypeOf('function');
+    expect(progressCalls).toContain('uat:running');
+  });
+
+  it('threads onGateComplete to the review runner', async () => {
+    let receivedOnGateComplete: unknown = 'unset';
+
+    await driveTicket(deps(), id, {
+      runUat: async (s, opts) => ({
+        kind: 'advanced',
+        next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }),
+      }),
+      runReview: async (s, opts) => {
+        receivedOnGateComplete = opts.onGateComplete;
+        return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+      },
+    });
+
+    expect(receivedOnGateComplete).toBeTypeOf('function');
+  });
 });

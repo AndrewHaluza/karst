@@ -4,7 +4,6 @@ import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './panel.js';
 import type { UsageHostMessage } from './messages.js';
 import type { UsageState } from './state.js';
-import { DEFAULT_USAGE_SORT } from '../../store/tokenUsageQuery.js';
 
 let store: Store;
 
@@ -124,14 +123,6 @@ describe('UsagePanelManager', () => {
 
     panel.emit({ type: 'set-sort', sort: 'calls' });
     expect(lastState(panel).sort).toBe('calls');
-  });
-
-  it('opens on the store’s default sort rather than pinning its own', () => {
-    const host = fakeHost();
-    new UsagePanelManager(store, host, { projectId: () => 1, now: NOW }).open();
-    // A second default here would silently outrank the one the query layer
-    // states, and this one was 'total' — the ranking the ticket was about.
-    expect(lastState(host.panels[0]!).sort).toBe(DEFAULT_USAGE_SORT);
   });
 
   it('resets the page when the range or sort changes — the old offset can be past the end', () => {

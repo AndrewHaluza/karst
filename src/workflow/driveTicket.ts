@@ -149,6 +149,7 @@ export async function driveTicket(
             artifactDir: deps.artifactDirFor(id),
             manifest: deps.manifest(),
             signal: controller.signal,
+            onGateComplete: () => deps.onProgress(id, 'uat', 'running'),
           }),
         // `runReview` reports its own StageRunResult too, so it is passed
         // through verbatim for the same reason: a park re-labelled 'advanced'
@@ -164,6 +165,7 @@ export async function driveTicket(
               artifactDir: deps.artifactDirFor(id),
               manifest: deps.manifest(),
               signal: controller.signal,
+              onGateComplete: () => deps.onProgress(id, 'review', 'running'),
             },
             { openDiff: deps.openDiff, findingsAdapter: deps.agentAdapter?.(id), warn: deps.warn },
           ),

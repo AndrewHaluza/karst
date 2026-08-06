@@ -1,7 +1,6 @@
 import type { Store } from './db.js';
 import type { TokenUsage } from '../agent/tokenUsage.js';
 import type { UsageQuery, UsageSort } from './tokenUsageQuery.js';
-import { effectiveTokensSql } from './tokenWeights.js';
 
 /**
  * Append and aggregate the token-usage ledger (§ token consumption stats).
@@ -28,14 +27,7 @@ export interface UsageTotals {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
-  /** The provider's raw sum of the four counts above. Never weighted. */
   totalTokens: number;
-  /**
-   * The same spend in input-equivalent tokens (`tokenWeights.ts`). This is what
-   * a view should rank on; `totalTokens` is what it should show beside it so the
-   * weighting stays checkable.
-   */
-  effectiveTokens: number;
   /** Calls whose counts were estimated because the core reported none. */
   estimatedCalls: number;
   /** Calls that failed. The tokens were still spent, so they still count. */
@@ -75,7 +67,6 @@ export const EMPTY_USAGE_TOTALS: UsageTotals = {
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
   totalTokens: 0,
-  effectiveTokens: 0,
   estimatedCalls: 0,
   erroredCalls: 0,
 };
@@ -140,7 +131,6 @@ function aggregates(p = ''): string {
   COALESCE(SUM(${p}cache_read_tokens), 0) AS cache_read_tokens,
   COALESCE(SUM(${p}cache_write_tokens), 0) AS cache_write_tokens,
   COALESCE(SUM(${p}total_tokens), 0) AS total_tokens,
-  CAST(ROUND(COALESCE(SUM(${effectiveTokensSql(p)}), 0)) AS INTEGER) AS effective_tokens,
   COALESCE(SUM(${p}estimated), 0) AS estimated_calls,
   COALESCE(SUM(CASE WHEN ${p}outcome = 'error' THEN 1 ELSE 0 END), 0) AS errored_calls`;
 }
@@ -152,7 +142,6 @@ interface TotalsRow {
   cache_read_tokens: number;
   cache_write_tokens: number;
   total_tokens: number;
-  effective_tokens: number;
   estimated_calls: number;
   errored_calls: number;
 }
@@ -165,7 +154,6 @@ function toTotals(row: TotalsRow): UsageTotals {
     cacheReadTokens: row.cache_read_tokens,
     cacheWriteTokens: row.cache_write_tokens,
     totalTokens: row.total_tokens,
-    effectiveTokens: row.effective_tokens,
     estimatedCalls: row.estimated_calls,
     erroredCalls: row.errored_calls,
   };
@@ -178,7 +166,6 @@ function toTotals(row: TotalsRow): UsageTotals {
  * key of this object before it gets here.
  */
 const SORT_EXPRESSIONS: Record<UsageSort, string> = {
-  effective: 'effective_tokens DESC',
   total: 'total_tokens DESC',
   input: 'input_tokens DESC',
   output: 'output_tokens DESC',
@@ -226,7 +213,7 @@ function groupBy(
       `SELECT COALESCE(${column}, '') AS key, ${aggregates()}
        FROM token_usage ${clause}
        GROUP BY COALESCE(${column}, '')
-       ORDER BY effective_tokens DESC, key ASC`,
+       ORDER BY total_tokens DESC, key ASC`,
     )
     .all(...params) as (TotalsRow & { key: string })[];
   return rows.map((row) => ({ key: row.key, ...toTotals(row) }));

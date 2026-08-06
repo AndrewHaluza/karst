@@ -16,15 +16,8 @@
  */
 
 /** Ways the per-ticket table can be ordered. Closed — it reaches ORDER BY. */
-export const USAGE_SORTS = ['effective', 'total', 'input', 'output', 'calls', 'recent'] as const;
+export const USAGE_SORTS = ['total', 'input', 'output', 'calls', 'recent'] as const;
 export type UsageSort = (typeof USAGE_SORTS)[number];
-
-/**
- * What an unspecified query is ordered by. `effective`, not `total`: ranking on
- * the raw sum ranks by how many cached turns a call took rather than by what it
- * cost, which is the defect this view existed to make visible (`tokenWeights.ts`).
- */
-export const DEFAULT_USAGE_SORT: UsageSort = 'effective';
 
 /** Hard ceiling on one page of the per-ticket table. */
 export const MAX_USAGE_LIMIT = 200;
@@ -144,7 +137,7 @@ export function parseUsageQuery(raw: unknown): UsageQueryResult {
   if ('error' in offset) return fail(offset.error);
 
   const rawSort = raw['sort'];
-  let sort: UsageSort = DEFAULT_USAGE_SORT;
+  let sort: UsageSort = 'total';
   if (rawSort !== undefined && rawSort !== null) {
     if (typeof rawSort !== 'string' || !(USAGE_SORTS as readonly string[]).includes(rawSort)) {
       return fail(`sort must be one of: ${USAGE_SORTS.join(', ')}`);

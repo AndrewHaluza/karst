@@ -27,6 +27,11 @@ export interface RunGatesOptions {
   now?: () => string;
   /** Whether the repository defines a given package.json script. */
   scriptsAvailable?: (script: string) => boolean;
+  /**
+   * Called after each gate finishes, with the gate's name. Lets callers push
+   * dashboard progress ("gate 2 of 4, elapsed 1m23s") without polling.
+   */
+  onGateComplete?: (gateName: string) => void;
 }
 
 export async function runGateList(
@@ -52,6 +57,7 @@ export async function runGateList(
         startedAt,
         endedAt: now(),
       });
+      opts.onGateComplete?.(gate.name);
       continue;
     }
 
@@ -67,6 +73,7 @@ export async function runGateList(
         exitCode: null,
         output: `no "${gate.script}" script available — nothing to run`,
       });
+      opts.onGateComplete?.(gate.name);
       continue;
     }
     results.push({
@@ -76,6 +83,7 @@ export async function runGateList(
       startedAt,
       endedAt: now(),
     });
+    opts.onGateComplete?.(gate.name);
   }
   return { kind: 'ran', results };
 }

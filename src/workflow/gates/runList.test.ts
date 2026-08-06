@@ -107,4 +107,52 @@ describe('runGateList', () => {
     if (out.kind !== 'ran') throw new Error('expected ran');
     expect(out.results[0]).toMatchObject({ exitCode: 0 });
   });
+
+  it('calls onGateComplete after each gate finishes, with the gate name', async () => {
+    const completed: string[] = [];
+    await runGateList(
+      [
+        { name: 'lint', command: 'node', args: ['-e', 'process.exit(0)'], script: null, required: true },
+        { name: 'test', command: 'node', args: ['-e', 'process.exit(1)'], script: null, required: true },
+      ],
+      process.cwd(),
+      { now, onGateComplete: (name) => completed.push(name) },
+    );
+    expect(completed).toEqual(['lint', 'test']);
+  });
+
+  it('calls onGateComplete for a required gate whose script is missing', async () => {
+    const completed: string[] = [];
+    await runGateList(
+      [{ name: 'integration', command: 'npm', args: ['run', 'test:integration'], script: 'test:integration', required: true }],
+      process.cwd(),
+      { now, scriptsAvailable: () => false, onGateComplete: (name) => completed.push(name) },
+    );
+    expect(completed).toEqual(['integration']);
+  });
+
+  it('calls onGateComplete for a non-required gate that fails to spawn', async () => {
+    const completed: string[] = [];
+    await runGateList(
+      [{ name: 'e2e', command: 'nonexistent-binary', args: [], script: 'e2e', required: false }],
+      process.cwd(),
+      { now, onGateComplete: (name) => completed.push(name) },
+    );
+    expect(completed).toEqual(['e2e']);
+  });
+
+  it('does not call onGateComplete for gates that were not reached (abort before start)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const completed: string[] = [];
+    await runGateList(
+      [
+        { name: 'a', command: 'node', args: ['-e', ''], script: null, required: true },
+        { name: 'b', command: 'node', args: ['-e', ''], script: null, required: true },
+      ],
+      process.cwd(),
+      { signal: controller.signal, now, onGateComplete: (name) => completed.push(name) },
+    );
+    expect(completed).toEqual([]);
+  });
 });

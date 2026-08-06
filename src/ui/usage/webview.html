@@ -60,10 +60,6 @@
   .phead .count{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-xs);
     color:var(--k-text-dim);font-weight:var(--k-weight-normal)}
   .pbody{padding:var(--k-space-3) var(--k-space-6) var(--k-space-5)}
-  /* A standing caveat about what the panel above can and cannot contain — not a
-     status, so it takes the faint text token rather than a warning colour. */
-  .pnote{padding:0 var(--k-space-6) var(--k-space-5);font-size:var(--k-text-2xs);
-    color:var(--k-text-faint);line-height:var(--k-leading-normal)}
 
   /* One breakdown row: label, bar, count. The bar is the comparison; the number
      is the answer. Width comes from state.share — never computed here. */
@@ -76,7 +72,7 @@
     width:calc(var(--k-space-9) + var(--k-space-8));text-align:right}
   .bar{height:var(--k-space-2);border-radius:var(--k-radius-xs);background:var(--k-surface-sunken);
     margin-top:var(--k-space-2);overflow:hidden}
-  /* The two breakdown panels answer different questions (by-call-site vs by-model)
+  /* The two breakdown panels answer different questions (by-stage vs by-model)
      and sit side by side, so they must not share a hue — that is what the
      ordered `--k-series-*` tokens are for. They are categorical, NOT status:
      `--k-info` means "running", and borrowing it for a chart series would make
@@ -118,13 +114,9 @@
 <div id="body" class="hidden">
   <div class="stats" id="stats"></div>
   <div class="grid">
-    <div class="panel sites">
-      <div class="phead">By call site<span class="count" id="siteCount"></span></div>
-      <div class="pbody" id="sites"></div>
-      <div class="pnote" id="callSiteNote">
-        karst meters only the AI calls it makes itself. Work done in an
-        interactive agent session is not counted here.
-      </div>
+    <div class="panel stages">
+      <div class="phead">By stage<span class="count" id="stageCount"></span></div>
+      <div class="pbody" id="stages"></div>
     </div>
     <div class="panel models">
       <div class="phead">By model<span class="count" id="modelCount"></span></div>
@@ -165,7 +157,6 @@
     { key: 'input', label: 'Input', sort: 'input', num: true },
     { key: 'output', label: 'Output', sort: 'output', num: true },
     { key: 'total', label: 'Total', sort: 'total', num: true },
-    { key: 'effective', label: 'Effective', sort: 'effective', num: true },
     { key: 'last', label: 'Last call', sort: 'recent', num: true },
   ];
 
@@ -199,9 +190,6 @@
 
   const renderStats = (t) => {
     el('stats').innerHTML = [
-      // Effective leads because it is what the view ranks on; the raw total
-      // stays beside it, because a weighting you cannot check is an assertion.
-      statCard('Effective', t.effectiveDisplay, 'input-equivalents'),
       statCard('Total tokens', t.totalDisplay, t.totalExact),
       statCard('Input', t.inputDisplay, ''),
       statCard('Output', t.outputDisplay, ''),
@@ -219,12 +207,11 @@
       '<div class="brow">' +
         '<div class="line">' +
           `<span class="lbl" title="${esc(r.label)}">${esc(r.label)}</span>` +
-          `<span class="amt" title="${esc(r.effectiveExact)} input-equivalent tokens">${esc(r.effectiveDisplay)}</span>` +
+          `<span class="amt" title="${esc(r.totalExact)} tokens">${esc(r.totalDisplay)}</span>` +
           `<span class="pct">${esc(r.share)}%</span>` +
         '</div>' +
         `<div class="bar"><i style="width:${Number(r.share) || 0}%"></i></div>` +
         `<div class="meta">${esc(r.calls)} call${r.calls === 1 ? '' : 's'} · in ${esc(r.inputDisplay)} · out ${esc(r.outputDisplay)}` +
-          ` · <span title="${esc(r.totalExact)} tokens as reported">${esc(r.totalDisplay)} raw</span>` +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
       '</div>',
@@ -258,7 +245,6 @@
         `<td class="num">${esc(t.inputDisplay)}</td>` +
         `<td class="num">${esc(t.outputDisplay)}</td>` +
         `<td class="num" title="${esc(t.totalExact)} tokens">${esc(t.totalDisplay)}${t.estimated ? ' <span class="est">≈</span>' : ''}</td>` +
-        `<td class="num" title="${esc(t.effectiveExact)} input-equivalent tokens">${esc(t.effectiveDisplay)}</td>` +
         `<td class="num">${esc(localDate(t.lastAt))}</td>` +
       '</tr>';
     }).join('');
@@ -315,10 +301,10 @@
     if (state.empty || state.error) return;
 
     renderStats(state.totals);
-    el('siteCount').textContent = state.byCallSite.length;
+    el('stageCount').textContent = state.byStage.length;
     el('modelCount').textContent = state.byModel.length;
     el('tktCount').textContent = state.page.groups;
-    renderBreakdown(el('sites'), state.byCallSite);
+    renderBreakdown(el('stages'), state.byStage);
     renderBreakdown(el('models'), state.byModel);
     renderTable(state);
   };

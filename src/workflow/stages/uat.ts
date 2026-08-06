@@ -47,6 +47,11 @@ export interface RunUatOpts {
   manifest?: Manifest;
   /** One signal for the whole run, so a Stop reaches the gate in flight. */
   signal?: AbortSignal;
+  /**
+   * Called after each gate finishes, with the gate's name. Lets callers push
+   * dashboard progress during long-running gate sets.
+   */
+  onGateComplete?: (gateName: string) => void;
 }
 
 export interface UatDeps {
@@ -283,6 +288,7 @@ export async function runUat(
       signal: opts.signal,
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
+      onGateComplete: opts.onGateComplete,
     });
 
     const produced: AggregateEntry[] = [];
