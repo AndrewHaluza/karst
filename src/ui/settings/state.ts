@@ -65,7 +65,7 @@ export function buildSettingsState(
   error: string | null = null,
   installedIds: string[] = [],
   tokenConfigured = false,
-  implementedProviders: AgentProvider[] = ['claude', 'codex', 'antigravity'],
+  implementedProviders: AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'],
   agents: SettingsAgentRow[] = [],
   approachCommands: Record<string, string[]> = {},
   models: ModelCatalog = bundledModelCatalog(),

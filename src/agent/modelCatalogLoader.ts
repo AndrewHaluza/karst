@@ -10,12 +10,13 @@ import {
   discoverAntigravityModels,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverOpencodeModels,
   type DiscoveryResult,
 } from './modelDiscovery.js';
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 const MAX_BODY_BYTES = 256 * 1024;
-const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity'];
+const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
 
 export type CatalogSource = 'cli' | 'feed' | 'cache' | 'bundled';
 
@@ -160,6 +161,7 @@ const DEFAULT_CLI_LOADERS: Record<AgentProvider, ModelDiscoveryLoader> = {
   claude: discoverClaudeModels,
   codex: discoverCodexModels,
   antigravity: discoverAntigravityModels,
+  opencode: discoverOpencodeModels,
 };
 
 async function readBody(response: Response, maxBodyBytes: number): Promise<string | undefined> {
@@ -347,7 +349,12 @@ export async function loadModelCatalog(
     const cli = inspectedCli.models;
     if (inspectedCli.diagnostic) diagnostics.push(inspectedCli.diagnostic);
 
-    const fromFeed = feed[provider];
+    // An EXPLICITLY empty feed section is a curated-empty list, not models:
+    // `opencode: []` must not shadow a bundled/cached answer (there is none
+    // beyond the empty list anyway), so it reads as absent here. The catalog
+    // still lands on `opencode: []` via the bundled tier below.
+    const feedRaw = feed[provider];
+    const fromFeed = feedRaw !== undefined && feedRaw.length > 0 ? feedRaw : undefined;
     // "The feed carries no section for this provider" is only sayable when a
     // feed was configured AND answered. With the tier off there is no feed to
     // be empty, and a failed fetch has already been reported once as itself.
@@ -355,7 +362,13 @@ export async function loadModelCatalog(
       diagnostics.push({ provider, tier: 'feed', category: 'empty' });
     }
     const cached = cachedModels(cache, provider);
-    const bundledModels = validateModelList(provider, bundled[provider]);
+    // A deliberately empty bundled list (opencode) is a valid empty catalog,
+    // distinct from an invalid/missing one — validateModelList refuses empty,
+    // so the empty case is admitted before it.
+    const bundledList = bundled[provider];
+    const bundledModels = bundledList.length === 0
+      ? []
+      : validateModelList(provider, bundledList);
     const models = cli ?? fromFeed ?? cached ?? bundledModels;
 
     if (!models) {

@@ -190,6 +190,31 @@
      shared stylesheet). */
   /*KARST_PROVIDER_CSS*/
 
+  /* Shared agent-core badge (icon + name) — single source in
+     src/model/agentIdentity.ts, injected here at load. */
+  /*KARST_AGENT_CSS*/
+
+  /* Agent provider custom select (icon + name inside dropdown) */
+  .agentselect{position:relative;width:100%}
+  .agentselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
+    text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
+  .agentselect-trigger:hover{background:var(--vscode-input-background)}
+  .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .agentselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
+    background:var(--chevron) no-repeat center/var(--k-space-6)}
+  .agentselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
+  .agentselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
+  .agentselect-opt:hover{background:var(--k-surface-hover)}
+  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .agentselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .agentselect-opt[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+
   /* ---- accordion cards ---- */
   .card{
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
@@ -505,8 +530,12 @@
           <input type="text" id="f-terminalTemplate" placeholder="Karst: {key} — {title}" />
           <div class="label-preview" id="terminalPreview"></div>
 
-          <label for="f-agentProvider">Agent provider</label>
-          <select id="f-agentProvider"></select>
+          <label>Agent provider</label>
+          <div class="agentselect" id="agentSelectWrap">
+            <button type="button" class="agentselect-trigger k-btn" id="agentTrigger"
+              aria-label="Agent provider" aria-haspopup="listbox" aria-expanded="false"></button>
+            <div class="agentselect-menu hidden" id="agentMenu" role="listbox"></div>
+          </div>
 
           <label for="f-defaultModel">Default model</label>
           <select id="f-defaultModel"></select>
@@ -890,6 +919,11 @@
   // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
   /*KARST_PROVIDER_JS*/
 
+  // Shared agent-core identity (icon + name) — single source in
+  // src/model/agentIdentity.ts, injected here at load. Defines
+  // AGENT_PROVIDER_LABELS, agentBadgeHtml, agentIconHtml.
+  /*KARST_AGENT_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
@@ -1081,10 +1115,10 @@
   let implementedProviders = ['claude'];
   // Host-supplied launch models. Each state refresh may carry newer discovery
   // results; empty lists are the safe fallback for an older restored state.
-  let modelCatalog = { claude: [], codex: [], antigravity: [] };
+  let modelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
   // Compatibility knowledge is deliberately broader than the picker catalog:
   // bundled ids remain known while newly discovered ids are added.
-  let modelCompatibility = { claude: [], codex: [], antigravity: [] };
+  let modelCompatibility = { claude: [], codex: [], antigravity: [], opencode: [] };
   // manifestPath/projectSlug: read-only host facts pushed alongside `state`
   // (§ state.ts SettingsState.manifestPath/projectSlug). Never part of the
   // draft manifest — SECTION_FIELDS excludes them so Save cannot write them.
@@ -1093,7 +1127,7 @@
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
-  const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity'];
+  const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
 
   // Mirrors validate/review.ts defaultFindings() and validateReview()'s
   // fallbacks. An absent block renders as what it DOES, not as empty (S4):
@@ -1559,12 +1593,16 @@
     el('f-portMax').value = draft.portRange && draft.portRange[1] != null ? draft.portRange[1] : '';
     el('f-baseline').value = draft.baselineBranch || '';
     el('f-wtDisplay').value = draft.worktreePathDisplay || 'relative';
-    el('f-agentProvider').innerHTML = KNOWN_AGENT_PROVIDERS.map((p) => {
+    { const current = draft.agentProvider || 'claude';
+    el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
+    el('agentMenu').innerHTML = KNOWN_AGENT_PROVIDERS.map((p) => {
       const disabled = implementedProviders.indexOf(p) === -1;
-      const label = esc(p) + (disabled ? ' (coming soon)' : '');
-      return `<option value="${esc(p)}"${disabled ? ' disabled' : ''}>${label}</option>`;
-    }).join('');
-    el('f-agentProvider').value = draft.agentProvider || 'claude';
+      return `<div class="agentselect-opt${p === current ? ' selected' : ''}" role="option"`
+        + ` tabindex="0" data-value="${esc(p)}" aria-selected="${p === current}"`
+        + `${disabled ? ' aria-disabled="true"' : ''}>`
+        + agentBadgeHtml(p) + (disabled ? ' <span style="opacity:.5;margin-left:var(--k-space-2)">(coming soon)</span>' : '')
+        + `</div>`;
+    }).join(''); }
     renderModelPicker();
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
@@ -1703,17 +1741,50 @@
     draft.worktreePathDisplay = el('f-wtDisplay').value;
     markDirty();
   });
-  el('f-agentProvider').addEventListener('change', () => {
-    draft.agentProvider = el('f-agentProvider').value;
-    if (
-      draft.defaultModel
-      && !isModelCompatibleWithProvider(draft.agentProvider, draft.defaultModel)
-    ) {
+  { const wrap = el('agentSelectWrap');
+  const trigger = el('agentTrigger');
+  const menu = el('agentMenu');
+  function selectAgent(p) {
+    draft.agentProvider = p;
+    if (draft.defaultModel && !isModelCompatibleWithProvider(p, draft.defaultModel)) {
       draft.defaultModel = undefined;
     }
-    renderGeneral();
+    trigger.innerHTML = agentBadgeHtml(p) + '<span class="chev" aria-hidden="true"></span>';
+    menu.querySelectorAll('.agentselect-opt').forEach((opt) => {
+      const v = opt.getAttribute('data-value');
+      opt.classList.toggle('selected', v === p);
+      opt.setAttribute('aria-selected', String(v === p));
+    });
+    menu.classList.add('hidden');
+    trigger.setAttribute('aria-expanded', 'false');
+    renderModelPicker();
     markDirty();
+  }
+  trigger.addEventListener('click', () => {
+    const open = !menu.classList.contains('hidden');
+    menu.classList.toggle('hidden', open);
+    trigger.setAttribute('aria-expanded', String(!open));
   });
+  menu.addEventListener('click', (e) => {
+    const opt = e.target.closest('.agentselect-opt');
+    if (!opt || opt.getAttribute('aria-disabled') === 'true') return;
+    selectAgent(opt.getAttribute('data-value'));
+  });
+  menu.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
+  });
+  trigger.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || e.key === 'ArrowUp') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); }
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault(); menu.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true');
+      menu.querySelector('.agentselect-opt')?.focus();
+    }
+  });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); } });
+  // Expose selectAgent for renderGeneral
+  window._selectAgentProvider = selectAgent;
+  // Initialize trigger
+  trigger.innerHTML = agentBadgeHtml(draft.agentProvider || 'claude') + '<span class="chev" aria-hidden="true"></span>'; }
   el('f-defaultModel').addEventListener('change', () => {
     // '' clears the default (dropped by writeManifest → no default persisted).
     draft.defaultModel = el('f-defaultModel').value || undefined;
@@ -3566,7 +3637,7 @@
   }
 
   function refreshModelCatalog(models, compatibility) {
-    modelCatalog = models || { claude: [], codex: [], antigravity: [] };
+    modelCatalog = models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = compatibility || modelCatalog;
     renderModelPicker();
     const prev = vscode.getState();
@@ -3632,7 +3703,7 @@
         installedIds = msg.state.installedIds || [];
         tokenConfigured = !!msg.state.tokenConfigured;
         implementedProviders = msg.state.implementedProviders || ['claude'];
-        modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [] };
+        modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [], opencode: [] };
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
@@ -3795,7 +3866,7 @@
     installedIds = prev.installedIds || [];
     tokenConfigured = !!prev.tokenConfigured;
     implementedProviders = prev.implementedProviders || ['claude'];
-    modelCatalog = prev.models || { claude: [], codex: [], antigravity: [] };
+    modelCatalog = prev.models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = prev.modelCompatibility || modelCatalog;
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};

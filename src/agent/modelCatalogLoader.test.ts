@@ -23,6 +23,7 @@ function catalog(): ModelCatalog {
     claude: models('claude', 'bundled-claude'),
     codex: models('codex', 'bundled-codex'),
     antigravity: models('antigravity', 'bundled-antigravity'),
+    opencode: [],
   };
 }
 
@@ -76,7 +77,7 @@ function baseDeps(cache: CatalogCache, fetchImpl: typeof fetch): CatalogLoaderDe
     fetchImpl,
     feedUrl: FEED_URL,
     bundledCatalog: catalog(),
-    cliLoaders: { claude: unavailable, codex: unavailable, antigravity: unavailable },
+    cliLoaders: { claude: unavailable, codex: unavailable, antigravity: unavailable, opencode: unavailable },
   };
 }
 
@@ -96,10 +97,11 @@ describe('loadModelCatalog', () => {
         claude: available('claude', 'cli-claude'),
         codex: unavailable,
         antigravity: unavailable,
+        opencode: unavailable,
       },
     });
 
-    expect(result.sources).toEqual({ claude: 'cli', codex: 'feed', antigravity: 'cache' });
+    expect(result.sources).toEqual({ claude: 'cli', codex: 'feed', antigravity: 'cache', opencode: 'bundled' });
     expect(result.catalog.claude).toEqual(models('claude', 'cli-claude'));
     expect(result.catalog.codex).toEqual(models('codex', 'feed-codex'));
     expect(result.catalog.antigravity).toEqual(models('antigravity', 'cached-antigravity'));
@@ -119,7 +121,7 @@ describe('loadModelCatalog', () => {
       antigravity: [{ id: 'bad id', label: 'Bad' }],
     })));
 
-    expect(result.sources).toEqual({ claude: 'feed', codex: 'cache', antigravity: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'feed', codex: 'cache', antigravity: 'bundled', opencode: 'bundled' });
     expect(result.catalog.antigravity).toEqual(models('antigravity', 'bundled-antigravity'));
     expect(cache.writes).toEqual(['claude']);
   });
@@ -142,11 +144,13 @@ describe('loadModelCatalog', () => {
       claude: 'feed',
       codex: 'feed',
       antigravity: 'feed',
+      opencode: 'bundled',
     });
     expect(result.catalog).toEqual({
       claude: models('claude', 'feed-claude'),
       codex: models('codex', 'feed-codex'),
       antigravity: models('antigravity', 'feed-antigravity'),
+      opencode: [],
     });
     expect(entries.get('codex')).toMatchObject({
       source: 'feed',
@@ -212,15 +216,16 @@ describe('loadModelCatalog diagnostics', () => {
         claude: available('claude', 'cli-claude'),
         codex: async () => ({ status: 'unavailable', code, reason: 'SECRET_STDERR' }),
         antigravity: available('antigravity', 'cli-antigravity'),
+        opencode: unavailable,
       },
     });
 
     expect(result.sources.codex).toBe('feed');
-    expect(result.diagnostics).toEqual([{
-      provider: 'codex',
-      tier: 'cli',
-      category: code,
-    }]);
+    expect(result.diagnostics).toEqual([
+      { provider: 'codex', tier: 'cli', category: code },
+      { provider: 'opencode', tier: 'cli', category: 'command-unavailable' },
+      { provider: 'opencode', tier: 'feed', category: 'empty' },
+    ]);
     expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
   });
 
@@ -235,10 +240,69 @@ describe('loadModelCatalog diagnostics', () => {
         }),
         codex: available('codex', 'cli-codex'),
         antigravity: available('antigravity', 'cli-antigravity'),
+        opencode: unavailable,
       },
     });
 
-    expect(result.diagnostics.map(formatCatalogDiagnostic)).toEqual(['claude:cli:unsupported']);
+    const claudeDiagnostics = result.diagnostics
+      .filter((d) => d.provider === 'claude')
+      .map(formatCatalogDiagnostic);
+    expect(claudeDiagnostics).toEqual(['claude:cli:unsupported']);
+  });
+
+  it('accepts an opencode feed section as a curated catalog list', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), feed({
+        claude: [{ id: 'feed-claude', label: 'feed-claude label' }],
+        codex: [{ id: 'feed-codex', label: 'feed-codex label' }],
+        antigravity: [{ id: 'feed-antigravity', label: 'feed-antigravity label' }],
+        opencode: [{ id: 'openai/gpt-mini-latest', label: 'GPT Mini (latest)' }],
+      })),
+    });
+
+    expect(result.sources.opencode).toBe('feed');
+    expect(result.catalog.opencode).toEqual([{
+      id: 'openai/gpt-mini-latest',
+      label: 'GPT Mini (latest)',
+      providers: ['opencode'],
+    }]);
+  });
+
+  it('populates the opencode catalog from CLI when available', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: unavailable,
+        codex: unavailable,
+        antigravity: unavailable,
+        opencode: async () => ({
+          status: 'available',
+          models: [
+            { id: 'opencode/big-pickle', label: 'opencode/big-pickle', providers: ['opencode'] as const },
+            { id: 'openrouter/anthropic/claude-opus-5', label: 'openrouter/anthropic/claude-opus-5', providers: ['opencode'] as const },
+          ],
+        }),
+      },
+    });
+
+    expect(result.sources.opencode).toBe('cli');
+    expect(result.catalog.opencode).toEqual([
+      { id: 'opencode/big-pickle', label: 'opencode/big-pickle', providers: ['opencode'] },
+      { id: 'openrouter/anthropic/claude-opus-5', label: 'openrouter/anthropic/claude-opus-5', providers: ['opencode'] },
+    ]);
+    expect(result.diagnostics.some((d) => d.provider === 'opencode')).toBe(false);
+  });
+
+  it('yields an empty opencode catalog entry when the CLI probe is unavailable', async () => {
+    const result = await loadModelCatalog(baseDeps(new MemoryCache(), completeFeed()));
+
+    expect(result.sources.opencode).toBe('bundled');
+    expect(result.catalog.opencode).toEqual([]);
+    expect(result.diagnostics).toContainEqual({
+      provider: 'opencode',
+      tier: 'cli',
+      category: 'command-unavailable',
+    });
   });
 
   it.each([
@@ -326,7 +390,7 @@ describe('loadModelCatalog diagnostics', () => {
       ...baseDeps(new MemoryCache(), (async () => new Response('no', { status: 404 })) as typeof fetch),
     });
 
-    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled', opencode: 'bundled' });
     expect(result.diagnostics.filter((d) => d.tier === 'feed')).toHaveLength(1);
   });
 
@@ -352,11 +416,12 @@ describe('loadModelCatalog diagnostics', () => {
         claude: async () => ({ status: 'unavailable', code: 'unsupported', reason: 'unsupported' }),
         codex: unavailable,
         antigravity: unavailable,
+        opencode: unavailable,
       },
     });
 
     expect(result.diagnostics.filter((d) => catalogDiagnosticSeverity(d.category) === 'warn')).toEqual([]);
-    expect(result.sources).toEqual({ claude: 'feed', codex: 'feed', antigravity: 'feed' });
+    expect(result.sources).toEqual({ claude: 'feed', codex: 'feed', antigravity: 'feed', opencode: 'bundled' });
   });
 
   it('never fetches, and reports nothing, when no feed is configured', async () => {
@@ -369,7 +434,7 @@ describe('loadModelCatalog diagnostics', () => {
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(result.diagnostics.filter((d) => d.tier === 'feed')).toEqual([]);
-    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled', opencode: 'bundled' });
   });
 
   it('populates the catalog from a provider CLI that is installed', async () => {
@@ -379,6 +444,7 @@ describe('loadModelCatalog diagnostics', () => {
         claude: unavailable,
         codex: available('codex', 'cli-codex'),
         antigravity: unavailable,
+        opencode: unavailable,
       },
     });
 
@@ -490,6 +556,7 @@ describe('fetchModelFeed', () => {
 
     expect(result).toEqual({
       claude: [{ id: 'claude-current', label: 'Claude Current', providers: ['claude'] }],
+      codex: [],
     });
   });
 });
