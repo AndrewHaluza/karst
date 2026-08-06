@@ -89,6 +89,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     post: (m) => posted.push(m),
     manifestPath: '/tmp/karst.yml',
     projectSlug: { value: 'proj', derived: false },
+    version: '1.0.0',
   });
   return { actions, posted, order };
 }

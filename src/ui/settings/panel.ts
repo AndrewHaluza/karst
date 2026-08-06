@@ -64,6 +64,8 @@ export class SettingsManager {
       value: '',
       derived: true,
     }),
+    /** Extension version from package.json (§ state.ts `version`). */
+    private readonly version: () => string = () => '',
   ) {}
 
   async open(): Promise<void> {
@@ -78,6 +80,7 @@ export class SettingsManager {
       post: (message) => panel.postMessage(message),
       manifestPath: this.manifestPath(),
       projectSlug: this.projectSlug(),
+      version: this.version(),
     });
 
     panel.onDidReceiveMessage((raw) => {
@@ -143,6 +146,7 @@ export class SettingsManager {
         this.modelCatalog(),
         this.manifestPath(),
         this.projectSlug(),
+        this.version(),
       ),
     });
   }

@@ -110,10 +110,17 @@ describe('sidebar webview.html', () => {
 
   it('replaces only the status dot with a spinner so the row never shifts', () => {
     /* The spinner takes the dot's absolute slot (same position/size) while the
-    karst mark stays visible, so the row width never changes on click. */
+    karst mark stays visible, so the row width never changes on click. Driven
+    by pure CSS on the rowopen button's own aria-busy — no MutationObserver. */
     expect(HTML).toContain('.glyph .sdot-spin{');
-    expect(HTML).toContain('.glyph.g-spinning .sdot{display:none}');
-    expect(HTML).toContain('.glyph.g-spinning .sdot-spin{display:block}');
+    expect(HTML).toContain('.rowopen[aria-busy="true"] .glyph .sdot{display:none}');
+    expect(HTML).toContain('.rowopen[aria-busy="true"] .glyph .sdot-spin{display:block}');
+    expect(HTML).not.toContain('g-spinning');
+    // The generic ::before spinner (a leading flex icon) would push the glyph
+    // aside; suppressed HERE, scoped to the sidebar's own control. Never on
+    // `.k-btn--row` — the diffs view's file rows rely on that spinner.
+    expect(HTML).toContain('.rowopen[aria-busy="true"]::before{content:none}');
+    expect(HTML).not.toContain('.k-btn--row[aria-busy="true"]::before');
   });
 
   it('labels the session button with the continue-or-start verb, not a generic word', () => {
@@ -240,6 +247,16 @@ describe('sidebar webview.html', () => {
   it('the chevron is a real <button> with aria-expanded reflecting open/closed state (UI-R09, R26)', () => {
     expect(HTML).toContain('<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}"');
     expect(HTML).not.toContain('<span class="chev"');
+  });
+
+  it('the chevron keeps the .k-iconbtn hit target — only its padding is overridden (UI-R29)', () => {
+    // `.chev` may tighten the INSET (zero padding per the prototype) but never
+    // the min-size: the expand/collapse control must keep the --k-hit-min
+    // target the .k-iconbtn primitive guarantees (WCAG 2.5.8).
+    const chev = HTML.match(/\.chev\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(chev).toContain('padding:0');
+    expect(chev).not.toContain('min-width:auto');
+    expect(chev).not.toContain('min-height:auto');
   });
 
   it('every click target is a real <button> or <a href> — no bare div/span data-* handler remains (UI-R09)', () => {
