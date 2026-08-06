@@ -390,5 +390,5 @@ Antigravity, and Codex.
 - There is no CLI hook flag; lifecycle bridging is a generated plugin (Task 7): the adapter writes `.opencode/plugins/karst-bridge.js` beneath the worktree and launches with `--pure` so only karst's events fire. The plugin POSTs `session.idle`/`session.error`/`permission.asked` to the loopback endpoint; the adapter advertises `lifecycleEvents: true` only because the channel ships with it.
 - The TUI's `--prompt` prefills but does not auto-submit (interactive gap vs Claude/Codex).
 - Materialization uses `.opencode/` (opencode's primary discovery root); opencode ALSO reads `.agents/skills/` and `.claude/skills/`, so codex/claude materialization is incidentally discoverable, but opencode keeps its own tree clean.
-- Models are account-dependent `provider/model`; curate zero rows, preserve custom IDs.
+- Models are discovered live via `opencode models` (plain format, one `provider/model` ID per line). The bundled catalog is intentionally empty — CLI discovery is the primary source. Custom model IDs are always accepted by the resolution layer.
 - Token usage is adapter-parsed from `step_finish.part.tokens` (keys `input`/`output`/`total` don't match the shared extractor); the adapter owns `parseOpencodeJsonl` like Codex owns `parseCodexJsonl`.

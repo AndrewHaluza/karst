@@ -360,13 +360,49 @@ export async function discoverClaudeModels(): Promise<DiscoveryResult> {
   return unavailable('unsupported', 'Claude CLI model discovery is unsupported');
 }
 
+/** A bare opencode model id as `opencode models` prints it — `provider/model` with slashes and tildes. */
+const OPENCODE_MODEL_LINE = /^[A-Za-z0-9][A-Za-z0-9._:/~-]*$/;
+
 /**
- * opencode model ids are `provider/model` and depend on the user's account and
- * provider subscriptions — `opencode models` returns a huge account-specific
- * list that must not be curated. Same posture as the Claude probe: `unsupported`,
- * never `command-unavailable`, so an installed `opencode` is not accused of
- * being missing.
+ * Parse `opencode models` plain output into catalog rows.
+ *
+ * The plain format is one model ID per line (e.g. `opencode/big-pickle`,
+ * `openrouter/anthropic/claude-opus-5`). No display names are available
+ * without `--verbose`, so the ID is used as both id and label.
  */
-export async function discoverOpencodeModels(): Promise<DiscoveryResult> {
-  return unavailable('unsupported', 'opencode models are account- and provider-dependent; karst curates none');
+export function parseOpencodeModels(stdout: string): ModelOption[] | undefined {
+  const lines = stdout.split(/\r?\n/);
+  const ids = lines
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (ids.length === 0) return undefined;
+  if (!ids.every((id) => OPENCODE_MODEL_LINE.test(id))) return undefined;
+
+  return validateModelList(
+    'opencode',
+    ids.map((id) => ({ id, label: id })),
+  );
+}
+
+/**
+ * Discover available opencode models by running `opencode models`.
+ *
+ * opencode model ids are `provider/model` and depend on the user's account
+ * and provider subscriptions. The CLI returns a full list; karst passes
+ * it through without curation. Same posture as the Claude probe for the
+ * failure case: `unsupported` (not `command-unavailable`) when the command
+ * is not probed at all, so an installed `opencode` is not accused of being
+ * missing.
+ */
+export async function discoverOpencodeModels(
+  run: CommandRunner = defaultCommandRunner,
+): Promise<DiscoveryResult> {
+  const result = await run('opencode', ['models']);
+  const failure = commandFailure(result);
+  if (failure) return failure;
+
+  const models = parseOpencodeModels(result.stdout);
+  return models
+    ? { status: 'available', models }
+    : unavailable('invalid-output', 'opencode returned an invalid or empty model list');
 }

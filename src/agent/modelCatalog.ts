@@ -12,7 +12,7 @@ export interface ModelOption {
 export type ModelCatalog = Readonly<Record<AgentProvider, readonly ModelOption[]>>;
 
 const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
 
 const BUNDLED_CATALOG: ModelCatalog = {

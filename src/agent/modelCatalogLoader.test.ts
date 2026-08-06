@@ -77,7 +77,7 @@ function baseDeps(cache: CatalogCache, fetchImpl: typeof fetch): CatalogLoaderDe
     fetchImpl,
     feedUrl: FEED_URL,
     bundledCatalog: catalog(),
-    cliLoaders: { claude: unavailable, codex: unavailable, antigravity: unavailable },
+    cliLoaders: { claude: unavailable, codex: unavailable, antigravity: unavailable, opencode: unavailable },
   };
 }
 
@@ -97,6 +97,7 @@ describe('loadModelCatalog', () => {
         claude: available('claude', 'cli-claude'),
         codex: unavailable,
         antigravity: unavailable,
+        opencode: unavailable,
       },
     });
 
@@ -215,13 +216,14 @@ describe('loadModelCatalog diagnostics', () => {
         claude: available('claude', 'cli-claude'),
         codex: async () => ({ status: 'unavailable', code, reason: 'SECRET_STDERR' }),
         antigravity: available('antigravity', 'cli-antigravity'),
+        opencode: unavailable,
       },
     });
 
     expect(result.sources.codex).toBe('feed');
     expect(result.diagnostics).toEqual([
       { provider: 'codex', tier: 'cli', category: code },
-      { provider: 'opencode', tier: 'cli', category: 'unsupported' },
+      { provider: 'opencode', tier: 'cli', category: 'command-unavailable' },
       { provider: 'opencode', tier: 'feed', category: 'empty' },
     ]);
     expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
@@ -238,6 +240,7 @@ describe('loadModelCatalog diagnostics', () => {
         }),
         codex: available('codex', 'cli-codex'),
         antigravity: available('antigravity', 'cli-antigravity'),
+        opencode: unavailable,
       },
     });
 
@@ -265,7 +268,32 @@ describe('loadModelCatalog diagnostics', () => {
     }]);
   });
 
-  it('yields an empty opencode catalog entry when the probe is unsupported', async () => {
+  it('populates the opencode catalog from CLI when available', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: unavailable,
+        codex: unavailable,
+        antigravity: unavailable,
+        opencode: async () => ({
+          status: 'available',
+          models: [
+            { id: 'opencode/big-pickle', label: 'opencode/big-pickle', providers: ['opencode'] as const },
+            { id: 'openrouter/anthropic/claude-opus-5', label: 'openrouter/anthropic/claude-opus-5', providers: ['opencode'] as const },
+          ],
+        }),
+      },
+    });
+
+    expect(result.sources.opencode).toBe('cli');
+    expect(result.catalog.opencode).toEqual([
+      { id: 'opencode/big-pickle', label: 'opencode/big-pickle', providers: ['opencode'] },
+      { id: 'openrouter/anthropic/claude-opus-5', label: 'openrouter/anthropic/claude-opus-5', providers: ['opencode'] },
+    ]);
+    expect(result.diagnostics.some((d) => d.provider === 'opencode')).toBe(false);
+  });
+
+  it('yields an empty opencode catalog entry when the CLI probe is unavailable', async () => {
     const result = await loadModelCatalog(baseDeps(new MemoryCache(), completeFeed()));
 
     expect(result.sources.opencode).toBe('bundled');
@@ -273,7 +301,7 @@ describe('loadModelCatalog diagnostics', () => {
     expect(result.diagnostics).toContainEqual({
       provider: 'opencode',
       tier: 'cli',
-      category: 'unsupported',
+      category: 'command-unavailable',
     });
   });
 
@@ -388,6 +416,7 @@ describe('loadModelCatalog diagnostics', () => {
         claude: async () => ({ status: 'unavailable', code: 'unsupported', reason: 'unsupported' }),
         codex: unavailable,
         antigravity: unavailable,
+        opencode: unavailable,
       },
     });
 
@@ -415,6 +444,7 @@ describe('loadModelCatalog diagnostics', () => {
         claude: unavailable,
         codex: available('codex', 'cli-codex'),
         antigravity: unavailable,
+        opencode: unavailable,
       },
     });
 
