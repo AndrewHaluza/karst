@@ -108,10 +108,12 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('var(--k-surface-selected)');
   });
 
-  it('lets the pending spinner take the glyph’s slot rather than widen the row', () => {
-    // Inserted ahead of the marker, the spinner shifted the name and stage pill
-    // right and back again on every click.
-    expect(HTML).toContain('.rowopen[aria-busy="true"] .glyph{display:none}');
+  it('replaces only the status dot with a spinner so the row never shifts', () => {
+    /* The spinner takes the dot's absolute slot (same position/size) while the
+    karst mark stays visible, so the row width never changes on click. */
+    expect(HTML).toContain('.glyph .sdot-spin{');
+    expect(HTML).toContain('.glyph.g-spinning .sdot{display:none}');
+    expect(HTML).toContain('.glyph.g-spinning .sdot-spin{display:block}');
   });
 
   it('labels the session button with the continue-or-start verb, not a generic word', () => {

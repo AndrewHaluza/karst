@@ -183,6 +183,20 @@ color: var(--k-success);
 <button class="k-iconbtn" data-toggle aria-expanded="false" aria-label="Expand ticket" title="Expand ticket">…</button>
 ```
 
+### Interactive states on containers
+
+```css
+/* DON'T — :active leaks from the button to its container row */
+.row:active { transform: scale(.96) }
+
+/* DO — :active stays on the interactive element only */
+.k-btn:active:not(:disabled) { transform: scale(.96) }
+```
+
+A row, `<div>`, or `<span>` that shows `:active` press scale, `[aria-busy]`
+spinner, or `.is-success` flash is a defect (UI-R09b). The state belongs to the
+child control that posts the message, not to the container that holds it.
+
 ### Async feedback
 
 ```js

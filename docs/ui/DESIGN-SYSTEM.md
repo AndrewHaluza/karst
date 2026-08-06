@@ -274,6 +274,12 @@ Two states are distinct and must not be collapsed:
 A control that is disabled *because* it is loading carries `aria-busy="true"`;
 a control disabled for any other reason must not.
 
+> **Scope.** These states apply to the interactive element itself (a `<button>`,
+> `<a>`, or a primitive like `.k-btn`), never to a non-interactive container
+> wrapping it. `:active` on a row `<div>` is a defect (UI-R09b) — a row does not
+> post a message, so a press depress on it promises an interaction that does not
+> exist.
+
 ---
 
 ## 4. Primitives
