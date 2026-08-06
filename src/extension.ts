@@ -1309,6 +1309,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const manifest = currentManifest();
       return { value: resolveProjectSlug(manifest?.id, root), derived: manifest?.id === undefined };
     },
+    () => context.extension.packageJSON.version as string,
   );
 
   // Discovery is deliberately detached from activation: bundled models render

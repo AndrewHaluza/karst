@@ -143,4 +143,13 @@ describe('buildSettingsState', () => {
     expect(state.manifestPath).toBe('');
     expect(state.projectSlug).toEqual({ value: '', derived: true });
   });
+
+  it('carries the extension version', () => {
+    const state = buildSettingsState(M, null, [], false, [], [], {}, bundledModelCatalog(), '', { value: '', derived: true }, '1.0.0');
+    expect(state.version).toBe('1.0.0');
+  });
+
+  it('defaults version to empty string when not provided', () => {
+    expect(buildSettingsState(M).version).toBe('');
+  });
 });

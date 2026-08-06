@@ -553,6 +553,8 @@
               <dd><code id="factProjectSlug"></code>
                 <span class="chip" id="factSlugDerived" hidden
                       title="No id: in karst.yml — derived from the workspace path, changes if it moves">derived</span></dd>
+              <dt>Version</dt>
+              <dd><code id="factVersion"></code></dd>
             </dl>
           </div>
         </div>
@@ -1124,6 +1126,7 @@
   // draft manifest — SECTION_FIELDS excludes them so Save cannot write them.
   let manifestPath = '';
   let projectSlug = { value: '', derived: true };
+  let extensionVersion = '';
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
@@ -1626,6 +1629,7 @@
     el('factManifestPath').textContent = manifestPath || '(unresolved)';
     el('factProjectSlug').textContent = (projectSlug && projectSlug.value) || '(unresolved)';
     el('factSlugDerived').hidden = !(projectSlug && projectSlug.derived);
+    el('factVersion').textContent = extensionVersion || '(unknown)';
   }
 
   // Live preview of the label template against a representative sample ticket,
@@ -3709,6 +3713,7 @@
         approachCommands = msg.state.approachCommands || {};
         manifestPath = msg.state.manifestPath || '';
         projectSlug = msg.state.projectSlug || { value: '', derived: true };
+        extensionVersion = msg.state.version || '';
         confirmInstallId = null;
         valid = !msg.state.error;
         lastValidationError = msg.state.error; // before updateSaveEnabled: nav markers read it

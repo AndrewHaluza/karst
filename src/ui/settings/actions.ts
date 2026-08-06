@@ -15,6 +15,8 @@ export interface SettingsActionsCtx {
   manifestPath: string;
   /** The project identity this window resolved (§ state.ts `projectSlug`). */
   projectSlug: { value: string; derived: boolean };
+  /** Extension version from package.json. */
+  version: string;
 }
 
 /** Injected host dependencies (real ones bound in extension.ts). */
@@ -130,6 +132,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           deps.modelCatalog(),
           ctx.manifestPath,
           ctx.projectSlug,
+          ctx.version,
         ),
       });
     }

@@ -57,6 +57,8 @@ export interface SettingsState {
    * which changes if the repo moves, so it is the case worth showing.
    */
   projectSlug: { value: string; derived: boolean };
+  /** Extension version from package.json — displayed, never edited. */
+  version: string;
 }
 
 /** Build the initial settings state from a manifest (valid or last-known). */
@@ -71,6 +73,7 @@ export function buildSettingsState(
   models: ModelCatalog = bundledModelCatalog(),
   manifestPath = '',
   projectSlug: { value: string; derived: boolean } = { value: '', derived: true },
+  version = '',
 ): SettingsState {
   return {
     manifest,
@@ -84,5 +87,6 @@ export function buildSettingsState(
     modelCompatibility: compatibilityModelCatalog(models),
     manifestPath,
     projectSlug,
+    version,
   };
 }
