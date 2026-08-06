@@ -387,6 +387,16 @@ describe('SessionManager', () => {
     ]);
   });
 
+  it('launches the opencode binary when the opencode adapter is selected', () => {
+    const { adapter } = fakeAdapter('opencode');
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 1, '/wt/a');
+
+    expect(terminals.map((t) => t.shellPath)).toEqual(['opencode']);
+  });
+
   it('keeps the adapter that created an existing ticket session', () => {
     const first = fakeAdapter('codex');
     const second = fakeAdapter('claude');

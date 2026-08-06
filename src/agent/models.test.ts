@@ -12,6 +12,7 @@ const LIVE_MODELS: ModelCatalog = {
   claude: [{ id: 'claude-live', label: 'Claude Live', providers: ['claude'] }],
   codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
   antigravity: [],
+  opencode: [],
 };
 
 describe('KNOWN_MODELS', () => {
@@ -89,7 +90,12 @@ describe('KNOWN_MODELS', () => {
       claude: [],
       codex: [{ id: 'team-codex-model', label: 'Team Codex', providers: ['codex'] }],
       antigravity: [],
+      opencode: [],
     })).toEqual([{ id: 'team-codex-model', label: 'Team Codex', providers: ['codex'] }]);
+  });
+
+  it('offers no speculative curated opencode models', () => {
+    expect(modelsForProvider('opencode')).toEqual([]);
   });
 
   it('treats only known models from another provider as incompatible', () => {
@@ -158,6 +164,18 @@ describe('resolveModelForProvider', () => {
     expect(resolveModelForProvider('antigravity', 'custom-preview-model', undefined)).toBe(
       'custom-preview-model',
     );
+  });
+
+  it('preserves an explicit custom opencode model id (provider/model)', () => {
+    expect(
+      resolveModelForProvider('opencode', 'openrouter/~openai/gpt-mini-latest', undefined),
+    ).toBe('openrouter/~openai/gpt-mini-latest');
+  });
+
+  it('drops a known model from another provider when opencode is selected', () => {
+    expect(
+      resolveModelForProvider('opencode', 'claude-sonnet-5', undefined),
+    ).toBeUndefined();
   });
 
   it('drops a dynamically known cross-provider ticket model at launch', () => {

@@ -93,6 +93,30 @@
      ticket-link anchor below. */
   /*KARST_PROVIDER_CSS*/
 
+  /* Shared agent-core badge (icon + name) — single source in
+     src/model/agentIdentity.ts, injected here at load. */
+  /*KARST_AGENT_CSS*/
+
+  /* Agent provider custom select (icon + name inside dropdown) */
+  .agentselect{position:relative;width:100%}
+  .agentselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
+    text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
+  .agentselect-trigger:hover{background:var(--vscode-input-background)}
+  .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .agentselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
+    background:var(--chevron) no-repeat center/var(--k-space-6)}
+  .agentselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
+  .agentselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
+  .agentselect-opt:hover{background:var(--k-surface-hover)}
+  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .agentselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+
   /* Fetch button doubles as the status, via the `.k-btn` primitive's own
      loading (`aria-busy`) and `.is-success` states — never by swapping the
      label text (UI-R18: "Fetch" stays "Fetch"). Fixed min-width so the row
@@ -291,8 +315,12 @@
         <div class="empty hidden" id="agentEmpty">No agents available — add them in Settings.</div>
       </div>
       <div id="providerPicker">
-        <label for="providerSelect">Agent core</label>
-        <select class="k-input" id="providerSelect"></select>
+        <label>Agent core</label>
+        <div class="agentselect" id="agentSelectWrap">
+          <button type="button" class="agentselect-trigger k-btn" id="agentTrigger"
+            aria-label="Agent core" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="agentselect-menu hidden" id="agentMenu" role="listbox"></div>
+        </div>
         <div class="sub hidden" id="providerLockHint">Locked while the session runs — close the terminal to change it.</div>
       </div>
       <div id="modelPicker">
@@ -338,6 +366,11 @@
   // src/model/providerIdentity.ts, injected here at load (CSP forbids a
   // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
   /*KARST_PROVIDER_JS*/
+
+  // Shared agent-core identity (icon + name) — single source in
+  // src/model/agentIdentity.ts, injected here at load. Defines
+  // AGENT_PROVIDER_LABELS, agentBadgeHtml, agentIconHtml.
+  /*KARST_AGENT_JS*/
 
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
@@ -724,13 +757,16 @@
   function renderProviderPicker(providers, selectedProvider, defaultProvider, sessionOpen) {
     const list = providers || [];
     const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
-    const defLabel = `Inherit (settings: ${esc(defaultProvider)})`;
-    const opts = [`<option value=""${sel ? '' : ' selected'}>${defLabel}</option>`];
-    for (const p of list) {
-      opts.push(`<option value="${esc(p)}"${p === sel ? ' selected' : ''}>${esc(p)}</option>`);
-    }
-    el('providerSelect').innerHTML = opts.join('');
-    el('providerSelect').disabled = !!sessionOpen;
+    const current = sel || defaultProvider || 'claude';
+    el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
+    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(defaultProvider)})</div>`;
+    const opts = list.map((p) => {
+      return `<div class="agentselect-opt${p === sel ? ' selected' : ''}" role="option"`
+        + ` tabindex="0" data-value="${esc(p)}" aria-selected="${p === sel}">`
+        + agentBadgeHtml(p) + `</div>`;
+    }).join('');
+    el('agentMenu').innerHTML = inheritOpt + opts;
+    el('agentTrigger').disabled = !!sessionOpen;
     el('providerLockHint').classList.toggle('hidden', !sessionOpen);
   }
 
@@ -998,7 +1034,7 @@
     // Read the live <select> so the shown model is persisted even in create mode
     // (draft.selectedModel stays null until an explicit change). Empty = inherit.
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
-    const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
+    const agentProvider = draft.selectedAgentProvider || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
     // message that follows only confirms/clears it.
@@ -1017,7 +1053,7 @@
     }
     clearErr();
     setTitleInvalid(false);
-    const agentProvider = (draft.selectedAgentProvider ?? el('providerSelect').value ?? '') || null;
+    const agentProvider = draft.selectedAgentProvider || null;
     // Same field-gathering as submit — save persists the identical draft, it
     // just never calls startTicket.
     const repos = lastRepos.filter(repoSelected).map((r) => r.service);
@@ -1230,14 +1266,38 @@
 
   // Pick a provider (or "Inherit", value ''): record + post. In create mode the
   // host no-ops the persist; submit carries the final value.
-  el('providerSelect').addEventListener('change', (e) => {
-    const select = e.target;
-    const id = select.value;
-    draft.selectedAgentProvider = id || null;
+  { const wrap = el('agentSelectWrap');
+  const trigger = el('agentTrigger');
+  const menu = el('agentMenu');
+  function selectProvider(p) {
+    draft.selectedAgentProvider = p || null;
     const requestId = karstRequestId();
-    karstBeginPending(select, requestId);
-    post({ type: 'set-provider', id, requestId });
+    karstBeginPending(trigger, requestId);
+    post({ type: 'set-provider', id: p, requestId });
+  }
+  trigger.addEventListener('click', () => {
+    if (trigger.disabled) return;
+    const open = !menu.classList.contains('hidden');
+    menu.classList.toggle('hidden', open);
+    trigger.setAttribute('aria-expanded', String(!open));
   });
+  menu.addEventListener('click', (e) => {
+    const opt = e.target.closest('.agentselect-opt');
+    if (!opt) return;
+    selectProvider(opt.getAttribute('data-value'));
+  });
+  menu.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
+  });
+  trigger.addEventListener('keydown', (e) => {
+    if (trigger.disabled) return;
+    if (e.key === 'Escape' || e.key === 'ArrowUp') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); }
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault(); menu.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true');
+      menu.querySelector('.agentselect-opt')?.focus();
+    }
+  });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); } }); }
 
   // Pick a conventional type (or "Inherit", value ''): record + post, same
   // shape as the model picker. Create mode holds it in the draft until submit.

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ticket List UI Fixes — Prototypes</title>
+<style>
+  :root {
+    --k-space-0: 0;
+    --k-space-1: 2px;
+    --k-space-2: 4px;
+    --k-space-3: 6px;
+    --k-space-4: 8px;
+    --k-space-5: 10px;
+    --k-space-6: 12px;
+    --k-space-7: 16px;
+    --k-space-9: 26px;
+    --k-radius-xs: 3px;
+    --k-radius-sm: 5px;
+    --k-radius-md: 6px;
+    --k-radius-lg: 9px;
+    --k-radius-pill: 999px;
+    --k-radius-circle: 50%;
+    --k-text-2xs: 10px;
+    --k-text-xs: 11px;
+    --k-text-sm: 11.5px;
+    --k-text-md: 12px;
+    --k-text-base: 13px;
+    --k-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --k-font-mono: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+    --k-weight-semibold: 600;
+    --k-border-w: 1px;
+    --k-spinner-w: 2px;
+    --k-spinner-size: 12px;
+    --k-dur-fast: 120ms;
+    --k-dur-spin: 900ms;
+    --k-ease-standard: cubic-bezier(.2,0,.2,1);
+    --k-leading-tight: 1.15;
+
+    /* VS Code dark theme approximations */
+    --vscode-sideBar-background: #252526;
+    --vscode-editor-background: #1e1e1e;
+    --vscode-foreground: #cccccc;
+    --vscode-descriptionForeground: #999;
+    --vscode-disabledForeground: #666;
+    --vscode-list-hoverBackground: rgba(127,127,127,.16);
+    --vscode-list-inactiveSelectionBackground: rgba(127,127,127,.24);
+    --vscode-panel-border: rgba(128,128,128,.35);
+    --vscode-textLink-foreground: #3794ff;
+    --vscode-charts-blue: #3794ff;
+    --vscode-charts-yellow: #cca700;
+    --vscode-charts-green: #4bb64b;
+    --vscode-charts-red: #f14c4c;
+    --vscode-charts-lines: #6e7681;
+    --vscode-button-background: #0e639c;
+    --vscode-button-foreground: #fff;
+    --vscode-button-secondaryBackground: #3a3d41;
+    --vscode-button-secondaryForeground: #fff;
+
+    --k-text: var(--vscode-foreground);
+    --k-text-dim: var(--vscode-descriptionForeground);
+    --k-text-faint: var(--vscode-disabledForeground);
+    --k-link: var(--vscode-textLink-foreground);
+    --k-link-active: var(--vscode-textLink-foreground);
+    --k-surface-hover: var(--vscode-list-hoverBackground);
+    --k-surface-selected: var(--vscode-list-inactiveSelectionBackground);
+    --k-border: var(--vscode-panel-border);
+    --k-pending: var(--vscode-charts-lines);
+    --k-running: var(--vscode-charts-blue);
+    --k-attention: var(--vscode-charts-yellow);
+    --k-passed: var(--vscode-charts-green);
+    --k-failed: var(--vscode-charts-red);
+    --k-focus: var(--vscode-textLink-foreground);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--k-font-ui);
+    font-size: var(--k-text-base);
+    color: var(--k-text);
+    background: #1a1a2e;
+    padding: 24px;
+  }
+
+  h1 { font-size: 18px; margin-bottom: 8px; color: #fff; }
+  .subtitle { font-size: 13px; color: #999; margin-bottom: 24px; }
+
+  .variants { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .variant {
+    flex: 1; min-width: 300px; max-width: 420px;
+    background: var(--vscode-sideBar-background);
+    border-radius: var(--k-radius-md);
+    border: 1px solid var(--k-border);
+    overflow: hidden;
+  }
+  .variant-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--k-border);
+    background: rgba(255,255,255,.03);
+  }
+  .variant-header h2 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .variant-header p { font-size: 11px; color: #999; line-height: 1.4; }
+  .variant-body { padding: 0; }
+
+  .label-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: var(--k-radius-pill);
+    background: rgba(55,148,255,.15);
+    color: var(--k-running);
+    margin-left: 8px;
+    font-weight: 500;
+  }
+
+  /* ── Glyph SVG (karst mark) ── */
+  .glyph {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+  .glyph svg { display: block; }
+
+  /* Status dot on the mark */
+  .glyph .sdot {
+    position: absolute;
+    right: calc(-1 * var(--k-space-2));
+    bottom: calc(-1 * var(--k-space-2));
+    width: var(--k-space-3);
+    height: var(--k-space-3);
+    border-radius: var(--k-radius-circle);
+    background: currentColor;
+    box-shadow: 0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background);
+  }
+  .glyph.g-gray .sdot {
+    background: transparent;
+    box-shadow: 0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background);
+    border: calc(var(--k-border-w) * 1.5) solid currentColor;
+  }
+
+  /* Spinner that replaces the dot */
+  .glyph .sdot-spinner {
+    display: none;
+    position: absolute;
+    right: calc(-1 * var(--k-space-2));
+    bottom: calc(-1 * var(--k-space-2));
+    width: var(--k-space-3);
+    height: var(--k-space-3);
+    border: var(--k-spinner-w) solid currentColor;
+    border-top-color: transparent;
+    border-radius: var(--k-radius-circle);
+    animation: k-spin var(--k-dur-spin) linear infinite;
+  }
+  .glyph.spinning .sdot { display: none; }
+  .glyph.spinning .sdot-spinner { display: block; }
+
+  @keyframes k-spin { to { transform: rotate(360deg); } }
+
+  .g-blue { color: var(--k-running); }
+  .g-amber { color: var(--k-attention); }
+  .g-red { color: var(--k-failed); }
+  .g-green { color: var(--k-passed); }
+  .g-gray { color: var(--k-pending); }
+
+  .stage {
+    font-size: var(--k-text-2xs);
+    padding: var(--k-space-1) var(--k-space-4);
+    border-radius: var(--k-radius-lg);
+    flex: 0 0 auto;
+    font-weight: var(--k-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    background: color-mix(in srgb, currentColor 16%, transparent);
+  }
+  .stg-impl { color: var(--k-running); }
+  .stg-research { color: var(--k-attention); }
+  .stg-done { color: var(--k-passed); }
+  .stg-failed { color: var(--k-failed); }
+  .stg-pending { color: var(--k-pending); }
+
+  .chevron {
+    transition: transform var(--k-dur-fast) var(--k-ease-standard);
+    color: var(--k-text-dim);
+    flex: 0 0 auto;
+  }
+  .chevron.open { transform: rotate(90deg); }
+
+  .name {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: var(--k-text-md);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     VARIANT A — Compact rows, no click effect, spinner replaces dot
+     ══════════════════════════════════════════════════════════════════════════ */
+  .va .list { padding: var(--k-space-1) 0; }
+  .va .ticket { margin: 0 var(--k-space-2); border-radius: var(--k-radius-md); }
+  .va .row {
+    display: flex; align-items: center; gap: var(--k-space-3);
+    padding: var(--k-space-2) var(--k-space-3) var(--k-space-2) var(--k-space-2);
+    border-radius: var(--k-radius-md);
+    position: relative;
+    /* FIX: No click/active effect — only hover background */
+    cursor: pointer;
+    transition: background var(--k-dur-fast) var(--k-ease-standard);
+  }
+  .va .row:hover { background: var(--k-surface-hover); }
+  /* FIX: No :active transform on the row */
+  .va .row:active { /* intentionally empty — no scale effect */ }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     VARIANT B — Ultra compact rows, no click effect, spinner replaces dot
+     ══════════════════════════════════════════════════════════════════════════ */
+  .vb .list { padding: 0; }
+  .vb .ticket { margin: 0; border-radius: 0; }
+  .vb .row {
+    display: flex; align-items: center; gap: var(--k-space-3);
+    padding: var(--k-space-1) var(--k-space-3) var(--k-space-1) var(--k-space-2);
+    border-radius: 0;
+    position: relative;
+    cursor: pointer;
+    transition: background var(--k-dur-fast) var(--k-ease-standard);
+    border-bottom: var(--k-border-w) solid var(--k-border);
+  }
+  .vb .row:last-child { border-bottom: none; }
+  .vb .row:hover { background: var(--k-surface-hover); }
+  .vb .row:active { /* no scale effect */ }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     VARIANT C — Current spacing (reference), but with click effect removed
+     ══════════════════════════════════════════════════════════════════════════ */
+  .vc .list { padding: var(--k-space-2) 0 var(--k-space-6); }
+  .vc .ticket { margin: var(--k-space-1) var(--k-space-2); border-radius: var(--k-radius-md); }
+  .vc .row {
+    display: flex; align-items: center; gap: var(--k-space-4);
+    padding: var(--k-space-3) var(--k-space-3) var(--k-space-3) var(--k-space-2);
+    border-radius: var(--k-radius-md);
+    position: relative;
+    cursor: pointer;
+    transition: background var(--k-dur-fast) var(--k-ease-standard);
+  }
+  .vc .row:hover { background: var(--k-surface-hover); }
+  .vc .row:active { /* FIX: removed the scale(.96) that was on the whole row */ }
+
+  /* ── Shared action buttons (for demo) ── */
+  .row-actions {
+    display: flex; gap: var(--k-space-1);
+    position: absolute; right: var(--k-space-3); top: 50%;
+    transform: translateY(-50%);
+    background: var(--k-surface-hover);
+    border-radius: var(--k-radius-sm);
+    padding-left: var(--k-space-2);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--k-dur-fast) var(--k-ease-standard);
+  }
+  .row:hover .row-actions { opacity: 1; pointer-events: auto; }
+  .row:hover .stage { opacity: 0; }
+
+  .act-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 24px; min-height: 24px;
+    padding: var(--k-space-1);
+    border: var(--k-border-w) solid transparent;
+    border-radius: var(--k-radius-sm);
+    background: transparent; color: var(--k-text-dim);
+    cursor: pointer; position: relative;
+    transition: background var(--k-dur-fast) var(--k-ease-standard),
+               color var(--k-dur-fast) var(--k-ease-standard);
+  }
+  .act-btn:hover { background: var(--k-surface-hover); color: var(--k-text); }
+  .act-btn:active { transform: scale(.96); }
+
+  /* ── Comparison callout ── */
+  .comparison {
+    margin-top: 32px;
+    padding: 16px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--k-border);
+    border-radius: var(--k-radius-md);
+    max-width: 900px;
+  }
+  .comparison h3 { font-size: 14px; margin-bottom: 12px; }
+  .comparison table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .comparison th { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--k-border); color: #999; }
+  .comparison td { padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,.05); }
+  .comparison .old { color: var(--k-failed); }
+  .comparison .new { color: var(--k-passed); }
+</style>
+</head>
+<body>
+
+<h1>Ticket List UI Fixes — Interactive Prototypes</h1>
+<p class="subtitle">Click any row to see the spinner replace the status dot. Hover to see row hover effect (no click/press effect on rows).</p>
+
+<div class="variants">
+
+  <!-- ═══ VARIANT A ═══ -->
+  <div class="variant va">
+    <div class="variant-header">
+      <h2>Variant A <span class="label-tag">Recommended</span></h2>
+      <p>Compact rows (4px vertical padding). Tighter gaps. Spinner replaces dot. No row click effect.</p>
+    </div>
+    <div class="variant-body">
+      <div class="list" id="list-a"></div>
+    </div>
+  </div>
+
+  <!-- ═══ VARIANT B ═══ -->
+  <div class="variant vb">
+    <div class="variant-header">
+      <h2>Variant B</h2>
+      <p>Ultra compact — single-pixel separator lines, minimal padding. Densest layout.</p>
+    </div>
+    <div class="variant-body">
+      <div class="list" id="list-b"></div>
+    </div>
+  </div>
+
+  <!-- ═══ VARIANT C ═══ -->
+  <div class="variant vc">
+    <div class="variant-header">
+      <h2>Variant C</h2>
+      <p>Keeps current spacing as reference. Only removes the click/press effect and adds spinner.</p>
+    </div>
+    <div class="variant-body">
+      <div class="list" id="list-c"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Comparison table -->
+<div class="comparison">
+  <h3>What changed</h3>
+  <table>
+    <tr><th>Property</th><th>Current</th><th>Variant A</th><th>Variant B</th><th>Variant C</th></tr>
+    <tr>
+      <td>Row vertical padding</td>
+      <td class="old">6px</td>
+      <td class="new">4px</td>
+      <td class="new">2px</td>
+      <td>6px (unchanged)</td>
+    </tr>
+    <tr>
+      <td>Row horizontal gap</td>
+      <td class="old">8px</td>
+      <td class="new">6px</td>
+      <td class="new">6px</td>
+      <td>8px (unchanged)</td>
+    </tr>
+    <tr>
+      <td>Ticket margin</td>
+      <td class="old">2px 4px</td>
+      <td class="new">0 4px</td>
+      <td class="new">0 (none)</td>
+      <td>2px 4px (unchanged)</td>
+    </tr>
+    <tr>
+      <td>List padding</td>
+      <td class="old">4px 0 12px</td>
+      <td class="new">2px 0</td>
+      <td class="new">0</td>
+      <td>4px 0 12px (unchanged)</td>
+    </tr>
+    <tr>
+      <td>Row click/press effect</td>
+      <td class="old">scale(.96) on :active</td>
+      <td class="new">None (hover only)</td>
+      <td class="new">None (hover only)</td>
+      <td class="new">None (hover only)</td>
+    </tr>
+    <tr>
+      <td>Spinner on click</td>
+      <td class="old">Replaces glyph (shifts row)</td>
+      <td class="new">Replaces dot only (no shift)</td>
+      <td class="new">Replaces dot only (no shift)</td>
+      <td class="new">Replaces dot only (no shift)</td>
+    </tr>
+  </table>
+</div>
+
+<script>
+const MARK_SVG = `<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/></svg>`;
+const CHEV = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>`;
+const SPIN_IC = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5 3.5l7 4.5-7 4.5z"/></svg>`;
+const SESS_IC = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M4.5 7l2 1.5-2 1.5"/></svg>`;
+const EDIT_IC = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z"/></svg>`;
+const ARCH_IC = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="4" width="11" height="3"/><path d="M3.5 7v5.5h9V7M6.5 9.5h3"/></svg>`;
+
+const TICKETS = [
+  { id: 1, label: 'Fix authentication timeout', glyph: 'blue', stage: 'impl', stageLabel: 'IMPL', model: 'opus', repo: 'karst-ext' },
+  { id: 2, label: 'Add rate limiting to API endpoints', glyph: 'amber', stage: 'research', stageLabel: 'RES', model: 'sonnet', repo: 'karst-ext' },
+  { id: 3, label: 'Update dashboard layout for mobile', glyph: 'green', stage: 'done', stageLabel: 'DONE', model: 'opus', repo: 'karst-ext' },
+  { id: 4, label: 'Database migration script v3', glyph: 'red', stage: 'failed', stageLabel: 'FAIL', model: 'haiku', repo: 'karst-ext' },
+  { id: 5, label: 'Implement webhook notifications', glyph: 'gray', stage: 'pending', stageLabel: '—', model: 'sonnet', repo: 'karst-ext' },
+  { id: 6, label: 'Refactor user permissions module', glyph: 'blue', stage: 'impl', stageLabel: 'IMPL', model: 'opus', repo: 'karst-ext' },
+  { id: 7, label: 'Add unit tests for payment flow', glyph: 'amber', stage: 'research', stageLabel: 'RES', model: 'sonnet', repo: 'karst-ext' },
+];
+
+function renderRow(row, variant) {
+  return `<div class="row" data-id="${row.id}">
+    <span class="chevron">${CHEV}</span>
+    <span class="glyph g-${row.glyph}" role="img" aria-label="${row.glyph}">
+      ${MARK_SVG}
+      <span class="sdot" aria-hidden="true"></span>
+      <span class="sdot-spinner" aria-hidden="true"></span>
+    </span>
+    <span class="name">${row.label}</span>
+    <span class="stage stg-${row.stage}">${row.stageLabel}</span>
+    <span class="row-actions">
+      <button class="act-btn" title="Spin up">${SPIN_IC}</button>
+      <button class="act-btn" title="Session">${SESS_IC}</button>
+      <button class="act-btn" title="Edit">${EDIT_IC}</button>
+      <button class="act-btn" title="Archive">${ARCH_IC}</button>
+    </span>
+  </div>`;
+}
+
+function renderList(containerId) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = TICKETS.map(r => renderRow(r, containerId)).join('');
+
+  el.querySelectorAll('.row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      // Don't spin if clicking an action button
+      if (e.target.closest('.act-btn') || e.target.closest('.row-actions')) return;
+
+      const glyph = row.querySelector('.glyph');
+
+      // If already spinning, stop
+      if (glyph.classList.contains('spinning')) {
+        glyph.classList.remove('spinning');
+        return;
+      }
+
+      // Start spinning — replaces dot with spinner, NO row shift
+      glyph.classList.add('spinning');
+
+      // Stop after 2s to demo the cycle
+      setTimeout(() => glyph.classList.remove('spinning'), 2000);
+    });
+  });
+}
+
+renderList('list-a');
+renderList('list-b');
+renderList('list-c');
+</script>
+
+</body>
+</html>

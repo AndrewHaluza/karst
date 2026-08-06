@@ -1282,6 +1282,15 @@ describe('agentProvider', () => {
     }
   });
 
+  it("preserves an explicit 'opencode' setting", () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentProvider: opencode\n`);
+    try {
+      expect(loadManifest(path).agentProvider).toBe('opencode');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('throws on an invalid value', () => {
     const { path, cleanup } = fixture(`${VALID}\nagentProvider: gpt\n`);
     try {

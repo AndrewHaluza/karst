@@ -117,6 +117,24 @@ role, no `tabindex`, no key handler — unreachable by keyboard); `sidebar`'s
 carries `role`, `tabindex="0"`, and <kbd>Enter</kbd>+<kbd>Space</kbd> handlers —
 and that exception is justified in a comment.
 
+### UI-R09b — Interactive states stay on the primitive
+`:active` (press scale), `[aria-busy]` (spinner), `.is-success` (flash), and
+`:disabled` apply **only** to the interactive element itself — a `<button>` or
+an `<a href>` — never to a non-interactive container wrapping it (a `<div>`,
+`<span>`, or layout row). A row that scales `.96` on press, shows a spinner
+badge, or goes opaque on disable is a defect: the state leaked from the child
+control to its parent.
+
+**Motivating defect:** the design system's `:active { transform: scale(.96) }`
+was applied to `.row` (a `<div>`) during the rollout, so clicking anywhere on a
+ticket row — including the name text — produced a visible depress, even though
+the row is not a button and does not post a message.
+
+**Check:** no `:active`, `[aria-busy]`, `.is-success`, or `:disabled` rule
+targets an element that is not a `<button>`, `<a>`, `<input>`, `<select>`,
+`<textarea>`, or a known interactive primitive (`.k-btn`, `.k-iconbtn`,
+`.k-chip`, `.k-switch`, `.k-input`).
+
 ### UI-R10 — A class must have a rule
 Applying a class that no stylesheet defines is a defect.
 

@@ -38,11 +38,11 @@
   .facets .n{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.8}
 
   /* rows */
-  .list{padding:var(--k-space-2) 0 var(--k-space-6)}
-  .ticket{margin:var(--k-space-1) var(--k-space-2);border-radius:var(--k-radius-md)}
+  .list{padding:var(--k-space-1) 0}
+  .ticket{margin:0 var(--k-space-2);border-radius:var(--k-radius-md)}
   .ticket.arch{opacity:.6}
-  .row{display:flex;align-items:center;gap:var(--k-space-4);
-    padding:var(--k-space-3) var(--k-space-3) var(--k-space-3) var(--k-space-2);
+  .row{display:flex;align-items:center;gap:var(--k-space-3);
+    padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) var(--k-space-2);
     border-radius:var(--k-radius-md);position:relative}
   .row:hover{background:var(--k-surface-hover)}
   /* Opening a ticket is a handoff — the dashboard panel IS the answer — so the
@@ -54,13 +54,17 @@
      second translucent layer stacking on top of the first. */
   .row:has(.rowopen.is-success){background:var(--k-surface-selected)}
   .rowopen.is-success{background:transparent}
-  /* The pending spinner REPLACES the row marker instead of being inserted ahead
-     of it. Inserted, it pushed the glyph, name and stage pill sideways for the
-     length of the round trip and let them snap back — a jump on every click,
-     from a state whose whole job is to be reassuring. Same trick as the diff
-     view's status letter: the spinner stands in for the glyph that shares its
-     slot, so the row's width never changes. */
-  .rowopen[aria-busy="true"] .glyph{display:none}
+  /* The pending spinner replaces only the status dot — not the whole glyph —
+     so the karst mark stays visible and the row never shifts. The dot hides
+     and a same-size spinner takes its place (same absolute position).
+     Toggled by the MutationObserver below via .g-spinning on the glyph. */
+  .glyph .sdot-spin{
+    display:none;position:absolute;right:calc(-1 * var(--k-space-2));bottom:calc(-1 * var(--k-space-2));
+    width:var(--k-space-3);height:var(--k-space-3);
+    border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
+    border-radius:var(--k-radius-circle);animation:k-spin var(--k-dur-spin) linear infinite}
+  .glyph.g-spinning .sdot{display:none}
+  .glyph.g-spinning .sdot-spin{display:block}
 
   .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   .ticket.open .chev{transform:rotate(90deg)}
@@ -294,7 +298,7 @@
 
       // Decorative content of the row's main click target — never another
       // interactive control (UI-R09; see the `.rowopen` comment in <style>).
-      const rowContent = `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span></span>`
+      const rowContent = `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span>`
         + `<span class="name">${esc(row.label)}</span>`
         + (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : '')
         + `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`;
@@ -324,6 +328,24 @@
         + `</div></div>`;
     }).join('');
   }
+
+  // Sync the glyph spinner with aria-busy on the row open control.
+  // karstBeginPending/karstSettle toggle aria-busy; when busy, the status dot
+  // hides and a same-size spinner takes its place (no row shift).
+  new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.attributeName !== 'aria-busy') continue;
+      const rowEl = m.target.closest('.row');
+      if (!rowEl) continue;
+      const glyph = rowEl.querySelector('.glyph');
+      if (!glyph) continue;
+      if (m.target.getAttribute('aria-busy') === 'true') {
+        glyph.classList.add('g-spinning');
+      } else {
+        glyph.classList.remove('g-spinning');
+      }
+    }
+  }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['aria-busy'] });
 
   // ---- interactions ----
   let searchTimer;
