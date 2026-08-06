@@ -42,6 +42,10 @@ function fakeHost(
 } {
   const terminals: FakeTerminal[] = [];
   const pendingCloseEvents: Array<() => void> = [];
+  // VS Code keeps a terminal in `window.terminals` until its close event is
+  // delivered, not until `dispose()` is called. This tracks delivered closes
+  // so the fake's restored-sessions view mirrors that async cleanup gap.
+  const closeDelivered = new Set<FakeTerminal>();
   let restoredSessions = restored;
   const host: TerminalHost & {
     restoreCreatedTerminals(): void;
@@ -64,6 +68,10 @@ function fakeHost(
         disposed: false,
         sent: [],
         show: (preserveFocus) => {
+          // A disposed VS Code terminal throws on `.show()` ("Terminal has
+          // already been disposed") — the exact failure this module's
+          // recently-disposed guard exists to prevent.
+          if (term.disposed) throw new Error('Terminal has already been disposed');
           term.shown++;
           term.shownPreserveFocus.push(preserveFocus);
         },
@@ -71,8 +79,15 @@ function fakeHost(
         dispose: () => {
           term.disposed = true;
           if (!term.disposeHandler) return;
-          if (delayClose) pendingCloseEvents.push(term.disposeHandler);
-          else term.disposeHandler();
+          if (delayClose) {
+            pendingCloseEvents.push(() => {
+              closeDelivered.add(term);
+              term.disposeHandler?.();
+            });
+          } else {
+            closeDelivered.add(term);
+            term.disposeHandler();
+          }
         },
         onDidClose: (h) => (term.disposeHandler = h),
       };
@@ -81,12 +96,17 @@ function fakeHost(
     },
     restoredSessions: () => restoredSessions,
     restoreCreatedTerminals: () => {
-      restoredSessions = terminals.filter((terminal) => !terminal.disposed).flatMap((terminal) => {
-        const raw = terminal.env[KARST_TICKET_ENV];
-        return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
-          ? [{ ticketId: Number(raw), terminal }]
-          : [];
-      });
+      // Mirrors `vscode.window.terminals`: a terminal stays listed until its
+      // close event is delivered, so a disposed-but-not-yet-closed terminal is
+      // still visible (that is what makes the agent-core-switch race real).
+      restoredSessions = terminals
+        .filter((terminal) => !closeDelivered.has(terminal))
+        .flatMap((terminal) => {
+          const raw = terminal.env[KARST_TICKET_ENV];
+          return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
+            ? [{ ticketId: Number(raw), terminal }]
+            : [];
+        });
     },
     liveTerminals: () => terminals.filter((terminal) => !terminal.disposed),
     flushCloseEvents: () => {
@@ -700,6 +720,63 @@ describe('SessionManager', () => {
     expect(terminals[0]!.disposed).toBe(true);
     expect(mgr.isOpen(1)).toBe(true);
     expect(observedCloses).toEqual([1]);
+  });
+
+  it('does not adopt a recently-disposed terminal when VS Code still lists it', () => {
+    // Simulates the agent core switch race: disposeSession disposes the
+    // terminal, but VS Code's async cleanup has not yet delivered its close
+    // event, so the disposed terminal is still listed in `window.terminals`
+    // with no `exitStatus`. A subsequent openSession must create a fresh
+    // terminal instead of adopting the disposed one (whose `.show()` throws
+    // "Terminal has already been disposed").
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 7, '/wt/a');
+    expect(terminals).toHaveLength(1);
+
+    // Dispose the session (karst-initiated, not VS Code); the close event is
+    // still pending, exactly like the real async gap.
+    mgr.disposeSession(7);
+
+    // VS Code still lists the disposed terminal in `window.terminals`.
+    host.restoreCreatedTerminals();
+
+    // openSession must NOT adopt the disposed terminal.
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(terminals).toHaveLength(2);
+    expect(terminals[0]!.disposed).toBe(true);
+    expect(terminals[1]!.disposed).toBe(false);
+    expect(mgr.isOpen(7)).toBe(true);
+  });
+
+  it('holds the disposed-terminal guard until the disposed terminal closes, not a newer session', () => {
+    // A newer session closing first must not release the guard: the disposed
+    // terminal is still listed in `window.terminals` while its own close is
+    // pending, and re-adopting it would throw "Terminal has already been
+    // disposed".
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 7, '/wt/a');
+    mgr.disposeSession(7);
+    mgr.openSession(adapter, 7, '/wt/a');
+    host.restoreCreatedTerminals();
+
+    // The replacement session's close is delivered while the disposed
+    // terminal's own close is still pending.
+    closeWithExitCode(terminals[1]!, 0);
+    host.restoreCreatedTerminals();
+
+    // A third open must still create a fresh terminal, never adopt the corpse.
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(terminals).toHaveLength(3);
+    expect(terminals[2]!.disposed).toBe(false);
+    expect(mgr.isOpen(7)).toBe(true);
   });
 
   it('cleans owned assets exactly once when deliberately disposed without replacement', () => {
