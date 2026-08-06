@@ -113,93 +113,22 @@ describe('buildStageInside', () => {
     });
   });
 
-  describe('merge', () => {
-    // The stage parks as pending the moment it is entered, so status alone
-    // cannot separate "not reached yet" from "reached, nothing to land".
-    const entered = (rows: StepperStageRow[] = []) =>
-      buildStepper([{ stageKey: 'merge', status: 'pending', startedAt: NOW }, ...rows]);
-
-    it('says nothing before the stage is reached — the blurb answers instead', () => {
-      expect(build({ ship: 'pending' }).merge.ops).toEqual([]);
-    });
-
-    it('states outright that a ticket with no PR had nothing to land', () => {
-      expect(build({}, { stepper: entered() }).merge.ops).toEqual([
-        {
-          status: 'note',
-          name: 'merge',
-          detail: 'nothing was delivered — no pull request to merge',
-          duration: '',
-        },
-      ]);
-    });
-
-    it('marks a landed PR passed and one still open as waiting', () => {
-      const prs = [
-        { ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'merged', mergedAt: NOW },
-        { ticketId: 1, repo: 'web', number: 13, url: 'https://x/13', status: 'open' },
-      ];
-      expect(build({}, { stepper: entered(), prs }).merge.ops).toEqual([
-        { status: 'pass', name: 'merged', detail: 'api #12', duration: '' },
-        { status: 'wait', name: 'open', detail: 'web #13 · not merged yet', duration: '' },
-      ]);
-    });
-
-    // The one row on this strip a person has to act on.
-    it('fails the row for a repo whose branch no longer merges cleanly', () => {
-      const prs = [{ ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' }];
-      const ops = build({}, {
-        stepper: entered(),
-        prs,
-        mergeChecks: [check('api', { state: 'conflicted', files: ['src/a.ts'] })],
-      }).merge.ops;
-      expect(ops).toHaveLength(1);
-      expect(ops[0]!.status).toBe('fail');
-      expect(ops[0]!.name).toBe('conflict');
-      expect(ops[0]!.detail).toContain('api #12');
-    });
-
-    // A repo re-shipped after a merge carries both rows; answering twice for one
-    // repo is what the ship strip does (a log of what it did) and what this strip
-    // must not (an answer to "has this landed").
-    it('reports one row per repo, for the current PR', () => {
-      const prs = [
-        { ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'merged', mergedAt: NOW },
-        { ticketId: 1, repo: 'api', number: 14, url: 'https://x/14', status: 'open' },
-      ];
-      expect(build({}, { stepper: entered(), prs }).merge.ops).toEqual([
-        { status: 'wait', name: 'open', detail: 'api #14 · not merged yet', duration: '' },
-      ]);
-    });
-
-    it('names the repo the way every other surface does (display path)', () => {
-      const prs = [
-        {
-          ticketId: 1,
-          repo: '/abs/repo/api',
-          repoDisplay: 'api',
-          number: 12,
-          url: 'https://x/12',
-          status: 'open',
-        },
-      ];
-      expect(build({}, { stepper: entered(), prs }).merge.ops[0]!.detail).toBe(
-        'api #12 · not merged yet',
-      );
-    });
-  });
-
   describe('ship', () => {
-    it('reports one row per PR it opened', () => {
+    // Every PR row is a log entry (`pr`); the LANDING row answering "has this
+    // repo landed" is a separate fact, appended after all the pr rows —
+    // covered on its own below. Filtering to `pr`-named ops isolates the one
+    // thing this test is about.
+    it('reports one pr row per PR it opened', () => {
       const prs = [
         { ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' },
         { ticketId: 1, repo: 'web', number: 13, url: 'https://x/13', status: 'open' },
       ];
       const ops = build({ ship: 'passed' }, { prs }).ship.ops;
-      expect(ops).toHaveLength(2);
-      expect(ops[0]).toMatchObject({ name: 'pr', status: 'pass' });
-      expect(ops[0]!.detail).toContain('api');
-      expect(ops[0]!.detail).toContain('#12');
+      const prOps = ops.filter((o) => o.name === 'pr');
+      expect(prOps).toHaveLength(2);
+      expect(prOps[0]).toMatchObject({ name: 'pr', status: 'pass' });
+      expect(prOps[0]!.detail).toContain('api');
+      expect(prOps[0]!.detail).toContain('#12');
     });
 
     // The ship strip names the same directory the worktree rows do, so it must
@@ -245,29 +174,54 @@ describe('buildStageInside', () => {
       expect(build({ ship: 'passed' }, { prs }).ship.ops[0]!.detail).toBe('api #12');
     });
 
-    // A ticket that shipped before merge checks existed, or whose check never got
-    // written, must render as it always did. Silence is the honest reading of "we
-    // have not checked" — inventing a clean row would be the exact failure this
-    // feature exists to prevent.
-    it('shows no merge row for a repo that was never checked', () => {
+    // Landing is read off `pr.status`/`pr.mergedAt`, never off the merge check
+    // — a check is consulted only for a conflict's detail. So a repo with no
+    // check on file (a ticket shipped before merge checks existed, or one
+    // whose check never got written) must still get an honest "open, not
+    // merged yet" landing row rather than silence — inventing a clean-looking
+    // absence would be the exact failure this feature exists to prevent.
+    it('reports an open landing row for a repo that was never checked', () => {
       const prs = [{ ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' }];
       const ops = build({ ship: 'passed' }, { prs }).ship.ops;
-      expect(ops).toHaveLength(1);
-      expect(ops.some((o) => o.name === 'merge')).toBe(false);
+      expect(ops.map((o) => [o.name, o.status])).toEqual([
+        ['pr', 'pass'],
+        ['open', 'wait'],
+      ]);
+      expect(ops[1]!.detail).toContain('not merged yet');
     });
 
-    it('reports a clean merge check beside its PR', () => {
+    // A clean check does not, by itself, mean landed — only the PR's own
+    // status/mergedAt says that. An open PR with a clean check is still just
+    // open: the check is future information about whether it WOULD merge
+    // cleanly, not a report that it already has.
+    it('still reports open, not merged yet, when the merge check reads clean', () => {
       const prs = [{ ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' }];
       const ops = build({ ship: 'passed' }, { prs, mergeChecks: [check('api')] }).ship.ops;
+      expect(ops[1]).toMatchObject({ name: 'open', status: 'wait' });
+    });
 
-      expect(ops).toHaveLength(2);
-      expect(ops[1]).toMatchObject({ name: 'merge', status: 'pass' });
-      expect(ops[1]!.detail).toContain('clean');
+    // Once the PR itself reads merged, the landing row says so — regardless of
+    // what the merge check (a pre-merge probe) last recorded for that repo.
+    it('reports a merged landing row once the PR carries a merge stamp', () => {
+      const prs = [
+        {
+          ticketId: 1,
+          repo: 'api',
+          number: 12,
+          url: 'https://x/12',
+          status: 'merged',
+          mergedAt: '2026-07-28T09:30:00Z',
+        },
+      ];
+      const ops = build({ ship: 'passed' }, { prs }).ship.ops;
+      expect(ops[1]).toMatchObject({ name: 'merged', status: 'pass' });
+      expect(ops[1]!.detail).toContain('api');
+      expect(ops[1]!.detail).toContain('#12');
     });
 
     // The row reads `fail` inside a stage that PASSED, deliberately: the ship
     // succeeded — a PR exists — and the merge is a separate fact about it.
-    it('reports a conflict as a failed row with the conflicting files', () => {
+    it('reports a conflict as a failed landing row with the conflicting files', () => {
       const prs = [{ ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' }];
       const mergeChecks = [
         check('api', { state: 'conflicted' as const, files: ['src/a.ts', 'src/b.ts'] }),
@@ -276,27 +230,24 @@ describe('buildStageInside', () => {
       const strip = build({ ship: 'passed' }, { prs, mergeChecks }).ship;
 
       expect(strip.dot).toBe('done'); // the stage still passed
-      expect(strip.ops[1]).toMatchObject({ name: 'merge', status: 'fail' });
+      expect(strip.ops[1]).toMatchObject({ name: 'conflict', status: 'fail' });
       expect(strip.ops[1]!.detail).toContain('src/a.ts');
       expect(strip.ops[1]!.detail).toContain('src/b.ts');
     });
 
-    // `note` exists for a fact karst cannot honestly dress as a verdict. Calling
-    // an unanswered check a pass is precisely the lie being prevented.
-    it('reports an unknown check as a note carrying git’s own reason — never a pass', () => {
+    // An `unknown` check (a probe that could not answer) is not a conflict, so
+    // it must not read as one — it falls back to the same honest "open, not
+    // merged yet" a repo with no check at all gets.
+    it('does not read an unresolved merge check as a conflict', () => {
       const prs = [{ ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' }];
       const mergeChecks = [
         check('api', { state: 'unknown' as const, reason: "fatal: couldn't find remote ref main" }),
       ];
-
       const ops = build({ ship: 'passed' }, { prs, mergeChecks }).ship.ops;
-
-      expect(ops[1]).toMatchObject({ name: 'merge', status: 'note' });
-      expect(ops[1]!.status).not.toBe('pass');
-      expect(ops[1]!.detail).toContain("couldn't find remote ref main");
+      expect(ops[1]).toMatchObject({ name: 'open', status: 'wait' });
     });
 
-    it('pairs each check with its own repo', () => {
+    it('pairs each landing row with its own repo, after every pr row', () => {
       const prs = [
         { ticketId: 1, repo: 'api', number: 12, url: 'https://x/12', status: 'open' },
         { ticketId: 1, repo: 'web', number: 13, url: 'https://x/13', status: 'open' },
@@ -310,9 +261,65 @@ describe('buildStageInside', () => {
 
       expect(ops.map((o) => [o.name, o.status])).toEqual([
         ['pr', 'pass'],
-        ['merge', 'fail'],
         ['pr', 'pass'],
-        ['merge', 'pass'],
+        ['conflict', 'fail'],
+        ['open', 'wait'],
+      ]);
+    });
+
+    // `store/prs.ts`'s CURRENT_PR_ORDER: an open PR wins over a merged one, so
+    // a repo re-shipped after a merge lands the strip on the branch that is
+    // still actually open, not the stale one already landed.
+    it('scopes the landing row to the CURRENT PR when a repo has been re-shipped', () => {
+      const prs = [
+        {
+          ticketId: 1,
+          repo: 'api',
+          number: 11,
+          url: 'https://x/11',
+          status: 'merged',
+          mergedAt: '2026-07-20T09:00:00Z',
+        },
+        { ticketId: 1, repo: 'api', number: 14, url: 'https://x/14', status: 'open' },
+      ];
+      const ops = build({ ship: 'passed' }, { prs }).ship.ops;
+      const landing = ops.filter((o) => o.name !== 'pr');
+      // ONE landing row for the repo, describing the still-open PR — never
+      // both, and never the stale merged one.
+      expect(landing).toHaveLength(1);
+      expect(landing[0]).toMatchObject({ name: 'open', status: 'wait' });
+      expect(landing[0]!.detail).toContain('#14');
+      expect(landing[0]!.detail).not.toContain('#11');
+    });
+
+    // Ship's own work can be entirely done with nothing to land — a ticket
+    // whose diff was empty in every hot repo opens no PR at all. That is a
+    // genuine pass, not silence, so the strip says so explicitly rather than
+    // looking like karst forgot to check.
+    it('notes nothing was delivered when ship entered but opened no PR', () => {
+      const rows: StepperStageRow[] = [
+        { stageKey: 'ship', status: 'passed', startedAt: NOW, endedAt: NOW },
+      ];
+      const all = buildStageInside({
+        stepper: buildStepper(rows),
+        gateRuns: [],
+        findings: [],
+        worktrees: [],
+        prs: [],
+        session: { sessionId: null, agentState: null, model: null },
+        selectedRepos: ['api'],
+        phases: [],
+        marks: [],
+        fixAttempts: 0,
+        now: NOW,
+      });
+      expect(all.ship.ops).toEqual([
+        {
+          status: 'note',
+          name: 'merge',
+          detail: 'nothing was delivered — no pull request to merge',
+          duration: '',
+        },
       ]);
     });
 

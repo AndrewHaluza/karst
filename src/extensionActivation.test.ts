@@ -14,12 +14,12 @@ describe('extension activation', () => {
   // A ticket reaches `done` only when its PRs have landed, and the landing can
   // happen where no click in this window can see it — a teammate merging on
   // GitHub. The PR sweep is the only path that notices, so the wiring is pinned
-  // here: without it a merged ticket sits at `merge` until someone reopens the
-  // dashboard, and its provider status is never pushed at all.
+  // here: without it a merged ticket sits at `ship`, blocked, until someone
+  // reopens the dashboard, and its provider status is never pushed at all.
   it('settles the merge gate on the PR sweep, and pushes the status of what landed', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    expect(source).toContain('settleMergeGates(localStore, { projectId: project.id })');
+    expect(source).toContain('settleShipGates(localStore, { projectId: project.id })');
     expect(source).toContain('for (const id of landed) void pushDoneStatus(id, false);');
   });
 

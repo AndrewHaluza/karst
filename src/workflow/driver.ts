@@ -1,6 +1,21 @@
 import type { Store } from '../store/db.js';
 import type { StageKey, StageRunResult } from '../model/types.js';
 import { getTicket } from '../store/tickets.js';
+import { stageBlock } from '../store/stageBlocks.js';
+
+/**
+ * The fixed vocabulary of human-boundary reasons the driver itself names
+ * (as opposed to the free-text `${blocker}: ${reason}` a gate stage's own
+ * block produces below) — a closed union, not a bare `string`, so a typo in
+ * one of these literals is a compile error rather than a silent mismatch
+ * with the dashboard's copy that reads them.
+ */
+export type DriverBoundaryReason =
+  | 'ship-confirm'
+  | 'awaiting-merge'
+  | 'gate-failed'
+  | 'awaiting-marker'
+  | 'not-spun';
 
 /**
  * The stage driver (§11/§12): after the explicit impl/fix marker leaves a ticket
@@ -45,10 +60,21 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
     const stage = getTicket(deps.store, ticketId).stageCurrent as StageKey;
 
     // Human boundaries — stop without running.
-    if (stage === 'ship') return finish(deps, ticketId, stage, 'blocked', 'ship-confirm');
-    // Merging is a human's click on GitHub (or a teammate's) — the driver has
-    // nothing to run here and must not spin waiting for one.
-    if (stage === 'merge') return finish(deps, ticketId, stage, 'blocked', 'awaiting-merge');
+    // `ship` covers TWO different waits that both read `stage === 'ship'`:
+    // parked pending its first confirm click, or already shipped and now
+    // parked on the merge gate (`workflow/mergeGate.ts`) waiting for a PR to
+    // land — a human's click on GitHub, or a teammate's. The driver has
+    // nothing to run in either case and must not spin waiting for one, but
+    // the two are different news and are reported differently: only the
+    // `awaiting-merge` block recorded on the ship row (set by
+    // `resolveShipLanding`/`settleShipGate`) tells them apart.
+    if (stage === 'ship') {
+      const reason: DriverBoundaryReason =
+        stageBlock(deps.store, ticketId, 'ship')?.kind === 'awaiting-merge'
+          ? 'awaiting-merge'
+          : 'ship-confirm';
+      return finish(deps, ticketId, stage, 'blocked', reason);
+    }
     if (stage === 'fix') return finish(deps, ticketId, stage, 'blocked', 'gate-failed');
     if (stage === 'impl') return finish(deps, ticketId, stage, 'blocked', 'awaiting-marker');
     if (stage === 'scope') return finish(deps, ticketId, stage, 'blocked', 'not-spun');

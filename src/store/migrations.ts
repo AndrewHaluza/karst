@@ -601,6 +601,50 @@ export function migrate(db: Database): void {
     if (gateRunCols25.size > 0 && !gateRunCols25.has('stage_run_id')) {
       db.exec('ALTER TABLE gate_runs ADD COLUMN stage_run_id INTEGER');
     }
+
+    // v25 also retires the standalone `merge` stage (workflow/graph.ts) — its
+    // logic is now an entry gate on `done`, resolved by `workflow/mergeGate.ts`'s
+    // `resolveShipLanding`/`settleShipGate` at `ship` itself rather than at a
+    // separate node. A ticket a prior build parked at `merge` has nowhere valid
+    // left to sit, so it moves back to `ship`, blocked exactly like a fresh
+    // unlanded ship would be.
+    //
+    // The block is a PLACEHOLDER, not a judgement: whether that ticket's PRs
+    // have actually landed by now is answered by the same read a fresh ship
+    // uses (`mergeGateState`), and duplicating that logic in raw SQL here would
+    // be a second, driftable answer to the same question. The next PR/merge
+    // sweep tick (`settleShipGates`, already running on a timer) re-checks it
+    // for real and clears the block immediately if everything already landed.
+    //
+    // The orphaned `stage_key = 'merge'` rows are left in place — harmless,
+    // unreferenced once `STAGE_KEYS` no longer includes `merge`, and a DELETE
+    // would only destroy evidence for no behavioral gain.
+    const ticketCols25 = tableColumns(db, 'tickets');
+    const stageCols25 = tableColumns(db, 'stages');
+    if (ticketCols25.size > 0 && stageCols25.size > 0) {
+      const at = new Date().toISOString();
+      db.transaction(() => {
+        // Ensure a ship row exists for every ticket at merge before setting the
+        // block — without this, a ticket whose ship row was manually deleted
+        // would move to ship without the awaiting-merge block, and
+        // settleShipGate would never pick it up (it requires the block).
+        db.prepare(
+          `INSERT OR IGNORE INTO stages (ticket_id, stage_key, status)
+            SELECT id, 'ship', 'pending'
+              FROM tickets WHERE stage_current = 'merge'`,
+        ).run();
+        db.prepare(
+          `UPDATE stages
+              SET status = 'passed',
+                  blocked_kind = 'awaiting-merge',
+                  blocked_reason = 'awaiting merge (re-checked after upgrade)',
+                  blocked_at = ?
+            WHERE stage_key = 'ship'
+              AND ticket_id IN (SELECT id FROM tickets WHERE stage_current = 'merge')`,
+        ).run(at);
+        db.exec(`UPDATE tickets SET stage_current = 'ship' WHERE stage_current = 'merge'`);
+      })();
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

@@ -496,7 +496,7 @@ describe('ticket context — stage run state (v25, closes 869edna84)', () => {
     expect(ctx.stage?.run?.gateSetChanged).toBe(false);
   });
 
-  it.each(['review', 'ship', 'merge'])(
+  it.each(['review', 'ship'])(
     'renders the non-marker note at %s, since karst — not the agent — advances it',
     (stageKey) => {
       const id = seedAt(stageKey);

@@ -891,7 +891,7 @@
   const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·', skip: '⊘' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-  const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', merge: 'Merge', done: 'Done' };
+  const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
 
   // The last snapshot the host pushed, and which stage the user is looking at.
   // Selection is LOCAL: it is not in DashboardState and is never posted back.
@@ -1275,6 +1275,18 @@
     const blocked = cell && cell.blocked;
     box.classList.toggle('hidden', !blocked);
     if (!blocked) { box.innerHTML = ''; return; }
+    // `awaiting-merge` is not a fault: ship's own work is done and the PRs are
+    // open, and this reads as a normal wait for one of them to land, not a
+    // stage karst failed to run. It also gets no Resume button — every OTHER
+    // BlockerKind means "karst could not ask the question, retry it", but
+    // `stageResume.ts`'s `resumeBlockedStage` REFUSES to clear this one (only
+    // the merge gate observing the actual landing is entitled to), so a
+    // Resume button here would be a dead affordance that always no-ops.
+    if (blocked.kind === 'awaiting-merge') {
+      box.innerHTML = `<div class="ftitle">Waiting to merge</div>`
+        + `<div class="freason">${esc(blocked.reason)}</div>`;
+      return;
+    }
     const title = `${STAGE_TITLE[cell.stageKey] || cell.stageKey} is blocked`;
     box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
       + `<div class="freason">${esc(blocked.reason)}</div>`

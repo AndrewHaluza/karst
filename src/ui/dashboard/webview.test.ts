@@ -184,7 +184,7 @@ describe('dashboard webview.html', () => {
     // No stage-name test and no status test: `needsConfirm(stage) && pending` is
     // the host's answer, and asking it a second time here is how two surfaces
     // start disagreeing about whether a ticket is blocked.
-    expect(track).not.toMatch(/=== 'ship'|=== 'merge'|'pending'/);
+    expect(track).not.toMatch(/=== 'ship'|'pending'/);
   });
 
   it('makes the needs-you button navigational, never a second actor', () => {
@@ -1014,6 +1014,28 @@ describe('dashboard webview.html', () => {
     expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
     expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
     expect(renderBlockedBody).not.toMatch(/data-stage="/);
+  });
+
+  it('renders a waiting-to-merge banner instead of a fault, and offers no Resume for it', () => {
+    // A ticket parked at `ship` blocked with `awaiting-merge` is not a fault —
+    // it's a normal wait for a PR to land, and (per stageResume.ts) a Resume
+    // click there would be refused anyway: only the merge gate observing the
+    // actual landing may clear that block, so a Resume button would be a dead
+    // affordance for this kind specifically.
+    const renderBlockedBody = HTML.slice(
+      HTML.indexOf('function renderBlocked(state)'),
+      HTML.indexOf('// The fault card scans the FLAT stepper'),
+    );
+    expect(renderBlockedBody).toMatch(/blocked\.kind === 'awaiting-merge'/);
+    // The awaiting-merge branch is the code between its own `if` and the next
+    // statement that builds the generic title — it must return before ever
+    // reaching the Resume-button markup.
+    const awaitingMergeBranch = renderBlockedBody.slice(
+      renderBlockedBody.indexOf("blocked.kind === 'awaiting-merge'"),
+      renderBlockedBody.indexOf('const title = `${STAGE_TITLE'),
+    );
+    expect(awaitingMergeBranch).toContain('Waiting to merge');
+    expect(awaitingMergeBranch).not.toMatch(/data-act="stage-resume"/);
   });
 
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {

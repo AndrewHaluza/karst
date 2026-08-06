@@ -126,7 +126,7 @@ describe('buildStageRail', () => {
       action: 'Confirm ship',
     });
     expect(r.main.filter((s) => s.needsUser)).toHaveLength(1);
-    expect(seg(r, 'merge').needs).toBeNull();
+    expect(seg(r, 'done').needs).toBeNull();
   });
 
   it('never marks needs-you without a current segment to carry it', () => {

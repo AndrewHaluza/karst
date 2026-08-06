@@ -3,7 +3,7 @@ import type { Finding } from '../../store/reviewFindings.js';
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { WorktreeView } from '../../store/dashboard.js';
 import type { MergeCheckRow } from '../../store/mergeChecks.js';
-import { summarizeMergeCheck, mergeOpStatus } from '../mergeCheckView.js';
+import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { STAGE_KEYS } from '../types.js';
@@ -169,8 +169,12 @@ function shipInside(
       ]),
     );
   }
-  const checksByRepo = new Map(mergeChecks.map((c) => [c.repo, c]));
-  const ops = prs.flatMap((pr): StageOp[] => {
+  // `pr` rows: ALL prs ship ever opened for this ticket, one row each — a log
+  // of what happened, so a repo re-shipped after a merge shows both the old
+  // row and the new one. The LANDING row below is a different question ("has
+  // this repo landed NOW") and is answered separately, current-PR scoped, so
+  // the two never disagree about the same repo in the same strip.
+  const prOps = prs.map((pr): StageOp => {
     // The DISPLAY path, never the raw one: this row names the same directory the
     // worktree rows do, so it must obey the one path-display preference (falling
     // back to the path when a caller supplied no display form).
@@ -183,35 +187,20 @@ function shipInside(
       branchPair(pr.headRef, pr.baseRef),
       pr.mergedAt ? 'merged' : '',
     ].filter((p) => p !== '');
-    const prOp: StageOp = {
-      status: 'pass',
-      name: 'pr',
-      detail: parts.join(' · '),
-      duration: '',
-    };
-    const check = checksByRepo.get(pr.repo);
-    if (!check) return [prOp];
-    return [
-      prOp,
-      {
-        status: mergeOpStatus(check.state),
-        name: 'merge',
-        detail: `${label} · ${summarizeMergeCheck(check)}`,
-        duration: '',
-      },
-    ];
+    return { status: 'pass', name: 'pr', detail: parts.join(' · '), duration: '' };
   });
-  return inside(cell, now, ops);
+  return inside(cell, now, [...prOps, ...landingOps(cell, prs, mergeChecks)]);
 }
 
 /**
  * One PR per repo — the CURRENT one — mirroring `store/prs.ts`'s
  * `CURRENT_PR_ORDER`: an open PR wins, otherwise the highest number.
  *
- * A repo re-shipped after a merge carries both rows (`ship` inserts a fresh one
- * rather than reusing a terminal one). Ship's strip shows every PR it ever
- * opened, which is right for a log of what it did; this strip answers "has this
- * repo landed", and a stale `merged` beside a live `open` answers it twice.
+ * A repo re-shipped after a merge carries both rows in `prs` (`ship` inserts a
+ * fresh row rather than reusing a terminal one). The `pr` rows in `shipInside`
+ * show every PR it ever opened, which is right for a log of what it did;
+ * `landingOps` answers "has this repo landed", and a stale `merged` beside a
+ * live `open` would answer it twice.
  */
 function currentPerRepo(prs: readonly ShipPrView[]): ShipPrView[] {
   const byRepo = new Map<string, ShipPrView>();
@@ -228,43 +217,46 @@ function currentPerRepo(prs: readonly ShipPrView[]): ShipPrView[] {
 }
 
 /**
- * Merge's evidence is one row per repo saying whether that repo's PR has landed
- * — and, for one that has not, whether it still merges cleanly.
+ * Per-repo landing evidence: has this repo's CURRENT pull request made it into
+ * the base branch, and if not, why the ticket is still waiting on it.
  *
  * Deliberately per-REPO and not a single summary line: the ticket is held by
  * whichever repo has not landed, and naming it is the difference between "go
  * merge something" and "go merge this". A repo whose PR is merged is `pass` and
  * says so; an open one is `wait`, which is the honest reading of a step that is
- * neither working nor finished. A conflict downgrades the row to `fail` — nothing
- * is wrong with the code, but the branch cannot land as it stands, and that is
- * the one thing on this strip a person has to act on.
+ * neither working nor finished. A conflict downgrades the row to `fail` —
+ * nothing is wrong with the code, but the branch cannot land as it stands, and
+ * that is the one thing on this strip a person has to act on. The merge check
+ * is consulted ONLY for a conflict's detail — landing itself is read off
+ * `pr.status`/`pr.mergedAt`, never off the check, so a repo with no check on
+ * file (a ticket shipped before merge checks existed, or one that never wrote
+ * one) still gets an honest "open, not merged yet" instead of silence.
  */
-function mergeInside(
+function landingOps(
   cell: StepperCell,
   prs: readonly ShipPrView[],
   mergeChecks: readonly MergeCheckRow[],
-  now: string,
-): StageInside {
+): StageOp[] {
   // No PR at all. Which of two things that means depends entirely on whether the
   // stage has been ENTERED: before ship runs there is simply nothing to say yet
-  // (the blurb answers "what happens here"), while after it there really is
-  // nothing to land — and saying so is the difference between a finished ticket
-  // and a strip that looks like karst forgot to check. `startedAt` is what
-  // separates the two; a confirm stage parks as pending the moment it is entered,
-  // so status alone cannot.
+  // (the pre-run placeholder above covers that case and returns before this is
+  // ever called), while after it there really is nothing to land — and saying
+  // so is the difference between a finished ticket and a strip that looks like
+  // karst forgot to check. `startedAt` is what separates the two; a confirm
+  // stage parks as pending the moment it is entered, so status alone cannot.
   if (prs.length === 0) {
-    if (!cell.startedAt) return inside(cell, now, []);
-    return inside(cell, now, [
+    if (!cell.startedAt) return [];
+    return [
       {
         status: 'note',
         name: 'merge',
         detail: 'nothing was delivered — no pull request to merge',
         duration: '',
       },
-    ]);
+    ];
   }
   const checksByRepo = new Map(mergeChecks.map((c) => [c.repo, c]));
-  const ops = currentPerRepo(prs).map((pr): StageOp => {
+  return currentPerRepo(prs).map((pr): StageOp => {
     const label = pr.repoDisplay || pr.repo;
     const name = pr.number ? `${label} #${pr.number}` : label;
     if (pr.status === 'merged' || pr.mergedAt) {
@@ -281,7 +273,6 @@ function mergeInside(
     }
     return { status: 'wait', name: 'open', detail: `${name} · not merged yet`, duration: '' };
   });
-  return inside(cell, now, ops);
 }
 
 function stripFor(key: StageKey, cell: StepperCell, input: StageInsideInput): StageInside {
@@ -298,8 +289,6 @@ function stripFor(key: StageKey, cell: StepperCell, input: StageInsideInput): St
       return fixInside(cell, input.session.sessionId, input.fixAttempts, input.now);
     case 'ship':
       return shipInside(cell, input.prs, input.mergeChecks ?? [], input.selectedRepos, input.now);
-    case 'merge':
-      return mergeInside(cell, input.prs, input.mergeChecks ?? [], input.now);
     case 'done':
       // Terminal: the machine stamps started_at === ended_at, so the duration is
       // structurally zero and there is no step to report. Arriving IS the event.

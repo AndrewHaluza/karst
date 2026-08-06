@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
+import { setStage } from '../store/stages.js';
 import { transition } from './machine.js';
 import { runStageDriver, type StageDriverDeps } from './driver.js';
 import type { StageRunResult } from '../model/types.js';
@@ -34,6 +35,29 @@ describe('runStageDriver', () => {
     const id = seedAtUat(store);
     const out = await runStageDriver(baseDeps(store), id);
     expect(out).toEqual({ stage: 'ship', status: 'blocked', reason: 'ship-confirm' });
+    store.close();
+  });
+
+  // Both states read `stage === 'ship'`, but they are not the same thing: one
+  // needs a human's confirm click, the other needs a PR to land — and only
+  // the `awaiting-merge` block on the ship row distinguishes them
+  // (workflow/mergeGate.ts). Reporting `ship-confirm` for a ticket that has
+  // already shipped and is only waiting on a merge is misleading.
+  it("reports 'awaiting-merge', not 'ship-confirm', once ship's block says so", async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    const out = await runStageDriver(baseDeps(store), id); // parks at ship, ship-confirm
+    expect(out.reason).toBe('ship-confirm');
+
+    setStage(store, id, 'ship', {
+      status: 'passed',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" has changes and is not merged yet.',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+
+    const out2 = await runStageDriver(baseDeps(store), id);
+    expect(out2).toEqual({ stage: 'ship', status: 'blocked', reason: 'awaiting-merge' });
     store.close();
   });
 
