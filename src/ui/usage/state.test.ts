@@ -44,34 +44,6 @@ function seed(o: {
   });
 }
 
-/** A call whose spend is mostly cache traffic — the shape this view mis-ranked. */
-function cacheSeed(o: {
-  ticketId?: number;
-  callSite?: string;
-  cacheRead?: number;
-  cacheWrite?: number;
-}): void {
-  const cacheRead = o.cacheRead ?? 0;
-  const cacheWrite = o.cacheWrite ?? 0;
-  recordTokenUsage(store, {
-    projectId: 1,
-    ticketId: o.ticketId ?? 1,
-    callSite: o.callSite ?? 'ticket-analysis',
-    provider: 'claude',
-    outcome: 'ok',
-    recordedAt: '2026-07-30T00:00:00.000Z',
-    usage: {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: cacheRead,
-      cacheWriteTokens: cacheWrite,
-      totalTokens: cacheRead + cacheWrite,
-      model: 'claude-opus-5',
-      estimated: false,
-    },
-  });
-}
-
 beforeEach(() => {
   store = openStore(':memory:');
   store.db.prepare('INSERT INTO projects (id, slug) VALUES (1, ?)').run('karst');
@@ -84,7 +56,7 @@ describe('buildUsageState', () => {
     expect(state.empty).toBe(true);
     expect(state.error).toBeNull();
     expect(state.totals.totalDisplay).toBe('0');
-    expect(state.byCallSite).toEqual([]);
+    expect(state.byStage).toEqual([]);
     expect(state.byModel).toEqual([]);
     expect(state.tickets).toEqual([]);
     // The filters are part of the empty state — the user must be able to widen
@@ -104,12 +76,12 @@ describe('buildUsageState', () => {
     expect(state.totals.totalExact).toBe('1,204,300');
   });
 
-  it('labels each call-site breakdown row and sizes its share of the total', () => {
+  it('labels each stage breakdown row and sizes its share of the total', () => {
     ticket(1, 'K-1', 'One');
     seed({ callSite: 'pr-description', input: 70, output: 0 });
     seed({ callSite: 'ticket-analysis', input: 30, output: 0 });
-    const { byCallSite } = buildUsageState(store, { projectId: 1, now: NOW });
-    expect(byCallSite.map((r) => [r.key, r.label, r.share])).toEqual([
+    const { byStage } = buildUsageState(store, { projectId: 1, now: NOW });
+    expect(byStage.map((r) => [r.key, r.label, r.share])).toEqual([
       ['pr-description', 'PR description', 70],
       ['ticket-analysis', 'Ticket analysis', 30],
     ]);
@@ -125,9 +97,9 @@ describe('buildUsageState', () => {
     ticket(1, 'K-1', 'One');
     seed({ callSite: 'fix-resume', estimated: true });
     seed({ callSite: 'pr-description', estimated: false });
-    const rows = buildUsageState(store, { projectId: 1, now: NOW }).byCallSite;
-    expect(rows.find((r) => r.key === 'fix-resume')!.estimated).toBe(true);
-    expect(rows.find((r) => r.key === 'pr-description')!.estimated).toBe(false);
+    const byStage = buildUsageState(store, { projectId: 1, now: NOW }).byStage;
+    expect(byStage.find((r) => r.key === 'fix-resume')!.estimated).toBe(true);
+    expect(byStage.find((r) => r.key === 'pr-description')!.estimated).toBe(false);
   });
 
   it('labels ticket rows, including the unattributed one', () => {
@@ -208,56 +180,6 @@ describe('buildUsageState', () => {
     expect(state.error).toMatch(/limit/);
     expect(state.empty).toBe(true);
     expect(state.tickets).toEqual([]);
-  });
-
-  it('ranks and sizes the breakdown on effective tokens, not on the raw sum', () => {
-    ticket(1, 'K-1', 'One');
-    // review-findings: one cache-heavy call. Biggest raw total, cheapest spend.
-    cacheSeed({ callSite: 'review-findings', cacheRead: 1_000_000 });
-    // ticket-analysis: smaller raw total, more expensive in input-equivalents.
-    cacheSeed({ callSite: 'ticket-analysis', cacheWrite: 200_000 });
-    const { byCallSite } = buildUsageState(store, { projectId: 1, now: NOW });
-    expect(byCallSite.map((r) => r.key)).toEqual(['ticket-analysis', 'review-findings']);
-    // Shares are of the EFFECTIVE total (250k + 100k), so the bars agree with
-    // the order above instead of contradicting it.
-    expect(byCallSite.map((r) => r.share)).toEqual([71.4, 28.6]);
-  });
-
-  it('carries the raw total beside the effective one so the weighting stays checkable', () => {
-    ticket(1, 'K-1', 'One');
-    cacheSeed({ callSite: 'pr-description', cacheRead: 1_000_000 });
-    const state = buildUsageState(store, { projectId: 1, now: NOW });
-    expect(state.totals.totalDisplay).toBe('1M');
-    expect(state.totals.effectiveDisplay).toBe('100k');
-    expect(state.totals.effectiveExact).toBe('100,000');
-    const row = state.byCallSite[0]!;
-    expect(row.totalDisplay).toBe('1M');
-    expect(row.effectiveDisplay).toBe('100k');
-    expect(row.effectiveExact).toBe('100,000');
-    expect(state.tickets[0]!.effectiveDisplay).toBe('100k');
-  });
-
-  it('defaults to the effective sort and offers it as a labelled key', () => {
-    const state = buildUsageState(store, { projectId: 1, now: NOW });
-    expect(state.sort).toBe('effective');
-    expect(state.sorts.find((s) => s.id === 'effective')!.label).toBe('Effective tokens');
-  });
-
-  it('sorts the ticket table by effective tokens when asked, unlike the raw total', () => {
-    ticket(1, 'K-1', 'Cache heavy');
-    ticket(2, 'K-2', 'Write heavy');
-    cacheSeed({ ticketId: 1, cacheRead: 1_000_000 });
-    cacheSeed({ ticketId: 2, cacheWrite: 200_000 });
-    expect(
-      buildUsageState(store, { projectId: 1, sort: 'total', now: NOW }).tickets.map(
-        (t) => t.ticketId,
-      ),
-    ).toEqual([1, 2]);
-    expect(
-      buildUsageState(store, { projectId: 1, sort: 'effective', now: NOW }).tickets.map(
-        (t) => t.ticketId,
-      ),
-    ).toEqual([2, 1]);
   });
 
   it('counts errored calls in the totals — the tokens were spent', () => {

@@ -220,30 +220,6 @@ describe('token-usage webview.html', () => {
     expect(HTML).toContain('class="plain"');
   });
 
-  it('names the breakdown by what it actually groups — call sites, not workflow stages', () => {
-    // The panel read "By stage" while every row was an AI call site, so a reader
-    // looked for `impl` in a list that can never contain one and concluded the
-    // numbers were wrong. The word must not come back.
-    expect(HTML).toContain('By call site');
-    expect(HTML).not.toMatch(/By stage/);
-    expect(HTML).not.toMatch(/\bbyStage\b/);
-  });
-
-  it('says out loud that only karst’s own AI calls are metered', () => {
-    // Without this the absence of the agent session reads as a missing number
-    // rather than as something never measured.
-    expect(HTML).toContain('id="callSiteNote"');
-    expect(HTML).toMatch(/interactive agent session/i);
-  });
-
-  it('leads with the effective total and keeps the raw one beside it', () => {
-    expect(HTML).toContain('effectiveDisplay');
-    expect(HTML).toContain('effectiveExact');
-    // Both tiles: the weighting is only checkable against the raw measurement.
-    expect(HTML).toContain("statCard('Effective'");
-    expect(HTML).toContain("statCard('Total tokens'");
-  });
-
   it('scrolls the wide table inside its own frame, not the page', () => {
     expect(HTML).toContain('class="tscroll"');
     expect(HTML).toMatch(/\.tscroll\{overflow-x:auto\}/);

@@ -707,6 +707,28 @@ describe('runUat', () => {
     await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
     expect(listStageRuns(store, id).map((r) => r.status)).toEqual(['stale', 'finished']);
   });
+
+  it('calls onGateComplete after each gate finishes, passing gate names through', async () => {
+    const completed: string[] = [];
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, onGateComplete: (name) => completed.push(name) },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          // Simulate each gate completing and invoke the callback.
+          for (const g of gates) {
+            opts?.onGateComplete?.(g.name);
+          }
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    // Two gates (test, e2e) for the single 'web' target.
+    expect(completed).toEqual(['test', 'e2e']);
+  });
 });
 
 describe('resolveTargetGates', () => {
