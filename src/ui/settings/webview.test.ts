@@ -1191,6 +1191,7 @@ describe('project facts (manifest path & resolved project id)', () => {
     expect(section).toContain('id="factManifestPath"');
     expect(section).toContain('id="factProjectSlug"');
     expect(section).toContain('id="factSlugDerived"');
+    expect(section).toContain('id="factVersion"');
     expect(section).toContain('id="openManifestBtn"');
   });
 
@@ -1207,6 +1208,7 @@ describe('project facts (manifest path & resolved project id)', () => {
     const source = `
       let manifestPath = '';
       let projectSlug = { value: '', derived: true };
+      let extensionVersion = '1.0.0';
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
@@ -1215,27 +1217,32 @@ describe('project facts (manifest path & resolved project id)', () => {
       ${functionSource('renderProjectFacts')}
       manifestPath = '/work/proj/.karst/karst.yml';
       projectSlug = { value: 'my-proj', derived: true };
+      extensionVersion = '1.0.0';
       renderProjectFacts();
       ({
         path: elements.factManifestPath.textContent,
         slug: elements.factProjectSlug.textContent,
         derivedHidden: elements.factSlugDerived.hidden,
+        version: elements.factVersion.textContent,
       });
     `;
     const result = runInNewContext(source, {}) as {
       path: string;
       slug: string;
       derivedHidden: boolean;
+      version: string;
     };
     expect(result.path).toBe('/work/proj/.karst/karst.yml');
     expect(result.slug).toBe('my-proj');
     expect(result.derivedHidden).toBe(false);
+    expect(result.version).toBe('1.0.0');
   });
 
   it('renderProjectFacts hides the derived chip when the id is explicit', () => {
     const source = `
       let manifestPath = 'x';
       let projectSlug = { value: '', derived: true };
+      let extensionVersion = '';
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
@@ -1254,6 +1261,7 @@ describe('project facts (manifest path & resolved project id)', () => {
     const source = `
       let manifestPath = '';
       let projectSlug = { value: '', derived: true };
+      let extensionVersion = '';
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
