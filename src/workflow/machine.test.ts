@@ -106,15 +106,16 @@ describe('transition (stage machine core)', () => {
     expect(transition(store, ticketId, 'review', { kind: 'failed' })).toBe('fix');
   });
 
-  it('pass at review advances to ship, ship to merge, merge to done', () => {
+  it('pass at review advances to ship, ship to done', () => {
     transition(store, ticketId, 'scope', { kind: 'passed' });
     transition(store, ticketId, 'impl', { kind: 'passed' });
     transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     expect(transition(store, ticketId, 'review', { kind: 'passed' })).toBe('ship');
-    // Ship ends where the PRs exist. `merge` owns the gap between that and the
-    // work having landed, so `done` is one more verdict away.
-    expect(transition(store, ticketId, 'ship', { kind: 'passed' })).toBe('merge');
-    expect(transition(store, ticketId, 'merge', { kind: 'passed' })).toBe('done');
+    // The machine itself has no notion of "landed" — that gate lives above it,
+    // in `workflow/mergeGate.ts`, which decides WHETHER to call this transition
+    // at all (see mergeGate.test.ts). Called directly, ship's pass verdict goes
+    // straight to `done`.
+    expect(transition(store, ticketId, 'ship', { kind: 'passed' })).toBe('done');
   });
 
   // A terminal stage has no edges and nothing to run: no verdict will ever
@@ -126,7 +127,6 @@ describe('transition (stage machine core)', () => {
     transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
     transition(store, ticketId, 'review', { kind: 'passed' });
     transition(store, ticketId, 'ship', { kind: 'passed' });
-    transition(store, ticketId, 'merge', { kind: 'passed' });
 
     const done = stageOf(store, ticketId, 'done');
     expect(done.status).toBe('passed');
@@ -220,13 +220,22 @@ describe('transition (stage machine core)', () => {
       expect(stageBadge(getTicket(store, ticketId)).label).toBe('Shipping');
       expect(facetOf(getTicket(store, ticketId))).toBe('running');
 
-      // Shipping done does NOT mean shipped: the ticket parks at `merge`, which
-      // is a confirm stage, so it reads needs-you until the PRs actually land.
-      transition(store, ticketId, 'ship', { kind: 'passed' });
+      // Shipping done does NOT mean shipped: a ticket still blocked on the
+      // merge gate (`stages.blocked_kind === 'awaiting-merge'`, set by
+      // `mergeGate.ts`'s `resolveShipLanding` — the layer above this raw
+      // machine call) reads needs-you until the PRs actually land.
+      setStage(store, ticketId, 'ship', {
+        status: 'passed',
+        blockedKind: 'awaiting-merge',
+        blockedReason: 'blocked: the pull request for "api" has changes and is not merged yet.',
+        blockedAt: '2026-01-01T00:00:00.000Z',
+      });
       expect(stageBadge(getTicket(store, ticketId)).label).toBe('Needs you');
       expect(facetOf(getTicket(store, ticketId))).toBe('input');
 
-      transition(store, ticketId, 'merge', { kind: 'passed' });
+      // The merge lands: the block clears and the transition into `done` fires.
+      setStage(store, ticketId, 'ship', { blockedKind: null, blockedReason: null, blockedAt: null });
+      transition(store, ticketId, 'ship', { kind: 'passed' });
       expect(stageBadge(getTicket(store, ticketId)).label).toBe('Done');
       expect(facetOf(getTicket(store, ticketId))).toBe('done');
     });

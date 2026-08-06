@@ -261,6 +261,8 @@ export function buildDashboardState(
         ? railNeeds({
             stage: ticket.stageCurrent,
             agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
+            shipAwaitingMerge:
+              stepper.find((c) => c.stageKey === 'ship')?.blocked?.kind === 'awaiting-merge',
             mergeGate,
           })
         : null,

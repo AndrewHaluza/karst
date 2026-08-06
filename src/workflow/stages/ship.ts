@@ -2,8 +2,7 @@ import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
-import { transition } from '../machine.js';
-import { settleMergeStage } from '../mergeGate.js';
+import { resolveShipLanding } from '../mergeGate.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
 import {
@@ -244,11 +243,12 @@ export async function shipTicket(
   const conventions = opts.conventions ?? opts.manifest?.conventions;
   // A crash-recovery re-run can land here after an EARLIER call already
   // advanced the ticket past `ship` (§5.3 idempotency). One read, reused below
-  // to gate both the head `setStage` and the tail `transition`: writing either
-  // one unconditionally on such a re-run would resurrect the `ship` row as
-  // `running` beside a ticket already parked at `merge` (or beyond) — a state
-  // that never existed before this guard, since the old unconditional tail
-  // transition used to repair it back to `passed` on every call.
+  // to gate both the head `setStage` and the tail `resolveShipLanding` call:
+  // writing either one unconditionally on such a re-run would resurrect the
+  // `ship` row as `running` beside a ticket already parked at `done` (or still
+  // blocked awaiting its merge) — a state that never existed before this
+  // guard, since the old unconditional tail transition used to repair it back
+  // to `passed` on every call.
   const atShip = ticket.stageCurrent === 'ship';
 
   const insert = store.db.prepare(
@@ -485,31 +485,19 @@ export async function shipTicket(
   // not a ship failure, and this must not reach the catch that parks the ticket.
   await recordMergeChecks(store, opts.ticketId, worktrees, git, onProgress, opts.manifest);
 
-  // PRs opened → ship passes → `merge`, the stage that owns the gap between "the
-  // PR exists" and "the work landed". Ship's own job ends here and its verdict is
-  // still unaffected by merge state: a conflicted branch is a shipped branch.
+  // PRs opened → attempt `done`, gated on every one of them reading merged (or
+  // there being nothing to merge at all). Ship's own job ends here and its
+  // verdict is still unaffected by merge state: a conflicted branch is a
+  // shipped branch — `resolveShipLanding` only decides whether the ticket
+  // advances past `ship` or stays parked there, blocked.
   //
-  // Guarded the same way `settleMergeStage` guards its own transition, and with
-  // the SAME `atShip` read the head `setStage` above used — not a fresh one:
-  // both writes describe the same run, so they must agree on whether that run
-  // started genuinely at ship. Only the run that finds the ticket still AT ship
-  // is the one that should advance it (or touch the `ship` row at all).
+  // Guarded with the SAME `atShip` read the head `setStage` above used — not a
+  // fresh one: both writes describe the same run, so they must agree on whether
+  // that run started genuinely at ship. Only the run that finds the ticket
+  // still AT ship is the one entitled to decide its landing (see
+  // `resolveShipLanding`'s doc comment for why this guard matters).
   if (atShip) {
-    transition(store, opts.ticketId, 'ship', { kind: 'passed' });
-  }
-
-  // A ticket that delivered no diff in any repo has nothing to land, so it would
-  // otherwise park at `merge` forever waiting for a PR that will never exist.
-  // Settling here — rather than leaving it to the next sweep — also means the
-  // click that shipped it is the click that finishes it, when it can be finished.
-  //
-  // Swallowed for the same reason `recordMergeChecks` is: the PRs are open, the
-  // irreversible part succeeded, and this is bookkeeping over state already
-  // stored. The gate is idempotent, so the background sweep settles it later.
-  try {
-    settleMergeStage(store, opts.ticketId);
-  } catch {
-    // Left parked at `merge`, which is the honest state anyway.
+    resolveShipLanding(store, opts.ticketId);
   }
 
   return { prs };

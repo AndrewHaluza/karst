@@ -21,9 +21,13 @@ export function currentStageStatus(t: TicketWithStages): StageStatus {
  *     — ship runs no session, so no hook can ever fire — which is why this state
  *     was unreachable before and "Needs you" had no members.
  *
- * Only a PENDING confirm stage counts. A confirm stage that is running is
- * genuinely working (the user already clicked), and a failed one is blocked with
- * a reason to show — both are answers the existing derivation already gets right.
+ * A PENDING confirm stage counts (the user has not clicked yet). So does `ship`
+ * carrying an `awaiting-merge` block: the user already clicked "Confirm ship",
+ * PRs are open, and now a merge (a human's click, on GitHub) is the only thing
+ * left — that is still "blocked on the user", just a status of `passed` rather
+ * than `pending`, since ship's own job did complete. A failed confirm stage is
+ * blocked with a reason to show, which the existing derivation already gets
+ * right.
  */
 export function needsUser(t: TicketWithStages): boolean {
   if (((t.agentState ?? 'none') as AgentState) === 'waiting') return true;
@@ -34,7 +38,10 @@ export function needsUser(t: TicketWithStages): boolean {
   const stage = STAGE_KEYS.find((k) => k === t.stageCurrent);
   if (stage === undefined) return false;
 
-  return needsConfirm(stage) && currentStageStatus(t) === 'pending';
+  if (needsConfirm(stage) && currentStageStatus(t) === 'pending') return true;
+
+  const current = t.stages.find((s) => s.stageKey === stage);
+  return current?.blockedKind === 'awaiting-merge';
 }
 
 /**

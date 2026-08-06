@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
-import { setStage } from './stages.js';
 
 const EXPECTED_TABLES = [
   'projects',
@@ -764,52 +763,70 @@ describe('openStore', () => {
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
   });
 
-  it('migrates a v19 DB to v20, seeding the merge stage row every ticket now needs', () => {
+  // v25 retires the standalone `merge` stage: a ticket a prior build parked
+  // there has nowhere valid left to sit, so it moves back to `ship`, blocked
+  // exactly like a fresh unlanded ship would be. The block is a placeholder —
+  // `settleShipGates`' next sweep tick re-checks the real landing state and
+  // clears it immediately if the PRs had actually already merged.
+  it('migrates a v24 DB to v25, moving a ticket parked at merge back to ship, blocked', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
     const legacy = new Database(path);
-    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT)');
+    legacy.exec(
+      'CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT)',
+    );
     legacy.exec(
       `CREATE TABLE stages (
          ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL, status TEXT NOT NULL,
          attempt INTEGER NOT NULL DEFAULT 0, verdict TEXT, artifact_path TEXT,
-         started_at TEXT, ended_at TEXT, PRIMARY KEY (ticket_id, stage_key))`,
+         started_at TEXT, ended_at TEXT,
+         blocked_kind TEXT, blocked_reason TEXT, blocked_at TEXT,
+         PRIMARY KEY (ticket_id, stage_key))`,
     );
     const ticket = legacy.prepare(
       'INSERT INTO tickets (id, key, title, stage_current) VALUES (?, ?, ?, ?)',
     );
-    ticket.run(1, 'K-1', 'shipped long ago', 'done');
-    ticket.run(2, 'K-2', 'mid flight', 'impl');
+    ticket.run(1, 'K-1', 'parked at merge', 'merge');
+    ticket.run(2, 'K-2', 'mid flight, untouched', 'impl');
     const stage = legacy.prepare(
       'INSERT INTO stages (ticket_id, stage_key, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?)',
     );
     stage.run(1, 'ship', 'passed', '2026-07-01T10:00:00Z', '2026-07-01T10:05:00Z');
-    stage.run(1, 'done', 'passed', '2026-07-01T10:05:00Z', '2026-07-01T10:05:00Z');
+    stage.run(1, 'merge', 'pending', null, null);
     stage.run(2, 'impl', 'running', '2026-07-02T10:00:00Z', null);
-    legacy.pragma('user_version = 19');
+    legacy.pragma('user_version = 24');
     legacy.close();
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
 
-    // Every ticket gains the row, or `setStage` (an UPDATE, by single-writer
-    // design) would silently write nothing and `transition` would throw the
-    // first time the ticket ships.
-    const rows = migrated.db
-      .prepare("SELECT ticket_id, status, started_at FROM stages WHERE stage_key = 'merge' ORDER BY ticket_id")
-      .all();
-    expect(rows).toEqual([
-      { ticket_id: 1, status: 'pending', started_at: null },
-      { ticket_id: 2, status: 'pending', started_at: null },
-    ]);
-
-    // A NULL `started_at` is "never entered" — what `deriveStageCurrent` skips —
-    // so a ticket already at `done` is not walked back to an unmerged state
-    // nothing in the registry has evidence for.
     expect(
       migrated.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(1),
-    ).toEqual({ stage_current: 'done' });
+    ).toEqual({ stage_current: 'ship' });
+    // Untouched: only a ticket that was actually AT `merge` moves.
+    expect(
+      migrated.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(2),
+    ).toEqual({ stage_current: 'impl' });
+
+    const shipRow = migrated.db
+      .prepare(
+        'SELECT status, blocked_kind, blocked_at FROM stages WHERE ticket_id = 1 AND stage_key = ?',
+      )
+      .get('ship') as { status: string; blocked_kind: string | null; blocked_at: string | null };
+    expect(shipRow.status).toBe('passed');
+    expect(shipRow.blocked_kind).toBe('awaiting-merge');
+    // Every other writer stamps ISO-8601 UTC via model/time.ts's nowIso(); a
+    // bare `datetime('now')` would emit SQLite's local-time
+    // `YYYY-MM-DD HH:MM:SS` instead, and karst compares stage timestamps as
+    // STRINGS — a mixed format sorts wrong.
+    expect(shipRow.blocked_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+    // The orphaned `merge` stage row is left in place — harmless, unreferenced
+    // once STAGE_KEYS no longer includes `merge`.
+    expect(
+      migrated.db.prepare("SELECT status FROM stages WHERE ticket_id = 1 AND stage_key = 'merge'").get(),
+    ).toEqual({ status: 'pending' });
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
   });
 
@@ -1046,26 +1063,6 @@ describe('openStore', () => {
     };
     expect(row.gate_name).toBe('test');
     expect(row.skipped).toBeNull(); // never backfilled
-  });
-
-  it('re-seeding the merge stage is a no-op on a DB that already has it', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const path = join(dir, 'karst.db');
-    const first = openStore(path);
-    const id = createTicket(first, { key: 'K-1', title: 'one' }).id;
-    setStage(first, id, 'merge', { status: 'passed' });
-    first.close();
-
-    // The guard is NOT EXISTS, so the seed must not overwrite a row the ticket
-    // has already moved through.
-    const reopened = openStore(path);
-    cleanups.push(() => reopened.close());
-    expect(
-      reopened.db
-        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'merge'")
-        .all(id),
-    ).toEqual([{ status: 'passed' }]);
   });
 
   it('migrates a legacy v15 DB by adding the stage blocked columns', () => {

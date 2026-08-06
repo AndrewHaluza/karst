@@ -119,7 +119,7 @@ import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
-import { settleMergeGates } from './workflow/mergeGate.js';
+import { settleShipGates } from './workflow/mergeGate.js';
 import { capForGate } from './workflow/fixAttempts.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
@@ -1044,7 +1044,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           //
           // Submit doubles as the edit surface for an already-started ticket
           // (repos/approach changed after the fact), so `scope` may already
-          // have passed by the time this runs — mirror settleMergeStage's
+          // have passed by the time this runs — mirror settleShipGate's
           // idiom rather than let transition() throw its internal invariant
           // string onto the page: only advance the run that is genuinely
           // still at scope, a ticket already past it just needs its session
@@ -2037,7 +2037,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // having to reopen the dashboard.
       let landed: number[] = [];
       try {
-        landed = settleMergeGates(localStore, { projectId: project.id });
+        landed = settleShipGates(localStore, { projectId: project.id });
         for (const id of landed) void pushDoneStatus(id, false);
       } catch (e) {
         // Bookkeeping over state that is already stored: the next tick retries.

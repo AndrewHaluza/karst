@@ -16,7 +16,17 @@ import type { StageKey } from '../model/types.js';
  *   crafted message must not reach across tickets;
  * - the ticket has since left the named stage — a stale panel's message must
  *   not resume a stage the ticket is not at;
- * - the named stage carries no block at all — nothing to clear.
+ * - the named stage carries no block at all — nothing to clear;
+ * - the block's kind is `awaiting-merge` — every OTHER `BlockerKind` means
+ *   "karst could not ask the question, retry it", which Resume is for. This
+ *   one means the question WAS asked (ship opened its PRs) and answered "not
+ *   yet"; a retry cannot make a PR merge, so this refuses the same way a
+ *   stage-not-found does. Clearing it here anyway would strand the ticket at
+ *   `ship`: `settleShipGate` (`workflow/mergeGate.ts`) requires this exact
+ *   block to tell "waiting to land" apart from "parked pending the first
+ *   confirm click", and once it's gone the merge click, the PR sweep and a
+ *   teammate's merge on GitHub all lose the only signal that lets them
+ *   recognize this ticket as theirs to settle.
  */
 export function resumeBlockedStage(
   store: Store,
@@ -27,7 +37,9 @@ export function resumeBlockedStage(
   if (msgTicketId !== panelTicketId) return false;
   const ticket = getTicket(store, panelTicketId);
   if (ticket.stageCurrent !== stageKey) return false;
-  if (!stageBlock(store, panelTicketId, stageKey)) return false;
+  const block = stageBlock(store, panelTicketId, stageKey);
+  if (!block) return false;
+  if (block.kind === 'awaiting-merge') return false;
   clearStageBlock(store, panelTicketId, stageKey);
   return true;
 }
