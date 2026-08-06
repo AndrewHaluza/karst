@@ -227,8 +227,13 @@ function validateTicketing(raw: unknown): TicketingConfig {
 /** Parse `agentProvider` (default 'claude'). */
 function validateAgentProvider(raw: unknown): AgentProvider {
   if (raw === undefined) return 'claude';
-  if (raw !== 'claude' && raw !== 'codex' && raw !== 'antigravity') {
-    throw new ManifestError('agentProvider must be "claude", "codex", or "antigravity"');
+  if (
+    raw !== 'claude' &&
+    raw !== 'codex' &&
+    raw !== 'antigravity' &&
+    raw !== 'opencode'
+  ) {
+    throw new ManifestError('agentProvider must be "claude", "codex", "antigravity", or "opencode"');
   }
   return raw as AgentProvider;
 }

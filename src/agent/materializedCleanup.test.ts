@@ -42,4 +42,13 @@ describe('cleanupOwnedPaths', () => {
     root = mkdtempSync(join(tmpdir(), 'karst-cleanup-'));
     expect(() => cleanupOwnedPaths(root, [target])).toThrow(/owned path|unsafe/i);
   });
+
+  it('removes adapter-owned .opencode paths beneath the worktree', () => {
+    root = mkdtempSync(join(tmpdir(), 'karst-oc-'));
+    const owned = join(root, '.opencode', 'skills', 'karst-rpi');
+    mkdirSync(owned, { recursive: true });
+    writeFileSync(join(owned, 'SKILL.md'), 'gen');
+    cleanupOwnedPaths(root, [owned]);
+    expect(existsSync(owned)).toBe(false);
+  });
 });

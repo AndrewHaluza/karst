@@ -183,6 +183,13 @@ export const AGENT_CLI_DEPENDENCIES: Partial<Record<AgentProvider, RequiredDepen
       'Install the Antigravity CLI and ensure "agy" is on your PATH.',
     enables: 'sessions',
   },
+  opencode: {
+    binary: 'opencode',
+    label: 'the OpenCode CLI',
+    install:
+      "Install OpenCode from https://opencode.ai so the 'opencode' command is on your PATH, then reload the window.",
+    enables: 'sessions',
+  },
 };
 
 /**

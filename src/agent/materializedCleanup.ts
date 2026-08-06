@@ -13,6 +13,10 @@ export const OWNED_PREFIXES = [
   `${sep}.codex${sep}karst${sep}`,
   `${sep}.karst-plugin${sep}`,
   `${sep}.agents${sep}plugins${sep}`,
+  `${sep}.opencode${sep}skills${sep}karst-`,
+  `${sep}.opencode${sep}agents${sep}karst-`,
+  `${sep}.opencode${sep}commands${sep}karst-`,
+  `${sep}.opencode${sep}plugins${sep}karst-`,
 ] as const;
 
 export function cleanupOwnedPaths(

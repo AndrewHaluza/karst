@@ -50,6 +50,14 @@ describe('agentDependency', () => {
     expect(AGENT_CLI_DEPENDENCIES.codex).toEqual(dep);
   });
 
+  it('returns the confirmed opencode entry', () => {
+    const dep = agentDependency('opencode');
+    expect(dep.binary).toBe('opencode');
+    expect(dep.label).toBe('the OpenCode CLI');
+    expect(dep.install).toMatch(/opencode\.ai/);
+    expect(AGENT_CLI_DEPENDENCIES.opencode).toEqual(dep);
+  });
+
   // Guard against binary-name drift: the dependency check must probe the SAME
   // binary the launcher spawns, else the checklist reports a false present/missing.
   it('probes the same binary the claude adapter launches', () => {
@@ -58,6 +66,10 @@ describe('agentDependency', () => {
 
   it('probes the same binary the antigravity adapter launches', () => {
     expect(agentDependency('antigravity').binary).toBe(resolveAdapter('antigravity').requiredBinary);
+  });
+
+  it('probes the same binary the opencode adapter launches', () => {
+    expect(agentDependency('opencode').binary).toBe(resolveAdapter('opencode').requiredBinary);
   });
 });
 
@@ -71,6 +83,10 @@ describe('dependencyRegistry', () => {
 
   it('resolves the agent entry from the provider', () => {
     expect(dependencyRegistry('codex').map((d) => d.binary)).toContain('codex');
+  });
+
+  it('declares the opencode binary the registry probes', () => {
+    expect(dependencyRegistry('opencode').map((d) => d.binary)).toContain('opencode');
   });
 
   it('gives every entry a capability, so no dependency can exist without a reason', () => {

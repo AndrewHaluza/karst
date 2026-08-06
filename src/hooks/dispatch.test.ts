@@ -187,6 +187,26 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).stageCurrent).toBe(before);
   });
 
+  it('treats opencode session.idle as Stop and permission.asked as waiting', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'session.idle', cwd: WT, session_id: 'ses_1' });
+    // Stop semantics: the session finished a turn
+    expect(getTicket(store, id).agentState).toBe('idle');
+    dispatchHook(store, { hook_event_name: 'permission.asked', cwd: WT, session_id: 'ses_1' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('treats an unknown opencode event (session.error) as no-signal', () => {
+    const id = ticketAt();
+    dispatchHook(store, {
+      hook_event_name: 'session.error',
+      cwd: WT,
+      session_id: 'ses_1',
+      message: 'boom',
+    });
+    expect(getTicket(store, id).agentState).toBe('none');
+  });
+
   it('an unknown cwd is ignored (no throw, no mutation)', () => {
     const id = ticketAt();
     expect(() =>

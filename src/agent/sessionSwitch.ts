@@ -8,7 +8,7 @@ import {
 import { IMPLEMENTED_PROVIDERS } from './provider.js';
 
 export const PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = {
-  claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity',
+  claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
 };
 
 export interface AgentSessionView {

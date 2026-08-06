@@ -1,6 +1,6 @@
 import { request } from 'node:http';
 
-const endpointUrl = "http://127.0.0.1:52144/hooks?karstLaunch=d11e8ee0-1fdf-415e-9976-bb197edf74f4";
+const endpointUrl = "http://127.0.0.1:52144/hooks?karstLaunch=dff753d0-d966-4125-b53f-efc3f581d67f";
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 
 function asRecord(value) {

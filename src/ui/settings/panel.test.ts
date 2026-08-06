@@ -22,6 +22,7 @@ const REMOTE_MODELS: ModelCatalog = {
   claude: [{ id: 'claude-remote', label: 'Claude Remote', providers: ['claude'] }],
   codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
   antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
+  opencode: [],
 };
 
 class FakePanel implements SettingsPanel {

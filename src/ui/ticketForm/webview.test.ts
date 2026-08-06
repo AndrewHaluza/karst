@@ -148,7 +148,8 @@ describe('ticket-form webview.html', () => {
   });
 
   it('renders an agent-core (provider) picker next to the model picker', () => {
-    expect(HTML).toContain('id="providerSelect"');
+    expect(HTML).toContain('id="agentSelectWrap"');
+    expect(HTML).toContain('id="agentTrigger"');
     expect(HTML).toContain('id="providerLockHint"');
   });
 
@@ -156,11 +157,11 @@ describe('ticket-form webview.html', () => {
     const fnMatch = HTML.match(/function renderProviderPicker\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
     expect(fnMatch, 'renderProviderPicker() not found').toBeTruthy();
     const body = fnMatch![1]!;
-    expect(body).toContain("el('providerSelect').disabled = !!sessionOpen");
+    expect(body).toContain("el('agentTrigger').disabled = !!sessionOpen");
   });
 
   it('posts set-provider on change and carries agentProvider into submit/save', () => {
-    expect(HTML).toContain("post({ type: 'set-provider', id, requestId });");
+    expect(HTML).toMatch(/post\(\{\s*type:\s*'set-provider'/);
     const submitBlock = HTML.slice(
       HTML.indexOf("el('submitBtn').addEventListener"),
       HTML.indexOf("el('saveBtn').addEventListener"),
@@ -485,7 +486,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(script).toContain("post({ type: 'set-approach', id, requestId });");
     expect(script).toContain("post({ type: 'set-agent', id, requestId });");
     expect(script).toContain("post({ type: 'set-model', id, requestId });");
-    expect(script).toContain("post({ type: 'set-provider', id, requestId });");
+    expect(script).toMatch(/post\(\{\s*type:\s*'set-provider'/);
     expect(script).toContain("post({ type: 'set-type', id, requestId });");
   });
 

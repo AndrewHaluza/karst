@@ -4,8 +4,10 @@ import {
   discoverAntigravityModels,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverOpencodeModels,
   makeCommandRunner,
   parseAntigravityModels,
+  parseOpencodeModels,
   type CommandRunner,
   type SpawnImpl,
 } from './modelDiscovery.js';
@@ -59,6 +61,37 @@ describe('parseAntigravityModels', () => {
     ['nothing at all', '\n\n'],
   ])('refuses to read %s as a headingless model list', (_case, stdout) => {
     expect(parseAntigravityModels(stdout)).toBeUndefined();
+  });
+});
+
+describe('parseOpencodeModels', () => {
+  it('parses provider/model IDs from plain output', () => {
+    expect(parseOpencodeModels([
+      'opencode/big-pickle',
+      'opencode-go/mimo-v2.5',
+      'openrouter/anthropic/claude-opus-5',
+      '',
+    ].join('\n'))).toEqual([
+      { id: 'opencode/big-pickle', label: 'opencode/big-pickle', providers: ['opencode'] },
+      { id: 'opencode-go/mimo-v2.5', label: 'opencode-go/mimo-v2.5', providers: ['opencode'] },
+      { id: 'openrouter/anthropic/claude-opus-5', label: 'openrouter/anthropic/claude-opus-5', providers: ['opencode'] },
+    ]);
+  });
+
+  it('trims whitespace and skips blank lines', () => {
+    expect(parseOpencodeModels('  opencode/big-pickle  \n\n  openrouter/~openai/gpt-latest  \n'))
+      .toEqual([
+        { id: 'opencode/big-pickle', label: 'opencode/big-pickle', providers: ['opencode'] },
+        { id: 'openrouter/~openai/gpt-latest', label: 'openrouter/~openai/gpt-latest', providers: ['opencode'] },
+      ]);
+  });
+
+  it.each([
+    ['usage text', 'Usage: opencode models [provider]\n  --verbose  include metadata\n'],
+    ['an error page', 'error: not authenticated\n'],
+    ['nothing at all', '\n\n'],
+  ])('refuses to read %s as a model list', (_case, stdout) => {
+    expect(parseOpencodeModels(stdout)).toBeUndefined();
   });
 });
 
@@ -173,6 +206,7 @@ describe('provider discovery', () => {
     const run: CommandRunner = async () => ({ stdout: '', stderr: '', exitCode: 1, failure });
     await expect(discoverCodexModels(run)).resolves.toMatchObject({ status: 'unavailable', code });
     await expect(discoverAntigravityModels(run)).resolves.toMatchObject({ status: 'unavailable', code });
+    await expect(discoverOpencodeModels(run)).resolves.toMatchObject({ status: 'unavailable', code });
   });
 
   it('codes an unclassified non-zero exit as a non-zero exit, not a missing command', async () => {
@@ -190,6 +224,29 @@ describe('provider discovery', () => {
       status: 'unavailable',
       code: 'unsupported',
       reason: 'Claude CLI model discovery is unsupported',
+    });
+  });
+
+  it('reports a missing opencode binary as command-unavailable', async () => {
+    const run: CommandRunner = async () => ({ stdout: '', stderr: '', exitCode: 1, failure: 'command unavailable' });
+    const result = await discoverOpencodeModels(run);
+    expect(result).toMatchObject({ status: 'unavailable', code: 'command-unavailable' });
+  });
+
+  it('parses opencode models from CLI output', async () => {
+    const result = await discoverOpencodeModels(completed([
+      'opencode/big-pickle',
+      'opencode-go/mimo-v2.5',
+      'openrouter/anthropic/claude-opus-5',
+    ].join('\n')));
+
+    expect(result).toEqual({
+      status: 'available',
+      models: [
+        { id: 'opencode/big-pickle', label: 'opencode/big-pickle', providers: ['opencode'] },
+        { id: 'opencode-go/mimo-v2.5', label: 'opencode-go/mimo-v2.5', providers: ['opencode'] },
+        { id: 'openrouter/anthropic/claude-opus-5', label: 'openrouter/anthropic/claude-opus-5', providers: ['opencode'] },
+      ],
     });
   });
 });

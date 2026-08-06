@@ -15,6 +15,7 @@ export const IMPLEMENTED_PROVIDERS: readonly AgentProvider[] = [
   'claude',
   'codex',
   'antigravity',
+  'opencode',
 ];
 
 /** Type guard for a value that is a known, implemented agent provider. */
