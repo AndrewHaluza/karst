@@ -11,7 +11,7 @@ export interface ModelOption {
 
 export type ModelCatalog = Readonly<Record<AgentProvider, readonly ModelOption[]>>;
 
-const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity'];
+const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
 
@@ -39,6 +39,7 @@ const BUNDLED_CATALOG: ModelCatalog = {
     { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 Thinking', providers: ['antigravity'] },
     { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', providers: ['antigravity'] },
   ],
+  opencode: [],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,7 +89,12 @@ export function parseModelFeed(value: unknown): Partial<ModelCatalog> {
 
   return Object.fromEntries(
     PROVIDERS.flatMap((provider) => {
-      const models = validateModelList(provider, providers[provider]);
+      const raw = providers[provider];
+      // An EXPLICITLY empty section is a deliberate curated-empty list (opencode
+      // curates zero rows) and is preserved as such; an absent section stays
+      // absent so the loader can fall through to the bundled/cache tiers.
+      if (Array.isArray(raw) && raw.length === 0) return [[provider, []]];
+      const models = validateModelList(provider, raw);
       return models === undefined ? [] : [[provider, models]];
     }),
   ) as Partial<ModelCatalog>;

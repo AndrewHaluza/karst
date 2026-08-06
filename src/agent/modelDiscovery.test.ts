@@ -4,6 +4,7 @@ import {
   discoverAntigravityModels,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverOpencodeModels,
   makeCommandRunner,
   parseAntigravityModels,
   type CommandRunner,
@@ -191,6 +192,11 @@ describe('provider discovery', () => {
       code: 'unsupported',
       reason: 'Claude CLI model discovery is unsupported',
     });
+  });
+
+  it('reports opencode models as unsupported (account-dependent, not probed)', async () => {
+    const result = await discoverOpencodeModels();
+    expect(result).toEqual({ status: 'unavailable', code: 'unsupported', reason: expect.any(String) });
   });
 });
 

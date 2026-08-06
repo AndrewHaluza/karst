@@ -71,8 +71,8 @@ interface DiagnosticTicketRow {
   selected_repos: string | null
   archived_at: string | null
   model: string | null
-  agent_provider: 'claude' | 'codex' | 'antigravity' | null
-  session_provider: 'claude' | 'codex' | 'antigravity' | null
+  agent_provider: 'claude' | 'codex' | 'antigravity' | 'opencode' | null
+  session_provider: 'claude' | 'codex' | 'antigravity' | 'opencode' | null
 }
 
 function json(value: unknown): JsonValue {

@@ -13,6 +13,7 @@ const CATALOG: ModelCatalog = {
   claude: [{ id: 'claude-x', label: 'Claude X', providers: ['claude'] }],
   codex: [{ id: 'codex-x', label: 'Codex X', providers: ['codex'] }],
   antigravity: [{ id: 'agy-x', label: 'Agy X', providers: ['antigravity'] }],
+  opencode: [],
 };
 
 describe('agent switch presentation', () => {
@@ -29,7 +30,15 @@ describe('agent switch presentation', () => {
     expect(agentSwitchProviderChoices('claude')).toEqual([
       { provider: 'codex', label: 'Codex' },
       { provider: 'antigravity', label: 'Antigravity' },
+      { provider: 'opencode', label: 'OpenCode' },
     ]);
+  });
+
+  it('labels opencode in the agent session view', () => {
+    expect(buildAgentSessionView({
+      provider: 'opencode', ticketModel: null, defaultModel: null,
+      catalog: CATALOG, stageCurrent: 'impl', sessionOpen: true,
+    }).providerLabel).toBe('OpenCode');
   });
 
   it('offers only compatible models plus an accurately labeled inherit choice', () => {
@@ -59,6 +68,7 @@ describe('agent switch presentation', () => {
       claude: [{ id: 'shared', label: 'Claude Shared', providers: ['claude'] }],
       codex: [{ id: 'shared', label: 'Codex Shared', providers: ['codex'] }],
       antigravity: [],
+      opencode: [],
     };
 
     expect(buildAgentSessionView({

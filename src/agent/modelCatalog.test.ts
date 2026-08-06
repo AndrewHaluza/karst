@@ -33,7 +33,17 @@ describe('parseModelFeed', () => {
         codex: [],
         antigravity: [{ id: 'bad id', label: 'Bad' }],
       },
-    })).toEqual({ claude: [{ id: 'opus', label: 'Opus (latest)', providers: ['claude'] }] });
+    })).toEqual({
+      claude: [{ id: 'opus', label: 'Opus (latest)', providers: ['claude'] }],
+      codex: [],
+    });
+  });
+
+  it('preserves an explicitly-empty provider section as a curated-empty list', () => {
+    expect(parseModelFeed({
+      version: 1,
+      providers: { opencode: [] },
+    })).toEqual({ opencode: [] });
   });
 
   it('rejects an unsupported feed version', () => {
@@ -45,11 +55,15 @@ describe('parseModelFeed', () => {
 });
 
 describe('bundledModelCatalog', () => {
-  it('offers at least one fallback for every provider', () => {
+  it('offers at least one fallback for every provider with a curated list', () => {
     const catalog = bundledModelCatalog();
     for (const provider of ['claude', 'codex', 'antigravity'] as const) {
       expect(catalog[provider].length).toBeGreaterThan(0);
     }
+    // opencode models are account- and provider-dependent, so its curated list
+    // is intentionally empty (the guide: "Do not add model IDs merely because
+    // they look plausible").
+    expect(catalog.opencode).toEqual([]);
   });
 
   /**

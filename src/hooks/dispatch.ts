@@ -97,6 +97,14 @@ function nextAgentState(payload: HookPayload): AgentState | null {
     case 'SessionEnd':
     case 'Stop':
       return 'idle';
+    case 'session.idle':
+      // opencode's normalized idle event (generated plugin, Task 7) — Stop
+      // semantics: the session finished a turn.
+      return 'idle';
+    case 'permission.asked':
+      // opencode's normalized permission prompt (generated plugin) — the amber
+      // "Needs you" signal, equivalent to Claude's Notification/permission_prompt.
+      return 'waiting';
     case 'Notification': {
       // needs-you: the amber signal. The kind is in `notification_type`; older
       // payloads that only carried it in `message` (the pre-fix symbolic values)

@@ -44,6 +44,7 @@ export function compatibilityModelCatalog(
     claude: merge('claude'),
     codex: merge('codex'),
     antigravity: merge('antigravity'),
+    opencode: merge('opencode'),
   };
 }
 

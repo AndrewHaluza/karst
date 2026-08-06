@@ -33,4 +33,11 @@ export const KARST_EXCLUDE_RULES: readonly string[] = [
   '/.agents/skills/karst-*/',
   // CodexAdapter's per-session config.
   '/.codex/karst/',
+  // OpencodeAdapter's generated skills/agents/commands/plugins. Only the
+  // `karst-` prefixed children are karst's — a repository's own opencode
+  // skills and commands live beside them under `.opencode/`.
+  '/.opencode/skills/karst-*/',
+  '/.opencode/agents/karst-*/',
+  '/.opencode/commands/karst-*/',
+  '/.opencode/plugins/karst-*/',
 ];

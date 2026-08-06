@@ -39,7 +39,7 @@ baselineBranch: develop
 # workspace root — e.g. ./frontend) or 'absolute'.
 worktreePathDisplay: relative
 
-# Agent CLI used for sessions: claude, codex, or antigravity.
+# Agent CLI used for sessions: claude, codex, antigravity, or opencode.
 agentProvider: claude
 
 repositories:

@@ -23,6 +23,7 @@
       { "id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6" },
       { "id": "claude-opus-4-6-thinking", "label": "Claude Opus 4.6 Thinking" },
       { "id": "gpt-oss-120b-medium", "label": "GPT-OSS 120B (Medium)" }
-    ]
+    ],
+    "opencode": []
   }
 }

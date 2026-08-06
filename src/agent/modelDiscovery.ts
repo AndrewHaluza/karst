@@ -359,3 +359,14 @@ export async function discoverAntigravityModels(
 export async function discoverClaudeModels(): Promise<DiscoveryResult> {
   return unavailable('unsupported', 'Claude CLI model discovery is unsupported');
 }
+
+/**
+ * opencode model ids are `provider/model` and depend on the user's account and
+ * provider subscriptions — `opencode models` returns a huge account-specific
+ * list that must not be curated. Same posture as the Claude probe: `unsupported`,
+ * never `command-unavailable`, so an installed `opencode` is not accused of
+ * being missing.
+ */
+export async function discoverOpencodeModels(): Promise<DiscoveryResult> {
+  return unavailable('unsupported', 'opencode models are account- and provider-dependent; karst curates none');
+}

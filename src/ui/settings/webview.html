@@ -1081,10 +1081,10 @@
   let implementedProviders = ['claude'];
   // Host-supplied launch models. Each state refresh may carry newer discovery
   // results; empty lists are the safe fallback for an older restored state.
-  let modelCatalog = { claude: [], codex: [], antigravity: [] };
+  let modelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
   // Compatibility knowledge is deliberately broader than the picker catalog:
   // bundled ids remain known while newly discovered ids are added.
-  let modelCompatibility = { claude: [], codex: [], antigravity: [] };
+  let modelCompatibility = { claude: [], codex: [], antigravity: [], opencode: [] };
   // manifestPath/projectSlug: read-only host facts pushed alongside `state`
   // (§ state.ts SettingsState.manifestPath/projectSlug). Never part of the
   // draft manifest — SECTION_FIELDS excludes them so Save cannot write them.
@@ -1093,7 +1093,7 @@
 
   // All known agentProvider values (mirrors manifest/types.ts's AgentProvider
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
-  const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity'];
+  const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
 
   // Mirrors validate/review.ts defaultFindings() and validateReview()'s
   // fallbacks. An absent block renders as what it DOES, not as empty (S4):
@@ -3566,7 +3566,7 @@
   }
 
   function refreshModelCatalog(models, compatibility) {
-    modelCatalog = models || { claude: [], codex: [], antigravity: [] };
+    modelCatalog = models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = compatibility || modelCatalog;
     renderModelPicker();
     const prev = vscode.getState();
@@ -3632,7 +3632,7 @@
         installedIds = msg.state.installedIds || [];
         tokenConfigured = !!msg.state.tokenConfigured;
         implementedProviders = msg.state.implementedProviders || ['claude'];
-        modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [] };
+        modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [], opencode: [] };
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
@@ -3795,7 +3795,7 @@
     installedIds = prev.installedIds || [];
     tokenConfigured = !!prev.tokenConfigured;
     implementedProviders = prev.implementedProviders || ['claude'];
-    modelCatalog = prev.models || { claude: [], codex: [], antigravity: [] };
+    modelCatalog = prev.models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = prev.modelCompatibility || modelCatalog;
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};
