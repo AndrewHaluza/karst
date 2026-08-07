@@ -612,7 +612,7 @@ setTimeout(() => {
       );
 
       expect(gitCalls).toContainEqual(['commit', '-m', 'add search']);
-      expect(prompts).toEqual([buildPrDescriptionPrompt('[PROJ-1] add search')]);
+      expect(prompts).toEqual([buildPrDescriptionPrompt({ title: '[PROJ-1] add search', repo: 'frontend', branch: 'karst/x', baseRef: 'develop' })]);
       expect(creates[0]).toEqual([
         'pr',
         'create',
@@ -623,6 +623,70 @@ setTimeout(() => {
         '--base',
         'develop',
       ]);
+    });
+
+    it('feeds the model the branch diff so it never has to discover it', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh } = recordingGh();
+      let seen: { prompt?: string; model?: string } = {};
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async (opts) => {
+          seen = opts;
+          return { sessionId: 's', verdict: null, raw: 'Generated body.' };
+        },
+      };
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'log') return { stdout: '* abc1234 add search\n', stderr: '', exitCode: 0 };
+        if (args[0] === 'diff' && args[1] === '--stat') {
+          return { stdout: ' src/a.ts | 3 ++\n', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'diff' && args[1] === '--no-ext-diff') {
+          return { stdout: '+export const x = 1;\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await shipTicket(store, { ticketId: id, model: 'cheap-model' }, gh, adapter, git);
+
+      expect(seen.model).toBe('cheap-model');
+      const prompt = seen.prompt ?? '';
+      expect(prompt).toContain('Repository: frontend');
+      expect(prompt).toContain('Branch: karst/x');
+      expect(prompt).toContain('develop');
+      expect(prompt).toContain('abc1234 add search');
+      expect(prompt).toContain('src/a.ts | 3 ++');
+      expect(prompt).toContain('+export const x = 1;');
+    });
+
+    it('still describes when the diff cannot be read — a failed read never fails ship', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh } = recordingGh();
+      let seen: { prompt?: string } = {};
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async (opts) => {
+          seen = opts;
+          return { sessionId: 's', verdict: null, raw: 'Generated body.' };
+        },
+      };
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
+        if (['fetch', 'status', 'push', 'add', 'commit'].includes(args[0]!)) {
+          return { stdout: '', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: 'boom', exitCode: 128 };
+      };
+
+      await expect(
+        shipTicket(store, { ticketId: id }, gh, adapter, git),
+      ).resolves.toBeDefined();
+
+      const prompt = seen.prompt ?? '';
+      expect(prompt).toContain('Repository: frontend');
+      expect(prompt).not.toContain('Changed files:');
+      expect(prompt).not.toContain('Diff (');
     });
 
     it('uses a deterministic configured body without calling the adapter', async () => {

@@ -3,12 +3,50 @@ import { buildPrDescriptionPrompt, sanitizePrDescription } from './prDescription
 
 describe('buildPrDescriptionPrompt', () => {
   it('names the title and forbids preamble, commentary, and a wrapping fence', () => {
-    const prompt = buildPrDescriptionPrompt('KAR-1 fix ship');
+    const prompt = buildPrDescriptionPrompt({ title: 'KAR-1 fix ship' });
 
     expect(prompt).toContain('KAR-1 fix ship');
     expect(prompt.toLowerCase()).toContain('no preamble');
     expect(prompt.toLowerCase()).toContain('do not wrap');
     expect(prompt.toLowerCase()).toContain('markdown');
+  });
+
+  it('hands the model the diff material so it never has to explore for it', () => {
+    const prompt = buildPrDescriptionPrompt({
+      title: 'KAR-1 fix ship',
+      repo: 'frontend',
+      branch: 'karst/x',
+      baseRef: 'develop',
+      commits: '* abc1234 fix: ship faster',
+      diffStat: ' src/a.ts | 3 ++\n 1 file changed',
+      diff: '+export const fast = true;',
+    });
+
+    expect(prompt).toContain('Repository: frontend');
+    expect(prompt).toContain('Branch: karst/x');
+    expect(prompt).toContain('develop');
+    expect(prompt).toContain('abc1234 fix: ship faster');
+    expect(prompt).toContain('src/a.ts | 3 ++');
+    expect(prompt).toContain('+export const fast = true;');
+  });
+
+  it('forbids exploring the repository — everything the model needs is in the prompt', () => {
+    const prompt = buildPrDescriptionPrompt({ title: 'KAR-1', diff: '+x' });
+    const lower = prompt.toLowerCase();
+    expect(lower).toContain('only on the material above');
+    expect(lower).toContain('do not run commands');
+  });
+
+  it('omits the diff sections when none were collected', () => {
+    const prompt = buildPrDescriptionPrompt({ title: 'KAR-1' });
+    expect(prompt).not.toContain('Diff (');
+    expect(prompt).not.toContain('Changed files:');
+    expect(prompt).not.toContain('Commits on this branch:');
+  });
+
+  it('says plainly when the diff was truncated', () => {
+    const prompt = buildPrDescriptionPrompt({ title: 'KAR-1', diff: '+x', diffTruncated: true });
+    expect(prompt).toContain('truncated');
   });
 });
 
@@ -77,6 +115,41 @@ describe('sanitizePrDescription', () => {
     expect(sanitizePrDescription(raw, 'fallback')).toBe(
       ['## Summary', '', '- Real content.'].join('\n'),
     );
+  });
+
+  it('drops the exploration narration a lost model emits before the body', () => {
+    const raw = [
+      'The current directory is not a git repository. Let me find the actual worktree.',
+      'Now I have enough context. Here is the PR description:',
+      '',
+      '## Summary',
+      '',
+      '- Real content.',
+    ].join('\n');
+
+    expect(sanitizePrDescription(raw, 'fallback')).toBe(
+      ['## Summary', '', '- Real content.'].join('\n'),
+    );
+  });
+
+  it('drops exploration narration even when it glues onto the heading', () => {
+    const raw = ['Found the worktree. Let me examine the changes.## Summary', '', '- Real content.'].join('\n');
+
+    expect(sanitizePrDescription(raw, 'fallback')).toBe(['## Summary', '', '- Real content.'].join('\n'));
+  });
+
+  it('keeps a glued heading even when it lost its space after the ##', () => {
+    const raw = ['Found the worktree. Let me examine the changes.##Summary', '', '- Real content.'].join('\n');
+
+    expect(sanitizePrDescription(raw, 'fallback')).toBe(['##Summary', '', '- Real content.'].join('\n'));
+  });
+
+  it('drops "have enough detail" and "writing pr description now" postamble', () => {
+    const raw = ['## Summary', '', '- Real content.', '', 'Have enough detail. Writing PR description now.'].join(
+      '\n',
+    );
+
+    expect(sanitizePrDescription(raw, 'fallback')).toBe(['## Summary', '', '- Real content.'].join('\n'));
   });
 
   it('keeps chatter-shaped text that is inside a fenced code block', () => {

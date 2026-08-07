@@ -561,6 +561,18 @@ describe('ClaudeAdapter.runHeadless', () => {
     expect(seen.args[seen.args.indexOf('--output-format') + 1]).toBe('json');
   });
 
+  it('passes --model when one is resolved so the run never falls back to the CLI default', async () => {
+    const seen: { args: string[] } = { args: [] };
+    const spawn: SpawnHeadless = async (_cmd, args) => {
+      seen.args = args;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const adapter = new ClaudeAdapter(spawn);
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a', model: 'claude-sonnet-5' });
+    expect(seen.args).toContain('--model');
+    expect(seen.args[seen.args.indexOf('--model') + 1]).toBe('claude-sonnet-5');
+  });
+
   it('rejects on a nonzero exit code', async () => {
     const adapter = new ClaudeAdapter(fakeSpawn({ stdout: '', exitCode: 1, stderr: 'boom' }));
     await expect(adapter.runHeadless({ prompt: 'go', cwd: '/wt/a' })).rejects.toThrow(/boom|exit/i);

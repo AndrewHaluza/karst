@@ -74,6 +74,7 @@ import {
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
+import type { ModelCatalog } from './agent/modelCatalog.js';
 import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
 import {
   catalogDiagnosticSeverity,
@@ -1543,6 +1544,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Same deferred-reference pattern as `runPrSync` above: `maybeDrive` is
         // declared further down `activate`, read only once a panel is open.
         (id) => maybeDrive(id, 'stage-resume'),
+        // Live getter so a feed-loaded catalog is honored from the moment it
+        // lands (the ship click may come long after activation).
+        () => modelCatalog,
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -3446,6 +3450,11 @@ function makeDashboardActions(
   // scope, alongside every other driver trigger (hook, sweep, session close) —
   // resume is just one more trigger, not a special path.
   driveAfterResume: (ticketId: number) => void,
+  // Live model catalog, read when the user confirms ship: the description
+  // call's model must resolve through the SAME catalog the session launch
+  // uses (feed-loaded when available), so its compatibility answer matches
+  // the launch's (869ef1e6x).
+  modelCatalog: () => ModelCatalog,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -3524,9 +3533,21 @@ function makeDashboardActions(
       // the PR description first, so an unguarded click burns a call per repo and
       // then dies at `gh pr create`.
       if (!guardCapability('ship')) return;
+      // Resolve the description model the same way the session launch does (§
+      // model selection): the ticket's own pick wins, else the manifest
+      // default, else the CLI's. Without this the headless description call
+      // used the CLI default — measured at opus pricing on a description
+      // (869ef1e6x) — while the ticket itself ran on the manifest's cheap model.
+      const shippingTicket = getTicket(store, ticketId);
+      const shipTicketModel = resolveModelForProvider(
+        resolveProvider(shippingTicket.agentProvider, manifest()?.agentProvider),
+        shippingTicket.model,
+        manifest()?.defaultModel,
+        modelCatalog(),
+      );
       void runShipTicket(
         store,
-        { ticketId, manifest: manifest() },
+        { ticketId, manifest: manifest(), model: shipTicketModel },
         undefined,
         agentAdapter(),
         undefined,

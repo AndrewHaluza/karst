@@ -37,7 +37,13 @@ import {
   usesDescription,
   type ArtifactTemplateContext,
 } from '../artifactConventions.js';
-import { buildPrDescriptionPrompt, sanitizePrDescription } from '../prDescription.js';
+import {
+  buildPrDescriptionPrompt,
+  sanitizePrDescription,
+  type PrDescriptionContext,
+  type PrDiffContext,
+} from '../prDescription.js';
+import { collectPrDiffContext } from '../prDiffContext.js';
 import { resolveRepoScope, resolveTicketType } from '../conventionContext.js';
 
 /**
@@ -54,6 +60,13 @@ export interface ShipOpts {
   ticketId: number;
   /** Current manifest, read when ship starts rather than captured at ticket creation. */
   manifest?: Manifest;
+  /**
+   * The ticket's resolved launch model (provider-compatible), pinned on the
+   * description call so it never falls back to the CLI's own default — which
+   * has no reason to be cheap (869ef1e6x: opus/sonnet defaulting on a
+   * description call). Absent → the CLI picks, as before.
+   */
+  model?: string;
   /** Direct injection retained for host-agnostic callers and focused tests. */
   conventions?: ArtifactConventions;
 }
@@ -76,19 +89,27 @@ export interface ShipResult {
  * status line, a preamble, the whole body inside a code fence), and this text
  * goes straight into public GitHub metadata. `prDescription.ts` owns both halves
  * — the prompt that asks for a clean body and the filter that enforces it.
+ *
+ * The prompt carries the collected diff material (`ctx`), never a bare title:
+ * a model handed nothing but a title once went exploring for the changes and
+ * described a sibling project on the machine instead (869ef1e6x). `model` is
+ * the ticket's resolved model, so the CLI default (opus/sonnet/whatever the
+ * config says today) never answers for a description call.
  */
 async function describePr(
   adapter: AgentAdapter,
   cwd: string,
-  title: string,
   ticketId: number,
+  model: string | undefined,
+  ctx: PrDescriptionContext,
 ): Promise<string> {
   const r = await adapter.runHeadless({
-    prompt: buildPrDescriptionPrompt(title),
+    prompt: buildPrDescriptionPrompt(ctx),
     cwd,
+    model,
     tracking: { callSite: 'pr-description', ticketId },
   });
-  return sanitizePrDescription(r.raw, title);
+  return sanitizePrDescription(r.raw, ctx.title);
 }
 
 /**
@@ -375,6 +396,25 @@ export async function shipTicket(
       onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
       const existing = await findOpenPr(gh, wt.path);
       const descriptionTemplate = conventions?.pullRequestDescription;
+      const wouldDescribe = Boolean(
+        adapter && (!descriptionTemplate || usesDescription(descriptionTemplate)),
+      );
+
+      // The branch material the description is written from — gathered ONCE,
+      // bounded, before the model call. A model handed nothing but a title went
+      // exploring for the changes and described a sibling project (869ef1e6x);
+      // everything it needs is now in the prompt, so the run needs no tools and
+      // no exploration loop. A failed read degrades to a title-only prompt —
+      // observability must never fail a ship, and the diff is gone from the
+      // prompt, not from the PR.
+      let diffContext: PrDiffContext = {};
+      if (wouldDescribe && base) {
+        try {
+          diffContext = await collectPrDiffContext(git, wt.path, base);
+        } catch {
+          diffContext = {};
+        }
+      }
 
       /**
        * The PR body, rendered exactly the same way whether it is about to open a
@@ -384,11 +424,18 @@ export async function shipTicket(
        * that is the part that takes time.
        */
       const buildBody = async (): Promise<string> => {
+        const promptCtx: PrDescriptionContext = {
+          title: prTitle,
+          repo: wt.repo,
+          branch: wt.branch ?? undefined,
+          baseRef: base,
+          ...diffContext,
+        };
         if (descriptionTemplate) {
           let description = prTitle;
-          if (usesDescription(descriptionTemplate) && adapter) {
+          if (wouldDescribe) {
             onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-            description = await describePr(adapter, wt.path, prTitle, opts.ticketId);
+            description = await describePr(adapter!, wt.path, opts.ticketId, opts.model, promptCtx);
             onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
           }
           return renderArtifactTemplate(
@@ -399,7 +446,7 @@ export async function shipTicket(
         }
         if (adapter) {
           onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-          const generated = await describePr(adapter, wt.path, prTitle, opts.ticketId);
+          const generated = await describePr(adapter, wt.path, opts.ticketId, opts.model, promptCtx);
           onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
           return generated;
         }
