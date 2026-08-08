@@ -72,6 +72,10 @@ import {
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
+import {
+  recordSessionLaunchIntent,
+  failSessionLaunchIntent,
+} from './store/sessionLaunchIntents.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
@@ -618,6 +622,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           (error) => logError(`fresh session retry failed for ticket ${ticketId}`, error),
         );
       });
+    },
+    // A launch is PREPARED: record the pending session launch intent so the
+    // eventual SessionStart can be confirmed against the exact prepared launch
+    // (durable across reloads — never recovered from in-memory callback state).
+    // The provider/model/purpose/reason are re-resolved from the ticket at this
+    // moment, which is what makes a switch's intent carry the NEW core: the
+    // switch flow persists the selection BEFORE its launch, and this callback
+    // fires synchronously inside that launch. Best-effort: a bookkeeping
+    // failure must never fail the terminal launch itself.
+    ({ ticketId, launchId, resume, switchLaunch }) => {
+      try {
+        const ticket = getTicket(localStore, ticketId);
+        const purpose =
+          ticket.stageCurrent === 'impl'
+            ? 'implementation'
+            : ticket.stageCurrent === 'fix'
+              ? 'fix'
+              : null;
+        if (purpose === null) return;
+        const provider = resolveProvider(
+          ticket.agentProvider,
+          currentManifest()?.agentProvider,
+        );
+        const model = resolveModelForProvider(
+          provider,
+          ticket.model,
+          currentManifest()?.defaultModel,
+          modelCatalog,
+        );
+        recordSessionLaunchIntent(localStore, {
+          ticketId,
+          launchId,
+          purpose,
+          provider,
+          model: model ?? null,
+          reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
+          sessionOrigin: resume ? 'resume' : 'new',
+          at: new Date().toISOString(),
+        });
+      } catch (error) {
+        logError(`karst: could not record session launch intent for ticket ${ticketId}`, error);
+      }
+    },
+    // Terminal creation failed synchronously: the prepared launch died before
+    // any provider session could start. Mark the intent failed — no segment is
+    // created, because the launch never started anything.
+    (launchId) => {
+      try {
+        failSessionLaunchIntent(localStore, launchId, new Date().toISOString());
+      } catch (error) {
+        logError(`karst: could not record launch failure for ${launchId}`, error);
+      }
     },
   );
 

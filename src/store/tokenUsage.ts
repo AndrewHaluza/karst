@@ -79,6 +79,12 @@ export interface TokenUsageEntry {
    * call a caller made without naming a process, or a pre-v27 row.
    */
   processRunId?: number | null;
+  /**
+   * v28: the implementation segment this call was made inside (an interactive
+   * session). NULL for calls made outside a segment — and every call today:
+   * Task 5 adds the measured ingestion seam that writes it.
+   */
+  implementationSegmentId?: number | null;
   /** An `AiCallSite`; typed as string here so the store stays agent-free. */
   callSite: string;
   provider?: string | null;
@@ -93,8 +99,8 @@ const INSERT = `
 INSERT INTO token_usage (
   project_id, ticket_id, process_run_id, call_site, provider, model,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
-  estimated, outcome, recorded_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  estimated, outcome, recorded_at, implementation_segment_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 /**
  * Append one call to the ledger. Throws only on a genuine store failure — the
@@ -120,6 +126,7 @@ export function recordTokenUsage(store: Store, entry: TokenUsageEntry): void {
       u.estimated ? 1 : 0,
       entry.outcome,
       entry.recordedAt ?? new Date().toISOString(),
+      entry.implementationSegmentId ?? null,
     );
 }
 

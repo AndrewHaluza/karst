@@ -178,6 +178,71 @@ CREATE TABLE IF NOT EXISTS process_runs (
 CREATE INDEX IF NOT EXISTS idx_process_runs_ticket
   ON process_runs(ticket_id, stage_key, process_id, id);
 
+-- v28: the STABLE implementation run — one per impl pass, spanning provider
+-- switches and resumes, opened when the first session launch intent for the
+-- ticket is prepared and closed ONLY by the explicit done marker
+-- (`stage impl pass`). A run is the ticket's interactive implementation as one
+-- unit; a SessionEnd without the marker may interrupt it, never pass it.
+CREATE TABLE IF NOT EXISTS implementation_runs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  -- The canonical `process_runs(stage_key='impl', process_id='session')` row —
+  -- UNIQUE so the run and its process run are one-to-one. ON DELETE CASCADE:
+  -- deleting the process run deletes the run (the whole run is that process).
+  process_run_id INTEGER NOT NULL UNIQUE REFERENCES process_runs(id) ON DELETE CASCADE,
+  attempt       INTEGER NOT NULL,     -- the impl stage's attempt when the run opened
+  status        TEXT NOT NULL CHECK (status IN ('running','passed','interrupted')),
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT                  -- NULL while running (and on an interrupted run
+                                      -- whose end is known: interrupted rows DO stamp
+                                      -- ended_at, unlike stale stage/process runs)
+);
+
+-- v28: a launch karst PREPARED, pending the provider's SessionStart. Terminal
+-- creation is not proof the provider started, so the row stays pending until a
+-- SessionStart carrying the same launch id confirms it; a terminal-creation
+-- failure marks it failed. A newer launch for the same ticket/purpose
+-- supersedes the older pending one. The partial unique index keeps at most one
+-- pending intent per (ticket, purpose).
+CREATE TABLE IF NOT EXISTS session_launch_intents (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  launch_id     TEXT NOT NULL UNIQUE, -- the hook URL generation, the authenticator
+  purpose       TEXT NOT NULL CHECK (purpose IN ('implementation','fix')),
+  implementation_run_id INTEGER REFERENCES implementation_runs(id) ON DELETE CASCADE,
+  process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  provider      TEXT NOT NULL,        -- the core the launch resolved to
+  model         TEXT,
+  reason        TEXT NOT NULL,        -- initial | resume | switch (LaunchReason)
+  session_origin TEXT NOT NULL CHECK (session_origin IN ('new','resume','unknown')),
+  provider_session_id TEXT,           -- set when the SessionStart confirms the intent
+  status        TEXT NOT NULL CHECK (status IN ('pending','confirmed','failed','superseded')),
+  created_at    TEXT NOT NULL,
+  resolved_at   TEXT                  -- confirmed/failed/superseded stamp; NULL while pending
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending
+  ON session_launch_intents(ticket_id, purpose) WHERE status = 'pending';
+
+-- v28: one segment per provider session inside an implementation run. The first
+-- segment is confirmed by the initial launch's SessionStart; a switch opens a
+-- new segment and closes the previous one; a resume reattaches the compatible
+-- segment (or confirms a resume segment). `launch_intent_id` ties a confirmed
+-- segment to the exact prepared launch that produced it — NOT NULL UNIQUE, so
+-- a segment is confirmed at most once and never twice by two starts.
+CREATE TABLE IF NOT EXISTS implementation_segments (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  implementation_run_id INTEGER NOT NULL REFERENCES implementation_runs(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,        -- claude | codex | …
+  model         TEXT,                 -- the resolved launch model; NULL = agent default
+  provider_session_id TEXT,           -- the provider's own session id, set on confirm
+  reason        TEXT,                 -- NULL (first) | 'switch' | 'resume'
+  status        TEXT NOT NULL CHECK (status IN ('pending','running','closed','interrupted')),
+  launch_intent_id INTEGER NOT NULL UNIQUE
+                REFERENCES session_launch_intents(id) ON DELETE CASCADE,
+  started_at    TEXT,                 -- set when the segment opens (or confirms)
+  ended_at      TEXT                  -- closed/interrupted stamp; NULL while running
+);
+
 -- Phases an agent REPORTED entering during a marker stage. Append-only, like
 -- gate_runs and for the same reason: a phase is an event, many per stage, so it
 -- cannot live on `stages` (one row per StageKey, single-writer via setStage).
@@ -195,7 +260,14 @@ CREATE TABLE IF NOT EXISTS phase_marks (
                                       -- needs a stage token on the CLI wire format.
   attempt       INTEGER NOT NULL,     -- the stage's attempt when this mark landed
   phase_name    TEXT NOT NULL,        -- as reported; NOT constrained to the declared list
-  marked_at     TEXT NOT NULL
+  marked_at     TEXT NOT NULL,
+  -- v28 implementation-run linkage (kept in sync with migrations.ts v28 ALTERs):
+  -- the stable implementation run and its segment the mark was reported inside.
+  -- NULL = a pre-v28 mark, or a mark reported outside any segment. Never backfilled.
+  -- ON DELETE SET NULL: deleting a run never takes its marks with it — the mark
+  -- stays, its execution attribution goes.
+  implementation_run_id    INTEGER REFERENCES implementation_runs(id) ON DELETE SET NULL,
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stage_key, id);
 
@@ -407,7 +479,13 @@ CREATE TABLE IF NOT EXISTS token_usage (
   total_tokens       INTEGER NOT NULL DEFAULT 0,
   estimated          INTEGER NOT NULL DEFAULT 0,  -- 1 = counts are an estimate, not a report
   outcome            TEXT NOT NULL,        -- ok | error (a failed call still burned tokens)
-  recorded_at        TEXT NOT NULL         -- ISO-8601; what every time-range filter cuts on
+  recorded_at        TEXT NOT NULL,        -- ISO-8601; what every time-range filter cuts on
+  -- v28 implementation-segment linkage (kept in sync with migrations.ts v28 ALTER):
+  -- the implementation segment the call was made inside. NULL = a call made
+  -- outside a segment (a draft, a gate, a pre-v28 call). Never backfilled.
+  -- ON DELETE SET NULL: deleting a segment never takes the ledger's spend with
+  -- it — the count stays, its attribution goes.
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL
 );
 -- The aggregation index set. Every stats query filters on (project_id,
 -- recorded_at) and then groups by one of ticket / call_site / model, so each
@@ -420,6 +498,8 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, mode
 -- v27: per-process-run evidence reads (the inside view's spend for one process),
 -- `id` second so one run's rows come back in call order.
 CREATE INDEX IF NOT EXISTS idx_token_usage_process ON token_usage(process_run_id, id);
+-- v28: per-implementation-segment evidence reads, `id` second for call order.
+CREATE INDEX IF NOT EXISTS idx_token_usage_segment ON token_usage(implementation_segment_id, id);
 
 -- Images and video attached to a ticket's prompt. An INDEX of bytes that live on
 -- disk under <globalStorage>/attachments/<ticket_id>/<stored_name>, never the

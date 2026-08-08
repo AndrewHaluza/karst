@@ -3,6 +3,11 @@ import { setAgentState, setSessionId } from '../store/tickets.js';
 import { ticketIdForWorktreePath } from '../runtime/worktree.js';
 import type { AgentState } from '../model/types.js';
 import type { AgentProvider } from '../manifest/types.js';
+import { nowIso } from '../model/time.js';
+import {
+  confirmSessionLaunchIntent,
+} from '../store/sessionLaunchIntents.js';
+import { interruptImplementationRun } from '../store/implementationRuns.js';
 import type {
   HookChannelRecorder,
   HookDispatchOutcome,
@@ -171,6 +176,30 @@ export function dispatchHook(
       payload.session_id,
       sessionProviderFor?.(ticketId) ?? null,
     );
+  }
+
+  // The launch-intent handshake (v28): an accepted SessionStart carrying the
+  // URL-authenticated launch id confirms the prepared launch and its segment.
+  // The intent was persisted BEFORE the terminal existed, so a reload cannot
+  // lose it; verification is the store's job (ticket, pending status, provider
+  // — the lifecycle generation barrier above has already admitted the hook).
+  // Every rejection is a no-op, and a session started outside karst (no
+  // launch id, or one no launch ever recorded) changes nothing.
+  if (payload.hook_event_name === 'SessionStart') {
+    if (payload.launchId !== undefined && payload.session_id !== undefined) {
+      confirmSessionLaunchIntent(store, payload.launchId, {
+        ticketId,
+        provider: sessionProviderFor?.(ticketId) ?? '',
+        providerSessionId: payload.session_id,
+        at: nowIso(),
+      });
+    }
+  } else if (payload.hook_event_name === 'SessionEnd') {
+    // A session that ended WITHOUT the marker is an interrupted implementation:
+    // the run and its segment close as interrupted, never passed — the marker
+    // (`stage impl pass`) is the only completion authority, and a run the
+    // marker already passed is left strictly alone.
+    interruptImplementationRun(store, ticketId, nowIso());
   }
 
   const state = nextAgentState(payload);

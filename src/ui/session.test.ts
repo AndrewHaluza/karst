@@ -1052,6 +1052,99 @@ describe('SessionManager', () => {
 
     expect(cleanup).toHaveBeenCalledWith('/wt/a', ['/wt/a/.codex/karst']);
   });
+
+  it('invokes onLaunchPrepared for a fresh launch, carrying the allocated launch id', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false }]);
+  });
+
+  it('an ordinary resume launch records resume: true', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, 'sess-7');
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: true, switchLaunch: false }]);
+  });
+
+  it('an agent switch launch records switchLaunch: true', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], { allowResume: false, providerReady: true });
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: true }]);
+  });
+
+  it('focusing an existing terminal invokes no launch callback', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a');
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(prepared).toHaveLength(1);
+  });
+
+  it('adopting a revived terminal invokes no launch callback', () => {
+    const restored = fakeRestored(7);
+    const { host } = fakeHost([restored]);
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(fakeAdapter().adapter, 7, '/wt/a');
+
+    expect(prepared).toHaveLength(0);
+    expect(mgr.isOpen(7)).toBe(true);
+  });
+
+  it('terminal creation failure invokes onLaunchFailed with the launch id and rethrows', () => {
+    const { adapter } = fakeAdapter();
+    const failingHost: TerminalHost = {
+      createTerminal: () => {
+        throw new Error('spawn failed');
+      },
+    };
+    const prepared: unknown[] = [];
+    const failed: string[] = [];
+    const mgr = new SessionManager(
+      failingHost, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+      (launchId) => failed.push(launchId),
+    );
+
+    expect(() => mgr.openSession(adapter, 7, '/wt/a')).toThrow('spawn failed');
+    expect(prepared).toHaveLength(1);
+    expect(failed).toEqual([launchId]);
+  });
 });
 
 describe('ticketIdFromTerminalEnv', () => {

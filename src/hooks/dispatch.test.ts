@@ -3,6 +3,9 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { dispatchHook, parseHookPayload } from './dispatch.js';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
+import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
+import { listImplementationTimeline } from '../store/implementationRuns.js';
+import { listProcessRuns } from '../store/processRuns.js';
 
 /** Register a worktree row directly so a payload cwd resolves to a ticket. */
 function seedWorktree(store: Store, ticketId: number, path: string): void {
@@ -266,6 +269,132 @@ describe('dispatchHook', () => {
     const id = ticketAt();
     dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-xyz' });
     expect(getTicket(store, id).sessionProvider).toBeNull();
+  });
+
+  it('SessionStart with a matching launch id confirms the pending intent and its segment', () => {
+    const id = ticketAt();
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-1', purpose: 'implementation',
+      provider: 'claude', model: 'opus', reason: 'initial', sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-1' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    const timeline = listImplementationTimeline(store, id)!;
+    expect(timeline.segments).toHaveLength(1);
+    expect(timeline.segments[0]!.providerSessionId).toBe('sess-1');
+    expect(timeline.segments[0]!.status).toBe('running');
+    expect(timeline.segments[0]!.provider).toBe('claude');
+    expect(getTicket(store, id).sessionId).toBe('sess-1');
+  });
+
+  it('SessionStart with an unknown launch id creates no segment', () => {
+    const id = ticketAt();
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'never-recorded' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    expect(listImplementationTimeline(store, id)).toBeNull();
+    // The ordinary session liveness signal still lands.
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('a SessionStart whose provider no longer matches the ticket is rejected', () => {
+    const id = ticketAt();
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-1', purpose: 'implementation',
+      provider: 'claude', model: 'opus', reason: 'initial', sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-1' },
+      undefined,
+      () => true,
+      () => 'codex',
+    );
+    // The run is open (the launch was prepared) but no segment was confirmed:
+    // the mismatched start attached nothing.
+    expect(listImplementationTimeline(store, id)!.segments).toHaveLength(0);
+  });
+
+  it('SessionEnd without the marker interrupts the segment and process run, never passing the run', () => {
+    const id = ticketAt();
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-1', purpose: 'implementation',
+      provider: 'claude', model: 'opus', reason: 'initial', sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-1' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionEnd', cwd: WT, session_id: 'sess-1', launchId: 'launch-1' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+
+    const timeline = listImplementationTimeline(store, id)!;
+    expect(timeline.run.status).toBe('interrupted');
+    expect(timeline.segments[0]!.status).toBe('interrupted');
+    expect(listProcessRuns(store, id)[0]!.status).toBe('interrupted');
+    expect(timeline.run.status).not.toBe('passed');
+    expect(getTicket(store, id).agentState).toBe('idle');
+  });
+
+  it('SessionEnd for a ticket with no implementation run is a no-op', () => {
+    const id = ticketAt();
+    expect(() =>
+      dispatchHook(store, { hook_event_name: 'SessionEnd', cwd: WT }),
+    ).not.toThrow();
+    expect(getTicket(store, id).agentState).toBe('idle');
+  });
+
+  it('SessionEnd never undoes a run the marker already passed', () => {
+    const id = ticketAt();
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-1', purpose: 'implementation',
+      provider: 'claude', model: 'opus', reason: 'initial', sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-1' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    const timeline = listImplementationTimeline(store, id)!;
+    // The marker (the only completion authority) passed the run.
+    store.db
+      .prepare("UPDATE implementation_runs SET status = 'passed', ended_at = ? WHERE id = ?")
+      .run('2026-08-01T11:00:00.000Z', timeline.run.id);
+
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionEnd', cwd: WT, session_id: 'sess-1', launchId: 'launch-1' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+
+    const after = listImplementationTimeline(store, id)!;
+    expect(after.run.status).toBe('passed');
+    expect(after.run.endedAt).toBe('2026-08-01T11:00:00.000Z');
   });
 });
 

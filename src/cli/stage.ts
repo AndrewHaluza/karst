@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
 import { MARKER_STAGES, isMarkerStage, type MarkerStage } from '../agent/markerStage.js';
 import { transition as defaultTransition } from '../workflow/machine.js';
+import { markImplementDone } from '../workflow/stages/implement.js';
 
 /**
  * The `karst stage <impl|fix> pass` CLI — a thin wrapper over `transition()`
@@ -100,5 +101,10 @@ export function runStageCommand(
   transition: TransitionFn = defaultTransition,
 ): StageKey {
   const { stage, verdict } = parseStageArgs(argv);
+  // The impl marker routes through markImplementDone, never directly through
+  // the generic transition: completing the stable implementation run (closing
+  // its segment and Session process run, passing the run) is part of the
+  // marker's job, folded into the SAME transaction as the stage advance.
+  if (stage === 'impl') return markImplementDone(store, ticketId, transition);
   return transition(store, ticketId, stage, verdict);
 }

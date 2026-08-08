@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -732,6 +732,102 @@ export function migrate(db: Database): void {
     if (findingCols27.size > 0) {
       db.exec(
         'CREATE INDEX IF NOT EXISTS idx_review_findings_process ON review_findings(process_run_id, id)',
+      );
+    }
+  }
+
+  if (current < 28) {
+    // v28 makes the interactive implementation itself durable: a STABLE
+    // implementation run per impl pass (implementation_runs), one segment per
+    // provider session inside it (implementation_segments), and the prepared
+    // launches that produced them (session_launch_intents).
+    //
+    // A whole new table set, so the step is the same DDL as schema.sql rather
+    // than ALTERs, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which provider session ran
+    // when, or which launch prepared it — a synthesized run would assert exactly
+    // the facts this table set exists to stop being guessed at. Pre-v28 tickets
+    // show no implementation timeline until their next launch.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS implementation_runs (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        process_run_id INTEGER NOT NULL UNIQUE REFERENCES process_runs(id) ON DELETE CASCADE,
+        attempt       INTEGER NOT NULL,
+        status        TEXT NOT NULL CHECK (status IN ('running','passed','interrupted')),
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_launch_intents (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        launch_id     TEXT NOT NULL UNIQUE,
+        purpose       TEXT NOT NULL CHECK (purpose IN ('implementation','fix')),
+        implementation_run_id INTEGER REFERENCES implementation_runs(id) ON DELETE CASCADE,
+        process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        provider      TEXT NOT NULL,
+        model         TEXT,
+        reason        TEXT NOT NULL,
+        session_origin TEXT NOT NULL CHECK (session_origin IN ('new','resume','unknown')),
+        provider_session_id TEXT,
+        status        TEXT NOT NULL CHECK (status IN ('pending','confirmed','failed','superseded')),
+        created_at    TEXT NOT NULL,
+        resolved_at   TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS implementation_segments (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        implementation_run_id INTEGER NOT NULL REFERENCES implementation_runs(id) ON DELETE CASCADE,
+        provider      TEXT NOT NULL,
+        model         TEXT,
+        provider_session_id TEXT,
+        reason        TEXT,
+        status        TEXT NOT NULL CHECK (status IN ('pending','running','closed','interrupted')),
+        launch_intent_id INTEGER NOT NULL UNIQUE
+                        REFERENCES session_launch_intents(id) ON DELETE CASCADE,
+        started_at    TEXT,
+        ended_at      TEXT
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending ' +
+        "ON session_launch_intents(ticket_id, purpose) WHERE status = 'pending'",
+    );
+    // Existing phase marks predate the run/segment vocabulary — the linkage is
+    // left NULL, never backfilled, for the same reason every other attribution
+    // column here stays NULL: the fact was never captured and a guess would be
+    // a lie in the one column set whose job is attribution.
+    const markCols28 = tableColumns(db, 'phase_marks');
+    if (markCols28.size > 0 && tableColumns(db, 'implementation_runs').size > 0) {
+      if (!markCols28.has('implementation_run_id')) {
+        db.exec(
+          'ALTER TABLE phase_marks ADD COLUMN implementation_run_id INTEGER REFERENCES implementation_runs(id) ON DELETE SET NULL',
+        );
+      }
+      if (!markCols28.has('implementation_segment_id')) {
+        db.exec(
+          'ALTER TABLE phase_marks ADD COLUMN implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    // Token usage stays unattributed to a segment for every pre-v28 call (all
+    // of them — Task 5 adds the measured ingestion seam that writes this).
+    const tokenCols28 = tableColumns(db, 'token_usage');
+    if (tokenCols28.size > 0 && tableColumns(db, 'implementation_segments').size > 0) {
+      if (!tokenCols28.has('implementation_segment_id')) {
+        db.exec(
+          'ALTER TABLE token_usage ADD COLUMN implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    if (tokenCols28.size > 0) {
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_token_usage_segment ON token_usage(implementation_segment_id, id)',
       );
     }
   }

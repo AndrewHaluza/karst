@@ -159,6 +159,26 @@ export type CleanupOwnedPaths = (
   ownedPaths: readonly string[],
 ) => void;
 
+/**
+ * A launch karst just decided to actually perform: a launch id was allocated
+ * and a terminal is about to be created. The host persists this as a pending
+ * `session_launch_intents` row, so the eventual SessionStart can be confirmed
+ * against the exact prepared launch — even after a window reload, when no
+ * in-memory state survives.
+ */
+export interface LaunchPreparedInfo {
+  ticketId: number;
+  /** The hook generation the terminal's hook URL will carry. */
+  launchId: string;
+  /** True when the adapter command resumes a captured provider session. */
+  resume: boolean;
+  /** True for an agent-switch launch (`allowResume: false` + providerReady). */
+  switchLaunch: boolean;
+}
+export type OnLaunchPrepared = (info: LaunchPreparedInfo) => void;
+/** A terminal creation failed synchronously for the named launch. */
+export type OnLaunchFailed = (launchId: string) => void;
+
 export function continueSessionInBackground(
   sessions: Pick<SessionManager, 'nudge'>,
   open: (ticketId: number, options: { reveal: false }) => void,
@@ -245,6 +265,21 @@ export class SessionManager {
       ticketId: number,
       options: OpenSessionOptions,
     ) => void,
+    /**
+     * Fired SYNCHRONOUSLY after the hook launch id is allocated for an actual
+     * new terminal and before `createTerminal` — the launch is prepared, not
+     * yet proven. The focus path (a ticket already has a live terminal) and
+     * the adoption path (a revived terminal took the ticket over) invoke
+     * NEITHER this nor `onLaunchFailed`: no launch is being prepared, so no
+     * intent may be recorded for one.
+     */
+    private readonly onLaunchPrepared?: OnLaunchPrepared,
+    /**
+     * Fired when `createTerminal` throws — a prepared launch that never became
+     * a terminal. The host marks the matching intent failed; the exception is
+     * rethrown so the caller still sees the launch failure.
+     */
+    private readonly onLaunchFailed?: OnLaunchFailed,
   ) {}
 
   private trackTerminal(
@@ -345,23 +380,41 @@ export class SessionManager {
     });
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 
-    const terminal = this.host.createTerminal({
-      name: terminalName,
-      description: naming ? undefined : (label?.title ?? undefined),
-      cwd: worktreePath,
-      shellPath: cmd.command,
-      shellArgs: cmd.args,
-      env: {
-        ...cmd.env,
-        [KARST_TICKET_ENV]: String(ticketId),
-        ...(hookChannel.launchId
-          ? { [KARST_LAUNCH_ENV]: hookChannel.launchId }
-          : {}),
-      },
-      ...(options.reveal === false ? { hideFromUser: true } : {}),
-      ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
-      ...(naming?.color ? { color: naming.color } : {}),
-    });
+    // The launch is PREPARED: the generation exists, a terminal is about to be
+    // created. Record it before createTerminal so a failure of either half is
+    // attributable — but only when the channel actually carries a generation
+    // (a legacy hook channel has nothing to confirm against later).
+    const launchId = hookChannel.launchId;
+    if (launchId !== undefined) {
+      this.onLaunchPrepared?.({
+        ticketId,
+        launchId,
+        resume: Boolean(resume),
+        switchLaunch: options.allowResume === false && options.providerReady === true,
+      });
+    }
+
+    let terminal: SessionTerminal;
+    try {
+      terminal = this.host.createTerminal({
+        name: terminalName,
+        description: naming ? undefined : (label?.title ?? undefined),
+        cwd: worktreePath,
+        shellPath: cmd.command,
+        shellArgs: cmd.args,
+        env: {
+          ...cmd.env,
+          [KARST_TICKET_ENV]: String(ticketId),
+          ...(launchId ? { [KARST_LAUNCH_ENV]: launchId } : {}),
+        },
+        ...(options.reveal === false ? { hideFromUser: true } : {}),
+        ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
+        ...(naming?.color ? { color: naming.color } : {}),
+      });
+    } catch (err) {
+      if (launchId !== undefined) this.onLaunchFailed?.(launchId);
+      throw err;
+    }
     let cleanupStarted = false;
     const cleanupOwned = (): void => {
       if (cleanupStarted) return;

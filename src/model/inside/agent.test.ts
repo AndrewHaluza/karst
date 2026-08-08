@@ -21,6 +21,8 @@ function mark(phaseName: string, markedAt: string, extra: Partial<PhaseMark> = {
     attempt: 0,
     phaseName,
     markedAt,
+    implementationRunId: null,
+    implementationSegmentId: null,
     ...extra,
   };
 }
