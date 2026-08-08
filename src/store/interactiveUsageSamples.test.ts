@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from './db.js';
-import { createTicket } from './tickets.js';
+import { createTicket, setSessionId } from './tickets.js';
 import {
   recordSessionLaunchIntent,
   confirmSessionLaunchIntent,
@@ -17,6 +17,7 @@ import {
   openRecoveryRound,
   recordFixLaunchIntent,
   confirmFixLaunch,
+  beginLiveFixExecution,
   interruptFixExecution,
   listRecoveryRounds,
 } from './recoveryRounds.js';
@@ -409,6 +410,173 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
     );
     expect(result).toEqual({ kind: 'unattributed' });
     expect(ledger()).toHaveLength(0);
+  });
+});
+
+describe('appendInteractiveUsageSample — live Fix ownership', () => {
+  /**
+   * Findings 5/14: a LIVE fix nudge opens a Fix process run and attaches it to
+   * its round but records NO session launch intent — the nudge continues the
+   * already-live session — so the old confirmed Implementation intent used to
+   * win and the UsageUpdate stayed `implementation`. The Fix execution may own
+   * a sample only when durable fields prove it belongs to THIS provider
+   * session: the ticket's recorded live session (`session_id`/`session_provider`,
+   * captured at SessionStart) is the session the nudge continued.
+   */
+  function liveFix(ticket: number = ticketId): number {
+    const round = openRecoveryRound(store, {
+      ticketId: ticket,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T12:00:30.000Z',
+    });
+    return beginLiveFixExecution(store, {
+      ticketId: ticket,
+      roundId: round.id,
+      provider: PROVIDER,
+      model: 'sol',
+      startedAt: '2026-08-01T12:01:00.000Z',
+    }).id;
+  }
+
+  it('attributes a live fix nudge’s UsageUpdate to the Fix process run — fix-resume, no implementation segment', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    // The dispatch captures the live session onto the ticket at SessionStart;
+    // a live nudge never records a new launch intent, so this is the durable
+    // proof that the Fix execution continues THIS provider session.
+    setSessionId(store, ticketId, SESSION, PROVIDER);
+    appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200 }) },
+    );
+
+    completeImplementationRun(store, ticketId, '2026-08-01T12:00:00.000Z');
+    const fixRunId = liveFix();
+
+    const fixSample = appendInteractiveUsageSample(
+      store,
+      {
+        ticketId,
+        sample: sample({ eventId: 'e2', input: 1_700, output: 340, observedAt: '2026-08-01T12:05:00.000Z' }),
+      },
+    );
+    expect(fixSample.kind).toBe('recorded');
+    expect(fixSample.kind === 'recorded' && fixSample.delta).toEqual({
+      input: 700, output: 140, cacheRead: 0, cacheWrite: 0, total: 840,
+    });
+
+    const fixEntry = ledger()[1]!;
+    expect(fixEntry).toMatchObject({
+      processRunId: fixRunId,
+      implementationSegmentId: null,
+      callSite: 'fix-resume',
+      inputTokens: 700,
+      outputTokens: 140,
+      totalTokens: 840,
+    });
+  });
+
+  it('does not let a running Fix for ANOTHER ticket steal the implementation binding', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    setSessionId(store, ticketId, SESSION, PROVIDER);
+
+    const other = createTicket(store, { key: 'T-2', title: 'two' });
+    store.db.prepare('UPDATE tickets SET project_id = 1 WHERE id = ?').run(other.id);
+    const otherFixRunId = liveFix(other.id);
+
+    const result = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200 }) },
+    );
+    expect(result.kind).toBe('recorded');
+    expect(ledger()[0]).toMatchObject({ callSite: 'implementation' });
+    expect(ledger()[0]!.processRunId).not.toBe(otherFixRunId);
+  });
+
+  it('does not let a running Fix for ANOTHER provider steal the implementation binding', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    setSessionId(store, ticketId, SESSION, PROVIDER);
+
+    const round = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T12:00:30.000Z',
+    });
+    // The fix runs under a DIFFERENT provider than the one that minted the session.
+    const fixRun = beginLiveFixExecution(store, {
+      ticketId,
+      roundId: round.id,
+      provider: 'claude',
+      model: 'opus',
+      startedAt: '2026-08-01T12:01:00.000Z',
+    });
+
+    const result = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200 }) },
+    );
+    expect(result.kind).toBe('recorded');
+    expect(ledger()[0]).toMatchObject({ callSite: 'implementation' });
+    expect(ledger()[0]!.processRunId).not.toBe(fixRun.id);
+  });
+
+  it('does not let a Fix bind an unrelated provider session', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    setSessionId(store, ticketId, SESSION, PROVIDER);
+    // The SAME ticket also holds a confirmed implementation intent for another session.
+    launch('l2', 'implementation');
+    confirm('l2', 'other-sess');
+    const fixRunId = liveFix();
+
+    const result = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ providerSessionId: 'other-sess', eventId: 'e1', input: 1_000, output: 200 }) },
+    );
+    expect(result.kind).toBe('recorded');
+    expect(ledger()[0]).toMatchObject({ callSite: 'implementation' });
+    expect(ledger()[0]!.processRunId).not.toBe(fixRunId);
+  });
+
+  it('rejects a duplicate live-Fix event idempotently — one sample, one ledger row', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    setSessionId(store, ticketId, SESSION, PROVIDER);
+    appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200 }) },
+    );
+    completeImplementationRun(store, ticketId, '2026-08-01T12:00:00.000Z');
+    liveFix();
+
+    const first = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e2', input: 1_700, output: 340 }) },
+    );
+    expect(first.kind).toBe('recorded');
+    const again = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e2', input: 1_700, output: 340 }) },
+    );
+    expect(again).toEqual({ kind: 'duplicate' });
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
+      n: 2,
+    });
+    expect(ledger()).toHaveLength(2);
   });
 });
 

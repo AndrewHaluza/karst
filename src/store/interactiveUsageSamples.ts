@@ -136,15 +136,50 @@ interface SessionBinding {
 }
 
 /**
+ * The provider session's recorded origin — the session_origin of the latest
+ * confirmed launch intent that bound it. NULL/no intent = 'unknown': the
+ * session's continuity under karst instrumentation cannot be proved, so a
+ * counter decrease on it must baseline rather than count from zero.
+ */
+function sessionOriginFor(
+  store: Store,
+  ticketId: number,
+  provider: string,
+  providerSessionId: string,
+): SessionBinding['sessionOrigin'] {
+  const row = store.db
+    .prepare(
+      `SELECT session_origin FROM session_launch_intents
+        WHERE ticket_id = ? AND provider = ? AND provider_session_id = ?
+          AND status = 'confirmed'
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId, provider, providerSessionId) as { session_origin: string } | undefined;
+  return (row?.session_origin as SessionBinding['sessionOrigin']) ?? 'unknown';
+}
+
+/**
  * Resolve the provider session's CURRENT Karst process binding from durable
- * state: the most recent confirmed launch intent for (ticket, provider,
- * provider_session_id). An implementation intent carries its run's Session
- * process run and the segment the intent confirmed; a fix intent has no run or
- * segment, so the binding is the ticket's most recent RUNNING fix process run —
- * the fix execution opened at nudge/confirm and attached to its recovery round
- * (v30). "Running" is the active-execution requirement: a completed or
- * interrupted fix owns nothing. No confirmed intent, or no process run to
- * attribute to, is NOT a binding — nothing is ever invented to make an
+ * state:
+ *
+ *  1. The ticket's ACTIVE Fix execution — the LIVE-nudge path, which records
+ *     NO new session launch intent (the nudge continues the already-live
+ *     session). It owns the sample only when durable fields prove the fix
+ *     belongs to THIS provider session: the round is the ticket's and still
+ *     `fixing`, the Fix process run carries the same provider, and the sample's
+ *     provider session IS the ticket's recorded live session
+ *     (`tickets.session_id`/`session_provider`, captured at SessionStart) —
+ *     the session the nudge continued. Ownership is never inferred from stage
+ *     or timestamp, and never from "latest running Fix for ticket".
+ *  2. The latest confirmed launch intent for (ticket, provider,
+ *     provider_session_id) — the prepared-launch path. An implementation
+ *     intent carries its run's Session process run and the segment the intent
+ *     confirmed; a fix intent names the round it owns (`recovery_round_id`),
+ *     and only that round's attached Fix process run may answer, and only
+ *     while the round is still `fixing` — a completed or interrupted round
+ *     owns nothing.
+ *
+ * No owned process is NOT a binding — nothing is ever invented to make an
  * observation fit.
  */
 function resolveSessionBinding(
@@ -153,9 +188,39 @@ function resolveSessionBinding(
   provider: string,
   providerSessionId: string,
 ): SessionBinding | null {
+  const fixRound = store.db
+    .prepare(
+      `SELECT r.fix_process_run_id AS fix_process_run_id, pr.provider AS provider
+         FROM recovery_rounds r
+         JOIN process_runs pr ON pr.id = r.fix_process_run_id
+        WHERE r.ticket_id = ? AND r.status = 'fixing' AND r.fix_process_run_id IS NOT NULL
+        ORDER BY r.id DESC LIMIT 1`,
+    )
+    .get(ticketId) as { fix_process_run_id: number; provider: string | null } | undefined;
+  if (fixRound !== undefined && fixRound.provider === provider) {
+    const live = store.db
+      .prepare('SELECT session_id, session_provider FROM tickets WHERE id = ?')
+      .get(ticketId) as
+      | { session_id: string | null; session_provider: string | null }
+      | undefined;
+    if (
+      live !== undefined &&
+      live.session_id === providerSessionId &&
+      live.session_provider === provider
+    ) {
+      return {
+        purpose: 'fix',
+        sessionOrigin: sessionOriginFor(store, ticketId, provider, providerSessionId),
+        provider,
+        processRunId: fixRound.fix_process_run_id,
+        implementationSegmentId: null,
+      };
+    }
+  }
+
   const intent = store.db
     .prepare(
-      `SELECT purpose, session_origin, provider, process_run_id
+      `SELECT purpose, session_origin, provider, process_run_id, recovery_round_id
          FROM session_launch_intents
         WHERE ticket_id = ? AND provider = ? AND provider_session_id = ?
           AND status = 'confirmed'
@@ -167,6 +232,7 @@ function resolveSessionBinding(
         session_origin: string;
         provider: string;
         process_run_id: number | null;
+        recovery_round_id: number | null;
       }
     | undefined;
   if (intent === undefined) return null;
@@ -189,20 +255,24 @@ function resolveSessionBinding(
       implementationSegmentId: segment?.id ?? null,
     };
   }
-  const fixRun = store.db
-    .prepare(
-      `SELECT id FROM process_runs
-        WHERE ticket_id = ? AND stage_key = 'fix' AND status = 'running'
-        ORDER BY id DESC LIMIT 1`,
-    )
-    .get(ticketId) as { id: number } | undefined;
-  return {
-    purpose: 'fix',
-    sessionOrigin: intent.session_origin as SessionBinding['sessionOrigin'],
-    provider: intent.provider,
-    processRunId: fixRun?.id ?? null,
-    implementationSegmentId: null,
-  };
+  if (intent.recovery_round_id !== null) {
+    const fixRun = store.db
+      .prepare(
+        `SELECT fix_process_run_id FROM recovery_rounds
+          WHERE id = ? AND status = 'fixing'`,
+      )
+      .get(intent.recovery_round_id) as { fix_process_run_id: number | null } | undefined;
+    if (fixRun !== undefined && fixRun.fix_process_run_id !== null) {
+      return {
+        purpose: 'fix',
+        sessionOrigin: intent.session_origin as SessionBinding['sessionOrigin'],
+        provider: intent.provider,
+        processRunId: fixRun.fix_process_run_id,
+        implementationSegmentId: null,
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -222,26 +292,38 @@ function resolveSessionBinding(
  *
  * An already-recorded (provider, provider_session_id, source_event_id) is
  * rejected idempotently. Returns `unattributed` (nothing written) when the
- * session has no confirmed binding.
+ * session has no owned process binding. The binding is resolved INSIDE the
+ * transaction that commits the sample, so another window superseding or
+ * closing ownership cannot race the write: the sample is attributed to the
+ * ownership that exists when it lands, or to nothing, atomically.
  */
 export function appendInteractiveUsageSample(
   store: Store,
   input: AppendInteractiveUsageInput,
 ): AppendInteractiveUsageResult {
   const { sample } = input;
-  const binding = resolveSessionBinding(
-    store,
-    input.ticketId,
-    sample.provider,
-    sample.providerSessionId,
-  );
-  if (binding === null || binding.processRunId === null) return { kind: 'unattributed' };
-
-  const callSite = binding.purpose === 'fix' ? 'fix-resume' : 'implementation';
   const now = sample.observedAt;
 
   let outcome: AppendInteractiveUsageResult = { kind: 'unattributed' };
   const apply = store.db.transaction(() => {
+    // The binding is resolved INSIDE the transaction: another window could
+    // supersede or close ownership between a read outside and the writes below,
+    // and the sample must be attributed to the ownership that exists when it
+    // lands — or to nothing, atomically. No owned process is `unattributed`,
+    // and nothing is written.
+    const binding = resolveSessionBinding(
+      store,
+      input.ticketId,
+      sample.provider,
+      sample.providerSessionId,
+    );
+    if (binding === null || binding.processRunId === null) {
+      outcome = { kind: 'unattributed' };
+      return;
+    }
+
+    const callSite = binding.purpose === 'fix' ? 'fix-resume' : 'implementation';
+
     const existing = store.db
       .prepare(
         `SELECT id FROM interactive_usage_samples

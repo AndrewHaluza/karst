@@ -11,6 +11,7 @@ import { lastInteractiveUsageSample } from '../store/interactiveUsageSamples.js'
 import {
   openRecoveryRound,
   recordFixLaunchIntent,
+  beginLiveFixExecution,
   listRecoveryRounds,
 } from '../store/recoveryRounds.js';
 import { getSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
@@ -519,6 +520,47 @@ describe('dispatchHook — UsageUpdate', () => {
     expect(fixEntry[0]).toMatchObject({
       callSite: 'fix-resume',
       processRunId: fixRun.id,
+      inputTokens: 700,
+      outputTokens: 140,
+      totalTokens: 840,
+    });
+  });
+
+  it('attributes a live-nudge fix session’s updates to the Fix process run — no new launch intent', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    usageUpdate('sess-1', { event_id: 'e1', input: 1_000, output: 200 });
+    // The implementation completed; the failing gate committed the round.
+    store.db
+      .prepare('UPDATE implementation_runs SET status = ? WHERE ticket_id = ?')
+      .run('passed', id);
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T11:55:00.000Z',
+    });
+    // The LIVE nudge opens the Fix execution on the still-live session and
+    // attaches it to the round; NO fix launch intent exists (the session was
+    // never relaunched), so only the ticket's recorded live session — captured
+    // at SessionStart — proves the fix owns this provider session.
+    const fixRun = beginLiveFixExecution(store, {
+      ticketId: id, roundId: round.id, provider: 'claude', model: 'opus',
+      startedAt: '2026-08-01T12:01:00.000Z',
+    });
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      status: 'fixing',
+      fixProcessRunId: fixRun.id,
+    });
+
+    usageUpdate('sess-1', { event_id: 'e2', input: 1_700, output: 340 });
+
+    const fixEntry = listTokenUsage(store, { ticketId: id, processRunId: fixRun.id });
+    expect(fixEntry).toHaveLength(1);
+    expect(fixEntry[0]).toMatchObject({
+      callSite: 'fix-resume',
+      processRunId: fixRun.id,
+      implementationSegmentId: null,
       inputTokens: 700,
       outputTokens: 140,
       totalTokens: 840,
