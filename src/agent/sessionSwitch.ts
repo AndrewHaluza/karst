@@ -26,6 +26,8 @@ export interface AgentSessionViewInput {
   catalog: ModelCatalog;
   stageCurrent: string | null;
   sessionOpen: boolean;
+  /** A running Fix process currently owns the session and may not be switched. */
+  fixExecutionActive?: boolean;
 }
 
 export interface AgentSwitchProviderChoice { provider: AgentProvider; label: string }
@@ -56,6 +58,7 @@ export interface AgentSwitchSnapshot {
   provider: AgentProvider;
   ticketModel: string | null;
   defaultModel: string | null;
+  fixExecutionActive?: boolean;
 }
 
 export interface AgentSwitchFlowDeps {
@@ -88,8 +91,14 @@ function labelForModel(provider: AgentProvider, id: string | undefined, catalog:
   return modelsForProvider(provider, catalog).find((model) => model.id === id)?.label ?? id;
 }
 
-export function canSwitchAgentSession(stageCurrent: string | null, sessionOpen: boolean): boolean {
-  return sessionOpen && (stageCurrent === 'impl' || stageCurrent === 'fix');
+export function canSwitchAgentSession(
+  stageCurrent: string | null,
+  sessionOpen: boolean,
+  fixExecutionActive = false,
+): boolean {
+  return sessionOpen
+    && (stageCurrent === 'impl' || stageCurrent === 'fix')
+    && !(stageCurrent === 'fix' && fixExecutionActive);
 }
 
 export function agentSwitchProviderChoices(current: AgentProvider): AgentSwitchProviderChoice[] {
@@ -131,7 +140,11 @@ export function buildAgentSessionView(input: AgentSessionViewInput): AgentSessio
     providerLabel: PROVIDER_LABELS[input.provider],
     modelId: modelId ?? null,
     modelLabel: labelForModel(input.provider, modelId, input.catalog),
-    canSwitch: canSwitchAgentSession(input.stageCurrent, input.sessionOpen),
+    canSwitch: canSwitchAgentSession(
+      input.stageCurrent,
+      input.sessionOpen,
+      input.fixExecutionActive,
+    ),
   };
 }
 
@@ -140,7 +153,11 @@ export async function runAgentSwitchFlow(
   catalog: ModelCatalog,
 ): Promise<AgentSwitchOutcome> {
   const initial = deps.read();
-  if (!canSwitchAgentSession(initial.stageCurrent, deps.isSessionOpen())) return { kind: 'stale' };
+  if (!canSwitchAgentSession(
+    initial.stageCurrent,
+    deps.isSessionOpen(),
+    initial.fixExecutionActive,
+  )) return { kind: 'stale' };
 
   const from = buildAgentSessionView({ ...initial, catalog, sessionOpen: true });
   const provider = await deps.pickProvider(agentSwitchProviderChoices(initial.provider), from);
@@ -171,7 +188,11 @@ export async function runAgentSwitchFlow(
   const current = deps.read();
   if (
     current.provider !== initial.provider
-    || !canSwitchAgentSession(current.stageCurrent, deps.isSessionOpen())
+    || !canSwitchAgentSession(
+      current.stageCurrent,
+      deps.isSessionOpen(),
+      current.fixExecutionActive,
+    )
   ) return { kind: 'stale' };
 
   deps.persist({ provider, model: modelChoice.model });

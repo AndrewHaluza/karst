@@ -100,12 +100,13 @@ describe('extension activation', () => {
     // creation is the only surviving terminal→ticket link. Capture it, and
     // resolve every revived terminal's pid BEFORE the adoption scan runs —
     // otherwise the scan sees nothing and recovery launches a second agent.
-    expect(source).toContain('identity.remember(terminal, opts.env)');
+    expect(source).toContain('identity.remember(terminal, opts.env, opts.identity)');
     expect(source).toContain(
       'vscode.window.terminals.map((terminal) => terminalIdentity.resolve(terminal))',
     );
     expect(source).toContain('await terminalIdentity.resolve(terminal);');
     expect(source).toContain('restoredSessionOf(terminal, terminalIdentity)');
+    expect(source).toContain('getSessionLaunchIntent(localStore, launchId)');
     // A pid outlives the process that held it; a record that outlives its
     // terminal would hand the next owner of that pid to the wrong ticket.
     expect(source).toContain('vscode.window.onDidCloseTerminal((terminal) => {');
@@ -129,6 +130,9 @@ describe('extension activation', () => {
   it('binds dashboard agent switching to native pickers, confirmation, and the normal launch path', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
     expect(source).toContain('runAgentSwitchFlow(');
+    expect(source).toMatch(
+      /fixExecutionActive: listRecoveryRounds\(localStore, ticketId\)\s*\.some\(\(round\) => round\.status === 'fixing'\)/,
+    );
     expect(source).toContain('vscode.window.showQuickPick');
     expect(source).toContain("modal: true");
     expect(source).toContain("guardProviderCapabilityAsync('sessions', provider)");
@@ -284,15 +288,18 @@ describe('extension activation', () => {
     expect(guardAt, 'the context key must be written before the guarded registration').toBeGreaterThan(setAt);
   });
 
-  it('checks the configured Fix provider before retiring a live session and only then bypasses a second check', () => {
+  it('delegates configured Fix compatibility so only replacement paths probe before disposal or launch', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
     const fixStart = source.indexOf('function resumeFixSession(');
     const fixEnd = source.indexOf('// The §5.4-safe driver nudge', fixStart);
     const fix = source.slice(fixStart, fixEnd);
 
-    expect(fix).toContain("guardProviderCapability('sessions', process.assignment.provider)");
-    expect(fix.indexOf("guardProviderCapability('sessions', process.assignment.provider)"))
-      .toBeLessThan(fix.indexOf('sessions.disposeSession(ticketId)'));
+    expect(fix).toContain('resumeConfiguredFixExecution(localStore, {');
+    expect(fix).toContain('sessionIdentity: () => sessions.sessionIdentity(ticketId)');
+    expect(fix).toContain(
+      "guardProviderCapability('sessions', process.assignment.provider)",
+    );
+    expect(fix).toContain('dispose: () => sessions.disposeSession(ticketId)');
     expect(fix).toContain('providerReady: true');
   });
 });

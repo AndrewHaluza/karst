@@ -34,6 +34,58 @@ describe('identifyTerminal', () => {
     });
   });
 
+  it('recovers the recorded provider and model with a reloaded terminal', () => {
+    const records = [{
+      ticketId: 7,
+      launchId: 'gen-1',
+      pid: 4242,
+      identity: { provider: 'codex', model: 'sol' },
+    }] as SessionTerminalRecord[];
+
+    expect(identifyTerminal({ pid: 4242 }, records)).toEqual({
+      ticketId: 7,
+      launchId: 'gen-1',
+      identity: { provider: 'codex', model: 'sol' },
+    });
+  });
+
+  it('recovers a legacy pid record identity from its durable launch generation', () => {
+    const records: SessionTerminalRecord[] = [
+      { ticketId: 7, launchId: 'gen-1', pid: 4242 },
+    ];
+    expect(identifyTerminal({ pid: 4242 }, records, (launchId) => ({
+      ticketId: 7,
+      provider: launchId === 'gen-1' ? 'codex' : 'claude',
+      model: 'sol',
+      agentName: 'UAT Fix',
+    }))).toEqual({
+      ticketId: 7,
+      launchId: 'gen-1',
+      identity: { provider: 'codex', model: 'sol', agentName: 'UAT Fix' },
+    });
+  });
+
+  it('does not borrow durable identity from another ticket\'s launch', () => {
+    const records: SessionTerminalRecord[] = [
+      { ticketId: 7, launchId: 'gen-1', pid: 4242 },
+    ];
+    expect(identifyTerminal({ pid: 4242 }, records, () => ({
+      ticketId: 9,
+      provider: 'codex',
+      model: 'sol',
+    }))).toEqual({ ticketId: 7, launchId: 'gen-1' });
+  });
+
+  it('keeps the terminal identifiable when durable identity lookup is unavailable', () => {
+    const records: SessionTerminalRecord[] = [
+      { ticketId: 7, launchId: 'gen-1', pid: 4242 },
+    ];
+
+    expect(identifyTerminal({ pid: 4242 }, records, () => {
+      throw new Error('store already closed');
+    })).toEqual({ ticketId: 7, launchId: 'gen-1' });
+  });
+
   it('prefers the environment over a stale record for the same terminal', () => {
     const records: SessionTerminalRecord[] = [{ ticketId: 9, pid: 4242 }];
     expect(identifyTerminal({ env: env(7, 'gen-2'), pid: 4242 }, records)).toEqual({
@@ -116,6 +168,20 @@ describe('parseSessionTerminalRecords', () => {
     ).toEqual([
       { ticketId: 1, launchId: 'a', pid: 10 },
       { ticketId: 2, pid: 11 },
+    ]);
+  });
+
+  it('accepts a durable session identity and drops malformed identities', () => {
+    expect(
+      parseSessionTerminalRecords([
+        { ticketId: 1, pid: 10, identity: { provider: 'codex', model: 'sol' } },
+        { ticketId: 2, pid: 11, identity: { provider: '', model: null } },
+        { ticketId: 3, pid: 12, identity: { provider: 'claude', model: 5 } },
+      ]),
+    ).toEqual([
+      { ticketId: 1, pid: 10, identity: { provider: 'codex', model: 'sol' } },
+      { ticketId: 2, pid: 11 },
+      { ticketId: 3, pid: 12 },
     ]);
   });
 

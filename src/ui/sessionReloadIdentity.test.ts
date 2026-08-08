@@ -6,6 +6,7 @@ import {
   type CreateTerminalOpts,
   type FakeTerminal,
   type RestoredSession,
+  type SessionIdentity,
   type TerminalHost,
 } from './session.js';
 import { planSessionRecovery, type RecoveryCandidate } from './sessionRecovery.js';
@@ -35,6 +36,7 @@ interface WindowTerminal {
   name: string;
   pid: number;
   env?: Record<string, string>;
+  identity?: SessionIdentity;
   handle: FakeTerminal;
 }
 
@@ -78,7 +80,14 @@ class FakeWindow {
         const handle = fakeTerminal();
         handle.name = name;
         const pid = this.nextPid++;
-        this.terminals.push({ name, pid, env: { ...opts.env }, handle });
+        const sessionIdentity = opts.identity;
+        this.terminals.push({
+          name,
+          pid,
+          env: { ...opts.env },
+          ...(sessionIdentity ? { identity: sessionIdentity } : {}),
+          handle,
+        });
         const ticketId = ticketIdFromTerminalEnv(opts.env);
         if (ticketId !== undefined) {
           const launchId = opts.env[KARST_LAUNCH_ENV];
@@ -86,6 +95,7 @@ class FakeWindow {
             ticketId,
             pid,
             ...(launchId ? { launchId } : {}),
+            ...(sessionIdentity ? { identity: sessionIdentity } : {}),
           });
         }
         return handle;
@@ -101,6 +111,9 @@ class FakeWindow {
             {
               ticketId: identity.ticketId,
               ...(identity.launchId !== undefined ? { launchId: identity.launchId } : {}),
+              ...(identity.identity
+                ? { identity: identity.identity }
+                : {}),
               terminal: terminal.handle,
             },
           ];
@@ -135,7 +148,7 @@ describe('sessions that are still running after an IDE reload', () => {
     const before = new SessionManager(win.host(), channelFor('launch-7'));
     before.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, {
       name: 'Karst: ABC-1',
-    });
+    }, [], {}, { provider: 'codex', model: 'codex-x' });
     expect(win.terminals).toHaveLength(1);
 
     win.reload();
@@ -155,6 +168,7 @@ describe('sessions that are still running after an IDE reload', () => {
 
     expect(adopted).toEqual({ resume: [7], idle: [] });
     expect(after.isOpen(7)).toBe(true);
+    expect(after.sessionIdentity(7)).toEqual({ provider: 'codex', model: 'codex-x' });
     // The generation comes back with it, so the surviving agent's hooks are
     // still recognized as this ticket's current session.
     expect(adoptedLaunches).toEqual([[7, 'launch-7']]);

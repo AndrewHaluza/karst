@@ -234,6 +234,7 @@ export function buildDashboardState(
   registry?: InsideActionRegistry | null,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
+  const rounds = listRecoveryRounds(store, ticketId);
   const resolvedProvider = resolveProvider(ticket.agentProvider, defaultProvider);
   const agentSession = buildAgentSessionView({
     provider: resolvedProvider,
@@ -242,6 +243,7 @@ export function buildDashboardState(
     catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
     stageCurrent: ticket.stageCurrent,
     sessionOpen: agentContext.isSessionOpen?.(ticketId) ?? false,
+    fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
   });
   const stepper = buildStepper(ticket.stages);
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
@@ -280,7 +282,6 @@ export function buildDashboardState(
   const gateRuns = listGateRuns(store, ticketId);
   const findings = listFindings(store, ticketId);
   const processRuns = listProcessRuns(store, ticketId);
-  const rounds = listRecoveryRounds(store, ticketId);
   const uatFindings = listUatFindings(store, ticketId);
   const shipEvidence = listShipEvidence(store, ticketId);
   const timeline = listImplementationTimeline(store, ticketId);

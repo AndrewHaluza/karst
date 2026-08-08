@@ -46,6 +46,7 @@ import {
   ticketIdFromTerminalEnv,
   type TerminalHost,
   type SessionTerminal,
+  type SessionIdentity,
   type OpenSessionOptions,
   type RestoredSession,
   type RestoredSessionDisposition,
@@ -56,6 +57,7 @@ import {
   parseSessionTerminalRecords,
   pruneSessionTerminals,
   rememberSessionTerminal,
+  type DurableSessionIdentityLookup,
   type SessionTerminalRecord,
   type TerminalIdentity,
 } from './ui/terminalIdentity.js';
@@ -82,10 +84,12 @@ import { runProcess } from './workflow/gates/run.js';
 import {
   recordSessionLaunchIntent,
   failSessionLaunchIntent,
+  getSessionLaunchIntent,
 } from './store/sessionLaunchIntents.js';
 import {
   recordFixLaunchIntent,
   recoveryDecision,
+  listRecoveryRounds,
 } from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
@@ -136,7 +140,7 @@ import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
 import { settleShipGates } from './workflow/mergeGate.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
-import { resumeFixExecution } from './workflow/fixExecution.js';
+import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
@@ -576,6 +580,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const terminalIdentity = makeTerminalIdentityRegistry(
     parseSessionTerminalRecords(context.workspaceState.get(SESSION_TERMINALS_KEY)),
     (records) => void terminalRecordWriter.enqueue(records),
+    (launchId) => {
+      const intent = getSessionLaunchIntent(localStore, launchId);
+      return intent === undefined
+        ? undefined
+        : {
+            ticketId: intent.ticketId,
+            provider: intent.provider,
+            model: intent.model,
+            agentName: intent.agentName,
+          };
+    },
   );
   flushSessionOwnership = async () => {
     await ownershipWriter.flush();
@@ -1021,6 +1036,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
             ticketModel: ticket.model,
             defaultModel: currentManifest()?.defaultModel ?? null,
+            fixExecutionActive: listRecoveryRounds(localStore, ticketId)
+              .some((round) => round.status === 'fixing'),
           };
         },
         isSessionOpen: () => sessions.isOpen(ticketId),
@@ -2094,12 +2111,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       return;
     }
-    // A configured Fix assignment can differ from the ticket's interactive
-    // provider. Prove *that* provider is ready before retiring a live session;
-    // otherwise a missing configured CLI would discard the usable session and
-    // then fail the relaunch. The explicit providerReady flag below is valid
-    // only because this exact check succeeded on this invocation.
-    if (!guardProviderCapability('sessions', process.assignment.provider)) return;
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
@@ -2117,49 +2128,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       model: process.assignment.model ?? null,
       agentName: process.assignment.agentName ?? null,
     };
-    // A live session whose recorded identity differs from the configured Fix
-    // assignment is NEVER relabeled as that assignment: the Fix process run
-    // would carry an identity the running session does not match. Retire it
-    // through the normal session-switch lifecycle, then launch the configured
-    // session through the explicit assignment override path.
-    const liveIdentity = sessions.sessionIdentity(ticketId);
-    const differs =
-      liveIdentity !== null &&
-      (liveIdentity.provider !== process.assignment.provider ||
-        (liveIdentity.model ?? null) !== (process.assignment.model ?? null));
-    if (differs) {
-      sessions.disposeSession(ticketId);
-      logger.info(
-        `stage driver: ticket ${ticketId} live session (${liveIdentity.provider}/${liveIdentity.model}) differs from configured Fix assignment (${process.assignment.provider}/${process.assignment.model ?? 'default'}) — retiring it and launching the configured session`,
-      );
-    }
     // v30: the Fix execution is tracked against its committed recovery round.
     // A LIVE session opens and attaches the Fix process run BEFORE the brief
     // is delivered (the configured identity snapshot is captured into the
     // run); a closed session launches and the run opens when its SessionStart
     // is accepted. Neither path reveals the IDE.
-    const outcome = resumeFixExecution(localStore, {
+    const outcome = resumeConfiguredFixExecution(localStore, {
       ticketId,
       roundId,
-      identity: configured,
+      configuredIdentity: configured,
       startedAt: new Date().toISOString(),
       prompt: `${brief}\n\n${marker}`,
       isLive: () => sessions.isLive(ticketId),
+      sessionIdentity: () => sessions.sessionIdentity(ticketId),
+      // A matching live core is already ready and is nudged without probing.
+      // Closed, divergent and unknown-identity paths prove the configured core
+      // immediately before any disposal or replacement launch.
+      providerReady: () =>
+        guardProviderCapability('sessions', process.assignment.provider),
       nudge: (prompt) => sessions.nudge(ticketId, prompt),
-      open: () => {
+      dispose: () => sessions.disposeSession(ticketId),
+      open: (replacement) => {
         void vscode.commands.executeCommand('karst.openSession', ticketId, {
           reveal: false,
           providerReady: true,
-          // The differing-identity retirement follows the normal switch
-          // lifecycle: no resume of the retired conversation, provider
-          // readiness was proven above for the configured Fix provider.
-          ...(differs ? { allowResume: false } : {}),
+          // A live terminal with a divergent or unknown identity was retired;
+          // never resume its conversation under the configured assignment.
+          ...(replacement ? { allowResume: false } : {}),
           // Host-only: the configured Fix identity overrides ticket/manifest
           // precedence inside `karst.openSession`.
           assignment: process.assignment,
         });
       },
     });
+    if (outcome === 'unavailable') return;
     logger.info(
       `stage driver: ticket ${ticketId} → ${outcome === 'nudged' ? 'nudged live session to fix' : 'resuming agent to fix'} (attempt ${attempts})`,
     );
@@ -3621,7 +3623,11 @@ interface TerminalIdentityRegistry {
   /** Name a terminal's ticket from what is already known. Never awaits. */
   identify(terminal: vscode.Terminal): TerminalIdentity | undefined;
   /** Remember a terminal karst just launched, once its pid resolves. */
-  remember(terminal: vscode.Terminal, env: Record<string, string>): void;
+  remember(
+    terminal: vscode.Terminal,
+    env: Record<string, string>,
+    identity?: SessionIdentity,
+  ): void;
   /** Release a ticket's record — its terminal closed, freeing the pid. */
   forget(ticketId: number): void;
   /** Drop records for tickets this window can no longer act on. */
@@ -3631,6 +3637,7 @@ interface TerminalIdentityRegistry {
 function makeTerminalIdentityRegistry(
   initial: readonly SessionTerminalRecord[],
   persist: (records: SessionTerminalRecord[]) => void,
+  lookupIdentity?: DurableSessionIdentityLookup,
 ): TerminalIdentityRegistry {
   let records: SessionTerminalRecord[] = [...initial];
   const pidByTerminal = new WeakMap<vscode.Terminal, number>();
@@ -3674,8 +3681,9 @@ function makeTerminalIdentityRegistry(
       identifyTerminal(
         { env: terminalEnv(terminal), pid: pidByTerminal.get(terminal) },
         records,
+        lookupIdentity,
       ),
-    remember: (terminal, env) => {
+    remember: (terminal, env, sessionIdentity) => {
       const ticketId = ticketIdFromTerminalEnv(env);
       if (ticketId === undefined) return;
       const launchId = env[KARST_LAUNCH_ENV];
@@ -3687,6 +3695,7 @@ function makeTerminalIdentityRegistry(
             ticketId,
             pid,
             ...(launchId ? { launchId } : {}),
+            ...(sessionIdentity ? { identity: sessionIdentity } : {}),
           }),
         );
       });
@@ -3715,6 +3724,7 @@ function restoredSessionOf(
   return {
     ticketId: named.ticketId,
     ...(named.launchId ? { launchId: named.launchId } : {}),
+    ...(named.identity ? { identity: named.identity } : {}),
     ...(terminal.exitStatus !== undefined ? { exited: true } : {}),
     terminal: wrapTerminal(terminal),
   };
@@ -3758,7 +3768,7 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
       });
       // Capture the launch pid NOW: it is what re-identifies this terminal
       // after a reload strips the env that carries the ticket today.
-      identity.remember(terminal, opts.env);
+      identity.remember(terminal, opts.env, opts.identity);
       return wrapTerminal(terminal);
     },
     restoredSessions: () =>

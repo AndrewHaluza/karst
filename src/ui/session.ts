@@ -56,6 +56,8 @@ export interface RestoredSession {
   ticketId: number;
   /** Opaque hook generation captured when this terminal was launched. */
   launchId?: string;
+  /** Provider/model snapshot recovered from the terminal's durable pid record. */
+  identity?: SessionIdentity;
   /**
    * The terminal's process has already exited (real: `Terminal.exitStatus`).
    * A dead tab still sits in the terminal list, so adopting one would hand the
@@ -128,6 +130,8 @@ export interface CreateTerminalOpts {
   shellArgs: string[];
   /** Environment variables passed to the terminal process. */
   env: Record<string, string>;
+  /** Host-only identity persisted beside the terminal pid, never put in env. */
+  identity?: SessionIdentity;
   /** Keep automated continuations out of the visible terminal UI. */
   hideFromUser?: boolean;
   /** File path to a tinted icon SVG (real: mapped to `vscode.Uri.file`). */
@@ -445,6 +449,7 @@ export class SessionManager {
           [KARST_TICKET_ENV]: String(ticketId),
           ...(launchId ? { [KARST_LAUNCH_ENV]: launchId } : {}),
         },
+        ...(identity ? { identity } : {}),
         ...(options.reveal === false ? { hideFromUser: true } : {}),
         ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
         ...(naming?.color ? { color: naming.color } : {}),
@@ -529,7 +534,7 @@ export class SessionManager {
     if (session.exited) return { kind: 'ignored' };
     const disposition = classify(ticketId);
     if (disposition === 'ignore') return { kind: 'ignored' };
-    this.trackTerminal(ticketId, terminal, launchId);
+    this.trackTerminal(ticketId, terminal, launchId, undefined, false, {}, session.identity);
     this.onDidAdoptTerminal?.(ticketId, launchId);
     return { kind: 'adopted', disposition };
   }
@@ -547,7 +552,15 @@ export class SessionManager {
     if (this.recentlyDisposed.has(ticketId)) return undefined;
     for (const session of this.host.restoredSessions?.() ?? []) {
       if (session.ticketId !== ticketId || session.exited) continue;
-      this.trackTerminal(ticketId, session.terminal, session.launchId);
+      this.trackTerminal(
+        ticketId,
+        session.terminal,
+        session.launchId,
+        undefined,
+        false,
+        {},
+        session.identity,
+      );
       this.onDidAdoptTerminal?.(ticketId, session.launchId);
       return this.terminals.get(ticketId);
     }

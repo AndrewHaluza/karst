@@ -69,6 +69,24 @@ describe('buildDashboardState', () => {
     expect(state.agentSession.canSwitch).toBe(false);
   });
 
+  it('does not offer switching while a Fix recovery execution owns the live session', () => {
+    const t = createTicket(store, { key: 'SW-FIX', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(t.id);
+    store.db.prepare(
+      `INSERT INTO recovery_rounds
+         (ticket_id, source_stage, source_process_id, trigger_kind, trigger_detail,
+          round, max_rounds, status, started_at)
+       VALUES (?, 'uat', 'gates', 'gate-failure', 'test failed', 1, 3, 'fixing', ?)`,
+    ).run(t.id, '2026-08-09T10:00:00.000Z');
+
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { isSessionOpen: () => true },
+    );
+
+    expect(state.agentSession.canSwitch).toBe(false);
+  });
+
   // The merge verdicts already feed the ship strip; the PR panel needs them at
   // the top level too, because that is where the conflict is acted on and the
   // webview cannot query the store.

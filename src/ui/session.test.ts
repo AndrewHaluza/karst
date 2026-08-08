@@ -1213,6 +1213,17 @@ describe('SessionManager', () => {
     expect(mgr.sessionIdentity(7)).toBeNull();
   });
 
+  it('restores a revived terminal\'s durable session identity when the host recovered it', () => {
+    const restored = Object.assign(fakeRestored(7), {
+      identity: { provider: 'codex', model: 'sol' },
+    });
+    const { host } = fakeHost([restored]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.isLive(7)).toBe(true);
+    expect(mgr.sessionIdentity(7)).toEqual({ provider: 'codex', model: 'sol' });
+  });
+
   it('adopting a revived terminal invokes no launch callback', () => {
     const restored = fakeRestored(7);
     const { host } = fakeHost([restored]);

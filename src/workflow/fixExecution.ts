@@ -75,7 +75,7 @@ export interface ResumeFixExecutionOpts {
   /** True when the ticket's session terminal is live (open, or a revived handle). */
   isLive: () => boolean;
   nudge: (prompt: string) => boolean;
-  open: () => void;
+  open: (replacement?: boolean) => void;
 }
 
 /**
@@ -92,7 +92,9 @@ export interface ResumeFixExecutionOpts {
 export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): ResumeFixOutcome {
   const { ticketId, roundId, identity, startedAt, prompt, isLive, nudge, open } = opts;
   if (roundId === null) {
-    return nudge(prompt) ? 'nudged' : (open(), 'launched');
+    if (isLive() && nudge(prompt)) return 'nudged';
+    open();
+    return 'launched';
   }
   if (isLive()) {
     beginLiveFixExecution(store, {
@@ -113,4 +115,51 @@ export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): 
   }
   open();
   return 'launched';
+}
+
+export type ResumeConfiguredFixOutcome = ResumeFixOutcome | 'unavailable';
+
+export interface ResumeConfiguredFixExecutionOpts
+  extends Omit<ResumeFixExecutionOpts, 'identity'> {
+  configuredIdentity: NonNullable<ResumeFixExecutionOpts['identity']>;
+  /** The recorded identity of the terminal `isLive` just proved, or null. */
+  sessionIdentity: () => NonNullable<ResumeFixExecutionOpts['identity']> | null;
+  /** Probe the configured provider only when a new terminal must be launched. */
+  providerReady: () => boolean;
+  /** Retire an incompatible live terminal after readiness has succeeded. */
+  dispose: () => void;
+}
+
+/**
+ * Deliver a configured Fix assignment without relabeling a foreign or unknown
+ * terminal. A known provider/model match is already running and can be nudged
+ * directly. Every other path proves the configured provider immediately before
+ * it disposes or launches; a failed proof leaves the existing session intact.
+ */
+export function resumeConfiguredFixExecution(
+  store: Store,
+  opts: ResumeConfiguredFixExecutionOpts,
+): ResumeConfiguredFixOutcome {
+  const live = opts.isLive();
+  const activeIdentity = live ? opts.sessionIdentity() : null;
+  const matches = activeIdentity !== null
+    && activeIdentity.provider === opts.configuredIdentity.provider
+    && activeIdentity.model === opts.configuredIdentity.model;
+
+  if (live && matches) {
+    return resumeFixExecution(store, {
+      ...opts,
+      identity: opts.configuredIdentity,
+      isLive: () => true,
+    });
+  }
+
+  if (!opts.providerReady()) return 'unavailable';
+  if (live) opts.dispose();
+  return resumeFixExecution(store, {
+    ...opts,
+    identity: opts.configuredIdentity,
+    isLive: () => false,
+    open: () => opts.open(live),
+  });
 }

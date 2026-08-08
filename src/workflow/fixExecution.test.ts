@@ -11,7 +11,13 @@ import {
   listRecoveryRounds,
   completeRevalidation,
 } from '../store/recoveryRounds.js';
-import { markFixDone, resumeFixExecution, type FixTransition } from './fixExecution.js';
+import {
+  markFixDone,
+  resumeConfiguredFixExecution,
+  resumeFixExecution,
+  type FixTransition,
+  type ResumeConfiguredFixExecutionOpts,
+} from './fixExecution.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 
 const now = () => '2026-08-01T10:00:00.000Z';
@@ -259,6 +265,111 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
     expect(outcome).toBe('nudged');
     expect(nudges).toEqual(['fix it']);
     expect(listProcessRuns(store, id)).toHaveLength(0);
+  });
+});
+
+describe('configured Fix session compatibility and readiness', () => {
+  let store: Store;
+  let id: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+  });
+  afterEach(() => store.close());
+
+  function pendingRound(): number {
+    failUat(store, id);
+    return listRecoveryRounds(store, id)[0]!.id;
+  }
+
+  function opts(
+    overrides: Partial<ResumeConfiguredFixExecutionOpts> = {},
+  ): ResumeConfiguredFixExecutionOpts {
+    return {
+      ticketId: id,
+      roundId: pendingRound(),
+      configuredIdentity: { provider: 'codex', model: 'sol', agentName: 'UAT Fix' },
+      startedAt: T1,
+      prompt: 'fix it',
+      isLive: () => true,
+      sessionIdentity: () => ({ provider: 'codex', model: 'sol' }),
+      providerReady: () => true,
+      nudge: () => true,
+      dispose: () => {},
+      open: () => {},
+      ...overrides,
+    };
+  }
+
+  it('nudges a proven matching live session without probing provider readiness', () => {
+    const events: string[] = [];
+    const outcome = resumeConfiguredFixExecution(store, opts({
+      isLive: () => (events.push('live'), true),
+      sessionIdentity: () => (events.push('identity'), { provider: 'codex', model: 'sol' }),
+      providerReady: () => {
+        throw new Error('a matching live core needs no readiness probe');
+      },
+      nudge: () => (events.push('nudge'), true),
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+
+    expect(outcome).toBe('nudged');
+    expect(events).toEqual(['live', 'identity', 'nudge']);
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('fixing');
+  });
+
+  it('treats an unknown live identity as incompatible and preserves it when readiness fails', () => {
+    const events: string[] = [];
+    const outcome = resumeConfiguredFixExecution(store, opts({
+      isLive: () => (events.push('live'), true),
+      sessionIdentity: () => (events.push('identity'), null),
+      providerReady: () => (events.push('ready'), false),
+      nudge: () => (events.push('nudge'), true),
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+
+    expect(outcome).toBe('unavailable');
+    expect(events).toEqual(['live', 'identity', 'ready']);
+    expect(listProcessRuns(store, id)).toEqual([]);
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
+  });
+
+  it('probes immediately before replacing a divergent live session', () => {
+    const events: string[] = [];
+    const outcome = resumeConfiguredFixExecution(store, opts({
+      isLive: () => (events.push('live'), true),
+      sessionIdentity: () => (events.push('identity'), { provider: 'claude', model: 'opus' }),
+      providerReady: () => (events.push('ready'), true),
+      nudge: () => (events.push('nudge'), false),
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+
+    expect(outcome).toBe('launched');
+    expect(events).toEqual(['live', 'identity', 'ready', 'dispose', 'open']);
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
+  });
+
+  it('probes a closed launch path and never disposes or launches when it fails', () => {
+    const events: string[] = [];
+    const outcome = resumeConfiguredFixExecution(store, opts({
+      isLive: () => (events.push('live'), false),
+      sessionIdentity: () => {
+        throw new Error('a closed session has no identity to inspect');
+      },
+      providerReady: () => (events.push('ready'), false),
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+
+    expect(outcome).toBe('unavailable');
+    expect(events).toEqual(['live', 'ready']);
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 });
 
