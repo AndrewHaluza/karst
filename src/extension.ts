@@ -16,6 +16,7 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import type { InsidePreviewHost } from './ui/dashboard/insidePreview.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
@@ -2947,6 +2948,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
+  // Development-only Inside preview (Finding 1 / Task 9): the checked-in
+  // fixture matrix + preview panel for the Extension Development Host. The
+  // command is registered ONLY here, behind the mode guard — Production and
+  // Test never register it, so an unregistered/non-development path cannot
+  // open a panel — and the fixture/preview modules are pulled in LAZILY by
+  // this branch, so the production dashboard/state dependency graph never
+  // imports them (pinned by insidePreview.test.ts's import walk). package.json
+  // mirrors the guard by hiding the palette entry behind
+  // `extensionMode == development`.
+  if (context.extensionMode === vscode.ExtensionMode.Development) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand('karst.dev.openInsidePreview', () => {
+        const previewHost: InsidePreviewHost = {
+          createPanel: (title, _html) => {
+            const panel = vscode.window.createWebviewPanel(
+              'karst.insidePreview',
+              title,
+              { viewColumn: vscode.ViewColumn.Active },
+              { enableScripts: true, retainContextWhenHidden: true },
+            );
+            // The preview renders the SAME injected dashboard asset production
+            // renders — the html argument is the interface's test seam, the
+            // asset is bound here. The tab is branded like every other panel.
+            panel.webview.html = injectCsp(dashboardWebviewHtml(), newNonce());
+            panel.iconPath = brandIconUri(brandIcon);
+            return {
+              postMessage: (message) => void panel.webview.postMessage(message),
+              onDidReceiveMessage: () => undefined,
+              onDidDispose: () => undefined,
+            };
+          },
+        };
+        void Promise.all([
+          import('./ui/dashboard/insidePreview.js'),
+          import('./ui/dashboard/insideFixtures.js'),
+        ])
+          .then(([preview, fixtures]) =>
+            preview.openInsidePreview(previewHost, fixtures.insidePreviewFixtures()),
+          )
+          .catch((error) => logError('inside preview failed to load', error));
+      }),
+    );
+  }
+
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-
   // project terminals into the new manager, then recover only owned sessions
@@ -3285,16 +3330,27 @@ function buildCliPhasePrefix(
     composePhaseCommand(cliEntry, dbPath, phaseName, manifestPath);
 }
 
+/**
+ * The injected dashboard webview asset, built once per call: design system,
+ * status palette, and provider identity markers are all substituted host-side
+ * (CSP forbids a shared stylesheet/script). Shared by the production dashboard
+ * panels and the development-only Inside preview, so the preview renders the
+ * exact asset production does (Finding 1).
+ */
+function dashboardWebviewHtml(): string {
+  return injectProviderIdentity(
+    injectPalette(
+      injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+    ),
+  );
+}
+
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): PanelHost {
-  const html = injectProviderIdentity(
-    injectPalette(
-      injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
-    ),
-  );
+  const html = dashboardWebviewHtml();
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(

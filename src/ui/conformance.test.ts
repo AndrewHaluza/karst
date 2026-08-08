@@ -53,7 +53,11 @@ const styleSource = (html: string): string =>
  * either direction.
  */
 const LITERAL_BUDGET: Record<string, number> = {
-  dashboard: 10,
+  // 13, not 10: the development-only Inside preview width frame (Finding 1)
+  // adds three justified component dimensions (300/360/430px, the same
+  // exemption class as the breakpoints) — commented in webview.html and
+  // pinned by the dashboard's own px allowlist test.
+  dashboard: 13,
   diffs: 1,
   ticketForm: 0,
   settings: 0,

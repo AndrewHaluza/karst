@@ -824,6 +824,9 @@ describe('dashboard webview.html', () => {
     // instead of holding a floor, so there is no minimum width to declare. `46px`
     // replaces it — the lane's own height, the one piece of the track's geometry
     // the space scale has no step for.
+    // `300px`/`360px`/`430px` are the development-only Inside preview frame
+    // widths (Finding 1): component dimensions with no scale match, gated on
+    // `.preview-mode` — the same exemption class as the `400px` breakpoint.
     // The four `1px` are ONE value in one place: the `@supports` probe that
     // guards the track's chevron focus ring (`calc(1px * hypot(1px,1px) / 1px)`).
     // A feature query cannot be written in tokens — a `var()` inside the
@@ -831,6 +834,7 @@ describe('dashboard webview.html', () => {
     // question being asked — so the probe is literal by construction. It is a
     // type test, not geometry: nothing is drawn at 1px because of it.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
+      '300px', '360px', '430px',
       '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -1244,5 +1248,167 @@ describe('dashboard webview.html', () => {
     // keyboard user always sees where they are (UI-R09).
     expect(HTML).toMatch(/class="k-iconbtn chev"/);
     expect(HTML).toMatch(/data-chev="/);
+  });
+
+  // ── development-only Inside preview (Finding 1 / Task 9) ────────────────
+  /**
+   * The preview panel renders THIS SAME asset: the toolbar is inert and hidden
+   * in the production dashboard (the `preview-fixtures` message is the only
+   * thing that reveals it), and the selected fixture enters through the same
+   * `{type:'state'}` message listener a real snapshot arrives on — never a
+   * second renderer. Step 8 of the remediation plan: for every fixture/width,
+   * no whole-component horizontal scrolling, status/name precede metadata,
+   * metadata stays attached to its process, evidence disclosures/actions stay
+   * keyboard semantic, all untrusted text is escaped, the timeline rail
+   * geometry stays centered, and reduced motion disables animation without
+   * hiding the spinner ring.
+   */
+  it('ships the preview toolbar hidden, revealed only by the preview-fixtures message', () => {
+    expect(HTML).toContain('<div class="pvtoolbar hidden" id="previewToolbar">');
+    expect(HTML).toMatch(/msg\.type === 'preview-fixtures'/);
+    expect(HTML).toMatch(/classList\.remove\('hidden'\)/);
+    expect(HTML).toMatch(/classList\.add\('preview-mode'\)/);
+  });
+
+  it('routes every selected fixture through the same state message path as a real snapshot', () => {
+    // The toolbar dispatches `{type:'state', state}` on the window message
+    // listener — the identical branch the host's real `pushState` lands on —
+    // so the preview exercises the production render protocol byte for byte
+    // (Finding 1). There is no preview-specific render function.
+    expect(HTML).toMatch(
+      /dispatchEvent\(new MessageEvent\('message', \{[\s\S]{0,60}type: 'state', state: fixture\.state \} \}\)/,
+    );
+    expect(HTML).not.toMatch(/function renderInsidePreview/);
+  });
+
+  it('offers stage/scenario, repo count, and the four preview widths', () => {
+    expect(HTML).toContain('id="pvScenario"');
+    expect(HTML).toContain('id="pvRepos"');
+    for (const w of ['300', '360', '430', 'normal']) {
+      expect(HTML, `missing preview width ${w}`).toContain(`data-pv-w="${w}"`);
+    }
+  });
+
+  it('builds the preview width buttons as real buttons with a pressed state (UI-R09)', () => {
+    // The width group is a labeled group of toggle buttons: a semantic
+    // <button> per width, aria-pressed carrying the active one — never a
+    // clickable span or div.
+    expect(HTML).toMatch(/role="group" aria-label="Preview width"/);
+    expect(HTML).toMatch(/class="k-btn k-btn--ghost k-btn--sm" data-pv-w="300"[^>]*aria-pressed/);
+    expect(HTML).toMatch(/data-pv-w="normal"[^>]*aria-pressed="true"/);
+    expect(HTML).not.toMatch(/<span[^>]*data-pv-w=/);
+  });
+
+  it('labels the preview selects with real label-for controls (UI-R25)', () => {
+    expect(HTML).toContain('<label class="pvlabel" for="pvScenario">');
+    expect(HTML).toContain('<label class="pvlabel" for="pvRepos">');
+    expect(HTML).toContain('id="pvScenario"');
+    expect(HTML).toContain('id="pvRepos"');
+  });
+
+  it('constrains the preview width only under .preview-mode, never production', () => {
+    // The width frame is development-only: every rule is gated on
+    // `.preview-mode` (the class only the preview panel sets), so a production
+    // dashboard render can never be narrowed by these selectors.
+    for (const w of ['300', '360', '430']) {
+      expect(HTML, `missing width rule ${w}`).toContain(
+        `body.preview-mode[data-pv-w="${w}"] .stepper{width:${w}px}`,
+      );
+    }
+    expect(HTML).not.toMatch(/^\s*\.stepper\{[^}]*width:/m);
+    // The raw px are the same UI-R04 exemption class as a breakpoint: a
+    // component dimension with no scale match, commented in the file.
+    expect(HTML).toMatch(/Width frame: dev-only/);
+  });
+
+  it('wraps the preview toolbar and width group at narrow widths', () => {
+    // The toolbar is a component like any other: at 300px it wraps instead of
+    // scrolling the page horizontally (Step 8 — no whole-component horizontal
+    // scrolling applies to the dev controls too).
+    expect(HTML).toMatch(/\.pvtoolbar\{[^}]*flex-wrap:wrap/);
+    expect(HTML).toMatch(/\.pvtoolbar \.pvwidth\{[^}]*flex-wrap:wrap/);
+    expect(HTML).not.toMatch(/\.pvtoolbar[^{]*\{[^}]*overflow-x/);
+  });
+
+  it('places status and name before every piece of metadata on a process row', () => {
+    // Step 8: inside the RENDERED row template, status glyph → name → identity
+    // → tokens → detail → metadata → action → disclosure, in that order, so
+    // the eye reads the claim before the facts about it and the metadata can
+    // never outrank the name. (The disclosure button's markup is BUILT earlier
+    // in the function — its position in the rendered template is what counts.)
+    const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    const rendered = row.slice(row.indexOf('return `'));
+    const positions = [
+      rendered.indexOf('<span class="pglyph">'),
+      rendered.indexOf('<span class="pname">'),
+      rendered.indexOf('identityChipHtml(p)'),
+      rendered.indexOf('tokensHtml(p.tokens)'),
+      rendered.indexOf('<span class="pdetail">'),
+      rendered.indexOf('<span class="pright">'),
+      rendered.indexOf('${chev}'),
+    ];
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it('keeps process metadata attached to its own row, inside the row container', () => {
+    // The count/duration metadata renders inside `.pright` — a child of the
+    // process's `.prow` — so it can never drift onto another process.
+    const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(row).toMatch(/const meta = \[p\.count, p\.duration\]/);
+    expect(row).toMatch(/class="pright">\$\{meta\}\$\{act\}<\/span>\$\{chev\}/);
+  });
+
+  it('escapes every untrusted fixture string at the row templates (UI-R32)', () => {
+    // Finding 1: the fixture matrix deliberately carries hostile labels and
+    // long paths; every template that interpolates them must escape first.
+    expect(HTML).toMatch(/<span class="elabel">\$\{esc\(r\.label\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="edetail">\$\{esc\(r\.detail\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="pname">\$\{esc\(p\.label\)\}<\/span>/);
+    expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
+    expect(HTML).toMatch(/<span class="edur">\$\{esc\(r\.duration\)\}<\/span>/);
+  });
+
+  it('keeps the timeline rail geometry centered on the status glyph column', () => {
+    // Step 8: the connector column and the status glyph column share ONE
+    // width, so the timeline spine stays centered under its rows' status
+    // glyphs at every fixture width (the rest of each declaration is the
+    // connector's own text styling).
+    const widthOf = (name: string): string => {
+      const decl = new RegExp(`\\.erow \\.${name}\\{([^}]*)\\}`).exec(HTML)?.[1] ?? '';
+      return /width:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\)/.exec(decl)?.[0] ?? '';
+    };
+    expect(widthOf('econn')).toBe('width:calc(var(--k-space-6) + var(--k-space-1))');
+    expect(widthOf('econn')).toBe(widthOf('eglyph'));
+    expect(HTML).toMatch(/\.erow \.econn\{[^}]*text-align:center/);
+  });
+
+  it('nulls animation under reduced motion without hiding the spinner ring', () => {
+    // Step 8 + UI-R30: the ring stops spinning but stays VISIBLE (a static
+    // ring), because `aria-busy`/`disabled` carry the pending state — never
+    // `display:none`, which would hide the ring itself. Scoped to the media
+    // block that names the spinner — the file carries several, and the first
+    // one is a one-liner the naive regex would overrun.
+    const medias: string[] = [];
+    let at = 0;
+    while ((at = HTML.indexOf('@media (prefers-reduced-motion:reduce){', at)) !== -1) {
+      let depth = 0;
+      let end = at;
+      for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+        if (HTML[i] === '{') depth += 1;
+        else if (HTML[i] === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            end = i + 1;
+            break;
+          }
+        }
+      }
+      medias.push(HTML.slice(at, end));
+      at = end;
+    }
+    const rm = medias.find((b) => b.includes('.spin')) ?? '';
+    expect(rm).toContain('.spin');
+    expect(rm).toContain('animation:none');
+    expect(rm).not.toContain('display:none');
   });
 });
