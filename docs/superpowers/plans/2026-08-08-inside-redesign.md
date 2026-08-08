@@ -21,6 +21,7 @@
 - Settings are future configuration. Every started AI process snapshots agent name, provider, model, and recovery cap where applicable.
 - Missing historical facts render as absence, never zero, pass, or reconstructed prose.
 - The webview does not order processes, aggregate repositories, derive statuses, parse references, or invent navigation targets.
+- Webview action messages carry only an opaque action id issued for the current ticket snapshot. The host resolves that id through a ticket-scoped allowlist; file navigation additionally re-loads the recorded evidence and proves its canonical path remains inside the recorded repository worktree before opening it.
 - UI changes obey `docs/ui/UI-RULES.md`, especially UI-R01–R06, UI-R09, UI-R11–R18, and UI-R23–R32.
 - No new UI framework or runtime dependency.
 - Repository details are bounded to 6, findings to 6, and gate evidence to 8 before a typed continuation action.
@@ -46,7 +47,7 @@ This plan is one dependency graph but should be reviewed as four releasable slic
 - Modify: `src/model/inside/index.test.ts`
 
 **Interfaces:**
-- Produces: `InsideStageKey`, `InsideProcessId`, `InsideProcessView`, `InsideStageView`, `ProcessEvidenceView`, `TypedInsideAction`, `INSIDE_PROCESSES`, `insideStageForRuntimeStage`.
+- Produces: `InsideStageKey`, `InsideProcessId`, `InsideProcessView`, `InsideStageView`, `ProcessEvidenceView`, `InsideActionKind`, `TypedInsideAction`, `INSIDE_PROCESSES`, `insideStageForRuntimeStage`.
 - Consumes: existing runtime `StageKey`; does not modify `src/model/types.ts` or `src/workflow/graph.ts`.
 
 - [ ] **Step 1: Write failing registry and projection tests**
@@ -77,13 +78,18 @@ export interface AgentExecutionView {
   modelLabel: string;
 }
 
-export type TypedInsideAction =
-  | { kind: 'open-pr'; repo: string; number: number }
-  | { kind: 'open-commit'; repo: string; sha: string }
-  | { kind: 'open-file'; repo: string; path: string; line?: number }
-  | { kind: 'open-stage-log'; stage: StageKey }
-  | { kind: 'resume-stage'; stage: 'uat' | 'review' | 'fix' }
-  | { kind: 'open-full-evidence'; stage: InsideStageKey; processId: string };
+export type InsideActionKind =
+  | 'open-pr'
+  | 'open-commit'
+  | 'open-file'
+  | 'open-stage-log'
+  | 'resume-stage'
+  | 'open-full-evidence';
+
+export interface TypedInsideAction {
+  actionId: string; // opaque snapshot-scoped capability; never a path, URL, repo, SHA, or PR number
+  kind: InsideActionKind; // presentation hint only; the host does not trust it on dispatch
+}
 
 export interface InsideProcessView {
   id: string;
@@ -794,7 +800,7 @@ Commit: `feat: add uat tester execution evidence`
 - Modify: `src/workflow/prDescription.ts`
 
 **Interfaces:**
-- Produces: `openShipRun`, `prepareShipOperation`, `markShipOperationApplied`, `reconcileShipOperation`, `openShipRepoStep`, `finishShipRepoStep`, `recordShipCommit`, `listShipEvidence`; discriminated `ShipOperationIntent` pre-state and richer Git primitives `prepareCommitObject`, `updateHeadRef`, `workingTreeSummary`, `listCommitsFrom`, `headCommit`, `remoteRefSha`.
+- Produces: `openShipRun`, `beginShipOperationPreparation`, `finalizeShipOperationIntent`, `markShipOperationApplied`, `reconcileShipOperation`, `openShipRepoStep`, `finishShipRepoStep`, `recordShipCommit`, `listShipEvidence`; discriminated `ShipOperationPreState`/`ShipOperationIntent` records and richer Git primitives `prepareCommitInQuarantine`, `promoteQuarantinedObjects`, `compareAndSwapHeadAndIndex`, `workingTreeSummary`, `listCommitsFrom`, `headCommit`, `remoteRefSha`.
 - Consumes: existing PR/current merge checks and the `pr-description` process run.
 
 - [ ] **Step 1: Write failing persistence/restart tests**
@@ -807,7 +813,7 @@ expect(listShipEvidence(store, ticketId).repos.web).toMatchObject({
 expect(listShipEvidence(store, ticketId).repos.api.commits[0]).toMatchObject({ origin: 'before-ship' });
 ```
 
-Cover partial success, adopted PR, existing human description preservation, created commit SHA, push failure, and rerun reconciliation. For each irreversible boundary—`git commit`, `git push`, PR body update, and PR creation—inject a crash immediately after the external side effect but before the result write, reopen the store, and prove reconciliation uses the persisted typed pre-state/intent to adopt only the exact intended effect. Also prove an intervening human commit/body edit makes reconciliation stop for user input rather than label that change `created-by-ship` or overwrite it.
+Cover partial success, adopted PR, existing human description preservation, created commit SHA, push failure, and rerun reconciliation. For Commit, inject crashes after the durable `preparing` row, during temporary-index/quarantine preparation, after the complete intent is finalized, during object promotion, after the HEAD compare-and-swap, and before index normalization. For every other irreversible boundary—`git push`, PR body update, and PR creation—inject a crash immediately after the external side effect but before the result write. Reopen the store and prove reconciliation uses persisted typed ownership/pre-state/intent to adopt only the exact intended effect. Also prove an intervening human commit, index change, worktree change, or body edit makes reconciliation stop for user input rather than label that change `created-by-ship` or overwrite it.
 
 - [ ] **Step 2: Verify RED**
 
@@ -846,9 +852,10 @@ CREATE TABLE IF NOT EXISTS ship_operation_intents (
   step TEXT NOT NULL CHECK (step IN ('commit','push','describe','pr')),
   operation_key TEXT NOT NULL UNIQUE,
   pre_state_json TEXT NOT NULL,
-  intent_json TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('prepared','applied','reconciled','failed','ambiguous')),
-  prepared_at TEXT NOT NULL,
+  intent_json TEXT,
+  status TEXT NOT NULL CHECK (status IN ('preparing','prepared','applied','reconciled','failed','ambiguous')),
+  created_at TEXT NOT NULL,
+  prepared_at TEXT,
   applied_at TEXT,
   resolved_at TEXT
 );
@@ -862,28 +869,50 @@ CREATE TABLE IF NOT EXISTS ship_commits (
 );
 ```
 
-Increment `SCHEMA_VERSION` to 32 and mirror all four tables/indexes in the fresh schema. Add nullable `operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL` to `ship_repo_steps`. `pre_state_json` and `intent_json` are parsed through a closed TypeScript union keyed by `step`, never exposed as arbitrary webview data:
+Increment `SCHEMA_VERSION` to 32 and mirror all four tables/indexes in the fresh schema. Add nullable `operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL` to `ship_repo_steps`. `pre_state_json` is always present before preparation can touch Git/GitHub; `intent_json` is nullable only while a Commit row is `preparing`. Both are parsed through closed TypeScript unions keyed by `step`, never exposed as arbitrary webview data:
 
 ```ts
+type PersistedCommitIdentity = {
+  name: string;
+  email: string;
+  at: string; // exact Git author/committer timestamp including offset
+};
+
+type ShipOperationPreState =
+  | {
+      step: 'commit';
+      preHead: string;
+      preIndexTree: string;
+      worktreeFingerprint: string;
+      message: string;
+      author: PersistedCommitIdentity;
+      committer: PersistedCommitIdentity;
+      quarantineKey: string;
+    }
+  | { step: 'push'; localHead: string; remote: string; ref: string; preRemoteHead: string | null }
+  | { step: 'describe'; prUrl: string; preBodyHash: string }
+  | { step: 'pr'; head: string; base: string | null; preExistingUrl: string | null };
+
 type ShipOperationIntent =
-  | { step: 'commit'; preHead: string; intendedTree: string; expectedHead: string; message: string }
+  | { step: 'commit'; intendedTree: string; expectedHead: string; quarantineKey: string }
   | { step: 'push'; localHead: string; remote: string; ref: string; preRemoteHead: string | null }
   | { step: 'describe'; prUrl: string; preBodyHash: string; intendedBody: string }
   | { step: 'pr'; head: string; base: string | null; title: string; body: string; preExistingUrl: string | null };
 ```
 
-Validate decoded rows and treat malformed/unknown intent as `ambiguous`, never as permission to repeat an operation.
+`quarantineKey` is a host-generated UUID, not a path. Git code derives one fixed directory beneath the repository git-dir, proves canonical containment, and never accepts a cleanup path from stored JSON or a caller. Validate decoded rows and legal status/data combinations: `preparing` requires valid pre-state and `intent_json IS NULL`; every later state requires both. Malformed/unknown data becomes `ambiguous`, never permission to prepare, clean up, or repeat an operation.
 
 - [ ] **Step 4: Write before/after evidence around every external operation**
 
-Before each external call, obtain and persist the complete `ShipOperationIntent` in the same transaction that opens the `running` step. Only then perform the side effect. After it returns, persist the observed result and mark the intent `applied`/step terminal. A retry first loads that durable intent and compares current Git/GitHub state with both its pre-state and intended state:
+For Push, Description, and PR creation, persist complete pre-state and intent in the same transaction that opens the `running` step before the external call. Commit has an explicit preliminary state because its exact tree/object ids do not exist until Git preparation runs: first persist the complete immutable Commit pre-state with `status='preparing'` and open the step in one transaction; only that owned row authorizes temporary preparation. After any operation returns, persist the observed result and mark the intent `applied`/step terminal. A retry first loads the durable row and compares current Git/GitHub state with both its pre-state and intended state:
 
-- Commit: replace the opaque `git add && git commit` helper with a prepare/apply split. Stage the intended content, use `git write-tree` plus fixed/persisted commit identity/timestamps to create the commit object without moving the branch, and persist `preHead`, `intendedTree`, and the resulting `expectedHead`. Apply with compare-and-swap `git update-ref HEAD <expectedHead> <preHead>`. After a crash, adopt only when HEAD equals `expectedHead`; if it still equals `preHead`, the CAS may be retried; any third SHA is an intervening change and becomes ambiguous. This exact expected object id—not message heuristics—is what authorizes `created-by-ship` provenance.
+- Commit preparation never mutates the live index, refs, or main object database. After the `preparing` row commits, derive the quarantine directory from its UUID, build a temporary index there from `preHead`, stage the intended worktree content into that index, and write tree/commit objects into a quarantined object directory using the persisted message/identity/timestamps. In a second transaction persist `intendedTree`/`expectedHead` and change the row to `prepared`. A crash while `preparing` is therefore owned and recoverable: if HEAD, live-index tree, and worktree fingerprint still match pre-state, remove only that row's canonically contained quarantine and rebuild; otherwise mark it ambiguous. No branch or live-index change may be attributed to a `preparing` row.
+- Commit apply starts only from `prepared`. Idempotently promote the quarantined objects, then re-check `preHead`, `preIndexTree`, and the worktree fingerprint. Use an index lock containing `intendedTree` and compare-and-swap `HEAD` from `preHead` to `expectedHead`; after the CAS, atomically install that index. Recovery adopts only when HEAD equals `expectedHead`, the worktree still matches the intended fingerprint, and the live index is either the recorded pre-index or `intendedTree`, completing the owned index install when necessary. If HEAD is still `preHead`, apply may retry only while index/worktree preconditions still match. Any third HEAD, index tree, worktree fingerprint, quarantine mismatch, or pre-existing lock is ambiguous and is never overwritten. The exact expected object id—not message heuristics—is what authorizes `created-by-ship` provenance.
 - Push: compare the recorded local HEAD and pre-operation remote ref with the current remote ref; adopt only the exact intended SHA.
 - Description: compare the current PR body hash with the recorded prior hash and intended body; preserve any third value as a human/intervening edit.
 - PR creation: probe by recorded head/base and adopt the matching PR; never invent a number or open a second PR while the probe is degraded.
 
-Test the prepare write itself transactionally, every post-side-effect crash point, restart/reload, exact adoption, ambiguous divergence, and partial success in another repo. Generic `running` rows without typed pre-state are insufficient and must never authorize replay.
+Test the preliminary ownership write itself transactionally, owned-quarantine cleanup by exact UUID, refusal to touch an unowned quarantine directory, every preparation/apply crash point, restart/reload, exact adoption, ambiguous HEAD/index/worktree divergence, and partial success in another repo. A `running` step without a valid matching ownership row never authorizes preparation, cleanup, replay, or provenance.
 
 - [ ] **Step 5: Run focused tests and commit**
 
@@ -1042,6 +1071,8 @@ Commit: `feat: reduce ship evidence into done delivery receipt`
 - Modify: `src/ui/dashboard/state.test.ts`
 - Modify: `src/ui/dashboard/messages.ts`
 - Modify: `src/ui/dashboard/messages.test.ts`
+- Create: `src/ui/dashboard/insideActions.ts`
+- Create: `src/ui/dashboard/insideActions.test.ts`
 - Modify: `src/ui/dashboard/panel.ts`
 - Modify: `src/ui/dashboard/panel.test.ts`
 - Modify: `src/workflow/gates/runList.ts`
@@ -1051,7 +1082,7 @@ Commit: `feat: reduce ship evidence into done delivery receipt`
 - Modify: `src/extension.ts`
 
 **Interfaces:**
-- Produces: `InsideProgressEvent`, `LiveOperationView`, closed navigation-action messages.
+- Produces: `InsideProgressEvent`, `LiveOperationView`, `InsideActionRegistry`, host-only `InsideActionTarget`, and the closed `{ type: 'inside-action'; actionId: string }` message.
 - Consumes: all store readers once per dashboard snapshot and preformatted host reducers.
 
 - [ ] **Step 1: Write failing snapshot/projection tests**
@@ -1061,10 +1092,18 @@ Prove `stageCurrent='fix'` selects the causal UAT/Review presentation, `Dashboar
 - [ ] **Step 2: Write failing protocol tests**
 
 ```ts
-expect(parseDashboardMessage({ type: 'inside-action', action: { kind: 'open-pr', repo: '/web', number: 413 } })).toEqual(/* validated action */);
+expect(parseDashboardMessage({ type: 'inside-action', actionId: 'snapshot-7:action-3' })).toEqual({
+  type: 'inside-action',
+  actionId: 'snapshot-7:action-3',
+});
+expect(parseDashboardMessage({
+  type: 'inside-action',
+  actionId: 'forged',
+  path: '/private/etc/passwd',
+})).toBeNull();
 ```
 
-Cover invalid path/line/number/process ids, host-owned targets, action-result lifecycle, `active → completed(pass)` clearing the live header while retaining the successful process row, `cleared` without a verdict, and a generic live event replacing webview-derived Ship steps.
+Cover malformed/oversized action ids, rejection of every legacy target-bearing payload, unknown/stale/other-ticket ids, snapshot replacement/disposal, action-result lifecycle, `active → completed(pass)` clearing the live header while retaining the successful process row, `cleared` without a verdict, and a generic live event replacing webview-derived Ship steps. In `insideActions.test.ts`, prove an `open-file` target re-loads its finding/evidence row by host-owned id, rejects evidence from another ticket or repository, rejects absolute paths, `..`, missing repository mappings, and existing or not-yet-existing symlink escapes, and opens only a canonical descendant of the recorded worktree. Also prove changing a client-supplied `kind`, repo, path, PR number, SHA, stage, or process id cannot affect dispatch because none is accepted from the message.
 
 - [ ] **Step 3: Verify RED**
 
@@ -1100,11 +1139,13 @@ Gate runners emit `active` before start and `completed` after every terminal res
 
 - [ ] **Step 5: Route typed actions**
 
-Resolve PR, commit, file, artifact, resume, and full-evidence actions in the host. Keep arbitrary filesystem paths and URLs out of the untrusted message boundary wherever repo/id lookup can resolve them.
+Build a new `InsideActionRegistry` for every authoritative dashboard snapshot. Reducers register host-only targets and receive only `{ actionId, kind }` for the view; the posted message contains `actionId` alone. Bind each registry entry to the snapshot generation and ticket id, replace the allowlist atomically with the state snapshot, clear it on panel disposal, and reject unknown/stale/cross-ticket ids. The id is an opaque capability, never an encoded target, and the dispatch branch is selected from the stored target rather than any client field.
+
+Host-only targets identify recorded objects, for example `{ kind: 'open-file'; ticketId; evidence: { source: 'review-finding'; id } }`, `{ kind: 'open-pr'; ticketId; prId }`, or `{ kind: 'open-commit'; ticketId; shipCommitId }`; they do not accept a client path/URL/repo/number/SHA. On file dispatch, re-load the evidence row, verify its `ticket_id`, resolve its repository through the ticket's current registered worktree, reject absolute/empty/traversal paths, canonicalize the deepest existing ancestor for missing leaves, and require `isPathUnder(candidate, worktreeRoot)` before constructing the VS Code URI. Existing symlinks must be resolved before containment. Apply equivalent ticket ownership checks before resolving PR, commit, log, resume, and full-evidence targets. The visible `kind` remains presentation-only and nested links post only the opaque id.
 
 - [ ] **Step 6: Run focused tests and commit**
 
-Run: `npx vitest run src/ui/dashboard/state.test.ts src/ui/dashboard/messages.test.ts src/ui/dashboard/panel.test.ts src/workflow/gates/runList.test.ts src/workflow/stages/ship.test.ts`
+Run: `npx vitest run src/ui/dashboard/state.test.ts src/ui/dashboard/messages.test.ts src/ui/dashboard/insideActions.test.ts src/ui/dashboard/panel.test.ts src/workflow/gates/runList.test.ts src/workflow/stages/ship.test.ts`
 Expected: PASS.
 Commit: `feat: unify inside live operation and action protocol`
 
