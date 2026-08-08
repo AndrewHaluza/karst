@@ -287,6 +287,24 @@ export function openShipRun(store: Store, input: OpenShipRunInput): ShipRun {
   return rowToShipRun(row);
 }
 
+/**
+ * Close a ship run with the status it reached. Only a run still `running` is
+ * written: a run already closed (or superseded by reconciliation) must never
+ * be overwritten by a late finisher.
+ */
+export function closeShipRun(
+  store: Store,
+  runId: number,
+  status: 'passed' | 'failed' | 'interrupted',
+  endedAt: string,
+): void {
+  store.db
+    .prepare(
+      `UPDATE ship_runs SET status = ?, ended_at = ? WHERE id = ? AND status = 'running'`,
+    )
+    .run(status, endedAt, runId);
+}
+
 export interface OpenShipRepoStepInput {
   shipRunId: number;
   repo: string;
@@ -522,6 +540,59 @@ export function reconcileShipOperation(
         .run(input.detail, row.ship_run_id, row.repo, row.step);
     }
   }
+}
+
+export interface AdoptShipOperationInput {
+  stepId: number;
+  detail: string;
+  prNumber?: number | null;
+  existedBeforeShip?: boolean | null;
+  at: string;
+}
+
+/**
+ * ADOPT a step and its intent because the persisted intended effect was
+ * verified present in the world (the reconcile verdict `reconciled`).
+ *
+ * Deliberately a SEPARATE writer from `reconcileShipOperation`: adoption is
+ * the one reconcile verdict that must be able to close a step the crashed run
+ * already closed `failed`/`ambiguous` — a commit that landed before the crash
+ * is a landed commit no matter how the run that made it ended. Only an
+ * already-`reconciled` intent and an already-`passed` step are left alone;
+ * anything else is writable, because the effect was just re-verified.
+ */
+export function adoptShipOperation(
+  store: Store,
+  intentId: number,
+  input: AdoptShipOperationInput,
+): void {
+  store.db
+    .prepare(
+      `UPDATE ship_operation_intents
+          SET status = 'reconciled', resolved_at = ?
+        WHERE id = ? AND status != 'reconciled'`,
+    )
+    .run(input.at, intentId);
+  store.db
+    .prepare(
+      `UPDATE ship_repo_steps
+          SET status = 'passed', ended_at = ?,
+              detail = COALESCE(?, detail),
+              pr_number = COALESCE(?, pr_number),
+              existed_before_ship = COALESCE(?, existed_before_ship)
+        WHERE id = ? AND status != 'passed'`,
+    )
+    .run(
+      input.at,
+      input.detail,
+      input.prNumber ?? null,
+      input.existedBeforeShip === null || input.existedBeforeShip === undefined
+        ? null
+        : input.existedBeforeShip
+          ? 1
+          : 0,
+      input.stepId,
+    );
 }
 
 /** A step as the evidence view exposes it — a running step without a matching

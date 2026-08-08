@@ -7,10 +7,11 @@ import { createTicketFlow } from './create.js';
 import { getTicket, updateTicketFields } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import { listShipEvidence } from '../../store/shipRuns.js';
 import { transition } from '../machine.js';
 import { shipTicket, type ShipStepEvent } from './ship.js';
 import type { GhRunner } from '../../integrations/github.js';
-import type { GitRunner } from '../../integrations/git.js';
+import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { manifest, repo } from '../../manifest/fixtures.js';
 import { buildPrDescriptionPrompt } from '../prDescription.js';
@@ -89,6 +90,34 @@ function fakeGit(): { git: GitRunner; calls: { args: string[]; cwd: string }[] }
   return { git, calls };
 }
 
+/** A real git repo at `path` with one base commit — the quarantine commit
+ *  machinery runs real git, so a worktree exercising it must BE a repo. */
+async function initRealRepo(path: string): Promise<void> {
+  mkdirSync(path, { recursive: true });
+  await runGit(['init', '-b', 'main'], path);
+  await runGit(['config', 'user.name', 'Test'], path);
+  await runGit(['config', 'user.email', 'test@example.com'], path);
+  await runGit(['config', 'commit.gpgsign', 'false'], path);
+  writeFileSync(join(path, 'base.txt'), 'base');
+  await runGit(['add', '-A'], path);
+  const commit = await runGit(['commit', '-m', 'base'], path);
+  expect(commit.exitCode).toBe(0);
+}
+
+/**
+ * Git runner over a REAL repo: records every invocation, answers `diff` with
+ * "changes exist" and `push` with success (there is no remote), and delegates
+ * everything else to real git so the quarantine plumbing works.
+ */
+function dirtyRealRepo(calls: string[][]): GitRunner {
+  return async (args, cwd) => {
+    calls.push(args);
+    if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+    if (args[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
+    return defaultGitRunner(args, cwd);
+  };
+}
+
 /**
  * The git verbs that CHANGE something. Ship also runs a read-only merge probe
  * (`fetch` / `rev-parse` / `merge-tree`) on every invocation, and the assertions
@@ -136,6 +165,16 @@ function fakeAdapter(): AgentAdapter {
     requiredBinary: 'claude',
     capabilities: { lifecycleEvents: true, resume: true },
   };
+}
+
+/** The commit the saga created for a repo, per the durable evidence. */
+function createdShipCommit(
+  store: Store,
+  ticketId: number,
+  repoName: string,
+): { sha: string; message: string } | undefined {
+  const commits = listShipEvidence(store, ticketId).repos[repoName]?.commits ?? [];
+  return commits.find((c) => c.origin === 'created-by-ship');
 }
 
 describe('shipTicket', () => {
@@ -255,27 +294,22 @@ setTimeout(() => {
   // so the branch had no commits and gh died with "No commits between main and
   // karst/…". Ship commits what the agent left behind rather than pushing nothing.
   it('commits uncommitted worktree changes before pushing', async () => {
-    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
-    const git: GitRunner = async (args) => ({
-      stdout: args[0] === 'status' ? ' M src/a.ts\n' : '',
-      stderr: '',
-      exitCode: args[0] === 'diff' ? 1 : 0,
-    });
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    await initRealRepo(worktree);
+    writeFileSync(join(worktree, 'left.txt'), 'work');
     const calls: string[][] = [];
-    const recording: GitRunner = async (args, cwd) => {
-      calls.push(args);
-      return git(args, cwd);
-    };
+    const recording = dirtyRealRepo(calls);
     const { gh } = fakeGh();
 
     await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), recording);
 
-    expect(mutating(calls.map((args) => ({ args }))).map((c) => c.args)).toEqual([
-      ['status', '--porcelain'],
-      ['add', '-A'],
-      ['commit', '-m', 'add search'],
-      ['push', '-u', 'origin', 'HEAD'],
-    ]);
+    // The exact intended SHA and message are persisted as provenance, and the
+    // push ran after the commit — the branch carries the work to GitHub.
+    const created = createdShipCommit(store, id, '/repo/frontend');
+    expect(created?.message).toBe('add search');
+    expect(created?.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(calls.some((args) => args[0] === 'push')).toBe(true);
   });
 
   describe('when the branch has no effective changes from its target', () => {
@@ -353,21 +387,22 @@ setTimeout(() => {
     });
   });
 
-  // A dirty tree that cannot be committed (hook rejects, gpg signing fails) means
-  // the PR would be empty. Fail loudly at ship rather than open a no-op PR.
+  // A dirty tree that cannot be committed (a third writer holds the index lock)
+  // means the PR would be empty. Fail loudly at ship rather than open a no-op PR.
   it('a failed commit aborts the ship and never calls gh', async () => {
-    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
-    const git: GitRunner = async (args) => {
-      if (args[0] === 'status') return { stdout: ' M src/a.ts\n', stderr: '', exitCode: 0 };
-      if (args[0] === 'commit')
-        return { stdout: '', stderr: 'error: pre-commit hook rejected', exitCode: 1 };
-      return { stdout: '', stderr: '', exitCode: 0 };
-    };
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    await initRealRepo(worktree);
+    writeFileSync(join(worktree, 'left.txt'), 'work');
+    // A pre-existing lock makes the compare-and-swap refuse: the world moved
+    // under the preparation and nothing is overwritten.
+    const gitDir = (await runGit(['rev-parse', '--absolute-git-dir'], worktree)).stdout.trim();
+    writeFileSync(join(gitDir, 'karst-index-lock'), 'stale');
     const { gh, ...ghCalls } = fakeGh();
 
-    await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
-      /pre-commit hook rejected/,
-    );
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), defaultGitRunner),
+    ).rejects.toThrow(/commit refused.*lock-exists/);
 
     expect(ghCalls.calls).toBe(0);
     const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
@@ -468,21 +503,11 @@ setTimeout(() => {
       return { gh, creates };
     }
 
-    function dirtyGit(calls: string[][]): GitRunner {
-      return async (args) => {
-        calls.push(args);
-        return {
-          stdout: args[0] === 'status' ? ' M src/a.ts\n' : '',
-          stderr: '',
-          // Upstream's baseline-aware ship path reads `git diff --quiet`;
-          // exit 1 means this branch has changes and therefore needs a PR.
-          exitCode: args[0] === 'diff' ? 1 : 0,
-        };
-      };
-    }
-
     it('applies all three configured templates to the exact git and gh arguments', async () => {
-      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, 'frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'work.txt'), 'work');
       const gitCalls: string[][] = [];
       const { gh, creates } = recordingGh();
       let headless = 0;
@@ -506,14 +531,12 @@ setTimeout(() => {
         },
         gh,
         adapter,
-        dirtyGit(gitCalls),
+        dirtyRealRepo(gitCalls),
       );
 
-      expect(gitCalls).toContainEqual([
-        'commit',
-        '-m',
+      expect(createdShipCommit(store, id, 'frontend')?.message).toBe(
         'feat(frontend): add search [PROJ-1]',
-      ]);
+      );
       expect(creates).toEqual([[
         'pr',
         'create',
@@ -528,8 +551,11 @@ setTimeout(() => {
     });
 
     it('renders {type} from the ticket and {scope} from the repository', async () => {
-      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, 'frontend', worktree);
       updateTicketFields(store, id, { type: 'fix' });
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'work.txt'), 'work');
       const gitCalls: string[][] = [];
       const { gh, creates } = recordingGh();
 
@@ -547,15 +573,18 @@ setTimeout(() => {
         },
         gh,
         undefined,
-        dirtyGit(gitCalls),
+        dirtyRealRepo(gitCalls),
       );
 
-      expect(gitCalls).toContainEqual(['commit', '-m', 'fix(web): add search [PROJ-1]']);
+      expect(createdShipCommit(store, id, 'frontend')?.message).toBe('fix(web): add search [PROJ-1]');
       expect(creates[0]).toContain('fix(web): add search');
     });
 
     it('falls back to the manifest default type and the repository name as scope', async () => {
-      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, 'frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'work.txt'), 'work');
       const gitCalls: string[][] = [];
       const { gh } = recordingGh();
 
@@ -568,14 +597,17 @@ setTimeout(() => {
         },
         gh,
         undefined,
-        dirtyGit(gitCalls),
+        dirtyRealRepo(gitCalls),
       );
 
-      expect(gitCalls).toContainEqual(['commit', '-m', 'chore(frontend): add search']);
+      expect(createdShipCommit(store, id, 'frontend')?.message).toBe('chore(frontend): add search');
     });
 
     it('falls back to feat when neither the ticket nor the manifest sets a type', async () => {
-      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, 'frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'work.txt'), 'work');
       const gitCalls: string[][] = [];
       const { gh } = recordingGh();
 
@@ -584,14 +616,17 @@ setTimeout(() => {
         { ticketId: id, conventions: { commitMessage: '{type}: {title}' } },
         gh,
         undefined,
-        dirtyGit(gitCalls),
+        dirtyRealRepo(gitCalls),
       );
 
-      expect(gitCalls).toContainEqual(['commit', '-m', 'feat: add search']);
+      expect(createdShipCommit(store, id, 'frontend')?.message).toBe('feat: add search');
     });
 
     it('keeps absent commit and body behavior when only the PR title is configured', async () => {
-      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, 'frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'work.txt'), 'work');
       const gitCalls: string[][] = [];
       const { gh, creates } = recordingGh();
       const prompts: string[] = [];
@@ -608,10 +643,10 @@ setTimeout(() => {
         { ticketId: id, conventions: { pullRequestTitle: '[{key}] {title}' } },
         gh,
         adapter,
-        dirtyGit(gitCalls),
+        dirtyRealRepo(gitCalls),
       );
 
-      expect(gitCalls).toContainEqual(['commit', '-m', 'add search']);
+      expect(createdShipCommit(store, id, 'frontend')?.message).toBe('add search');
       expect(prompts).toEqual([buildPrDescriptionPrompt('[PROJ-1] add search')]);
       expect(creates[0]).toEqual([
         'pr',
@@ -1327,8 +1362,7 @@ setTimeout(() => {
       );
 
       expect(pairs(events)).toEqual([
-        ['commit', 'run'],
-        ['commit', 'pass'],
+        ['commit', 'note'],
         ['push', 'run'],
         ['push', 'pass'],
         ['pr', 'run'],
@@ -1416,6 +1450,103 @@ setTimeout(() => {
 
       const merge = events.find((e) => e.step === 'merge' && e.status !== 'run');
       expect(merge?.status).toBe('fail');
+    });
+  });
+
+  describe('ship saga evidence', () => {
+    it('adopts a commit that landed before the run crashed, then completes the ship on retry', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'work.txt'), 'work');
+
+      // First run: the HEAD compare-and-swap lands (update-ref succeeds) but
+      // the owned index install crashes — the crash window the saga exists for.
+      let readTreeCalls = 0;
+      const crashing: GitRunner = async (args, cwd) => {
+        if (args[0] === 'read-tree') {
+          readTreeCalls++;
+          if (readTreeCalls === 1) {
+            return { stdout: '', stderr: 'interrupted', exitCode: 1 };
+          }
+        }
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
+        return defaultGitRunner(args, cwd);
+      };
+      const { gh } = fakeGh();
+      await expect(
+        shipTicket(store, { ticketId: id }, gh, fakeAdapter(), crashing),
+      ).rejects.toThrow(/commit refused.*install-failed/);
+      expect(getTicket(store, id).stageCurrent).toBe('ship');
+
+      const crashedHead = (await runGit(['rev-parse', 'HEAD'], worktree)).stdout.trim();
+
+      // Second run: reconciliation adopts the landed commit (completing the
+      // index install, recording provenance exactly once), and the fresh loop
+      // finishes the ship on top of it.
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), dirtyRealRepo([]));
+      // PRs opened → the ticket parks at ship awaiting their merge; the run
+      // itself closed passed.
+      expect(getTicket(store, id).stageCurrent).toBe('ship');
+      expect(listPrsByTicket(store, id)).toHaveLength(1);
+      expect((await runGit(['rev-parse', 'HEAD'], worktree)).stdout.trim()).toBe(crashedHead);
+      expect(listShipEvidence(store, id).run?.status).toBe('passed');
+
+      // The interrupted run's step row was adopted, not left lying as failed
+      // (the retry's own worktree was clean, so it opened no commit step), and
+      // its provenance recorded exactly once.
+      const stepRows = store.db
+        .prepare("SELECT status, detail FROM ship_repo_steps WHERE step = 'commit' AND repo = ?")
+        .all('/repo/frontend') as { status: string; detail: string }[];
+      expect(stepRows).toHaveLength(1);
+      expect(stepRows[0]!.status).toBe('passed');
+      expect(stepRows[0]!.detail).toContain('adopted commit');
+      const allCommits = store.db
+        .prepare("SELECT origin, sha FROM ship_commits WHERE repo = ? ORDER BY id")
+        .all('/repo/frontend') as { origin: string; sha: string }[];
+      const created = allCommits.filter((c) => c.origin === 'created-by-ship');
+      expect(created).toHaveLength(1);
+      expect(created[0]!.sha).toBe(crashedHead);
+    });
+
+    it('keeps a partially successful ship: one repo lands, the failing repo stays at ship', async () => {
+      const fe = join(dir, 'fe');
+      const be = join(dir, 'zz');
+      seedWorktree(store, id, '/repo/frontend', fe);
+      seedWorktree(store, id, '/repo/backend', be);
+      await initRealRepo(fe);
+      await initRealRepo(be);
+      writeFileSync(join(fe, 'work.txt'), 'work');
+      writeFileSync(join(be, 'work.txt'), 'work');
+
+      const git: GitRunner = async (args, cwd) => {
+        if (args[0] === 'push') {
+          if (cwd === be) {
+            return { stdout: '', stderr: "fatal: 'origin' does not appear to be a git repository", exitCode: 128 };
+          }
+          return { stdout: '', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        return defaultGitRunner(args, cwd);
+      };
+      const { gh } = fakeGh();
+
+      await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
+        /does not appear to be a git repository/,
+      );
+      expect(getTicket(store, id).stageCurrent).toBe('ship');
+
+      const evidence = listShipEvidence(store, id);
+      expect(evidence.repos['/repo/frontend']?.pr?.status).toBe('passed');
+      expect(evidence.repos['/repo/frontend']?.pr?.prNumber).not.toBeNull();
+      expect(evidence.repos['/repo/backend']?.push?.status).toBe('failed');
+      expect(evidence.repos['/repo/frontend']?.commits.some((c) => c.origin === 'created-by-ship')).toBe(true);
+      // The failing repo committed and pushed nothing; the run that failed is
+      // not a ship — the ticket stays parked, and the push step names the fault.
+      expect(evidence.repos['/repo/backend']?.commit?.status).toBe('passed');
+      expect(evidence.repos['/repo/backend']?.push?.detail).toContain('origin');
+      expect(evidence.run?.status).toBe('failed');
     });
   });
 });
