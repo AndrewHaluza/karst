@@ -867,20 +867,27 @@ export async function shipTicket(
           )
         : title;
 
-      // The base branch this repo ships against — resolved ONCE so provenance
-      // and the diff check can never disagree about which ref they mean.
+      // Provenance: whatever the branch carried BEFORE this ship ran, bounded
+      // at the baseline PERSISTED at worktree creation — `rev-list <base>..HEAD`
+      // — so the repository root and unrelated base-branch ancestry are never
+      // stored as this ticket's "before ship" commits. A later manifest edit
+      // that renames the baseline must never reinterpret that history: the
+      // branch was cut from what the worktree row says, so that row is the only
+      // honest bound. A worktree with no recorded baseline records nothing and
+      // says so; it never silently substitutes the manifest's current answer,
+      // and an unresolvable baseline parks ship (the `rev-list` failure is
+      // bounded before it reaches the stage verdict).
+      const provenanceBase = wt.baseRef ?? undefined;
+
+      // The base branch this repo's PR targets — resolved from the CURRENT
+      // manifest so the diff check and the PR base agree with what the repo
+      // declares today. Live configuration only; never used to rewrite
+      // provenance for the already-created worktree (see `provenanceBase`).
       const base = opts.manifest
         ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
         : wt.baseRef ?? undefined;
 
-      // Provenance: whatever the branch carried BEFORE this ship ran. Bounded
-      // at the persisted baseline — `rev-list <base>..HEAD` — so the repository
-      // root and unrelated base-branch ancestry are never stored as this
-      // ticket's "before ship" commits. A worktree with no recorded baseline
-      // records nothing and says so; it never silently substitutes all
-      // reachable history, and an unresolvable baseline parks ship (the
-      // `rev-list` failure is bounded before it reaches the stage verdict).
-      if (base === undefined) {
+      if (provenanceBase === undefined) {
         onProgress({
           repo: wt.repo,
           step: 'commit',
@@ -888,7 +895,7 @@ export async function shipTicket(
           detail: 'no baseline recorded — before-ship provenance unknown',
         });
       } else {
-        for (const sha of await listCommitsFrom(git, wt.path, base)) {
+        for (const sha of await listCommitsFrom(git, wt.path, provenanceBase)) {
           recordShipCommit(store, {
             shipRunId: run.id,
             repo: wt.repo,

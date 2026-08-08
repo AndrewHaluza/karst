@@ -515,6 +515,25 @@ describe('ship quarantine commit primitives', () => {
     }
   });
 
+  it('listCommitsFrom accepts a branch-name bound — the shape ship provenance uses', async () => {
+    const dir = await freshRepo('revlist-branch');
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'base');
+      const base = (await headCommit(defaultGitRunner, dir))!;
+      await runGit(['branch', 'develop'], dir);
+      await writeAndCommit(dir, 'a.txt', 'b', 'ticket');
+      const head = (await headCommit(defaultGitRunner, dir))!;
+
+      // A branch name bounds exactly like the sha it names: `develop..HEAD`,
+      // which is what ship passes when the persisted worktree baseline is a
+      // branch. The two answers must never disagree.
+      expect(await listCommitsFrom(defaultGitRunner, dir, 'develop')).toEqual([head]);
+      expect(await listCommitsFrom(defaultGitRunner, dir, base)).toEqual([head]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('workingTreeSummary changes on tracked edits and untracked files, and is stable when clean', async () => {
     const dir = await freshRepo('fingerprint');
     try {

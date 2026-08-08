@@ -348,6 +348,77 @@ setTimeout(() => {
     expect(commits.filter((c) => c.origin === 'created-by-ship')).toHaveLength(0);
   });
 
+  // Manifest drift: the worktree was cut from `develop` and its row says so,
+  // but the manifest now resolves the repo to `main`. Provenance must read the
+  // PERSISTED baseline — the branch was cut from develop, so `develop..HEAD`
+  // is the only honest before-ship bound. The manifest's current answer must
+  // never rewrite history for a worktree that already exists.
+  it('uses the persisted worktree baseline for provenance, not the drifted manifest', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+
+    await shipTicket(
+      store,
+      {
+        ticketId: id,
+        manifest: manifest({
+          frontend: repo({ repoPath: '/repo/frontend', baselineBranch: 'main' }),
+        }),
+      },
+      fakeGh().gh,
+      undefined,
+      git,
+    );
+
+    expect(calls).toContainEqual(['rev-list', '--reverse', 'develop..HEAD']);
+    expect(calls).not.toContainEqual(['rev-list', '--reverse', 'main..HEAD']);
+  });
+
+  // A worktree with NO persisted baseline must record unknown provenance even
+  // when the manifest resolves a baseline today — substituting the manifest's
+  // current answer would claim commits under a bound this ticket never had.
+  it('records unknown provenance when no baseline was persisted, never the manifest answer', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    store.db
+      .prepare('UPDATE worktrees SET base_ref = NULL WHERE ticket_id = ? AND repo = ?')
+      .run(id, '/repo/frontend');
+    const calls: string[][] = [];
+    const events: ShipStepEvent[] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+
+    await shipTicket(
+      store,
+      {
+        ticketId: id,
+        manifest: manifest({
+          frontend: repo({ repoPath: '/repo/frontend', baselineBranch: 'main' }),
+        }),
+      },
+      fakeGh().gh,
+      undefined,
+      git,
+      (event) => events.push(event),
+    );
+
+    expect(calls.filter((args) => args[0] === 'rev-list')).toEqual([]);
+    expect(events).toContainEqual({
+      repo: '/repo/frontend',
+      step: 'commit',
+      status: 'note',
+      detail: 'no baseline recorded — before-ship provenance unknown',
+    });
+    expect(listShipEvidence(store, id).repos['/repo/frontend']?.commits ?? []).toHaveLength(0);
+  });
+
   describe('when the branch has no effective changes from its target', () => {
     it('succeeds without pushing or invoking PR creation and reports the no-op', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
