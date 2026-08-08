@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -645,6 +645,49 @@ export function migrate(db: Database): void {
         db.exec(`UPDATE tickets SET stage_current = 'ship' WHERE stage_current = 'merge'`);
       })();
     }
+  }
+
+  if (current < 26) {
+    // v26 makes an inside-process invocation itself durable (gates, commit,
+    // delivery-receipt, recovery…). Before this, a stage's processes were
+    // rendered from evidence that only existed once work FINISHED — so an
+    // execution whose host died mid-flight left no record of having run at all,
+    // and the AI identity that resolved for it (agent/provider/model) was never
+    // captured anywhere. This table is opened at process entry and closed at
+    // its outcome, exactly like stage_runs (v25), with the same crash policy:
+    // a superseded run is marked `stale`, never deleted.
+    //
+    // A whole new table, so the step is the same DDL as schema.sql rather than
+    // an ALTER, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which process ran, with
+    // which identity or pid — a synthesized row would assert exactly the facts
+    // this table exists to stop being guessed at, and an invented identity
+    // snapshot would be a lie written into the one column set whose whole job
+    // is never to change.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS process_runs (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        stage_key     TEXT NOT NULL,
+        process_id    TEXT NOT NULL,
+        attempt       INTEGER NOT NULL,
+        stage_run_id  INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        agent_name    TEXT,
+        provider      TEXT,
+        model         TEXT,
+        pid           INTEGER,
+        status        TEXT NOT NULL CHECK (status IN ('running','passed','failed','interrupted','stale')),
+        result_kind   TEXT,
+        artifact_path TEXT,
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_process_runs_ticket ON process_runs(ticket_id, stage_key, process_id, id)',
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

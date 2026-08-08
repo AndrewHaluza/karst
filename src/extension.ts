@@ -127,6 +127,10 @@ import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
 import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
+import {
+  reconcileProcessRuns,
+  describeStaleProcessRun,
+} from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
@@ -504,6 +508,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   } catch (err) {
     logError('karst: stale gate-run sweep failed', err);
+  }
+  // Stale process-run sweep (inside redesign). The inside view renders a stage
+  // as processes opened durably before they start, so a process whose
+  // extension host died mid-flight is still on record as `running` — a state
+  // nothing can leave on its own, since process death fires no abort signal.
+  // Marking it `stale` is what turns a process that will never finish into the
+  // record that it was destroyed, with its identity snapshot still readable.
+  //
+  // GLOBAL for the same reason as the gate-run pass above, and safe for the
+  // same reason: attribution, not scope. A run opened by ANOTHER LIVE window
+  // has a live pid and is left strictly alone; a run with no recorded pid is
+  // left alone too, because absence of evidence is not evidence that it died.
+  //
+  // Reported, never silent — an invisibly-discarded run is the whole failure
+  // this closes, and a sweep that quietly corrected the data would repeat it.
+  try {
+    for (const r of reconcileProcessRuns(localStore, pidAlive)) {
+      logger.info(describeStaleProcessRun(r));
+    }
+  } catch (err) {
+    logError('karst: stale process-run sweep failed', err);
   }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package

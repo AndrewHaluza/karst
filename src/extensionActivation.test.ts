@@ -67,6 +67,29 @@ describe('extension activation', () => {
     expect(source).toContain('sessions.adoptLateSession(session, classifyLateSession)');
   });
 
+  // A process run is opened durably before the process starts, so a run whose
+  // extension host died mid-flight stays `running` forever unless something
+  // sweeps it — and a run killed by process death is the exact evidence the
+  // inside view must not present as in-flight. The activation sweep is the only
+  // place every window's shared registry gets that sweep, so the wiring is
+  // pinned here: without it a destroyed process reads `running` until the run
+  // is superseded or the data is read by hand.
+  it('sweeps process runs whose host died on activation, and says which it marked stale', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // A source assertion, like every case in this file: `extension.ts` imports
+    // `vscode` and cannot load under vitest. It pins the WIRING only — that the
+    // sweep is called at activation with the same liveness probe as the
+    // gate-run sweep and its result reported — without pinning exact
+    // formatting. What the sweep decides, and what it is allowed to signal,
+    // are behavioural and are pinned where they can actually run:
+    // `processRuns.test.ts`.
+    expect(source).toMatch(/reconcileProcessRuns\(localStore, pidAlive\)/);
+    expect(source).toMatch(
+      /reconcileProcessRuns\(localStore, pidAlive\)[\s\S]{0,80}?logger\.info\(\s*describeStaleProcessRun\(/,
+    );
+  });
+
   it('identifies restored terminals by pid, which a reload does not strip', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'extension.ts'),

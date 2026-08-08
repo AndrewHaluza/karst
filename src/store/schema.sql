@@ -137,6 +137,47 @@ CREATE TABLE IF NOT EXISTS stage_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_stage_runs_ticket ON stage_runs(ticket_id, stage_key, id);
 
+-- v26: one row per inside-process INVOCATION (gates, commit, delivery-receipt,
+-- recovery…), opened before the process starts and closed at its outcome.
+--
+-- The inside redesign renders a stage as ordered processes, each carrying its
+-- own evidence and, for AI processes, the identity that ran them. The evidence
+-- tables record what FINISHED; only a row opened at entry can say a process ran
+-- at all, and only that row can carry WHO ran it as it actually was at that
+-- moment. `agent_name`/`provider`/`model` are an immutable identity SNAPSHOT —
+-- what the execution resolved to at launch — never rewritten, never backfilled
+-- into rows that predate capture.
+--
+-- Append-only, like stage_runs and for the same reason: a superseded run is
+-- marked `stale`, never deleted, because the fact that a previous process ran
+-- and was destroyed is exactly what was missing. `stale` rows keep `ended_at`
+-- NULL — when a killed process stopped is genuinely unknown. `pid` is the
+-- opening host's pid, used only for activation liveness; NULL = unknown, never
+-- guessed.
+--
+-- `status` is a closed vocabulary (running | passed | failed | interrupted |
+-- stale); `result_kind`/`artifact_path` carry the outcome's verdict kind and
+-- artifact path, both NULLable and never backfilled.
+CREATE TABLE IF NOT EXISTS process_runs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  stage_key     TEXT NOT NULL,        -- StageKey the process ran inside
+  process_id    TEXT NOT NULL,        -- 'gates' | 'commit' | … (InsideProcessId)
+  attempt       INTEGER NOT NULL,     -- the stage's attempt when the process ran
+  stage_run_id  INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,  -- v25 batch stamp, if any
+  agent_name    TEXT,                 -- identity snapshot: the agent that ran
+  provider      TEXT,                 -- identity snapshot: claude | codex | …
+  model         TEXT,                 -- identity snapshot: the resolved model id
+  pid           INTEGER,              -- the opening host's pid; NULL = unknown
+  status        TEXT NOT NULL CHECK (status IN ('running','passed','failed','interrupted','stale')),
+  result_kind   TEXT,                 -- the outcome's verdict kind, when the process has one
+  artifact_path TEXT,                 -- path of the artifact the process produced, if any
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT                  -- NULL while running AND on a stale run
+);
+CREATE INDEX IF NOT EXISTS idx_process_runs_ticket
+  ON process_runs(ticket_id, stage_key, process_id, id);
+
 -- Phases an agent REPORTED entering during a marker stage. Append-only, like
 -- gate_runs and for the same reason: a phase is an event, many per stage, so it
 -- cannot live on `stages` (one row per StageKey, single-writer via setStage).
