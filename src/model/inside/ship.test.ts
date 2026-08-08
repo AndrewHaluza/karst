@@ -160,6 +160,10 @@ describe('shipProcesses', () => {
       });
     }
     const views = shipProcesses(shipInput({ evidence: evidence({ repos }) }));
+    // The top-level ledger is FOUR process rows whatever the repo count — the
+    // scale invariant the redesign names (§10): repos unfold inside evidence,
+    // never as rows.
+    expect(views).toHaveLength(4);
     const push = views[1]!;
     const rows = rowsOf(push);
     expect(rows).toHaveLength(7);

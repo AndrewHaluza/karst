@@ -532,6 +532,8 @@
   .proc.pending{opacity:.5}
   .proc.note .pdetail{font-style:italic;opacity:.75}
   .proc.skip .pdetail{font-style:italic;opacity:.7}
+  /* Built on `.k-iconbtn` (UI-R07) so the shared focus-visible ring applies;
+     only size/padding are local, exactly like sidebar's chevron. */
   .proc .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);display:inline-flex;align-items:center;justify-content:center;
     border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:transparent;color:var(--k-text-dim);
     font-size:var(--k-text-md);line-height:1;cursor:pointer}
@@ -1391,7 +1393,7 @@
     const act = p.action ? insideActionBtnHtml(p.action) : '';
     const hasEv = p.evidence && p.evidence.rows.length;
     const chev = hasEv
-      ? `<button type="button" class="chev" data-chev="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}"`
+      ? `<button type="button" class="k-iconbtn chev" data-chev="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}"`
         + ` aria-label="Show ${esc(p.label)} details" title="Show ${esc(p.label)} details">${open ? '–' : '+'}</button>`
       : '';
     const ev = hasEv && open ? `<div class="pev pev-${esc(p.evidence.kind)}">${p.evidence.rows.map(evidenceRowHtml).join('')}</div>` : '';

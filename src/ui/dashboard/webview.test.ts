@@ -1201,4 +1201,26 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/esc\(p\.evidence\.kind\)/);
     expect(HTML).not.toMatch(/evidence\.kind === .*status/);
   });
+
+  it('keeps the ledger rows wrappable at narrow widths (UI-R04/R05)', () => {
+    // The process row and every evidence row flex-wrap, so 300px never scrolls
+    // the component horizontally: only the glyph columns are fixed, and the
+    // detail column truncates with an ellipsis instead of pushing the row.
+    expect(HTML).toMatch(/\.proc \.prow\{display:flex;flex-wrap:wrap/);
+    expect(HTML).toMatch(/\.erow\{display:flex;flex-wrap:wrap/);
+    expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
+    // The detail column is a pure flex item (min-width:0 lets it shrink to its
+    // ellipsis), never a fixed or minimum width that could overflow at 300px.
+    const pdetail = HTML.slice(HTML.indexOf('.pdetail{'), HTML.indexOf('.pdetail{') + 240);
+    expect(pdetail).toContain('min-width:0');
+    expect(pdetail).not.toContain('overflow-x');
+  });
+
+  it('carries a focus ring on the evidence chevron via the shared primitive', () => {
+    // The chevron rides on `.k-iconbtn`, so the design system's ONE
+    // :focus-visible rule (designComponents.ts FOUNDATION) applies — a
+    // keyboard user always sees where they are (UI-R09).
+    expect(HTML).toMatch(/class="k-iconbtn chev"/);
+    expect(HTML).toMatch(/data-chev="/);
+  });
 });
