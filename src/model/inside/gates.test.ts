@@ -45,6 +45,7 @@ function finding(severity: Severity, extra: Partial<Finding> = {}): Finding {
     ticketId: 1,
     attempt: 0,
     runAt: '2026-07-20T12:00:00.000Z',
+    processRunId: null,
     severity,
     repo: '/web',
     file: null,

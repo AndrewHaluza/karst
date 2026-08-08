@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
-import { recordTokenUsage, queryTokenUsageStats, EMPTY_USAGE_TOTALS } from './tokenUsage.js';
+import {
+  recordTokenUsage,
+  queryTokenUsageStats,
+  listTokenUsage,
+  summarizeRecordedTokenUsage,
+  EMPTY_USAGE_TOTALS,
+} from './tokenUsage.js';
 import { parseUsageQuery, type UsageQuery } from './tokenUsageQuery.js';
+import { openProcessRun } from './processRuns.js';
 
 function query(overrides: Partial<UsageQuery> = {}): UsageQuery {
   const parsed = parseUsageQuery(overrides);
@@ -19,6 +26,7 @@ function ticket(id: number, key: string, title: string, projectId = 1): void {
 
 interface Seed {
   ticketId?: number | null;
+  processRunId?: number | null;
   callSite?: string;
   model?: string | null;
   provider?: string;
@@ -39,6 +47,7 @@ function seed(s: Seed = {}): void {
   recordTokenUsage(store, {
     projectId: 1,
     ticketId: s.ticketId === undefined ? 1 : s.ticketId,
+    processRunId: s.processRunId === undefined ? null : s.processRunId,
     callSite: s.callSite ?? 'ticket-analysis',
     provider: s.provider ?? 'claude',
     outcome: s.outcome ?? 'ok',
@@ -310,5 +319,60 @@ describe('queryTokenUsageStats', () => {
       .map((r) => (r as { detail: string }).detail)
       .join(' ');
     expect(plan).toMatch(/USING INDEX idx_token_usage/);
+  });
+});
+
+/**
+ * v27 process-run attribution (§ task 3): a call made by an inside process
+ * (gates, commit, delivery-receipt…) is linked to its process_runs row, so the
+ * inside view can show one process's spend. Legacy rows — and rows whose caller
+ * named no process — carry NULL and stay visible to every normal query.
+ */
+describe('process-run attribution', () => {
+  function run(): { id: number } {
+    return openProcessRun(store, {
+      ticketId: 1,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-07-15T00:00:00.000Z',
+    });
+  }
+
+  it('links a call to the process run that made it, and lists by that run', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    seed({ input: 120, output: 30, processRunId: r.id });
+    seed({ input: 5, output: 5 });
+
+    const linked = listTokenUsage(store, { ticketId: 1, processRunId: r.id });
+    expect(linked).toHaveLength(1);
+    expect(linked[0]!.processRunId).toBe(r.id);
+    expect(linked[0]!.inputTokens).toBe(120);
+    expect(linked[0]!.outputTokens).toBe(30);
+    // The run's own row carries the ticket, so the linkage is navigable.
+    expect(listTokenUsage(store, { processRunId: r.id })[0]!.ticketId).toBe(1);
+  });
+
+  it('summarizes only RECORDED usage — estimated rows are excluded', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    seed({ input: 120, output: 30, processRunId: r.id });
+    seed({ input: 999, output: 999, estimated: true, processRunId: r.id });
+
+    expect(summarizeRecordedTokenUsage(store, 1)).toEqual({ input: 120, output: 30, total: 150 });
+  });
+
+  it('keeps legacy null-linked rows in normal ticket-level queries', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ input: 40, output: 10 });
+
+    const stats = queryTokenUsageStats(store, query({ projectId: 1, ticketId: 1 }));
+    expect(stats.totals.totalTokens).toBe(50);
+
+    const rows = listTokenUsage(store, { ticketId: 1 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.processRunId).toBeNull();
+    expect(rows[0]!.ticketId).toBe(1);
   });
 });

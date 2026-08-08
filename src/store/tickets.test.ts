@@ -22,6 +22,9 @@ import {
 } from './tickets.js';
 import { setStage } from './stages.js';
 import { STAGE_KEYS } from '../model/types.js';
+import { openProcessRun, listProcessRuns } from './processRuns.js';
+import { recordTokenUsage, listTokenUsage } from './tokenUsage.js';
+import { recordFindings, listFindings } from './reviewFindings.js';
 
 describe('ticketLabel', () => {
   const base: Ticket = {
@@ -372,6 +375,78 @@ describe('ticket + stage persistence', () => {
     expect(listTickets(store, { includeArchived: true })).toHaveLength(0);
     const stageRows = store.db.prepare('SELECT * FROM stages WHERE ticket_id = ?').all(t.id);
     expect(stageRows).toHaveLength(0);
+  });
+
+  // The product deletion contract (v27): foreign keys are ON in openStore, so a
+  // ticket whose token/finding evidence links to its process_runs rows must be
+  // deletable WITHOUT relying on SQLite discovering a safe order. The ledger is
+  // global accounting — it survives, unattributed; only ticket-owned evidence
+  // (process runs, findings) goes.
+  it('hard-deletes a ticket with linked process evidence without destroying the ledger', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a' });
+    const b = createTicket(store, { key: 'B-1', title: 'b' });
+    const runA = openProcessRun(store, {
+      ticketId: a.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: a.id,
+      processRunId: runA.id,
+      callSite: 'fix-resume',
+      outcome: 'ok',
+      usage: {
+        inputTokens: 120,
+        outputTokens: 30,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 150,
+        model: 'claude-opus-5',
+        estimated: false,
+      },
+    });
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: b.id,
+      callSite: 'fix-resume',
+      outcome: 'ok',
+      usage: {
+        inputTokens: 7,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 8,
+        model: null,
+        estimated: false,
+      },
+    });
+    recordFindings(store, {
+      ticketId: a.id,
+      attempt: 0,
+      runAt: '2026-08-01T12:00:00.000Z',
+      processRunId: runA.id,
+      findings: [{ severity: 'high', repo: '/web', file: null, line: null, title: 'boom', detail: 'd', source: 'agent' }],
+    });
+
+    expect(() => deleteTicket(store, a.id)).not.toThrow();
+
+    // No ticket-owned evidence rows remain.
+    expect(() => getTicket(store, a.id)).toThrow(/not found|unknown/i);
+    expect(listProcessRuns(store, a.id)).toEqual([]);
+    expect(listFindings(store, a.id)).toEqual([]);
+
+    // The global ledger survives: a's spend is unattributed but not destroyed,
+    // b's spend is untouched.
+    const rows = listTokenUsage(store, {});
+    expect(rows).toHaveLength(2);
+    const orphaned = rows.find((r) => r.ticketId === null)!;
+    expect(orphaned.totalTokens).toBe(150);
+    expect(orphaned.processRunId).toBeNull();
+    const untouched = rows.find((r) => r.ticketId === b.id)!;
+    expect(untouched.totalTokens).toBe(8);
   });
 
   it('persists session_id with the provider that minted it, both readable via getTicket', () => {

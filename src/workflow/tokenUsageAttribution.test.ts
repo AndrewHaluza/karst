@@ -9,6 +9,8 @@ import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../agent/ada
 import { instrumentAdapter } from '../agent/instrumentedAdapter.js';
 import { attachUsage } from '../agent/tokenUsage.js';
 import { recordTokenUsage, queryTokenUsageStats } from '../store/tokenUsage.js';
+import { listTokenUsage, summarizeRecordedTokenUsage } from '../store/tokenUsage.js';
+import { openProcessRun } from '../store/processRuns.js';
 import { parseUsageQuery } from '../store/tokenUsageQuery.js';
 
 /**
@@ -200,5 +202,30 @@ describe('instrumented AI calls', () => {
     expect(stats.byCallSite).toEqual([expect.objectContaining({ key: 'ticket-analysis' })]);
     expect(stats.byModel[0]!.key).toBe('claude-opus-5');
     expect(stats.byTicket[0]).toMatchObject({ ticketId: id, ticketKey: 'T-4', totalTokens: 250 });
+  });
+
+  it('attributes a call to the inside process run that made it, measured spend only', async () => {
+    const id = createTicketFlow(store, { key: 'T-5', title: 'Five' }).id;
+    store.db.prepare('UPDATE tickets SET project_id = 1 WHERE id = ?').run(id);
+    const run = openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T00:00:00.000Z',
+    });
+    const adapter = instrumented(reportingAdapter());
+
+    await adapter.runHeadless({
+      prompt: 'do it',
+      cwd: '/wt',
+      tracking: { callSite: 'fix-resume', ticketId: id, processRunId: run.id },
+    });
+    // An estimated fallback call is recorded but is NOT recorded spend.
+    store.db.prepare('UPDATE token_usage SET estimated = 1 WHERE process_run_id = ?').run(run.id);
+
+    expect(listTokenUsage(store, { ticketId: id, processRunId: run.id })).toHaveLength(1);
+    expect(listTokenUsage(store, { processRunId: run.id })[0]!.ticketId).toBe(id);
+    expect(summarizeRecordedTokenUsage(store, id)).toEqual({ input: 0, output: 0, total: 0 });
   });
 });

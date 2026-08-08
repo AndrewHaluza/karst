@@ -228,11 +228,18 @@ CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stag
 -- file. `repo` is NOT NULL — '' states "not repo-scoped" rather than using
 -- NULL for two different absences.
 --
+-- v27 `process_run_id` (kept in sync with migrations.ts v27 ALTER): the
+-- process_runs row of the review invocation that produced this batch. NULL = a
+-- pre-v27 row, or a batch whose caller named no process. Never backfilled.
+-- ON DELETE SET NULL: a deleted run never takes its findings with it — the
+-- finding stays, its execution attribution goes.
+--
 -- No column can hold the diff itself, for the same reason `token_usage` has
 -- no text column: this table is read on the review panel's render path.
 CREATE TABLE IF NOT EXISTS review_findings (
   id          INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS report order
   ticket_id   INTEGER NOT NULL,     -- -> tickets.id
+  process_run_id INTEGER,           -- v27: -> process_runs.id; NULL = no process (or legacy)
   attempt     INTEGER NOT NULL,     -- review's attempt when this batch landed
   run_at      TEXT NOT NULL,        -- batch stamp: one review invocation
   severity    TEXT NOT NULL,        -- critical | high | medium | low | info (closed set)
@@ -246,6 +253,9 @@ CREATE TABLE IF NOT EXISTS review_findings (
 );
 CREATE INDEX IF NOT EXISTS idx_review_findings_ticket
   ON review_findings(ticket_id, run_at, id);
+-- v27: per-process-run evidence reads (one review invocation's findings).
+CREATE INDEX IF NOT EXISTS idx_review_findings_process
+  ON review_findings(process_run_id, id);
 
 CREATE TABLE IF NOT EXISTS worktrees (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
@@ -375,10 +385,18 @@ CREATE TABLE IF NOT EXISTS merge_checks (
 -- `estimated` marks a row whose counts came from `estimateTokenUsage` because
 -- the core reported none. It is carried to the view so an approximation is
 -- never presented as measured.
+--
+-- v27 `process_run_id` (kept in sync with migrations.ts v27 ALTER): the inside
+-- process run this call belongs to (gates, commit, delivery-receipt…). NULL =
+-- a call made before the inside redesign, or by a caller that named no process
+-- (a ticket-form draft, an interactive session). Never backfilled into legacy
+-- rows. ON DELETE SET NULL: deleting a run must never take the ledger's spend
+-- with it — the count stays, its execution attribution goes.
 CREATE TABLE IF NOT EXISTS token_usage (
   id                 INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS call order
   project_id         INTEGER,              -- -> projects.id; NULL = unscoped (recovery only)
   ticket_id          INTEGER,              -- -> tickets.id; NULL = not yet a ticket (draft)
+  process_run_id     INTEGER,              -- v27: -> process_runs.id; NULL = no process (or legacy)
   call_site          TEXT NOT NULL,        -- AiCallSite (agent/aiCallSites.ts) — a closed set
   provider           TEXT,                 -- claude | codex | antigravity
   model              TEXT,                 -- model id the core reported; NULL = it did not say
@@ -399,6 +417,9 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_project_time ON token_usage(project_i
 CREATE INDEX IF NOT EXISTS idx_token_usage_ticket ON token_usage(ticket_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_site ON token_usage(project_id, call_site, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, model, recorded_at);
+-- v27: per-process-run evidence reads (the inside view's spend for one process),
+-- `id` second so one run's rows come back in call order.
+CREATE INDEX IF NOT EXISTS idx_token_usage_process ON token_usage(process_run_id, id);
 
 -- Images and video attached to a ticket's prompt. An INDEX of bytes that live on
 -- disk under <globalStorage>/attachments/<ticket_id>/<stored_name>, never the

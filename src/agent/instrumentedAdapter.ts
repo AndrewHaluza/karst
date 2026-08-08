@@ -90,6 +90,7 @@ export function instrumentAdapter(
       options.sink.record({
         projectId: options.projectId?.() ?? null,
         ticketId: opts.tracking?.ticketId ?? null,
+        processRunId: opts.tracking?.processRunId ?? null,
         callSite: opts.tracking?.callSite ?? UNKNOWN_CALL_SITE,
         ...(options.provider !== undefined ? { provider: options.provider } : {}),
         usage,

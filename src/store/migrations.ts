@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -688,6 +688,52 @@ export function migrate(db: Database): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_process_runs_ticket ON process_runs(ticket_id, stage_key, process_id, id)',
     );
+  }
+
+  if (current < 27) {
+    // v27 links token usage and review findings to the process_runs row that
+    // produced them (task 3), so the inside view can show ONE process's spend
+    // and findings. Both columns are nullable with ON DELETE SET NULL: a call
+    // or finding made outside a process stays unattributed, and deleting a run
+    // must never destroy the evidence it merely attributes.
+    //
+    // Guarded like every other column addition: a fresh DB already carries them
+    // via schema.sql, a re-open is a no-op, and a partial legacy DB without
+    // `process_runs` skips the REFERENCES column (there is nothing to link to).
+    //
+    // NOTHING IS BACKFILLED. A pre-v27 row genuinely does not know which
+    // process produced it — that information was never captured — and assigning
+    // one to an invented run would be exactly the inference the no-inference
+    // guarantee forbids. NULL reads as "no process", which is the truthful
+    // answer for every existing row.
+    const tokenCols27 = tableColumns(db, 'token_usage');
+    if (tokenCols27.size > 0 && tableColumns(db, 'process_runs').size > 0) {
+      if (!tokenCols27.has('process_run_id')) {
+        db.exec(
+          'ALTER TABLE token_usage ADD COLUMN process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    const findingCols27 = tableColumns(db, 'review_findings');
+    if (findingCols27.size > 0 && tableColumns(db, 'process_runs').size > 0) {
+      if (!findingCols27.has('process_run_id')) {
+        db.exec(
+          'ALTER TABLE review_findings ADD COLUMN process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    // Indexes only where the table exists — a partial legacy DB that never had
+    // `token_usage` (a step-synthetic test schema) must upgrade, not fault.
+    if (tokenCols27.size > 0) {
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_token_usage_process ON token_usage(process_run_id, id)',
+      );
+    }
+    if (findingCols27.size > 0) {
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_review_findings_process ON review_findings(process_run_id, id)',
+      );
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

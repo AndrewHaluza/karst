@@ -20,6 +20,13 @@ export interface UsageTracking {
   callSite: AiCallSite;
   /** The ticket the spend belongs to; absent for a not-yet-saved draft. */
   ticketId?: number | null;
+  /**
+   * The inside process run making the call (v27, § task 3): gates, commit,
+   * delivery-receipt, recovery. Absent → the call is filed unattributed to a
+   * process — an interactive session, a draft, or a caller that has not
+   * threaded its run through yet.
+   */
+  processRunId?: number | null;
 }
 
 export interface RunHeadlessOpts {

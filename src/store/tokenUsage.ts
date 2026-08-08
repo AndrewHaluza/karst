@@ -74,6 +74,11 @@ export const EMPTY_USAGE_TOTALS: UsageTotals = {
 export interface TokenUsageEntry {
   projectId: number | null;
   ticketId: number | null;
+  /**
+   * The inside process run this call belongs to (v27, § task 3); NULL for a
+   * call a caller made without naming a process, or a pre-v27 row.
+   */
+  processRunId?: number | null;
   /** An `AiCallSite`; typed as string here so the store stays agent-free. */
   callSite: string;
   provider?: string | null;
@@ -86,10 +91,10 @@ export interface TokenUsageEntry {
 
 const INSERT = `
 INSERT INTO token_usage (
-  project_id, ticket_id, call_site, provider, model,
+  project_id, ticket_id, process_run_id, call_site, provider, model,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
   estimated, outcome, recorded_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 /**
  * Append one call to the ledger. Throws only on a genuine store failure — the
@@ -103,6 +108,7 @@ export function recordTokenUsage(store: Store, entry: TokenUsageEntry): void {
     .run(
       entry.projectId,
       entry.ticketId,
+      entry.processRunId ?? null,
       entry.callSite,
       entry.provider ?? null,
       u.model,
@@ -275,4 +281,137 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
     ticketGroups: ticketGroupsRow?.n ?? 0,
     range: { from: query.from, to: query.to },
   };
+}
+
+/**
+ * One ledger row as evidence (§ task 3). The raw facts the inside view needs to
+ * show a process's spend: counts, outcome, and the ticket/process-run linkage.
+ */
+export interface TokenUsageRow {
+  id: number;
+  ticketId: number | null;
+  processRunId: number | null;
+  callSite: string;
+  provider: string | null;
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  /** Whether the counts are an estimate because the core reported none. */
+  estimated: boolean;
+  outcome: 'ok' | 'error';
+  recordedAt: string;
+}
+
+interface TokenUsageRowRow {
+  id: number;
+  ticket_id: number | null;
+  process_run_id: number | null;
+  call_site: string;
+  provider: string | null;
+  model: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  total_tokens: number;
+  estimated: number;
+  outcome: string;
+  recorded_at: string;
+}
+
+function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
+  return {
+    id: r.id,
+    ticketId: r.ticket_id,
+    processRunId: r.process_run_id,
+    callSite: r.call_site,
+    provider: r.provider,
+    model: r.model,
+    inputTokens: r.input_tokens,
+    outputTokens: r.output_tokens,
+    cacheReadTokens: r.cache_read_tokens,
+    cacheWriteTokens: r.cache_write_tokens,
+    totalTokens: r.total_tokens,
+    estimated: r.estimated === 1,
+    // An unrecognized outcome degrades to 'error' — never silently 'ok'.
+    outcome: r.outcome === 'ok' ? 'ok' : 'error',
+    recordedAt: r.recorded_at,
+  };
+}
+
+/** Narrow a ledger list. Every field is optional; an empty filter lists all. */
+export interface TokenUsageListFilter {
+  ticketId?: number;
+  processRunId?: number;
+}
+
+/**
+ * The ledger rows matching a filter, oldest first (call order).
+ *
+ * Deliberately NOT the stats view: this returns evidence, one row per call,
+ * for a surface (the inside view) that shows a process's individual calls.
+ * Rows written before process-run linkage (NULL `process_run_id`) are returned
+ * by ticket-scoped reads like any other row — an unattributed call is still
+ * the ticket's spend.
+ */
+export function listTokenUsage(
+  store: Store,
+  filter: TokenUsageListFilter = {},
+): TokenUsageRow[] {
+  const parts: string[] = [];
+  const params: number[] = [];
+  if (filter.ticketId !== undefined) {
+    parts.push('ticket_id = ?');
+    params.push(filter.ticketId);
+  }
+  if (filter.processRunId !== undefined) {
+    parts.push('process_run_id = ?');
+    params.push(filter.processRunId);
+  }
+  const where = parts.length ? `WHERE ${parts.join(' AND ')}` : '';
+  return store.db
+    .prepare(
+      `SELECT id, ticket_id, process_run_id, call_site, provider, model,
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+              total_tokens, estimated, outcome, recorded_at
+         FROM token_usage ${where}
+        ORDER BY id`,
+    )
+    .all(...params)
+    .map((r) => rowToUsage(r as TokenUsageRowRow));
+}
+
+/** Measured spend of one ticket — input/output/total across RECORDED calls. */
+export interface RecordedUsageSummary {
+  input: number;
+  output: number;
+  total: number;
+}
+
+/**
+ * The RECORDED (measured) spend of a ticket: sums over calls the core actually
+ * reported counts for.
+ *
+ * `estimated = 0` is a WHERE clause, not a SUM condition: an estimate is not
+ * measured spend, and a ticket whose every call fell back to an estimate must
+ * read as zero recorded — never as a measured total. The query still runs
+ * against the v19 indexes (`idx_token_usage_ticket`).
+ */
+export function summarizeRecordedTokenUsage(
+  store: Store,
+  ticketId: number,
+): RecordedUsageSummary {
+  const row = store.db
+    .prepare(
+      `SELECT COALESCE(SUM(input_tokens), 0) AS input,
+              COALESCE(SUM(output_tokens), 0) AS output,
+              COALESCE(SUM(total_tokens), 0) AS total
+         FROM token_usage
+        WHERE ticket_id = ? AND estimated = 0`,
+    )
+    .get(ticketId) as { input: number; output: number; total: number };
+  return row;
 }
