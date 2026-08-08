@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../types.js';
 import { buildStepper, type StepperCell, type StepperStageRow } from '../stepper.js';
-import { buildStageInside, scopeProcesses, uatProcesses, reviewProcesses, shipProcesses, doneReceipt, type StageInsideInput } from './index.js';
+import { buildStageInside, scopeProcesses, uatProcesses, reviewProcesses, shipProcesses, doneReceipt, implementationSessionProcess, type StageInsideInput } from './index.js';
 import type { EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -515,5 +515,62 @@ describe('ship and done reducers (re-exported)', () => {
   it('exposes shipProcesses and doneReceipt from the index', () => {
     expect(typeof shipProcesses).toBe('function');
     expect(typeof doneReceipt).toBe('function');
+  });
+});
+
+describe('implementationSessionProcess (index re-export)', () => {
+  const runAt = (t: string) => `2026-07-20T${t}:00.000Z`;
+
+  const prepared: import('../../store/implementationRuns.js').ImplementationTimeline = {
+    run: {
+      id: 1,
+      ticketId: 1,
+      processRunId: 1,
+      attempt: 0,
+      status: 'running',
+      startedAt: runAt('12:00'),
+      endedAt: null,
+    },
+    segments: [
+      {
+        id: 1,
+        implementationRunId: 1,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        providerSessionId: null,
+        reason: null,
+        status: 'pending',
+        launchIntentId: 1,
+        startedAt: null,
+        endedAt: null,
+      },
+    ],
+  };
+
+  it('preserves configured identity through the index boundary until a confirmed segment exists', () => {
+    const before = implementationSessionProcess(
+      { stageKey: 'impl', status: 'running' },
+      prepared,
+      [],
+      { provider: 'claude', model: 'claude-opus-4-8' },
+      undefined,
+      NOW,
+    );
+    expect(before.execution).toBeUndefined();
+    expect(before.configuredExecution).toMatchObject({ provider: 'claude' });
+
+    const confirmed = implementationSessionProcess(
+      { stageKey: 'impl', status: 'running' },
+      {
+        ...prepared,
+        segments: [{ ...prepared.segments[0]!, status: 'running', startedAt: runAt('12:00') }],
+      },
+      [],
+      { provider: 'claude', model: 'claude-opus-4-8' },
+      undefined,
+      NOW,
+    );
+    expect(confirmed.execution).toMatchObject({ provider: 'claude' });
+    expect(confirmed.configuredExecution).toBeUndefined();
   });
 });

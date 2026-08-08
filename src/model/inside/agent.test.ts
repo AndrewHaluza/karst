@@ -564,6 +564,40 @@ describe('implementationSessionProcess', () => {
     });
   });
 
+  it('keeps the configured identity while a prepared launch has no confirmed segment', () => {
+    // A launch-prepared run creates timeline evidence (the pending segment)
+    // before SessionStart confirms anything, so the old timeline-presence gate
+    // suppressed the configured identity in exactly the window it is needed:
+    // the row showed neither what karst was configured to run nor what it ran.
+    const prepared = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1, status: 'pending', startedAt: null, providerSessionId: null })]),
+      [],
+      { provider: 'claude', model: 'claude-opus-4-8' },
+      undefined,
+      NOW,
+    );
+    expect(prepared.execution).toBeUndefined();
+    expect(prepared.configuredExecution).toEqual({
+      provider: 'claude',
+      providerLabel: 'Claude Code',
+      model: 'claude-opus-4-8',
+      modelLabel: 'Opus 4.8',
+    });
+
+    // A confirmed segment is recorded execution: it replaces the fallback.
+    const confirmed = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1, status: 'running' })]),
+      [],
+      { provider: 'claude', model: 'claude-opus-4-8' },
+      undefined,
+      NOW,
+    );
+    expect(confirmed.execution).toBeDefined();
+    expect(confirmed.configuredExecution).toBeUndefined();
+  });
+
   it('reads a resumed segment as a resumed row naming the provider and model', () => {
     const process = implementationSessionProcess(
       cell('impl', 'running'),

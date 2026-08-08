@@ -372,7 +372,9 @@ function sessionStatus(cell: StepperCell): InsideStatus {
  * The timeline is a LOG — every reported phase event stays, repeats included,
  * in the order it happened — which is exactly what separates it from
  * `reportedPhases` (one row per phase, first mark). The recorded segments are
- * the execution; the configured identity is shown only before anything ran.
+ * the execution; the configured identity is shown only until a recorded
+ * execution exists — a launch-prepared run's pending segment is timeline
+ * evidence, not execution, so the configured identity stays during that window.
  * Measured tokens are stated when they exist and OMITTED otherwise — a zero
  * would read as a measured free call.
  */
@@ -414,7 +416,7 @@ export function implementationSessionProcess(
     ...(action ? { action } : {}),
     ...(cell.startedAt ? { duration: formatDuration(cell.startedAt, cell.endedAt ?? now) } : {}),
     ...(execution ? { execution: executionView(execution.provider, execution.model) } : {}),
-    ...(!timeline && configured
+    ...(configured && !execution
       ? { configuredExecution: executionView(configured.provider, configured.model) }
       : {}),
     ...(tokens ? { tokens: tokenView(tokens) } : {}),
