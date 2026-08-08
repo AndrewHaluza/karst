@@ -337,7 +337,16 @@ Commit: `feat: preserve implementation agent switch history`
 - Modify: `src/store/schema.sql`
 - Modify: `src/store/migrations.ts`
 - Modify: `src/store/db.test.ts`
+- Create: `src/store/interactiveUsageSamples.ts`
+- Create: `src/store/interactiveUsageSamples.test.ts`
 - Modify: `src/agent/aiCallSites.ts`
+- Modify: `src/agent/settings.ts`
+- Modify: `src/agent/settings.test.ts`
+- Modify: `src/agent/codex.ts`
+- Modify: `src/agent/codex.test.ts`
+- Modify: `src/agent/opencode.ts`
+- Modify: `src/agent/opencode.test.ts`
+- Modify: `src/agent/antigravity.test.ts`
 - Modify: `src/hooks/endpoint.ts`
 - Modify: `src/hooks/endpoint.test.ts`
 - Modify: `src/hooks/dispatch.ts`
@@ -347,7 +356,7 @@ Commit: `feat: preserve implementation agent switch history`
 - Modify: `src/agent/provider.ts`
 
 **Interfaces:**
-- Produces: `InteractiveUsageSample`, `interactiveUsageDelta`, and closed `UsageUpdate` hook handling linked to `implementation_segment_id`.
+- Produces: `InteractiveUsageSample`, `appendInteractiveUsageSample`, `lastInteractiveUsageSample`, `interactiveUsageDelta`, and closed `UsageUpdate` hook handling linked to `implementation_segment_id`.
 - Consumes: provider-reported numeric cumulative usage only; payloads without authoritative counts produce no row.
 
 - [ ] **Step 1: Write failing delta and validation tests**
@@ -359,11 +368,11 @@ expect(interactiveUsageDelta(
 )).toEqual({ input: 450, output: 120, cachedInput: 80, total: 650 });
 ```
 
-Cover first sample, repeated cumulative sample, negative/reset counters, non-numeric fields, wrong provider/session, stale segment, and duplicate event id. A reset starts a new baseline and records no negative delta.
+Cover first sample, repeated cumulative sample, negative/reset counters, non-numeric fields, wrong provider/session, stale segment, and duplicate event id. Close and reopen the store between two samples to prove the second delta is reconstructed from persisted cumulative evidence. A reset is persisted as a new baseline and records no negative delta; the first post-reset increase must still be derivable after another host restart.
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/agent/interactiveUsage.test.ts src/hooks/endpoint.test.ts src/hooks/dispatch.test.ts src/store/tokenUsage.test.ts`
+Run: `npx vitest run src/agent/interactiveUsage.test.ts src/store/interactiveUsageSamples.test.ts src/hooks/endpoint.test.ts src/hooks/dispatch.test.ts src/store/tokenUsage.test.ts`
 Expected: FAIL because no interactive-usage event or segment-linked token writer exists.
 
 - [ ] **Step 3: Add a closed usage event contract**
@@ -380,19 +389,49 @@ export interface InteractiveUsageSample {
 }
 ```
 
-The installed provider bridge may emit `UsageUpdate` only from authoritative CLI fields. It must never estimate from transcript size, terminal text, elapsed time, or model output.
+An installed provider bridge may emit `UsageUpdate` only when the provider supplied cumulative numeric counts and a stable provider event/message id. It must never estimate from transcript size, terminal text, elapsed time, or model output.
 
-- [ ] **Step 4: Persist per-segment deltas**
+- [ ] **Step 4: Persist cumulative samples before calculating deltas**
 
-Increment `SCHEMA_VERSION` to 29 and add nullable `source_event_id` plus a partial unique index for non-null event ids to `token_usage`. Resolve the confirmed implementation segment by provider session id, deduplicate `eventId`, calculate the delta from the last accepted cumulative sample, and write `token_usage(call_site='implementation', estimated=0, implementation_segment_id=..., source_event_id=...)`. Add `implementation` to the closed AI call-site set and use the schema-v28 segment linkage from Task 4.
+Increment `SCHEMA_VERSION` to 29 and add this durable source table plus nullable `interactive_usage_sample_id` on `token_usage`:
 
-- [ ] **Step 5: Preserve absence for unsupported providers**
+```sql
+CREATE TABLE IF NOT EXISTS interactive_usage_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  implementation_segment_id INTEGER NOT NULL REFERENCES implementation_segments(id) ON DELETE CASCADE,
+  source_event_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  provider_session_id TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cached_input_tokens INTEGER,
+  resets_baseline INTEGER NOT NULL DEFAULT 0 CHECK (resets_baseline IN (0,1)),
+  observed_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_interactive_usage_event
+  ON interactive_usage_samples(provider, provider_session_id, source_event_id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_segment
+  ON interactive_usage_samples(implementation_segment_id, id);
+```
+
+The v29 migration also adds nullable `interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id)` to `token_usage` plus a partial unique index for non-null sample ids. In one transaction, resolve the confirmed segment, reject an already-recorded `(provider, provider_session_id, source_event_id)` idempotently, read the preceding persisted sample for that segment, append the new cumulative sample, and then append the non-negative delta to `token_usage(call_site='implementation', estimated=0, implementation_segment_id=..., interactive_usage_sample_id=sample.id)`. The first sample establishes a persisted baseline and produces no token row. If any counter later decreases, persist `resets_baseline = 1` and no token row; the next event compares against that durable baseline. Add `implementation` to the closed AI call-site set and use the schema-v28 segment linkage from Task 4.
+
+- [ ] **Step 5: Make supported provider bridges produce UsageUpdate**
+
+- Claude: extend `settings.ts`/the hook endpoint to normalize token-bearing `Stop` or `SessionEnd` payloads through `interactiveUsage.ts`; payloads without cumulative counts or a stable id remain ordinary lifecycle events.
+- Codex: extend `CODEX_HOOK_BRIDGE` in `codex.ts` to forward authoritative cumulative usage and the provider event id instead of discarding them while normalizing lifecycle events.
+- OpenCode: extend the generated bridge in `opencode.ts` to observe its token-bearing step/message completion event and post the same normalized usage payload.
+- Antigravity: keep `interactiveUsage: false` because the adapter has no lifecycle channel; its test pins truthful absence.
+
+Use captured provider event fixtures in `settings.test.ts`, `codex.test.ts`, and `opencode.test.ts` to prove each supported bridge actually posts `UsageUpdate`, and prove malformed/partial usage is dropped before it reaches the store.
+
+- [ ] **Step 6: Preserve absence for unsupported provider events**
 
 When a provider exposes no authoritative usage fields, its bridge emits no `UsageUpdate`; the segment remains token-absent. Add a capability result to `provider.ts` so reducers can distinguish “not measured” from a measured zero without inventing a count.
 
-- [ ] **Step 6: Run focused tests and commit**
+- [ ] **Step 7: Run focused tests and commit**
 
-Run: `npx vitest run src/agent/interactiveUsage.test.ts src/hooks/endpoint.test.ts src/hooks/dispatch.test.ts src/store/tokenUsage.test.ts src/workflow/tokenUsageAttribution.test.ts`
+Run: `npx vitest run src/agent/interactiveUsage.test.ts src/store/interactiveUsageSamples.test.ts src/agent/settings.test.ts src/agent/codex.test.ts src/agent/opencode.test.ts src/agent/antigravity.test.ts src/hooks/endpoint.test.ts src/hooks/dispatch.test.ts src/store/tokenUsage.test.ts src/workflow/tokenUsageAttribution.test.ts`
 Expected: PASS.
 Commit: `feat: record measured implementation token deltas`
 
@@ -474,8 +513,9 @@ Commit: `feat: persist causal recovery rounds`
 
 **Files:**
 - Modify: `src/manifest/types.ts`
-- Modify: `src/manifest/validate/uat.ts`
-- Modify: `src/manifest/validate/review.ts`
+- Modify: `src/manifest/schema.ts`
+- Create: `src/manifest/validate/processAssignments.ts`
+- Create: `src/manifest/validate/processAssignments.test.ts`
 - Modify: `src/manifest/load.test.ts`
 - Modify: `src/manifest/write.ts`
 - Modify: `src/manifest/writeManifest.test.ts`
@@ -499,11 +539,11 @@ expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
 });
 ```
 
-Prove invalid providers/models are named manifest errors, defaults resolve when config is absent, and a later Settings edit does not mutate an already stored `process_runs` row.
+Prove unknown process keys, malformed assignments, unknown providers, and undeclared agent references are named manifest errors; prove a valid `processes:` block survives load → write → load byte-for-byte in meaning; prove defaults resolve when config is absent and a later Settings edit does not mutate an already stored `process_runs` row.
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/agent/processAssignment.test.ts src/ui/settings/webview.test.ts`
+Run: `npx vitest run src/manifest/validate/processAssignments.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/agent/processAssignment.test.ts src/ui/settings/sections.test.ts src/ui/settings/webview.test.ts`
 Expected: FAIL because process assignments are not modeled.
 
 - [ ] **Step 3: Add explicit process configuration**
@@ -533,13 +573,27 @@ export interface Manifest {
 
 Absent entries resolve to the approved defaults (`UAT Agent`, `UAT Fix Agent`, `Review Agent`, `Review Fix Agent`, and the ticket-resolved PR-description adapter). The `agent` field references an existing role-keyed agent profile; `agentName` is its display snapshot override. Do not add provider/model fields to `AgentDef`, whose existing meaning remains a subagent prompt profile.
 
-- [ ] **Step 4: Add tab-scoped Settings fields**
+- [ ] **Step 4: Wire validation and round-trip persistence**
+
+```ts
+const agents = validateAgents(raw.agents);
+const processes = validateProcessAssignments(raw.processes, agents);
+return {
+  // existing validated fields
+  agents,
+  processes,
+};
+```
+
+`validateManifest` in `src/manifest/schema.ts` must call the new validator and include `processes` in its returned `Manifest`; `writeManifest` in `src/manifest/write.ts` must explicitly overlay `processes: manifest.processes` so an explicit save cannot drop it. Pin both seams in `load.test.ts` and `writeManifest.test.ts`.
+
+- [ ] **Step 5: Add tab-scoped Settings fields**
 
 Add `processes` to the Agents section's `SECTION_FIELDS`, render five process assignment rows on the Agents tab, and spread the existing `processes` object on save so hidden/future entries survive. Recovery limits remain under the Quality section's existing `uat`/`review` ownership. Mirror closed provider/model choices from host-supplied catalogs, not HTML literals.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [ ] **Step 6: Run focused tests and commit**
 
-Run: `npx vitest run src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/agent/processAssignment.test.ts src/ui/settings/webview.test.ts`
+Run: `npx vitest run src/manifest/validate/processAssignments.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/agent/processAssignment.test.ts src/ui/settings/sections.test.ts src/ui/settings/webview.test.ts`
 Expected: PASS.
 Commit: `feat: configure inside ai process assignments`
 
@@ -809,8 +863,15 @@ Cover process order, commit provenance, aggregate counts at 20 repos, adopted vs
 - [ ] **Step 2: Write failing Done tests**
 
 ```ts
-expect(doneReceipt({ stageCurrent: 'ship', evidence })).toBeNull();
-expect(doneReceipt({ stageCurrent: 'done', evidence })?.tokens.label).toContain('recorded');
+expect(doneReceipt({ stageCurrent: 'ship', evidence })).toEqual({
+  status: 'pending',
+  title: 'Delivery receipt pending',
+  detail: 'Available after every current pull request is merged',
+});
+expect(doneReceipt({ stageCurrent: 'done', evidence })).toMatchObject({
+  status: 'complete',
+  tokens: { label: expect.stringContaining('recorded') },
+});
 ```
 
 Prove merged PRs only, final gate wording, recovery history, Ship-created commits, role breakdown, exclusion of estimated tokens, and omission of unknown legacy facts.
@@ -822,7 +883,7 @@ Expected: FAIL because Ship provenance and Done receipt reducers do not exist.
 
 - [ ] **Step 4: Implement current-state and historical separation**
 
-PR/Merge reducers use current `prs`/`merge_checks`; commit/push/description provenance uses append-only Ship evidence. Done returns a pending receipt view until the ticket actually enters `done` and never treats estimated token rows as recorded.
+PR/Merge reducers use current `prs`/`merge_checks`; commit/push/description provenance uses append-only Ship evidence. `doneReceipt` always returns the discriminated union `{ status: 'pending', title, detail } | { status: 'complete', delivered, validated, tokens, evidence }`: before actual `done` it contains no future delivery evidence, and after `done` it never treats estimated token rows as recorded.
 
 - [ ] **Step 5: Run focused tests and commit**
 
@@ -859,7 +920,7 @@ Prove `stageCurrent='fix'` selects the causal UAT/Review presentation, `Dashboar
 expect(parseDashboardMessage({ type: 'inside-action', action: { kind: 'open-pr', repo: '/web', number: 413 } })).toEqual(/* validated action */);
 ```
 
-Cover invalid path/line/number/process ids, host-owned targets, action-result lifecycle, and a generic live event replacing webview-derived Ship steps.
+Cover invalid path/line/number/process ids, host-owned targets, action-result lifecycle, `active → completed(pass)` clearing the live header while retaining the successful process row, `cleared` without a verdict, and a generic live event replacing webview-derived Ship steps.
 
 - [ ] **Step 3: Verify RED**
 
@@ -869,19 +930,29 @@ Expected: FAIL because richer state and protocol variants are absent.
 - [ ] **Step 4: Emit started and finished live events**
 
 ```ts
-export interface InsideProgressEvent {
-  ticketId: number;
-  stage: InsideStageKey;
-  processId: string;
-  status: 'run' | 'wait' | 'fail';
-  main: string;
-  detail?: string;
-  duration?: string;
-  execution?: AgentExecutionView;
-}
+export type InsideProgressEvent =
+  | {
+      kind: 'active';
+      ticketId: number;
+      stage: InsideStageKey;
+      processId: string;
+      live: LiveOperationView; // status: run | wait | fail
+    }
+  | {
+      kind: 'completed';
+      ticketId: number;
+      stage: InsideStageKey;
+      process: InsideProcessView; // pass | fail | note | skip with final evidence
+    }
+  | {
+      kind: 'cleared';
+      ticketId: number;
+      stage: InsideStageKey;
+      processId: string;
+    };
 ```
 
-Gate runners emit before start and after completion. Review findings, Tester, Fix, and Ship translate their progress into the same host-owned shape. The webview overlays only the supplied view.
+Gate runners emit `active` before start and `completed` after every terminal result, including success. A completed event replaces that process row and clears the matching live header; `cleared` handles cancellation/snapshot supersession without inventing a terminal result. Review findings, Tester, Fix, and Ship translate progress into the same host-owned union. `messages.ts` validates the discriminant/status combinations, `panel.ts` forwards them, and the following full dashboard snapshot remains authoritative. The webview overlays only the supplied view.
 
 - [ ] **Step 5: Route typed actions**
 
