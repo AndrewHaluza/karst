@@ -411,8 +411,9 @@ export interface BeginLiveFixExecutionInput {
  * Open the Fix process run for a LIVE session (the nudge path) and attach it
  * to the round, immediately before the Fix brief is delivered — the execution
  * is durably owned from its first token. Transactional: the run and the
- * attachment land together. Only a `pending` round accepts an execution; a
- * round already fixing (or revalidating/passed) is not re-opened.
+ * attachment land together. Only a `pending` round of THIS ticket accepts an
+ * execution; a round already fixing (or revalidating/passed), or one owned by
+ * another ticket, is not attached — the transaction rolls the run back.
  */
 export function beginLiveFixExecution(
   store: Store,
@@ -433,12 +434,15 @@ export function beginLiveFixExecution(
     const info = store.db
       .prepare(
         `UPDATE recovery_rounds SET fix_process_run_id = ?, status = 'fixing'
-          WHERE id = ? AND status = 'pending'`,
+          WHERE id = ? AND ticket_id = ? AND status = 'pending'`,
       )
-      .run(run.id, input.roundId);
+      .run(run.id, input.roundId, input.ticketId);
     if (info.changes === 0) {
+      const round = roundById(store, input.roundId);
       throw new Error(
-        `cannot begin fix execution: recovery round ${input.roundId} is not pending`,
+        round !== undefined && round.ticketId !== input.ticketId
+          ? `cannot begin fix execution: recovery round ${input.roundId} is owned by ticket ${round.ticketId}, not ${input.ticketId}`
+          : `cannot begin fix execution: recovery round ${input.roundId} is not pending`,
       );
     }
   });
@@ -471,6 +475,11 @@ export function recordFixLaunchIntent(
   const round = roundById(store, input.recoveryRoundId);
   if (round === undefined) {
     throw new Error(`fix launch intent references unknown recovery round ${input.recoveryRoundId}`);
+  }
+  if (round.ticketId !== input.ticketId) {
+    throw new Error(
+      `fix launch intent references recovery round ${input.recoveryRoundId} owned by ticket ${round.ticketId}, not ${input.ticketId}`,
+    );
   }
   if (round.status !== 'pending') {
     throw new Error(
@@ -616,4 +625,29 @@ export function listRecoveryRounds(store: Store, ticketId: number): RecoveryRoun
     .prepare(`${ROUND_SELECT} WHERE ticket_id = ? ORDER BY id`)
     .all(ticketId)
     .map((r) => rowToRound(r as RecoveryRoundRow));
+}
+
+/**
+ * Mark a pending round EXHAUSTED — the driver's terminal transition when the
+ * committed budget is spent: the ticket rests at fix, handed to a human, and
+ * `activeRecoverySeries` reads the exhausted round as history so no later
+ * drive can reconsider it. Constrained to (id, ticket_id, status='pending'):
+ * a round already terminal, fixing, or revalidating is never overwritten, and
+ * another ticket's round is left strictly alone. Returns whether the round
+ * actually transitioned — an already-terminal round is an idempotent no-op.
+ */
+export function exhaustRecoveryRound(
+  store: Store,
+  ticketId: number,
+  roundId: number,
+  endedAt: string,
+): boolean {
+  return (
+    store.db
+      .prepare(
+        `UPDATE recovery_rounds SET status = 'exhausted', ended_at = ?
+          WHERE id = ? AND ticket_id = ? AND status = 'pending'`,
+      )
+      .run(endedAt, roundId, ticketId).changes === 1
+  );
 }

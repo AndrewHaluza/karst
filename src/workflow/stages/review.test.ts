@@ -1297,6 +1297,51 @@ describe('runReview — findings process run (Task 8)', () => {
     });
   });
 
+  it('names the ACTUAL findings process run as the blocking round\'s source process run', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps(JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }])),
+    );
+    expect(res).toMatchObject({ kind: 'advanced', next: 'fix' });
+    const run = listProcessRuns(store, id).find((r) => r.processId === 'review')!;
+    expect(run).toMatchObject({ resultKind: 'blocking', status: 'failed' });
+    // The round names the exact findings process run that produced the block —
+    // causal provenance, never an id of another table forced into the column.
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      sourceProcessId: 'review',
+      sourceProcessRunId: run.id,
+      triggerKind: 'blocking-review-findings',
+    });
+  });
+
+  it('a deterministic gate failure keeps the round\'s source process run null, however the process was wired', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      reviewProcessDeps('[]', {
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({
+            name: g.name,
+            exitCode: 1,
+            output: 'boom',
+            startedAt: now(),
+            endedAt: now(),
+          })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    // The gates decided before the lane ran, so no process run was opened —
+    // and the round must not invent an AI source for a deterministic failure.
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      sourceProcessId: 'gates',
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+    });
+  });
+
   it('a crash records execution-failed, exposes the artifact, and does not increment recovery rounds', async () => {
     const adapter: AgentAdapter = {
       ...findingsAgent('[]'),

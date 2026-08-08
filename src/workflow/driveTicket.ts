@@ -6,7 +6,12 @@ import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
 import type { InsideProgressEvent } from '../model/inside/progress.js';
 import { getTicket } from '../store/tickets.js';
-import { recoveryDecision } from '../store/recoveryRounds.js';
+import {
+  exhaustRecoveryRound,
+  listRecoveryRounds,
+  recoveryDecision,
+} from '../store/recoveryRounds.js';
+import { nowIso } from '../model/time.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import { runUat } from './stages/uat.js';
 import { runReview, type OpenDiff } from './stages/review.js';
@@ -308,6 +313,11 @@ export async function driveTicket(
         if (decision.kind === 'resume') {
           deps.resumeFix(ticketId, resumingGate, decision.attempts, decision.roundId);
         } else {
+          // The budget is spent: the round becomes terminal state BEFORE the
+          // ticket is handed to a human — an exhausted round is history, never
+          // reconsidered, and a later drive reads it as such. Only the pending
+          // round this ticket owns can transition; anything else is a no-op.
+          exhaustRecoveryRound(deps.store, ticketId, decision.roundId, nowIso());
           deps.log(
             `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +
               `${resumingGate} recovery rounds, at the cap of ${decision.cap}; leaving it for a human`,
@@ -322,6 +332,14 @@ export async function driveTicket(
         deps.log(
           `stage driver: ticket ${ticketId} at fix with no resumable recovery round ` +
             `(${round.status}); leaving it`,
+        );
+      } else if (listRecoveryRounds(deps.store, ticketId).length > 0) {
+        // Rounds exist but every one is terminal (exhausted/passed/failed/
+        // interrupted) — history, never reconsidered. A v30 ticket whose
+        // series exhausted is NOT untracked: falling back to the stages-attempt
+        // decision would re-resume it against the live manifest with no round.
+        deps.log(
+          `stage driver: ticket ${ticketId} at fix with only terminal recovery rounds; leaving it`,
         );
       } else {
         const decision = fixResumeDecision(stages, deps.manifest());

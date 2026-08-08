@@ -102,7 +102,7 @@ export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): 
       startedAt,
     });
     try {
-      nudge(prompt);
+      if (!nudge(prompt)) throw new Error('live Fix brief was not delivered');
     } catch (error) {
       interruptFixExecution(store, roundId, startedAt);
       throw error;

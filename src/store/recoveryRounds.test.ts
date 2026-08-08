@@ -14,6 +14,7 @@ import {
   interruptActiveFixExecution,
   completeRevalidation,
   attachRevalidationStageRun,
+  exhaustRecoveryRound,
   listRecoveryRounds,
   type RecoveryRound,
 } from './recoveryRounds.js';
@@ -146,6 +147,31 @@ describe('recovery rounds — store', () => {
     const after = listRecoveryRounds(store, ticketId)[0]!;
     expect(after.status).toBe('fixing');
     expect(after.fixProcessRunId).toBe(run.id);
+  });
+
+  it('refuses a LIVE fix attachment to another ticket\'s round — no process run, no round mutation', () => {
+    const otherId = createTicketFlow(store, { key: 'T-2', title: 'other' }).id;
+    const otherRound = round({ ticketId: otherId });
+    expect(() =>
+      beginLiveFixExecution(store, { ticketId, roundId: otherRound.id, startedAt: T1 }),
+    ).toThrow(/owned by ticket/);
+    expect(listProcessRuns(store, ticketId)).toHaveLength(0);
+    expect(listProcessRuns(store, otherId)).toHaveLength(0);
+    expect(listRecoveryRounds(store, otherId)[0]!.status).toBe('pending');
+  });
+
+  it('refuses a CLOSED fix launch intent against another ticket\'s round — no intent, no round mutation', () => {
+    const otherId = createTicketFlow(store, { key: 'T-2', title: 'other' }).id;
+    const otherRound = round({ ticketId: otherId });
+    expect(() =>
+      recordFixLaunchIntent(store, {
+        ticketId, launchId: 'launch-fix', provider: 'claude',
+        reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: otherRound.id, at: T1,
+      }),
+    ).toThrow(/owned by ticket/);
+    expect(getSessionLaunchIntent(store, 'launch-fix')).toBeUndefined();
+    expect(listProcessRuns(store, ticketId)).toHaveLength(0);
+    expect(listRecoveryRounds(store, otherId)[0]!.status).toBe('pending');
   });
 
   it('beginLiveFixExecution refuses a round that is not pending — one execution per round', () => {
@@ -350,6 +376,31 @@ describe('recovery rounds — store', () => {
     expect(reviewRound!.uatRevalidationStageRunId).toBe(uatRunId);
     expect(uatRound!.id).toBe(next.id);
     expect(uatRound).toMatchObject({ sourceStage: 'uat', round: 1, status: 'pending' });
+  });
+
+  it('exhaustRecoveryRound terminates only the pending round it owns, stamping endedAt', () => {
+    const r = round();
+    expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(true);
+    expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+      status: 'exhausted',
+      endedAt: T1,
+    });
+    // Already terminal — an idempotent no-op, never reconsidered as pending.
+    expect(exhaustRecoveryRound(store, ticketId, r.id, T2)).toBe(false);
+    // Another ticket cannot exhaust this ticket's round.
+    const otherId = createTicketFlow(store, { key: 'T-2', title: 'other' }).id;
+    expect(exhaustRecoveryRound(store, otherId, r.id, T2)).toBe(false);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('exhausted');
+  });
+
+  it('exhaustRecoveryRound never overwrites a fixing or revalidating round', () => {
+    const r = round();
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(r.id);
+    expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(false);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    store.db.prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?").run(r.id);
+    expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(false);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('revalidating');
   });
 
   it('an execution crash — evidence never committed — creates no recovery round', () => {

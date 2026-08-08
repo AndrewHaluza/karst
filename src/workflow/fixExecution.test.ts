@@ -170,6 +170,29 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
     expect(round.status).toBe('fixing');
   });
 
+  it('a FALSE nudge delivery is interrupted exactly like a thrown one — never a second session', () => {
+    const r = roundId();
+    expect(() =>
+      resumeFixExecution(store, {
+        ticketId: id,
+        roundId: r,
+        identity: { provider: 'claude', model: 'opus' },
+        startedAt: T1,
+        prompt: 'fix it',
+        isLive: () => true,
+        nudge: () => false,
+        open: () => {
+          throw new Error('must not open a second session');
+        },
+      }),
+    ).toThrow(/live Fix brief was not delivered/);
+
+    expect(listProcessRuns(store, id)[0]!.status).toBe('interrupted');
+    const round = listRecoveryRounds(store, id)[0]!;
+    expect(round.status).toBe('interrupted');
+    expect(round.endedAt).toBe(T1);
+  });
+
   it('a delivery failure interrupts both the execution and the round', () => {
     const r = roundId();
     expect(() =>

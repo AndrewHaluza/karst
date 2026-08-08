@@ -164,14 +164,22 @@ export async function runReview(
   const skippedNames: string[] = [];
 
   /**
+   * The findings lane's process run (Task 8), captured the moment the lane
+   * returns and threaded into the trigger below — a blocking-findings round
+   * names the ACTUAL findings process run as its source. Deterministic gate
+   * failures carry no AI process and stay null.
+   */
+  let findingsProcessRunId: number | null = null;
+
+  /**
    * The recovery trigger for this run's outcome (v30), constructed HERE while
    * the failing evidence, the current stage run and the manifest cap are all
    * still in hand — never reconstructed later from `stages.verdict` or the
    * live manifest. The causal source is read off the aggregate's own failure
    * constant: a blocking-findings verdict (`FINDINGS_FAILURE_PREFIX`) is the
-   * findings lane's failure and is attributed to the `review` process; every
-   * other failed verdict is a deterministic gate outcome attributed to
-   * `gates`. Blocks, stops and passes carry no trigger.
+   * findings lane's failure and is attributed to the `review` process (its own
+   * run id); every other failed verdict is a deterministic gate outcome
+   * attributed to `gates`. Blocks, stops and passes carry no trigger.
    */
   const recoveryTriggerFor = (outcome: RunOutcome): RecoveryTriggerInput | null => {
     if (outcome.kind !== 'verdict' || outcome.verdict.kind !== 'failed') return null;
@@ -180,10 +188,10 @@ export async function runReview(
     return {
       sourceProcessId: fromFindings ? 'review' : 'gates',
       sourceStageRunId: evidence.runId,
-      // The findings lane's process run, when the caller captured one; a
-      // deterministic gate failure has no AI process. Never an id of another
-      // table forced into this column.
-      sourceProcessRunId: null,
+      // The findings lane's process run, when this failure IS the findings
+      // lane's; a deterministic gate failure has no AI process. Never an id of
+      // another table forced into this column.
+      sourceProcessRunId: fromFindings ? findingsProcessRunId : null,
       triggerKind: fromFindings ? 'blocking-review-findings' : 'gate-failure',
       triggerDetail,
       maxRounds: capForGate('review', opts.manifest?.uat?.maxFixAttempts, opts.manifest?.review?.maxFixAttempts),
@@ -418,6 +426,10 @@ export async function runReview(
     collectedFindings,
     findingsLane.kind === 'ran' ? findingsLane.processRunId ?? null : null,
   );
+  // Captured here — before the verdict exists — so the trigger below names the
+  // exact process run that produced a blocking verdict, when it is the lane's.
+  findingsProcessRunId =
+    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
 
   // Finding 3: a Stop during the findings lane is not a review of anything —
   // the open Review process is closed interrupted, and the run returns stopped

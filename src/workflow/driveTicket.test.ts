@@ -241,6 +241,32 @@ describe('driveTicket', () => {
     expect(resumed).toEqual([{ ticketId: id, gate: 'uat', attempts: 1, roundId: round.id }]);
   });
 
+  it('persists exhaustion on the committed round — exhausted with endedAt, never resumed, never reconsidered', async () => {
+    // Round 1 of 1: the committed budget is spent the moment the driver reads it.
+    openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 1,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const first = await driveTicket(deps(), id);
+    expect(first.stage).toBe('fix');
+    expect(resumed).toEqual([]);
+    const round = listRecoveryRounds(store, id)[0]!;
+    expect(round.status).toBe('exhausted');
+    expect(round.endedAt).not.toBeNull();
+
+    // A second drive reads the terminal round as history — it is never
+    // reconsidered as pending and nothing is resumed.
+    const second = await driveTicket(deps(), id);
+    expect(second.stage).toBe('fix');
+    expect(resumed).toEqual([]);
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('exhausted');
+    expect(listRecoveryRounds(store, id)[0]!.endedAt).not.toBeNull();
+  });
+
   it('stops resuming once the COMMITTED round budget is spent, whatever the live manifest says', async () => {
     // Round 2 of 2 is exhausted — and a manifest edited since the failure to
     // allow 5 must not widen the committed cap.
