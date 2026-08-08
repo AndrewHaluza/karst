@@ -220,6 +220,28 @@ describe('buildStageInside', () => {
       expect(ops[1]!.detail).toContain('#12');
     });
 
+    // A merge stamp alone is NOT a landing: the PR's own status must read
+    // literally `merged`, or the ticket is still waiting on that repo. An
+    // `open`/`unknown` PR with a stale stamp is a probe that disagrees with
+    // itself, and the honest reading is the status, not the stamp (Finding 11).
+    it('never reads a non-merged status as landed, even with a merge stamp', () => {
+      for (const status of ['open', 'unknown'] as const) {
+        const prs = [
+          {
+            ticketId: 1,
+            repo: 'api',
+            number: 12,
+            url: 'https://x/12',
+            status,
+            mergedAt: '2026-07-28T09:30:00Z',
+          },
+        ];
+        const ops = build({ ship: 'passed' }, { prs }).ship.ops;
+        expect(ops[1]).toMatchObject({ name: 'open', status: 'wait' });
+        expect(ops[1]!.detail).toContain('not merged yet');
+      }
+    });
+
     // The row reads `fail` inside a stage that PASSED, deliberately: the ship
     // succeeded — a PR exists — and the merge is a separate fact about it.
     it('reports a conflict as a failed landing row with the conflicting files', () => {

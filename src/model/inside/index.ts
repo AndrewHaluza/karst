@@ -327,7 +327,10 @@ function landingOps(
   return currentPerRepo(prs).map((pr): StageOp => {
     const label = pr.repoDisplay || pr.repo;
     const name = pr.number ? `${label} #${pr.number}` : label;
-    if (pr.status === 'merged' || pr.mergedAt) {
+    // Landing is read off the PR's CURRENT status, literally `merged` — a
+    // `mergedAt` stamp on an `open`/`unknown` probe is display metadata, never
+    // proof of a landing (Finding 11; see the note on `isMerged` in ship.ts).
+    if (pr.status === 'merged') {
       return { status: 'pass', name: 'merged', detail: name, duration: '' };
     }
     const check = checksByRepo.get(pr.repo);
