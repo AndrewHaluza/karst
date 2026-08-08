@@ -177,6 +177,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       const result = await adapter.runHeadless({
         prompt: buildFindingsPrompt(target.repo, target.baseRef),
         cwd: target.worktreePath,
+        model: opts.process?.assignment.model,
         signal: opts.signal,
         tracking: {
           callSite: 'review-findings',

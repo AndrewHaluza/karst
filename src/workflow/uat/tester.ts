@@ -170,6 +170,7 @@ export async function runUatTester(
       const result = await opts.adapter.runHeadless({
         prompt: buildTesterPrompt(target),
         cwd: target.worktreePath,
+        model: opts.assignment.model,
         signal: opts.signal,
         tracking: {
           callSite: 'uat-tester',

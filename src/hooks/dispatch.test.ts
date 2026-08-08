@@ -316,7 +316,7 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('running');
   });
 
-  it('a SessionStart whose provider no longer matches the ticket is rejected', () => {
+  it('an Implementation SessionStart keeps the prepared launch provider after the ticket provider changes', () => {
     const id = ticketAt();
     recordSessionLaunchIntent(store, {
       ticketId: id, launchId: 'launch-1', purpose: 'implementation',
@@ -330,9 +330,16 @@ describe('dispatchHook', () => {
       () => true,
       () => 'codex',
     );
-    // The run is open (the launch was prepared) but no segment was confirmed:
-    // the mismatched start attached nothing.
-    expect(listImplementationTimeline(store, id)!.segments).toHaveLength(0);
+    const segment = listImplementationTimeline(store, id)!.segments[0]!;
+    expect(segment).toMatchObject({
+      provider: 'claude',
+      providerSessionId: 'sess-1',
+      status: 'running',
+    });
+    expect(getTicket(store, id)).toMatchObject({
+      sessionId: 'sess-1',
+      sessionProvider: 'claude',
+    });
   });
 
   it('SessionEnd without the marker interrupts the segment and process run, never passing the run', () => {
@@ -523,6 +530,68 @@ describe('dispatchHook — UsageUpdate', () => {
       inputTokens: 700,
       outputTokens: 140,
       totalTokens: 840,
+    });
+  });
+
+  it('confirms a Codex Fix SessionStart from its launch intent when the ticket still resolves to Claude', () => {
+    const id = ticketAt();
+    store.db.prepare('UPDATE tickets SET agent_provider = ? WHERE id = ?').run('claude', id);
+    const round = openRecoveryRound(store, {
+      ticketId: id,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T11:55:00.000Z',
+    });
+    recordFixLaunchIntent(store, {
+      ticketId: id,
+      launchId: 'codex-fix',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      agentName: 'Codex Fix',
+      reason: 'switch',
+      sessionOrigin: 'new',
+      recoveryRoundId: round.id,
+      at: '2026-08-01T12:01:00.000Z',
+    });
+
+    dispatchHook(
+      store,
+      {
+        hook_event_name: 'SessionStart',
+        cwd: WT,
+        session_id: 'codex-fix-session',
+        launchId: 'codex-fix',
+      },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+
+    expect(getSessionLaunchIntent(store, 'codex-fix')).toMatchObject({
+      provider: 'codex',
+      providerSessionId: 'codex-fix-session',
+      status: 'confirmed',
+    });
+    const fixRun = listProcessRuns(store, id).find((run) => run.processId === 'fix')!;
+    expect(fixRun).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      agentName: 'Codex Fix',
+      status: 'running',
+    });
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      status: 'fixing',
+      fixProcessRunId: fixRun.id,
+    });
+    expect(getTicket(store, id)).toMatchObject({
+      agentProvider: 'claude',
+      sessionId: 'codex-fix-session',
+      sessionProvider: 'codex',
     });
   });
 

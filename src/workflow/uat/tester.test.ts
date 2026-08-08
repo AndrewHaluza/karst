@@ -103,6 +103,7 @@ describe('runUatTester', () => {
     // Token attribution: the call declares the uat-tester site and the opened
     // Tester process run, so spend lands on the process that produced it.
     expect(calls[0]!.tracking).toEqual({ callSite: 'uat-tester', ticketId, processRunId: run.id });
+    expect(calls[0]!.model).toBe('claude-sonnet-5');
   });
 
   it('keeps blocking-severity observations — the Tester never filters by severity', async () => {

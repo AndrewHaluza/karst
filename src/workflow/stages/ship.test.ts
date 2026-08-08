@@ -1022,9 +1022,13 @@ setTimeout(() => {
     it('snapshots the configured pr-description identity into the description process run', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       const { gh } = recordingCreateGh();
+      let actualModel: string | undefined;
       const adapter: AgentAdapter = {
         ...fakeAdapter(),
-        runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'Generated PR body.' }),
+        runHeadless: async (opts) => {
+          actualModel = opts.model;
+          return { sessionId: 's', verdict: null, raw: 'Generated PR body.' };
+        },
       };
       const process = {
         assignment: { agentName: 'PR Scribe', provider: 'codex' as const, model: 'sol' },
@@ -1046,6 +1050,7 @@ setTimeout(() => {
         model: 'sol',
         status: 'passed',
       });
+      expect(actualModel).toBe('sol');
     });
 
     it('a null pr-description process performs no model call, opens no process run, and falls back to the sanitized deterministic title', async () => {

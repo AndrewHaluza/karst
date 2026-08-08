@@ -6,6 +6,7 @@ import { resolveProcessAssignment, DEFAULT_PROCESS_AGENT_NAMES } from './process
 import { PROCESS_KEY_BY_ROLE } from '../manifest/validate/processAssignments.js';
 import type { Manifest } from '../manifest/types.js';
 import { manifest as buildManifest } from '../manifest/fixtures.js';
+import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 
 const BASE: Manifest = buildManifest(
   { api: { repoPath: '/repo/api', hasMigrations: false } },
@@ -113,6 +114,30 @@ describe('resolveProcessAssignment', () => {
 
   it('drops a ticket model known only for another provider, keeping the manifest default', () => {
     expect(resolveProcessAssignment(BASE, 'review', { model: 'claude-sonnet-5' })).toEqual({
+      agentName: 'Review Agent',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+  });
+
+  it('uses the active catalog to reject a newly discovered cross-provider ticket model', () => {
+    const bundled = bundledModelCatalog();
+    const activeCatalog: ModelCatalog = {
+      ...bundled,
+      claude: [
+        ...bundled.claude,
+        { id: 'feed-only-claude', label: 'Feed Claude', providers: ['claude'] },
+      ],
+    };
+
+    expect(
+      resolveProcessAssignment(
+        BASE,
+        'review',
+        { provider: 'codex', model: 'feed-only-claude' },
+        activeCatalog,
+      ),
+    ).toEqual({
       agentName: 'Review Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',

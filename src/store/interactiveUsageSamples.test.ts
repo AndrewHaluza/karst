@@ -330,6 +330,120 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
     expect(last.counterEpoch).toBe(0);
   });
 
+  it('attributes a cross-provider switch to the new running segment while preserving the canonical process run', () => {
+    launch('l-codex', 'implementation');
+    confirm('l-codex', 'codex-session');
+    const canonical = store.db
+      .prepare('SELECT process_run_id FROM session_launch_intents WHERE launch_id = ?')
+      .get('l-codex') as { process_run_id: number };
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({
+        provider: 'codex',
+        providerSessionId: 'codex-session',
+        eventId: 'codex-1',
+        input: 1_000,
+        output: 200,
+      }),
+    });
+
+    recordSessionLaunchIntent(store, {
+      ticketId,
+      launchId: 'l-claude',
+      purpose: 'implementation',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      reason: 'switch',
+      sessionOrigin: 'new',
+      at: '2026-08-01T11:00:00.000Z',
+    });
+    expect(
+      confirmSessionLaunchIntent(store, 'l-claude', {
+        ticketId,
+        provider: 'claude',
+        providerSessionId: 'claude-session',
+        at: '2026-08-01T11:00:01.000Z',
+      }),
+    ).toBe('confirmed');
+
+    const result = appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({
+        provider: 'claude',
+        providerSessionId: 'claude-session',
+        eventId: 'claude-1',
+        input: 300,
+        output: 40,
+        observedAt: '2026-08-01T11:05:00.000Z',
+      }),
+    });
+
+    expect(result.kind).toBe('recorded');
+    const entry = ledger()[1]!;
+    expect(entry).toMatchObject({
+      provider: 'claude',
+      processRunId: canonical.process_run_id,
+      callSite: 'implementation',
+      inputTokens: 300,
+      outputTokens: 40,
+    });
+    const switched = lastInteractiveUsageSample(store, 'claude', 'claude-session')!;
+    expect(switched.implementationSegmentId).not.toBeNull();
+  });
+
+  it('rejects a late sample from provider A after provider B closed A’s segment', () => {
+    launch('l-codex', 'implementation');
+    confirm('l-codex', 'codex-session');
+    recordSessionLaunchIntent(store, {
+      ticketId,
+      launchId: 'l-claude',
+      purpose: 'implementation',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      reason: 'switch',
+      sessionOrigin: 'new',
+      at: '2026-08-01T11:00:00.000Z',
+    });
+    expect(
+      confirmSessionLaunchIntent(store, 'l-claude', {
+        ticketId,
+        provider: 'claude',
+        providerSessionId: 'claude-session',
+        at: '2026-08-01T11:00:01.000Z',
+      }),
+    ).toBe('confirmed');
+
+    expect(
+      appendInteractiveUsageSample(store, {
+        ticketId,
+        sample: sample({
+          provider: 'codex',
+          providerSessionId: 'codex-session',
+          eventId: 'late-codex',
+          input: 1_500,
+          output: 250,
+        }),
+      }),
+    ).toEqual({ kind: 'unattributed' });
+    expect(ledger()).toEqual([]);
+  });
+
+  it('rejects usage when the canonical implementation run is closed even if its process row still says running', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    store.db
+      .prepare("UPDATE implementation_runs SET status = 'passed', ended_at = ? WHERE ticket_id = ?")
+      .run('2026-08-01T12:00:00.000Z', ticketId);
+
+    expect(
+      appendInteractiveUsageSample(store, {
+        ticketId,
+        sample: sample({ eventId: 'closed-run', input: 1_000, output: 200 }),
+      }),
+    ).toEqual({ kind: 'unattributed' });
+    expect(ledger()).toEqual([]);
+  });
+
   it('attributes later samples to a Fix process with call_site fix-resume, subtracting the implementation session’s last counts', () => {
     launch('l1', 'implementation');
     confirm('l1', SESSION);

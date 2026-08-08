@@ -225,8 +225,8 @@ function resolveSessionBinding(
 
   const intent = store.db
     .prepare(
-      `SELECT purpose, session_origin, provider, process_run_id, recovery_round_id,
-              ticket_id
+      `SELECT id, purpose, implementation_run_id, session_origin, provider,
+              process_run_id, recovery_round_id, ticket_id
          FROM session_launch_intents
         WHERE ticket_id = ? AND provider = ? AND provider_session_id = ?
           AND status = 'confirmed'
@@ -234,7 +234,9 @@ function resolveSessionBinding(
     )
     .get(ticketId, provider, providerSessionId) as
     | {
+        id: number;
         purpose: string;
+        implementation_run_id: number | null;
         session_origin: string;
         provider: string;
         process_run_id: number | null;
@@ -243,28 +245,29 @@ function resolveSessionBinding(
       }
     | undefined;
   if (intent === undefined) return null;
-  if (intent.purpose === 'implementation') {
+  if (intent.purpose === 'implementation' && intent.implementation_run_id !== null) {
     const segment = store.db
       .prepare(
-        `SELECT s.id AS id, pr.id AS process_run_id FROM implementation_segments s
+        `SELECT s.id AS id, pr.id AS process_run_id
+           FROM implementation_runs ir
           JOIN process_runs pr
-            ON pr.id = ?
-           AND pr.ticket_id = ?
-           AND pr.provider = ?
+            ON pr.id = ir.process_run_id
+           AND pr.ticket_id = ir.ticket_id
            AND pr.status = 'running'
-          WHERE s.launch_intent_id = (SELECT id FROM session_launch_intents
-                                     WHERE ticket_id = ? AND provider = ?
-                                       AND provider_session_id = ?
-                                       AND status = 'confirmed'
-                                   ORDER BY id DESC LIMIT 1)`,
+          JOIN implementation_segments s
+            ON s.implementation_run_id = ir.id
+           AND s.launch_intent_id = ?
+           AND s.status = 'running'
+           AND s.provider = ?
+           AND s.provider_session_id = ?
+          WHERE ir.id = ? AND ir.ticket_id = ? AND ir.status = 'running'`,
       )
       .get(
-        intent.process_run_id,
-        ticketId,
-        provider,
-        ticketId,
+        intent.id,
         provider,
         providerSessionId,
+        intent.implementation_run_id,
+        ticketId,
       ) as { id: number; process_run_id: number } | undefined;
     if (segment === undefined) return null;
     return {

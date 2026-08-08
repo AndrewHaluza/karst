@@ -783,6 +783,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         provider: t.agentProvider ?? undefined,
         model: t.model || undefined,
       },
+      modelCatalog,
     );
     if (assignment === null) return null;
     return {

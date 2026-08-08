@@ -86,6 +86,41 @@ describe('runFindingsLane', () => {
     expect(capturedPrompt).toContain('develop');
   });
 
+  it('runs the Review process with its configured assignment model', async () => {
+    const store = openStore(':memory:');
+    try {
+      const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      let actualModel: string | undefined;
+      await runFindingsLane({
+        config: CONFIG,
+        targets: [TARGET],
+        ticketId,
+        store,
+        process: {
+          assignment: {
+            agentName: 'Review Agent',
+            provider: 'claude',
+            model: 'claude-opus-4-8',
+          },
+          adapter: {
+            ...adapter('[]'),
+            runHeadless: async (opts) => {
+              actualModel = opts.model;
+              return { sessionId: '', verdict: null, raw: '[]' };
+            },
+          },
+        },
+      });
+      expect(actualModel).toBe('claude-opus-4-8');
+      expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it('a failed call contributes no findings for that target but does not throw', async () => {
     const outcome = await runFindingsLane({
       config: CONFIG,

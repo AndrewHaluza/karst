@@ -12,6 +12,7 @@ import { confirmFixLaunch, interruptActiveFixExecution } from '../store/recovery
 import { interruptImplementationRun } from '../store/implementationRuns.js';
 import { appendInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
 import { normalizeInteractiveUsage } from '../agent/interactiveUsage.js';
+import { isKnownProvider } from '../agent/provider.js';
 import type {
   HookChannelRecorder,
   HookDispatchOutcome,
@@ -224,6 +225,20 @@ export function dispatchHook(
     return;
   }
 
+  // A prepared launch snapshots the provider that is ACTUALLY starting. It
+  // may intentionally differ from the ticket's mutable interactive provider
+  // (configured Fix assignments do this), so a matching launch intent is the
+  // lifecycle authority for SessionStart. The host resolver remains the
+  // fallback for starts outside the launch-intent handshake.
+  const launchIntent =
+    payload.hook_event_name === 'SessionStart' && payload.launchId !== undefined
+      ? getSessionLaunchIntent(store, payload.launchId)
+      : undefined;
+  const lifecycleProvider =
+    launchIntent?.ticketId === ticketId && isKnownProvider(launchIntent.provider)
+      ? launchIntent.provider
+      : (sessionProviderFor?.(ticketId) ?? null);
+
   // Persist the session on its first event so resume (§5.3) has a target. Only
   // SessionStart carries the authoritative id for a fresh session; later events
   // of the same session repeat it, so first-capture-wins is enough. The id is
@@ -234,7 +249,7 @@ export function dispatchHook(
       store,
       ticketId,
       payload.session_id,
-      sessionProviderFor?.(ticketId) ?? null,
+      lifecycleProvider,
     );
   }
 
@@ -251,18 +266,18 @@ export function dispatchHook(
       // Fix process run and attaches it to the recovery round in the same
       // transaction — an implementation launch confirms through the plain
       // intent handshake (segment + stable run).
-      const intent = getSessionLaunchIntent(store, payload.launchId);
+      const intent = launchIntent;
       if (intent !== undefined && intent.purpose === 'fix') {
         confirmFixLaunch(store, payload.launchId, {
           ticketId,
-          provider: sessionProviderFor?.(ticketId) ?? '',
+          provider: lifecycleProvider ?? '',
           providerSessionId: payload.session_id,
           at: nowIso(),
         });
       } else {
         confirmSessionLaunchIntent(store, payload.launchId, {
           ticketId,
-          provider: sessionProviderFor?.(ticketId) ?? '',
+          provider: lifecycleProvider ?? '',
           providerSessionId: payload.session_id,
           at: nowIso(),
         });
