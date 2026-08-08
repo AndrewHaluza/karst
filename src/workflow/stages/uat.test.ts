@@ -1154,4 +1154,45 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     const run = listProcessRuns(store, id)[0]!;
     expect(seen).toEqual([{ callSite: 'uat-tester', ticketId: id, processRunId: run.id }]);
   });
+
+  // Finding 13 follow-up: the execution-wide cap must never skip a repository.
+  // Repo A fills the budget with 100 lows; repo B's later `critical` still gets
+  // its adapter call and survives the single severity-ranked slice.
+  it('asks EVERY repository Tester before capping: a later critical survives a full cap of lows', async () => {
+    const adapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used by the tester');
+      },
+      runHeadless: async (headlessOpts) => ({
+        sessionId: '',
+        verdict: null,
+        raw:
+          headlessOpts.cwd === '/wt/web'
+            ? JSON.stringify(
+                Array.from({ length: 100 }, (_, i) => ({ severity: 'low' as const, title: `low${i}`, detail: '' })),
+              )
+            : JSON.stringify([{ severity: 'critical' as const, title: 'data loss', detail: '' }]),
+      }),
+    };
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      testerDeps({
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    const rows = listUatFindings(store, id);
+    expect(rows).toHaveLength(100);
+    expect(rows[0]).toMatchObject({ severity: 'critical', repo: '/api' });
+  });
 });

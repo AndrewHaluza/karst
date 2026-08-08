@@ -23,6 +23,7 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
+import type { Severity } from '../../manifest/types.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
@@ -63,7 +64,10 @@ export interface RunUatTesterOpts {
   /**
    * ONE cap for the whole execution, across every target (Finding 13) —
    * observations beyond it are truncated by severity exactly like review's
-   * `maxFindings`, and later targets are not asked once the budget is spent.
+   * `maxFindings`. The cap is applied ONCE, after every configured target has
+   * been asked: a repository that fills the budget never starves a later one,
+   * and no single response's parse can exceed the cap on its own (memory
+   * stays bounded per response).
    */
   maxObservations?: number;
 }
@@ -79,6 +83,15 @@ export type TesterRunResult =
   | { kind: 'interrupted' };
 
 export const DEFAULT_MAX_TESTER_OBSERVATIONS = 100;
+
+/** Rank for the cap sort — lower survives a cut first. Closed over the same `Severity` vocabulary `uat_findings` records. */
+const SEVERITY_RANK: Readonly<Record<Severity, number>> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+};
 
 export interface TesterDeps {
   /** Injected clock, so tests are deterministic. */
@@ -149,13 +162,8 @@ export async function runUatTester(
     finishProcessRun(store, run.id, status, now(), resultKind);
   };
 
-  const observations: UatFindingInput[] = [];
-  // Finding 13: ONE execution-wide cap across every target — the budget is
-  // tracked OUTSIDE the target loop and shrinks as each target contributes,
-  // so a 10-repository run can never persist ten times `maxObservations`.
-  // A target's parse is capped at what the execution has left; when the
-  // budget hits zero the remaining targets are never even asked.
-  let remaining = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
+  const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
+  const collected: UatFindingInput[] = [];
   try {
     for (const target of opts.targets) {
       if (opts.signal?.aborted) break;
@@ -169,12 +177,18 @@ export async function runUatTester(
           processRunId: run.id,
         },
       });
+      if (opts.signal?.aborted) break;
+      // Parse at most the execution cap from this one response — a single
+      // target can never blow memory past the cap, whatever it returns.
+      // Finding 13 follow-up: the budget is NOT a reason to skip a target;
+      // every configured repository is asked, and the cap is applied once,
+      // after collection.
       const parsed = parseFindings(
         result.raw,
         {
           repo: target.repo,
           worktreePath: target.worktreePath,
-          max: remaining,
+          max: cap,
         },
         opts.warn,
       ).map((f) => ({
@@ -184,14 +198,24 @@ export async function runUatTester(
         line: f.line,
         title: f.title,
       }));
-      observations.push(...parsed);
-      remaining -= parsed.length;
-      if (remaining === 0) break;
+      collected.push(...parsed);
     }
     if (opts.signal?.aborted) {
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
     }
+    // The execution-wide cap is applied ONCE over everything every target
+    // contributed, ranked by severity (critical first) and stable — ties keep
+    // their original target/observation order — before the single slice.
+    const observations = collected
+      .map((finding, order) => ({ finding, order }))
+      .sort(
+        (a, b) =>
+          SEVERITY_RANK[a.finding.severity] - SEVERITY_RANK[b.finding.severity] ||
+          a.order - b.order,
+      )
+      .slice(0, cap)
+      .map(({ finding }) => finding);
     const findingIds = recordUatFindings(store, {
       ticketId: opts.ticketId,
       processRunId: run.id,

@@ -215,6 +215,84 @@ describe('runUatTester', () => {
     expect(calls).toHaveLength(2);
   });
 
+  // Finding 13 follow-up: the cap used to BREAK out of the target loop the
+  // moment the budget hit zero, so repo A's 100 lows meant repo B was never
+  // even asked — a later `critical` was silently discarded. The cap is
+  // execution-wide WITHOUT skipping repositories: every target is asked, the
+  // collection is ranked by severity, and the cut happens exactly once.
+  it('asks EVERY target before capping: a later critical survives a full cap of earlier lows', async () => {
+    const lows = (n: number): string =>
+      JSON.stringify(
+        Array.from({ length: n }, (_, i) => ({ severity: 'low' as const, title: `low${i}`, detail: '' })),
+      );
+    const { adapter, calls } = fakeAdapter(async (headlessOpts) => ({
+      sessionId: '',
+      verdict: null,
+      raw:
+        headlessOpts.cwd === '/wt/web'
+          ? lows(100)
+          : JSON.stringify([{ severity: 'critical' as const, title: 'data loss', detail: '' }]),
+    }));
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        maxObservations: 100,
+        targets: [
+          { repo: '/web', worktreePath: '/wt/web' },
+          { repo: '/api', worktreePath: '/wt/api' },
+        ],
+        warn: () => {},
+      }),
+      { now },
+    );
+    expect(res.kind).toBe('observed');
+    // The cap never skipped repo B: both adapters ran.
+    expect(calls).toHaveLength(2);
+    const rows = listUatFindings(store, ticketId);
+    expect(rows).toHaveLength(100);
+    // The severity rank cut: the later critical outranks the 100 earlier lows
+    // and survives the single slice; exactly 99 of the lows remain.
+    expect(rows[0]).toMatchObject({ severity: 'critical', repo: '/api' });
+    const lowsKept = rows.filter((f) => f.severity === 'low');
+    expect(lowsKept).toHaveLength(99);
+    // Stable within the rank: the kept lows hold their original report order.
+    expect(lowsKept.map((f) => f.title)).toEqual(Array.from({ length: 99 }, (_, i) => `low${i}`));
+  });
+
+  it('keeps original order among equal severities across targets when the cap cuts', async () => {
+    // repo A reports [high h0, low l0]; repo B reports [high h1]. Cap 2 →
+    // both highs survive, and the h0/h1 tie resolves to original target order
+    // rather than anything the response order could influence.
+    const { adapter, calls } = fakeAdapter(async (headlessOpts) => ({
+      sessionId: '',
+      verdict: null,
+      raw:
+        headlessOpts.cwd === '/wt/web'
+          ? JSON.stringify([
+              { severity: 'high' as const, title: 'h0', detail: '' },
+              { severity: 'low' as const, title: 'l0', detail: '' },
+            ])
+          : JSON.stringify([{ severity: 'high' as const, title: 'h1', detail: '' }]),
+    }));
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        maxObservations: 2,
+        targets: [
+          { repo: '/web', worktreePath: '/wt/web' },
+          { repo: '/api', worktreePath: '/wt/api' },
+        ],
+        warn: () => {},
+      }),
+      { now },
+    );
+    expect(res.kind).toBe('observed');
+    expect(calls).toHaveLength(2);
+    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['h0', 'h1']);
+  });
+
   it('supersedes a still-running Tester run of the same process as stale the moment a fresh one opens', async () => {
     // A run still `running` when a second one opens is exactly the
     // destroyed-run case a host restart produces: the driver single-flights,
