@@ -970,28 +970,18 @@
   // unrelated refresh. The follow-up message replaces it wholesale — including
   // with an empty list when resolution fails — so it cannot go stale unnoticed.
   let gateOptions = { uat: [], review: [] };
-  // Ship-in-flight view state. `shipping` is set the instant the user clicks
-  // Confirm ship — BEFORE any host round trip — so the click always registers
-  // visibly. It stays true (overriding every state push, which still reads the
-  // ship stage as "ready") until the ship stage resolves: advanced past ship
-  // (success) or landed failed (error). `shipOps` is per-repo/per-step live
-  // state the host streams via `ship-progress`, overlaid onto the Inside block;
-  // `shipDone` is the brief post-success flash.
-  //
   // `shipRequestId` / `mergeRequests` / `prRefreshId` below are the runtime's
-  // pending bookkeeping (karstBeginPending/karstSettle) for these same three
-  // controls. They are tracked SEPARATELY from `shipping`/`openMergeRepos`'s
-  // fellow view-state because ship/merge/refresh-prs are the one place this
-  // file's full-innerHTML re-render (§ render()) collides with the runtime's
-  // element-keyed pending map: a `state` push mid-ship replaces the "Confirm
-  // ship" button with a brand-new DOM node, so a pending flag living only on
-  // the OLD (now detached) element would vanish from the redraw even though
-  // the request is still outstanding. Keeping the requestId here — consulted
-  // by the render functions below — is what survives that replacement; the
-  // runtime is still what emits the toast and the `aria-busy`/`disabled` pair
-  // on whichever element is live when a request begins or ends.
-  let shipping = false;
-  let shipOps = null;
+  // pending bookkeeping (karstBeginPending/karstSettle) for the ship/merge/
+  // refresh-prs controls. They are tracked SEPARATELY from the view state
+  // because ship/merge/refresh-prs are the one place this file's full-innerHTML
+  // re-render (§ render()) collides with the runtime's element-keyed pending
+  // map: a `state` push mid-ship replaces the "Confirm ship" button with a
+  // brand-new DOM node, so a pending flag living only on the OLD (now detached)
+  // element would vanish from the redraw even though the request is still
+  // outstanding. Keeping the requestId here — consulted by the render functions
+  // below — is what survives that replacement; the runtime is still what emits
+  // the toast and the `aria-busy`/`disabled` pair on whichever element is live
+  // when a request begins or ends. `shipDone` is the brief post-success flash.
   let shipDone = null;
   let shipRequestId = null;
   // Per-repo merge-in-flight request ids, keyed by repo path. NOT persisted: a
@@ -1003,7 +993,7 @@
   let mergeRequests = {};
   // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
   // state, exactly like `selectedStage`: render() replaces #prs wholesale on
-  // every `state` push AND every ship-progress tick, so a disclosure that is
+  // every `state` push AND every inside-progress tick, so a disclosure that is
   // open only in the DOM — and the reader's scroll position inside it — would
   // snap shut on the very next one. Never in DashboardState, never
   // round-tripped through the host; only the `toggle` listener below mutates
@@ -1035,57 +1025,6 @@
   // dashboard, so it is never persisted here — a stored copy could only go
   // stale against another panel's toggle. The host pushes it on every open.
   let bindEnabled = false;
-
-  // The steps a ship COULD show, in the order they happen. `describe` is
-  // omitted unless it's actually touched (a ticket with no agent adapter never
-  // fires it, and a permanently-pending row would misreport that).
-  const SHIP_STEP_ORDER = ['commit', 'push', 'describe', 'pr', 'merge'];
-  const SHIP_BASE_STEPS = ['commit', 'push', 'pr', 'merge'];
-
-  function seedShipOps(worktrees) {
-    const map = {};
-    for (const w of worktrees || []) map[w.repo] = {};
-    return map;
-  }
-
-  // Pure: repo list + accumulated per-repo/per-step events → ordered StageOp[].
-  // Kept separate from rendering so the shape mirrors `StageOp` exactly and the
-  // logic reads the same as the host's `shipInside`/`gateOp` pending rows.
-  function flattenShipOps(worktrees, opsByRepo) {
-    const out = [];
-    for (const w of worktrees || []) {
-      const touched = (opsByRepo && opsByRepo[w.repo]) || {};
-      const steps = SHIP_STEP_ORDER.filter(
-        (s) => SHIP_BASE_STEPS.includes(s) || Object.prototype.hasOwnProperty.call(touched, s),
-      );
-      // A host-supplied detail (the idempotent-skip / merge-failure notes) must
-      // not silently replace the repo name on a multi-repo ship — otherwise two
-      // repos' "note" rows read identically with no way to tell them apart.
-      const repoTag = worktrees.length > 1 ? w.repoDisplay || w.repo : '';
-      for (const step of steps) {
-        const row = touched[step];
-        const base = (row && row.detail) || w.repoDisplay || w.repo;
-        out.push({
-          status: row ? row.status : 'pending',
-          name: step,
-          detail: repoTag && row && row.detail ? `${repoTag}: ${base}` : base,
-          duration: '',
-        });
-      }
-    }
-    return out;
-  }
-
-  // Overlay the live per-step ops onto the ship strip while a ship is in
-  // flight and the ship stage is the one selected — every other stage/state
-  // reads `state.inside` exactly as the host built it.
-  function shippingView(state, sel) {
-    if (!shipping || sel !== 'ship' || !state.inside || !state.inside.ship) return state;
-    return {
-      ...state,
-      inside: { ...state.inside, ship: { ...state.inside.ship, ops: flattenShipOps(state.worktrees, shipOps) } },
-    };
-  }
 
   // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
   // omitted while a stage is still running (no endedAt yet).
@@ -1283,37 +1222,6 @@
     if (target && typeof target.focus === 'function') target.focus();
   }
 
-  // What happens inside the selected stage. Three shapes, because a stage has
-  // three things it can be: it ran, it is running, or it has not run — and the
-  // last shows a blurb, because empty rows would imply karst tried and got
-  // nothing back. THE FLAT PATH: the pre-redesign operation rows, kept alive
-  // ONLY for a ship in flight, whose per-repo/per-step `ship-progress` events
-  // predate the ledger and stream the flat shape. Everything else renders the
-  // ledger (`state.insideViews`), where the host ships whole process rows.
-  function renderInsideFlat(strip) {
-    const sel = selectedStage || lastState.stageCurrent || 'scope';
-    const viewing = lastState.stageCurrent && sel !== lastState.stageCurrent;
-    const back = viewing ? STAGE_TITLE[lastState.stageCurrent] || lastState.stageCurrent : '';
-    const vbar = viewing
-      ? `<div class="vbar"><span>Viewing ${esc(strip.title)} — not the current stage.</span>`
-        + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-back`
-        + ` title="Return the strip to the stage the ticket is actually on">Back to ${esc(back)}</button></span></div>`
-      : '';
-
-    const body = strip.ops.length
-      ? `<div class="ops">${strip.ops.map((o) => `<div class="op ${esc(o.status)}">`
-        + `<span class="oglyph">${OP_GLYPH[o.status] || '·'}</span>`
-        + `<span class="oname">${esc(o.name)}</span>`
-        + `<span class="ocmd">${esc(o.detail)}</span>`
-        + `<span class="odur">${esc(o.duration)}</span></div>`).join('')}</div>`
-      : `<div class="blurb">${esc(strip.blurb)}</div>`;
-
-    el('inside').innerHTML = `<div class="act ${viewing ? 'viewing' : ''}">${vbar}`
-      + `<div class="ahead"><span class="adot ${esc(strip.dot)}"></span>`
-      + `<span class="aname">Inside ${esc(strip.title.toLowerCase())}</span>`
-      + `<span class="aclock">${esc(strip.clock)}</span></div>${body}</div>`;
-  }
-
   // ── the inside ledger (the inside redesign) ─────────────────────────────
   // The host ships ONE snapshot per stage (`InsideStageView`): ordered process
   // rows, each carrying pre-built status/detail/counts/identity/evidence and
@@ -1416,13 +1324,6 @@
   }
 
   function renderInside(state, sel) {
-    // Ship-in-flight keeps the flat overlay: `ship-progress` streams the flat
-    // per-repo/per-step shape, and the ledger has nothing to overlay it onto
-    // until the snapshot reflects the ship (shipping flips false only then).
-    if (shipping && sel === 'ship') {
-      renderInsideFlat(shippingView(state, sel));
-      return;
-    }
     const view = (state.insideViews || {})[sel];
     if (!view) { el('inside').innerHTML = ''; return; }
 
@@ -1531,7 +1432,9 @@
     // While a ship is in flight, the real per-step progress lives in the Inside
     // block; this line is a static sentence, never a spinner label — and no
     // button, since the confirm click already happened (no second one to make).
-    if (shipping) {
+    // The in-flight marker is the pending requestId (the old `shipping` flag
+    // is gone), so the hold survives every push until the stage resolves.
+    if (shipRequestId) {
       el('now').innerHTML = `<span class="ntext">${esc('Now: shipping — committing, pushing, and opening PRs for each hot repo.')}</span>`;
       return;
     }
@@ -1563,30 +1466,27 @@
   }
 
   // Decide whether an incoming snapshot ends the in-flight ship. Keyed off host
-  // truth (the ship stage's own status), never the copy: while shipping the
-  // stage sits at `running`, so every push would otherwise rebuild the plain
-  // "Confirm ship" line and wipe the spinner. Success = advanced past ship;
-  // error = ship landed failed (the Now line + fault card then explain it).
+  // truth (the ship stage's own status), never the copy: while the ship runs
+  // the stage sits at `running`, so every push would otherwise rebuild the
+  // plain "Confirm ship" line and wipe the spinner. Success = advanced past
+  // ship; error = ship landed failed (the Now line + fault card then explain
+  // it). The in-flight marker is `shipRequestId` — the old `shipping` flag is
+  // gone with the legacy ship-progress overlay it drove (Finding 12).
   function resolveShipping(state) {
-    if (!shipping) return;
+    const requestId = shipRequestId;
+    if (!requestId) return;
     const atShip = state.stageCurrent === 'ship';
     const failed = atShip && state.currentStage && state.currentStage.status === 'failed';
-    const requestId = shipRequestId;
     shipRequestId = null;
     if (failed) {
-      shipping = false; // the failed Now line + fault card are the explicit error state
-      shipOps = null;
-      // The fault card already carries the reason inline (UI-R14b territory);
-      // the toast stays generic so the two do not repeat host prose twice.
-      if (requestId) karstSettle(requestId, false);
+      // The failed Now line + fault card are the explicit error state.
+      karstSettle(requestId, false);
     } else if (!atShip) {
-      shipping = false;
-      shipOps = null;
       shipDone = 'success';
-      if (requestId) karstSettle(requestId, true);
+      karstSettle(requestId, true);
       setTimeout(() => { shipDone = null; render(lastState); }, 2400);
     }
-    // else still at ship (running) → hold the spinner across this push, and
+    // else still at ship (running) → hold the sentence across this push, and
     // leave requestId in place (restored below) so a later push can still
     // settle it.
     if (!failed && atShip) shipRequestId = requestId;
@@ -1933,7 +1833,7 @@
     el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done');
     renderAgent(state.agentState);
     renderTrack(state.rail, state.approach, sel);
-    renderInside(shippingView(state, sel), sel);
+    renderInside(state, sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
     renderBlocked(state);
@@ -2040,7 +1940,7 @@
   });
 
   // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired
-  // by a state push or a ship-progress tick, not by this click — restores
+  // by a state push or an inside-progress tick, not by this click — restores
   // exactly the ones the user had open. Listens in the CAPTURE phase: `toggle`
   // does not bubble in every engine, so a bubble-phase delegate on `#prs` could
   // silently miss it.
@@ -2087,7 +1987,7 @@
   // just its type.
   //
   // Rows here render by full innerHTML replacement (every `state` push and
-  // every `ship-progress` tick calls render()), so a per-element `karstAction`
+  // every `inside-progress` tick calls render()), so a per-element `karstAction`
   // binding — which keys pending state to the ONE element it was bound to —
   // would go stale the instant a re-render swaps that element out from under
   // it. This delegated handler instead calls the runtime's underlying pieces
@@ -2117,12 +2017,12 @@
     // Confirm ship kicks off slow backend work (model call + gh pr create).
     // Guard against double-submit and show that the click registered BEFORE
     // the host is even asked — no window where the button looks inert with
-    // work underway.
+    // work underway. The in-flight marker is the pending requestId, which
+    // resolveShipping() settles from the next meaningful state push (the old
+    // `shipping` flag is gone with the legacy ship-progress overlay).
     if (act === 'ship-ticket') {
-      if (shipping) return;
-      shipping = true;
+      if (shipRequestId) return;
       shipDone = null;
-      shipOps = seedShipOps(lastState ? lastState.worktrees : []);
       shipRequestId = karstRequestId();
       karstBeginPending(btn, shipRequestId);
       render(lastState);
@@ -2256,25 +2156,14 @@
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    // Live per-repo/per-step ship progress. Ignored unless a ship is in flight
-    // (a stale message can't resurrect a stale overlay).
-    if (msg.type === 'ship-progress') {
-      if (shipping && msg.event && msg.event.repo) {
-        const e = msg.event;
-        if (!shipOps) shipOps = {};
-        if (!shipOps[e.repo]) shipOps[e.repo] = {};
-        shipOps[e.repo][e.step] = { status: e.status, detail: e.detail };
-        render(lastState);
-      }
-      return;
-    }
     // Transient inside-progress events (the inside redesign): the live header
     // for the ONE operation now running, and the completed process row that
-    // replaces the snapshot's same-id row until the next full snapshot. The
-    // host pushes a snapshot when the stage moves, which retires the overlay
-    // (see the state handler below) — the overlay is a same-tick update, never
-    // a state source. A `cleared` event covers cancellation/supersession with
-    // no invented result.
+    // replaces the snapshot's same-id row until the next full snapshot. Ship
+    // rides this same union (Finding 12) — the legacy `ship-progress` stream
+    // is gone. The host pushes a snapshot when the stage moves, which retires
+    // the overlay (see the state handler below) — the overlay is a same-tick
+    // update, never a state source. A `cleared` event covers
+    // cancellation/supersession with no invented result.
     if (msg.type === 'inside-progress') {
       const e = msg.event;
       if (!e) return;

@@ -1,6 +1,10 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
-import type { InsideProgressEvent } from '../../model/inside/progress.js';
+import {
+  shipFinishedEvent,
+  shipStartedEvent,
+  type InsideProgressEvent,
+} from '../../model/inside/progress.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
@@ -791,6 +795,12 @@ export async function shipTicket(
     startedAt,
   });
 
+  // Live Ship progress rides the SAME generic inside-progress union as gates
+  // and Fix (Finding 12): the whole invocation is one 'ship' process — active
+  // while it runs, a complete process row when it settles. Never the raw
+  // per-repo/per-step structures the dashboard used to derive from.
+  onInsideProgress(shipStartedEvent(opts.ticketId));
+
   // A crash-and-retry arrives with the previous run still `running`: adopt (or
   // refute) exactly the effects it persisted, then the fresh loop below redoes
   // whatever never landed. Runs BEFORE any fresh work — the old run's verdicts
@@ -1293,6 +1303,7 @@ export async function shipTicket(
       verdict: err instanceof Error ? err.message : String(err),
       endedAt: nowIso(),
     });
+    onInsideProgress(shipFinishedEvent(opts.ticketId, 'fail'));
     throw err;
   }
 
@@ -1301,6 +1312,7 @@ export async function shipTicket(
   // not a ship failure, and this must not reach the catch that parks the ticket.
   await recordMergeChecks(store, opts.ticketId, worktrees, git, onProgress, opts.manifest);
   closeShipRun(store, run.id, 'passed', nowIso());
+  onInsideProgress(shipFinishedEvent(opts.ticketId, 'pass'));
 
   // PRs opened → attempt `done`, gated on every one of them reading merged (or
   // there being nothing to merge at all). Ship's own job ends here and its

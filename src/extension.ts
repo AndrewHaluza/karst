@@ -202,7 +202,8 @@ import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
-import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
+import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
+import { shipClearedEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
 import { getPrById } from './store/prs.js';
 import { getShipCommitById } from './store/shipRuns.js';
@@ -1669,7 +1670,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         guardCapability,
         currentManifest,
         () => pushDoneStatus(ticketId, true),
-        (event) => dashboard.postShipProgress(ticketId, event),
+        // Live Ship rides the generic inside-progress union (Finding 12): the
+        // manager has no ship-specific progress channel any more.
+        (event) => dashboard.postInsideProgress(ticketId, event),
         // The inside-action seam: the panel posts only an opaque id; the
         // manager resolves it through the ticket's CURRENT snapshot registry
         // and dispatches the stored host-only target.
@@ -3634,10 +3637,11 @@ function makeDashboardActions(
   // its own: the same push has to fire from the merge click and from the
   // background sweep, so the decision and the reporting live in one host helper.
   onTicketCompleted: () => Promise<void>,
-  // Stream structured per-repo/per-step progress to the dashboard while
+  // Stream the generic inside-progress union (active/completed/cleared) while
   // `shipTicket` runs, so the confirm-ship click has visible progress instead
-  // of a frozen button.
-  onShipProgress: (event: ShipStepEvent) => void,
+  // of a frozen button — ship rides the same channel as gates and Fix, never
+  // the legacy per-repo/per-step `ship-progress` stream (Finding 12).
+  onInsideProgress: (event: InsideProgressEvent) => void,
   // Dispatch one opaque inside action id: the panel posts only the id; the
   // dashboard manager resolves it through the ticket's current registry.
   onInsideAction: (actionId: string) => void,
@@ -3748,7 +3752,8 @@ function makeDashboardActions(
         undefined,
         agentAdapter(),
         undefined,
-        onShipProgress,
+        undefined,
+        onInsideProgress,
       )
         .then(async () => {
           // The PRs are open and the branch is pushed — the irreversible part
@@ -3760,6 +3765,10 @@ function makeDashboardActions(
             await onTicketCompleted();
           }
           afterServerChange();
+          // The fresh snapshot just pushed carries the real commit/push/pr/merge
+          // ledger, so the transient 'ship' overlay is superseded: retire it
+          // rather than leaving a host-authored row past its snapshot.
+          onInsideProgress(shipClearedEvent(ticketId));
         })
         .catch((e) => {
           logError('ship failed', e);
@@ -3768,6 +3777,7 @@ function makeDashboardActions(
           // and deserves an answer to THAT click, not a ticket that quietly goes
           // red. Refresh first so the fault card is there when the toast lands.
           afterServerChange();
+          onInsideProgress(shipClearedEvent(ticketId));
           void vscode.window.showErrorMessage(
             `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
           );

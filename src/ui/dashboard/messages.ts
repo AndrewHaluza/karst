@@ -1,5 +1,4 @@
 import type { DashboardState } from './state.js';
-import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { isHttpUrl } from '../shared/url.js';
 import type { WorktreeStats } from './worktreeStats.js';
 import type { GateOptions } from './gateOptions.js';
@@ -84,14 +83,14 @@ export type WebviewMessage =
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
- * `ship-progress` overlays live ship steps that are not in the store; `bind`
- * carries the window's terminal-binding preference, which is host-owned and
- * likewise absent from `DashboardState`.
+ * `inside-progress` overlays live process events (gates, Fix, and Ship — the
+ * ship lifecycle rides this same union, Finding 12); `bind` carries the
+ * window's terminal-binding preference, which is host-owned and likewise
+ * absent from `DashboardState`.
  */
 export type HostMessage =
   | { type: 'state'; state: DashboardState }
   | { type: 'worktree-stats'; stats: WorktreeStats[] }
-  | { type: 'ship-progress'; event: ShipStepEvent }
   | { type: 'inside-progress'; event: InsideProgressEvent }
   | { type: 'bind'; enabled: boolean }
   /**

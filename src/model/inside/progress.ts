@@ -158,3 +158,44 @@ export function validateInsideProgressEvent(raw: unknown): InsideProgressEvent |
   }
   return null;
 }
+
+/**
+ * The ship lifecycle as ONE generic 'ship' process (Finding 12): the whole
+ * invocation is a single operation, so it speaks the same union as gates and
+ * Fix — `active` while it runs, one complete process row when it settles,
+ * `cleared` when the following authoritative snapshot supersedes the overlay.
+ * Never the raw per-repo/per-step structures the legacy `ship-progress`
+ * streamed; the snapshot (and the real commit/push/pr/merge processes it
+ * carries) is the ledger this overlays.
+ */
+
+/** The live header while a ship invocation runs. */
+export function shipStartedEvent(ticketId: number): InsideProgressEvent {
+  return {
+    kind: 'active',
+    ticketId,
+    stage: 'ship',
+    processId: 'ship',
+    live: { status: 'run', label: 'Shipping' },
+  };
+}
+
+/** The complete process row a settled ship leaves behind. */
+export function shipFinishedEvent(ticketId: number, status: 'pass' | 'fail'): InsideProgressEvent {
+  return {
+    kind: 'completed',
+    ticketId,
+    stage: 'ship',
+    process: { id: 'ship', kind: 'ship', label: 'Ship', status },
+  };
+}
+
+/** Retire the ship overlay once an authoritative snapshot supersedes it. */
+export function shipClearedEvent(ticketId: number): InsideProgressEvent {
+  return {
+    kind: 'cleared',
+    ticketId,
+    stage: 'ship',
+    processId: 'ship',
+  };
+}

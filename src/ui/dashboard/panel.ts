@@ -3,7 +3,6 @@ import type { AgentProvider } from '../../manifest/types.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
-import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
 import { existsSync, realpathSync } from 'node:fs';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
@@ -347,23 +346,11 @@ export class DashboardManager {
   }
 
   /**
-   * Push a transient ship-progress event to a ticket panel; no-op if not open.
-   *
-   * Separate from `pushState` on purpose: the ship stage's live per-step state
-   * is not in the store — `buildDashboardState` cannot re-derive it — so it
-   * rides its own ephemeral message that the webview overlays on the Inside
-   * block while a ship is in flight, then discards on the next real state push.
-   */
-  postShipProgress(ticketId: number, event: ShipStepEvent): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    panel.postMessage({ type: 'ship-progress', event });
-  }
-
-  /**
    * Push a transient inside-progress event to a ticket panel; no-op if not open.
    * Validated at this boundary (`parseInsideProgress`) — the webview is a trust
-   * boundary in both directions, and a malformed event must never ship.
+   * boundary in both directions, and a malformed event must never ship. Live
+   * Ship rides this same generic union (Finding 12); there is no ship-specific
+   * progress channel.
    */
   postInsideProgress(ticketId: number, event: InsideProgressEvent): void {
     const panel = this.panels.get(ticketId);

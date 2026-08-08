@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { routeAction, parseWebviewMessage, parseInsideProgress, type DashboardActions } from './messages.js';
+
+const MESSAGES_SOURCE = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'messages.ts'),
+  'utf8',
+);
 
 function actions(): DashboardActions {
   return {
@@ -454,5 +462,15 @@ describe('parseInsideProgress', () => {
     expect(
       parseInsideProgress({ kind: 'cleared', ticketId: 1, stage: 'uat', processId: 'gates' }),
     ).toEqual({ kind: 'cleared', ticketId: 1, stage: 'uat', processId: 'gates' });
+  });
+});
+
+describe('legacy ship-progress retirement (Finding 12)', () => {
+  it('no longer carries the legacy ship-progress host message or its step type', () => {
+    // Ship progress flows exclusively through the generic inside-progress
+    // union (progress.ts): the per-repo/per-step `ship-progress` member and
+    // its ShipStepEvent import must be gone from the messages boundary.
+    expect(MESSAGES_SOURCE).not.toMatch(/ship-progress/);
+    expect(MESSAGES_SOURCE).not.toMatch(/ShipStepEvent/);
   });
 });

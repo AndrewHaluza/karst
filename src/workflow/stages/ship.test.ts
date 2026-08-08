@@ -10,6 +10,7 @@ import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listShipEvidence } from '../../store/shipRuns.js';
 import { transition } from '../machine.js';
 import { shipTicket, type ShipStepEvent } from './ship.js';
+import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { GhRunner } from '../../integrations/github.js';
 import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -1529,6 +1530,86 @@ setTimeout(() => {
 
       const merge = events.find((e) => e.step === 'merge' && e.status !== 'run');
       expect(merge?.status).toBe('fail');
+    });
+  });
+
+  // Finding 12: live Ship flows through the SAME generic inside-progress union
+  // as gates and Fix — one 'ship' process, `active` while the invocation runs
+  // and a complete process row when it settles — never the raw per-repo/
+  // per-step `ship-progress` structures the dashboard used to derive from.
+  describe('inside progress events', () => {
+    it('emits an active ship event when the invocation starts', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const events: InsideProgressEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        fakeAdapter(),
+        fakeGit().git,
+        () => {},
+        (e) => events.push(e),
+      );
+
+      expect(events[0]).toEqual({
+        kind: 'active',
+        ticketId: id,
+        stage: 'ship',
+        processId: 'ship',
+        live: { status: 'run', label: 'Shipping' },
+      });
+    });
+
+    it('emits a completed pass process when the ship settles', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const events: InsideProgressEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        fakeAdapter(),
+        fakeGit().git,
+        () => {},
+        (e) => events.push(e),
+      );
+
+      expect(events.filter((e) => e.kind === 'completed')).toContainEqual({
+        kind: 'completed',
+        ticketId: id,
+        stage: 'ship',
+        process: { id: 'ship', kind: 'ship', label: 'Ship', status: 'pass' },
+      });
+    });
+
+    it('emits a completed fail process when the ship errors', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const events: InsideProgressEvent[] = [];
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'push') {
+          return { stdout: '', stderr: "fatal: 'origin' does not appear to be a git repository", exitCode: 128 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await expect(
+        shipTicket(
+          store,
+          { ticketId: id },
+          fakeGh().gh,
+          fakeAdapter(),
+          git,
+          () => {},
+          (e) => events.push(e),
+        ),
+      ).rejects.toThrow(/does not appear to be a git repository/);
+
+      expect(events.filter((e) => e.kind === 'completed')).toContainEqual({
+        kind: 'completed',
+        ticketId: id,
+        stage: 'ship',
+        process: { id: 'ship', kind: 'ship', label: 'Ship', status: 'fail' },
+      });
     });
   });
 

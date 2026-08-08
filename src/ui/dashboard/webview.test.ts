@@ -551,43 +551,49 @@ describe('dashboard webview.html', () => {
    * Confirm-ship progress feedback. The bug: clicking Confirm ship kicked off
    * slow backend work (model call + `gh pr create`) with zero UI change until it
    * finished — the button looked inert and users could not tell the click even
-   * registered. Later, the live progress it DID show was free text hijacking the
-   * Now line instead of structured rows in the Inside block — these guard the
-   * pieces that fix both; the pixels need F5.
+   * registered. Live feedback now rides the generic inside-progress protocol
+   * (Finding 12): the host streams `active`/`completed`/`cleared` ship events
+   * that overlay the ledger, and the click's own pending lifecycle is keyed to
+   * `shipRequestId` — the same runtime every other control uses. The old
+   * `shipping` flag and its flat `ship-progress` overlay are gone.
    */
   it('registers the confirm-ship click before the host round trip', () => {
-    // shipping is flipped and shipOps seeded inside the click handler, not on
-    // the next state push — so there is no window where the button looks inert.
+    // shipRequestId is set and the pending lifecycle starts inside the click
+    // handler, not on the next state push — so there is no window where the
+    // button looks inert.
     expect(HTML).toMatch(/act === 'ship-ticket'/);
-    expect(HTML).toMatch(/shipping = true/);
-    expect(HTML).toMatch(/shipOps = seedShipOps\(/);
+    expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
+    expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
   });
 
   it('guards against a double confirm-ship submit while one is in flight', () => {
-    // Re-clicking must not fire a second ship. The handler bails when already
-    // shipping.
-    expect(HTML).toMatch(/if \(shipping\) return/);
+    // Re-clicking must not fire a second ship. The pending requestId is the
+    // in-flight marker (the old `shipping` boolean is gone).
+    expect(HTML).toMatch(/if \(shipRequestId\) return/);
   });
 
   it('holds the ship Now line across state pushes until the stage resolves', () => {
     // Every push still reads the ship stage as "ready" (it sits at running), so
-    // renderNow must short-circuit to a static sentence while shipping, and the
-    // resolution must key off host stage truth — not the button copy.
-    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipping\)/);
+    // renderNow must short-circuit to a static sentence while a ship is in
+    // flight, and the resolution must key off host stage truth — not the button
+    // copy. The hold keys off the in-flight requestId, never a `shipping` flag.
+    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipRequestId\)/);
     expect(HTML).toMatch(/stageCurrent === 'ship'/);
     expect(HTML).toMatch(/status === 'failed'/);
+    expect(HTML).not.toMatch(/if \(shipping\)/);
   });
 
-  it('feeds live ship-progress events into the Inside block, not the Now line', () => {
-    // The live per-step state ("pushing", "describing") is not in
-    // DashboardState; it rides its own transient message, applied only while a
-    // ship is in flight, and is read by renderInside via the shippingView
-    // overlay — never rendered as free text on the Now line.
-    expect(HTML).toContain("'ship-progress'");
-    expect(HTML).toMatch(/shipOps\[e\.repo\]\[e\.step\] = /);
-    expect(HTML).toMatch(/renderInside\(shippingView\(state, sel\), sel\)/);
-    expect(HTML).not.toContain('renderShipProgress');
-    expect(HTML).not.toMatch(/shipLabel/);
+  it('feeds live Ship events through the generic inside-progress protocol, never a flat overlay', () => {
+    // Finding 12: the per-repo/per-step `ship-progress` stream is gone; ship's
+    // lifecycle rides the same `inside-progress` union as gates and Fix, and
+    // renderInside always consumes the authoritative ledger + generic overlays.
+    // (The word "shipping" still appears inside the host's static Now sentence.)
+    expect(HTML).toContain("'inside-progress'");
+    expect(HTML).not.toContain("'ship-progress'");
+    expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
+    expect(HTML).not.toMatch(/shipOps|seedShipOps/);
+    expect(HTML).not.toMatch(/renderInside\(shippingView/);
+    expect(HTML).not.toMatch(/renderInsideFlat/);
   });
 
   it('shows the follow-up button only once the ticket is done', () => {
@@ -656,7 +662,7 @@ describe('dashboard webview.html', () => {
 
   it('keeps an open merge disclosure open across a re-render, like the stage selection', () => {
     // render() replaces #prs wholesale on every `state` push AND every
-    // ship-progress tick ("pushState fires on every driver progress tick",
+    // inside-progress tick ("pushState fires on every driver progress tick",
     // above) — a user reading a long conflict list mid-ship must not have it
     // snap shut under them. So which disclosures are open is local view state,
     // exactly like `selectedStage`: never inside DashboardState, never
@@ -856,16 +862,16 @@ describe('dashboard webview.html', () => {
   });
 
   /**
-   * The three ad-hoc pending booleans this task replaces: `shipping`,
-   * `mergePending`, `prRefreshing`. `shipping` itself survives (it drives the
-   * ship-progress overlay content, which the task explicitly keeps) but is now
-   * PAIRED with `shipRequestId` for the runtime lifecycle; the other two are
-   * gone by name, replaced by requestId-keyed state that reports a real
-   * terminal outcome instead of clearing identically on every state push.
+   * The three ad-hoc pending booleans this work replaced: `shipping`,
+   * `mergePending`, `prRefreshing`. All three are gone — `shipping` with the
+   * legacy ship-progress overlay it drove (Finding 12) — replaced by
+   * requestId-keyed state that reports a real terminal outcome instead of
+   * clearing identically on every state push.
    */
   it('replaces the three ad-hoc pending booleans with the runtime lifecycle', () => {
     expect(HTML).not.toMatch(/\bmergePending\b/);
     expect(HTML).not.toMatch(/\bprRefreshing\b/);
+    expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
     expect(HTML).toMatch(/let mergeRequests = \{\}/);
     expect(HTML).toMatch(/let prRefreshId = null/);
     expect(HTML).toMatch(/let shipRequestId = null/);
@@ -1095,20 +1101,36 @@ describe('dashboard webview.html', () => {
   });
 
   // ── inside ledger (the inside redesign) ─────────────────────────────────
-  it('renders the inside ledger from state.insideViews, not the flat ops', () => {
+  it('renders the inside ledger from state.insideViews, always (Finding 12)', () => {
     // The redesigned block consumes the six-stage view contract: ordered
-    // process rows with evidence. The flat `state.inside` path survives ONLY
-    // for a ship in flight (its per-repo/per-step ship-progress events stream
-    // the flat shape), so the renderer must branch on that and nothing else.
+    // process rows with evidence. There is no flat fallback any more — live
+    // Ship events overlay the ledger through the generic inside-progress
+    // protocol (live header / completed process row), so the renderer always
+    // reads `state.insideViews[sel]`.
     expect(HTML).toMatch(/state\.insideViews/);
     expect(HTML).toMatch(/function processRowHtml/);
-    expect(HTML).toMatch(/function renderInsideFlat/);
-    expect(HTML).toMatch(/shipping && sel === 'ship'/);
     expect(HTML).toMatch(/class="procs"/);
-    // The flat map lives ONLY inside the ship-in-flight renderer; the ledger
-    // path reads the six-stage view contract, never the flat ops.
-    expect(HTML).toMatch(/function renderInsideFlat[\s\S]*strip\.ops\.map/);
     expect(HTML).toMatch(/function renderInside\(state, sel\)[\s\S]*state\.insideViews/);
+    expect(HTML).not.toMatch(/function renderInsideFlat/);
+    expect(HTML).not.toMatch(/shipping && sel === 'ship'/);
+  });
+
+  it('overlays live Ship events onto the authoritative ledger (Finding 12)', () => {
+    // Step 2 of the remediation: feed an authoritative Ship InsideStageView,
+    // overlay active and completed Ship process events. `active` rides the
+    // stage header as the live line, `completed` replaces it with a process
+    // row via overlayProcesses — the ledger (state.insideViews) stays the
+    // base, and no per-repository step is derived in the webview.
+    expect(HTML).toMatch(/const view = \(state\.insideViews \|\| \{\}\)\[sel\]/);
+    expect(HTML).toMatch(/const alive = live && live\.active/);
+    expect(HTML).toMatch(/const procs = overlayProcesses\(view\)/);
+    expect(HTML).toMatch(/function overlayProcesses/);
+    expect(HTML).not.toMatch(/renderInsideFlat/);
+    expect(HTML).not.toMatch(/flattenShipOps/);
+  });
+
+  it('retires the legacy ship derivation wholesale (Finding 12, step 6)', () => {
+    expect(HTML).not.toMatch(/SHIP_STEP_ORDER|flattenShipOps|shippingView|renderInsideFlat/);
   });
 
   it('renders a process row from the snapshot, never deriving a verdict', () => {
