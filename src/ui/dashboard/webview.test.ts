@@ -1175,4 +1175,30 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/setState\(\{ state: lastState, sel: selectedStage, srvFilter: srvFilter \}\)/);
     expect(HTML).not.toMatch(/liveOps: /);
   });
+
+  it('keys the evidence block by its closed kind for specialized CSS', () => {
+    // Every renderer consumes the same EvidenceRow template; the kind rides
+    // on the container as a class so a per-kind treatment (timeline spine,
+    // gate chips, receipt list) hangs off one selector.
+    expect(HTML).toMatch(/pev pev-\$\{esc\(p\.evidence\.kind\)\}/);
+  });
+
+  it('draws the timeline connector from the structural field, never the label', () => {
+    // A switch/resume row carries `connector` from the host; the webview maps
+    // the CLOSED vocabulary to the arrow glyph + static tooltip and must not
+    // guess a switch from parsing the label (phase names are prose).
+    expect(HTML).toMatch(/r\.connector === 'switch' \|\| r\.connector === 'resume'/);
+    expect(HTML).toMatch(/econn/);
+    expect(HTML).toMatch(/Provider switched here/);
+    expect(HTML).toMatch(/Session resumed here/);
+    expect(HTML).not.toMatch(/r\.label === 'switch'/);
+  });
+
+  it('never reads the evidence kind to derive a verdict', () => {
+    // Kind is a presentation hint only: the row statuses are host-set, and a
+    // renderer that switches on kind to invent a status would break the
+    // "webview receives verdicts" invariant.
+    expect(HTML).toMatch(/esc\(p\.evidence\.kind\)/);
+    expect(HTML).not.toMatch(/evidence\.kind === .*status/);
+  });
 });

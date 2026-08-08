@@ -483,6 +483,9 @@ describe('implementationSessionProcess', () => {
     // A switch is not progress: it carries no status node beyond the shared note.
     expect(switched!.status).toBe('note');
     expect(switched!.detail).toBe('Codex · GPT-5.6 Sol');
+    // The relationship marker is STRUCTURAL: the webview draws the arrow from
+    // `connector`, never from parsing the label.
+    expect(switched!.connector).toBe('switch');
   });
 
   it('keeps repeated phase events chronological, interleaved with switches', () => {
@@ -583,6 +586,7 @@ describe('implementationSessionProcess', () => {
     const timeline = rows(process);
     expect(timeline.map((r) => r.label)).toEqual(['started', 'resumed']);
     expect(timeline[1]!.detail).toBe('Claude Code · Opus 4.8');
+    expect(timeline[1]!.connector).toBe('resume');
   });
 
   it('omits tokens when nothing was measured — never a zero', () => {

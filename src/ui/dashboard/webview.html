@@ -542,6 +542,10 @@
   .erow .eglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
   .erow.pass .eglyph{color:var(--k-passed)} .erow.fail .eglyph{color:var(--k-failed)}
   .erow.run .eglyph{color:var(--k-running)} .erow.wait .eglyph{color:var(--k-attention)}
+  /* The timeline's relationship arrow: the same execution continuing through
+     a provider switch or resume. Aligned with the status glyph column above,
+     so the segments read as one spine without becoming a diagram. */
+  .erow .econn{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-sm);color:var(--k-text-dim);flex:none}
   .erow .elabel{font-size:var(--k-text-sm);color:var(--k-text)}
   .erow .edetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
     overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -1364,8 +1368,15 @@
 
   function evidenceRowHtml(r) {
     const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
+    // The timeline's relationship marker: this row continues the SAME
+    // execution through a provider switch or a resume. Structural (the host
+    // sets `connector`), never guessed from the label. Static tooltip copy
+    // from the closed vocabulary, like the action titles above.
+    const conn = r.connector === 'switch' || r.connector === 'resume'
+      ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
+      : '';
     const act = r.action ? insideActionBtnHtml(r.action) : '';
-    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}`
+    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
       + `<span class="elabel">${esc(r.label)}</span>`
       + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
       + (r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '')
@@ -1383,7 +1394,7 @@
       ? `<button type="button" class="chev" data-chev="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}"`
         + ` aria-label="Show ${esc(p.label)} details" title="Show ${esc(p.label)} details">${open ? '–' : '+'}</button>`
       : '';
-    const ev = hasEv && open ? `<div class="pev">${p.evidence.rows.map(evidenceRowHtml).join('')}</div>` : '';
+    const ev = hasEv && open ? `<div class="pev pev-${esc(p.evidence.kind)}">${p.evidence.rows.map(evidenceRowHtml).join('')}</div>` : '';
     return `<div class="proc ${esc(p.status)}"><div class="prow"><span class="pglyph">${glyph}</span>`
       + `<span class="pname">${esc(p.label)}</span>${identityChipHtml(p)}${tokensHtml(p.tokens)}`
       + `<span class="pdetail">${esc(p.detail || '')}</span>`

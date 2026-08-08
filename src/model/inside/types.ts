@@ -239,6 +239,13 @@ export interface EvidenceRow {
   status?: InsideStatus;
   duration?: string;
   action?: TypedInsideAction;
+  /**
+   * Timeline-only relationship marker: this row continues the SAME execution
+   * through a provider switch or a session resume. Structural and closed —
+   * the webview draws it as the connector glyph, it never parses `label` to
+   * guess that a row is a switch.
+   */
+  connector?: 'switch' | 'resume';
 }
 
 /**

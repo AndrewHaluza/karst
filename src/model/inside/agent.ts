@@ -316,10 +316,13 @@ function timelineEvents(
       at: segment.startedAt,
       row: {
         // A switch is not progress: it carries no status node beyond the
-        // shared note. Only the provider/model it moved to is stated.
+        // shared note. Only the provider/model it moved to is stated. The
+        // connector is STRUCTURAL — the webview draws the relationship arrow
+        // from it, never from parsing `label`.
         status: 'note',
         label: segment.reason === 'switch' ? 'switch' : 'resumed',
         detail: `${view.providerLabel} · ${view.modelLabel}`,
+        connector: segment.reason,
       },
     });
   }
