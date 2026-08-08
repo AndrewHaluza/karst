@@ -1508,6 +1508,51 @@ describe('runReview — findings process run (Task 8)', () => {
       status: 'interrupted',
     });
   });
+
+  // Residual-fix regression: an adapter that REJECTS on abort is a Stop — the
+  // run must return stopped with the process interrupted, never a `ran` whose
+  // AbortError was recorded as a crash (which would let a cancelled review
+  // read as a verdict-deciding lane).
+  it('an in-flight adapter rejection on abort is a Stop — interrupted process, no verdict, no round, no transition', async () => {
+    const controller = new AbortController();
+    const adapter: AgentAdapter = {
+      ...findingsAgent('[]'),
+      runHeadless: ({ signal }) =>
+        new Promise<never>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        }),
+    };
+    const pending = runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig() }),
+        signal: controller.signal,
+      },
+      deps({
+        reviewProcess: {
+          assignment: { agentName: 'Review Agent', provider: 'claude' },
+          adapter,
+        },
+      }),
+    );
+    // Gates resolve in microtasks; the findings call hangs on the adapter, so
+    // by the next macrotask it is in flight — aborting now rejects it mid-call.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    const res = await pending;
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'review',
+      resultKind: 'interrupted',
+      status: 'interrupted',
+    });
+  });
 });
 
 /**

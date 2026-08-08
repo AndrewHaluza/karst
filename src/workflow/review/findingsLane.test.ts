@@ -224,6 +224,36 @@ describe('runFindingsLane', () => {
     expect(runHeadless).toHaveBeenCalledTimes(1);
   });
 
+  // Residual-fix regression: an adapter that REJECTS on abort must read as the
+  // Stop it is — the signal being aborted is the cancellation itself, never a
+  // crash. Before the fix, the catch recorded the AbortError as an ordinary
+  // crash and returned `ran`, so a cancellation during a real call looked like
+  // a review that had run.
+  it('returns stopped, not ran, when the adapter rejects on abort', async () => {
+    const controller = new AbortController();
+    const runHeadless = vi.fn(
+      ({ signal }: { signal?: AbortSignal }) =>
+        new Promise<never>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        }),
+    );
+    const pending = runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET],
+      ticketId: 1,
+      signal: controller.signal,
+    });
+    // The call is in flight and hangs until the signal aborts; by the next
+    // macrotask the listener above is registered, so aborting now rejects it
+    // while the lane is still waiting on it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    const outcome = await pending;
+    expect(outcome).toEqual({ kind: 'stopped', reason: 'Review stopped' });
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+  });
+
   it('declares its call site and ticket so token spend is attributable', async () => {
     let seenTracking: unknown;
     const a: AgentAdapter = {

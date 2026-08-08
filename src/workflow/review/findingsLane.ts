@@ -195,6 +195,12 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         ),
       );
     } catch (error) {
+      // Residual fix: a rejection that lands ON an aborted signal is the Stop
+      // itself — the user cancelled, and the adapter surfaced it as a rejection
+      // (AbortError or its own failure type). That is never a crash to degrade
+      // into `ran`: a cancelled lane must not read as a review that ran. The
+      // SIGNAL is the authority, not the error's shape.
+      if (opts.signal?.aborted) return stopped();
       // See the doc comment: a failed/garbage call must not break the stage —
       // degrading to `ran` with no findings for this target is still correct.
       // What changes is that the failure is no longer silent: a missing CLI,
@@ -209,6 +215,11 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       );
     }
   }
+
+  // Residual fix: the same rule holds once the loop has ended — a signal that
+  // aborted at any point (including a lane with no targets to iterate) is a
+  // Stop, never a silently truncated `ran`.
+  if (opts.signal?.aborted) return stopped();
 
   const ran: Extract<FindingsLaneOutcome, { kind: 'ran' }> = { kind: 'ran', findings };
   if (crashes.length > 0) ran.crashes = crashes;
