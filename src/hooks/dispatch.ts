@@ -165,7 +165,20 @@ function ingestUsageUpdate(
   if (!payload.session_id) return;
   const ticketId = ticketIdForWorktreePath(store, payload.cwd!);
   if (ticketId === null) return;
-  const provider = sessionProviderFor?.(ticketId);
+
+  // Usage belongs to the provider SESSION that emitted it, not whichever
+  // provider the ticket would launch if asked right now. Configured Fix
+  // assignments can intentionally differ from that mutable ticket setting.
+  // Prefer the captured active-session identity. Only legacy/unbound sessions
+  // fall back to live config.
+  const active = store.db
+    .prepare('SELECT session_provider FROM tickets WHERE id = ? AND session_id = ?')
+    .get(ticketId, payload.session_id) as { session_provider: string | null } | undefined;
+  const durableProvider =
+    active !== undefined && isKnownProvider(active.session_provider)
+      ? active.session_provider
+      : null;
+  const provider = durableProvider ?? sessionProviderFor?.(ticketId);
   if (provider === undefined || provider === null) return;
   const normalized = normalizeInteractiveUsage(payload.usage);
   if (normalized === null) return;

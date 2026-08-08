@@ -593,6 +593,28 @@ describe('dispatchHook — UsageUpdate', () => {
       sessionId: 'codex-fix-session',
       sessionProvider: 'codex',
     });
+
+    usageUpdate(
+      'codex-fix-session',
+      { event_id: 'codex-fix-usage-1', input: 900, output: 120, total: 1_020 },
+      'codex-fix',
+    );
+
+    expect(lastInteractiveUsageSample(store, 'codex', 'codex-fix-session')).toMatchObject({
+      provider: 'codex',
+      providerSessionId: 'codex-fix-session',
+      processRunId: fixRun.id,
+      sourceEventId: 'codex-fix-usage-1',
+    });
+    expect(listTokenUsage(store, { ticketId: id, processRunId: fixRun.id })).toEqual([
+      expect.objectContaining({
+        provider: 'codex',
+        callSite: 'fix-resume',
+        inputTokens: 900,
+        outputTokens: 120,
+        totalTokens: 1_020,
+      }),
+    ]);
   });
 
   it('attributes a live-nudge fix session’s updates to the Fix process run — no new launch intent', () => {
