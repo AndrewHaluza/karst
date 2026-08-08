@@ -64,11 +64,12 @@ export interface ResumeFixExecutionOpts {
    */
   roundId: number | null;
   /**
-   * The session's recorded active provider/model snapshot (the session
-   * manager's), captured into the Fix process run so the execution carries the
-   * identity that is actually running. Null = unknown, never invented.
+   * The session's recorded active provider/model/agent snapshot (the session
+   * manager's — or, for a configured Fix identity, the resolved assignment),
+   * captured into the Fix process run so the execution carries the identity
+   * that is actually running. Null = unknown, never invented.
    */
-  identity: { provider: string | null; model: string | null } | null;
+  identity: { provider: string | null; model: string | null; agentName?: string | null } | null;
   startedAt: string;
   prompt: string;
   /** True when the ticket's session terminal is live (open, or a revived handle). */
@@ -99,6 +100,7 @@ export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): 
       roundId,
       provider: identity?.provider ?? null,
       model: identity?.model ?? null,
+      agentName: identity?.agentName ?? null,
       startedAt,
     });
     try {

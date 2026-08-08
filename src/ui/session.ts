@@ -1,5 +1,6 @@
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
+import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -99,6 +100,14 @@ export interface OpenSessionOptions {
    * no webview message can reach it.
    */
   seedPrompt?: string;
+  /**
+   * Host-only configured process assignment (the Fix path, Task 3): when
+   * present, the launch resolves provider/adapter/model from this snapshot
+   * rather than the ticket/manifest precedence. It also rides the
+   * prepared-launch info so the fix launch intent is recorded with the
+   * CONFIGURED identity. Host-internal: never accepted from a webview message.
+   */
+  assignment?: ProcessAssignmentSnapshot;
 }
 
 /**
@@ -161,13 +170,16 @@ export type CleanupOwnedPaths = (
 
 /**
  * The agent identity a session was launched with — the session manager's
- * RECORDED active provider/model snapshot, captured at `openSession` and read
- * back by the fix-recovery path so the Fix process run carries the identity
- * that is actually running (not the one a manifest edit resolves today).
+ * RECORDED active provider/model/agent snapshot, captured at `openSession` and
+ * read back by the fix-recovery path so the Fix process run carries the
+ * identity that is actually running (not the one a manifest edit resolves
+ * today). `agentName` (v33, Task 3) is the configured inside agent name when
+ * the launch was a configured Fix assignment.
  */
 export interface SessionIdentity {
   provider: string;
   model: string | null;
+  agentName?: string | null;
 }
 
 /**
@@ -185,6 +197,12 @@ export interface LaunchPreparedInfo {
   resume: boolean;
   /** True for an agent-switch launch (`allowResume: false` + providerReady). */
   switchLaunch: boolean;
+  /**
+   * The host-only assignment this launch was prepared with (the configured Fix
+   * identity), when one was set — so the host can record the launch intent
+   * with the CONFIGURED snapshot, never re-resolve it later.
+   */
+  assignment?: ProcessAssignmentSnapshot;
 }
 export type OnLaunchPrepared = (info: LaunchPreparedInfo) => void;
 /** A terminal creation failed synchronously for the named launch. */
@@ -410,6 +428,7 @@ export class SessionManager {
         launchId,
         resume: Boolean(resume),
         switchLaunch: options.allowResume === false && options.providerReady === true,
+        ...(options.assignment ? { assignment: options.assignment } : {}),
       });
     }
 

@@ -455,6 +455,13 @@ export interface RecordFixLaunchIntentInput {
   launchId: string;
   provider: string;
   model?: string | null;
+  /**
+   * v33: the CONFIGURED Fix process agent name (uat-fix/review-fix), resolved
+   * once at resume time. The intent row persists it so the SessionStart can
+   * open the Fix process run with the identity that was resolved — a later
+   * manifest edit never rewrites the snapshot.
+   */
+  agentName?: string | null;
   reason: 'initial' | 'resume' | 'switch';
   sessionOrigin: 'new' | 'resume' | 'unknown';
   recoveryRoundId: number;
@@ -492,6 +499,7 @@ export function recordFixLaunchIntent(
     purpose: 'fix',
     provider: input.provider,
     model: input.model ?? null,
+    agentName: input.agentName ?? null,
     reason: input.reason,
     sessionOrigin: input.sessionOrigin,
     recoveryRoundId: input.recoveryRoundId,
@@ -557,6 +565,10 @@ export function confirmFixLaunch(
         attempt: stageAttempt(store, intent.ticketId, 'fix'),
         provider: intent.provider,
         model: intent.model,
+        // v33: the configured Fix agent name resolved at resume time and
+        // persisted on the intent — the process run snapshots it, so a later
+        // manifest edit never rewrites the identity that actually ran.
+        agentName: intent.agentName,
         startedAt: input.at,
       });
       store.db

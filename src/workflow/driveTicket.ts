@@ -1,8 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
-import type { AgentAdapter } from '../agent/adapter.js';
-import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
+import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
 import type { InsideProgressEvent } from '../model/inside/progress.js';
 import { getTicket } from '../store/tickets.js';
@@ -76,6 +75,14 @@ export interface DriveTicketDeps {
      * parked at fix before rounds existed — the host then resumes untracked.
      */
     roundId: number | null,
+    /**
+     * The resolved Fix process bundle (Task 3): the `uat-fix`/`review-fix`
+     * assignment snapshot and its instrumented adapter, resolved EXACTLY once
+     * by the driver. NULL is the configured ABSENCE — the host logs and never
+     * calls the session manager, so a disabled Fix process performs no nudge,
+     * no launch and opens no process run; the pending round stays for a human.
+     */
+    process: DriveProcessBundle | null,
   ) => void;
   /**
    * Surfaces the ticket's changes for a human to review. Absent means nothing
@@ -100,21 +107,25 @@ export interface DriveTicketDeps {
    * EXACTLY once per run — the host's resolver builds a fresh instrumented
    * adapter per call, so a second call would instrument twice.
    */
-  uatTester?: (ticketId: number) => {
-    assignment: ProcessAssignmentSnapshot;
-    adapter: AgentAdapter;
-  };
+  uatTester?: (ticketId: number) => DriveProcessBundle | null;
   /**
    * The Review findings process (Task 8): the same shape as `uatTester`,
    * resolving the `review` role's assignment and its instrumented adapter.
    * The findings lane opens its process run from this, snapshotting the
-   * assignment; absent → the lane falls back to the plain findings adapter
+   * assignment; null → the lane falls back to the plain findings adapter
    * and opens no process run.
    */
-  reviewProcess?: (ticketId: number) => {
-    assignment: ProcessAssignmentSnapshot;
-    adapter: AgentAdapter;
-  };
+  reviewProcess?: (ticketId: number) => DriveProcessBundle | null;
+  /**
+   * The configured Fix process (Task 3): the `uat-fix` / `review-fix` role's
+   * assignment and instrumented adapter, resolved by the gate that failed
+   * (`uat` → `uat-fix`, `review` → `review-fix`). Resolved EXACTLY once per
+   * run, at the fix boundary — the host builds a fresh instrumented adapter
+   * per call, so a second call would instrument twice. NULL is the configured
+   * ABSENCE: `resumeFix` receives null and the host performs no launch, no
+   * nudge and no process run, leaving the pending recovery round for a human.
+   */
+  fixProcess?: (ticketId: number, gate: GateStageKey) => DriveProcessBundle | null;
   /**
    * The host gate boundary for the optional `uat.testerVerifier` (Task 8) —
    * `runProcess` from `workflow/gates/run.ts`, injected so the stage never
@@ -197,7 +208,7 @@ export async function driveTicket(
         // builds a fresh instrumented adapter per call, so calling it twice
         // would instrument twice (Task 8).
         runUat: (id, cwd) => {
-          const tester = deps.uatTester?.(id);
+          const tester = deps.uatTester?.(id) ?? undefined;
           return uat(
             deps.store,
             {
@@ -311,7 +322,12 @@ export async function driveTicket(
         const resumingGate = gate as GateStageKey;
         const decision = roundFixDecision(round);
         if (decision.kind === 'resume') {
-          deps.resumeFix(ticketId, resumingGate, decision.attempts, decision.roundId);
+          // Task 3: the Fix process resolves EXACTLY once here, by the gate
+          // that failed; the bundle (or its configured absence, null) rides the
+          // resume call so the host snapshots the resolved identity instead of
+          // re-resolving the role from live configuration.
+          const fix = deps.fixProcess?.(ticketId, resumingGate) ?? null;
+          deps.resumeFix(ticketId, resumingGate, decision.attempts, decision.roundId, fix);
         } else {
           // The budget is spent: the round becomes terminal state BEFORE the
           // ticket is handed to a human — an exhausted round is history, never
@@ -344,9 +360,11 @@ export async function driveTicket(
       } else {
         const decision = fixResumeDecision(stages, deps.manifest());
         switch (decision.kind) {
-          case 'resume':
-            deps.resumeFix(ticketId, decision.gate, decision.attempts, null);
+          case 'resume': {
+            const fix = deps.fixProcess?.(ticketId, decision.gate) ?? null;
+            deps.resumeFix(ticketId, decision.gate, decision.attempts, null, fix);
             break;
+          }
           case 'exhausted':
             deps.log(
               `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +

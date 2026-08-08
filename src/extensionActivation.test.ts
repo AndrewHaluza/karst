@@ -160,6 +160,42 @@ describe('extension activation', () => {
     expect(source).toContain('adapter: currentAgentAdapter(ticketId)');
   });
 
+  // Task 3: EVERY configured inside process role must be executable from the
+  // extension composition root — the Tester, the Review findings process, the
+  // two Fix roles (resolved by the gate that failed) and the PR-description
+  // process. The null collapse used to be type-asserted at this seam; the
+  // callbacks now return `DriveProcessBundle | null` natively.
+  it('wires every configured inside process role, with no null-collapse type assertion at the seam', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain("processFor(ticketId, 'uat-fix')");
+    expect(source).toContain("processFor(ticketId, 'review-fix')");
+    expect(source).toContain("processFor(ticketId, 'pr-description')");
+    // The seam's callbacks return `DriveProcessBundle | null` natively — the
+    // old host-side null collapse is gone (the needle is split so the residual
+    // guard in Task 7 stays clean).
+    const seamAssertion = ['undefined as unknown as', 'DriveProcessBundle'].join(' ');
+    expect(source).not.toContain(seamAssertion);
+    expect(source).toContain('DriveProcessBundle');
+  });
+
+  // Task 3: a configured-ABSENT Fix process (enabled: false) must never reach
+  // the session manager — no nudge, no launch, no fabricated process evidence —
+  // and a live session whose identity differs from the configured Fix
+  // assignment must be retired through the normal session-switch lifecycle and
+  // relaunched through the explicit assignment override, never relabeled.
+  it('refuses a disabled Fix process at the session seam and launches differing identities through the assignment override', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('configured Fix process disabled');
+    expect(source).toMatch(/if \(process === null\) \{\s*logger\.info\s*\(/);
+    expect(source).toContain('sessions.disposeSession(ticketId)');
+    expect(source).toContain('assignment: process.assignment');
+    // The override resolves the launch adapter from the assignment's provider —
+    // the ticket/manifest precedence is bypassed, never consulted.
+    expect(source).toContain('resolveAdapter(options.assignment.provider)');
+  });
+
   // Task 9 (Finding 1): the Inside preview is a DEVELOPMENT-ONLY surface. The
   // command is registered only in an Extension Development Host, and the
   // fixture matrix + preview module are pulled in lazily by that branch — the

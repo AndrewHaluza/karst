@@ -33,12 +33,27 @@ import { resolveProvider } from './provider.js';
 import { resolveModelForProvider } from './models.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
+import type { AgentAdapter } from './adapter.js';
 
 /** The identity snapshot a `process_runs` row is opened with. */
 export interface ProcessAssignmentSnapshot {
   agentName?: string;
   provider: AgentProvider;
   model?: string;
+}
+
+/**
+ * One EXECUTABLE inside process: the resolved assignment snapshot plus the
+ * already-instrumented adapter that runs it. Produced once at each execution
+ * boundary (`processFor` in the extension host) and consumed by the driver, the
+ * stage runners and Ship; the driver resolves each process exactly once per
+ * run, because the host builds a fresh instrumented adapter per call. NULL is
+ * the configured ABSENCE (`enabled: false`) — a disabled process is never
+ * created, never instrumented and never opens a process run.
+ */
+export interface DriveProcessBundle {
+  assignment: ProcessAssignmentSnapshot;
+  adapter: AgentAdapter;
 }
 
 /** Per-ticket override for one process role (ticket fields, all optional). */

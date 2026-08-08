@@ -74,6 +74,7 @@ import {
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import {
   resolveProcessAssignment,
+  type DriveProcessBundle,
   type ProcessAssignmentSnapshot,
 } from './agent/processAssignment.js';
 import type { ProcessRole } from './manifest/validate/processAssignments.js';
@@ -134,7 +135,7 @@ import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
 import { settleShipGates } from './workflow/mergeGate.js';
-import { capForGate, lastFailedGate } from './workflow/fixAttempts.js';
+import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
@@ -646,7 +647,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // switch flow persists the selection BEFORE its launch, and this callback
     // fires synchronously inside that launch. Best-effort: a bookkeeping
     // failure must never fail the terminal launch itself.
-    ({ ticketId, launchId, resume, switchLaunch }) => {
+    ({ ticketId, launchId, resume, switchLaunch, assignment }) => {
       try {
         const ticket = getTicket(localStore, ticketId);
         const purpose =
@@ -656,16 +657,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ? 'fix'
               : null;
         if (purpose === null) return;
-        const provider = resolveProvider(
-          ticket.agentProvider,
-          currentManifest()?.agentProvider,
-        );
-        const model = resolveModelForProvider(
-          provider,
-          ticket.model,
-          currentManifest()?.defaultModel,
-          modelCatalog,
-        );
+        // Task 3: a launch prepared under a host-only configured assignment
+        // (the Fix path) records THAT snapshot — provider/model/agent name as
+        // resolved once at resume time, never re-derived from live config.
+        const provider =
+          assignment?.provider ??
+          resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider);
+        const model =
+          assignment !== undefined
+            ? (assignment.model ?? null)
+            : resolveModelForProvider(
+                provider,
+                ticket.model,
+                currentManifest()?.defaultModel,
+                modelCatalog,
+              );
         if (purpose === 'fix') {
           // v30: a fix launch belongs to the ticket's committed recovery round
           // (the gate that failed opened it atomically). Without one — a
@@ -679,6 +685,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             launchId,
             provider,
             model: model ?? null,
+            agentName: assignment?.agentName ?? null,
             reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
             sessionOrigin: resume ? 'resume' : 'new',
             recoveryRoundId: round.roundId,
@@ -748,20 +755,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /**
-   * Task 8: one inside AI process (uat-tester, review), resolved as the
-   * identity SNAPSHOT its `process_runs` row opens with (Task 7's
-   * `resolveProcessAssignment` — agent/provider/model, immutable thereafter)
-   * plus the SAME instrumented per-ticket adapter every other AI call goes
-   * through. The driver resolves each process exactly once per run, so the
-   * adapter is instrumented exactly once — a second resolution would wrap a
-   * second adapter around the same core.
+   * Task 8: one inside AI process (uat-tester, review, uat-fix, review-fix,
+   * pr-description), resolved as the identity SNAPSHOT its `process_runs` row
+   * opens with (Task 7's `resolveProcessAssignment` — agent/provider/model,
+   * immutable thereafter) plus the SAME instrumented per-ticket adapter every
+   * other AI call goes through. The driver resolves each process exactly once
+   * per run, so the adapter is instrumented exactly once — a second resolution
+   * would wrap a second adapter around the same core.
    *
    * Finding 2: a role whose `processes.<key>.enabled` is `false` resolves to
    * NULL — configured absence. The short-circuit happens BEFORE
    * `currentAgentAdapter`, so a disabled role is never created or
-   * instrumented and opens no process run.
+   * instrumented and opens no process run. NULL is carried as NULL into the
+   * drivers' nullable callbacks — never collapsed to `undefined` by an
+   * assertion at this seam.
    */
-  type DriveProcessBundle = { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
   const processFor = (
     ticketId: number,
     role: ProcessRole,
@@ -781,6 +789,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       adapter: currentAgentAdapter(ticketId),
     };
   };
+
+  /**
+   * Task 3: the configured Fix process for the gate that failed — `uat` →
+   * `uat-fix`, `review` → `review-fix`, resolved EXACTLY once per driver run
+   * (each call takes one branch). NULL (enabled: false) logs the refusal here,
+   * where the role is known, and rides the resume call so the host's session
+   * seam performs no launch and no nudge: the pending recovery round stays for
+   * a human.
+   */
+  const fixProcess = (ticketId: number, gate: GateStageKey): DriveProcessBundle | null => {
+    const bundle =
+      gate === 'uat' ? processFor(ticketId, 'uat-fix') : processFor(ticketId, 'review-fix');
+    if (bundle === null) {
+      logger.info(
+        `configured Fix process disabled (${gate === 'uat' ? 'uat-fix' : 'review-fix'}) — leaving the pending recovery round for a human`,
+      );
+    }
+    return bundle;
+  };
+
+  /** Task 3: the configured PR-description process for Ship (nullable). */
+  const prDescriptionProcess = (ticketId: number): DriveProcessBundle | null =>
+    processFor(ticketId, 'pr-description');
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -1659,7 +1690,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       makeDashboardActions(
         localStore,
         ticketId,
-        () => currentAgentAdapter(ticketId),
         () => ticketForm.openEdit(ticketId),
         () => {
           provider.refresh();
@@ -1670,6 +1700,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logError,
         guardCapability,
         currentManifest,
+        (ticketId) => prDescriptionProcess(ticketId),
         () => pushDoneStatus(ticketId, true),
         // Live Ship rides the generic inside-progress union (Finding 12): the
         // manager has no ship-specific progress channel any more.
@@ -1972,7 +2003,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
-          resumeFix: (id, _gate, attempts, roundId) => resumeFixSession(id, attempts, roundId),
+          resumeFix: (id, gate, attempts, roundId, process) =>
+            resumeFixSession(id, gate, attempts, roundId, process),
           // Reveals the ticket's Changes panel (`TicketChangesManager`,
           // already wired above) — it does NOT itself call `openTicketDiff`/
           // `vscode.diff`; that only fires once the human clicks a file row
@@ -1991,18 +2023,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // revealing it by ticket id covers every affected target review
           // calls this for; `cwd` names nothing further to open.
           openDiff: (id) => changes.open(id),
-          // The Tester and Review AI processes (Task 8): resolved per ticket
-          // as an identity snapshot + the instrumented adapter, exactly once
-          // per driver run. The verifier boundary is the host gate runner.
-          // Finding 2: a role configured `enabled: false` resolves to null —
-          // the drive seam predates the nullable resolution, so the
-          // null → absent collapse happens here and the process is OMITTED:
-          // the driver then passes no tester/reviewProcess to the stage, so
-          // nothing is created or instrumented for the disabled role. (The
-          // assertion names the drive deps' declared return type, which has
-          // no null member — the collapse is typed at the seam.)
-          uatTester: (id) => processFor(id, 'uat-tester') ?? (undefined as unknown as DriveProcessBundle),
-          reviewProcess: (id) => processFor(id, 'review') ?? (undefined as unknown as DriveProcessBundle),
+          // The Tester, Review and Fix AI processes (Task 8/Task 3): resolved
+          // per ticket as an identity snapshot + the instrumented adapter,
+          // exactly once per driver run. The callbacks return
+          // `DriveProcessBundle | null` Natively — a role configured
+          // `enabled: false` resolves to null and the driver omits the
+          // process: nothing is created or instrumented for the disabled role,
+          // and the Fix seam performs no launch or nudge.
+          uatTester: (id) => processFor(id, 'uat-tester'),
+          reviewProcess: (id) => processFor(id, 'review'),
+          fixProcess,
           runVerifier: runProcess,
           log: (message) => logger.info(message),
           // Findings-lane boundary diagnostics (a failed AI call, garbage
@@ -2041,7 +2071,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the driver (`fixResumeDecision` / the committed recovery round) — this
   // function only runs once a resume has been granted, so reaching it IS the
   // decision.
-  function resumeFixSession(ticketId: number, attempts: number, roundId: number | null): void {
+  function resumeFixSession(
+    ticketId: number,
+    gate: GateStageKey,
+    attempts: number,
+    roundId: number | null,
+    process: DriveProcessBundle | null,
+  ): void {
+    // Task 3: a configured-ABSENT Fix process (enabled: false) never reaches
+    // the session manager — no launch, no nudge, no fabricated process
+    // evidence. The pending recovery round is left for a human, exactly as the
+    // driver's fix block reads it.
+    if (process === null) {
+      logger.info(
+        `configured Fix process disabled — ticket ${ticketId} left at fix for a human (${gate} round ${roundId ?? 'untracked'})`,
+      );
+      return;
+    }
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
@@ -2051,28 +2097,54 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       buildCliStagePrefix(context, dbPath, 'fix'),
       t.key ?? String(ticketId),
     );
+    // Task 3: the Fix execution carries the CONFIGURED identity — the bundle's
+    // assignment snapshot resolved once at the driver boundary — never the
+    // live session's recorded identity and never a fresh resolution.
+    const configured = {
+      provider: process.assignment.provider,
+      model: process.assignment.model ?? null,
+      agentName: process.assignment.agentName ?? null,
+    };
+    // A live session whose recorded identity differs from the configured Fix
+    // assignment is NEVER relabeled as that assignment: the Fix process run
+    // would carry an identity the running session does not match. Retire it
+    // through the normal session-switch lifecycle, then launch the configured
+    // session through the explicit assignment override path.
+    const liveIdentity = sessions.sessionIdentity(ticketId);
+    const differs =
+      liveIdentity !== null &&
+      (liveIdentity.provider !== process.assignment.provider ||
+        (liveIdentity.model ?? null) !== (process.assignment.model ?? null));
+    if (differs) {
+      sessions.disposeSession(ticketId);
+      logger.info(
+        `stage driver: ticket ${ticketId} live session (${liveIdentity.provider}/${liveIdentity.model}) differs from configured Fix assignment (${process.assignment.provider}/${process.assignment.model ?? 'default'}) — retiring it and launching the configured session`,
+      );
+    }
     // v30: the Fix execution is tracked against its committed recovery round.
     // A LIVE session opens and attaches the Fix process run BEFORE the brief
-    // is delivered (the session manager's recorded identity snapshot is
-    // captured into the run); a closed session launches and the run opens when
-    // its SessionStart is accepted. Neither path reveals the IDE.
-    const provider = resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
-    const model = resolveModelForProvider(
-      provider,
-      t.model,
-      currentManifest()?.defaultModel,
-      modelCatalog,
-    );
+    // is delivered (the configured identity snapshot is captured into the
+    // run); a closed session launches and the run opens when its SessionStart
+    // is accepted. Neither path reveals the IDE.
     const outcome = resumeFixExecution(localStore, {
       ticketId,
       roundId,
-      identity: sessions.sessionIdentity(ticketId) ?? { provider, model: model ?? null },
+      identity: configured,
       startedAt: new Date().toISOString(),
       prompt: `${brief}\n\n${marker}`,
       isLive: () => sessions.isLive(ticketId),
       nudge: (prompt) => sessions.nudge(ticketId, prompt),
       open: () => {
-        void vscode.commands.executeCommand('karst.openSession', ticketId, { reveal: false });
+        void vscode.commands.executeCommand('karst.openSession', ticketId, {
+          reveal: false,
+          // The differing-identity retirement follows the normal switch
+          // lifecycle: no resume of the retired conversation, provider
+          // readiness already proven (the fix role's provider was resolvable).
+          ...(differs ? { allowResume: false, providerReady: true } : {}),
+          // Host-only: the configured Fix identity overrides ticket/manifest
+          // precedence inside `karst.openSession`.
+          assignment: process.assignment,
+        });
       },
     });
     logger.info(
@@ -2323,7 +2395,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (arg: unknown, options: OpenSessionOptions = {}) => {
         const ticketId = ticketIdArg(arg);
         if (ticketId === undefined) return;
-        const adapter = currentAgentAdapter(ticketId);
+        // Task 3: a host-only configured assignment (the Fix path) resolves the
+        // adapter from ITS provider — the ticket/manifest precedence only
+        // applies when no assignment is present. The assignment is never
+        // accepted from a webview message (it is not a webview message shape).
+        const adapter = options.assignment
+          ? instrument(resolveAdapter(options.assignment.provider), options.assignment.provider)
+          : currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
@@ -2477,7 +2555,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // One resolution for the whole launch: the resume check below and the
       // model pick further down must agree on which core is actually starting,
       // or a ticket could be handed a session id the launching CLI cannot find.
-      const launchProvider = resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+      // A host-only assignment override wins over ticket/manifest precedence.
+      const launchProvider =
+        options.assignment?.provider ??
+        resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
       const resumeId = shouldResumeSession({
         sessionId: t.sessionId,
         sessionProvider: t.sessionProvider,
@@ -2565,12 +2646,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The provider it's resolved against is this same ticket's own resolved
       // agent core (§ agent core selection) — a ticket overridden to a different
       // provider must not carry an incompatible model pick across the switch.
-      const model = resolveModelForProvider(
-        launchProvider,
-        t.model,
-        currentManifest()?.defaultModel,
-        modelCatalog,
-      );
+      // A host-only assignment override (the Fix path) supplies the model
+      // VERBATIM: the assignment was already provider-checked and fully
+      // resolved at the process boundary, so no precedence is re-applied here.
+      const model = options.assignment
+        ? (options.assignment.model ?? undefined)
+        : resolveModelForProvider(
+            launchProvider,
+            t.model,
+            currentManifest()?.defaultModel,
+            modelCatalog,
+          );
 
       // Terminal name/icon/color are frozen at creation, so resolve the ticket's
       // glyph ONCE here: the color is the stage-at-launch, and the template keeps
@@ -2602,8 +2688,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           options,
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
-          // session — not the one a manifest edit resolves today.
-          { provider: launchProvider, model: model ?? null },
+          // session — not the one a manifest edit resolves today. A host-only
+          // assignment carries its configured agent name too.
+          {
+            provider: launchProvider,
+            model: model ?? null,
+            ...(options.assignment?.agentName
+              ? { agentName: options.assignment.agentName }
+              : {}),
+          },
         );
         if (sessions.isOpen(ticketId)) {
           ownedSessionTickets.add(ticketId);
@@ -3679,7 +3772,6 @@ function makeInsideActionHost(store: Store): InsideActionHost {
 function makeDashboardActions(
   store: Store,
   ticketId: number,
-  agentAdapter: () => AgentAdapter,
   editTicket: () => void,
   afterServerChange: () => void,
   logError: LogError,
@@ -3687,6 +3779,10 @@ function makeDashboardActions(
   // Read fresh when the user confirms ship so a mid-session branch edit
   // controls the PR target and convention edits apply without a window reload.
   manifest: () => Manifest | undefined,
+  // Task 3: the configured pr-description process, resolved once at the click.
+  // NULL (enabled: false) makes ship skip the AI step for the deterministic
+  // fallback — no model call, no pr-description process run.
+  prDescriptionProcess: (ticketId: number) => DriveProcessBundle | null,
   // Push the configured post-delivery status for THIS ticket, now that it has
   // reached `done`. A callback rather than the ticketing config + provider,
   // because reaching done is no longer something the ship click can conclude on
@@ -3804,9 +3900,16 @@ function makeDashboardActions(
       if (!guardCapability('ship')) return;
       void runShipTicket(
         store,
-        { ticketId, manifest: manifest() },
+        {
+          ticketId,
+          manifest: manifest(),
+          // Task 3: the configured pr-description process, resolved once. Its
+          // adapter AND identity snapshot drive the description step; NULL
+          // (enabled: false) skips the AI step for the deterministic fallback.
+          prDescriptionProcess: prDescriptionProcess(ticketId),
+        },
         undefined,
-        agentAdapter(),
+        undefined,
         undefined,
         undefined,
         onInsideProgress,

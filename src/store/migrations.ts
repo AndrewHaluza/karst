@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 32;
+export const SCHEMA_VERSION = 33;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1063,6 +1063,22 @@ export function migrate(db: Database): void {
       db.exec(
         'ALTER TABLE ship_repo_steps ADD COLUMN operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL',
       );
+    }
+  }
+
+  if (current < 33) {
+    // v33 makes the CONFIGURED Fix process identity durable on the prepared
+    // launch: `session_launch_intents.agent_name` carries the resolved
+    // `uat-fix`/`review-fix` agent name, so a closed-session Fix launch whose
+    // SessionStart confirms later (possibly after a reload) opens its process
+    // run with the identity that was resolved at resume time — later manifest
+    // edits never rewrite history. Provider/model already ride the row.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which agent a prepared
+    // launch was FOR — a NULL names the unknown, never an invented name.
+    const intentCols33 = tableColumns(db, 'session_launch_intents');
+    if (intentCols33.size > 0 && !intentCols33.has('agent_name')) {
+      db.exec('ALTER TABLE session_launch_intents ADD COLUMN agent_name TEXT');
     }
   }
 

@@ -1111,6 +1111,44 @@ describe('SessionManager', () => {
     expect(prepared).toHaveLength(1);
   });
 
+  // Task 3: the host-only Fix assignment rides the prepared launch so the
+  // eventual fix launch intent can be recorded with the CONFIGURED identity —
+  // never re-resolved from live configuration after the launch is prepared.
+  it('forwards the host-only assignment override into the prepared-launch info', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], { assignment: { agentName: 'UAT Fix Agent', provider: 'codex', model: 'sol' } });
+
+    expect(prepared).toEqual([{
+      ticketId: 7,
+      launchId,
+      resume: false,
+      switchLaunch: false,
+      assignment: { agentName: 'UAT Fix Agent', provider: 'codex', model: 'sol' },
+    }]);
+  });
+
+  it('carries no assignment when the launch options set none', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false }]);
+  });
+
   it('records the session identity snapshot and returns it on demand', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
@@ -1123,6 +1161,23 @@ describe('SessionManager', () => {
 
     expect(mgr.sessionIdentity(7)).toEqual({ provider: 'codex', model: 'sol' });
     expect(mgr.sessionIdentity(99)).toBeNull();
+  });
+
+  it('carries the configured agent name in the recorded identity snapshot', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(
+      adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], {}, { provider: 'codex', model: 'sol', agentName: 'UAT Fix Agent' },
+    );
+
+    expect(mgr.sessionIdentity(7)).toEqual({
+      provider: 'codex',
+      model: 'sol',
+      agentName: 'UAT Fix Agent',
+    });
   });
 
   it('no identity is recorded when none was supplied at launch', () => {

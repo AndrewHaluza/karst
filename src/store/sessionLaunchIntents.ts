@@ -52,6 +52,8 @@ export interface SessionLaunchIntent {
   recoveryRoundId: number | null;
   provider: string;
   model: string | null;
+  /** v33: the configured inside agent name the launch resolved to (fix). */
+  agentName: string | null;
   reason: LaunchReason;
   sessionOrigin: LaunchSessionOrigin;
   providerSessionId: string | null;
@@ -70,6 +72,7 @@ interface SessionLaunchIntentRow {
   recovery_round_id: number | null;
   provider: string;
   model: string | null;
+  agent_name: string | null;
   reason: string;
   session_origin: string;
   provider_session_id: string | null;
@@ -80,7 +83,7 @@ interface SessionLaunchIntentRow {
 
 const INTENT_SELECT =
   `SELECT id, ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
-          recovery_round_id, provider, model, reason, session_origin,
+          recovery_round_id, provider, model, agent_name, reason, session_origin,
           provider_session_id, status, created_at, resolved_at
      FROM session_launch_intents`;
 
@@ -95,6 +98,7 @@ function rowToIntent(r: SessionLaunchIntentRow): SessionLaunchIntent {
     recoveryRoundId: r.recovery_round_id,
     provider: r.provider,
     model: r.model,
+    agentName: r.agent_name,
     reason: r.reason as LaunchReason,
     sessionOrigin: r.session_origin as LaunchSessionOrigin,
     providerSessionId: r.provider_session_id,
@@ -125,6 +129,12 @@ export interface RecordSessionLaunchIntentInput {
   purpose: LaunchPurpose;
   provider: string;
   model?: string | null;
+  /**
+   * v33: the configured inside agent name the launch resolved to. NULL for an
+   * implementation launch; a fix launch carries the resolved uat-fix/review-fix
+   * agent name so its SessionStart opens the process run with the snapshot.
+   */
+  agentName?: string | null;
   reason: LaunchReason;
   sessionOrigin: LaunchSessionOrigin;
   at: string;
@@ -186,9 +196,9 @@ export function recordSessionLaunchIntent(
       .prepare(
         `INSERT INTO session_launch_intents
            (ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
-            recovery_round_id, provider, model, reason, session_origin,
+            recovery_round_id, provider, model, agent_name, reason, session_origin,
             provider_session_id, status, created_at, resolved_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, NULL)`,
       )
       .run(
         input.ticketId,
@@ -199,6 +209,7 @@ export function recordSessionLaunchIntent(
         input.recoveryRoundId ?? null,
         input.provider,
         input.model ?? null,
+        input.agentName ?? null,
         input.reason,
         input.sessionOrigin,
         input.at,

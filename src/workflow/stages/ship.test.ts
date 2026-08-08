@@ -8,6 +8,7 @@ import { getTicket, updateTicketFields } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listShipEvidence } from '../../store/shipRuns.js';
+import { listProcessRuns } from '../../store/processRuns.js';
 import { transition } from '../machine.js';
 import { shipTicket, type ShipStepEvent } from './ship.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
@@ -1000,6 +1001,80 @@ setTimeout(() => {
       expect(body).not.toMatch(/no pr open yet/i);
       expect(body.startsWith('## Summary')).toBe(true);
       expect(body).toContain('Ticket PROJ-1');
+    });
+  });
+
+  // Task 3: the pr-description process bundle carries the configured identity
+  // AND its own adapter — the description step snapshots the assignment into
+  // its process run and runs the model through the bundle's adapter, never a
+  // second resolution path.
+  describe('pr-description process assignment', () => {
+    function recordingCreateGh(): { gh: GhRunner; creates: string[][] } {
+      const creates: string[][] = [];
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        creates.push(args);
+        return { stdout: 'https://github.com/o/r/pull/9', exitCode: 0 };
+      };
+      return { gh, creates };
+    }
+
+    it('snapshots the configured pr-description identity into the description process run', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = recordingCreateGh();
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'Generated PR body.' }),
+      };
+      const process = {
+        assignment: { agentName: 'PR Scribe', provider: 'codex' as const, model: 'sol' },
+        adapter,
+      };
+
+      await shipTicket(
+        store,
+        { ticketId: id, prDescriptionProcess: process },
+        gh,
+        undefined,
+        fakeGit().git,
+      );
+
+      const run = listProcessRuns(store, id).find((r) => r.processId === 'pr-description')!;
+      expect(run).toMatchObject({
+        agentName: 'PR Scribe',
+        provider: 'codex',
+        model: 'sol',
+        status: 'passed',
+      });
+    });
+
+    it('a null pr-description process performs no model call, opens no process run, and falls back to the sanitized deterministic title', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingCreateGh();
+      let headless = 0;
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          headless++;
+          return { sessionId: 's', verdict: null, raw: 'must never be asked' };
+        },
+      };
+
+      // The positional adapter is present, but the CONFIGURED process is null
+      // (enabled: false) — configured absence wins: no AI call, no process run,
+      // and the deterministic title fallback still produces the PR body.
+      await shipTicket(
+        store,
+        { ticketId: id, prDescriptionProcess: null },
+        gh,
+        adapter,
+        fakeGit().git,
+      );
+
+      expect(headless).toBe(0);
+      expect(listProcessRuns(store, id).filter((r) => r.processId === 'pr-description')).toHaveLength(0);
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toBe('add search');
     });
   });
 

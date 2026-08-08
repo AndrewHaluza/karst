@@ -213,6 +213,11 @@ CREATE TABLE IF NOT EXISTS session_launch_intents (
   process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   provider      TEXT NOT NULL,        -- the core the launch resolved to
   model         TEXT,
+  -- v33: the CONFIGURED inside agent name a fix launch resolved to (the
+  -- uat-fix/review-fix process identity), so the SessionStart can open the
+  -- Fix process run with the snapshot. NULL for implementation launches and
+  -- for pre-v33 fix launches — an unknown, never an invented name.
+  agent_name    TEXT,
   reason        TEXT NOT NULL,        -- initial | resume | switch (LaunchReason)
   session_origin TEXT NOT NULL CHECK (session_origin IN ('new','resume','unknown')),
   provider_session_id TEXT,           -- set when the SessionStart confirms the intent

@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { DriveProcessBundle, ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import {
   shipFinishedEvent,
   shipStartedEvent,
@@ -90,6 +91,17 @@ export interface ShipOpts {
   manifest?: Manifest;
   /** Direct injection retained for host-agnostic callers and focused tests. */
   conventions?: ArtifactConventions;
+  /**
+   * The configured PR-description process (Task 3): the `pr-description`
+   * assignment snapshot and its instrumented adapter, resolved ONCE by the
+   * host. `generateDescription` uses THIS bundle's adapter and snapshots its
+   * assignment into the process run. NULL = configured ABSENCE
+   * (`processes.prDescription.enabled: false`): the AI step is skipped, the
+   * sanitized deterministic title fallback is used, and NO AI process run is
+   * recorded. `undefined` = a legacy caller — the positional `adapter`
+   * parameter still drives the step as before, without a snapshot.
+   */
+  prDescriptionProcess?: DriveProcessBundle | null;
 }
 
 export interface ShippedPr {
@@ -204,6 +216,7 @@ async function generateDescription(
   ticketId: number,
   onProgress: ShipProgress,
   onInsideProgress: (event: InsideProgressEvent) => void = () => {},
+  assignment?: ProcessAssignmentSnapshot,
 ): Promise<string> {
   onProgress({ repo, step: 'describe', status: 'run' });
   onInsideProgress({
@@ -219,6 +232,11 @@ async function generateDescription(
     stageKey: 'ship',
     processId: 'pr-description',
     attempt: run.attempt,
+    // Task 3: the configured assignment is snapshotted into the run the moment
+    // it opens — a later manifest edit never rewrites the identity that ran.
+    agentName: assignment?.agentName ?? null,
+    provider: assignment?.provider ?? null,
+    model: assignment?.model ?? null,
     startedAt: at,
   });
   const step = openShipRepoStep(store, {
@@ -819,8 +837,11 @@ export async function shipTicket(
         // rather than leaving commit/push looking like they are still "to
         // come" (the old free-text channel simply skipped this repo entirely).
         const descriptionTemplate = conventions?.pullRequestDescription;
+        // Task 3: the configured process decides what ship would run — a null
+        // bundle (enabled: false) means the describe step would not run at all.
         const wouldDescribe = Boolean(
-          adapter && (!descriptionTemplate || usesDescription(descriptionTemplate)),
+          (opts.prDescriptionProcess ?? adapter) &&
+            (!descriptionTemplate || usesDescription(descriptionTemplate)),
         );
         const skipped: ShipStep[] = wouldDescribe
           ? ['commit', 'push', 'describe', 'pr']
@@ -1107,28 +1128,33 @@ export async function shipTicket(
        * one. The model call runs under its own durable describe step and
        * `pr-description` process run (see `generateDescription`).
        */
-      const buildBody = async (): Promise<string> => {
-        if (descriptionTemplate) {
-          let description = prTitle;
-          if (usesDescription(descriptionTemplate) && adapter) {
-            description = await generateDescription(
-              store,
-              run,
-              wt.repo,
-              adapter,
-              wt.path,
-              prTitle,
-              opts.ticketId,
-              onProgress,
-              onInsideProgress,
-            );
-          }
-          return renderArtifactTemplate(
-            'pullRequestDescription',
-            descriptionTemplate,
-            { ...templateContext, description },
+      const runDescriptionStep = async (process: DriveProcessBundle | null | undefined): Promise<string> => {
+        if (process) {
+          // Task 3: the configured process bundle — its adapter AND its
+          // assignment snapshot. The assignment rides the run; the adapter is
+          // the same instrumented adapter the host resolved, so token usage
+          // attribution stays centralized.
+          return generateDescription(
+            store,
+            run,
+            wt.repo,
+            process.adapter,
+            wt.path,
+            prTitle,
+            opts.ticketId,
+            onProgress,
+            onInsideProgress,
+            process.assignment,
           );
         }
+        if (process === null) {
+          // Configured ABSENCE (enabled: false): no model call, no process run —
+          // the sanitized deterministic fallback (the title) is used instead,
+          // and no passed AI process is recorded for work nobody did.
+          return sanitizePrDescription(prTitle, prTitle);
+        }
+        // Legacy caller: no configured bundle, the positional adapter runs the
+        // step as before (no identity snapshot — pre-Task-3 behavior).
         if (adapter) {
           return generateDescription(
             store,
@@ -1142,7 +1168,21 @@ export async function shipTicket(
             onInsideProgress,
           );
         }
-        return prTitle;
+        return sanitizePrDescription(prTitle, prTitle);
+      };
+      const buildBody = async (): Promise<string> => {
+        if (descriptionTemplate) {
+          let description = prTitle;
+          if (usesDescription(descriptionTemplate)) {
+            description = await runDescriptionStep(opts.prDescriptionProcess);
+          }
+          return renderArtifactTemplate(
+            'pullRequestDescription',
+            descriptionTemplate,
+            { ...templateContext, description },
+          );
+        }
+        return runDescriptionStep(opts.prDescriptionProcess);
       };
 
       let opened: OpenedPr;

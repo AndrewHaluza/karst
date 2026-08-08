@@ -20,6 +20,7 @@ import type { ReviewDeps } from './stages/review.js';
 import { runProcess } from './gates/run.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import { openRecoveryRound, listRecoveryRounds } from '../store/recoveryRounds.js';
+import type { DriveProcessBundle } from '../agent/processAssignment.js';
 
 describe('fixResumeDecision', () => {
   const stages = (uatAttempt: number, reviewAttempt: number) => [
@@ -102,7 +103,13 @@ describe('driveTicket', () => {
   let workDir: string;
   let artifactDir: string;
   let logs: string[];
-  let resumed: { ticketId: number; gate: string; attempts: number; roundId: number | null }[];
+  let resumed: {
+    ticketId: number;
+    gate: string;
+    attempts: number;
+    roundId: number | null;
+    process: DriveProcessBundle | null;
+  }[];
   let worktreeLookups: number;
   let polls: number;
   let stopped: boolean;
@@ -122,8 +129,8 @@ describe('driveTicket', () => {
       // vitest times a test out with, so a livelock reports nothing at all. No
       // healthy run below polls more than twice.
       shouldContinue: () => !stopped && (polls += 1) <= 4,
-      resumeFix: (ticketId, gate, attempts, roundId) =>
-        resumed.push({ ticketId, gate, attempts, roundId }),
+      resumeFix: (ticketId, gate, attempts, roundId, process) =>
+        resumed.push({ ticketId, gate, attempts, roundId, process }),
       log: (m) => logs.push(m),
       ...over,
     };
@@ -222,7 +229,9 @@ describe('driveTicket', () => {
     expect(outcome).toEqual({ stage: 'fix', status: 'blocked', reason: 'gate-failed' });
     // No committed round (the failure above bypassed the recovery-trigger seam),
     // so the driver falls back to the stages-attempt decision, roundId null.
-    expect(resumed).toEqual([{ ticketId: id, gate: 'uat', attempts: 1, roundId: null }]);
+    // No `fixProcess` resolver is wired, so the bundle is NULL — the host's
+    // resumeFix refuses rather than fabricating a fix execution.
+    expect(resumed).toEqual([{ ticketId: id, gate: 'uat', attempts: 1, roundId: null, process: null }]);
   });
 
   it('resumes against the COMMITTED recovery round, carrying its id and committed cap', async () => {
@@ -238,7 +247,95 @@ describe('driveTicket', () => {
     const outcome = await driveTicket(deps(), id);
 
     expect(outcome).toEqual({ stage: 'fix', status: 'blocked', reason: 'gate-failed' });
-    expect(resumed).toEqual([{ ticketId: id, gate: 'uat', attempts: 1, roundId: round.id }]);
+    expect(resumed).toEqual([
+      { ticketId: id, gate: 'uat', attempts: 1, roundId: round.id, process: null },
+    ]);
+  });
+
+  // Task 3: the Fix process is resolved ONCE per run, by gate (the host maps
+  // uat → uat-fix, review → review-fix), and the resolved bundle rides the
+  // resume call — the host snapshots it into the Fix execution instead of
+  // re-resolving the role from live configuration at resume time.
+  it('resolves the configured UAT Fix process once by gate and hands the bundle to resumeFix', async () => {
+    const bundle: DriveProcessBundle = {
+      assignment: { agentName: 'UAT Fix Agent', provider: 'codex', model: 'sol' },
+      adapter: {
+        requiredBinary: 'fake',
+        capabilities: { lifecycleEvents: false, resume: false },
+        buildInteractiveCommand: () => ({ command: 'fake', args: [], env: {} }),
+        runHeadless: async () => ({ sessionId: '', verdict: null, raw: '' }),
+      },
+    };
+    const resolveFix = vi.fn(() => bundle);
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps({ fixProcess: resolveFix }), id);
+
+    expect(outcome).toEqual({ stage: 'fix', status: 'blocked', reason: 'gate-failed' });
+    expect(resolveFix).toHaveBeenCalledTimes(1);
+    expect(resolveFix).toHaveBeenCalledWith(id, 'uat');
+    expect(resumed).toEqual([
+      { ticketId: id, gate: 'uat', attempts: 1, roundId: round.id, process: bundle },
+    ]);
+  });
+
+  it('resolves the Review Fix role for a review failure', async () => {
+    const bundle: DriveProcessBundle = {
+      assignment: { agentName: 'Review Fix Agent', provider: 'claude' },
+      adapter: {
+        requiredBinary: 'fake',
+        capabilities: { lifecycleEvents: false, resume: false },
+        buildInteractiveCommand: () => ({ command: 'fake', args: [], env: {} }),
+        runHeadless: async () => ({ sessionId: '', verdict: null, raw: '' }),
+      },
+    };
+    const resolveFix = vi.fn(() => bundle);
+    openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'review', sourceProcessId: 'review',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'blocking-review-findings', triggerDetail: 'critical finding', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    transition(store, id, 'uat', { kind: 'passed' }); // -> review
+    transition(store, id, 'review', { kind: 'failed', reason: 'critical finding' }); // -> fix
+
+    const outcome = await driveTicket(deps({ fixProcess: resolveFix }), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(resolveFix).toHaveBeenCalledTimes(1);
+    expect(resolveFix).toHaveBeenCalledWith(id, 'review');
+    expect(resumed).toEqual([
+      { ticketId: id, gate: 'review', attempts: 1, roundId: expect.any(Number), process: bundle },
+    ]);
+  });
+
+  it('hands resumeFix a null bundle when the Fix process is configured absent', async () => {
+    const resolveFix = vi.fn(() => null);
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps({ fixProcess: resolveFix }), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(resolveFix).toHaveBeenCalledTimes(1);
+    expect(resumed).toEqual([
+      { ticketId: id, gate: 'uat', attempts: 1, roundId: round.id, process: null },
+    ]);
+    // A disabled fix opens no process run and no recovery evidence of its own —
+    // the pending round stays untouched for a human.
+    expect(listProcessRuns(store, id)).toHaveLength(0);
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 
   it('persists exhaustion on the committed round — exhausted with endedAt, never resumed, never reconsidered', async () => {
@@ -555,6 +652,49 @@ describe('driveTicket', () => {
     // The review runner's findings adapter is the SAME instrumented adapter the
     // process resolved — no second resolution path to keep in sync.
     expect(seenReviewDeps?.findingsAdapter).toBe(adapterB);
+  });
+
+  // Task 3: the process callbacks return `DriveProcessBundle | null` — NULL is
+  // the configured absence (Finding 2), handed to the runners verbatim, never
+  // collapsed to `undefined` by a host-side type assertion. A disabled Tester/
+  // Review performs no adapter call and opens no process run.
+  it('hands a null Tester/Review resolution to the runners as configured absence — no adapter call, no process run', async () => {
+    const adapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => ({ command: 'fake', args: [], env: {} }),
+      runHeadless: vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' })),
+    };
+    const resolveUatTester = vi.fn(() => null);
+    const resolveReviewProcess = vi.fn(() => null);
+    let seenUatDeps: UatDeps | undefined;
+    let seenReviewDeps: ReviewDeps | undefined;
+
+    const outcome = await driveTicket(
+      deps({ uatTester: resolveUatTester, reviewProcess: resolveReviewProcess }),
+      id,
+      {
+        runUat: async (s, opts, runnerDeps) => {
+          seenUatDeps = runnerDeps;
+          return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+        },
+        runReview: async (s, opts, runnerDeps) => {
+          seenReviewDeps = runnerDeps;
+          return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+        },
+      },
+    );
+
+    expect(outcome.stage).toBe('ship');
+    expect(resolveUatTester).toHaveBeenCalledTimes(1);
+    expect(resolveReviewProcess).toHaveBeenCalledTimes(1);
+    // The UAT runner's tester slot reads the null collapse the driver performs
+    // (its declared type has no null member); the Review runner's slot carries
+    // the null verbatim — its declared type includes it.
+    expect(seenUatDeps?.tester).toBeUndefined();
+    expect(seenReviewDeps?.reviewProcess).toBeNull();
+    expect(adapter.runHeadless).not.toHaveBeenCalled();
+    expect(listProcessRuns(store, id)).toHaveLength(0);
   });
 
   // The composition-seam evidence: driving the REAL runUat through driveTicket
