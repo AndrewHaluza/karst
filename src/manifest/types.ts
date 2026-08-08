@@ -306,6 +306,38 @@ export interface ReviewConfig {
   repositories: Record<string, { gates?: GateDef[] }>;
 }
 
+/**
+ * One inside AI process role's assignment override (§ inside redesign Task 7).
+ * Every field is optional so an absent block needs no configuration at all;
+ * `resolveProcessAssignment` (agent/processAssignment.ts) fills the gaps.
+ *
+ * `agent` references a role-keyed agent PROFILE from the manifest `agents`
+ * block (an `AgentDef` key); `agentName` is the display-snapshot override for
+ * the `process_runs` row. `provider`/`model` select the launch adapter the
+ * process runs headless through, ahead of the ticket/manifest defaults.
+ */
+export interface ProcessAssignmentConfig {
+  agentName?: string;
+  agent?: string;
+  provider?: AgentProvider;
+  model?: string;
+  enabled?: boolean; // default true
+}
+
+/**
+ * The closed five-entry `processes:` block (Task 7). Keys are the manifest
+ * spelling (`uatTester`); the resolver consumes the kebab ROLE spellings
+ * (`uat-tester`) via `PROCESS_ROLE_BY_KEY` — both vocabularies live in
+ * `manifest/validate/processAssignments.ts`.
+ */
+export interface ProcessAssignmentsConfig {
+  uatTester?: ProcessAssignmentConfig;
+  uatFix?: ProcessAssignmentConfig;
+  review?: ProcessAssignmentConfig;
+  reviewFix?: ProcessAssignmentConfig;
+  prDescription?: ProcessAssignmentConfig;
+}
+
 export interface Manifest {
   /**
    * Stable project identity (§ projects / multi-window). Scopes tickets to a
@@ -376,4 +408,12 @@ export interface Manifest {
    * package.json for `REVIEW_PROBE_SCRIPTS` (`workflow/gates/scripts.ts`).
    */
   review?: ReviewConfig;
+  /**
+   * Per-role assignments for the inside AI processes (uat-tester, uat-fix,
+   * review, review-fix, pr-description). Absent entries resolve to the
+   * approved defaults. Optional on the type only so hand-built fixtures need
+   * not supply it; `validateManifest` leaves it undefined when the block is
+   * absent.
+   */
+  processes?: ProcessAssignmentsConfig;
 }

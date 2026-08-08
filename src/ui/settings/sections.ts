@@ -56,7 +56,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
   git: ['conventions'],
   services: ['repositories'],
   approaches: ['approaches'],
-  agents: ['agents'],
+  agents: ['agents', 'processes'],
   ticketing: ['ticketing'],
   quality: ['uat', 'review'],
 };

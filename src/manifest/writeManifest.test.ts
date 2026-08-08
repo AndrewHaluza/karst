@@ -197,6 +197,16 @@ describe('writeManifest', () => {
             promptPath: 'agents/implement.md',
           },
         },
+        processes: {
+          uatTester: {
+            agent: 'implement',
+            agentName: 'UAT Author',
+            provider: 'codex',
+            model: 'gpt-5.6-sol',
+            enabled: true,
+          },
+          review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', enabled: false },
+        },
         worktreePathDisplay: 'absolute',
         ticketLabelTemplate: '{key} · {stage} · {status}',
         terminalNameTemplate: 'Karst: {key} · {stage}',
@@ -530,6 +540,68 @@ conventions:
       const m = loadManifest(path);
       const invalid: Manifest = { ...m, review: { ...reviewFixture(), maxFixAttempts: 0 } };
       expect(() => writeManifest(path, invalid)).toThrow(/review\.maxFixAttempts/);
+      expect(readFileSync(path, 'utf8')).toBe(before); // untouched
+    } finally {
+      cleanup();
+    }
+  });
+
+  // The proof task for the processes block: a valid `processes:` must survive
+  // load → write → load with its meaning intact (js-yaml reformats, so it is
+  // meaning, never bytes). Without the explicit `processes: manifest.processes`
+  // line in the overlay, Save silently drops the whole block.
+  it('round-trips a processes block through load → write → load in meaning', () => {
+    const { path, cleanup } = fixture(`${RAW}
+processes:
+  uatTester:
+    agentName: My UAT Agent
+    provider: codex
+    model: gpt-5.6-sol
+`);
+    try {
+      const m = loadManifest(path);
+      expect(m.processes).toEqual({
+        uatTester: {
+          agentName: 'My UAT Agent',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+          enabled: true,
+        },
+      });
+      writeManifest(path, { ...m, host: '0.0.0.0' });
+      expect(loadManifest(path).processes).toEqual(m.processes);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops the processes block entirely once cleared', () => {
+    const { path, cleanup } = fixture(`${RAW}
+processes:
+  uatTester: { provider: codex }
+`);
+    try {
+      const m = loadManifest(path);
+      expect(loadManifest(path).processes).toBeDefined();
+      writeManifest(path, { ...m, processes: undefined });
+      expect(loadManifest(path).processes).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an invalid processes edit without writing, naming the field', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const before = readFileSync(path, 'utf8');
+      const m = loadManifest(path);
+      const invalid: Manifest = {
+        ...m,
+        processes: { uatTester: { provider: 'copilot' as never } },
+      };
+      expect(() => writeManifest(path, invalid)).toThrow(
+        /processes\.uatTester\.provider must be one of/,
+      );
       expect(readFileSync(path, 'utf8')).toBe(before); // untouched
     } finally {
       cleanup();

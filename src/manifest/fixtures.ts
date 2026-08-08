@@ -20,6 +20,7 @@ import type {
   DependsOn,
   Manifest,
   PortSlot,
+  ProcessAssignmentsConfig,
   RepositoryDef,
   ReviewConfig,
   ServiceDef,
@@ -118,6 +119,16 @@ export function review(over: Partial<ReviewConfig> = {}): ReviewConfig {
     requireIndependentSignal: true,
     findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
     repositories: {},
+    ...over,
+  };
+}
+
+/** A processes block. Defaults match `validateProcessAssignments({}, {})` so tests start from the real default. */
+export function processes(
+  over: Partial<ProcessAssignmentsConfig> = {},
+): ProcessAssignmentsConfig {
+  return {
+    uatTester: { provider: 'codex', model: 'gpt-5.6-sol', enabled: true },
     ...over,
   };
 }
