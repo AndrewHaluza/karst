@@ -232,6 +232,18 @@ export function listProcessRuns(store: Store, ticketId: number): ProcessRun[] {
     .map((r) => rowToProcessRun(r as ProcessRunRow));
 }
 
+/**
+ * One run by its row id, whatever ticket it belongs to — the typed-action
+ * dispatch reloads the row by host-owned id and verifies the ticket itself
+ * (`insideActions.ts`).
+ */
+export function getProcessRunById(store: Store, id: number): ProcessRun | undefined {
+  const row = store.db
+    .prepare(`${SELECT} WHERE id = ?`)
+    .get(id) as ProcessRunRow | undefined;
+  return row === undefined ? undefined : rowToProcessRun(row);
+}
+
 /** A run this sweep found dead, reported so the loss is never silent. */
 export interface StaleProcessRun {
   run: ProcessRun;

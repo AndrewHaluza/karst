@@ -210,3 +210,19 @@ export function latestFindingBatch(store: Store, ticketId: number): Finding[] {
   );
   return latest === null ? [] : all.filter((f) => f.runAt === latest);
 }
+
+/**
+ * One finding by its row id, whatever ticket it belongs to — the typed-action
+ * dispatch reloads the row by host-owned id and verifies the ticket itself
+ * (`insideActions.ts`), so it must not be scoped to a caller-supplied ticket.
+ */
+export function getFindingById(store: Store, id: number): Finding | undefined {
+  const row = store.db
+    .prepare(
+      `SELECT id, ticket_id, attempt, run_at, process_run_id, severity, repo, file, line, title, detail, source, created_at
+         FROM review_findings
+        WHERE id = ?`,
+    )
+    .get(id) as FindingRow | undefined;
+  return row === undefined ? undefined : rowToFinding(row);
+}

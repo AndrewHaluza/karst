@@ -9,6 +9,7 @@ import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
 import { bounded } from './bounds.js';
 import { insertCausalFix, recoveryProcess } from './recovery.js';
+import type { InsideEvidenceTarget, TypedInsideAction } from './types.js';
 import {
   formatDuration,
   inside,
@@ -292,6 +293,11 @@ export interface QualityProcessesInput {
   configured?: SessionConfiguredInput | null;
   /** A RECORDED token summary for the stage's AI process; omitted when unmeasured. */
   tokens?: SessionTokensInput | null;
+  /**
+   * Mint an opaque action for an evidence row, or return undefined when the
+   * caller attaches none. Absent → rows carry no actions.
+   */
+  attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
 }
 
 /** The latest invocation of a process, by its explicit run id. */
@@ -353,6 +359,15 @@ function aiProcessBase(
       : {}),
     ...(tokens ? { tokens: tokenView(tokens) } : {}),
   };
+}
+
+/** Attach a minted action to a row when the caller supplies an attacher. */
+function actionFor(
+  attach: QualityProcessesInput['attach'],
+  target: InsideEvidenceTarget,
+): { action: TypedInsideAction } | {} {
+  const action = attach?.(target);
+  return action ? { action } : {};
 }
 
 /**
@@ -454,6 +469,10 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
         status: 'note',
         label: f.severity,
         detail: location ? `${title} — ${location}` : title,
+        ...actionFor(input.attach, {
+          kind: 'open-file',
+          evidence: { source: 'uat-finding', id: f.id },
+        }),
       };
     }),
     FINDINGS_EVIDENCE_LIMIT,
@@ -501,7 +520,15 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   const boundedRows = bounded(
     batch.map((f): EvidenceRow => {
       const op = findingOp(f);
-      return { status: op.status, label: op.name, detail: op.detail };
+      return {
+        status: op.status,
+        label: op.name,
+        detail: op.detail,
+        ...actionFor(input.attach, {
+          kind: 'open-file',
+          evidence: { source: 'review-finding', id: f.id },
+        }),
+      };
     }),
     FINDINGS_EVIDENCE_LIMIT,
   );

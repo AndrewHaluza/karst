@@ -6,7 +6,15 @@ import type {
 import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import { bounded } from './bounds.js';
-import { formatDuration, type EvidenceRow, type InsideProcessView, type InsideStatus, type ShipPrView } from './types.js';
+import {
+  formatDuration,
+  type EvidenceRow,
+  type InsideEvidenceTarget,
+  type InsideProcessView,
+  type InsideStatus,
+  type ShipPrView,
+  type TypedInsideAction,
+} from './types.js';
 
 /**
  * The ship stage's PROCESS reducer (Task 12): commit, push, pr, merge, in
@@ -36,6 +44,11 @@ export interface ShipProcessesInput {
   prs: readonly ShipPrView[];
   mergeChecks: readonly MergeCheckRow[];
   now: string;
+  /**
+   * Mint an opaque action for an evidence row, or return undefined when the
+   * caller attaches none. Absent → rows carry no actions.
+   */
+  attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
 }
 
 /**
@@ -99,17 +112,21 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
   const rows = boundedRepoRows(
     repos.map((repo): EvidenceRow => {
       const evidence = input.evidence.repos[repo]!;
-      const created = evidence.commits.filter((c) => c.origin === 'created-by-ship').length;
+      const created = evidence.commits.filter((c) => c.origin === 'created-by-ship');
       const before = evidence.commits.filter((c) => c.origin === 'before-ship').length;
       const step = evidence.steps.commit;
       const detail =
-        created + before > 0
-          ? `${created} created${before > 0 ? ` · ${before} before` : ''}`
+        created.length + before > 0
+          ? `${created.length} created${before > 0 ? ` · ${before} before` : ''}`
           : step?.detail || 'no commits recorded';
+      const action = input.attach && created.length === 1
+        ? input.attach({ kind: 'open-commit', shipCommitId: created[0]!.id })
+        : undefined;
       return {
         status: stepStatus(step),
         label: repo,
         detail,
+        ...(action ? { action } : {}),
         ...(step?.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
       };
     }),

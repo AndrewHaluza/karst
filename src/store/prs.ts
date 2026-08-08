@@ -169,6 +169,31 @@ export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentP
   return rows.map((r) => ({ repo: r.repo, number: r.number, url: r.url, status: r.status }));
 }
 
+/**
+ * One PR row by its rowid, whatever ticket it belongs to — the typed-action
+ * dispatch reloads the row by host-owned id and verifies the ticket itself
+ * (`insideActions.ts`). The rowid IS the host-owned id (the table has no
+ * surrogate primary key of its own). `ticketId` is carried so the caller can
+ * prove ownership before acting.
+ */
+export function getPrById(store: Store, id: number): (CurrentPr & { ticketId: number }) | undefined {
+  const row = store.db
+    .prepare(
+      `SELECT ticket_id, repo, number, url, status FROM prs WHERE rowid = ? AND url IS NOT NULL`,
+    )
+    .get(id) as
+    | { ticket_id: number; repo: string; number: number | null; url: string; status: string | null }
+    | undefined;
+  if (row === undefined) return undefined;
+  return {
+    ticketId: row.ticket_id,
+    repo: row.repo,
+    number: row.number,
+    url: row.url,
+    status: row.status,
+  };
+}
+
 /** One repo's PR on a ticket, with the worktree path gh must run in. */
 export interface TicketPr {
   ticketId: number;

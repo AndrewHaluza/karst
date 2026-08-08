@@ -4,6 +4,7 @@ import type { Manifest } from '../manifest/types.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
+import type { InsideProgressEvent } from '../model/inside/progress.js';
 import { getTicket } from '../store/tickets.js';
 import { recoveryDecision } from '../store/recoveryRounds.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
@@ -126,6 +127,14 @@ export interface DriveTicketDeps {
    * in the output channel, not as routine progress lines.
    */
   warn?: (message: string) => void;
+  /**
+   * The host seam for the live inside progress overlay (Task 13): ONE generic
+   * emitter the driver calls as gate processes start and finish. The host
+   * forwards the event to the ticket's dashboard panel; the full snapshot that
+   * follows remains authoritative. Absent → no live events, exactly the
+   * pre-redesign behavior.
+   */
+  onInsideProgress?: (event: InsideProgressEvent) => void;
 }
 
 /**
@@ -192,7 +201,32 @@ export async function driveTicket(
               artifactDir: deps.artifactDirFor(id),
               manifest: deps.manifest(),
               signal: controller.signal,
-              onGateComplete: () => deps.onProgress(id, 'uat', 'running'),
+              onGateStart: (name) =>
+                deps.onInsideProgress?.({
+                  kind: 'active',
+                  ticketId: id,
+                  stage: 'uat',
+                  processId: 'gates',
+                  live: { status: 'run', label: name },
+                }),
+              onGateComplete: (name, exitCode) => {
+                deps.onProgress(id, 'uat', 'running');
+                deps.onInsideProgress?.({
+                  kind: 'completed',
+                  ticketId: id,
+                  stage: 'uat',
+                  process: {
+                    id: 'gates',
+                    kind: 'gates',
+                    label: 'Gates',
+                    status: exitCode === null ? 'note' : exitCode === 0 ? 'pass' : 'fail',
+                    detail:
+                      exitCode === null
+                        ? `gate ${name} — nothing to run`
+                        : `gate ${name} — exit ${exitCode}`,
+                  },
+                });
+              },
             },
             { tester, runVerifier: deps.runVerifier },
           );
@@ -213,7 +247,32 @@ export async function driveTicket(
               artifactDir: deps.artifactDirFor(id),
               manifest: deps.manifest(),
               signal: controller.signal,
-              onGateComplete: () => deps.onProgress(id, 'review', 'running'),
+              onGateStart: (name) =>
+                deps.onInsideProgress?.({
+                  kind: 'active',
+                  ticketId: id,
+                  stage: 'review',
+                  processId: 'gates',
+                  live: { status: 'run', label: name },
+                }),
+              onGateComplete: (name, exitCode) => {
+                deps.onProgress(id, 'review', 'running');
+                deps.onInsideProgress?.({
+                  kind: 'completed',
+                  ticketId: id,
+                  stage: 'review',
+                  process: {
+                    id: 'gates',
+                    kind: 'gates',
+                    label: 'Gates',
+                    status: exitCode === null ? 'note' : exitCode === 0 ? 'pass' : 'fail',
+                    detail:
+                      exitCode === null
+                        ? `gate ${name} — nothing to run`
+                        : `gate ${name} — exit ${exitCode}`,
+                  },
+                });
+              },
             },
             {
               openDiff: deps.openDiff,

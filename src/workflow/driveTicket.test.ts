@@ -440,7 +440,7 @@ describe('driveTicket', () => {
       runUat: async (s, opts) => {
         receivedOnGateComplete = opts.onGateComplete;
         // Simulate a gate completing by invoking the callback.
-        opts.onGateComplete?.('test');
+        opts.onGateComplete?.('test', 0);
         return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
       },
       runReview: async (s, opts) => ({
@@ -564,4 +564,69 @@ describe('driveTicket', () => {
     expect(listUatFindings(store, id)).toHaveLength(1);
     expect(listUatFindings(store, id)[0]!.processRunId).toBe(testerRun.id);
   });
+
+    describe('inside progress events', () => {
+      function depsFor(over: Partial<DriveTicketDeps> = {}): DriveTicketDeps {
+        return {
+          store,
+          manifest: () => undefined,
+          artifactDirFor: () => artifactDir,
+          worktreeFor: () => workDir,
+          onProgress: () => {},
+          shouldContinue: () => true,
+          resumeFix: () => {},
+          log: () => {},
+          ...over,
+        };
+      }
+
+      it('emits active before each gate and completed with its exit code', async () => {
+        const events: unknown[] = [];
+        await driveTicket(
+          depsFor({
+            onInsideProgress: (event) => events.push(event),
+          }),
+          id,
+          {
+            runUat: async (s, opts) => {
+              opts.onGateStart?.('test (web)');
+              opts.onGateComplete?.('test (web)', 0);
+              opts.onGateStart?.('e2e (web)');
+              opts.onGateComplete?.('e2e (web)', 3);
+              return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+            },
+            runReview: async (s, opts) => ({
+              kind: 'advanced',
+              next: transition(s, opts.ticketId, 'review', { kind: 'passed' }),
+            }),
+          },
+        );
+        expect(events).toEqual([
+          { kind: 'active', ticketId: id, stage: 'uat', processId: 'gates', live: { status: 'run', label: 'test (web)' } },
+          { kind: 'completed', ticketId: id, stage: 'uat', process: { id: 'gates', kind: 'gates', label: 'Gates', status: 'pass', detail: 'gate test (web) — exit 0' } },
+          { kind: 'active', ticketId: id, stage: 'uat', processId: 'gates', live: { status: 'run', label: 'e2e (web)' } },
+          { kind: 'completed', ticketId: id, stage: 'uat', process: { id: 'gates', kind: 'gates', label: 'Gates', status: 'fail', detail: 'gate e2e (web) — exit 3' } },
+        ]);
+      });
+
+      it('reads a nothing-to-run gate as a note, never a pass or fail', async () => {
+        const events: unknown[] = [];
+        await driveTicket(
+          depsFor({ onInsideProgress: (event) => events.push(event) }),
+          id,
+          {
+            runUat: async (s, opts) => {
+              opts.onGateComplete?.('lint (web)', null);
+              return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+            },
+            runReview: async (s, opts) => ({
+              kind: 'advanced',
+              next: transition(s, opts.ticketId, 'review', { kind: 'passed' }),
+            }),
+          },
+        );
+        const completed = events[0] as { process: { status: string } };
+        expect(completed.process.status).toBe('note');
+      });
+    });
 });

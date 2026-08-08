@@ -37,6 +37,38 @@ import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import { buildAgentSessionView, type AgentSessionView } from '../../agent/sessionSwitch.js';
+import { listProcessRuns } from '../../store/processRuns.js';
+import { listRecoveryRounds } from '../../store/recoveryRounds.js';
+import { listUatFindings } from '../../store/uatFindings.js';
+import { listShipEvidence } from '../../store/shipRuns.js';
+import { listImplementationTimeline } from '../../store/implementationRuns.js';
+import {
+  summarizeRecordedTokenUsage,
+  summarizeRecordedTokenUsageForProcess,
+  summarizeRecordedTokenUsageByRole,
+} from '../../store/tokenUsage.js';
+import type { InsideActionRegistry } from './insideActions.js';
+import type {
+  InsideEvidenceTarget,
+  InsideProcessView,
+  InsideStageKey,
+  InsideStageView,
+} from '../../model/inside/types.js';
+import {
+  insideStageForRuntimeStage,
+} from '../../model/inside/registry.js';
+import {
+  dotFor,
+  formatClock,
+  STAGE_BLURBS,
+  STAGE_TITLES,
+  type TypedInsideAction,
+} from '../../model/inside/types.js';
+import { scopeProcesses, implementationSessionProcess } from '../../model/inside/index.js';
+import { uatProcesses, reviewProcesses } from '../../model/inside/gates.js';
+import { shipProcesses } from '../../model/inside/ship.js';
+import { doneReceipt, type DoneReceiptView } from '../../model/inside/done.js';
+import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
 
 export type { PathContext, StepperCell, NowLine, StageRail, StageInside, PrPanelRow, MergeCheckPanelRow };
 
@@ -115,6 +147,20 @@ export interface DashboardState {
    */
   inside: Record<StageKey, StageInside>;
   /**
+   * The six-stage inside presentation (the inside redesign): one process-led
+   * view per INSIDE stage, built by the pure reducers. `fix` is not a stage
+   * here — it is projected onto the stage it returns to (`presentedStage`) —
+   * so this map has EXACTLY six keys and never a peer `fix` entry.
+   */
+  insideViews: Record<InsideStageKey, InsideStageView>;
+  /**
+   * The inside stage presented as CURRENT. When the runtime ticket sits at
+   * `fix`, this is the stage the fix is causally attached to (the source stage
+   * of the active recovery round) — the six-stage model has no Fix stage to
+   * present.
+   */
+  presentedStage: InsideStageKey;
+  /**
    * The approach driving impl, the workflow phases it DECLARES, and the phases
    * the agent actually REPORTED by running a marker command.
    *
@@ -168,6 +214,24 @@ export function buildDashboardState(
    * would misreport how many retries remain.
    */
   fixCapFor: (gate: GateStageKey) => number = () => FIX_ATTEMPT_CAP,
+  /**
+   * The manifest's service names for this ticket's scope — host-known context
+   * for the quality stages' `services` process. Absent → no services named.
+   */
+  serviceNames: (ticketId: number) => string[] = () => [],
+  /**
+   * The configured AI assignment for an inside process, shown as
+   * `configuredExecution` before any recorded run. Absent → none shown.
+   */
+  assignmentFor: (processId: 'session' | 'tester' | 'review') => SessionConfiguredInput | null =
+    () => null,
+  /**
+   * The snapshot-scoped action registry: when supplied, every evidence row
+   * that has an action mints its opaque id through it (the id rides the view;
+   * the registry — and its host-only targets — never leaves the host).
+   * Absent → rows carry no actions and no registry exists for the snapshot.
+   */
+  registry?: InsideActionRegistry | null,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const resolvedProvider = resolveProvider(ticket.agentProvider, defaultProvider);
@@ -211,6 +275,15 @@ export function buildDashboardState(
   // ONE read of the marks, for the same reason — the Inside strip and the impl
   // segment's pips are two views of one set of facts.
   const marks = listPhaseMarks(store, ticketId);
+  // ONE read of each inside evidence source, shared by every view that renders
+  // it — two reads of one table is how two panels disagree about one fact.
+  const gateRuns = listGateRuns(store, ticketId);
+  const findings = listFindings(store, ticketId);
+  const processRuns = listProcessRuns(store, ticketId);
+  const rounds = listRecoveryRounds(store, ticketId);
+  const uatFindings = listUatFindings(store, ticketId);
+  const shipEvidence = listShipEvidence(store, ticketId);
+  const timeline = listImplementationTimeline(store, ticketId);
   // The needs-you derivation every other surface already honours. Consulted, not
   // re-derived: a second answer to "is this blocked on the user" is exactly the
   // bug the single derivation exists to prevent.
@@ -221,6 +294,119 @@ export function buildDashboardState(
   // ONE clock read per push: the merge rows and the stage strip must not date
   // from two different instants.
   const now = nowIso();
+
+  // The snapshot-scoped action seam: the registry lives here in the host; only
+  // the opaque {actionId, kind} pairs ride the view.
+  const attach = (target: InsideEvidenceTarget): TypedInsideAction | undefined =>
+    registry ? registry.register({ ...target, ticketId: ticket.id }) : undefined;
+
+  // Recorded token summaries per process and per role — a process whose calls
+  // were all estimates reads as absent, never as a measured free call.
+  const tokensFor = (processId: string): SessionTokensInput | null => {
+    const summary = summarizeRecordedTokenUsageForProcess(store, ticketId, processId);
+    return summary.total > 0 ? { total: summary.total, estimatedCalls: 0 } : null;
+  };
+  const recordedTotal = summarizeRecordedTokenUsage(store, ticketId);
+  const roleTokens = summarizeRecordedTokenUsageByRole(store, ticketId);
+
+  const cellOf = (key: StageKey): StepperCell =>
+    stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
+
+  // The stage the six-stage presentation shows as CURRENT: `fix` projects onto
+  // the stage its active recovery round is causally attached to.
+  const fixFallback: 'uat' | 'review' =
+    rounds.find(
+      (r) => r.status === 'pending' || r.status === 'fixing' || r.status === 'revalidating',
+    )?.sourceStage ?? 'uat';
+  const presentedStage: InsideStageKey =
+    ticket.stageCurrent === null || ticket.stageCurrent === 'fix'
+      ? insideStageForRuntimeStage(
+          (ticket.stageCurrent === 'fix' ? fixFallback : 'scope') as StageKey,
+          fixFallback,
+        )
+      : insideStageForRuntimeStage(ticket.stageCurrent as StageKey, fixFallback);
+
+  const insideViews: Record<InsideStageKey, InsideStageView> = {
+    scope: stageView(
+      'scope',
+      cellOf('scope'),
+      scopeProcesses(cellOf('scope'), ticket.selectedRepos, worktrees, now),
+      now,
+    ),
+    impl: stageView(
+      'impl',
+      cellOf('impl'),
+      [
+        implementationSessionProcess(
+          cellOf('impl'),
+          timeline,
+          marks,
+          assignmentFor('session'),
+          tokensFor('session'),
+          now,
+          attach,
+        ),
+      ],
+      now,
+    ),
+    uat: stageView(
+      'uat',
+      cellOf('uat'),
+      uatProcesses({
+        cell: cellOf('uat'),
+        gateRuns,
+        findings: [],
+        uatFindings,
+        processRuns,
+        rounds,
+        services: serviceNames(ticketId),
+        now,
+        configured: assignmentFor('tester'),
+        tokens: tokensFor('tester'),
+        attach,
+      }),
+      now,
+    ),
+    review: stageView(
+      'review',
+      cellOf('review'),
+      reviewProcesses({
+        cell: cellOf('review'),
+        gateRuns,
+        findings,
+        uatFindings: [],
+        processRuns,
+        rounds,
+        services: serviceNames(ticketId),
+        now,
+        configured: assignmentFor('review'),
+        tokens: tokensFor('review'),
+        attach,
+      }),
+      now,
+    ),
+    ship: stageView(
+      'ship',
+      cellOf('ship'),
+      shipProcesses({ cell: cellOf('ship'), evidence: shipEvidence, prs, mergeChecks, now, attach }),
+      now,
+    ),
+    done: doneStageView(
+      cellOf('done'),
+      doneReceipt({
+        stageCurrent: ticket.stageCurrent === 'done' ? 'done' : 'ship',
+        ship: shipEvidence,
+        prs,
+        mergeChecks,
+        gateRuns,
+        rounds,
+        tokens: recordedTotal.total > 0 ? recordedTotal : null,
+        roles: roleTokens,
+        now,
+      }),
+      now,
+    ),
+  };
 
   return {
     ticketId: ticket.id,
@@ -270,8 +456,8 @@ export function buildDashboardState(
     }),
     inside: buildStageInside({
       stepper,
-      gateRuns: listGateRuns(store, ticketId),
-      findings: listFindings(store, ticketId),
+      gateRuns,
+      findings,
       worktrees,
       prs,
       mergeChecks,
@@ -286,6 +472,43 @@ export function buildDashboardState(
       fixAttempts,
       now,
     }),
+    insideViews,
+    presentedStage,
     approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
   };
+}
+
+/** One inside stage's presentation shell around its ordered processes. */
+function stageView(
+  key: InsideStageKey,
+  cell: StepperCell,
+  processes: readonly InsideProcessView[],
+  now: string,
+): InsideStageView {
+  return {
+    stageKey: key,
+    title: STAGE_TITLES[key as StageKey],
+    dot: dotFor(cell),
+    clock: formatClock(cell, now),
+    processes: [...processes],
+    blurb: STAGE_BLURBS[key as StageKey],
+  };
+}
+
+/**
+ * The done stage's single process: the delivery receipt. Pending before every
+ * current PR is merged (no future delivery evidence — that is the whole point
+ * of the discriminated union); complete after, with the receipt's rows.
+ */
+function doneStageView(cell: StepperCell, receipt: DoneReceiptView, now: string): InsideStageView {
+  const complete = receipt.status === 'complete';
+  const process: InsideProcessView = {
+    id: 'delivery-receipt',
+    kind: 'delivery-receipt',
+    label: 'Delivery receipt',
+    status: complete ? 'pass' : 'wait',
+    detail: complete ? (receipt.tokens?.label ?? 'no recorded tokens') : receipt.detail,
+    evidence: { kind: 'receipt', rows: complete ? receipt.evidence.rows : [] },
+  };
+  return stageView('done', cell, [process], now);
 }

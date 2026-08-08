@@ -837,7 +837,7 @@ describe('runUat', () => {
         runGates: async (gates, _cwd, opts) => {
           // Simulate each gate completing and invoke the callback.
           for (const g of gates) {
-            opts?.onGateComplete?.(g.name);
+            opts?.onGateComplete?.(g.name, 0);
           }
           return {
             kind: 'ran',

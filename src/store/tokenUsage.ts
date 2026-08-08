@@ -431,6 +431,32 @@ export function summarizeRecordedTokenUsage(
   return row;
 }
 
+/**
+ * RECORDED spend of ONE inside process (a `process_runs.process_id` — session,
+ * tester, review…), for the process rows' token views.
+ *
+ * Same recorded-only contract as `summarizeRecordedTokenUsage`; a process with
+ * no measured calls sums to zero, which the caller renders as absence (never
+ * as a measured free call).
+ */
+export function summarizeRecordedTokenUsageForProcess(
+  store: Store,
+  ticketId: number,
+  processId: string,
+): RecordedUsageSummary {
+  const row = store.db
+    .prepare(
+      `SELECT COALESCE(SUM(input_tokens), 0) AS input,
+              COALESCE(SUM(output_tokens), 0) AS output,
+              COALESCE(SUM(total_tokens), 0) AS total
+         FROM token_usage
+        WHERE ticket_id = ? AND estimated = 0
+          AND process_run_id IN (SELECT id FROM process_runs WHERE process_id = ?)`,
+    )
+    .get(ticketId, processId) as { input: number; output: number; total: number };
+  return row;
+}
+
 /** Measured spend of one ticket, grouped by the inside role that spent it. */
 export interface RecordedRoleUsage {
   /** `implementation` | `quality` | `ship` — the receipt's role breakdown. */

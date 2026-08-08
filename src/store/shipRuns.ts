@@ -623,6 +623,26 @@ export interface ShipEvidence {
 }
 
 /**
+ * One ship commit by its row id, whatever ticket it belongs to — the
+ * typed-action dispatch reloads the row by host-owned id and verifies the
+ * ticket itself (`insideActions.ts`). The owning ticket is carried via the
+ * commit's ship run (commits have no ticket column of their own).
+ */
+export function getShipCommitById(
+  store: Store,
+  id: number,
+): (ShipCommit & { ticketId: number }) | undefined {
+  const row = store.db
+    .prepare(
+      `SELECT c.id, c.ship_run_id, c.repo, c.sha, c.message, c.origin, r.ticket_id AS ticket_id
+         FROM ship_commits c
+         JOIN ship_runs r ON r.id = c.ship_run_id
+        WHERE c.id = ?`,
+    )
+    .get(id) as (ShipCommitRowShape & { ticket_id: number }) | undefined;
+  if (row === undefined) return undefined;
+  return { ...rowToShipCommit(row), ticketId: row.ticket_id };
+}/**
  * The evidence view of the ticket's LATEST ship run, grouped per repository.
  *
  * The run is picked by greatest id — insertion order IS run order. Steps and

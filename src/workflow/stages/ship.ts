@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
@@ -197,8 +198,16 @@ async function generateDescription(
   prTitle: string,
   ticketId: number,
   onProgress: ShipProgress,
+  onInsideProgress: (event: InsideProgressEvent) => void = () => {},
 ): Promise<string> {
   onProgress({ repo, step: 'describe', status: 'run' });
+  onInsideProgress({
+    kind: 'active',
+    ticketId,
+    stage: 'ship',
+    processId: 'pr-description',
+    live: { status: 'run', label: 'Pull request description', detail: repo },
+  });
   const at = nowIso();
   const processRun = openProcessRun(store, {
     ticketId,
@@ -220,11 +229,33 @@ async function generateDescription(
     finishProcessRun(store, processRun.id, 'passed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });
     onProgress({ repo, step: 'describe', status: 'pass' });
+    onInsideProgress({
+      kind: 'completed',
+      ticketId,
+      stage: 'ship',
+      process: {
+        id: 'pr-description',
+        kind: 'pr-description',
+        label: 'Pull request description',
+        status: 'pass',
+      },
+    });
     return body;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     finishProcessRun(store, processRun.id, 'failed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'failed', detail, endedAt: nowIso() });
+    onInsideProgress({
+      kind: 'completed',
+      ticketId,
+      stage: 'ship',
+      process: {
+        id: 'pr-description',
+        kind: 'pr-description',
+        label: 'Pull request description',
+        status: 'fail',
+      },
+    });
     throw err;
   }
 }
@@ -714,6 +745,7 @@ export async function shipTicket(
   adapter?: AgentAdapter,
   git: GitRunner = defaultGitRunner,
   onProgress: ShipProgress = () => {},
+  onInsideProgress: (event: InsideProgressEvent) => void = () => {},
 ): Promise<ShipResult> {
   const ticket = getTicket(store, opts.ticketId);
   const worktrees = listWorktreesByTicket(store, opts.ticketId);
@@ -1048,6 +1080,7 @@ export async function shipTicket(
               prTitle,
               opts.ticketId,
               onProgress,
+              onInsideProgress,
             );
           }
           return renderArtifactTemplate(
@@ -1066,6 +1099,7 @@ export async function shipTicket(
             prTitle,
             opts.ticketId,
             onProgress,
+            onInsideProgress,
           );
         }
         return prTitle;

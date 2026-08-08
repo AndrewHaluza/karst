@@ -12,12 +12,14 @@ import {
   inside,
   type AgentExecutionView,
   type EvidenceRow,
+  type InsideEvidenceTarget,
   type InsideProcessView,
   type InsideStatus,
   type OpStatus,
   type StageInside,
   type StageOp,
   type TokenUsageView,
+  type TypedInsideAction,
 } from './types.js';
 import { bounded } from './bounds.js';
 
@@ -378,6 +380,7 @@ export function implementationSessionProcess(
   configured: SessionConfiguredInput | null | undefined,
   tokens: SessionTokensInput | null | undefined,
   now: string,
+  attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined,
 ): InsideProcessView {
   const execution = timeline ? latestConfirmedSegment(timeline) : undefined;
 
@@ -396,11 +399,16 @@ export function implementationSessionProcess(
     }
   }
 
+  // The process row itself can open the stable run's full evidence — the one
+  // action a timeline row cannot carry without claiming a specific segment.
+  const action = attach && timeline ? attach({ kind: 'open-full-evidence', processRunId: timeline.run.processRunId }) : undefined;
+
   return {
     id: 'session',
     kind: 'session',
     label: 'Session',
     status: sessionStatus(cell),
+    ...(action ? { action } : {}),
     ...(cell.startedAt ? { duration: formatDuration(cell.startedAt, cell.endedAt ?? now) } : {}),
     ...(execution ? { execution: executionView(execution.provider, execution.model) } : {}),
     ...(!timeline && configured

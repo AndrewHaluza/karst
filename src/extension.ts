@@ -203,6 +203,9 @@ import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
 import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
+import type { InsideActionHost } from './ui/dashboard/insideActions.js';
+import { getPrById } from './store/prs.js';
+import { getShipCommitById } from './store/shipRuns.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
@@ -1659,6 +1662,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         currentManifest,
         () => pushDoneStatus(ticketId, true),
         (event) => dashboard.postShipProgress(ticketId, event),
+        // The inside-action seam: the panel posts only an opaque id; the
+        // manager resolves it through the ticket's CURRENT snapshot registry
+        // and dispatches the stored host-only target.
+        (actionId) => dashboard.dispatchInsideAction(ticketId, actionId),
         // A live session already owns the worktrees: nudge it and reveal the
         // terminal so the user sees the agent take the job. With none open,
         // launch one seeded with the brief instead of the ticket's own context.
@@ -1735,6 +1742,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // mid-run `karst.yml` edit and a mid-run gate toggle are honored on
     // identical terms.
     buildGateOptionsLoader({ store: localStore, manifest: currentManifest }),
+    // The inside-action host: vscode bindings for the containment-checked
+    // dispatches (the panel already proved ownership + containment).
+    makeInsideActionHost(localStore),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -3559,6 +3569,34 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
 /** True when the capability's tools are present; otherwise tells the user why not. */
 type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: boolean) => boolean;
 
+/** The vscode bindings for the inside-action dispatches (Task 13). Every
+ *  target was already containment- and ownership-checked by the panel; these
+ *  resolve the recorded object to its real-world surface. */
+function makeInsideActionHost(store: Store): InsideActionHost {
+  return {
+    openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
+    openPr: (_ticketId, prId) => {
+      const pr = getPrById(store, prId);
+      if (pr) void vscode.env.openExternal(vscode.Uri.parse(pr.url));
+    },
+    openCommit: (_ticketId, shipCommitId) => {
+      const commit = getShipCommitById(store, shipCommitId);
+      if (commit) {
+        void vscode.window.showInformationMessage(
+          `Commit ${commit.sha.slice(0, 8)} — recorded by ship in ${commit.repo}`,
+        );
+      }
+    },
+    resumeStage: (ticketId, stageKey) => {
+      if (!resumeBlockedStage(store, ticketId, ticketId, stageKey)) return;
+      void vscode.commands.executeCommand('karst.openDashboard', ticketId);
+    },
+    openFullEvidence: (ticketId, processRunId) => {
+      void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket #${ticketId}`);
+    },
+  };
+}
+
 function makeDashboardActions(
   store: Store,
   ticketId: number,
@@ -3580,6 +3618,9 @@ function makeDashboardActions(
   // `shipTicket` runs, so the confirm-ship click has visible progress instead
   // of a frozen button.
   onShipProgress: (event: ShipStepEvent) => void,
+  // Dispatch one opaque inside action id: the panel posts only the id; the
+  // dashboard manager resolves it through the ticket's current registry.
+  onInsideAction: (actionId: string) => void,
   // Deliver a prompt to this ticket's session, live or not: nudge the open
   // terminal, else launch one seeded with it. A conflict brief handed to
   // `openSession` alone would be dropped whenever a session is already up —
@@ -3859,6 +3900,7 @@ function makeDashboardActions(
     // Returns a promise, so the button reports a REAL terminal outcome rather
     // than a bare ack (UI-R13): the write is fast and local, so there is no
     // reason to settle on anything weaker.
+    insideAction: (actionId) => onInsideAction(actionId),
     setDisabledGate: async (stage, name, disabled) => {
       const current = getDisabledGates(store, ticketId)[stage];
       const next = disabled ? [...current, name] : current.filter((n) => n !== name);

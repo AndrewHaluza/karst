@@ -149,3 +149,19 @@ export function listUatFindingsByProcess(store: Store, processRunId: number): Ua
     .all(processRunId)
     .map((r) => rowToFinding(r as UatFindingRow));
 }
+
+/**
+ * One observation by its row id, whatever ticket it belongs to — the
+ * typed-action dispatch reloads the row by host-owned id and verifies the
+ * ticket itself (`insideActions.ts`).
+ */
+export function getUatFindingById(store: Store, id: number): UatFinding | undefined {
+  const row = store.db
+    .prepare(
+      `SELECT id, ticket_id, process_run_id, repo, severity, title, file_path, line, created_at
+         FROM uat_findings
+        WHERE id = ?`,
+    )
+    .get(id) as UatFindingRow | undefined;
+  return row === undefined ? undefined : rowToFinding(row);
+}

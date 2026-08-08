@@ -207,6 +207,21 @@ export interface TypedInsideAction {
   kind: InsideActionKind;
 }
 
+/**
+ * The ticket-less target shape a REDUCER hands to the host's attach closure.
+ * The reducers are pure and ticket-agnostic; the closure (built around the
+ * host's `InsideActionRegistry`, `ui/dashboard/insideActions.ts`) owns the
+ * ticket id, mints the opaque action id, and returns the `{actionId, kind}`
+ * the row carries.
+ */
+export type InsideEvidenceTarget =
+  | {
+      kind: 'open-file';
+      evidence: { source: 'review-finding' | 'uat-finding'; id: number };
+    }
+  | { kind: 'open-commit'; shipCommitId: number }
+  | { kind: 'open-full-evidence'; processRunId: number };
+
 /** Preformatted token counts — a view never formats a number. */
 export interface TokenUsageView {
   /** Preformatted total — `12.4k`. */
