@@ -3066,11 +3066,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // registration below reads the mode, so a Production or Test activation
   // sets it to false and the palette can never offer an entry for a command
   // this window did not register (pinned by extensionActivation.test.ts).
-  await vscode.commands.executeCommand(
-    'setContext',
-    'karst.insidePreviewAvailable',
-    context.extensionMode === vscode.ExtensionMode.Development,
-  );
+  try {
+    await vscode.commands.executeCommand(
+      'setContext',
+      'karst.insidePreviewAvailable',
+      context.extensionMode === vscode.ExtensionMode.Development,
+    );
+  } catch (error) {
+    // The palette hint is optional. A rejected VS Code context write must not
+    // prevent the extension — or the Development preview command itself —
+    // from activating.
+    logError('inside preview context setup failed', error);
+  }
   if (context.extensionMode === vscode.ExtensionMode.Development) {
     context.subscriptions.push(
       vscode.commands.registerCommand('karst.dev.openInsidePreview', () => {

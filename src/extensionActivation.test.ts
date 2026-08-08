@@ -262,13 +262,23 @@ describe('extension activation', () => {
   // is the one writer of the palette condition, so a Production/Test activation
   // still sets it (to false) and the entry cannot leak into a window that
   // never registered the command.
-  it('sets the development-preview context key at activation, before the guarded registration', () => {
+  it('awaits preview context setup, logs a rejection, and still reaches guarded registration', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    expect(source).toContain(
-      "await vscode.commands.executeCommand(\n    'setContext',\n    'karst.insidePreviewAvailable',\n    context.extensionMode === vscode.ExtensionMode.Development,\n  );",
-    );
-    // The key is written before the registration guard reads the mode.
+    const previewStart = source.indexOf('// Development-only Inside preview');
+    const contextTry = source.indexOf('try {', previewStart);
+    const contextAwait = source.indexOf("await vscode.commands.executeCommand(", contextTry);
+    const contextKey = source.indexOf("'karst.insidePreviewAvailable'", contextAwait);
+    const contextCatch = source.indexOf('} catch (error) {', contextKey);
+    const contextLog = source.indexOf("logError('inside preview context setup failed', error)", contextCatch);
+    expect(contextTry).toBeGreaterThan(previewStart);
+    expect(contextAwait).toBeGreaterThan(contextTry);
+    expect(contextKey).toBeGreaterThan(contextAwait);
+    expect(contextCatch).toBeGreaterThan(contextKey);
+    expect(contextLog).toBeGreaterThan(contextCatch);
+    // The optional palette-context write cannot abort activation: the command
+    // registration remains after its catch, so a Development host still gets
+    // its preview command even if VS Code rejects setContext.
     const setAt = source.indexOf("'karst.insidePreviewAvailable'");
     const guardAt = source.indexOf('karst.dev.openInsidePreview', setAt);
     expect(setAt).toBeGreaterThan(-1);
