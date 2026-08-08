@@ -1094,4 +1094,85 @@ describe('dashboard webview.html', () => {
     expect(click).toContain("type: act");
   });
 
+  // ── inside ledger (the inside redesign) ─────────────────────────────────
+  it('renders the inside ledger from state.insideViews, not the flat ops', () => {
+    // The redesigned block consumes the six-stage view contract: ordered
+    // process rows with evidence. The flat `state.inside` path survives ONLY
+    // for a ship in flight (its per-repo/per-step ship-progress events stream
+    // the flat shape), so the renderer must branch on that and nothing else.
+    expect(HTML).toMatch(/state\.insideViews/);
+    expect(HTML).toMatch(/function processRowHtml/);
+    expect(HTML).toMatch(/function renderInsideFlat/);
+    expect(HTML).toMatch(/shipping && sel === 'ship'/);
+    expect(HTML).toMatch(/class="procs"/);
+    // The flat map lives ONLY inside the ship-in-flight renderer; the ledger
+    // path reads the six-stage view contract, never the flat ops.
+    expect(HTML).toMatch(/function renderInsideFlat[\s\S]*strip\.ops\.map/);
+    expect(HTML).toMatch(/function renderInside\(state, sel\)[\s\S]*state\.insideViews/);
+  });
+
+  it('renders a process row from the snapshot, never deriving a verdict', () => {
+    // Status glyph, label, detail, counts, tokens and the action id all come
+    // pre-built; the webview only maps the closed status vocabulary to glyphs
+    // and the closed action vocabulary to static button copy.
+    expect(HTML).toMatch(/OP_GLYPH\[p\.status\]/);
+    expect(HTML).toMatch(/INSIDE_ACTION_LABEL\[a\.kind\]/);
+    expect(HTML).toMatch(/p\.execution \|\| p\.configuredExecution/);
+    expect(HTML).not.toMatch(/p\.status = /);
+  });
+
+  it('renders execution identity as one chip, never both claims at once', () => {
+    // `execution` (what ran) and `configuredExecution` (what settings said
+    // would run) are two different claims; one chip renders whichever exists,
+    // and the title says which claim it is.
+    expect(HTML).toMatch(/const e = p\.execution \|\| p\.configuredExecution;/);
+    expect(HTML).toContain("'Executed with this identity'");
+    expect(HTML).toContain('Configured to run — has not executed yet');
+  });
+
+  it('discloses process evidence with a real button and aria-expanded', () => {
+    // UI-R09: the disclosure is a semantic button carrying the open state; the
+    // open set is local view state that survives the next full re-render.
+    expect(HTML).toMatch(/data-chev="\$\{esc\(key\)\}"/);
+    expect(HTML).toMatch(/aria-expanded="\$\{open \? 'true' : 'false'\}"/);
+    expect(HTML).toMatch(/openProcesses = next;/);
+  });
+
+  it('posts inside actions with only the opaque actionId', () => {
+    // The closed inside-action message: type + actionId + requestId and
+    // NOTHING else — the webview never ships a path, URL, PR number, repo or
+    // stage as authority (messages.ts drops any payload with a companion
+    // field).
+    expect(HTML).toMatch(/data-action-id="\$\{esc\(a\.actionId\)\}"/);
+    expect(HTML).toMatch(/btn\.dataset\.actionId\) \{\n\s*post\(\{ type: act, actionId: btn\.dataset\.actionId, requestId \}\)/);
+  });
+
+  it('renders a live operation in the header, never as a second process row', () => {
+    // The inside-progress protocol is a same-tick overlay: `active` rides the
+    // stage header (spinner + host label), `completed` replaces the snapshot's
+    // same-id process row, and the full snapshot that follows retires both.
+    expect(HTML).toMatch(/'inside-progress'/);
+    expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ active: e\.live/);
+    expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ completed: e\.process \}/);
+    expect(HTML).toMatch(/function overlayProcesses/);
+    expect(HTML).toMatch(/live && live\.active/);
+    expect(HTML).not.toMatch(/live\.active\.status/);
+  });
+
+  it('retires a live overlay only when the snapshot contains its process', () => {
+    // A snapshot that does not know the process cannot answer about it; a
+    // `completed` overlay dies on any presence, an `active` one only once its
+    // row reads terminal (an unrelated mid-gate push must not drop the live
+    // header while the snapshot still reads `run`).
+    expect(HTML).toMatch(/entry\.completed \? entry\.completed\.id : entry\.processId/);
+    expect(HTML).toMatch(/row\.status !== 'run'/);
+    expect(HTML).toMatch(/delete liveOps\[stage\]/);
+  });
+
+  it('does not persist the live overlay across reloads', () => {
+    // A restored overlay would claim a process is running that nobody is —
+    // persist() saves only the snapshot, the selection and the filter.
+    expect(HTML).toMatch(/setState\(\{ state: lastState, sel: selectedStage, srvFilter: srvFilter \}\)/);
+    expect(HTML).not.toMatch(/liveOps: /);
+  });
 });

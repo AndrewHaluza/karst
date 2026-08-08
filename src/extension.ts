@@ -1951,6 +1951,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             provider.refresh();
             dashboard.pushState(id);
           },
+          // Live inside operation events (Task 13/14): a same-tick overlay
+          // between full snapshots — the driver's own onGateComplete pushes a
+          // snapshot right after, which supersedes it. No-op when the panel
+          // is closed; validated again at the panel boundary.
+          onInsideProgress: (event) => dashboard.postInsideProgress(ticketId, event),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
