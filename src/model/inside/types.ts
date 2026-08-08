@@ -296,3 +296,22 @@ export interface InsideStageView {
   /** The static "what happens here" copy. Always present. */
   blurb: string;
 }
+
+/**
+ * The PR facts the ship strip reads — a structural subset of `PrView`, so the
+ * strip states only what it renders and a caller with a partial row (a test, an
+ * older snapshot) still type-checks. The v16 metadata is optional for exactly
+ * that reason: absent is a state the strip must handle anyway.
+ */
+export interface ShipPrView {
+  /** The repository path — identity. */
+  repo: string;
+  /** The repository as displayed (path-display preference). Falls back to `repo`. */
+  repoDisplay?: string;
+  number: number | null;
+  /** `open` | `merged` | `closed` | … as `prs.status` holds it, when known. */
+  status?: string | null;
+  headRef?: string | null;
+  baseRef?: string | null;
+  mergedAt?: string | null;
+}

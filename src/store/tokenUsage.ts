@@ -430,3 +430,73 @@ export function summarizeRecordedTokenUsage(
     .get(ticketId) as { input: number; output: number; total: number };
   return row;
 }
+
+/** Measured spend of one ticket, grouped by the inside role that spent it. */
+export interface RecordedRoleUsage {
+  /** `implementation` | `quality` | `ship` — the receipt's role breakdown. */
+  role: string;
+  input: number;
+  output: number;
+  total: number;
+}
+
+/**
+ * Which inside role a process's spend belongs to. Unknown process ids — a
+ * process a newer build introduced — are unattributed, not invented into a
+ * role.
+ */
+const ROLE_BY_PROCESS: Readonly<Record<string, string>> = {
+  session: 'implementation',
+  tester: 'quality',
+  review: 'quality',
+  fix: 'quality',
+  'pr-description': 'ship',
+};
+
+/** The receipt renders roles in a fixed order, whatever the query returned. */
+const ROLE_ORDER: readonly string[] = ['implementation', 'quality', 'ship'];
+
+/**
+ * RECORDED spend per inside role, for the done receipt's breakdown.
+ *
+ * Same recorded-only contract as `summarizeRecordedTokenUsage` (estimated
+ * rows excluded in the WHERE). Rows with no process link are legacy
+ * pre-attribution spend: omitted here — a receipt must not guess which role
+ * spent them — while they still appear in the ticket-wide summary.
+ */
+export function summarizeRecordedTokenUsageByRole(
+  store: Store,
+  ticketId: number,
+): RecordedRoleUsage[] {
+  const rows = store.db
+    .prepare(
+      `SELECT p.process_id AS process_id,
+              COALESCE(SUM(t.input_tokens), 0) AS input,
+              COALESCE(SUM(t.output_tokens), 0) AS output,
+              COALESCE(SUM(t.total_tokens), 0) AS total
+         FROM token_usage t
+         LEFT JOIN process_runs p ON p.id = t.process_run_id
+        WHERE t.ticket_id = ? AND t.estimated = 0
+        GROUP BY p.process_id`,
+    )
+    .all(ticketId) as { process_id: string | null; input: number; output: number; total: number }[];
+
+  const byRole = new Map<string, RecordedRoleUsage>();
+  for (const row of rows) {
+    if (row.process_id === null) continue;
+    const role = ROLE_BY_PROCESS[row.process_id];
+    if (role === undefined) continue;
+    const held = byRole.get(role);
+    if (held === undefined) {
+      byRole.set(role, { role, input: row.input, output: row.output, total: row.total });
+    } else {
+      held.input += row.input;
+      held.output += row.output;
+      held.total += row.total;
+    }
+  }
+  return ROLE_ORDER.filter((role) => {
+    const held = byRole.get(role);
+    return held !== undefined && (held.total > 0 || held.input > 0 || held.output > 0);
+  }).map((role) => byRole.get(role)!);
+}

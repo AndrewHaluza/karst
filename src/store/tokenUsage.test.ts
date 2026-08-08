@@ -5,6 +5,7 @@ import {
   queryTokenUsageStats,
   listTokenUsage,
   summarizeRecordedTokenUsage,
+  summarizeRecordedTokenUsageByRole,
   EMPTY_USAGE_TOTALS,
 } from './tokenUsage.js';
 import { parseUsageQuery, type UsageQuery } from './tokenUsageQuery.js';
@@ -389,5 +390,54 @@ describe('process-run attribution', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.processRunId).toBeNull();
     expect(rows[0]!.ticketId).toBe(1);
+  });
+});
+
+describe('summarizeRecordedTokenUsageByRole', () => {
+  function run(processId: string, stageKey: string): { id: number } {
+    return openProcessRun(store, {
+      ticketId: 1,
+      stageKey: stageKey as never,
+      processId,
+      attempt: 0,
+      startedAt: '2026-07-15T00:00:00.000Z',
+    });
+  }
+
+  it('groups recorded spend by inside role in a fixed order', () => {
+    ticket(1, 'K-1', 'One');
+    const session = run('session', 'impl');
+    const tester = run('tester', 'uat');
+    const review = run('review', 'review');
+    const fix = run('fix', 'fix');
+    const prDesc = run('pr-description', 'ship');
+    seed({ input: 100, output: 20, processRunId: session.id });
+    seed({ input: 10, output: 5, processRunId: tester.id });
+    seed({ input: 10, output: 5, processRunId: review.id });
+    seed({ input: 2, output: 1, processRunId: fix.id });
+    seed({ input: 5, output: 5, processRunId: prDesc.id });
+
+    expect(summarizeRecordedTokenUsageByRole(store, 1)).toEqual([
+      { role: 'implementation', input: 100, output: 20, total: 120 },
+      { role: 'quality', input: 22, output: 11, total: 33 },
+      { role: 'ship', input: 5, output: 5, total: 10 },
+    ]);
+  });
+
+  it('excludes estimated rows and unattributed legacy rows', () => {
+    ticket(1, 'K-1', 'One');
+    const session = run('session', 'impl');
+    seed({ input: 100, output: 20, processRunId: session.id });
+    seed({ input: 999, output: 999, estimated: true, processRunId: session.id });
+    seed({ input: 40, output: 10 });
+
+    expect(summarizeRecordedTokenUsageByRole(store, 1)).toEqual([
+      { role: 'implementation', input: 100, output: 20, total: 120 },
+    ]);
+  });
+
+  it('omits roles with no recorded spend', () => {
+    ticket(1, 'K-1', 'One');
+    expect(summarizeRecordedTokenUsageByRole(store, 1)).toEqual([]);
   });
 });

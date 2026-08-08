@@ -1,0 +1,310 @@
+import { describe, it, expect } from 'vitest';
+import type { ShipCommit, ShipEvidence, ShipRepoEvidence, ShipRepoStepEvidence, ShipRun, ShipStep } from '../../store/shipRuns.js';
+import type { MergeCheckRow } from '../../store/mergeChecks.js';
+import type { StepperCell } from '../stepper.js';
+import type { StageKey, StageStatus } from '../types.js';
+import { shipProcesses, type ShipProcessesInput } from './ship.js';
+import type { ShipPrView } from './types.js';
+import type { EvidenceRow, InsideProcessView } from './types.js';
+
+const NOW = '2026-07-20T12:30:00.000Z';
+
+function cell(stageKey: StageKey, status: StageStatus, extra: Partial<StepperCell> = {}): StepperCell {
+  return { stageKey, status, ...extra };
+}
+
+const shipRun: ShipRun = {
+  id: 1,
+  ticketId: 1,
+  attempt: 1,
+  status: 'passed',
+  startedAt: '2026-07-20T12:00:00.000Z',
+  endedAt: '2026-07-20T12:03:00.000Z',
+};
+
+let nextId = 1;
+function step(stepName: ShipStep, over: Partial<ShipRepoStepEvidence> = {}): ShipRepoStepEvidence {
+  return {
+    id: nextId++,
+    shipRunId: 1,
+    repo: '/web',
+    step: stepName,
+    status: 'passed',
+    detail: '',
+    prNumber: null,
+    prStatus: null,
+    existedBeforeShip: null,
+    processRunId: null,
+    operationIntentId: null,
+    startedAt: '2026-07-20T12:00:00.000Z',
+    endedAt: '2026-07-20T12:01:00.000Z',
+    hasIntent: true,
+    number: null,
+    ...over,
+  };
+}
+
+let nextCommit = 1;
+function shipCommit(origin: 'before-ship' | 'created-by-ship', over: Partial<ShipCommit> = {}): ShipCommit {
+  return {
+    id: nextCommit++,
+    shipRunId: 1,
+    repo: '/web',
+    sha: 'abc123',
+    message: 'm',
+    origin,
+    ...over,
+  };
+}
+
+function repoEvidence(repo: string, over: Partial<ShipRepoEvidence> = {}): ShipRepoEvidence {
+  return { steps: {}, commits: [], intents: {}, ...over };
+}
+
+function evidence(over: Partial<ShipEvidence> = {}): ShipEvidence {
+  return { run: shipRun, repos: {}, ...over };
+}
+
+function pr(repo: string, over: Partial<ShipPrView> = {}): ShipPrView {
+  return { repo, number: null, status: null, headRef: null, baseRef: null, mergedAt: null, ...over };
+}
+
+function check(repo: string, over: Partial<MergeCheckRow> = {}): MergeCheckRow {
+  return {
+    ticketId: 1,
+    repo,
+    state: 'clean',
+    files: [],
+    reason: null,
+    headSha: 'aaa1111',
+    baseSha: 'bbb2222',
+    baseRef: 'main',
+    checkedAt: NOW,
+    ...over,
+  };
+}
+
+function shipInput(extra: Partial<ShipProcessesInput> = {}): ShipProcessesInput {
+  return {
+    cell: cell('ship', 'passed', {
+      startedAt: '2026-07-20T12:00:00.000Z',
+      endedAt: '2026-07-20T12:03:00.000Z',
+    }),
+    evidence: evidence(),
+    prs: [],
+    mergeChecks: [],
+    now: NOW,
+    ...extra,
+  };
+}
+
+function rowsOf(process: InsideProcessView): readonly EvidenceRow[] {
+  const evidenceKind = process.evidence;
+  if (evidenceKind?.kind === 'rows') return evidenceKind.rows;
+  if (evidenceKind?.kind === 'commits') return evidenceKind.rows;
+  if (evidenceKind?.kind === 'prs') return evidenceKind.rows;
+  throw new Error(`expected rows-bearing evidence, got ${process.evidence?.kind ?? 'none'}`);
+}
+
+describe('shipProcesses', () => {
+  it('emits commit, push, pr, merge in registry order', () => {
+    const views = shipProcesses(shipInput());
+    expect(views.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
+  });
+
+  it('distinguishes ship-created commits from pre-existing ones per repo', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              commits: [
+                shipCommit('created-by-ship'),
+                shipCommit('created-by-ship'),
+                shipCommit('before-ship'),
+              ],
+            }),
+          },
+        }),
+      }),
+    );
+    const commit = views[0]!;
+    const evidenceView = commit.evidence as { kind: 'commits'; rows: readonly EvidenceRow[]; total?: number };
+    expect(evidenceView.total).toBe(2);
+    expect(evidenceView.rows).toHaveLength(1);
+    expect(evidenceView.rows[0]!.detail).toContain('2 created');
+    expect(evidenceView.rows[0]!.detail).toContain('1 before');
+  });
+
+  it('reads a nothing-to-commit step as a note, never a pass or fail', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { status: 'note', detail: 'nothing to commit' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    expect(rowsOf(views[0]!)[0]!.status).toBe('note');
+    expect(rowsOf(views[0]!)[0]!.detail).toContain('nothing to commit');
+  });
+
+  it('aggregates at 20 repos: bounded rows and the remainder named', () => {
+    const repos: Record<string, ShipRepoEvidence> = {};
+    for (let i = 0; i < 20; i += 1) {
+      repos[`/repo-${i}`] = repoEvidence(`/repo-${i}`, {
+        steps: { push: step('push', { repo: `/repo-${i}` }) },
+      });
+    }
+    const views = shipProcesses(shipInput({ evidence: evidence({ repos }) }));
+    const push = views[1]!;
+    const rows = rowsOf(push);
+    expect(rows).toHaveLength(7);
+    expect(rows.at(-1)).toMatchObject({ status: 'note', label: 'more' });
+    expect(rows.at(-1)!.detail).toContain('14');
+  });
+
+  it('preserves a push failure verbatim as a failed row', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { push: step('push', { status: 'failed', detail: 'push rejected: non-fast-forward' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    const push = views[1]!;
+    expect(push.status).toBe('fail');
+    expect(rowsOf(push)[0]!.detail).toContain('non-fast-forward');
+  });
+
+  it('names an adopted PR as adopted and a created PR as created, with its number', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: {
+                pr: step('pr', { existedBeforeShip: true, number: 40 }),
+              },
+            }),
+            '/api': repoEvidence('/api', {
+              steps: {
+                pr: step('pr', { repo: '/api', existedBeforeShip: false, number: 41 }),
+              },
+            }),
+          },
+        }),
+      }),
+    );
+    const rows = rowsOf(views[2]!);
+    const web = rows.find((r) => r.label === '/web')!;
+    const api = rows.find((r) => r.label === '/api')!;
+    expect(web.detail).toContain('adopted');
+    expect(web.detail).toContain('#40');
+    expect(api.detail).toContain('created');
+    expect(api.detail).toContain('#41');
+  });
+
+  it('says the number is pending when a created PR has none recorded yet', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { existedBeforeShip: false, number: null }) },
+            }),
+          },
+        }),
+      }),
+    );
+    const rows = rowsOf(views[2]!);
+    expect(rows[0]!.detail).toContain('created');
+    expect(rows[0]!.detail).toContain('pending');
+  });
+
+  it('reads the merge process from CURRENT PRs: merged passes, open waits', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [
+          pr('/web', { number: 40, status: 'merged', mergedAt: NOW }),
+          pr('/api', { number: 41, status: 'open' }),
+        ],
+      }),
+    );
+    const merge = views[3]!;
+    expect(merge.status).toBe('wait');
+    const rows = rowsOf(merge);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ status: 'pass', label: 'merged' });
+    expect(rows[1]).toMatchObject({ status: 'wait', label: 'open' });
+    expect(rows[1]!.detail).toContain('not merged yet');
+  });
+
+  it('reads a draft PR as a wait, not a pass', () => {
+    const views = shipProcesses(
+      shipInput({ prs: [pr('/web', { number: 40, status: 'draft' })] }),
+    );
+    const rows = rowsOf(views[3]!);
+    expect(rows[0]).toMatchObject({ status: 'wait', label: 'draft' });
+  });
+
+  it('reads a merge conflict as a WAIT naming the files — never a failed verdict', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [pr('/web', { number: 40, status: 'open' })],
+        mergeChecks: [check('/web', { state: 'conflicted', files: ['a.ts', 'b.ts'] })],
+      }),
+    );
+    const merge = views[3]!;
+    expect(merge.status).toBe('wait');
+    const rows = rowsOf(merge);
+    expect(rows[0]!.status).toBe('wait');
+    expect(rows[0]!.label).toBe('conflict');
+    expect(rows[0]!.detail).toContain('a.ts');
+    expect(rows[0]!.detail).not.toContain('failed');
+  });
+
+  it('lets the CURRENT PR answer for a repo that was re-shipped after a merge', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [
+          pr('/web', { number: 40, status: 'merged', mergedAt: '2026-07-19T00:00:00.000Z' }),
+          pr('/web', { number: 42, status: 'open' }),
+        ],
+      }),
+    );
+    const rows = rowsOf(views[3]!);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.detail).toContain('#42');
+    expect(rows[0]!.detail).not.toContain('#40');
+  });
+
+  it('says nothing to merge once ship entered but no PR exists', () => {
+    const views = shipProcesses(shipInput({}));
+    const merge = views[3]!;
+    expect(merge.status).toBe('note');
+    expect(merge.detail).toContain('nothing to merge');
+  });
+
+  it('renders absence honestly when no ship evidence was ever recorded', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({ run: undefined }),
+        cell: cell('ship', 'passed', { startedAt: NOW, endedAt: NOW }),
+      }),
+    );
+    // The evidence-backed processes (commit, push, pr) state the absence; the
+    // merge process answers the live question from current PRs instead.
+    for (const process of views.slice(0, 3)) {
+      expect(process.status).toBe('note');
+      expect(process.detail).toContain('no recorded evidence');
+    }
+  });
+});

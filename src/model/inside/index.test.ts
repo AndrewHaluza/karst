@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../types.js';
 import { buildStepper, type StepperCell, type StepperStageRow } from '../stepper.js';
-import { buildStageInside, scopeProcesses, uatProcesses, reviewProcesses, type StageInsideInput } from './index.js';
+import { buildStageInside, scopeProcesses, uatProcesses, reviewProcesses, shipProcesses, doneReceipt, type StageInsideInput } from './index.js';
 import type { EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -508,5 +508,12 @@ describe('quality process reducers (re-exported)', () => {
 
   it('reviewProcesses emits the registry order', () => {
     expect(reviewProcesses({ ...input, cell: { stageKey: 'review' as const, status: 'passed' as const } }).map((p) => p.id)).toEqual(['gates', 'services', 'review']);
+  });
+});
+
+describe('ship and done reducers (re-exported)', () => {
+  it('exposes shipProcesses and doneReceipt from the index', () => {
+    expect(typeof shipProcesses).toBe('function');
+    expect(typeof doneReceipt).toBe('function');
   });
 });

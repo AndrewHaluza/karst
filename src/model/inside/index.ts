@@ -13,12 +13,15 @@ import {
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
+  type ShipPrView,
   type StageInside,
   type StageOp,
 } from './types.js';
 import { bounded } from './bounds.js';
 import { reviewInside, uatInside, reviewProcesses, uatProcesses } from './gates.js';
 import { insertCausalFix, recoveryProcess } from './recovery.js';
+import { shipProcesses, currentPerRepo } from './ship.js';
+import { doneReceipt } from './done.js';
 import {
   implInside,
   fixInside,
@@ -28,7 +31,7 @@ import {
   type SessionView,
 } from './agent.js';
 
-export type { StageInside, StageOp, OpStatus, InsideDot } from './types.js';
+export type { StageInside, StageOp, OpStatus, InsideDot, ShipPrView } from './types.js';
 export { bounded } from './bounds.js';
 export type { SessionConfiguredInput, SessionTokensInput } from './agent.js';
 export { implementationSessionProcess } from './agent.js';
@@ -36,30 +39,15 @@ export { uatProcesses, reviewProcesses } from './gates.js';
 export type { QualityProcessesInput } from './gates.js';
 export { insertCausalFix, recoveryProcess } from './recovery.js';
 export type { RecoveryProcessView } from './recovery.js';
+export { shipProcesses } from './ship.js';
+export type { ShipProcessesInput } from './ship.js';
+export { doneReceipt } from './done.js';
+export type { DoneReceiptInput, DoneReceiptView } from './done.js';
 
 /**
  * Everything needed to say what happened inside each stage — all of it already
  * loaded by the caller, so this stays pure: no store, no clock, no vscode.
  */
-/**
- * The PR facts the ship strip reads — a structural subset of `PrView`, so the
- * strip states only what it renders and a caller with a partial row (a test, an
- * older snapshot) still type-checks. The v16 metadata is optional for exactly
- * that reason: absent is a state the strip must handle anyway.
- */
-export interface ShipPrView {
-  /** The repository path — identity. */
-  repo: string;
-  /** The repository as displayed (path-display preference). Falls back to `repo`. */
-  repoDisplay?: string;
-  number: number | null;
-  /** `open` | `merged` | `closed` | … as `prs.status` holds it, when known. */
-  status?: string | null;
-  headRef?: string | null;
-  baseRef?: string | null;
-  mergedAt?: string | null;
-}
-
 export interface StageInsideInput {
   stepper: readonly StepperCell[];
   gateRuns: readonly GateRun[];
@@ -294,30 +282,6 @@ function shipInside(
     return { status: 'pass', name: 'pr', detail: parts.join(' · '), duration: '' };
   });
   return inside(cell, now, [...prOps, ...landingOps(cell, prs, mergeChecks)]);
-}
-
-/**
- * One PR per repo — the CURRENT one — mirroring `store/prs.ts`'s
- * `CURRENT_PR_ORDER`: an open PR wins, otherwise the highest number.
- *
- * A repo re-shipped after a merge carries both rows in `prs` (`ship` inserts a
- * fresh row rather than reusing a terminal one). The `pr` rows in `shipInside`
- * show every PR it ever opened, which is right for a log of what it did;
- * `landingOps` answers "has this repo landed", and a stale `merged` beside a
- * live `open` would answer it twice.
- */
-function currentPerRepo(prs: readonly ShipPrView[]): ShipPrView[] {
-  const byRepo = new Map<string, ShipPrView>();
-  for (const pr of prs) {
-    const held = byRepo.get(pr.repo);
-    if (!held) {
-      byRepo.set(pr.repo, pr);
-      continue;
-    }
-    if (held.status === 'open') continue;
-    if (pr.status === 'open' || (pr.number ?? -1) > (held.number ?? -1)) byRepo.set(pr.repo, pr);
-  }
-  return [...byRepo.values()];
 }
 
 /**
