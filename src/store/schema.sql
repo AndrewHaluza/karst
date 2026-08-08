@@ -418,6 +418,80 @@ CREATE INDEX IF NOT EXISTS idx_uat_findings_ticket ON uat_findings(ticket_id, id
 -- Per-process-run evidence reads (the inside view's Tester evidence).
 CREATE INDEX IF NOT EXISTS idx_uat_findings_process ON uat_findings(process_run_id, id);
 
+-- v32: the durable per-repository SHIP SAGA (Task 9). A ship is a sequence of
+-- irreversible external operations (commit, push, PR-description, PR creation)
+-- per repo, and git/GitHub's answer to an operation only exists AFTER the side
+-- effect happened — a crash mid-saga cannot be re-approximated by probing.
+-- These four tables make each operation RECONCILABLE instead: the run, the
+-- per-repo steps it walked, the typed ownership rows persisted BEFORE each
+-- external touch, and the commits it created (or found already present).
+--
+-- Evidence posture like stage_runs/process_runs: append-only, opened at entry
+-- (`running`/`preparing`), closed at outcome, and a late writer is never
+-- allowed to overwrite a terminal state (every transition is guarded on the
+-- row still being where the transition expects it).
+--
+-- `ship_operation_intents.pre_state_json` is ALWAYS present before anything
+-- touches git/GitHub; `intent_json` is NULL only while a Commit row is
+-- `preparing`. Both are parsed through closed TypeScript unions keyed by
+-- `step` (src/store/shipRuns.ts) — malformed/unknown data reads as `ambiguous`,
+-- never as permission to prepare, clean up, or repeat an operation.
+-- `operation_key` is globally UNIQUE: a crash-and-rerun re-prepares the SAME
+-- operation, so the durable ownership row is returned, never duplicated.
+CREATE TABLE IF NOT EXISTS ship_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  attempt INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE TABLE IF NOT EXISTS ship_repo_steps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  step TEXT NOT NULL CHECK (step IN ('commit','push','describe','pr')),
+  status TEXT NOT NULL CHECK (status IN ('running','passed','failed','note')),
+  detail TEXT NOT NULL,
+  pr_number INTEGER,
+  pr_status TEXT,
+  existed_before_ship INTEGER,
+  process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  -- v32 ownership linkage: -> ship_operation_intents.id, the durable row that
+  -- authorizes this step's preparation. NULL = no preparation has begun (a
+  -- running step with no matching intent must never authorize one).
+  -- Placed LAST, matching where the migration's ALTER TABLE ADD COLUMN
+  -- necessarily puts it on an upgraded DB (SQLite always appends).
+  operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS ship_operation_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  step TEXT NOT NULL CHECK (step IN ('commit','push','describe','pr')),
+  operation_key TEXT NOT NULL UNIQUE,
+  pre_state_json TEXT NOT NULL,
+  intent_json TEXT,
+  status TEXT NOT NULL CHECK (status IN ('preparing','prepared','applied','reconciled','failed','ambiguous')),
+  created_at TEXT NOT NULL,
+  prepared_at TEXT,
+  applied_at TEXT,
+  resolved_at TEXT
+);
+CREATE TABLE IF NOT EXISTS ship_commits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  sha TEXT NOT NULL,
+  message TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK (origin IN ('before-ship','created-by-ship'))
+);
+CREATE INDEX IF NOT EXISTS idx_ship_run_ticket ON ship_runs(ticket_id, id);
+CREATE INDEX IF NOT EXISTS idx_ship_step_run ON ship_repo_steps(ship_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_ship_commit_run ON ship_commits(ship_run_id, id);
+
 CREATE TABLE IF NOT EXISTS worktrees (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
   repo          TEXT NOT NULL,

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 32;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -977,6 +977,93 @@ export function migrate(db: Database): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_uat_findings_process ON uat_findings(process_run_id, id)',
     );
+  }
+
+  if (current < 32) {
+    // v32 makes the SHIP SAGA durable (Task 9): one run per ship invocation,
+    // one row per per-repo step, one typed ownership row per irreversible
+    // operation persisted BEFORE the external side effect, and the commits
+    // ship created (or found already present). A whole new table set, so the
+    // step is the same DDL as schema.sql rather than ALTERs, and every
+    // statement is IF NOT EXISTS — a fresh DB (already carrying it) and a
+    // re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded a ship run, a repo step,
+    // an operation intent, or a commit — a synthesized row would assert exactly
+    // the facts this table set exists to stop being guessed at, and an invented
+    // pre-state would authorize cleanup of something never owned. Pre-v32
+    // tickets show no ship timeline until their next ship.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        attempt INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_repo_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+        repo TEXT NOT NULL,
+        step TEXT NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        pr_number INTEGER,
+        pr_status TEXT,
+        existed_before_ship INTEGER,
+        process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_operation_intents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+        repo TEXT NOT NULL,
+        step TEXT NOT NULL,
+        operation_key TEXT NOT NULL UNIQUE,
+        pre_state_json TEXT NOT NULL,
+        intent_json TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        prepared_at TEXT,
+        applied_at TEXT,
+        resolved_at TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_commits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+        repo TEXT NOT NULL,
+        sha TEXT NOT NULL,
+        message TEXT NOT NULL,
+        origin TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ship_run_ticket ON ship_runs(ticket_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ship_step_run ON ship_repo_steps(ship_run_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ship_commit_run ON ship_commits(ship_run_id, id)',
+    );
+    // Ownership linkage on the step rows. A partial/dev DB whose
+    // `ship_repo_steps` predates the linkage column gets it appended — the
+    // same guard pattern as every other column addition; a fresh DB created
+    // with the column above skips the ALTER.
+    const stepCols32 = tableColumns(db, 'ship_repo_steps');
+    if (stepCols32.size > 0 && !stepCols32.has('operation_intent_id')) {
+      db.exec(
+        'ALTER TABLE ship_repo_steps ADD COLUMN operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL',
+      );
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
