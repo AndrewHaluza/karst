@@ -12,7 +12,7 @@
 
 - Runtime lifecycle remains `scope → impl → uat/review → fix when needed → ship → done`; `fix` is projected into Inside UAT/Review, not removed from storage or the graph.
 - Done remains an entry condition reached only after every current PR is literally `merged`; unknown PR state is unmerged.
-- Verdicts remain deterministic. AI prose never directly transitions the machine; structured validated Tester/Review output is reduced by host code.
+- Verdicts remain deterministic. AI prose and AI-authored structured output never transition the machine. UAT Tester observations require a separate host-run verifier exit code before they can affect progression or recovery; existing Review behavior is recorded explicitly but is not widened into a new verdict seam.
 - Evidence is written when it happens. Process rows open before work and preserve partial results across extension-host death.
 - Settings are future configuration. Every started AI process snapshots agent name, provider, model, and recovery cap where applicable.
 - Missing historical facts render as absence, never zero, pass, or reconstructed prose.
@@ -127,14 +127,16 @@ Commit: `feat: define evidence-backed inside process contract`
 - Modify: `src/store/db.test.ts`
 - Create: `src/store/processRuns.ts`
 - Create: `src/store/processRuns.test.ts`
+- Modify: `src/extension.ts`
+- Modify: `src/extensionActivation.test.ts`
 
 **Interfaces:**
-- Produces: `openProcessRun`, `finishProcessRun`, `listProcessRuns`, `ProcessRun`, `ProcessRunStatus`.
-- Consumes: `Store`, ticket ids, optional `stage_runs.id`.
+- Produces: `openProcessRun`, `finishProcessRun`, `listProcessRuns`, `reconcileProcessRuns`, `describeStaleProcessRun`, `ProcessRun`, `ProcessRunStatus`.
+- Consumes: `Store`, ticket ids, optional `stage_runs.id`, the opening host pid, and the injected `IsAlive` predicate used by activation reconciliation.
 
 - [ ] **Step 1: Write failing migration and store tests**
 
-Cover fresh DB creation, v25 → v26 migration, immutable identity snapshots, status transitions, and ticket-scoped ordering. The mutation each test catches is a missing table/index, an overwritten provider/model snapshot, or a cross-ticket read.
+Cover fresh DB creation, v25 → v26 migration, immutable identity snapshots, status transitions, ticket-scoped ordering, superseded-run reconciliation, and activation reconciliation. Pin the same conservative rules as `stage_runs`: a new run marks an older `running` row for the same ticket/stage/process stale in the opening transaction; a dead recorded pid becomes stale on activation; a live pid or null pid remains untouched; stale rows retain `ended_at = NULL`; and a late finisher cannot overwrite `stale`. The mutation each test catches is a missing table/index, an overwritten provider/model snapshot, a cross-ticket read, or a process that remains falsely `running` after its host died.
 
 ```ts
 const run = openProcessRun(store, {
@@ -146,6 +148,7 @@ const run = openProcessRun(store, {
   agentName: 'Review Agent',
   provider: 'codex',
   model: 'sol',
+  pid: process.pid,
   startedAt: '2026-08-08T10:00:00.000Z',
 });
 finishProcessRun(store, run.id, 'passed', '2026-08-08T10:01:00.000Z');
@@ -170,6 +173,7 @@ CREATE TABLE IF NOT EXISTS process_runs (
   agent_name    TEXT,
   provider      TEXT,
   model         TEXT,
+  pid           INTEGER,
   status        TEXT NOT NULL CHECK (status IN ('running','passed','failed','interrupted','stale')),
   result_kind   TEXT,
   artifact_path TEXT,
@@ -180,15 +184,15 @@ CREATE INDEX IF NOT EXISTS idx_process_runs_ticket
   ON process_runs(ticket_id, stage_key, process_id, id);
 ```
 
-Increment `SCHEMA_VERSION` to 26, mirror the table in both fresh schema and migration, and do not backfill historical AI identity.
+Increment `SCHEMA_VERSION` to 26, mirror the table in both fresh schema and migration, and do not backfill historical AI identity or pids.
 
 - [ ] **Step 4: Implement positional-parameter store APIs**
 
-Use `store.db.prepare(sql).get/all/run` with positional `?` parameters only so the Node built-in SQLite CLI path remains compatible.
+Use `store.db.prepare(sql).get/all/run` with positional `?` parameters only so the Node built-in SQLite CLI path remains compatible. Mirror `stageRuns.ts` rather than inventing a second crash policy: `openProcessRun` stales a superseded row before insert, `finishProcessRun` updates only `status = 'running'`, and `reconcileProcessRuns` globally marks only rows with a recorded dead pid stale. Register that reconciliation beside `reconcileStageRuns` in the activation sweep and report every stale run through bounded diagnostics so evidence loss is visible.
 
 - [ ] **Step 5: Run focused tests and commit**
 
-Run: `npx vitest run src/store/db.test.ts src/store/processRuns.test.ts`
+Run: `npx vitest run src/store/db.test.ts src/store/processRuns.test.ts src/extensionActivation.test.ts`
 Expected: PASS.
 Commit: `feat: persist process execution evidence`
 
@@ -265,11 +269,14 @@ Commit: `feat: attribute recorded tokens to inside processes`
 - Modify: `src/agent/sessionSwitch.test.ts`
 - Modify: `src/hooks/dispatch.ts`
 - Modify: `src/hooks/dispatch.test.ts`
+- Modify: `src/ui/session.ts`
+- Modify: `src/ui/session.test.ts`
+- Modify: `src/ui/sessionReloadIdentity.test.ts`
 - Modify: `src/extension.ts`
 
 **Interfaces:**
 - Produces: `openImplementationRun`, `openImplementationSegment`, `confirmImplementationSegment`, `closeImplementationSegment`, `listImplementationTimeline`.
-- Consumes: provider `SessionStart` as confirmation; switch flow records pending intent but not a started segment.
+- Consumes: every provider `SessionStart` as confirmation; a synchronous `SessionManager.onLaunchPrepared` callback records pending intent for any actual ordinary/switch launch but not for a focus/adoption no-op.
 
 - [ ] **Step 1: Write failing same-run/multiple-segment tests**
 
@@ -282,11 +289,11 @@ expect(timeline.segments.map((s) => [s.provider, s.model])).toEqual([
 expect(timeline.segments[1]!.providerSessionId).toBe('codex-session-2');
 ```
 
-Also prove that a cancelled/failed terminal launch creates no confirmed segment and that legacy phase marks keep null segment linkage.
+Also prove that an ordinary first launch creates the first segment without any switch intent, an ordinary resume/reload reattaches the provider session to the stable run, a switch creates a later segment, focus/adoption invokes no launch callback and creates no pending segment, a cancelled/failed terminal launch creates no confirmed segment, and legacy phase marks keep null segment linkage.
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/store/implementationRuns.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts`
+Run: `npx vitest run src/store/implementationRuns.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts src/ui/session.test.ts src/ui/sessionReloadIdentity.test.ts`
 Expected: FAIL because stable implementation runs and segments are absent.
 
 - [ ] **Step 3: Add implementation run/segment schema**
@@ -317,7 +324,9 @@ Increment `SCHEMA_VERSION` to 28. Add nullable `implementation_run_id` and `impl
 
 - [ ] **Step 4: Record only confirmed provider sessions**
 
-The switch flow creates a pending switch intent after confirmation. `hooks/dispatch.ts` confirms the segment when the matching new provider emits `SessionStart`, closes the previous segment, and preserves the stable Karst run id. Never pretend provider session ids are shared across cores.
+Add a host-agnostic synchronous `onLaunchPrepared` callback to `SessionManager`, invoked only after it has allocated the hook `launchId` for an actual new terminal and before `createTerminal`. The existing-terminal focus and revived-terminal adoption returns must not invoke it. The `karst.openSession` command supplies the already resolved provider/model and persists launch intent from that callback. This covers initial sessions, recovery/resume launches, switches, and every caller that funnels through the command without leaving a phantom pending segment when `openSession` merely focuses an existing session. The intent records the stable Implementation run, provider, model, reason (`initial | resume | switch`), and launch id; it is still pending because terminal creation is not proof the provider started.
+
+`hooks/dispatch.ts` resolves every accepted `SessionStart` by ticket plus launch id. For an ordinary first launch it confirms the pending intent as the first segment. For a resume/reload it attaches the provider session id to the current compatible segment or confirms the pending resume segment according to the stored launch intent. For a switch it confirms the new segment, then closes the previous segment while preserving the stable Karst run id. A stale/mismatched `SessionStart` is rejected by the existing lifecycle barrier and cannot mutate the timeline. Never require a switch record to create an initial segment, and never pretend provider session ids are shared across cores.
 
 - [ ] **Step 5: Keep Implementation tokens absent**
 
@@ -325,7 +334,7 @@ Do not synthesize token values for interactive sessions in this task. Add a redu
 
 - [ ] **Step 6: Run focused tests and commit**
 
-Run: `npx vitest run src/store/implementationRuns.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts`
+Run: `npx vitest run src/store/implementationRuns.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts src/ui/session.test.ts src/ui/sessionReloadIdentity.test.ts`
 Expected: PASS.
 Commit: `feat: preserve implementation agent switch history`
 
@@ -363,12 +372,12 @@ Commit: `feat: preserve implementation agent switch history`
 
 ```ts
 expect(interactiveUsageDelta(
-  { input: 1_000, output: 200, cachedInput: 100 },
-  { input: 1_450, output: 320, cachedInput: 180 },
-)).toEqual({ input: 450, output: 120, cachedInput: 80, total: 650 });
+  { input: 1_000, output: 200, cacheRead: 100, cacheWrite: 20, total: 1_320 },
+  { input: 1_450, output: 320, cacheRead: 180, cacheWrite: 40, total: 1_990 },
+)).toEqual({ input: 450, output: 120, cacheRead: 80, cacheWrite: 20, total: 670 });
 ```
 
-Cover first sample, repeated cumulative sample, negative/reset counters, non-numeric fields, wrong provider/session, stale segment, and duplicate event id. Close and reopen the store between two samples to prove the second delta is reconstructed from persisted cumulative evidence. A reset is persisted as a new baseline and records no negative delta; the first post-reset increase must still be derivable after another host restart.
+Cover first sample, repeated cumulative sample, negative/reset counters, distinct cache-read/cache-write counts, provider totals, non-numeric fields, wrong provider/session, stale segment, and duplicate event id. The first cumulative sample must write its full non-negative counts; it is usage, not a throwaway baseline. Close and reopen the store between samples to prove later deltas are reconstructed from persisted cumulative evidence. When any counter decreases, open a new counter epoch and write that reset sample's full non-negative counts as the first delta of the new epoch; another host restart must still derive the next delta from that persisted epoch.
 
 - [ ] **Step 2: Verify RED**
 
@@ -384,12 +393,14 @@ export interface InteractiveUsageSample {
   providerSessionId: string;
   input: number;
   output: number;
-  cachedInput?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  total?: number;
   observedAt: string;
 }
 ```
 
-An installed provider bridge may emit `UsageUpdate` only when the provider supplied cumulative numeric counts and a stable provider event/message id. It must never estimate from transcript size, terminal text, elapsed time, or model output.
+The contract mirrors `TokenUsage`: cache reads and cache writes are independent counters and must never be collapsed into a single `cachedInput` value. An installed provider bridge may emit `UsageUpdate` only when the provider supplied cumulative numeric counts and a stable provider event/message id. It must never estimate from transcript size, terminal text, elapsed time, or model output. Preserve a provider-reported total when present; otherwise derive the total from the four normalized counters using the existing token-usage semantics.
 
 - [ ] **Step 4: Persist cumulative samples before calculating deltas**
 
@@ -404,8 +415,10 @@ CREATE TABLE IF NOT EXISTS interactive_usage_samples (
   provider_session_id TEXT NOT NULL,
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
-  cached_input_tokens INTEGER,
-  resets_baseline INTEGER NOT NULL DEFAULT 0 CHECK (resets_baseline IN (0,1)),
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
+  total_tokens INTEGER,
+  counter_epoch INTEGER NOT NULL DEFAULT 0,
   observed_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_interactive_usage_event
@@ -414,13 +427,15 @@ CREATE INDEX IF NOT EXISTS idx_interactive_usage_segment
   ON interactive_usage_samples(implementation_segment_id, id);
 ```
 
-The v29 migration also adds nullable `interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id)` to `token_usage` plus a partial unique index for non-null sample ids. In one transaction, resolve the confirmed segment, reject an already-recorded `(provider, provider_session_id, source_event_id)` idempotently, read the preceding persisted sample for that segment, append the new cumulative sample, and then append the non-negative delta to `token_usage(call_site='implementation', estimated=0, implementation_segment_id=..., interactive_usage_sample_id=sample.id)`. The first sample establishes a persisted baseline and produces no token row. If any counter later decreases, persist `resets_baseline = 1` and no token row; the next event compares against that durable baseline. Add `implementation` to the closed AI call-site set and use the schema-v28 segment linkage from Task 4.
+The v29 migration also adds nullable `interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id)` to `token_usage` plus a partial unique index for non-null sample ids. In one transaction, resolve the confirmed segment, reject an already-recorded `(provider, provider_session_id, source_event_id)` idempotently, read the preceding persisted sample for that segment and epoch, append the new cumulative sample, and append exactly one non-negative delta row to `token_usage(call_site='implementation', estimated=0, implementation_segment_id=..., interactive_usage_sample_id=sample.id)`.
+
+For the first sample of a confirmed provider session, compare against an implicit zero sample and write the full reported counts. If any reported counter decreases, increment `counter_epoch`, compare that reset sample against implicit zero, and write its full counts as the first delta of the new epoch. Later samples subtract only the preceding sample in the same persisted epoch. This loses neither the first billable sample nor tokens reported in the reset event, remains reconstructable after restart, and lets the partial unique index make event replay idempotent. Add `implementation` to the closed AI call-site set and use the schema-v28 segment linkage from Task 4.
 
 - [ ] **Step 5: Make supported provider bridges produce UsageUpdate**
 
-- Claude: extend `settings.ts`/the hook endpoint to normalize token-bearing `Stop` or `SessionEnd` payloads through `interactiveUsage.ts`; payloads without cumulative counts or a stable id remain ordinary lifecycle events.
-- Codex: extend `CODEX_HOOK_BRIDGE` in `codex.ts` to forward authoritative cumulative usage and the provider event id instead of discarding them while normalizing lifecycle events.
-- OpenCode: extend the generated bridge in `opencode.ts` to observe its token-bearing step/message completion event and post the same normalized usage payload.
+- Claude: extend `settings.ts`/the hook endpoint to normalize token-bearing `Stop` or `SessionEnd` payloads through `interactiveUsage.ts`; map `cache_read_input_tokens` and `cache_creation_input_tokens` separately, and leave payloads without cumulative counts or a stable id as ordinary lifecycle events.
+- Codex: extend `CODEX_HOOK_BRIDGE` in `codex.ts` to forward authoritative cumulative input/output/cache-read/cache-write/total usage and the provider event id instead of discarding them while normalizing lifecycle events.
+- OpenCode: extend the generated bridge in `opencode.ts` to observe its token-bearing step/message completion event and post the same normalized usage payload without folding cache writes into cache reads.
 - Antigravity: keep `interactiveUsage: false` because the adapter has no lifecycle channel; its test pins truthful absence.
 
 Use captured provider event fixtures in `settings.test.ts`, `codex.test.ts`, and `opencode.test.ts` to prove each supported bridge actually posts `UsageUpdate`, and prove malformed/partial usage is dropped before it reaches the store.
@@ -453,7 +468,7 @@ Commit: `feat: record measured implementation token deltas`
 
 **Interfaces:**
 - Produces: `openRecoveryRound`, `attachFixExecution`, `finishRecoveryRound`, `activeRecoverySeries`, `recoveryDecision`.
-- Consumes: deterministic failing gate/Tester/Review result and the manifest cap only when the first round opens.
+- Consumes: a deterministic failing gate or UAT Tester-verifier exit code, the existing recorded Review result, and the manifest cap only when the first round opens. AI Tester observations alone are never accepted as a recovery trigger.
 
 - [ ] **Step 1: Write failing historical-stability tests**
 
@@ -597,15 +612,23 @@ Run: `npx vitest run src/manifest/validate/processAssignments.test.ts src/manife
 Expected: PASS.
 Commit: `feat: configure inside ai process assignments`
 
-### Task 8: Implement UAT Tester and Explicit Review Execution Outcomes
+### Task 8: Implement UAT Tester Evidence, Deterministic Verification, and Explicit Review Execution Outcomes
 
 **Files:**
 - Modify: `src/store/schema.sql`
 - Modify: `src/store/migrations.ts`
+- Modify: `src/manifest/types.ts`
+- Modify: `src/manifest/validate/uat.ts`
+- Modify: `src/manifest/validate/uat.test.ts`
+- Modify: `src/manifest/load.test.ts`
+- Modify: `src/manifest/writeManifest.test.ts`
+- Modify: `karst.example.yml`
 - Create: `src/store/uatFindings.ts`
 - Create: `src/store/uatFindings.test.ts`
 - Create: `src/workflow/uat/tester.ts`
 - Create: `src/workflow/uat/tester.test.ts`
+- Create: `src/workflow/uat/testerVerifier.ts`
+- Create: `src/workflow/uat/testerVerifier.test.ts`
 - Modify: `src/workflow/stages/uat.ts`
 - Modify: `src/workflow/stages/uat.test.ts`
 - Modify: `src/workflow/review/findingsLane.ts`
@@ -615,25 +638,29 @@ Commit: `feat: configure inside ai process assignments`
 - Modify: `src/agent/aiCallSites.ts`
 
 **Interfaces:**
-- Produces: `runUatTester`, `TesterResult`, explicit Review process outcomes `validated | blocking | execution-failed | interrupted`.
-- Consumes: resolved assignment snapshot, target list, `processRunId`, and the instrumented adapter.
+- Produces: `runUatTester`, advisory `TesterObservation`, `runTesterVerifier`, deterministic `TesterVerificationOutcome`, and explicit Review process outcomes `validated | blocking | execution-failed | interrupted`.
+- Consumes: resolved assignment snapshot, target list, `processRunId`, the instrumented adapter, and optional validated `uat.testerVerifier: GateDef` run through an injected host `GateRunner`; its exit code is the sole Tester-specific UAT verdict.
 
 - [ ] **Step 1: Write failing Tester tests**
 
 ```ts
-expect(await runUatTester(input, deps)).toEqual({ kind: 'blocking', findingIds: [1, 2] });
-expect(listProcessRuns(store, ticketId)[0]).toMatchObject({ processId: 'tester', resultKind: 'blocking' });
+expect(await runUatTester(input, deps)).toEqual({ kind: 'observed', findingIds: [1, 2] });
+expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+  processId: 'tester', resultKind: 'observed',
+});
+expect(await runTesterVerifier(input, { run: async () => ({ exitCode: 1 }) }))
+  .toEqual({ kind: 'failed', exitCode: 1 });
 ```
 
-Cover pass, blocking findings, malformed output, adapter crash, cancellation, target linkage, and `uat-tester` token attribution.
+Cover observations with and without blocking-severity findings, malformed output, adapter crash, cancellation, target linkage, and `uat-tester` token attribution. Prove none of those AI-authored result shapes transitions UAT or opens a recovery round. Separately cover verifier exit 0, nonzero, cancellation, execution failure, and no verifier configured; only a completed nonzero exit code is a deterministic validation failure eligible for recovery, while absence keeps Tester advisory and leaves progression to the ordinary UAT gates.
 
 - [ ] **Step 2: Write failing Review crash-vs-finding tests**
 
-Prove blocking validated findings create recovery, while an adapter crash records `execution-failed`, exposes the artifact, and does not increment recovery rounds.
+Prove the existing Review finding behavior remains distinguishable from an adapter crash: a crash records `execution-failed`, exposes the artifact, and does not increment recovery rounds. Also pin that this task does not reuse Review's AI-result reduction as authority for the new UAT Tester.
 
 - [ ] **Step 3: Verify RED**
 
-Run: `npx vitest run src/workflow/uat/tester.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts`
+Run: `npx vitest run src/manifest/validate/uat.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/workflow/uat/tester.test.ts src/workflow/uat/testerVerifier.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts`
 Expected: FAIL because Tester and explicit execution outcomes are absent.
 
 - [ ] **Step 4: Add structured Tester findings**
@@ -652,17 +679,17 @@ CREATE TABLE IF NOT EXISTS uat_findings (
 );
 ```
 
-Increment `SCHEMA_VERSION` to 31 and mirror the table/index in the fresh schema.
+Increment `SCHEMA_VERSION` to 31 and mirror the table/index in the fresh schema. Add optional `testerVerifier?: GateDef` to `UatConfig`, validate it with the existing argv-safe `validateGate` path, preserve it through manifest load/write, and document it in `karst.example.yml`. This is a host-authored command/script definition, not an AI output field. Existing manifests without it remain compatible: Tester findings are advisory and the ordinary UAT gate verdict remains authoritative.
 
-Parse bounded structured JSON using the same untrusted-prose collapsing and file validation principles as Review findings.
+Parse bounded structured JSON using the same untrusted-prose collapsing and file validation principles as Review findings. These rows are evidence/observations only; severity labels are never converted into a stage verdict.
 
 - [ ] **Step 5: Orchestrate Gates → Services context → Tester**
 
-Gates keep deterministic exit-code semantics. Services contributes host-known read-only context. Tester runs only after required gates pass; a validated blocking result creates recovery, while execution failure parks/retries without consuming a Fix round.
+Gates keep deterministic exit-code semantics. Services contributes host-known read-only context. The AI Tester runs only after required gates pass and records observations. When `uat.testerVerifier` is configured, the host runs it through the injected gate boundary: exit 0 completes Tester, a completed nonzero exit code records `result_kind='verification-failed'` and may open recovery, and verifier execution failure parks/retries without consuming a Fix round. Without a verifier, render the Tester observation as advisory/`note` and let the ordinary UAT gate result decide progression. AI findings remain visible under Tester but cannot pass, fail, transition, or spend a recovery round by themselves.
 
 - [ ] **Step 6: Run focused tests and commit**
 
-Run: `npx vitest run src/store/uatFindings.test.ts src/workflow/uat/tester.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts`
+Run: `npx vitest run src/manifest/validate/uat.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/store/uatFindings.test.ts src/workflow/uat/tester.test.ts src/workflow/uat/testerVerifier.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts`
 Expected: PASS.
 Commit: `feat: add uat tester execution evidence`
 
@@ -809,7 +836,7 @@ expect(views.uat.processes.map((p) => p.id)).toEqual(['gates', 'fix', 'services'
 expect(views.review.processes.map((p) => p.id)).toEqual(['gates', 'services', 'review', 'fix']);
 ```
 
-Cover gate-triggered and Tester-triggered UAT Fix, Review gate/finding Fix, no Fix without recovery evidence, execution crash without a round, exhaustion without an extra Fix row, stored max stability, stale `stage_runs`, and settings-vs-recorded identity.
+Cover gate-triggered and deterministic Tester-verifier-triggered UAT Fix, advisory Tester findings that create no Fix, Review gate/finding Fix, no Fix without recovery evidence, execution crash without a round, exhaustion without an extra Fix row, stored max stability, stale `stage_runs`/`process_runs`, and settings-vs-recorded identity.
 
 - [ ] **Step 2: Verify RED**
 
