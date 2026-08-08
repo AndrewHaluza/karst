@@ -607,6 +607,50 @@ describe('dispatchHook — UsageUpdate', () => {
     expect(getSessionLaunchIntent(store, 'launch-fix')!.status).toBe('confirmed');
   });
 
+  it('drops usage when the Fix process is STALE — the round still reads fixing but nothing is running', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    usageUpdate('sess-1', { event_id: 'e1', input: 1_000, output: 200 });
+    store.db
+      .prepare('UPDATE implementation_runs SET status = ? WHERE ticket_id = ?')
+      .run('passed', id);
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T11:55:00.000Z',
+    });
+    recordFixLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-fix', provider: 'claude', model: 'opus',
+      reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: round.id,
+      at: '2026-08-01T12:01:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-fix' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    const fixRun = listProcessRuns(store, id).find((r) => r.processId === 'fix')!;
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('fixing');
+    // The activation sweep found the Fix process dead: the run is `stale`
+    // while the round still reads `fixing` — nothing has observed the end.
+    store.db
+      .prepare("UPDATE process_runs SET status = 'stale' WHERE id = ?")
+      .run(fixRun.id);
+
+    usageUpdate('sess-1', { event_id: 'e2', input: 1_700, output: 340 });
+
+    // The e2 update is unattributed: no new sample, no new ledger row; the
+    // implementation sample remains untouched evidence.
+    expect(listTokenUsage(store, { ticketId: id })).toHaveLength(1);
+    const rows = store.db
+      .prepare('SELECT source_event_id FROM interactive_usage_samples ORDER BY id')
+      .all() as { source_event_id: string }[];
+    expect(rows).toEqual([{ source_event_id: 'e1' }]);
+  });
+
   it('baselines a resumed session with no prior sample — nothing reaches the ledger', () => {
     const id = ticketAt();
     recordSessionLaunchIntent(store, {

@@ -253,6 +253,40 @@ describe('recovery rounds — store', () => {
     expect(getSessionLaunchIntent(store, 'launch-fix')!.status).toBe('pending');
   });
 
+  it('rejects a MALFORMED historical intent that references another ticket\'s pending round — round-mismatch, nothing opened', () => {
+    // The intent row is inserted directly: `recordFixLaunchIntent` would refuse
+    // the cross-ticket round at record time, but a row written by a buggy older
+    // build (or a forged one) can carry ticket A's id and ticket B's round. The
+    // confirmation must re-validate the round inside its transaction.
+    const otherId = createTicketFlow(store, { key: 'T-2', title: 'other' }).id;
+    const otherRound = round({ ticketId: otherId });
+    store.db
+      .prepare(
+        `INSERT INTO session_launch_intents
+           (ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
+            recovery_round_id, provider, model, reason, session_origin,
+            provider_session_id, status, created_at, resolved_at)
+         VALUES (?, ?, 'fix', NULL, NULL, ?, 'claude', NULL, 'resume', 'resume',
+                 NULL, 'pending', ?, NULL)`,
+      )
+      .run(ticketId, 'launch-fix-cross', otherRound.id, T1);
+
+    expect(confirmFixLaunch(store, 'launch-fix-cross', {
+      ticketId, provider: 'claude', providerSessionId: 'sess-1', at: T2,
+    })).toBe('round-mismatch');
+
+    // No process run was opened, the round is untouched, and the intent stays
+    // pending — the confirmation changed nothing.
+    expect(listProcessRuns(store, ticketId)).toHaveLength(0);
+    expect(listProcessRuns(store, otherId)).toHaveLength(0);
+    expect(listRecoveryRounds(store, otherId)[0]).toMatchObject({
+      status: 'pending',
+      fixProcessRunId: null,
+    });
+    expect(getSessionLaunchIntent(store, 'launch-fix-cross')!.status).toBe('pending');
+    expect(getSessionLaunchIntent(store, 'launch-fix-cross')!.processRunId).toBeNull();
+  });
+
   it('a terminal-creation failure resolves the intent without creating a process run', () => {
     const r = round();
     recordFixLaunchIntent(store, {

@@ -580,6 +580,104 @@ describe('appendInteractiveUsageSample — live Fix ownership', () => {
   });
 });
 
+describe('appendInteractiveUsageSample — only a RUNNING Fix process owns usage', () => {
+  /**
+   * The round can read `fixing` while its process run is NOT running: the
+   * activation sweep marks a dead host's run `stale` without touching the
+   * round (nothing observed the session end), and the session-death path can
+   * interrupt the run before the round follows. A binding must never answer
+   * with a process that is not running — usage may reference only a currently
+   * running process owned by the ticket/provider/provider-session.
+   */
+  function fixingRound(): number {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200 }) },
+    );
+    completeImplementationRun(store, ticketId, '2026-08-01T12:00:00.000Z');
+    const round = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T12:00:30.000Z',
+    });
+    recordFixLaunchIntent(store, {
+      ticketId, launchId: 'l-fix', provider: PROVIDER, model: 'sol',
+      reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: round.id,
+      at: '2026-08-01T12:01:00.000Z',
+    });
+    expect(confirmFixLaunch(store, 'l-fix', {
+      ticketId, provider: PROVIDER, providerSessionId: SESSION,
+      at: '2026-08-01T12:02:00.000Z',
+    })).toBe('confirmed');
+    const fixRun = listProcessRuns(store, ticketId).find((r) => r.processId === 'fix')!;
+    expect(fixRun.status).toBe('running');
+    return fixRun.id;
+  }
+
+  it('drops usage when the activation sweep marked the Fix process STALE — the round still reads fixing', () => {
+    const fixRunId = fixingRound();
+    store.db.prepare("UPDATE process_runs SET status = 'stale' WHERE id = ?").run(fixRunId);
+
+    const result = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e2', input: 1_700, output: 340, observedAt: '2026-08-01T12:05:00.000Z' }) },
+    );
+    expect(result).toEqual({ kind: 'unattributed' });
+    // No NEW sample and no new ledger row — the earlier implementation sample
+    // remains untouched evidence.
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
+      n: 1,
+    });
+    expect(ledger()).toHaveLength(1);
+  });
+
+  it('drops usage when the Fix process run is INTERRUPTED while the round still reads fixing', () => {
+    const fixRunId = fixingRound();
+    store.db
+      .prepare("UPDATE process_runs SET status = 'interrupted', ended_at = ? WHERE id = ?")
+      .run('2026-08-01T12:03:00.000Z', fixRunId);
+
+    const result = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e2', input: 1_700, output: 340, observedAt: '2026-08-01T12:04:00.000Z' }) },
+    );
+    expect(result).toEqual({ kind: 'unattributed' });
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
+      n: 1,
+    });
+    expect(ledger()).toHaveLength(1);
+  });
+
+  it('a RUNNING Fix process keeps the binding — the control that remains fix-resume', () => {
+    const fixRunId = fixingRound();
+    const result = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e2', input: 1_700, output: 340, observedAt: '2026-08-01T12:05:00.000Z' }) },
+    );
+    expect(result.kind).toBe('recorded');
+    expect(result.kind === 'recorded' && result.delta).toEqual({
+      input: 700, output: 140, cacheRead: 0, cacheWrite: 0, total: 840,
+    });
+    const fixEntry = ledger()[1]!;
+    expect(fixEntry).toMatchObject({
+      processRunId: fixRunId,
+      implementationSegmentId: null,
+      callSite: 'fix-resume',
+      inputTokens: 700,
+      outputTokens: 140,
+      totalTokens: 840,
+    });
+  });
+});
+
 describe('appendInteractiveUsageSample — counter resets', () => {
   it('opens a new provider-session epoch and counts the reset from zero when the binding proves continuous instrumentation', () => {
     launch('l1', 'implementation'); // origin 'new' — karst created the session

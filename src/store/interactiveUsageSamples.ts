@@ -175,9 +175,11 @@ function sessionOriginFor(
  *     provider_session_id) — the prepared-launch path. An implementation
  *     intent carries its run's Session process run and the segment the intent
  *     confirmed; a fix intent names the round it owns (`recovery_round_id`),
- *     and only that round's attached Fix process run may answer, and only
- *     while the round is still `fixing` — a completed or interrupted round
- *     owns nothing.
+ *     and only that round's attached Fix process run may answer — the run must
+ *     be CURRENTLY RUNNING (a `stale` run whose host died, or an interrupted
+ *     one, owns nothing even while the round still reads `fixing`) and owned
+ *     by the same ticket and provider — while the round is still `fixing`;
+ *     a completed or interrupted round owns nothing.
  *
  * No owned process is NOT a binding — nothing is ever invented to make an
  * observation fit.
@@ -192,7 +194,10 @@ function resolveSessionBinding(
     .prepare(
       `SELECT r.fix_process_run_id AS fix_process_run_id, pr.provider AS provider
          FROM recovery_rounds r
-         JOIN process_runs pr ON pr.id = r.fix_process_run_id
+         JOIN process_runs pr
+           ON pr.id = r.fix_process_run_id
+          AND pr.ticket_id = r.ticket_id
+          AND pr.status = 'running'
         WHERE r.ticket_id = ? AND r.status = 'fixing' AND r.fix_process_run_id IS NOT NULL
         ORDER BY r.id DESC LIMIT 1`,
     )
@@ -220,7 +225,8 @@ function resolveSessionBinding(
 
   const intent = store.db
     .prepare(
-      `SELECT purpose, session_origin, provider, process_run_id, recovery_round_id
+      `SELECT purpose, session_origin, provider, process_run_id, recovery_round_id,
+              ticket_id
          FROM session_launch_intents
         WHERE ticket_id = ? AND provider = ? AND provider_session_id = ?
           AND status = 'confirmed'
@@ -233,6 +239,7 @@ function resolveSessionBinding(
         provider: string;
         process_run_id: number | null;
         recovery_round_id: number | null;
+        ticket_id: number;
       }
     | undefined;
   if (intent === undefined) return null;
@@ -258,10 +265,18 @@ function resolveSessionBinding(
   if (intent.recovery_round_id !== null) {
     const fixRun = store.db
       .prepare(
-        `SELECT fix_process_run_id FROM recovery_rounds
-          WHERE id = ? AND status = 'fixing'`,
+        `SELECT r.fix_process_run_id AS fix_process_run_id
+           FROM recovery_rounds r
+           JOIN process_runs pr
+             ON pr.id = r.fix_process_run_id
+            AND pr.ticket_id = r.ticket_id
+            AND pr.status = 'running'
+            AND pr.provider = ?
+          WHERE r.id = ? AND r.ticket_id = ? AND r.status = 'fixing'`,
       )
-      .get(intent.recovery_round_id) as { fix_process_run_id: number | null } | undefined;
+      .get(intent.provider, intent.recovery_round_id, intent.ticket_id) as
+      | { fix_process_run_id: number | null }
+      | undefined;
     if (fixRun !== undefined && fixRun.fix_process_run_id !== null) {
       return {
         purpose: 'fix',

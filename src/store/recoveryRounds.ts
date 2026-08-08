@@ -504,7 +504,8 @@ export type ConfirmFixLaunchResult =
   | 'unknown'
   | 'not-pending'
   | 'ticket-mismatch'
-  | 'provider-mismatch';
+  | 'provider-mismatch'
+  | 'round-mismatch';
 
 /**
  * Confirm a FIX launch intent from its accepted SessionStart. The process run
@@ -512,6 +513,16 @@ export type ConfirmFixLaunchResult =
  * same transaction as the confirmation — a fix session is owned by its round
  * from the first token. `onLaunchFailed`, supersession, or a stale/mismatched
  * start resolve the intent WITHOUT creating a process run.
+ *
+ * The round is re-validated INSIDE the transaction: the intent's ticket id,
+ * provider and pending status were checked at the record boundary, but a
+ * malformed HISTORICAL row (written by an older build, or forged) can carry
+ * this ticket's id and ANOTHER ticket's round. The confirmation requires
+ * `(round.id, round.ticketId, round.status = 'pending')` to all match the
+ * intent before anything is opened, and the round attachment itself is
+ * constrained to that same triple — if the constrained UPDATE changes zero
+ * rows, the opened process run and the intent confirmation are rolled back
+ * with the transaction, never committed half-attached.
  */
 export function confirmFixLaunch(
   store: Store,
@@ -524,34 +535,52 @@ export function confirmFixLaunch(
   if (intent.ticketId !== input.ticketId) return 'ticket-mismatch';
   if (intent.provider !== input.provider) return 'provider-mismatch';
 
+  let result: ConfirmFixLaunchResult = 'confirmed';
   const apply = store.db.transaction(() => {
     if (intent.recoveryRoundId !== null) {
       const round = roundById(store, intent.recoveryRoundId);
-      if (round !== undefined && round.status === 'pending') {
-        const run = openProcessRun(store, {
-          ticketId: intent.ticketId,
-          stageKey: 'fix',
-          processId: 'fix',
-          attempt: stageAttempt(store, intent.ticketId, 'fix'),
-          provider: intent.provider,
-          model: intent.model,
-          startedAt: input.at,
-        });
-        store.db
-          .prepare('UPDATE session_launch_intents SET process_run_id = ? WHERE id = ?')
-          .run(run.id, intent.id);
-        store.db
-          .prepare(
-            `UPDATE recovery_rounds SET fix_process_run_id = ?, status = 'fixing'
-              WHERE id = ? AND status = 'pending'`,
-          )
-          .run(run.id, round.id);
+      if (
+        round === undefined ||
+        round.ticketId !== intent.ticketId ||
+        round.status !== 'pending'
+      ) {
+        // The intent names a round this ticket does not own (or one that is no
+        // longer pending): the confirmation is rejected atomically — nothing is
+        // opened and the intent stays pending.
+        result = 'round-mismatch';
+        return;
+      }
+      const run = openProcessRun(store, {
+        ticketId: intent.ticketId,
+        stageKey: 'fix',
+        processId: 'fix',
+        attempt: stageAttempt(store, intent.ticketId, 'fix'),
+        provider: intent.provider,
+        model: intent.model,
+        startedAt: input.at,
+      });
+      store.db
+        .prepare('UPDATE session_launch_intents SET process_run_id = ? WHERE id = ?')
+        .run(run.id, intent.id);
+      const info = store.db
+        .prepare(
+          `UPDATE recovery_rounds SET fix_process_run_id = ?, status = 'fixing'
+            WHERE id = ? AND ticket_id = ? AND status = 'pending'`,
+        )
+        .run(run.id, round.id, round.ticketId);
+      if (info.changes === 0) {
+        // The round moved between the read and the constrained update: the
+        // opened process run and the intent confirmation roll back with this
+        // throw — a confirmation is never committed half-attached.
+        throw new Error(
+          `cannot confirm fix launch: recovery round ${round.id} is no longer pending for ticket ${round.ticketId}`,
+        );
       }
     }
     confirmLaunchIntentRow(store, intent.id, input.providerSessionId, input.at);
   });
   apply();
-  return 'confirmed';
+  return result;
 }
 
 /**
