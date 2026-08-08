@@ -218,10 +218,61 @@ CREATE TABLE IF NOT EXISTS session_launch_intents (
   provider_session_id TEXT,           -- set when the SessionStart confirms the intent
   status        TEXT NOT NULL CHECK (status IN ('pending','confirmed','failed','superseded')),
   created_at    TEXT NOT NULL,
-  resolved_at   TEXT                  -- confirmed/failed/superseded stamp; NULL while pending
+  resolved_at   TEXT,                 -- confirmed/failed/superseded stamp; NULL while pending
+  -- v30: the recovery round a fix launch belongs to (see recovery_rounds below).
+  -- NULL for an implementation launch; REQUIRED for a fix launch — a pending
+  -- Fix launch has a durable owner before its process run exists.
+  recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending
   ON session_launch_intents(ticket_id, purpose) WHERE status = 'pending';
+
+-- v30: one row per CAUSAL recovery round — a gate failure that entered the
+-- fix loop, snapshotted atomically with the verdict that caused it.
+--
+-- The failing verdict, the evidence that produced it (gate rows / findings),
+-- and the round itself commit together (the trigger opens inside
+-- `commitGateOutcome`'s transition premutate) or not at all. The round is
+-- therefore the durable owner of the recovery: `source_stage_run_id` names the
+-- stage_runs batch the failure belongs to, `source_process_run_id` the AI
+-- process that produced it when the source was an agent (Tester/Review; a
+-- deterministic gate failure has none), `trigger_kind` the closed causal
+-- vocabulary, and `max_rounds` the fix budget AS IT WAS when the failure was
+-- committed — never reconstructed later from a mutable manifest or from
+-- `stages.verdict` (a retry overwrites that row).
+--
+-- `round` is per (ticket, source_stage) and unique, so the ordering of a
+-- ticket's uat failures (and its review failures) is a fact, not an array
+-- position. `fix_process_run_id` links the Fix execution that answered the
+-- round (opened at nudge/confirm, passed by the `stage fix pass` marker);
+-- `uat_revalidation_stage_run_id`/`review_revalidation_stage_run_id` link the
+-- revalidation runs that complete or fail it. A session that died mid-fix
+-- marks the round `interrupted` — never a pass (the marker is the only
+-- completion authority) and no additional round is consumed.
+--
+-- Append-only like stage_runs and process_runs: a failed/abandoned round is
+-- marked, never deleted, because the fact that a recovery happened and did not
+-- land is exactly what this table exists to record.
+CREATE TABLE IF NOT EXISTS recovery_rounds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review')),
+  source_process_id TEXT NOT NULL,  -- 'gates' | 'tester' | 'review' (closed)
+  source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-review-findings' (closed)
+  trigger_detail TEXT NOT NULL, -- the causal detail captured at failure time
+  round INTEGER NOT NULL,
+  max_rounds INTEGER NOT NULL,
+  fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted')),
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
+  ON recovery_rounds(ticket_id, source_stage, round);
 
 -- v28: one segment per provider session inside an implementation run. The first
 -- segment is confirmed by the initial launch's SessionStart; a switch opens a

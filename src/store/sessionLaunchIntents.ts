@@ -41,6 +41,14 @@ export interface SessionLaunchIntent {
   implementationRunId: number | null;
   /** The run's canonical Session process run; NULL for a fix launch. */
   processRunId: number | null;
+  /**
+   * v30: the recovery round a fix launch belongs to (see recoveryRounds.ts).
+   * NULL for an implementation launch; REQUIRED for a fix launch — a pending
+   * Fix launch has a durable owner before its process run exists, so the
+   * matching SessionStart can attach the process run to the round even after a
+   * reload.
+   */
+  recoveryRoundId: number | null;
   provider: string;
   model: string | null;
   reason: LaunchReason;
@@ -58,6 +66,7 @@ interface SessionLaunchIntentRow {
   purpose: string;
   implementation_run_id: number | null;
   process_run_id: number | null;
+  recovery_round_id: number | null;
   provider: string;
   model: string | null;
   reason: string;
@@ -70,8 +79,8 @@ interface SessionLaunchIntentRow {
 
 const INTENT_SELECT =
   `SELECT id, ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
-          provider, model, reason, session_origin, provider_session_id, status,
-          created_at, resolved_at
+          recovery_round_id, provider, model, reason, session_origin,
+          provider_session_id, status, created_at, resolved_at
      FROM session_launch_intents`;
 
 function rowToIntent(r: SessionLaunchIntentRow): SessionLaunchIntent {
@@ -82,6 +91,7 @@ function rowToIntent(r: SessionLaunchIntentRow): SessionLaunchIntent {
     purpose: r.purpose as LaunchPurpose,
     implementationRunId: r.implementation_run_id,
     processRunId: r.process_run_id,
+    recoveryRoundId: r.recovery_round_id,
     provider: r.provider,
     model: r.model,
     reason: r.reason as LaunchReason,
@@ -117,6 +127,12 @@ export interface RecordSessionLaunchIntentInput {
   reason: LaunchReason;
   sessionOrigin: LaunchSessionOrigin;
   at: string;
+  /**
+   * v30: REQUIRED when `purpose === 'fix'` — the recovery round this Fix
+   * launch answers (see recoveryRounds.ts). A pending Fix launch has a durable
+   * owner before its process run exists. Absent for an implementation launch.
+   */
+  recoveryRoundId?: number | null;
 }
 
 /**
@@ -131,6 +147,9 @@ export function recordSessionLaunchIntent(
   store: Store,
   input: RecordSessionLaunchIntentInput,
 ): SessionLaunchIntent {
+  if (input.purpose === 'fix' && (input.recoveryRoundId === undefined || input.recoveryRoundId === null)) {
+    throw new Error('a fix launch intent requires a recovery round (recoveryRoundId)');
+  }
   let insertedId = 0;
   const apply = store.db.transaction(() => {
     let implementationRunId: number | null = null;
@@ -166,9 +185,9 @@ export function recordSessionLaunchIntent(
       .prepare(
         `INSERT INTO session_launch_intents
            (ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
-            provider, model, reason, session_origin, provider_session_id, status,
-            created_at, resolved_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, NULL)`,
+            recovery_round_id, provider, model, reason, session_origin,
+            provider_session_id, status, created_at, resolved_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, NULL)`,
       )
       .run(
         input.ticketId,
@@ -176,6 +195,7 @@ export function recordSessionLaunchIntent(
         input.purpose,
         implementationRunId,
         processRunId,
+        input.recoveryRoundId ?? null,
         input.provider,
         input.model ?? null,
         input.reason,
@@ -261,7 +281,9 @@ export interface ConfirmSessionLaunchIntentInput {
  * corresponding segment: the FIRST segment for an initial launch, a new segment
  * for a switch (closing the previous running one, preserving the stable run
  * id), and a reattach of the compatible segment for a resume. A fix-purpose
- * launch has no run or segment — only the intent is confirmed.
+ * launch confirms through `confirmFixLaunch` (recoveryRounds.ts) instead —
+ * this module's fix branch (used only by legacy/foreign callers) confirms the
+ * intent alone, with no run or segment.
  */
 export function confirmSessionLaunchIntent(
   store: Store,
@@ -365,15 +387,31 @@ export function confirmSessionLaunchIntent(
         }
       }
     }
-    store.db
-      .prepare(
-        `UPDATE session_launch_intents SET status = 'confirmed', provider_session_id = ?, resolved_at = ?
-          WHERE id = ? AND status = 'pending'`,
-      )
-      .run(input.providerSessionId, input.at, intent.id);
+    confirmLaunchIntentRow(store, intent.id, input.providerSessionId, input.at);
   });
   apply();
   return 'confirmed';
+}
+
+/**
+ * Confirm a PENDING intent row — the shared tail of every accepted
+ * SessionStart (implementation starts and `confirmFixLaunch` alike). Lives in
+ * this module so the status vocabulary and the `status = 'pending'` guard are
+ * written down exactly once.
+ */
+export function confirmLaunchIntentRow(
+  store: Store,
+  intentId: number,
+  providerSessionId: string,
+  at: string,
+): boolean {
+  const info = store.db
+    .prepare(
+      `UPDATE session_launch_intents SET status = 'confirmed', provider_session_id = ?, resolved_at = ?
+        WHERE id = ? AND status = 'pending'`,
+    )
+    .run(providerSessionId, at, intentId);
+  return info.changes > 0;
 }
 
 function closeImplementationSegmentForRun(store: Store, runId: number, at: string): void {

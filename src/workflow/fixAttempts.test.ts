@@ -4,6 +4,7 @@ import {
   lastFailedGate,
   fixAttemptsRemain,
   capForGate,
+  roundFixDecision,
   FIX_ATTEMPT_CAP,
 } from './fixAttempts.js';
 
@@ -89,5 +90,33 @@ describe('capForGate', () => {
 
   it('falls back to the default cap when review declares no budget', () => {
     expect(capForGate('review', undefined, undefined)).toBe(FIX_ATTEMPT_CAP);
+  });
+});
+
+describe('roundFixDecision', () => {
+  it('resumes a round below its committed cap, carrying the round id', () => {
+    expect(roundFixDecision({ roundId: 7, round: 1, maxRounds: 3 })).toEqual({
+      kind: 'resume',
+      roundId: 7,
+      attempts: 1,
+    });
+  });
+
+  it('exhausts a round at its committed cap — the snapshot, not the live manifest', () => {
+    expect(roundFixDecision({ roundId: 8, round: 2, maxRounds: 2 })).toEqual({
+      kind: 'exhausted',
+      roundId: 8,
+      attempts: 2,
+      cap: 2,
+    });
+  });
+
+  it('never lets a round exceed the default cap either', () => {
+    expect(roundFixDecision({ roundId: 9, round: FIX_ATTEMPT_CAP, maxRounds: FIX_ATTEMPT_CAP })).toEqual({
+      kind: 'exhausted',
+      roundId: 9,
+      attempts: FIX_ATTEMPT_CAP,
+      cap: FIX_ATTEMPT_CAP,
+    });
   });
 });

@@ -1111,6 +1111,53 @@ describe('SessionManager', () => {
     expect(prepared).toHaveLength(1);
   });
 
+  it('records the session identity snapshot and returns it on demand', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(
+      adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], {}, { provider: 'codex', model: 'sol' },
+    );
+
+    expect(mgr.sessionIdentity(7)).toEqual({ provider: 'codex', model: 'sol' });
+    expect(mgr.sessionIdentity(99)).toBeNull();
+  });
+
+  it('no identity is recorded when none was supplied at launch', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(mgr.sessionIdentity(7)).toBeNull();
+  });
+
+  it('reports a ticket live only while its terminal is open', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.isLive(7)).toBe(false);
+    mgr.openSession(adapter, 7, '/wt/a');
+    expect(mgr.isLive(7)).toBe(true);
+  });
+
+  it('reports a revived handle live, adopting it without revealing it', () => {
+    const restored = fakeRestored(7);
+    const { host } = fakeHost([restored]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.isLive(7)).toBe(true);
+    expect(mgr.isOpen(7)).toBe(true);
+    // An automated continuation must not yank the user out of what they are doing.
+    expect(restored.terminal.shown).toBe(0);
+    // The adopted handle carries no recorded identity — the caller falls back.
+    expect(mgr.sessionIdentity(7)).toBeNull();
+  });
+
   it('adopting a revived terminal invokes no launch callback', () => {
     const restored = fakeRestored(7);
     const { host } = fakeHost([restored]);

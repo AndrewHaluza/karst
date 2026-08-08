@@ -4,7 +4,7 @@ import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
 import type { GateRunInput } from '../../store/gateRuns.js';
-import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
+import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
@@ -18,6 +18,7 @@ import { runGateList } from '../gates/runList.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
+import { capForGate } from '../fixAttempts.js';
 import {
   aggregateUat,
   reviewIdentitiesFrom,
@@ -170,6 +171,26 @@ export async function runUat(
   const skippedNames: string[] = [];
 
   /**
+   * The recovery trigger for this run's outcome (v30), constructed HERE while
+   * the failing evidence, the current stage run and the manifest cap are all
+   * still in hand — never reconstructed later from `stages.verdict` or the
+   * live manifest. A deterministic failed gate is its own source: `gates`,
+   * with no AI process run. Blocks, stops and passes carry no trigger.
+   */
+  const recoveryTriggerFor = (outcome: RunOutcome): RecoveryTriggerInput | null => {
+    if (outcome.kind !== 'verdict' || outcome.verdict.kind !== 'failed') return null;
+    const triggerDetail = outcome.verdict.reason ?? 'uat gates failed';
+    return {
+      sourceProcessId: 'gates',
+      sourceStageRunId: evidence.runId,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail,
+      maxRounds: capForGate('uat', opts.manifest?.uat?.maxFixAttempts, opts.manifest?.review?.maxFixAttempts),
+    };
+  };
+
+  /**
    * Write the log and commit the outcome.
    *
    * Carries NO gate rows: every one of them was appended the moment it was
@@ -189,6 +210,7 @@ export async function runUat(
       gates: [],
       outcome,
       stageRunId: evidence.runId,
+      recoveryTrigger: recoveryTriggerFor(outcome) ?? undefined,
       now,
     });
   };

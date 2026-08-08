@@ -11,6 +11,11 @@ import {
 import { listImplementationTimeline } from '../store/implementationRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { getTicket } from '../store/tickets.js';
+import {
+  openRecoveryRound,
+  beginLiveFixExecution,
+  listRecoveryRounds,
+} from '../store/recoveryRounds.js';
 
 describe('composeStageCommand', () => {
   it('bakes in the impl-done marker and quotes paths, leaving the ticket key for $ARGUMENTS', () => {
@@ -108,11 +113,17 @@ describe('runStageCommand', () => {
     expect(next).toBe('uat');
   });
 
-  it('routes the fix marker through the plain transition (no implementation run)', () => {
+  it('routes the fix marker through markFixDone, carrying the recovery completion premutate', () => {
     const transition = vi.fn().mockReturnValue('uat');
     const store = {} as Store;
     const next = runStageCommand(store, 42, ['stage', 'fix', 'pass'], transition);
-    expect(transition).toHaveBeenCalledWith(store, 42, 'fix', { kind: 'passed' });
+    expect(transition).toHaveBeenCalledWith(
+      store,
+      42,
+      'fix',
+      { kind: 'passed' },
+      expect.any(Function),
+    );
     expect(next).toBe('uat');
   });
 
@@ -173,6 +184,72 @@ describe('runStageCommand', () => {
       expect(after.run).toEqual(passed.run);
       expect(after.segments).toEqual(passed.segments);
       expect(listProcessRuns(store, id)[0]!.status).toBe('passed');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('fires the real fix marker path: passes the linked Fix process run and moves the round to revalidating', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      transition(store, id, 'impl', { kind: 'passed' });
+      const round = openRecoveryRound(store, {
+        ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+        sourceStageRunId: null, sourceProcessRunId: null,
+        triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+        startedAt: '2026-08-01T10:00:00.000Z',
+      });
+      // The failing verdict the round was opened by parked the ticket at fix.
+      transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' });
+      const fixRun = beginLiveFixExecution(store, {
+        ticketId: id, roundId: round.id, provider: 'claude', model: 'opus',
+        startedAt: '2026-08-01T10:01:00.000Z',
+      });
+
+      const next = runStageCommand(store, id, ['stage', 'fix', 'pass']);
+
+      expect(next).toBe('uat');
+      expect(getTicket(store, id).stageCurrent).toBe('uat');
+      expect(listProcessRuns(store, id)[0]!.status).toBe('passed');
+      expect(listProcessRuns(store, id)[0]!.id).toBe(fixRun.id);
+      expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+        status: 'revalidating',
+        fixProcessRunId: fixRun.id,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('a rejected stale fix marker mutates neither the process run nor the round', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      transition(store, id, 'impl', { kind: 'passed' });
+      const round = openRecoveryRound(store, {
+        ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+        sourceStageRunId: null, sourceProcessRunId: null,
+        triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+        startedAt: '2026-08-01T10:00:00.000Z',
+      });
+      // The failing verdict the round was opened by parked the ticket at fix.
+      transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' });
+      beginLiveFixExecution(store, {
+        ticketId: id, roundId: round.id, provider: 'claude',
+        startedAt: '2026-08-01T10:01:00.000Z',
+      });
+      const beforeRounds = listRecoveryRounds(store, id);
+      const beforeRuns = listProcessRuns(store, id);
+
+      // The ticket already left fix — the stale marker is refused.
+      transition(store, id, 'fix', { kind: 'passed' });
+      expect(() => runStageCommand(store, id, ['stage', 'fix', 'pass'])).toThrow(/current stage/);
+
+      expect(listRecoveryRounds(store, id)).toEqual(beforeRounds);
+      expect(listProcessRuns(store, id)).toEqual(beforeRuns);
     } finally {
       store.close();
     }

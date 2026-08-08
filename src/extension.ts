@@ -39,7 +39,6 @@ import {
   VirtualDocumentRegistry,
 } from './ui/diffs/hostResources.js';
 import {
-  continueSessionInBackground,
   deferSessionRetry,
   KARST_LAUNCH_ENV,
   SessionManager,
@@ -76,6 +75,10 @@ import {
   recordSessionLaunchIntent,
   failSessionLaunchIntent,
 } from './store/sessionLaunchIntents.js';
+import {
+  recordFixLaunchIntent,
+  recoveryDecision,
+} from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
@@ -124,7 +127,8 @@ import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
 import { settleShipGates } from './workflow/mergeGate.js';
-import { capForGate } from './workflow/fixAttempts.js';
+import { capForGate, lastFailedGate } from './workflow/fixAttempts.js';
+import { resumeFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
@@ -651,6 +655,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           currentManifest()?.defaultModel,
           modelCatalog,
         );
+        if (purpose === 'fix') {
+          // v30: a fix launch belongs to the ticket's committed recovery round
+          // (the gate that failed opened it atomically). Without one — a
+          // pre-v30 ticket, or a round already consumed — no fix intent is
+          // recorded and the session runs untracked.
+          const gate = lastFailedGate(ticket.stages);
+          const round = gate === null ? null : recoveryDecision(localStore, ticketId, gate);
+          if (round === null || round.status !== 'pending') return;
+          recordFixLaunchIntent(localStore, {
+            ticketId,
+            launchId,
+            provider,
+            model: model ?? null,
+            reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
+            sessionOrigin: resume ? 'resume' : 'new',
+            recoveryRoundId: round.roundId,
+            at: new Date().toISOString(),
+          });
+          return;
+        }
         recordSessionLaunchIntent(localStore, {
           ticketId,
           launchId,
@@ -1888,7 +1912,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
-          resumeFix: (id, _gate, attempts) => resumeFixSession(id, attempts),
+          resumeFix: (id, _gate, attempts, roundId) => resumeFixSession(id, attempts, roundId),
           // Reveals the ticket's Changes panel (`TicketChangesManager`,
           // already wired above) — it does NOT itself call `openTicketDiff`/
           // `vscode.diff`; that only fires once the human clicks a file row
@@ -1947,9 +1971,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   //
   // Capped: an unfixable ticket would otherwise loop fix→uat/review→fix forever,
   // burning tokens with no human ever looking. The cap itself is decided by
-  // `fixResumeDecision` in the driver module — this function only runs once a
-  // resume has been granted, so reaching it IS the decision.
-  function resumeFixSession(ticketId: number, attempts: number): void {
+  // the driver (`fixResumeDecision` / the committed recovery round) — this
+  // function only runs once a resume has been granted, so reaching it IS the
+  // decision.
+  function resumeFixSession(ticketId: number, attempts: number, roundId: number | null): void {
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
@@ -1959,19 +1984,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       buildCliStagePrefix(context, dbPath, 'fix'),
       t.key ?? String(ticketId),
     );
-    const nudged = continueSessionInBackground(
-      sessions,
-      (id, options) => {
-        void vscode.commands.executeCommand('karst.openSession', id, options);
-      },
-      ticketId,
-      `${brief}\n\n${marker}`,
+    // v30: the Fix execution is tracked against its committed recovery round.
+    // A LIVE session opens and attaches the Fix process run BEFORE the brief
+    // is delivered (the session manager's recorded identity snapshot is
+    // captured into the run); a closed session launches and the run opens when
+    // its SessionStart is accepted. Neither path reveals the IDE.
+    const provider = resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+    const model = resolveModelForProvider(
+      provider,
+      t.model,
+      currentManifest()?.defaultModel,
+      modelCatalog,
     );
-    if (nudged) {
-      logger.info(`stage driver: ticket ${ticketId} → nudged live session to fix (attempt ${attempts})`);
-      return;
-    }
-    logger.info(`stage driver: ticket ${ticketId} → resuming agent to fix (attempt ${attempts})`);
+    const outcome = resumeFixExecution(localStore, {
+      ticketId,
+      roundId,
+      identity: sessions.sessionIdentity(ticketId) ?? { provider, model: model ?? null },
+      startedAt: new Date().toISOString(),
+      prompt: `${brief}\n\n${marker}`,
+      isLive: () => sessions.isLive(ticketId),
+      nudge: (prompt) => sessions.nudge(ticketId, prompt),
+      open: () => {
+        void vscode.commands.executeCommand('karst.openSession', ticketId, { reveal: false });
+      },
+    });
+    logger.info(
+      `stage driver: ticket ${ticketId} → ${outcome === 'nudged' ? 'nudged live session to fix' : 'resuming agent to fix'} (attempt ${attempts})`,
+    );
   }
 
   // The §5.4-safe driver nudge, from any trigger: the explicit marker (or a prior
@@ -2494,6 +2533,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           naming,
           materialized.ownedPaths,
           options,
+          // Record the session manager's active provider/model snapshot, so a
+          // later fix recovery reads the identity that ACTUALLY launched this
+          // session — not the one a manifest edit resolves today.
+          { provider: launchProvider, model: model ?? null },
         );
         if (sessions.isOpen(ticketId)) {
           ownedSessionTickets.add(ticketId);

@@ -10,9 +10,10 @@ import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { latestStageRun } from '../../store/stageRuns.js';
+import { latestStageRun, listStageRuns } from '../../store/stageRuns.js';
 import { openGateRun } from '../gates/evidence.js';
 import { commitGateOutcome } from '../gates/commit.js';
+import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import { runUat, type UatDeps } from './uat.js';
@@ -725,6 +726,74 @@ describe('runReview', () => {
     expect(openDiff).toHaveBeenCalledWith(id, '/wt/web');
     // Filed under the SAME pre-bump attempt as the gates that failed beside it.
     expect(listGateRuns(store, id).every((r) => r.attempt === 0)).toBe(true);
+  });
+
+  it('a gate failure commits a review-origin recovery round attributed to the gates source', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceStage: 'review',
+      sourceProcessId: 'gates',
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'gates failed: lint (/wt/web), typecheck (/wt/web), build (/wt/web), format:check (/wt/web)',
+      round: 1,
+      maxRounds: 3,
+      status: 'pending',
+    });
+    expect(rounds[0]!.sourceStageRunId).toBe(listStageRuns(store, id)[0]!.id);
+  });
+
+  it('blocking findings are attributed to the review process — never a reconstructed gate verdict', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps({
+        findingsAdapter: findingsAgent(
+          JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }]),
+        ),
+      }),
+    );
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      triggerKind: 'blocking-review-findings',
+      triggerDetail: 'review findings: 1 critical',
+      round: 1,
+      status: 'pending',
+    });
+  });
+
+  it('snapshots review.maxFixAttempts into the round — a later manifest edit cannot widen it', async () => {
+    await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig({ maxFixAttempts: 1 }) }),
+      },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(listRecoveryRounds(store, id)[0]!.maxRounds).toBe(1);
   });
 
   it('opens nothing further once the run was stopped', async () => {

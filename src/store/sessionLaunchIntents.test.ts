@@ -6,6 +6,7 @@ import { openStore, type Store } from './db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { transition } from '../workflow/machine.js';
 import { listImplementationTimeline } from './implementationRuns.js';
+import { openRecoveryRound } from './recoveryRounds.js';
 import {
   recordSessionLaunchIntent,
   confirmSessionLaunchIntent,
@@ -120,10 +121,26 @@ describe('session launch intents', () => {
     expect(listImplementationTimeline(store, ticketId)).toEqual(timelineBefore);
   });
 
-  it('a fix-purpose launch records no implementation run', () => {
-    const intent = record('l-fix', { purpose: 'fix' });
+  it('a fix-purpose launch records no implementation run, and carries its recovery round', () => {
+    const round = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    const intent = record('l-fix', { purpose: 'fix', recoveryRoundId: round.id });
     expect(intent.implementationRunId).toBeNull();
     expect(intent.processRunId).toBeNull();
+    expect(intent.recoveryRoundId).toBe(round.id);
+  });
+
+  it('refuses a fix launch intent with no recovery round — the round is its durable owner', () => {
+    expect(() => record('l-fix', { purpose: 'fix' })).toThrow(/recovery round/);
   });
 
   it('persists a pending intent across a reopen — only a SessionStart with the same launch id confirms it', () => {

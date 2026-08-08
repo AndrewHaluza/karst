@@ -160,6 +160,17 @@ export type CleanupOwnedPaths = (
 ) => void;
 
 /**
+ * The agent identity a session was launched with — the session manager's
+ * RECORDED active provider/model snapshot, captured at `openSession` and read
+ * back by the fix-recovery path so the Fix process run carries the identity
+ * that is actually running (not the one a manifest edit resolves today).
+ */
+export interface SessionIdentity {
+  provider: string;
+  model: string | null;
+}
+
+/**
  * A launch karst just decided to actually perform: a launch id was allocated
  * and a terminal is about to be created. The host persists this as a pending
  * `session_launch_intents` row, so the eventual SessionStart can be confirmed
@@ -208,6 +219,8 @@ function toSingleLine(text: string): string {
 interface TrackedSession {
   terminal: SessionTerminal;
   launchId?: string;
+  /** The recorded active provider/model snapshot of this session's launch. */
+  identity?: SessionIdentity;
 }
 
 /**
@@ -289,9 +302,14 @@ export class SessionManager {
     cleanupOwned?: () => void,
     wasResume = false,
     options: OpenSessionOptions = {},
+    identity?: SessionIdentity,
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
-    this.terminals.set(ticketId, { terminal, ...(launchId ? { launchId } : {}) });
+    this.terminals.set(ticketId, {
+      terminal,
+      ...(launchId ? { launchId } : {}),
+      ...(identity ? { identity } : {}),
+    });
     terminal.onDidClose((exitCode) => {
       // A recovery timeout can dispose one terminal and immediately create its
       // retry before VS Code delivers the old close event. Only the handle that
@@ -335,7 +353,7 @@ export class SessionManager {
    * threaded as `--model`; omitted → the agent CLI's own default. `resume` is
    * an agent session id to continue via `--resume`, fresh-launch only.
    */
-  openSession(
+   openSession(
     adapter: AgentAdapter,
     ticketId: number,
     worktreePath: string,
@@ -347,6 +365,7 @@ export class SessionManager {
     naming?: { name: string; iconPath?: string; color?: string },
     ownedPaths: string[] = [],
     options: OpenSessionOptions = {},
+    identity?: SessionIdentity,
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
@@ -428,6 +447,7 @@ export class SessionManager {
       cleanupOwned,
       Boolean(resume),
       options,
+      identity,
     );
     if (options.reveal !== false) terminal.show();
   }
@@ -558,6 +578,25 @@ export class SessionManager {
   /** Whether a session terminal is currently open for a ticket. */
   isOpen(ticketId: number): boolean {
     return this.terminals.has(ticketId);
+  }
+
+  /**
+   * Whether the ticket's agent is LIVE in this window: its terminal is open,
+   * or a revived handle takes the ticket over (the map is empty after a
+   * reload while the agent it forgot is still running). Adoption never reveals
+   * the terminal — the caller is an automated continuation.
+   */
+  isLive(ticketId: number): boolean {
+    return this.terminals.has(ticketId) || this.adoptRevivedSession(ticketId) !== undefined;
+  }
+
+  /**
+   * The recorded active provider/model snapshot of the ticket's session, if
+   * this window launched it (a revived handle from another window carries no
+   * snapshot — its caller falls back to a fresh resolution).
+   */
+  sessionIdentity(ticketId: number): SessionIdentity | null {
+    return this.terminals.get(ticketId)?.identity ?? null;
   }
 
   /**

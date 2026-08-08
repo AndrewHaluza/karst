@@ -4,6 +4,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
 import { recordFindings, type FindingInput } from '../../store/reviewFindings.js';
 import { openStageRun } from '../../store/stageRuns.js';
+import { attachRevalidationStageRun } from '../../store/recoveryRounds.js';
 import { stageAttempt } from '../../store/stages.js';
 import { gateRevision } from '../../manifest/gateRevision.js';
 
@@ -70,6 +71,15 @@ export function openGateRun(store: Store, input: OpenGateRunInput): GateRunEvide
     pid: input.pid ?? null,
     startedAt: runAt,
   });
+
+  // v30: a gate run opened while a recovery round awaits its revalidation IS
+  // that revalidation — attach the run to the round the moment it opens, so
+  // the round names its revalidation evidence before any verdict exists (a
+  // review-origin round attaches its uat revalidation here and its own review
+  // revalidation when review runs later; the graph is never bypassed).
+  if (stageKey === 'uat' || stageKey === 'review') {
+    attachRevalidationStageRun(store, ticketId, stageKey, runId);
+  }
 
   return {
     runId,

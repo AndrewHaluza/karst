@@ -3,6 +3,7 @@ import type { StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import { getTicket } from '../store/tickets.js';
+import { recoveryDecision } from '../store/recoveryRounds.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import { runUat } from './stages/uat.js';
 import { runReview, type OpenDiff } from './stages/review.js';
@@ -11,6 +12,7 @@ import {
   countFixAttempts,
   fixAttemptsRemain,
   lastFailedGate,
+  roundFixDecision,
   type GateStageKey,
 } from './fixAttempts.js';
 
@@ -57,7 +59,16 @@ export interface DriveTicketDeps {
   /** The host's Stop, as a signal. Folded into this run's own controller. */
   signal?: AbortSignal;
   /** Called only when a fix attempt remains; the host owns how it resumes. */
-  resumeFix: (ticketId: number, gate: GateStageKey, attempts: number) => void;
+  resumeFix: (
+    ticketId: number,
+    gate: GateStageKey,
+    attempts: number,
+    /**
+     * v30: the committed recovery round the fix answers. null for a ticket
+     * parked at fix before rounds existed — the host then resumes untracked.
+     */
+    roundId: number | null,
+  ) => void;
   /**
    * Surfaces the ticket's changes for a human to review. Absent means nothing
    * does — review then records no 'changes' evidence for that run, and
@@ -179,23 +190,56 @@ export async function driveTicket(
     );
 
     if (outcome.stage === 'fix') {
-      const decision = fixResumeDecision(getTicket(deps.store, ticketId).stages, deps.manifest());
-      switch (decision.kind) {
-        case 'resume':
-          deps.resumeFix(ticketId, decision.gate, decision.attempts);
-          break;
-        case 'exhausted':
+      const stages = getTicket(deps.store, ticketId).stages;
+      // v30: a failed verdict commits its recovery round atomically, so the
+      // driver reads the round id and its committed max_rounds back from the
+      // store — the manifest knob may have changed since the failure, and the
+      // decision must never be re-derived from it. The stages-attempt fallback
+      // below exists only for tickets parked at fix before rounds did.
+      const gate = lastFailedGate(stages);
+      const round = gate === null ? null : recoveryDecision(deps.store, ticketId, gate);
+      if (round !== null && round.status === 'pending') {
+        // `round !== null` is only reachable when `gate` resolved, but the
+        // correlation is not expressible to the type system.
+        const resumingGate = gate as GateStageKey;
+        const decision = roundFixDecision(round);
+        if (decision.kind === 'resume') {
+          deps.resumeFix(ticketId, resumingGate, decision.attempts, decision.roundId);
+        } else {
           deps.log(
             `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +
-              `${decision.gate} failures, at the cap of ${decision.cap}; leaving it for a human`,
+              `${resumingGate} recovery rounds, at the cap of ${decision.cap}; leaving it for a human`,
           );
-          break;
-        case 'no-failed-gate':
-          deps.log(`stage driver: ticket ${ticketId} at fix with no failed gate; leaving it`);
-          break;
-        default: {
-          const unreachable: never = decision;
-          throw new Error(`unrecognized fix resume decision: ${JSON.stringify(unreachable)}`);
+        }
+      } else if (round !== null && round.status === 'fixing') {
+        deps.log(
+          `stage driver: ticket ${ticketId} at fix with a fix execution already in flight ` +
+            `(recovery round ${round.round}); leaving it`,
+        );
+      } else if (round !== null) {
+        deps.log(
+          `stage driver: ticket ${ticketId} at fix with no resumable recovery round ` +
+            `(${round.status}); leaving it`,
+        );
+      } else {
+        const decision = fixResumeDecision(stages, deps.manifest());
+        switch (decision.kind) {
+          case 'resume':
+            deps.resumeFix(ticketId, decision.gate, decision.attempts, null);
+            break;
+          case 'exhausted':
+            deps.log(
+              `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +
+                `${decision.gate} failures, at the cap of ${decision.cap}; leaving it for a human`,
+            );
+            break;
+          case 'no-failed-gate':
+            deps.log(`stage driver: ticket ${ticketId} at fix with no failed gate; leaving it`);
+            break;
+          default: {
+            const unreachable: never = decision;
+            throw new Error(`unrecognized fix resume decision: ${JSON.stringify(unreachable)}`);
+          }
         }
       }
     }

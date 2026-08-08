@@ -6,9 +6,14 @@ import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import { listImplementationTimeline } from '../store/implementationRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
-import { openProcessRun } from '../store/processRuns.js';
 import { listTokenUsage } from '../store/tokenUsage.js';
 import { lastInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
+import {
+  openRecoveryRound,
+  recordFixLaunchIntent,
+  listRecoveryRounds,
+} from '../store/recoveryRounds.js';
+import { getSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 
 /** Register a worktree row directly so a payload cwd resolves to a ticket. */
 function seedWorktree(store: Store, ticketId: number, path: string): void {
@@ -474,23 +479,28 @@ describe('dispatchHook — UsageUpdate', () => {
     expect(getTicket(store, id).agentState).toBe('running'); // still the SessionStart state
   });
 
-  it('attributes a fix session’s updates to the fix process run with call_site fix-resume', () => {
+  it('attributes a fix session’s updates to the Fix process run with call_site fix-resume', () => {
     const id = ticketAt();
     startImplementation(id, 'sess-1');
     usageUpdate('sess-1', { event_id: 'e1', input: 1_000, output: 200 });
-    // The implementation completes; a Fix process resumes the same provider session.
+    // The implementation completes; the recovery round is committed by the
+    // failing verdict and the Fix relaunch owns it.
     store.db
       .prepare('UPDATE implementation_runs SET status = ? WHERE ticket_id = ?')
       .run('passed', id);
-    const fixRun = openProcessRun(store, {
-      ticketId: id, stageKey: 'fix', processId: 'session', attempt: 1,
-      startedAt: '2026-08-01T12:00:00.000Z',
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T11:55:00.000Z',
     });
-    recordSessionLaunchIntent(store, {
-      ticketId: id, launchId: 'launch-fix', purpose: 'fix',
-      provider: 'claude', model: 'opus', reason: 'resume', sessionOrigin: 'resume',
+    recordFixLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-fix', provider: 'claude', model: 'opus',
+      reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: round.id,
       at: '2026-08-01T12:01:00.000Z',
     });
+    // The accepted SessionStart routes to confirmFixLaunch, which opens the
+    // Fix process run and attaches it to the round.
     dispatchHook(
       store,
       { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-fix' },
@@ -498,6 +508,10 @@ describe('dispatchHook — UsageUpdate', () => {
       () => true,
       () => 'claude',
     );
+    const fixRun = listProcessRuns(store, id).find((r) => r.processId === 'fix')!;
+    expect(fixRun.status).toBe('running');
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({ status: 'fixing', fixProcessRunId: fixRun.id });
+
     usageUpdate('sess-1', { event_id: 'e2', input: 1_700, output: 340 });
 
     const fixEntry = listTokenUsage(store, { ticketId: id, processRunId: fixRun.id });
@@ -509,6 +523,46 @@ describe('dispatchHook — UsageUpdate', () => {
       outputTokens: 140,
       totalTokens: 840,
     });
+  });
+
+  it('a SessionEnd without the marker interrupts the in-flight Fix execution and its round', () => {
+    const id = ticketAt();
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T11:55:00.000Z',
+    });
+    recordFixLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-fix', provider: 'claude', model: 'opus',
+      reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: round.id,
+      at: '2026-08-01T12:01:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-fix' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('fixing');
+
+    // The session dies without the `stage fix pass` marker: interrupted, never
+    // passed, and no additional round is consumed.
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionEnd', cwd: WT, session_id: 'sess-1', launchId: 'launch-fix' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+
+    const run = listProcessRuns(store, id).find((r) => r.processId === 'fix')!;
+    expect(run.status).toBe('interrupted');
+    const roundAfter = listRecoveryRounds(store, id)[0]!;
+    expect(roundAfter.status).toBe('interrupted');
+    expect(roundAfter.endedAt).not.toBeNull();
+    expect(getSessionLaunchIntent(store, 'launch-fix')!.status).toBe('confirmed');
   });
 
   it('baselines a resumed session with no prior sample — nothing reaches the ledger', () => {

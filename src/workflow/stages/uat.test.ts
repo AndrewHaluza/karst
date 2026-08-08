@@ -13,6 +13,11 @@ import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { runUat, resolveTargetGates, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 import type { ScriptProbe } from '../gates/probe.js';
+import {
+  listRecoveryRounds,
+  recoveryDecision,
+  completeFixExecution,
+} from '../../store/recoveryRounds.js';
 
 const now = () => '2026-07-30T10:00:00.000Z';
 
@@ -83,6 +88,113 @@ describe('runUat', () => {
     expect(getTicket(store, id).stageCurrent).toBe('fix');
     expect(listGateRuns(store, id).every((r) => r.attempt === 0)).toBe(true);
     expect(uatStage(store, id).attempt).toBe(1);
+  });
+
+  it('commits a recovery round atomically with the failed verdict, snapshotting the causal evidence and cap', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({
+            name: g.name,
+            exitCode: g.name === 'e2e' ? 1 : 0,
+            output: 'boom',
+            startedAt: now(),
+            endedAt: now(),
+          })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    // The round names the stage run the failure belongs to, the deterministic
+    // gate source (no AI process run), the causal detail, and the DEFAULT cap.
+    expect(rounds[0]).toMatchObject({
+      ticketId: id,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'gates failed: e2e (/wt/web)',
+      round: 1,
+      maxRounds: 3,
+      status: 'pending',
+      fixProcessRunId: null,
+    });
+    expect(rounds[0]!.sourceStageRunId).toBe(listStageRuns(store, id)[0]!.id);
+  });
+
+  it('snapshots the manifest cap into the round — a later manifest edit cannot widen it', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { uat: uatConfig({ maxFixAttempts: 1 }) }) },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(listRecoveryRounds(store, id)[0]!.maxRounds).toBe(1);
+    // The knob is raised AFTER the failure committed.
+    const m = manifest({}, { uat: uatConfig({ maxFixAttempts: 5 }) });
+    expect(recoveryDecision(store, id, 'uat')!.maxRounds).toBe(1);
+    void m;
+  });
+
+  it('a revalidation pass completes the uat-origin round through the real runner', async () => {
+    // Failure 1 commits round 1; the fix marker passes it to revalidating.
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(completeFixExecution(store, id, now())).toBe(true);
+    transition(store, id, 'fix', { kind: 'passed' }); // -> uat, the only legal edge
+
+    const res = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    const round = listRecoveryRounds(store, id)[0]!;
+    expect(round.status).toBe('passed');
+    expect(round.uatRevalidationStageRunId).toBe(listStageRuns(store, id)[1]!.id);
+  });
+
+  it('a revalidation failure fails round 1 and opens round 2 for the new cause', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    completeFixExecution(store, id, now());
+    transition(store, id, 'fix', { kind: 'passed' });
+
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom again', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    const [round1, round2] = listRecoveryRounds(store, id);
+    expect(round1).toMatchObject({ round: 1, status: 'failed' });
+    expect(round1!.uatRevalidationStageRunId).toBe(listStageRuns(store, id)[1]!.id);
+    expect(round2).toMatchObject({ round: 2, status: 'pending' });
   });
 
   it('nothing to run -> blocks, does not transition, consumes no attempt', async () => {
@@ -564,6 +676,9 @@ describe('runUat', () => {
     // The verdict itself never committed, so the run is still open — which is
     // what the next run (or the activation sweep) reads as a destroyed run.
     expect(listStageRuns(store, id).map((r) => r.status)).toEqual(['running']);
+    // An execution crash opens NO recovery round: only a COMMITTED failed
+    // verdict may trigger recovery, and none committed here.
+    expect(listRecoveryRounds(store, id)).toEqual([]);
   });
 
   it('does not run a gate the ticket disabled', async () => {

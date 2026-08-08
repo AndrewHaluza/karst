@@ -13,6 +13,7 @@ import type { GitRunner } from '../integrations/git.js';
 import type { StageRunResult } from '../model/types.js';
 import { runUat } from './stages/uat.js';
 import { driveTicket, fixResumeDecision, type DriveTicketDeps } from './driveTicket.js';
+import { openRecoveryRound, listRecoveryRounds } from '../store/recoveryRounds.js';
 
 describe('fixResumeDecision', () => {
   const stages = (uatAttempt: number, reviewAttempt: number) => [
@@ -95,7 +96,7 @@ describe('driveTicket', () => {
   let workDir: string;
   let artifactDir: string;
   let logs: string[];
-  let resumed: { ticketId: number; gate: string; attempts: number }[];
+  let resumed: { ticketId: number; gate: string; attempts: number; roundId: number | null }[];
   let worktreeLookups: number;
   let polls: number;
   let stopped: boolean;
@@ -115,7 +116,8 @@ describe('driveTicket', () => {
       // vitest times a test out with, so a livelock reports nothing at all. No
       // healthy run below polls more than twice.
       shouldContinue: () => !stopped && (polls += 1) <= 4,
-      resumeFix: (ticketId, gate, attempts) => resumed.push({ ticketId, gate, attempts }),
+      resumeFix: (ticketId, gate, attempts, roundId) =>
+        resumed.push({ ticketId, gate, attempts, roundId }),
       log: (m) => logs.push(m),
       ...over,
     };
@@ -212,7 +214,69 @@ describe('driveTicket', () => {
     });
 
     expect(outcome).toEqual({ stage: 'fix', status: 'blocked', reason: 'gate-failed' });
-    expect(resumed).toEqual([{ ticketId: id, gate: 'uat', attempts: 1 }]);
+    // No committed round (the failure above bypassed the recovery-trigger seam),
+    // so the driver falls back to the stages-attempt decision, roundId null.
+    expect(resumed).toEqual([{ ticketId: id, gate: 'uat', attempts: 1, roundId: null }]);
+  });
+
+  it('resumes against the COMMITTED recovery round, carrying its id and committed cap', async () => {
+    // A real failed verdict commits round 1 with maxRounds 3.
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps(), id);
+
+    expect(outcome).toEqual({ stage: 'fix', status: 'blocked', reason: 'gate-failed' });
+    expect(resumed).toEqual([{ ticketId: id, gate: 'uat', attempts: 1, roundId: round.id }]);
+  });
+
+  it('stops resuming once the COMMITTED round budget is spent, whatever the live manifest says', async () => {
+    // Round 2 of 2 is exhausted — and a manifest edited since the failure to
+    // allow 5 must not widen the committed cap.
+    openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 2,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 2', maxRounds: 2,
+      startedAt: '2026-08-01T11:00:00.000Z',
+    });
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 2' }); // -> fix
+    const m = manifest({}, { uat: uat({ maxFixAttempts: 5 }) });
+
+    const outcome = await driveTicket(deps({ manifest: () => m }), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(resumed).toEqual([]);
+    expect(logs.some((l) => l.includes('at the cap of 2'))).toBe(true);
+  });
+
+  it('leaves a fix already in flight alone — no second resume for a fixing round', async () => {
+    openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE ticket_id = ?")
+      .run(id);
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps(), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(resumed).toEqual([]);
+    expect(logs.some((l) => l.includes('already in flight'))).toBe(true);
   });
 
   it('stops resuming once that gate’s fix budget is spent', async () => {

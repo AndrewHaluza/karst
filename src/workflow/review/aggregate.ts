@@ -105,6 +105,14 @@ export const DEFAULT_REVIEW_FINDINGS = {
 } as const;
 
 /**
+ * The reason prefix of R6's failure — the ONE thing that tells a failed review
+ * verdict "this was the findings lane" apart from "a gate failed". Authored
+ * here (R6 below) and read back by `stages/review.ts` when it classifies the
+ * verdict into a recovery trigger — a shared constant, never a second string.
+ */
+export const FINDINGS_FAILURE_PREFIX = 'review findings: ';
+
+/**
  * The invocation a malformed-package.json entry claims. Not a real command — it
  * is a synthetic entry standing for "karst could not read this repository's
  * scripts, and that is a defect an agent can fix". Constructed and recognised in
@@ -351,7 +359,10 @@ export function aggregateReview(
     if (blocking.length > 0) {
       return {
         kind: 'verdict',
-        verdict: { kind: 'failed', reason: `review findings: ${summarizeSeverities(blocking)}` },
+        verdict: {
+          kind: 'failed',
+          reason: `${FINDINGS_FAILURE_PREFIX}${summarizeSeverities(blocking)}`,
+        },
         warnings: [],
       };
     }

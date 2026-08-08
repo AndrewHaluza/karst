@@ -12,7 +12,14 @@ import {
   completeImplementationRun,
   interruptImplementationRun,
 } from './implementationRuns.js';
-import { openProcessRun, listProcessRuns } from './processRuns.js';
+import { listProcessRuns } from './processRuns.js';
+import {
+  openRecoveryRound,
+  recordFixLaunchIntent,
+  confirmFixLaunch,
+  interruptFixExecution,
+  listRecoveryRounds,
+} from './recoveryRounds.js';
 import { listTokenUsage } from './tokenUsage.js';
 import {
   appendInteractiveUsageSample,
@@ -308,16 +315,40 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
     completeImplementationRun(store, ticketId, '2026-08-01T12:00:00.000Z');
     expect(listProcessRuns(store, ticketId)[0]!.status).toBe('passed');
 
-    // A Fix process resumes the same provider session id.
-    const fixRun = openProcessRun(store, {
+    // A recovery round is committed by the failing verdict; the Fix relaunch
+    // owns it (recordFixLaunchIntent) and its accepted SessionStart opens the
+    // Fix process run and attaches it to the round (confirmFixLaunch).
+    const round = openRecoveryRound(store, {
       ticketId,
-      stageKey: 'fix',
-      processId: 'session',
-      attempt: 1,
-      startedAt: '2026-08-01T12:01:00.000Z',
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T12:00:30.000Z',
     });
-    launch('l-fix', 'fix', 'resume', 'resume');
-    confirm('l-fix', SESSION, '2026-08-01T12:02:00.000Z');
+    recordFixLaunchIntent(store, {
+      ticketId,
+      launchId: 'l-fix',
+      provider: PROVIDER,
+      model: 'sol',
+      reason: 'resume',
+      sessionOrigin: 'resume',
+      recoveryRoundId: round.id,
+      at: '2026-08-01T12:01:00.000Z',
+    });
+    expect(confirmFixLaunch(store, 'l-fix', {
+      ticketId, provider: PROVIDER, providerSessionId: SESSION,
+      at: '2026-08-01T12:02:00.000Z',
+    })).toBe('confirmed');
+    const fixRun = listProcessRuns(store, ticketId).find((r) => r.processId === 'fix')!;
+    expect(fixRun.status).toBe('running');
+    expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+      status: 'fixing',
+      fixProcessRunId: fixRun.id,
+    });
 
     const fixSample = appendInteractiveUsageSample(
       store,
@@ -344,6 +375,40 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
     expect(last.sourceEventId).toBe('e3');
     expect(last.processRunId).toBe(fixRun.id);
     expect(last.counterEpoch).toBe(0);
+  });
+
+  it('drops usage once the Fix execution is no longer active — a completed or interrupted fix owns nothing', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    completeImplementationRun(store, ticketId, '2026-08-01T12:00:00.000Z');
+    const round = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T12:00:30.000Z',
+    });
+    recordFixLaunchIntent(store, {
+      ticketId, launchId: 'l-fix', provider: PROVIDER, model: 'sol',
+      reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: round.id,
+      at: '2026-08-01T12:01:00.000Z',
+    });
+    confirmFixLaunch(store, 'l-fix', {
+      ticketId, provider: PROVIDER, providerSessionId: SESSION,
+      at: '2026-08-01T12:02:00.000Z',
+    });
+    interruptFixExecution(store, round.id, '2026-08-01T12:03:00.000Z');
+
+    const result = appendInteractiveUsageSample(
+      store,
+      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200, observedAt: '2026-08-01T12:04:00.000Z' }) },
+    );
+    expect(result).toEqual({ kind: 'unattributed' });
+    expect(ledger()).toHaveLength(0);
   });
 });
 

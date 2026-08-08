@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -895,6 +895,56 @@ export function migrate(db: Database): void {
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_interactive_sample ' +
           'ON token_usage(interactive_usage_sample_id) WHERE interactive_usage_sample_id IS NOT NULL',
       );
+    }
+  }
+
+  if (current < 30) {
+    // v30 persists CAUSAL recovery rounds (Task 6): one row per gate failure
+    // that entered the fix loop, opened atomically with the failing verdict.
+    //
+    // A whole new table, so the step is the same DDL as schema.sql rather than
+    // an ALTER, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops. The linked
+    // `session_launch_intents.recovery_round_id` column gives a pending Fix
+    // launch a durable owner before its process run exists.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which failure sent a
+    // ticket to fix, with which evidence and under which budget — a
+    // synthesized round would assert exactly the facts this table exists to
+    // stop being guessed at. A ticket already parked at fix when the upgrade
+    // lands simply has no round until its next gate failure (the driver
+    // falls back to the stages-attempt budget for it).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS recovery_rounds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review')),
+        source_process_id TEXT NOT NULL,
+        source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        trigger_kind TEXT NOT NULL,
+        trigger_detail TEXT NOT NULL,
+        round INTEGER NOT NULL,
+        max_rounds INTEGER NOT NULL,
+        fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted')),
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round ' +
+        'ON recovery_rounds(ticket_id, source_stage, round)',
+    );
+    const intentCols30 = tableColumns(db, 'session_launch_intents');
+    if (intentCols30.size > 0 && tableColumns(db, 'recovery_rounds').size > 0) {
+      if (!intentCols30.has('recovery_round_id')) {
+        db.exec(
+          'ALTER TABLE session_launch_intents ADD COLUMN recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE CASCADE',
+        );
+      }
     }
   }
 

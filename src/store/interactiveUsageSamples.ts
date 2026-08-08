@@ -140,9 +140,12 @@ interface SessionBinding {
  * state: the most recent confirmed launch intent for (ticket, provider,
  * provider_session_id). An implementation intent carries its run's Session
  * process run and the segment the intent confirmed; a fix intent has no run or
- * segment, so the binding is the ticket's most recent fix process run. No
- * confirmed intent, or no process run to attribute to, is NOT a binding —
- * nothing is ever invented to make an observation fit.
+ * segment, so the binding is the ticket's most recent RUNNING fix process run —
+ * the fix execution opened at nudge/confirm and attached to its recovery round
+ * (v30). "Running" is the active-execution requirement: a completed or
+ * interrupted fix owns nothing. No confirmed intent, or no process run to
+ * attribute to, is NOT a binding — nothing is ever invented to make an
+ * observation fit.
  */
 function resolveSessionBinding(
   store: Store,
@@ -189,7 +192,7 @@ function resolveSessionBinding(
   const fixRun = store.db
     .prepare(
       `SELECT id FROM process_runs
-        WHERE ticket_id = ? AND stage_key = 'fix'
+        WHERE ticket_id = ? AND stage_key = 'fix' AND status = 'running'
         ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId) as { id: number } | undefined;

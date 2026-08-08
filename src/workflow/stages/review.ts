@@ -6,7 +6,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
-import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
+import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
@@ -17,11 +17,13 @@ import { noTargetsReason } from '../gates/targets.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
+import { capForGate } from '../fixAttempts.js';
 import {
   aggregateReview,
   malformedPackageJsonEntry,
   uatIdentitiesFrom,
   DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
+  FINDINGS_FAILURE_PREFIX,
   type AggregateEntry,
 } from '../review/aggregate.js';
 import { planAndRunFindingsLane } from '../review/findingsLane.js';
@@ -143,6 +145,33 @@ export async function runReview(
   const skippedNames: string[] = [];
 
   /**
+   * The recovery trigger for this run's outcome (v30), constructed HERE while
+   * the failing evidence, the current stage run and the manifest cap are all
+   * still in hand — never reconstructed later from `stages.verdict` or the
+   * live manifest. The causal source is read off the aggregate's own failure
+   * constant: a blocking-findings verdict (`FINDINGS_FAILURE_PREFIX`) is the
+   * findings lane's failure and is attributed to the `review` process; every
+   * other failed verdict is a deterministic gate outcome attributed to
+   * `gates`. Blocks, stops and passes carry no trigger.
+   */
+  const recoveryTriggerFor = (outcome: RunOutcome): RecoveryTriggerInput | null => {
+    if (outcome.kind !== 'verdict' || outcome.verdict.kind !== 'failed') return null;
+    const triggerDetail = outcome.verdict.reason ?? 'review gates failed';
+    const fromFindings = triggerDetail.startsWith(FINDINGS_FAILURE_PREFIX);
+    return {
+      sourceProcessId: fromFindings ? 'review' : 'gates',
+      sourceStageRunId: evidence.runId,
+      // The findings lane's process run, when the caller captured one; a
+      // deterministic gate failure has no AI process. Never an id of another
+      // table forced into this column.
+      sourceProcessRunId: null,
+      triggerKind: fromFindings ? 'blocking-review-findings' : 'gate-failure',
+      triggerDetail,
+      maxRounds: capForGate('review', opts.manifest?.uat?.maxFixAttempts, opts.manifest?.review?.maxFixAttempts),
+    };
+  };
+
+  /**
    * Write the log and commit the outcome.
    *
    * Carries NO gate rows: every one of them was appended the moment it was
@@ -162,6 +191,7 @@ export async function runReview(
       gates: [],
       outcome,
       stageRunId: evidence.runId,
+      recoveryTrigger: recoveryTriggerFor(outcome) ?? undefined,
       now,
     });
   };

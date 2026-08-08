@@ -6,7 +6,9 @@ import type { AgentProvider } from '../manifest/types.js';
 import { nowIso } from '../model/time.js';
 import {
   confirmSessionLaunchIntent,
+  getSessionLaunchIntent,
 } from '../store/sessionLaunchIntents.js';
+import { confirmFixLaunch, interruptActiveFixExecution } from '../store/recoveryRounds.js';
 import { interruptImplementationRun } from '../store/implementationRuns.js';
 import { appendInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
 import { normalizeInteractiveUsage } from '../agent/interactiveUsage.js';
@@ -245,19 +247,37 @@ export function dispatchHook(
   // launch id, or one no launch ever recorded) changes nothing.
   if (payload.hook_event_name === 'SessionStart') {
     if (payload.launchId !== undefined && payload.session_id !== undefined) {
-      confirmSessionLaunchIntent(store, payload.launchId, {
-        ticketId,
-        provider: sessionProviderFor?.(ticketId) ?? '',
-        providerSessionId: payload.session_id,
-        at: nowIso(),
-      });
+      // v30: a FIX launch confirms through `confirmFixLaunch`, which opens the
+      // Fix process run and attaches it to the recovery round in the same
+      // transaction — an implementation launch confirms through the plain
+      // intent handshake (segment + stable run).
+      const intent = getSessionLaunchIntent(store, payload.launchId);
+      if (intent !== undefined && intent.purpose === 'fix') {
+        confirmFixLaunch(store, payload.launchId, {
+          ticketId,
+          provider: sessionProviderFor?.(ticketId) ?? '',
+          providerSessionId: payload.session_id,
+          at: nowIso(),
+        });
+      } else {
+        confirmSessionLaunchIntent(store, payload.launchId, {
+          ticketId,
+          provider: sessionProviderFor?.(ticketId) ?? '',
+          providerSessionId: payload.session_id,
+          at: nowIso(),
+        });
+      }
     }
   } else if (payload.hook_event_name === 'SessionEnd') {
     // A session that ended WITHOUT the marker is an interrupted implementation:
     // the run and its segment close as interrupted, never passed — the marker
     // (`stage impl pass`) is the only completion authority, and a run the
-    // marker already passed is left strictly alone.
+    // marker already passed is left strictly alone. A FIX session that died
+    // the same way interrupts its recovery execution: the Fix process run and
+    // the round mark `interrupted`, never passed, and no additional round is
+    // consumed.
     interruptImplementationRun(store, ticketId, nowIso());
+    interruptActiveFixExecution(store, ticketId, nowIso());
   }
 
   const state = nextAgentState(payload);
