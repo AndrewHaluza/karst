@@ -3047,9 +3047,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Test never register it, so an unregistered/non-development path cannot
   // open a panel — and the fixture/preview modules are pulled in LAZILY by
   // this branch, so the production dashboard/state dependency graph never
-  // imports them (pinned by insidePreview.test.ts's import walk). package.json
-  // mirrors the guard by hiding the palette entry behind
-  // `extensionMode == development`.
+  // imports them (pinned by insidePreview.test.ts's import walk).
+  //
+  // The command-palette entry is gated on a karst-OWNED context key
+  // (`karst.insidePreviewAvailable`), not VS Code's built-in mode expression:
+  // activation is the one writer, and it writes the key BEFORE the guarded
+  // registration below reads the mode, so a Production or Test activation
+  // sets it to false and the palette can never offer an entry for a command
+  // this window did not register (pinned by extensionActivation.test.ts).
+  void vscode.commands.executeCommand(
+    'setContext',
+    'karst.insidePreviewAvailable',
+    context.extensionMode === vscode.ExtensionMode.Development,
+  );
   if (context.extensionMode === vscode.ExtensionMode.Development) {
     context.subscriptions.push(
       vscode.commands.registerCommand('karst.dev.openInsidePreview', () => {
@@ -3082,6 +3092,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           )
           .catch((error) => logError('inside preview failed to load', error));
       }),
+      // The palette key is owned by this host. Clear it when the development
+      // host goes away so a reload into a Production host never inherits a
+      // stale `true` from the window this host was running in.
+      {
+        dispose: () => {
+          void vscode.commands.executeCommand('setContext', 'karst.insidePreviewAvailable', false);
+        },
+      },
     );
   }
 

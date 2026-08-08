@@ -2,6 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { runInNewContext } from 'node:vm';
+import { injectDesignSystem } from '../../model/designSystem.js';
+import { injectPalette } from '../../model/palette.js';
+import { injectProviderIdentity } from '../../model/providerIdentity.js';
+import {
+  insidePreviewFixtures,
+  PREVIEW_REPO_COUNTS,
+  PREVIEW_SCENARIOS,
+} from './insideFixtures.js';
+import { previewPayloadFor } from './insidePreview.js';
+import type { DashboardState } from './state.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -1410,5 +1421,398 @@ describe('dashboard webview.html', () => {
     expect(rm).toContain('.spin');
     expect(rm).toContain('animation:none');
     expect(rm).not.toContain('display:none');
+  });
+});
+
+// ── Task 6 (residual): executable fixture/render round trip ─────────────────
+//
+// The tests above are SOURCE guards: they pin the rules that stop a defect,
+// but they cannot tell you a fixture snapshot RENDERS. These execute the
+// dashboard's real inline script (design system + provider identity hydrated
+// exactly as dashboardWebviewHtml() does) in a `node:vm` context with DOM
+// doubles, feed it the `preview-fixtures` message, select every
+// (repo count × scenario) fixture at every preview width, and assert what the
+// selected `{type:'state'}` snapshot actually rendered: hostile fixture
+// strings escaped, semantic disclosure controls, typed actions, and the
+// fixture's own stable process roster. Nothing here claims pixels: layout,
+// overflow, focus and reduced-motion behavior stay source guards above and
+// the Dev Host matrix (docs/superpowers/verification/) is their only executor.
+
+/** The four preview width classes the toolbar offers (Finding 1 / Task 9). */
+const PREVIEW_WIDTHS = ['300', '360', '430', 'normal'] as const;
+
+/** The dashboard webview hydrated exactly as the host renders it. */
+const HYDRATED = injectProviderIdentity(injectPalette(injectDesignSystem(HTML)));
+
+function previewScriptSource(): string {
+  const open = HYDRATED.indexOf('<script>');
+  const close = HYDRATED.indexOf('</script>', open);
+  if (open < 0 || close < 0) throw new Error('dashboard webview.html has no inline script');
+  return HYDRATED.slice(open + '<script>'.length, close);
+}
+
+/** A minimal element double for whatever the script touches through `el()`. */
+function previewElement(id: string) {
+  const attrs: Record<string, string> = {};
+  const classes: string[] = [];
+  const listeners = new Map<string, (event?: unknown) => void>();
+  return {
+    id,
+    innerHTML: '',
+    textContent: '',
+    title: '',
+    value: '',
+    disabled: false,
+    dataset: {} as Record<string, string>,
+    scrollWidth: 100,
+    clientWidth: 100,
+    attrs,
+    classes,
+    classList: {
+      add: (name: string) => {
+        if (!classes.includes(name)) classes.push(name);
+      },
+      remove: (name: string) => {
+        const i = classes.indexOf(name);
+        if (i >= 0) classes.splice(i, 1);
+      },
+      toggle: (name: string, force?: boolean) => {
+        const on = force === undefined ? !classes.includes(name) : !!force;
+        if (on) {
+          if (!classes.includes(name)) classes.push(name);
+        } else {
+          const i = classes.indexOf(name);
+          if (i >= 0) classes.splice(i, 1);
+        }
+        return on;
+      },
+      contains: (name: string) => classes.includes(name),
+    },
+    setAttribute: (name: string, value: string) => {
+      attrs[name] = value;
+    },
+    getAttribute: (name: string) => attrs[name] ?? null,
+    removeAttribute: (name: string) => {
+      delete attrs[name];
+    },
+    addEventListener: (type: string, handler: (event?: unknown) => void) => {
+      listeners.set(type, handler);
+    },
+    fire: (type: string, event?: unknown) => {
+      const handler = listeners.get(type);
+      if (handler) handler(event);
+    },
+    querySelectorAll: (_sel: string): unknown[] => [],
+    querySelector: () => null,
+    focus: () => {},
+    setSelectionRange: () => {},
+    scrollIntoView: () => {},
+  };
+}
+
+type PreviewElement = ReturnType<typeof previewElement>;
+
+/** One toolbar width button — the node the width click handler mutates. */
+function widthButton(width: string) {
+  const attrs: Record<string, string> = {};
+  return {
+    dataset: { pvW: width },
+    attrs,
+    setAttribute: (name: string, value: string) => {
+      attrs[name] = value;
+    },
+  };
+}
+
+/** The MessageEvent constructor the script's toolbar selection instantiates. */
+class SandboxMessageEvent {
+  readonly type: string;
+  readonly data: unknown;
+  constructor(type: string, init?: { data?: unknown }) {
+    this.type = type;
+    this.data = init ? init.data : undefined;
+  }
+}
+
+interface PreviewHarness {
+  /** Deliver a host message through the script's `window.addEventListener('message')`. */
+  receive(message: unknown): void;
+  /** Set both toolbar selects and fire the change listener, exactly like a user picking a fixture. */
+  selectFixture(repos: number, scenario: string): void;
+  /** Click the toolbar width button, exactly like a user choosing a preview width. */
+  clickWidth(width: string): void;
+  /** Click one evidence disclosure chevron, exactly like a user expanding/collapsing a process. */
+  clickChevron(key: string): void;
+  htmlOf(id: string): string;
+  textOf(id: string): string;
+  classesOf(id: string): string[];
+  bodyDataset: Record<string, string>;
+  bodyClasses: string[];
+  /** The most recent message the script dispatched on `window` (the selected snapshot). */
+  lastDispatched(): { type: string; state?: DashboardState } | undefined;
+  posted: unknown[];
+}
+
+function bootPreviewHarness(): PreviewHarness {
+  const elements: Record<string, PreviewElement> = {};
+  for (const id of [
+    'pvScenario',
+    'pvRepos',
+    'previewToolbar',
+    'servers',
+    'inside',
+    'rail',
+    'title',
+    'followUpBtn',
+    'keyPill',
+    'agent',
+    'fault',
+    'blocked',
+    'now',
+    'srvCount',
+    'srvOps',
+    'worktrees',
+    'wtCount',
+    'wtChanges',
+    'prs',
+    'prCount',
+    'prRefresh',
+    'gates',
+    'gateCount',
+    'bindBtn',
+  ]) {
+    elements[id] = previewElement(id);
+  }
+  const widthButtons = PREVIEW_WIDTHS.map((w) => widthButton(w));
+  elements.previewToolbar = {
+    ...elements.previewToolbar!,
+    querySelectorAll: (sel: string) => (sel === '[data-pv-w]' ? widthButtons : []),
+  };
+
+  const bodyClasses: string[] = [];
+  const bodyDataset: Record<string, string> = {};
+  const bodyClassList = {
+    add: (name: string) => {
+      if (!bodyClasses.includes(name)) bodyClasses.push(name);
+    },
+    remove: (name: string) => {
+      const i = bodyClasses.indexOf(name);
+      if (i >= 0) bodyClasses.splice(i, 1);
+    },
+    toggle: (name: string, force?: boolean) => {
+      const on = force === undefined ? !bodyClasses.includes(name) : !!force;
+      if (on) {
+        if (!bodyClasses.includes(name)) bodyClasses.push(name);
+      } else {
+        const i = bodyClasses.indexOf(name);
+        if (i >= 0) bodyClasses.splice(i, 1);
+      }
+      return on;
+    },
+    contains: (name: string) => bodyClasses.includes(name),
+  };
+
+  const docListeners = new Map<string, Array<(event?: unknown) => void>>();
+  const winListeners = new Map<string, Array<(event?: unknown) => void>>();
+  const dispatched: Array<{ type: string; state?: DashboardState }> = [];
+  const posted: unknown[] = [];
+
+  const lane = { scrollWidth: 100, clientWidth: 100 };
+  const track = { classList: previewElement('track').classList, querySelector: (sel: string) => (sel === '.lane' ? lane : null) };
+
+  const documentDouble = {
+    getElementById: (id: string) => elements[id] ?? null,
+    addEventListener: (type: string, handler: (event?: unknown) => void) => {
+      const list = docListeners.get(type) ?? [];
+      list.push(handler);
+      docListeners.set(type, list);
+    },
+    querySelector: (sel: string) => (sel === '.track' ? track : null),
+    body: { classList: bodyClassList, dataset: bodyDataset, appendChild: () => {} },
+    createElement: () => previewElement('__created'),
+  };
+  const windowDouble = {
+    addEventListener: (type: string, handler: (event?: unknown) => void) => {
+      const list = winListeners.get(type) ?? [];
+      list.push(handler);
+      winListeners.set(type, list);
+    },
+    dispatchEvent: (event: { type: string; data?: unknown }) => {
+      if (event && event.data !== undefined) {
+        dispatched.push(event.data as { type: string; state?: DashboardState });
+      }
+      for (const handler of winListeners.get(event.type) ?? []) {
+        handler({ data: event.data });
+      }
+    },
+  };
+
+  runInNewContext(`${previewScriptSource()}\n;globalThis.__karst = { esc };`, {
+    acquireVsCodeApi: () => ({
+      getState: () => null,
+      setState: () => {},
+      postMessage: (message: unknown) => void posted.push(message),
+    }),
+    document: documentDouble,
+    window: windowDouble,
+    MessageEvent: SandboxMessageEvent,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+  });
+
+  const fireDocumentClick = (event: unknown) => {
+    for (const handler of docListeners.get('click') ?? []) handler(event);
+  };
+
+  return {
+    receive: (message) => {
+      windowDouble.dispatchEvent({ type: 'message', data: message });
+    },
+    selectFixture: (repos, scenario) => {
+      elements.pvRepos!.value = String(repos);
+      elements.pvScenario!.value = scenario;
+      elements.pvScenario!.fire('change');
+    },
+    clickWidth: (width) => {
+      const btn = widthButtons.find((b) => b.dataset.pvW === width)!;
+      fireDocumentClick({
+        target: { closest: (sel: string) => (sel === '[data-pv-w]' ? btn : null) },
+        preventDefault: () => {},
+      });
+    },
+    clickChevron: (key) => {
+      fireDocumentClick({
+        target: {
+          closest: (sel: string) =>
+            sel === '[data-chev]' ? { dataset: { chev: key } } : null,
+        },
+        preventDefault: () => {},
+      });
+    },
+    htmlOf: (id) => elements[id]!.innerHTML,
+    textOf: (id) => elements[id]!.textContent,
+    classesOf: (id) => elements[id]!.classes,
+    bodyDataset,
+    bodyClasses,
+    lastDispatched: () => dispatched.at(-1),
+    posted,
+  };
+}
+
+describe('inside preview fixture round trip (executed in a VM)', () => {
+  const fixtures = insidePreviewFixtures().map(previewPayloadFor);
+
+  it('reveals the toolbar and lists the full scenario and repo vocabularies', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+
+    expect(h.classesOf('previewToolbar')).not.toContain('hidden');
+    expect(h.bodyClasses).toContain('preview-mode');
+    expect(h.bodyDataset.pvW).toBe('normal');
+    const scenarios = h.htmlOf('pvScenario');
+    for (const s of PREVIEW_SCENARIOS) {
+      expect(scenarios).toContain(`<option value="${s}">${s}</option>`);
+    }
+    const repos = h.htmlOf('pvRepos');
+    for (const n of PREVIEW_REPO_COUNTS) {
+      expect(repos).toContain(`<option value="${n}">${n} repositories</option>`);
+    }
+  });
+
+  it('round-trips every fixture at every preview width through the same state message a push uses', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+
+    // Evidence disclosures are view state that survives re-renders
+    // (openProcesses), so the test mirrors the open set to reset it before
+    // each fixture and get a deterministic closed state back.
+    const openKeys = new Set<string>();
+
+    for (const width of PREVIEW_WIDTHS) {
+      h.clickWidth(width);
+      expect(h.bodyDataset.pvW).toBe(width);
+      for (const f of fixtures) {
+        h.selectFixture(f.repositoryCount, f.scenario);
+
+        // The selection dispatched exactly the fixture's `{type:'state'}`
+        // snapshot — the identical message a real pushState ships.
+        const dispatched = h.lastDispatched();
+        expect(dispatched?.type, `no snapshot dispatched for ${f.id} at ${width}`).toBe('state');
+        expect(dispatched!.state!.title).toBe(f.label);
+        expect(dispatched!.state!.stageCurrent).toBe(f.stage);
+
+        const view = f.state.insideViews[f.stage];
+        const keys = view.processes
+          .filter((p) => (p.evidence?.rows.length ?? 0) > 0)
+          .map((p) => `${f.stage}:${p.id}`);
+
+        // Collapse anything a previous fixture left open.
+        for (const key of keys) {
+          if (openKeys.has(key)) {
+            h.clickChevron(key);
+            openKeys.delete(key);
+          }
+        }
+
+        // The CLOSED render: no raw hostile markup anywhere, and every
+        // disclosure is a semantic button carrying its open state.
+        let html = h.htmlOf('inside');
+        expect(html).not.toContain('<script>');
+        expect(html).not.toContain('</script>');
+        expect(html).toContain('data-chev="');
+        expect(html).toContain('aria-expanded="false"');
+
+        // Open every evidence disclosure, like a user reading the rows.
+        for (const key of keys) {
+          h.clickChevron(key);
+          openKeys.add(key);
+        }
+        html = h.htmlOf('inside');
+
+        // The renderer escaped every hostile fixture string: the raw markup
+        // never survives, and the escaped forms are what replaced it.
+        if (f.scenario === 'failed') {
+          expect(html).toContain('&lt;script&gt;');
+          expect(html).toContain('&amp; untrusted');
+          expect(html).toContain('&quot;quoted&quot;');
+        }
+        expect(html).not.toContain('<script>');
+        expect(html).not.toContain('</script>');
+        if (keys.length > 0) expect(html).toContain('aria-expanded="true"');
+
+        // Typed actions ride the closed inside-action wire with only the
+        // opaque fixture id — asserted present exactly when the fixture has one.
+        const hasAction = view.processes.some(
+          (p) => p.action || (p.evidence?.rows ?? []).some((r) => r.action),
+        );
+        if (hasAction) {
+          expect(html).toContain('data-act="inside-action"');
+          expect(html).toContain('data-action-id="fixture:');
+        } else {
+          expect(html).not.toContain('data-act="inside-action"');
+        }
+
+        // Stable process counts: the rendered roster is the snapshot's own.
+        const rows = (html.match(/class="proc /g) ?? []).length;
+        expect(rows).toBe(view.processes.length);
+      }
+    }
+  });
+
+  it('renders a stable process roster per scenario across every repo count', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+
+    const counts = new Map<string, Set<number>>();
+    for (const f of fixtures) {
+      h.selectFixture(f.repositoryCount, f.scenario);
+      const rows = (h.htmlOf('inside').match(/class="proc /g) ?? []).length;
+      const seen = counts.get(f.scenario) ?? new Set<number>();
+      seen.add(rows);
+      counts.set(f.scenario, seen);
+    }
+    for (const [scenario, seen] of counts) {
+      expect(seen.size, `scenario ${scenario} renders a roster that varies with repo count`).toBe(1);
+    }
   });
 });

@@ -178,7 +178,7 @@
         },
         {
           "command": "karst.dev.openInsidePreview",
-          "when": "extensionMode == development"
+          "when": "karst.insidePreviewAvailable"
         }
       ]
     },

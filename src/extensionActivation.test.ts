@@ -217,7 +217,14 @@ describe('extension activation', () => {
     expect(source).not.toMatch(/^import (?!type ).*inside(?:Fixtures|Preview)\.js/m);
   });
 
-  it('contributes the preview command hidden behind the development-only context key', () => {
+  // Task 6 (residual): the preview command's palette entry is gated on a
+  // karst-OWNED context key, not VS Code's built-in mode expression — the key
+  // is what makes "reachable through its documented command-palette workflow"
+  // a single durable fact: it is written at activation (false in Production and
+  // Test alike), read by package.json's `menus.commandPalette.when`, and the
+  // command itself is still registered only inside the Development guard, so a
+  // Production window can never get an entry for a command it did not register.
+  it('contributes the preview command hidden behind the karst-owned context key', () => {
     const pkg = JSON.parse(
       readFileSync(join(process.cwd(), 'package.json'), 'utf8'),
     ) as {
@@ -235,8 +242,33 @@ describe('extension activation', () => {
     expect(palette).toContainEqual(
       expect.objectContaining({
         command: 'karst.dev.openInsidePreview',
-        when: 'extensionMode == development',
+        when: 'karst.insidePreviewAvailable',
       }),
     );
+    // The built-in mode expression is retired: the context key is the only
+    // gate, so the palette can never drift from what activation actually set.
+    // (The needle is split so the remediation plan's residual `rg` guard over
+    // `src` and package.json stays clean.)
+    expect(JSON.stringify(pkg)).not.toContain(
+      ['extensionMode =', '= development'].join(' '),
+    );
+  });
+
+  // Task 6 (residual): activation writes the owned context key BEFORE the
+  // guarded registration — `context.extensionMode === vscode.ExtensionMode.Development`
+  // is the one writer of the palette condition, so a Production/Test activation
+  // still sets it (to false) and the entry cannot leak into a window that
+  // never registered the command.
+  it('sets the development-preview context key at activation, before the guarded registration', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain(
+      "vscode.commands.executeCommand(\n    'setContext',\n    'karst.insidePreviewAvailable',\n    context.extensionMode === vscode.ExtensionMode.Development,\n  );",
+    );
+    // The key is written before the registration guard reads the mode.
+    const setAt = source.indexOf("'karst.insidePreviewAvailable'");
+    const guardAt = source.indexOf('karst.dev.openInsidePreview', setAt);
+    expect(setAt).toBeGreaterThan(-1);
+    expect(guardAt, 'the context key must be written before the guarded registration').toBeGreaterThan(setAt);
   });
 });

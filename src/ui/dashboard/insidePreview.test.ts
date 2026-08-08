@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { insidePreviewFixtures } from './insideFixtures.js';
+import { insidePreviewFixtures, PREVIEW_REPO_COUNTS, PREVIEW_SCENARIOS } from './insideFixtures.js';
 import {
   INSIDE_PREVIEW_TITLE,
   openInsidePreview,
+  previewPayloadFor,
   previewStateFor,
   type InsidePreviewHost,
 } from './insidePreview.js';
@@ -112,6 +113,31 @@ describe('inside preview panel', () => {
     const b = fakeHost();
     openInsidePreview(b.host, insidePreviewFixtures());
     expect(JSON.stringify(a.panels[0]!.posted)).toBe(JSON.stringify(b.panels[0]!.posted));
+  });
+
+  // Task 6 (residual): the webview toolbar selects a fixture by
+  // (repositoryCount, scenario) — the two selects — so every selection the
+  // matrix offers must resolve to exactly one payload whose snapshot presents
+  // the fixture's stage as current, which is the `{type:'state'}` the renderer
+  // reads. This is the HOST half of the round trip; the render half is
+  // executed in a VM in webview.test.ts.
+  it('selects every matrix fixture by repository count and scenario', () => {
+    const payloads = insidePreviewFixtures().map(previewPayloadFor);
+    const bySelection = new Map(
+      payloads.map((p) => [`${p.repositoryCount}:${p.scenario}`, p]),
+    );
+    expect(bySelection.size).toBe(payloads.length);
+    for (const n of PREVIEW_REPO_COUNTS) {
+      for (const s of PREVIEW_SCENARIOS) {
+        const p = bySelection.get(`${n}:${s}`);
+        expect(p, `missing payload for ${n} repos / ${s}`).toBeTruthy();
+        // The snapshot the toolbar will dispatch as `{type:'state'}` presents
+        // the fixture's stage as current — exactly what the renderer keys on.
+        expect(p!.stage).toBe(p!.state.presentedStage);
+        expect(p!.state.stageCurrent).toBe(p!.stage);
+        expect(p!.state.key).toBe(`preview-${p!.id}`);
+      }
+    }
   });
 
   it('keeps the preview modules out of the production dashboard/state graph', () => {
