@@ -217,6 +217,36 @@ describe('appendInteractiveUsageSample — first observation', () => {
     expect(ledger()).toHaveLength(0);
   });
 
+  it('does not bind a confirmed Implementation launch after its process is no longer running', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    const processRunId = lastSampleIntentProcessRun();
+
+    store.db.prepare("UPDATE process_runs SET status = 'stale' WHERE id = ?").run(processRunId);
+
+    expect(
+      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'late-implementation' }) }),
+    ).toEqual({ kind: 'unattributed' });
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({ n: 0 });
+    expect(ledger()).toEqual([]);
+  });
+
+  it('does not bind a malformed Implementation intent to a process moved to another ticket', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    const processRunId = lastSampleIntentProcessRun();
+    const otherTicket = createTicket(store, { key: 'T-2', title: 'other' });
+
+    // Historical corruption must not let the intent's ticket claim a process
+    // that belongs to a different ticket when the UsageUpdate arrives late.
+    store.db.prepare('UPDATE process_runs SET ticket_id = ? WHERE id = ?').run(otherTicket.id, processRunId);
+
+    expect(
+      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'malformed-implementation' }) }),
+    ).toEqual({ kind: 'unattributed' });
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({ n: 0 });
+  });
+
   it('rejects an already-recorded event id idempotently — one row, one ledger entry', () => {
     launch('l1', 'implementation');
     confirm('l1', SESSION);

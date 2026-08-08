@@ -157,7 +157,10 @@ describe('extension activation', () => {
     expect(source).toContain('runVerifier: runProcess');
     expect(source).toContain('resolveProcessAssignment(');
     expect(source).toContain('currentManifest() ?? emptyManifest(),');
-    expect(source).toContain('adapter: currentAgentAdapter(ticketId)');
+    expect(source).toContain(
+      'adapter: instrument(resolveAdapter(assignment.provider), assignment.provider)',
+    );
+    expect(source).not.toContain('adapter: currentAgentAdapter(ticketId)');
   });
 
   // Task 3: EVERY configured inside process role must be executable from the
@@ -263,12 +266,24 @@ describe('extension activation', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
     expect(source).toContain(
-      "vscode.commands.executeCommand(\n    'setContext',\n    'karst.insidePreviewAvailable',\n    context.extensionMode === vscode.ExtensionMode.Development,\n  );",
+      "await vscode.commands.executeCommand(\n    'setContext',\n    'karst.insidePreviewAvailable',\n    context.extensionMode === vscode.ExtensionMode.Development,\n  );",
     );
     // The key is written before the registration guard reads the mode.
     const setAt = source.indexOf("'karst.insidePreviewAvailable'");
     const guardAt = source.indexOf('karst.dev.openInsidePreview', setAt);
     expect(setAt).toBeGreaterThan(-1);
     expect(guardAt, 'the context key must be written before the guarded registration').toBeGreaterThan(setAt);
+  });
+
+  it('checks the configured Fix provider before retiring a live session and only then bypasses a second check', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const fixStart = source.indexOf('function resumeFixSession(');
+    const fixEnd = source.indexOf('// The §5.4-safe driver nudge', fixStart);
+    const fix = source.slice(fixStart, fixEnd);
+
+    expect(fix).toContain("guardProviderCapability('sessions', process.assignment.provider)");
+    expect(fix.indexOf("guardProviderCapability('sessions', process.assignment.provider)"))
+      .toBeLessThan(fix.indexOf('sessions.disposeSession(ticketId)'));
+    expect(fix).toContain('providerReady: true');
   });
 });

@@ -115,6 +115,14 @@ describe('inside preview panel', () => {
     expect(JSON.stringify(a.panels[0]!.posted)).toBe(JSON.stringify(b.panels[0]!.posted));
   });
 
+  it('keeps preview lifecycle controls in the dev-only toolbar and on the generic inside-progress protocol', () => {
+    const webview = readFileSync(resolve(process.cwd(), 'src/ui/dashboard/webview.html'), 'utf8');
+    expect(webview).toContain('data-pv-progress="active"');
+    expect(webview).toContain('data-pv-progress="completed"');
+    expect(webview).toContain('data-pv-progress="cleared"');
+    expect(webview).toContain("type: 'inside-progress'");
+  });
+
   // Task 6 (residual): the webview toolbar selects a fixture by
   // (repositoryCount, scenario) — the two selects — so every selection the
   // matrix offers must resolve to exactly one payload whose snapshot presents

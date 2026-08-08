@@ -929,6 +929,11 @@
     <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="430" aria-pressed="false" title="Preview the Inside panel at 430px wide">430</button>
     <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="normal" aria-pressed="true" title="Preview at the panel's natural width">normal</button>
   </span>
+  <span class="pvwidth" role="group" aria-label="Preview process lifecycle">
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="active" title="Send a preview active inside-progress event">Start live operation</button>
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="completed" title="Send a preview completed inside-progress event">Complete</button>
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="cleared" title="Send a preview cleared inside-progress event">Clear</button>
+  </span>
 </div>
 
 <div class="stepper">
@@ -1298,6 +1303,26 @@
     selectPreviewFixture();
   }
 
+  // Preview-only lifecycle controls deliberately dispatch the exact generic
+  // inside-progress envelope the production host uses. They are local to this
+  // toolbar (which production never reveals), so no fixture action can mutate
+  // a ticket; the three buttons let Dev Host verification visibly step through
+  // active → completed → cleared instead of merely asserting the renderer's
+  // event branch in a test.
+  function previewProgress(kind) {
+    if (!lastState) return;
+    const stage = lastState.presentedStage || lastState.stageCurrent || 'scope';
+    const processId = 'preview-live-operation';
+    const event = kind === 'active'
+      ? { kind: 'active', ticketId: lastState.ticketId, stage, processId,
+          live: { status: 'run', label: 'Preview live operation' } }
+      : kind === 'completed'
+        ? { kind: 'completed', ticketId: lastState.ticketId, stage,
+            process: { id: processId, kind: 'preview', label: 'Preview live operation', status: 'pass' } }
+        : { kind: 'cleared', ticketId: lastState.ticketId, stage, processId };
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'inside-progress', event } }));
+  }
+
   // The two fixture selects are attached ONCE at load (the toolbar markup is
   // static); renderPreviewToolbar only swaps the options beneath them.
   el('pvScenario').addEventListener('change', selectPreviewFixture);
@@ -1312,6 +1337,12 @@
       b.setAttribute('aria-pressed', String(b === btn));
     }
     document.body.dataset.pvW = btn.dataset.pvW;
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pv-progress]');
+    if (!btn) return;
+    previewProgress(btn.dataset.pvProgress);
   });
 
   // The needs-you button is NAVIGATIONAL. It scrolls the control that owns the

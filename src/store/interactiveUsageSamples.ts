@@ -246,20 +246,33 @@ function resolveSessionBinding(
   if (intent.purpose === 'implementation') {
     const segment = store.db
       .prepare(
-        `SELECT id FROM implementation_segments
-          WHERE launch_intent_id = (SELECT id FROM session_launch_intents
+        `SELECT s.id AS id, pr.id AS process_run_id FROM implementation_segments s
+          JOIN process_runs pr
+            ON pr.id = ?
+           AND pr.ticket_id = ?
+           AND pr.provider = ?
+           AND pr.status = 'running'
+          WHERE s.launch_intent_id = (SELECT id FROM session_launch_intents
                                      WHERE ticket_id = ? AND provider = ?
                                        AND provider_session_id = ?
                                        AND status = 'confirmed'
                                    ORDER BY id DESC LIMIT 1)`,
       )
-      .get(ticketId, provider, providerSessionId) as { id: number } | undefined;
+      .get(
+        intent.process_run_id,
+        ticketId,
+        provider,
+        ticketId,
+        provider,
+        providerSessionId,
+      ) as { id: number; process_run_id: number } | undefined;
+    if (segment === undefined) return null;
     return {
       purpose: 'implementation',
       sessionOrigin: intent.session_origin as SessionBinding['sessionOrigin'],
       provider: intent.provider,
-      processRunId: intent.process_run_id,
-      implementationSegmentId: segment?.id ?? null,
+      processRunId: segment.process_run_id,
+      implementationSegmentId: segment.id,
     };
   }
   if (intent.recovery_round_id !== null) {

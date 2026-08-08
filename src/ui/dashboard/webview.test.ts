@@ -1541,6 +1541,8 @@ interface PreviewHarness {
   selectFixture(repos: number, scenario: string): void;
   /** Click the toolbar width button, exactly like a user choosing a preview width. */
   clickWidth(width: string): void;
+  /** Exercise the preview-only generic progress lifecycle control. */
+  clickProgress(kind: 'active' | 'completed' | 'cleared'): void;
   /** Click one evidence disclosure chevron, exactly like a user expanding/collapsing a process. */
   clickChevron(key: string): void;
   htmlOf(id: string): string;
@@ -1680,6 +1682,12 @@ function bootPreviewHarness(): PreviewHarness {
         preventDefault: () => {},
       });
     },
+    clickProgress: (kind) => {
+      fireDocumentClick({
+        target: { closest: (sel: string) => (sel === '[data-pv-progress]' ? { dataset: { pvProgress: kind } } : null) },
+        preventDefault: () => {},
+      });
+    },
     clickChevron: (key) => {
       fireDocumentClick({
         target: {
@@ -1814,5 +1822,22 @@ describe('inside preview fixture round trip (executed in a VM)', () => {
     for (const [scenario, seen] of counts) {
       expect(seen.size, `scenario ${scenario} renders a roster that varies with repo count`).toBe(1);
     }
+  });
+
+  it('lets the development preview exercise active, completed, and cleared generic inside-progress events', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+    const fixture = fixtures[0]!;
+    h.selectFixture(fixture.repositoryCount, fixture.scenario);
+
+    h.clickProgress('active');
+    expect(h.htmlOf('inside')).toContain('Preview live operation');
+
+    h.clickProgress('completed');
+    expect(h.htmlOf('inside')).toContain('Preview live operation');
+    expect(h.htmlOf('inside')).toContain('proc pass');
+
+    h.clickProgress('cleared');
+    expect(h.htmlOf('inside')).not.toContain('Preview live operation');
   });
 });

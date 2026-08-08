@@ -786,7 +786,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (assignment === null) return null;
     return {
       assignment,
-      adapter: currentAgentAdapter(ticketId),
+      // The process assignment is the execution identity. In particular, a
+      // configured UAT/Review/Fix role may deliberately differ from the
+      // ticket's interactive provider, so resolving through the ticket here
+      // would run and account the wrong core under a correct-looking snapshot.
+      adapter: instrument(resolveAdapter(assignment.provider), assignment.provider),
     };
   };
 
@@ -2088,6 +2092,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       return;
     }
+    // A configured Fix assignment can differ from the ticket's interactive
+    // provider. Prove *that* provider is ready before retiring a live session;
+    // otherwise a missing configured CLI would discard the usable session and
+    // then fail the relaunch. The explicit providerReady flag below is valid
+    // only because this exact check succeeded on this invocation.
+    if (!guardProviderCapability('sessions', process.assignment.provider)) return;
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
@@ -2137,10 +2147,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       open: () => {
         void vscode.commands.executeCommand('karst.openSession', ticketId, {
           reveal: false,
+          providerReady: true,
           // The differing-identity retirement follows the normal switch
           // lifecycle: no resume of the retired conversation, provider
-          // readiness already proven (the fix role's provider was resolvable).
-          ...(differs ? { allowResume: false, providerReady: true } : {}),
+          // readiness was proven above for the configured Fix provider.
+          ...(differs ? { allowResume: false } : {}),
           // Host-only: the configured Fix identity overrides ticket/manifest
           // precedence inside `karst.openSession`.
           assignment: process.assignment,
@@ -3055,7 +3066,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // registration below reads the mode, so a Production or Test activation
   // sets it to false and the palette can never offer an entry for a command
   // this window did not register (pinned by extensionActivation.test.ts).
-  void vscode.commands.executeCommand(
+  await vscode.commands.executeCommand(
     'setContext',
     'karst.insidePreviewAvailable',
     context.extensionMode === vscode.ExtensionMode.Development,

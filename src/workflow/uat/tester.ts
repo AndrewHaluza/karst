@@ -225,6 +225,13 @@ export async function runUatTester(
     close('passed', 'observed');
     return { kind: 'observed', findingIds };
   } catch (error) {
+    // Abort can surface as a rejected adapter promise instead of a fulfilled
+    // result. Stop is terminal in either shape: it must not turn into an
+    // execution failure merely because the adapter observed the signal first.
+    if (opts.signal?.aborted) {
+      close('interrupted', 'interrupted');
+      return { kind: 'interrupted' };
+    }
     // See the doc comment: a crash is reported, never thrown — the ordinary
     // UAT gates must decide the run whatever the Tester did.
     const message = error instanceof Error ? error.message : String(error);

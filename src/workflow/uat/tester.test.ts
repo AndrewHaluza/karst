@@ -150,6 +150,25 @@ describe('runUatTester', () => {
     expect(calls).toEqual([]);
   });
 
+  it('treats an adapter rejection caused by Stop as interrupted, never execution-failed', async () => {
+    const controller = new AbortController();
+    const { adapter } = fakeAdapter(
+      ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new Error('aborted by Stop')));
+          controller.abort();
+        }),
+    );
+
+    const res = await runUatTester(store, opts({ adapter, signal: controller.signal }), { now });
+
+    expect(res).toEqual({ kind: 'interrupted' });
+    expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+      resultKind: 'interrupted',
+      status: 'interrupted',
+    });
+  });
+
   it('attributes every observation to the TARGET repo, never one the model claimed', async () => {
     const { adapter } = rawAdapter(
       JSON.stringify([{ severity: 'medium', title: 'x', detail: '', file: '../outside.ts' }]),
