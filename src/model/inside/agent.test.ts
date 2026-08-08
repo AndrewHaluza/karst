@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest';
+import type {
+  ImplementationRun,
+  ImplementationSegment,
+  ImplementationTimeline,
+} from '../../store/implementationRuns.js';
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
-import { implInside, fixInside, reportedPhases } from './agent.js';
-import { formatTime } from './types.js';
+import { implInside, fixInside, implementationSessionProcess, reportedPhases } from './agent.js';
+import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 const SESSION = { sessionId: '0f3a91', agentState: 'running', model: 'claude-opus-4-8' };
@@ -386,5 +391,301 @@ describe('fixInside', () => {
     expect(ops.map((o) => o.name)).toEqual(['agent', 'returns']);
     expect(ops.find((o) => o.name === 'agent')!.status).toBe('note');
     expect(ops.find((o) => o.name === 'returns')!.detail).toContain('3 attempts left');
+  });
+});
+
+describe('implementationSessionProcess', () => {
+  const runAt = (t: string) => `2026-07-20T${t}:00.000Z`;
+
+  function segment(over: Partial<ImplementationSegment> = {}): ImplementationSegment {
+    return {
+      id: 1,
+      implementationRunId: 1,
+      provider: 'claude',
+      model: 'claude-opus-4-8',
+      providerSessionId: 'sess-1',
+      reason: null,
+      status: 'running',
+      launchIntentId: 1,
+      startedAt: runAt('12:00'),
+      endedAt: null,
+      ...over,
+    };
+  }
+
+  function run(over: Partial<ImplementationRun> = {}): ImplementationRun {
+    return {
+      id: 1,
+      ticketId: 1,
+      processRunId: 1,
+      attempt: 0,
+      status: 'running',
+      startedAt: runAt('12:00'),
+      endedAt: null,
+      ...over,
+    };
+  }
+
+  function tl(
+    segments: readonly ImplementationSegment[],
+    over: Partial<ImplementationRun> = {},
+  ): ImplementationTimeline {
+    return { run: run(over), segments: [...segments] };
+  }
+
+  function rows(process: InsideProcessView): readonly EvidenceRow[] {
+    const evidence = process.evidence;
+    if (evidence === undefined || evidence.kind !== 'timeline') {
+      throw new Error('expected timeline evidence');
+    }
+    return evidence.rows;
+  }
+
+  it('renders one session process with a timeline headed by the run start', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.id).toBe('session');
+    expect(process.status).toBe('run');
+    expect(process.evidence).toMatchObject({ kind: 'timeline' });
+    const first = rows(process)[0]!;
+    expect(first).toMatchObject({ label: 'started', status: 'note' });
+    expect(first.detail).toBe(formatTime(runAt('12:00')));
+    expect(first.duration).not.toBe('');
+  });
+
+  it('reports a provider switch as its own row naming the provider and model', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1 }),
+        segment({
+          id: 2,
+          reason: 'switch',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+          providerSessionId: 'sess-2',
+          startedAt: runAt('13:00'),
+        }),
+      ]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const switched = rows(process).find((r) => r.label === 'switch');
+    expect(switched).toBeDefined();
+    // A switch is not progress: it carries no status node beyond the shared note.
+    expect(switched!.status).toBe('note');
+    expect(switched!.detail).toBe('Codex · GPT-5.6 Sol');
+  });
+
+  it('keeps repeated phase events chronological, interleaved with switches', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1 }),
+        segment({
+          id: 2,
+          reason: 'switch',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+          providerSessionId: 'sess-2',
+          startedAt: runAt('12:30'),
+        }),
+      ]),
+      [
+        mark('research', runAt('12:10'), { implementationRunId: 1 }),
+        mark('plan', runAt('12:20'), { implementationRunId: 1 }),
+        mark('research', runAt('12:40'), { implementationRunId: 1 }),
+      ],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    // A timeline is a log: repeats stay, in the order they happened — unlike
+    // `reportedPhases`, which collapses a repeated phase to its first mark.
+    expect(timeline.map((r) => r.label)).toEqual([
+      'started',
+      'research',
+      'plan',
+      'switch',
+      'research',
+    ]);
+    expect(timeline[1]!.detail).toBe(formatTime(runAt('12:10')));
+    expect(timeline[2]!.detail).toBe(formatTime(runAt('12:20')));
+    expect(timeline[4]!.detail).toBe(formatTime(runAt('12:40')));
+  });
+
+  it('shows the recorded segment as the execution once the run has started', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1, provider: 'claude', model: 'claude-opus-4-8' })]),
+      [],
+      // Configured identity is present, but the record wins after start.
+      { provider: 'codex', model: 'gpt-5.6-sol' },
+      undefined,
+      NOW,
+    );
+    expect(process.execution).toEqual({
+      provider: 'claude',
+      providerLabel: 'Claude Code',
+      model: 'claude-opus-4-8',
+      modelLabel: 'Opus 4.8',
+    });
+    expect(process.configuredExecution).toBeUndefined();
+  });
+
+  it('shows the configured identity only before anything ran', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'pending'),
+      null,
+      [],
+      { provider: 'claude', model: 'claude-opus-4-8' },
+      undefined,
+      NOW,
+    );
+    expect(process.status).toBe('pending');
+    expect(process.execution).toBeUndefined();
+    expect(process.configuredExecution).toEqual({
+      provider: 'claude',
+      providerLabel: 'Claude Code',
+      model: 'claude-opus-4-8',
+      modelLabel: 'Opus 4.8',
+    });
+  });
+
+  it('reads a resumed segment as a resumed row naming the provider and model', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1 }),
+        segment({
+          id: 2,
+          reason: 'resume',
+          provider: 'claude',
+          model: 'claude-opus-4-8',
+          providerSessionId: 'sess-2',
+          startedAt: runAt('14:00'),
+        }),
+      ]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    expect(timeline.map((r) => r.label)).toEqual(['started', 'resumed']);
+    expect(timeline[1]!.detail).toBe('Claude Code · Opus 4.8');
+  });
+
+  it('omits tokens when nothing was measured — never a zero', () => {
+    const none = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(none.tokens).toBeUndefined();
+    const nullSummary = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [],
+      undefined,
+      null,
+      NOW,
+    );
+    expect(nullSummary.tokens).toBeUndefined();
+  });
+
+  it('formats measured tokens as a TokenUsageView', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [],
+      undefined,
+      { total: 12_435 },
+      NOW,
+    );
+    expect(process.tokens).toEqual({ total: '12.4k', exact: '12,435', estimated: false });
+  });
+
+  it('marks the token view estimated when any call fell back to an estimate', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [],
+      undefined,
+      { total: 12_435, estimatedCalls: 1 },
+      NOW,
+    );
+    expect(process.tokens!.estimated).toBe(true);
+  });
+
+  it('keeps legacy impl marks that predate run attribution', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [mark('research', runAt('12:10'))],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(rows(process).map((r) => r.label)).toEqual(['started', 'research']);
+  });
+
+  it('ignores marks from other stages, other runs, and segments that never started', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1 }),
+        segment({
+          id: 2,
+          reason: 'switch',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+          providerSessionId: null,
+          startedAt: null,
+        }),
+      ]),
+      [
+        mark('research', runAt('12:10'), { stageKey: 'uat', implementationRunId: 1 }),
+        mark('plan', runAt('12:20'), { implementationRunId: 99 }),
+      ],
+      undefined,
+      undefined,
+      NOW,
+    );
+    // A prepared launch that never confirmed is not an event; the uat mark is
+    // not impl evidence; the run-99 mark belongs to another implementation.
+    expect(rows(process).map((r) => r.label)).toEqual(['started']);
+  });
+
+  it('bounds the timeline and names the remainder', () => {
+    const marks = Array.from({ length: 25 }, (_, i) =>
+      mark(`phase-${i}`, runAt(`12:${String(i).padStart(2, '0')}`), { implementationRunId: 1 }),
+    );
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      marks,
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    // 25 phase events + the start row, capped at the timeline limit: 20 shown
+    // plus the one remainder row naming the 6 withheld.
+    expect(timeline.length).toBe(21);
+    expect(timeline.at(-1)).toMatchObject({ label: 'more', status: 'note' });
+    expect(timeline.at(-1)!.detail).toContain('6');
   });
 });

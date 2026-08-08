@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../types.js';
-import { buildStepper, type StepperStageRow } from '../stepper.js';
-import { buildStageInside, type StageInsideInput } from './index.js';
+import { buildStepper, type StepperCell, type StepperStageRow } from '../stepper.js';
+import { buildStageInside, scopeProcesses, type StageInsideInput } from './index.js';
+import type { EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -390,5 +391,101 @@ describe('buildStageInside', () => {
     expect(all.review.ops.map((o) => o.name)).toEqual(['gates', 'changes']);
     expect(all.impl.ops.map((o) => o.name)).toContain('phases');
     expect(all.fix.ops.map((o) => o.name)).toContain('returns');
+  });
+});
+
+describe('scopeProcesses', () => {
+  function scopeCell(status: StageStatus, extra: Partial<StepperCell> = {}): StepperCell {
+    return { stageKey: 'scope', status, ...extra };
+  }
+
+  const ran = scopeCell('passed', { startedAt: NOW, endedAt: NOW });
+
+  it('emits exactly two process rows — hot-set then worktrees — whatever the repo count', () => {
+    const many = scopeProcesses(
+      ran,
+      ['api', 'web', 'db'],
+      [
+        worktree('api', 'karst/t-1'),
+        worktree('web', 'karst/t-1'),
+        worktree('db', 'karst/t-1'),
+      ],
+      NOW,
+    );
+    expect(many.map((p) => p.id)).toEqual(['hot-set', 'worktrees']);
+
+    const one = scopeProcesses(ran, ['api'], [worktree('api', 'karst/t-1')], NOW);
+    expect(one.map((p) => p.id)).toEqual(['hot-set', 'worktrees']);
+  });
+
+  it('carries the whole hot set as one count on one row, not a row per repo', () => {
+    const processes = scopeProcesses(
+      ran,
+      ['api', 'web', 'db'],
+      [
+        worktree('api', 'karst/t-1'),
+        worktree('web', 'karst/t-1'),
+        worktree('db', 'karst/t-1'),
+      ],
+      NOW,
+    );
+    const hotSet = processes[0]!;
+    expect(hotSet.id).toBe('hot-set');
+    expect(hotSet.status).toBe('pass');
+    expect(hotSet.count).toBe('3');
+    expect(hotSet.detail).toContain('3');
+    expect(hotSet.detail).toContain('validated');
+  });
+
+  it('reports each created worktree as a detail row on the single worktrees process', () => {
+    const processes = scopeProcesses(
+      ran,
+      ['api', 'web'],
+      [worktree('api', 'karst/t-1'), worktree('web', 'karst/t-2')],
+      NOW,
+    );
+    const worktrees = processes[1]!;
+    expect(worktrees.id).toBe('worktrees');
+    expect(worktrees.evidence).toMatchObject({ kind: 'rows' });
+    const evidence = worktrees.evidence as { kind: 'rows'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows.map((r) => r.label)).toEqual(['worktree', 'worktree']);
+    expect(evidence.rows[0]!.status).toBe('pass');
+    expect(evidence.rows[0]!.detail).toBe('api · karst/t-1');
+    expect(evidence.rows[1]!.detail).toBe('web · karst/t-2');
+  });
+
+  it('bounds the worktree detail and names the remainder', () => {
+    const repos = Array.from({ length: 12 }, (_, i) => `repo-${i}`);
+    const processes = scopeProcesses(
+      ran,
+      repos,
+      repos.map((r) => worktree(r, 'karst/t-1')),
+      NOW,
+    );
+    const evidence = processes[1]!.evidence as { kind: 'rows'; rows: readonly EvidenceRow[] };
+    // 8 detail rows, then one row naming the 4 withheld.
+    expect(evidence.rows.length).toBe(9);
+    expect(evidence.rows.at(-1)!.label).toBe('more');
+    expect(evidence.rows.at(-1)!.status).toBe('note');
+    expect(evidence.rows.at(-1)!.detail).toContain('4');
+  });
+
+  it('reads pending before scope runs, naming the configured hot set', () => {
+    const processes = scopeProcesses(scopeCell('pending'), ['api', 'web'], [], NOW);
+    const hotSet = processes[0]!;
+    const worktrees = processes[1]!;
+    expect(hotSet.status).toBe('pending');
+    expect(hotSet.count).toBe('2');
+    expect(hotSet.detail).toContain('to validate');
+    expect(worktrees.status).toBe('pending');
+    const evidence = worktrees.evidence as { kind: 'rows'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows).toEqual([]);
+  });
+
+  it('notes honestly when scope ran but created no worktrees', () => {
+    const processes = scopeProcesses(ran, [], [], NOW);
+    const worktrees = processes[1]!;
+    expect(worktrees.status).toBe('note');
+    expect(worktrees.detail).toContain('no worktrees');
   });
 });
