@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../types.js';
 import { buildStepper, type StepperCell, type StepperStageRow } from '../stepper.js';
-import { buildStageInside, scopeProcesses, type StageInsideInput } from './index.js';
+import { buildStageInside, scopeProcesses, uatProcesses, reviewProcesses, type StageInsideInput } from './index.js';
 import type { EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -487,5 +487,26 @@ describe('scopeProcesses', () => {
     const worktrees = processes[1]!;
     expect(worktrees.status).toBe('note');
     expect(worktrees.detail).toContain('no worktrees');
+  });
+});
+
+describe('quality process reducers (re-exported)', () => {
+  const input = {
+    cell: { stageKey: 'uat' as const, status: 'passed' as const },
+    gateRuns: [],
+    findings: [],
+    uatFindings: [],
+    processRuns: [],
+    rounds: [],
+    services: ['web'],
+    now: NOW,
+  };
+
+  it('uatProcesses emits the registry order', () => {
+    expect(uatProcesses(input).map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
+  });
+
+  it('reviewProcesses emits the registry order', () => {
+    expect(reviewProcesses({ ...input, cell: { stageKey: 'review' as const, status: 'passed' as const } }).map((p) => p.id)).toEqual(['gates', 'services', 'review']);
   });
 });

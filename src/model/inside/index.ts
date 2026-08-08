@@ -17,7 +17,8 @@ import {
   type StageOp,
 } from './types.js';
 import { bounded } from './bounds.js';
-import { reviewInside, uatInside } from './gates.js';
+import { reviewInside, uatInside, reviewProcesses, uatProcesses } from './gates.js';
+import { insertCausalFix, recoveryProcess } from './recovery.js';
 import {
   implInside,
   fixInside,
@@ -31,6 +32,10 @@ export type { StageInside, StageOp, OpStatus, InsideDot } from './types.js';
 export { bounded } from './bounds.js';
 export type { SessionConfiguredInput, SessionTokensInput } from './agent.js';
 export { implementationSessionProcess } from './agent.js';
+export { uatProcesses, reviewProcesses } from './gates.js';
+export type { QualityProcessesInput } from './gates.js';
+export { insertCausalFix, recoveryProcess } from './recovery.js';
+export type { RecoveryProcessView } from './recovery.js';
 
 /**
  * Everything needed to say what happened inside each stage — all of it already

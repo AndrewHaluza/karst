@@ -239,20 +239,20 @@ export interface SessionConfiguredInput {
 }
 
 /** The provider label — the shared brand identity, with the webview's fallback. */
-function labelForProvider(provider: string): string {
+export function labelForProvider(provider: string): string {
   const labels = AGENT_PROVIDER_LABELS as Readonly<Record<string, string | undefined>>;
   return labels[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
 /** The model label — the bundled catalog's, else the raw id, else the default reading. */
-function labelForModel(provider: string, model: string | null): string {
+export function labelForModel(provider: string, model: string | null): string {
   if (!model) return 'Agent default';
   const catalog = bundledModelCatalog()[provider as AgentProvider];
   return catalog?.find((option) => option.id === model)?.label ?? model;
 }
 
 /** One recorded provider session as the display model. */
-function executionView(provider: string, model: string | null): AgentExecutionView {
+export function executionView(provider: string, model: string | null): AgentExecutionView {
   return {
     provider,
     providerLabel: labelForProvider(provider),
@@ -337,7 +337,8 @@ function timelineEvents(
   return events;
 }
 
-function tokenView(tokens: SessionTokensInput): TokenUsageView {
+/** Measured token totals as the shared display view — reused by every AI process. */
+export function tokenView(tokens: SessionTokensInput): TokenUsageView {
   return {
     total: formatTokens(tokens.total),
     exact: formatExactTokens(tokens.total),
