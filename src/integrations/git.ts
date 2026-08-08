@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 import { canonicalPath, isPathUnder } from '../runtime/pathScope.js';
+import { collapseDiagnostic } from '../model/diagnosticText.js';
 
 /**
  * Git integration for the stages that talk to a remote. The runner is injected so
@@ -585,6 +586,21 @@ export async function workingTreeSummary(
   return { fingerprint };
 }
 
+/**
+ * One human sentence for a failed git invocation — the same bounded shape
+ * `describeHeadlessFailure` gives a failed agent-CLI run. Git stderr is
+ * unbounded CLI prose, so it is collapsed to one line and capped before it
+ * reaches a stage verdict, a log line, or a rendered surface.
+ */
+export function describeGitFailure(
+  what: string,
+  result: Pick<GitResult, 'exitCode' | 'stderr' | 'stdout'>,
+): string {
+  const raw = result.stderr.trim() || result.stdout.trim();
+  const detail = raw === '' ? 'no output' : collapseDiagnostic(raw);
+  return `${what} failed (exit ${result.exitCode}): ${detail}`;
+}
+
 /** Commits reachable from HEAD but not from `sinceSha`, oldest first. Null = all. */
 export async function listCommitsFrom(
   git: GitRunner,
@@ -594,8 +610,13 @@ export async function listCommitsFrom(
   const args = sinceSha
     ? ['rev-list', '--reverse', `${sinceSha}..HEAD`]
     : ['rev-list', '--reverse', 'HEAD'];
-  const out = await run(git, args, cwd, 'rev-list');
-  return out
+  const out = await git(args, cwd);
+  if (out.exitCode !== 0) {
+    throw new Error(
+      describeGitFailure(`git rev-list ${sinceSha ? `${sinceSha}..HEAD` : 'HEAD'}`, out),
+    );
+  }
+  return out.stdout
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '');

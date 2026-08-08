@@ -22,6 +22,7 @@ import {
 import { updatePrDetail } from '../../store/prs.js';
 import {
   commitAllIfDirty,
+  describeGitFailure,
   hasChangesFrom,
   pushBranch,
   defaultGitRunner,
@@ -856,23 +857,48 @@ export async function shipTicket(
           )
         : title;
 
-      // Provenance: whatever the branch carried BEFORE this ship ran. Commits
-      // the saga itself creates are recorded as `created-by-ship` below.
-      for (const sha of await listCommitsFrom(git, wt.path, null)) {
-        recordShipCommit(store, {
-          shipRunId: run.id,
+      // The base branch this repo ships against — resolved ONCE so provenance
+      // and the diff check can never disagree about which ref they mean.
+      const base = opts.manifest
+        ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
+        : wt.baseRef ?? undefined;
+
+      // Provenance: whatever the branch carried BEFORE this ship ran. Bounded
+      // at the persisted baseline — `rev-list <base>..HEAD` — so the repository
+      // root and unrelated base-branch ancestry are never stored as this
+      // ticket's "before ship" commits. A worktree with no recorded baseline
+      // records nothing and says so; it never silently substitutes all
+      // reachable history, and an unresolvable baseline parks ship (the
+      // `rev-list` failure is bounded before it reaches the stage verdict).
+      if (base === undefined) {
+        onProgress({
           repo: wt.repo,
-          sha,
-          message: '',
-          origin: 'before-ship',
+          step: 'commit',
+          status: 'note',
+          detail: 'no baseline recorded — before-ship provenance unknown',
         });
+      } else {
+        for (const sha of await listCommitsFrom(git, wt.path, base)) {
+          recordShipCommit(store, {
+            shipRunId: run.id,
+            repo: wt.repo,
+            sha,
+            message: '',
+            origin: 'before-ship',
+          });
+        }
       }
 
       // Commit — through the quarantine, so a crash between preparation and
       // landing stays owned and reconcilable. A clean worktree is a fact, not
-      // work: the step reads `note`, never `pass`.
+      // work: the step reads `note`, never `pass`. A status that FAILED is
+      // never a clean worktree — the agent's work may simply be unreadable, and
+      // pushing an empty branch would open a PR that never carried it.
       const dirtyCheck = await git(['status', '--porcelain'], wt.path);
-      if (dirtyCheck.exitCode !== 0 || dirtyCheck.stdout.trim() === '') {
+      if (dirtyCheck.exitCode !== 0) {
+        throw new Error(describeGitFailure('git status --porcelain', dirtyCheck));
+      }
+      if (dirtyCheck.stdout.trim() === '') {
         onProgress({
           repo: wt.repo,
           step: 'commit',
@@ -969,9 +995,6 @@ export async function shipTicket(
         onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
       }
 
-      const base = opts.manifest
-        ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
-        : wt.baseRef ?? undefined;
       if (base && !(await hasChangesFrom(git, wt.path, base))) {
         onProgress({
           repo: wt.repo,

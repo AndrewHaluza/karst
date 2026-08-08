@@ -6,6 +6,7 @@ import {
   cleanupQuarantine,
   commitAllIfDirty,
   compareAndSwapHeadAndIndex,
+  describeGitFailure,
   headCommit,
   listCommitsFrom,
   prepareCommitInQuarantine,
@@ -18,6 +19,7 @@ import {
   runGitBytes,
   type GitRunner,
 } from './git.js';
+import { MAX_DIAGNOSTIC_CHARS } from '../model/diagnosticText.js';
 
 /**
  * A git alias that spawns a node grandchild and records its pid to a file.
@@ -140,6 +142,37 @@ describe('commitAllIfDirty', () => {
       add: { stderr: 'fatal: pathspec did not match', exitCode: 128 },
     });
     await expect(commitAllIfDirty(git, '/wt/fe', 'm')).rejects.toThrow(/git add failed in \/wt\/fe/);
+  });
+});
+
+describe('describeGitFailure', () => {
+  it('names the command, the exit code, and the collapsed stderr', () => {
+    const msg = describeGitFailure('git status --porcelain', {
+      exitCode: 128,
+      stderr: 'fatal: not a git repository',
+      stdout: '',
+    });
+    expect(msg).toBe('git status --porcelain failed (exit 128): fatal: not a git repository');
+  });
+
+  it('collapses multi-line prose to one line and caps unbounded stderr', () => {
+    const blob = `fatal: line one\nfatal: line two\n${'x'.repeat(10_000)}`;
+    const msg = describeGitFailure('git status --porcelain', {
+      exitCode: 1,
+      stderr: blob,
+      stdout: '',
+    });
+    expect(msg).not.toContain('\n');
+    expect(msg.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS + 64);
+  });
+
+  it('falls back to stdout, and to a plain statement when git said nothing', () => {
+    expect(
+      describeGitFailure('git status --porcelain', { exitCode: 128, stderr: '', stdout: 'boom' }),
+    ).toContain('boom');
+    expect(
+      describeGitFailure('git status --porcelain', { exitCode: 128, stderr: '', stdout: '' }),
+    ).toContain('no output');
   });
 });
 
@@ -463,6 +496,22 @@ describe('ship quarantine commit primitives', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
       rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  it('listCommitsFrom throws a bounded diagnostic when the bound does not resolve', async () => {
+    const dir = await freshRepo('revlist-bound');
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'one');
+      let message = '';
+      await listCommitsFrom(defaultGitRunner, dir, 'no-such-ref').catch((err: Error) => {
+        message = err.message;
+      });
+      expect(message).toMatch(/git rev-list no-such-ref\.\.HEAD failed \(exit 128\)/);
+      // Bounded: the raw multi-line fatal prose is collapsed to one line.
+      expect(message.split('\n')).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

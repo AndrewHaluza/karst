@@ -91,7 +91,9 @@ function fakeGit(): { git: GitRunner; calls: { args: string[]; cwd: string }[] }
 }
 
 /** A real git repo at `path` with one base commit — the quarantine commit
- *  machinery runs real git, so a worktree exercising it must BE a repo. */
+ *  machinery runs real git, so a worktree exercising it must BE a repo. The
+ *  `develop` branch at the base commit is what `seedWorktree`'s persisted
+ *  `base_ref` names, so bounded ship provenance can resolve it. */
 async function initRealRepo(path: string): Promise<void> {
   mkdirSync(path, { recursive: true });
   await runGit(['init', '-b', 'main'], path);
@@ -102,6 +104,7 @@ async function initRealRepo(path: string): Promise<void> {
   await runGit(['add', '-A'], path);
   const commit = await runGit(['commit', '-m', 'base'], path);
   expect(commit.exitCode).toBe(0);
+  await runGit(['branch', 'develop'], path);
 }
 
 /**
@@ -312,6 +315,38 @@ setTimeout(() => {
     expect(calls.some((args) => args[0] === 'push')).toBe(true);
   });
 
+  // The branch's pre-ship commits are bounded at the persisted worktree
+  // baseline: `rev-list <base>..HEAD`, never the whole reachable ancestry. The
+  // repository root and unrelated base-branch work would otherwise be stored
+  // and mislabeled as "before ship" for every ticket on the repo.
+  it('records only commits after the worktree baseline as before-ship provenance', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    await initRealRepo(worktree);
+    // An unrelated ancestor on the base branch, then the ticket's own commits.
+    await runGit(['checkout', 'develop'], worktree);
+    writeFileSync(join(worktree, 'unrelated.txt'), 'unrelated');
+    await runGit(['add', '-A'], worktree);
+    await runGit(['commit', '-m', 'unrelated'], worktree);
+    await runGit(['checkout', '-b', 'karst/x'], worktree);
+    writeFileSync(join(worktree, 't1.txt'), '1');
+    await runGit(['add', '-A'], worktree);
+    await runGit(['commit', '-m', 'ticket-1'], worktree);
+    const t1 = (await runGit(['rev-parse', 'HEAD'], worktree)).stdout.trim();
+    writeFileSync(join(worktree, 't2.txt'), '2');
+    await runGit(['add', '-A'], worktree);
+    await runGit(['commit', '-m', 'ticket-2'], worktree);
+    const t2 = (await runGit(['rev-parse', 'HEAD'], worktree)).stdout.trim();
+
+    await shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), dirtyRealRepo([]));
+
+    const commits = listShipEvidence(store, id).repos['/repo/frontend']?.commits ?? [];
+    const beforeShip = commits.filter((c) => c.origin === 'before-ship').map((c) => c.sha);
+    expect(beforeShip).toEqual([t1, t2]);
+    // The worktree was clean: the saga created nothing of its own.
+    expect(commits.filter((c) => c.origin === 'created-by-ship')).toHaveLength(0);
+  });
+
   describe('when the branch has no effective changes from its target', () => {
     it('succeeds without pushing or invoking PR creation and reports the no-op', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
@@ -408,6 +443,50 @@ setTimeout(() => {
     const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
     expect(ship?.status).toBe('failed');
     expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  // A git status that FAILED must never read as "nothing to commit": the work
+  // the agent left may simply be unreadable, and pushing an empty branch would
+  // open a PR that never carried the work. Nonzero parks ship with a bounded
+  // diagnostic — never raw unbounded git stderr — and no false clean note.
+  it('a nonzero git status exit is a failure, never a clean worktree', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    const calls: string[][] = [];
+    const events: ShipStepEvent[] = [];
+    let ghCalls = 0;
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'status') {
+        return {
+          stdout: '',
+          stderr: 'fatal: not a git repository\nfatal: more prose',
+          exitCode: 128,
+        };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const gh: GhRunner = async (args, cwd) => {
+      ghCalls++;
+      return fakeGh().gh(args, cwd);
+    };
+
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git, (e) => events.push(e)),
+    ).rejects.toThrow(/git status --porcelain failed \(exit 128\)/);
+
+    // The verdict that parks the ticket is one collapsed line — the raw
+    // multi-line stderr never reaches the stage row or any rendered surface.
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('failed');
+    expect(ship?.verdict).toContain('git status --porcelain failed (exit 128)');
+    expect(ship?.verdict).not.toContain('\n');
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+    // No false "nothing to commit" note, no push, no PR, no provenance rows.
+    expect(events.some((e) => e.detail === 'worktree clean — nothing to commit')).toBe(false);
+    expect(calls.some((args) => args[0] === 'push')).toBe(false);
+    expect(ghCalls).toBe(0);
+    expect(listShipEvidence(store, id).repos['/repo/frontend']?.commits ?? []).toHaveLength(0);
   });
 
   it('pushes each repo’s own worktree, and sets upstream so the PR has a head', async () => {
