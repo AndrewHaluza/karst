@@ -262,20 +262,18 @@ describe('extension activation', () => {
   // is the one writer of the palette condition, so a Production/Test activation
   // still sets it (to false) and the entry cannot leak into a window that
   // never registered the command.
-  it('awaits preview context setup, logs a rejection, and still reaches guarded registration', () => {
+  it('wires preview context setup through the tested continuation boundary before guarded registration', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
     const previewStart = source.indexOf('// Development-only Inside preview');
-    const contextTry = source.indexOf('try {', previewStart);
-    const contextAwait = source.indexOf("await vscode.commands.executeCommand(", contextTry);
-    const contextKey = source.indexOf("'karst.insidePreviewAvailable'", contextAwait);
-    const contextCatch = source.indexOf('} catch (error) {', contextKey);
-    const contextLog = source.indexOf("logError('inside preview context setup failed', error)", contextCatch);
-    expect(contextTry).toBeGreaterThan(previewStart);
-    expect(contextAwait).toBeGreaterThan(contextTry);
-    expect(contextKey).toBeGreaterThan(contextAwait);
-    expect(contextCatch).toBeGreaterThan(contextKey);
-    expect(contextLog).toBeGreaterThan(contextCatch);
+    const setupAt = source.indexOf('await setPreviewContextThenContinue({', previewStart);
+    const contextKey = source.indexOf("'karst.insidePreviewAvailable'", setupAt);
+    const continuationAt = source.indexOf('continueActivation: () => {', contextKey);
+    const commandAt = source.indexOf('karst.dev.openInsidePreview', continuationAt);
+    expect(setupAt).toBeGreaterThan(previewStart);
+    expect(contextKey).toBeGreaterThan(setupAt);
+    expect(continuationAt).toBeGreaterThan(contextKey);
+    expect(commandAt).toBeGreaterThan(continuationAt);
     // The optional palette-context write cannot abort activation: the command
     // registration remains after its catch, so a Development host still gets
     // its preview command even if VS Code rejects setContext.
