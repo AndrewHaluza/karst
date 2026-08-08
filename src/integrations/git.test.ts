@@ -1,12 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  cleanupQuarantine,
   commitAllIfDirty,
+  compareAndSwapHeadAndIndex,
+  headCommit,
+  listCommitsFrom,
+  prepareCommitInQuarantine,
+  promoteQuarantinedObjects,
   pushBranch,
-  defaultGitRunner,
+  remoteRefSha,
   runGit,
+  workingTreeSummary,
+  defaultGitRunner,
   runGitBytes,
   type GitRunner,
 } from './git.js';
@@ -291,3 +299,228 @@ describe('defaultGitRunner', () => {
     },
   );
 });
+
+/**
+ * Ship quarantine machinery. These build REAL repos in temp dirs: the claim is
+ * about what git actually does to the index/refs/object db, which no scripted
+ * runner can stand in for.
+ */
+const KEY = '11111111-2222-3333-4444-555555555555';
+
+async function freshRepo(tag: string): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), `karst-ship-${tag}-`));
+  const init = await runGit(['init', '-b', 'main'], dir);
+  expect(init.exitCode).toBe(0);
+  await runGit(['config', 'user.name', 'Test'], dir);
+  await runGit(['config', 'user.email', 'test@example.com'], dir);
+  await runGit(['config', 'commit.gpgsign', 'false'], dir);
+  return dir;
+}
+
+async function writeAndCommit(dir: string, file: string, content: string, msg: string): Promise<void> {
+  writeFileSync(join(dir, file), content);
+  const add = await runGit(['add', '-A'], dir);
+  expect(add.exitCode).toBe(0);
+  const commit = await runGit(['commit', '-m', msg], dir);
+  expect(commit.exitCode).toBe(0);
+}
+
+describe('ship quarantine commit primitives', () => {
+  it('prepares in quarantine without touching live HEAD/index, then lands the exact commit', async () => {
+    const dir = await freshRepo('prepare');
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'base');
+      const preHead = (await headCommit(defaultGitRunner, dir))!;
+      const preIndexTree = (await runGit(['write-tree'], dir)).stdout.trim();
+
+      writeFileSync(join(dir, 'a.txt'), 'b');
+      writeFileSync(join(dir, 'b.txt'), 'new');
+      const fingerprint = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
+
+      const prepared = await prepareCommitInQuarantine(defaultGitRunner, dir, KEY, {
+        preHead,
+        message: 'chore: ship the work',
+        author: { name: 'Author', email: 'author@example.com', at: '2026-08-08T10:00:00+02:00' },
+        committer: {
+          name: 'Committer',
+          email: 'committer@example.com',
+          at: '2026-08-08T11:00:00+02:00',
+        },
+      });
+
+      expect(prepared.expectedHead).toMatch(/^[0-9a-f]{40}$/);
+      expect(prepared.intendedTree).toMatch(/^[0-9a-f]{40}$/);
+      expect(await headCommit(defaultGitRunner, dir)).toBe(preHead);
+      expect((await runGit(['write-tree'], dir)).stdout.trim()).toBe(preIndexTree);
+      expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('b');
+
+      await promoteQuarantineTwice(dir);
+      const cas = await compareAndSwapHeadAndIndex(defaultGitRunner, dir, {
+        preHead,
+        expectedHead: prepared.expectedHead,
+        intendedTree: prepared.intendedTree,
+        preIndexTree,
+        expectedFingerprint: fingerprint,
+        quarantineKey: KEY,
+      });
+      expect(cas).toEqual({ ok: true });
+
+      expect(await headCommit(defaultGitRunner, dir)).toBe(prepared.expectedHead);
+      expect((await runGit(['write-tree'], dir)).stdout.trim()).toBe(prepared.intendedTree);
+      expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('b');
+      expect(readFileSync(join(dir, 'b.txt'), 'utf8')).toBe('new');
+
+      const log = await runGit(
+        ['log', '-1', '--format=%an|%ae|%aI|%cn|%ce|%cI'],
+        dir,
+      );
+      expect(log.stdout.trim()).toBe(
+        'Author|author@example.com|2026-08-08T10:00:00+02:00|Committer|committer@example.com|2026-08-08T11:00:00+02:00',
+      );
+
+      const own = await runGit(['log', '-1', '--format=%s'], dir);
+      expect(own.stdout.trim()).toBe('chore: ship the work');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses every divergence without touching HEAD or the index', async () => {
+    const dir = await freshRepo('cas');
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'base');
+      const preHead = (await headCommit(defaultGitRunner, dir))!;
+      const preIndexTree = (await runGit(['write-tree'], dir)).stdout.trim();
+      writeFileSync(join(dir, 'a.txt'), 'b');
+      const fingerprint = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
+      const prepared = await prepareCommitInQuarantine(defaultGitRunner, dir, KEY, {
+        preHead,
+        message: 'm',
+        author: { name: 'A', email: 'a@e', at: '2026-08-08T10:00:00+02:00' },
+        committer: { name: 'A', email: 'a@e', at: '2026-08-08T10:00:00+02:00' },
+      });
+      const input = {
+        preHead,
+        expectedHead: prepared.expectedHead,
+        intendedTree: prepared.intendedTree,
+        preIndexTree,
+        expectedFingerprint: fingerprint,
+        quarantineKey: KEY,
+      };
+      const expectRefusal = async (reason: string, after = preHead) => {
+        const outcome = await compareAndSwapHeadAndIndex(defaultGitRunner, dir, input);
+        expect(outcome).toEqual({ ok: false, reason });
+        expect(await headCommit(defaultGitRunner, dir)).toBe(after);
+      };
+
+      await writeAndCommit(dir, 'c.txt', 'human', 'human commit');
+      const humanHead = (await headCommit(defaultGitRunner, dir))!;
+      await expectRefusal('third-head', humanHead);
+      await runGit(['reset', '--hard', preHead], dir);
+
+      writeFileSync(join(dir, 'a.txt'), 'b');
+      await runGit(['add', '-A'], dir);
+      await expectRefusal('index-diverged');
+      await runGit(['reset', '--hard', preHead], dir);
+
+      writeFileSync(join(dir, 'a.txt'), 'b');
+      writeFileSync(join(dir, 'u.txt'), 'untracked');
+      await expectRefusal('worktree-diverged');
+      rmSync(join(dir, 'u.txt'), { force: true });
+
+      const gitDir = (await runGit(['rev-parse', '--absolute-git-dir'], dir)).stdout.trim();
+      const lock = join(gitDir, 'karst-index-lock');
+      writeFileSync(lock, prepared.intendedTree);
+      await expectRefusal('lock-exists');
+      await expectRefusal('lock-exists');
+      rmSync(lock, { force: true });
+
+      rmSync(join(gitDir, 'karst-quarantine', KEY), { recursive: true, force: true });
+      await expectRefusal('quarantine-missing');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('headCommit, listCommitsFrom and remoteRefSha answer for a real repo', async () => {
+    const dir = await freshRepo('probes');
+    const bare = mkdtempSync(join(tmpdir(), 'karst-ship-remote-'));
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'one');
+      const first = (await headCommit(defaultGitRunner, dir))!;
+      await writeAndCommit(dir, 'a.txt', 'b', 'two');
+      const second = (await headCommit(defaultGitRunner, dir))!;
+
+      expect(await headCommit(defaultGitRunner, dir)).toBe(second);
+      expect(await listCommitsFrom(defaultGitRunner, dir, null)).toEqual([first, second]);
+      expect(await listCommitsFrom(defaultGitRunner, dir, first)).toEqual([second]);
+
+      await runGit(['init', '--bare'], bare);
+      await runGit(['remote', 'add', 'origin', bare], dir);
+      await runGit(['push', '-u', 'origin', 'main'], dir);
+      expect(await remoteRefSha(defaultGitRunner, dir, 'origin', 'main')).toBe(second);
+      expect(await remoteRefSha(defaultGitRunner, dir, 'origin', 'nope')).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  it('workingTreeSummary changes on tracked edits and untracked files, and is stable when clean', async () => {
+    const dir = await freshRepo('fingerprint');
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'base');
+      const clean = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
+      expect((await workingTreeSummary(defaultGitRunner, dir)).fingerprint).toBe(clean);
+
+      writeFileSync(join(dir, 'a.txt'), 'edited');
+      const edited = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
+      expect(edited).not.toBe(clean);
+
+      await runGit(['add', '-A'], dir);
+      expect((await workingTreeSummary(defaultGitRunner, dir)).fingerprint).not.toBe(clean);
+
+      await runGit(['commit', '-m', 'edit'], dir);
+      const committed = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
+      expect(committed).not.toBe(edited);
+
+      writeFileSync(join(dir, 'u.txt'), 'untracked');
+      const untracked = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
+      expect(untracked).not.toBe(committed);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('cleanupQuarantine removes only its own keyed directory and rejects foreign keys', async () => {
+    const dir = await freshRepo('cleanup');
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'base');
+      const preHead = (await headCommit(defaultGitRunner, dir))!;
+      await prepareCommitInQuarantine(defaultGitRunner, dir, KEY, {
+        preHead,
+        message: 'm',
+        author: { name: 'A', email: 'a@e', at: '2026-08-08T10:00:00+02:00' },
+        committer: { name: 'A', email: 'a@e', at: '2026-08-08T10:00:00+02:00' },
+      });
+
+      await cleanupQuarantine(defaultGitRunner, dir, KEY);
+      await expect(cleanupQuarantine(defaultGitRunner, dir, KEY)).resolves.toBeUndefined();
+      await expect(cleanupQuarantine(defaultGitRunner, dir, '../evil')).rejects.toThrow(
+        /invalid quarantine key/,
+      );
+      await expect(cleanupQuarantine(defaultGitRunner, dir, 'a/b')).rejects.toThrow(
+        /invalid quarantine key/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** Promotion is idempotent; run it twice to prove it, keeping the second call's claim honest. */
+async function promoteQuarantineTwice(dir: string): Promise<void> {
+  await promoteQuarantinedObjects(defaultGitRunner, dir, KEY);
+  const again = await promoteQuarantinedObjects(defaultGitRunner, dir, KEY);
+  expect(typeof again).toBe('boolean');
+}

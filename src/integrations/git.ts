@@ -1,6 +1,18 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
+import { canonicalPath, isPathUnder } from '../runtime/pathScope.js';
 
 /**
  * Git integration for the stages that talk to a remote. The runner is injected so
@@ -73,6 +85,7 @@ function runGitProcess(
   maxOutputBytes: number = GIT_MAX_OUTPUT_BYTES,
   terminationGraceMs: number = GIT_TERMINATION_GRACE_MS,
   signal?: AbortSignal,
+  env?: NodeJS.ProcessEnv,
 ): Promise<GitProcessResult> {
   return new Promise((resolve) => {
     const stdout = new BoundedOutput(Math.max(0, maxOutputBytes));
@@ -123,7 +136,7 @@ function runGitProcess(
 
     let child: ReturnType<typeof spawn> | undefined;
     try {
-      child = spawn('git', args, { cwd, detached: true });
+      child = spawn('git', args, { cwd, detached: true, env: { ...process.env, ...env } });
     } catch (err) {
       // A bad `cwd` throws synchronously on some platforms rather than emitting.
       settle(1, `could not run git: ${err instanceof Error ? err.message : String(err)}`);
@@ -155,6 +168,17 @@ function runGitProcess(
   });
 }
 
+function renderGitResult(result: GitProcessResult): GitResult {
+  const renderedStderr = result.stderr.render(result.stderrDiagnostic);
+  return {
+    stdout: result.stdout.render(),
+    stdoutTruncated: result.stdout.truncated,
+    stderr:
+      renderedStderr || (result.exitCode !== 0 ? `git exited ${result.exitCode}` : ''),
+    exitCode: result.exitCode,
+  };
+}
+
 export function runGit(
   args: string[],
   cwd: string,
@@ -170,16 +194,31 @@ export function runGit(
     maxOutputBytes,
     terminationGraceMs,
     signal,
-  ).then((result) => {
-    const renderedStderr = result.stderr.render(result.stderrDiagnostic);
-    return {
-      stdout: result.stdout.render(),
-      stdoutTruncated: result.stdout.truncated,
-      stderr:
-        renderedStderr || (result.exitCode !== 0 ? `git exited ${result.exitCode}` : ''),
-      exitCode: result.exitCode,
-    };
-  });
+  ).then(renderGitResult);
+}
+
+/**
+ * `git <args>` with a modified environment, for commands whose behavior lives
+ * in env: quarantine commit preparation (GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY,
+ * GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_AUTHOR_* / GIT_COMMITTER_*) and the
+ * HEAD/index compare-and-swap. The given env is layered OVER the process env.
+ */
+export function runGitEnv(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number = GIT_TIMEOUT_MS,
+  maxOutputBytes: number = GIT_MAX_OUTPUT_BYTES,
+): Promise<GitResult> {
+  return runGitProcess(
+    args,
+    cwd,
+    timeoutMs,
+    maxOutputBytes,
+    GIT_TERMINATION_GRACE_MS,
+    undefined,
+    env,
+  ).then(renderGitResult);
 }
 
 /** Byte-preserving bounded Git stdout for immutable content reads. */
@@ -293,4 +332,302 @@ export async function hasChangesFrom(
  */
 export async function pushBranch(git: GitRunner, cwd: string): Promise<void> {
   await run(git, ['push', '-u', 'origin', 'HEAD'], cwd, 'push');
+}
+
+/**
+ * Ship provenance primitives.
+ *
+ * The quarantine machinery exists so karst can prove, after a crash, that a
+ * commit it finds on the branch was its own: preparation writes nothing into
+ * the live index, refs, or main object database, and apply only ever installs
+ * the EXACT object id the durable intent row recorded. `quarantineKey` is a
+ * host-generated UUID, never a path — every derived path is checked for
+ * canonical containment, and no cleanup accepts a stored or caller-supplied
+ * path.
+ */
+
+/** The one directory beneath the repo git-dir that karst owns for preparation. */
+export const QUARANTINE_DIR_NAME = 'karst-quarantine';
+/** Lock file proving a compare-and-swap was started and whose index it meant to install. */
+export const INDEX_LOCK_NAME = 'karst-index-lock';
+
+const QUARANTINE_KEY_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+/** Exact Git author/committer identity incl. the offset-bearing timestamp. */
+export interface PersistedCommitIdentity {
+  name: string;
+  email: string;
+  at: string;
+}
+
+export interface QuarantinePrepareInput {
+  preHead: string;
+  message: string;
+  author: PersistedCommitIdentity;
+  committer: PersistedCommitIdentity;
+}
+
+/** The two object ids that authorize `created-by-ship` provenance. */
+export interface PreparedCommit {
+  intendedTree: string;
+  expectedHead: string;
+}
+
+export type CasOutcome =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | 'third-head'
+        | 'index-diverged'
+        | 'worktree-diverged'
+        | 'quarantine-missing'
+        | 'lock-exists'
+        | 'install-failed';
+    };
+
+export interface CasInput {
+  preHead: string;
+  expectedHead: string;
+  intendedTree: string;
+  preIndexTree: string;
+  expectedFingerprint: string;
+  quarantineKey: string;
+}
+
+/**
+ * Resolve and validate the quarantine directory for a key. Throws on a
+ * non-key-shaped value; the returned path is guaranteed canonical and inside
+ * `<git-dir>/karst-quarantine/`.
+ */
+async function quarantinePath(
+  git: GitRunner,
+  cwd: string,
+  quarantineKey: string,
+): Promise<string> {
+  if (!QUARANTINE_KEY_PATTERN.test(quarantineKey)) {
+    throw new Error(`invalid quarantine key ${JSON.stringify(quarantineKey)}`);
+  }
+  const gitDir = (await run(git, ['rev-parse', '--absolute-git-dir'], cwd, 'rev-parse')).trim();
+  const root = join(canonicalPath(gitDir), QUARANTINE_DIR_NAME);
+  const q = join(root, quarantineKey);
+  if (!isPathUnder(q, root)) {
+    throw new Error(`quarantine path escaped its root: ${q}`);
+  }
+  return q;
+}
+
+/**
+ * Build the intended commit entirely inside the quarantine: a temporary index
+ * from `preHead` + the staged worktree content, tree and commit objects written
+ * into a quarantined object directory that alternates the main object db. The
+ * live HEAD, live index, refs and main object db are untouched.
+ */
+export async function prepareCommitInQuarantine(
+  git: GitRunner,
+  cwd: string,
+  quarantineKey: string,
+  input: QuarantinePrepareInput,
+): Promise<PreparedCommit> {
+  const q = await quarantinePath(git, cwd, quarantineKey);
+  const index = join(q, 'index');
+  const objects = join(q, 'objects');
+  mkdirSync(objects, { recursive: true });
+  const gitDir = (await run(git, ['rev-parse', '--absolute-git-dir'], cwd, 'rev-parse')).trim();
+  const env: NodeJS.ProcessEnv = {
+    GIT_INDEX_FILE: index,
+    GIT_OBJECT_DIRECTORY: objects,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDir, 'objects'),
+  };
+
+  const readTree = await runGitEnv(['read-tree', input.preHead], cwd, env);
+  if (readTree.exitCode !== 0) {
+    throw new Error(`git read-tree failed in ${cwd}: ${readTree.stderr.trim()}`);
+  }
+  const add = await runGitEnv(['add', '-A'], cwd, env);
+  if (add.exitCode !== 0) {
+    throw new Error(`git add failed in ${cwd}: ${add.stderr.trim()}`);
+  }
+  const tree = await runGitEnv(['write-tree'], cwd, env);
+  if (tree.exitCode !== 0) {
+    throw new Error(`git write-tree failed in ${cwd}: ${tree.stderr.trim()}`);
+  }
+  const intendedTree = tree.stdout.trim();
+
+  const commitEnv: NodeJS.ProcessEnv = {
+    ...env,
+    GIT_AUTHOR_NAME: input.author.name,
+    GIT_AUTHOR_EMAIL: input.author.email,
+    GIT_AUTHOR_DATE: input.author.at,
+    GIT_COMMITTER_NAME: input.committer.name,
+    GIT_COMMITTER_EMAIL: input.committer.email,
+    GIT_COMMITTER_DATE: input.committer.at,
+  };
+  const commit = await runGitEnv(
+    ['commit-tree', intendedTree, '-p', input.preHead, '-m', input.message],
+    cwd,
+    commitEnv,
+  );
+  if (commit.exitCode !== 0) {
+    throw new Error(`git commit-tree failed in ${cwd}: ${commit.stderr.trim()}`);
+  }
+  return { intendedTree, expectedHead: commit.stdout.trim() };
+}
+
+/** Copy the quarantined objects into the main object database. Idempotent. */
+export async function promoteQuarantinedObjects(
+  git: GitRunner,
+  cwd: string,
+  quarantineKey: string,
+): Promise<boolean> {
+  const q = await quarantinePath(git, cwd, quarantineKey);
+  const objects = join(q, 'objects');
+  if (!existsSync(objects)) return false;
+  const gitDir = (await run(git, ['rev-parse', '--absolute-git-dir'], cwd, 'rev-parse')).trim();
+  const mainObjects = join(gitDir, 'objects');
+
+  let promoted = false;
+  const copyDir = (from: string, to: string): void => {
+    for (const entry of readdirSync(from)) {
+      const src = join(from, entry);
+      const dst = join(to, entry);
+      if (statSync(src).isDirectory()) {
+        mkdirSync(dst, { recursive: true });
+        copyDir(src, dst);
+      } else {
+        // Object files are content-addressed and read-only (0444): an existing
+        // destination is byte-identical, and truncating a read-only file fails.
+        if (existsSync(dst)) continue;
+        mkdirSync(dirname(dst), { recursive: true });
+        copyFileSync(src, dst);
+        promoted = true;
+      }
+    }
+  };
+  copyDir(objects, mainObjects);
+  return promoted;
+}
+
+/**
+ * Atomically land the prepared commit: verify every precondition, take the
+ * index lock (which names the intended tree so a crash mid-install stays
+ * owned), compare-and-swap HEAD, install the intended index, release the lock.
+ * Any divergence — including a lock that already exists — refuses without
+ * touching HEAD or the index.
+ */
+export async function compareAndSwapHeadAndIndex(
+  git: GitRunner,
+  cwd: string,
+  input: CasInput,
+): Promise<CasOutcome> {
+  const currentHead = await headCommit(git, cwd);
+  if (currentHead !== input.preHead) return { ok: false, reason: 'third-head' };
+
+  const index = await run(git, ['write-tree'], cwd, 'write-tree');
+  if (index.trim() !== input.preIndexTree) return { ok: false, reason: 'index-diverged' };
+
+  const summary = await workingTreeSummary(git, cwd);
+  if (summary.fingerprint !== input.expectedFingerprint) {
+    return { ok: false, reason: 'worktree-diverged' };
+  }
+
+  let q: string;
+  try {
+    q = await quarantinePath(git, cwd, input.quarantineKey);
+  } catch {
+    return { ok: false, reason: 'quarantine-missing' };
+  }
+  if (!existsSync(join(q, 'index')) || !existsSync(join(q, 'objects'))) {
+    return { ok: false, reason: 'quarantine-missing' };
+  }
+
+  const gitDir = (await run(git, ['rev-parse', '--absolute-git-dir'], cwd, 'rev-parse')).trim();
+  const lock = join(gitDir, INDEX_LOCK_NAME);
+  if (existsSync(lock)) return { ok: false, reason: 'lock-exists' };
+  writeFileSync(lock, input.intendedTree);
+
+  try {
+    const cas = await git(['update-ref', 'HEAD', input.expectedHead, input.preHead], cwd);
+    if (cas.exitCode !== 0) {
+      const after = await headCommit(git, cwd);
+      if (after !== input.expectedHead && after !== input.preHead) {
+        return { ok: false, reason: 'third-head' };
+      }
+      if (after !== input.expectedHead) return { ok: false, reason: 'install-failed' };
+    }
+    const install = await git(['read-tree', input.intendedTree], cwd);
+    if (install.exitCode !== 0) return { ok: false, reason: 'install-failed' };
+    return { ok: true };
+  } finally {
+    rmSync(lock, { force: true });
+  }
+}
+
+/**
+ * A stable fingerprint of the worktree's tracked state plus untracked files
+ * (plus HEAD): identical for an untouched worktree, different for any edit.
+ */
+export async function workingTreeSummary(
+  git: GitRunner,
+  cwd: string,
+): Promise<{ fingerprint: string }> {
+  const head = (await headCommit(git, cwd)) ?? '';
+  const status = await run(git, ['status', '--porcelain'], cwd, 'status');
+  const lines = status
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .sort();
+  const fingerprint = createHash('sha256')
+    .update([head, ...lines].join('\n'))
+    .digest('hex')
+    .slice(0, 40);
+  return { fingerprint };
+}
+
+/** Commits reachable from HEAD but not from `sinceSha`, oldest first. Null = all. */
+export async function listCommitsFrom(
+  git: GitRunner,
+  cwd: string,
+  sinceSha: string | null,
+): Promise<string[]> {
+  const args = sinceSha
+    ? ['rev-list', '--reverse', `${sinceSha}..HEAD`]
+    : ['rev-list', '--reverse', 'HEAD'];
+  const out = await run(git, args, cwd, 'rev-list');
+  return out
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+}
+
+/** Current HEAD sha, or null when the repo has no commits. */
+export async function headCommit(git: GitRunner, cwd: string): Promise<string | null> {
+  const r = await git(['rev-parse', 'HEAD'], cwd);
+  if (r.exitCode !== 0) return null;
+  const sha = r.stdout.trim();
+  return sha || null;
+}
+
+/** The remote-tracking ref sha, or null when the ref does not exist locally. */
+export async function remoteRefSha(
+  git: GitRunner,
+  cwd: string,
+  remote: string,
+  ref: string,
+): Promise<string | null> {
+  const r = await git(['rev-parse', '--verify', `refs/remotes/${remote}/${ref}`], cwd);
+  if (r.exitCode !== 0) return null;
+  const sha = r.stdout.trim();
+  return sha || null;
+}
+
+/** Remove ONLY the canonically contained quarantine dir for the exact key. */
+export async function cleanupQuarantine(
+  git: GitRunner,
+  cwd: string,
+  quarantineKey: string,
+): Promise<void> {
+  const q = await quarantinePath(git, cwd, quarantineKey);
+  rmSync(q, { recursive: true, force: true });
 }
