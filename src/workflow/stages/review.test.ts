@@ -9,6 +9,7 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
+import { listProcessRuns } from '../../store/processRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { latestStageRun, listStageRuns } from '../../store/stageRuns.js';
 import { openGateRun } from '../gates/evidence.js';
@@ -1225,6 +1226,129 @@ describe('review findings lane (Lane B)', () => {
     expect(listFindings(store, id)).toHaveLength(1);
     expect(getTicket(store, id).stageCurrent).toBe('review');
     expect(stageBlock(store, id, 'review')?.kind).toBe('capability-missing');
+  });
+});
+
+/**
+ * The Review findings process run (Task 8): opened before the AI call with the
+ * resolved assignment snapshot, finished with an EXPLICIT result kind after
+ * it. A crash stays distinguishable from a finding: `execution-failed`,
+ * artifact exposed, and no recovery round — only a blocking FINDING may open
+ * one.
+ */
+describe('runReview — findings process run (Task 8)', () => {
+  let store: Store;
+  let id: number;
+  let artifactDir: string;
+
+  const reviewProcessDeps = (raw: string, over: Partial<ReviewDeps> = {}): ReviewDeps =>
+    deps({
+      reviewProcess: {
+        assignment: { agentName: 'Review Agent', provider: 'claude', model: 'claude-sonnet-5' },
+        adapter: findingsAgent(raw),
+      },
+      ...over,
+    });
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    walkToReview(store, id);
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-review-process-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  it('opens the Review process run before the call and finishes it validated on a clean pass', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps('[]'),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    const run = listProcessRuns(store, id)[0]!;
+    expect(run).toMatchObject({
+      stageKey: 'review',
+      processId: 'review',
+      resultKind: 'validated',
+      status: 'passed',
+      agentName: 'Review Agent',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    expect(run.stageRunId).toBe(listStageRuns(store, id)[0]!.id);
+  });
+
+  it('finishes the Review process run blocking when findings blocked the run', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps(JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }])),
+    );
+    expect(res).toMatchObject({ kind: 'advanced', next: 'fix' });
+    expect(listProcessRuns(store, id)[0]).toMatchObject({ resultKind: 'blocking', status: 'failed' });
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      sourceProcessId: 'review',
+      triggerKind: 'blocking-review-findings',
+    });
+  });
+
+  it('a crash records execution-failed, exposes the artifact, and does not increment recovery rounds', async () => {
+    const adapter: AgentAdapter = {
+      ...findingsAgent('[]'),
+      runHeadless: async () => {
+        throw new Error('spawn ENOENT');
+      },
+    };
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps({ reviewProcess: { assignment: { provider: 'claude' }, adapter } }),
+    );
+    // The gates still decide: an AI crash is not a code verdict.
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    const run = listProcessRuns(store, id)[0]!;
+    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
+    // The artifact is where the crash is exposed: the one-line collapsed
+    // boundary diagnostic lands in the run's artifact.
+    expect(run.artifactPath).toBe(join(artifactDir, `review-ticket-${id}.log`));
+    expect(readFileSync(run.artifactPath!, 'utf8')).toContain('spawn ENOENT');
+    // A crash is not a finding: no recovery round was opened for it.
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('opens no process run when the lane itself is skipped (gates already decided)', async () => {
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        reviewProcess: {
+          assignment: { provider: 'claude' },
+          adapter: { ...findingsAgent('[]'), runHeadless },
+        },
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(runHeadless).not.toHaveBeenCalled();
+    expect(listProcessRuns(store, id)).toEqual([]);
+  });
+
+  it('attributes the findings batch to the opened process run', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps(JSON.stringify([{ severity: 'low', title: 'nit', detail: '' }])),
+    );
+    const run = listProcessRuns(store, id)[0]!;
+    expect(listFindings(store, id)[0]!.processRunId).toBe(run.id);
   });
 });
 

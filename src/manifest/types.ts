@@ -258,6 +258,17 @@ export interface UatConfig {
   testDir?: string;
   maxFixAttempts: number;
   gates?: UatGateDef[];
+  /**
+   * Task 8: an optional deterministic verification command for the UAT
+   * Tester's work — a host-authored `GateDef` (script/command) run through the
+   * host gate boundary AFTER the Tester reports its observations. Its
+   * completed exit code is the sole Tester-specific UAT verdict: 0 completes
+   * the Tester, a completed nonzero exit fails UAT (opening a
+   * Tester-attributed recovery round), and an execution failure parks without
+   * consuming a Fix round. Absent → the Tester's observations are advisory
+   * and the ordinary UAT gates decide progression alone.
+   */
+  testerVerifier?: GateDef;
   env: Record<string, string>;
   secrets: string[];
   passthrough: string[];

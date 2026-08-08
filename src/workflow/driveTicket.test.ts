@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
 import { stageBlock } from '../store/stageBlocks.js';
+import { listProcessRuns } from '../store/processRuns.js';
+import { listUatFindings } from '../store/uatFindings.js';
 import { transition } from './machine.js';
 import { createTicketFlow } from './stages/create.js';
 import { ticketsToSweep } from './driverController.js';
@@ -13,6 +15,10 @@ import type { GitRunner } from '../integrations/git.js';
 import type { StageRunResult } from '../model/types.js';
 import { runUat } from './stages/uat.js';
 import { driveTicket, fixResumeDecision, type DriveTicketDeps } from './driveTicket.js';
+import type { UatDeps } from './stages/uat.js';
+import type { ReviewDeps } from './stages/review.js';
+import { runProcess } from './gates/run.js';
+import type { AgentAdapter } from '../agent/adapter.js';
 import { openRecoveryRound, listRecoveryRounds } from '../store/recoveryRounds.js';
 
 describe('fixResumeDecision', () => {
@@ -462,5 +468,100 @@ describe('driveTicket', () => {
     });
 
     expect(receivedOnGateComplete).toBeTypeOf('function');
+  });
+
+  // Task 8 production boundary: the host resolves the Tester/Review process
+  // assignments and the verifier gate runner; the driver must thread them into
+  // the real runners, resolving each process EXACTLY once (the host's resolver
+  // builds a fresh instrumented adapter per call, so a second call would
+  // instrument twice).
+  it('resolves the Tester and Review processes once and threads them, with the verifier runner, into the real runners', async () => {
+    const adapterA: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => ({ command: 'fake', args: [], env: {} }),
+      runHeadless: async () => ({ sessionId: '', verdict: null, raw: '[]' }),
+    };
+    const adapterB: AgentAdapter = { ...adapterA };
+    const resolveUatTester = vi.fn(() => ({
+      assignment: { agentName: 'UAT Agent', provider: 'claude' as const },
+      adapter: adapterA,
+    }));
+    const resolveReviewProcess = vi.fn(() => ({
+      assignment: { agentName: 'Review Agent', provider: 'codex' as const },
+      adapter: adapterB,
+    }));
+    const runVerifier = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    let seenUatDeps: UatDeps | undefined;
+    let seenReviewDeps: ReviewDeps | undefined;
+
+    const outcome = await driveTicket(
+      deps({
+        uatTester: resolveUatTester,
+        reviewProcess: resolveReviewProcess,
+        runVerifier: runVerifier as unknown as typeof runProcess,
+      }),
+      id,
+      {
+        runUat: async (s, opts, runnerDeps) => {
+          seenUatDeps = runnerDeps;
+          return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+        },
+        runReview: async (s, opts, runnerDeps) => {
+          seenReviewDeps = runnerDeps;
+          return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+        },
+      },
+    );
+
+    expect(outcome.stage).toBe('ship');
+    expect(resolveUatTester).toHaveBeenCalledTimes(1);
+    expect(resolveReviewProcess).toHaveBeenCalledTimes(1);
+    expect(seenUatDeps?.tester).toEqual({
+      assignment: { agentName: 'UAT Agent', provider: 'claude' },
+      adapter: adapterA,
+    });
+    expect(seenUatDeps?.runVerifier).toBe(runVerifier);
+    expect(seenReviewDeps?.reviewProcess).toEqual({
+      assignment: { agentName: 'Review Agent', provider: 'codex' },
+      adapter: adapterB,
+    });
+    // The review runner's findings adapter is the SAME instrumented adapter the
+    // process resolved — no second resolution path to keep in sync.
+    expect(seenReviewDeps?.findingsAdapter).toBe(adapterB);
+  });
+
+  // The composition-seam evidence: driving the REAL runUat through driveTicket
+  // with a Tester wired must use the opened Tester process id for the
+  // observations it records, and the ticket must progress on its gates alone.
+  it('uses the opened Tester process id for findings at the real composition boundary', async () => {
+    writeFileSync(join(workDir, 'package.json'), JSON.stringify({ scripts: { test: 'true' } }));
+    const adapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => ({ command: 'fake', args: [], env: {} }),
+      runHeadless: async () => ({
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([{ severity: 'high', title: 'login broken', detail: '' }]),
+      }),
+    };
+
+    const outcome = await driveTicket(
+      deps({
+        uatTester: () => ({ assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter }),
+        reviewProcess: () => ({
+          assignment: { agentName: 'Review Agent', provider: 'claude' },
+          adapter,
+        }),
+      }),
+      id,
+    );
+
+    expect(outcome.stage).toBe('review'); // uat passed on its gates, review parked
+    const testerRun = listProcessRuns(store, id).find((r) => r.processId === 'tester')!;
+    expect(testerRun.resultKind).toBe('observed');
+    expect(listUatFindings(store, id)).toHaveLength(1);
+    expect(listUatFindings(store, id)[0]!.processRunId).toBe(testerRun.id);
   });
 });

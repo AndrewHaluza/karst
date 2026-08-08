@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import { openStore } from '../../store/db.js';
+import { createTicketFlow } from '../stages/create.js';
+import { listProcessRuns } from '../../store/processRuns.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
@@ -90,7 +93,7 @@ describe('runFindingsLane', () => {
       targets: [TARGET],
       ticketId: 1,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
   });
 
   // Finding 1: a failed/rejected call must not be silent — the lane still
@@ -106,7 +109,7 @@ describe('runFindingsLane', () => {
       ticketId: 1,
       warn,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
     expect(warn).toHaveBeenCalledTimes(1);
     const [message] = warn.mock.calls[0] as [string];
     expect(message).toContain('/web');
@@ -125,12 +128,16 @@ describe('runFindingsLane', () => {
       ticketId: 1,
       warn,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(outcome.kind).toBe('ran');
+    // The raw failure text was collapsed-then-capped before it was folded into
+    // the warn line (and the crash record), so both stay well short of the
+    // input size.
+    if (outcome.kind !== 'ran') throw new Error('unreachable');
+    expect(outcome.crashes?.[0]).not.toContain('\n');
+    expect(outcome.crashes?.[0]!.length).toBeLessThan(huge.length);
     expect(warn).toHaveBeenCalledTimes(1);
     const [message] = warn.mock.calls[0] as [string];
     expect(message).not.toContain('\n');
-    // The raw failure text was collapsed-then-capped before it was folded into
-    // the warn line, so the whole message stays well short of the input size.
     expect(message.length).toBeLessThan(huge.length);
   });
 
@@ -206,7 +213,113 @@ describe('runFindingsLane', () => {
       },
     };
     await runFindingsLane({ config: CONFIG, adapter: a, targets: [TARGET], ticketId: 42 });
-    expect(seenTracking).toEqual({ callSite: 'review-findings', ticketId: 42 });
+    expect(seenTracking).toEqual({ callSite: 'review-findings', ticketId: 42, processRunId: null });
+  });
+
+  it('attributes a failed call as a crash, distinct from a clean zero-findings run', async () => {
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(() => Promise.reject(new Error('spawn ENOENT'))),
+      targets: [TARGET],
+      ticketId: 1,
+    });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['spawn ENOENT'] });
+  });
+});
+
+/**
+ * The Review findings process run (Task 8): opened BEFORE the first AI call
+ * with the resolved assignment snapshot, threaded through tracking so spend
+ * and findings land on the process, and finished by the stage with an explicit
+ * result kind. No call → no run: the lane opens one only when it actually
+ * runs.
+ */
+describe('runFindingsLane — process run (Task 8)', () => {
+  it('opens the Review process run before the first call and snapshots the assignment', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    try {
+      const { outcome } = await planAndRunFindingsLane({
+        entries: [entry(0)],
+        targets: [TARGET],
+        findingsConfig: CONFIG,
+        store,
+        process: {
+          assignment: { agentName: 'Review Agent', provider: 'claude', model: 'claude-sonnet-5' },
+          adapter: adapter('[]'),
+          stageRunId: null,
+          attempt: 0,
+          startedAt: '2026-08-08T10:00:00.000Z',
+        },
+        ticketId,
+      });
+      expect(outcome.kind).toBe('ran');
+      if (outcome.kind !== 'ran') throw new Error('unreachable');
+      expect(outcome.processRunId).not.toBeUndefined();
+      expect(outcome.processRunId).not.toBeNull();
+      const run = listProcessRuns(store, ticketId)[0]!;
+      expect(run).toMatchObject({
+        id: outcome.processRunId,
+        stageKey: 'review',
+        processId: 'review',
+        agentName: 'Review Agent',
+        provider: 'claude',
+        model: 'claude-sonnet-5',
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('threads the process run id into the adapter call, so spend lands on the process', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    let seenTracking: unknown;
+    const a: AgentAdapter = {
+      ...adapter('[]'),
+      runHeadless: async (opts) => {
+        seenTracking = opts.tracking;
+        return { sessionId: '', verdict: null, raw: '[]' };
+      },
+    };
+    try {
+      await runFindingsLane({
+        config: CONFIG,
+        store,
+        process: { assignment: { provider: 'claude' }, adapter: a, attempt: 0 },
+        targets: [TARGET],
+        ticketId,
+      });
+      const run = listProcessRuns(store, ticketId)[0]!;
+      expect(seenTracking).toEqual({
+        callSite: 'review-findings',
+        ticketId,
+        processRunId: run.id,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('opens no run when the lane is skipped (gates already decided)', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    const runHeadless = vi.fn();
+    try {
+      const { outcome } = await planAndRunFindingsLane({
+        entries: [entry(1)],
+        targets: [TARGET],
+        findingsConfig: CONFIG,
+        store,
+        process: { assignment: { provider: 'claude' }, adapter: { ...adapter('[]'), runHeadless }, attempt: 0 },
+        ticketId,
+      });
+      expect(outcome).toEqual({ kind: 'not-run' });
+      expect(runHeadless).not.toHaveBeenCalled();
+      expect(listProcessRuns(store, ticketId)).toEqual([]);
+    } finally {
+      store.close();
+    }
   });
 });
 
@@ -244,7 +357,7 @@ describe('planAndRunFindingsLane', () => {
       ticketId: 1,
       warn,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain('boom');
   });

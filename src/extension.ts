@@ -72,6 +72,12 @@ import {
 } from './ui/sessionRecovery.js';
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
 import {
+  resolveProcessAssignment,
+  type ProcessAssignmentSnapshot,
+} from './agent/processAssignment.js';
+import type { ProcessRole } from './manifest/validate/processAssignments.js';
+import { runProcess } from './workflow/gates/run.js';
+import {
   recordSessionLaunchIntent,
   failSessionLaunchIntent,
 } from './store/sessionLaunchIntents.js';
@@ -734,6 +740,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
     const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
     return instrument(resolveAdapter(provider), provider);
+  };
+
+  /**
+   * Task 8: one inside AI process (uat-tester, review), resolved as the
+   * identity SNAPSHOT its `process_runs` row opens with (Task 7's
+   * `resolveProcessAssignment` — agent/provider/model, immutable thereafter)
+   * plus the SAME instrumented per-ticket adapter every other AI call goes
+   * through. The driver resolves each process exactly once per run, so the
+   * adapter is instrumented exactly once — a second resolution would wrap a
+   * second adapter around the same core.
+   */
+  const processFor = (
+    ticketId: number,
+    role: ProcessRole,
+  ): { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter } => {
+    const t = getTicket(localStore, ticketId);
+    return {
+      assignment: resolveProcessAssignment(
+        currentManifest() ?? emptyManifest(),
+        role,
+        {
+          provider: t.agentProvider ?? undefined,
+          model: t.model || undefined,
+        },
+      ),
+      adapter: currentAgentAdapter(ticketId),
+    };
   };
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
@@ -1931,12 +1964,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // revealing it by ticket id covers every affected target review
           // calls this for; `cwd` names nothing further to open.
           openDiff: (id) => changes.open(id),
-          // Review's findings lane (Lane B). Same instrumented, per-ticket
-          // resolution every other AI call in karst goes through
-          // (`currentAgentAdapter` → `instrument(resolveAdapter(...))`), so
-          // findings spend is attributed exactly like `pr-description`/
-          // `fix-resume` — no second wiring path to keep in sync.
-          agentAdapter: (id) => currentAgentAdapter(id),
+          // The Tester and Review AI processes (Task 8): resolved per ticket
+          // as an identity snapshot + the instrumented adapter, exactly once
+          // per driver run. The verifier boundary is the host gate runner.
+          uatTester: (id) => processFor(id, 'uat-tester'),
+          reviewProcess: (id) => processFor(id, 'review'),
+          runVerifier: runProcess,
           log: (message) => logger.info(message),
           // Findings-lane boundary diagnostics (a failed AI call, garbage
           // output, an untrustworthy `file`) — routed to `Logger.warn` so

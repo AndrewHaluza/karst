@@ -380,6 +380,44 @@ CREATE INDEX IF NOT EXISTS idx_review_findings_ticket
 CREATE INDEX IF NOT EXISTS idx_review_findings_process
   ON review_findings(process_run_id, id);
 
+-- v31: one row per OBSERVATION the UAT Tester process (Task 8) reported about a
+-- ticket's behavior — advisory, structured evidence ONLY. The Tester is an AI
+-- process, so unlike `gate_runs` (deterministic exit codes) its rows can never
+-- pass, fail, transition, or spend a recovery round by themselves: the ordinary
+-- UAT gates stay authoritative, and the optional deterministic
+-- `uat.testerVerifier` boundary is the sole Tester-specific verdict source.
+--
+-- APPEND-ONLY like review_findings and for the same reason: an observation is
+-- an event produced by one process invocation, and `stages` (keyed
+-- (ticket_id, stage_key)) is overwritten by a retry. `process_run_id` is
+-- REQUIRED — an observation that cannot be attributed to a Tester execution is
+-- dropped, never stored against an invented one. `repo` is NULLable ("not
+-- repo-scoped") while review_findings uses '' for that, because the Tester
+-- prompt names its target explicitly and an unattributed observation must not
+-- read as belonging to the first repository in the list.
+--
+-- `severity` is the same closed `Severity` vocabulary as review_findings,
+-- enforced where untrusted model output is parsed (workflow/uat/tester.ts via
+-- review's parseFindings). `file_path` carries no absolute path and no `..`
+-- segment (validated where parsed); NULL = not file-scoped. `line` NULL =
+-- whole file. `title` is capped and single-line like review's. There is no
+-- `detail` column: an observation's row is a title plus a location, and
+-- `token_usage` is the evidence table that carries what the call cost.
+CREATE TABLE IF NOT EXISTS uat_findings (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id      INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+  repo           TEXT,
+  severity       TEXT NOT NULL,        -- critical | high | medium | low | info (closed set)
+  title          TEXT NOT NULL,        -- capped at TITLE_MAX, single line
+  file_path      TEXT,                 -- repo-relative, validated; NULL = not file-scoped
+  line           INTEGER,              -- NULL = whole file
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uat_findings_ticket ON uat_findings(ticket_id, id);
+-- Per-process-run evidence reads (the inside view's Tester evidence).
+CREATE INDEX IF NOT EXISTS idx_uat_findings_process ON uat_findings(process_run_id, id);
+
 CREATE TABLE IF NOT EXISTS worktrees (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
   repo          TEXT NOT NULL,

@@ -2,6 +2,8 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
 import type { AgentAdapter } from '../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
+import type { TesterGateRunner } from './uat/testerVerifier.js';
 import { getTicket } from '../store/tickets.js';
 import { recoveryDecision } from '../store/recoveryRounds.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
@@ -82,14 +84,38 @@ export interface DriveTicketDeps {
    */
   openDiff?: OpenDiff;
   /**
-   * The agent core review's findings lane (Lane B) asks about the diff.
-   * Absent means no agent core is available — `capability-missing` (spec
-   * §8.14), never a failure. A function (not a bound value) because the host
-   * resolves it per-ticket (a ticket's own `agentProvider` may differ from
-   * the manifest default) and instruments it for token-usage attribution the
-   * same way every other AI call in karst is (`agent/instrumentedAdapter.ts`).
+   * The Tester process (Task 8): its immutable assignment snapshot and the
+   * already instrumented per-ticket adapter. Absent → no Tester runs at all;
+   * UAT's ordinary gates (and the verifier, when configured) decide alone.
+   * A function (not a bound value) because the host resolves it per-ticket
+   * (a ticket's own `agentProvider` may differ from the manifest default) and
+   * instruments it for token-usage attribution the same way every other AI
+   * call in karst is (`agent/instrumentedAdapter.ts`). The driver calls it
+   * EXACTLY once per run — the host's resolver builds a fresh instrumented
+   * adapter per call, so a second call would instrument twice.
    */
-  agentAdapter?: (ticketId: number) => AgentAdapter;
+  uatTester?: (ticketId: number) => {
+    assignment: ProcessAssignmentSnapshot;
+    adapter: AgentAdapter;
+  };
+  /**
+   * The Review findings process (Task 8): the same shape as `uatTester`,
+   * resolving the `review` role's assignment and its instrumented adapter.
+   * The findings lane opens its process run from this, snapshotting the
+   * assignment; absent → the lane falls back to the plain findings adapter
+   * and opens no process run.
+   */
+  reviewProcess?: (ticketId: number) => {
+    assignment: ProcessAssignmentSnapshot;
+    adapter: AgentAdapter;
+  };
+  /**
+   * The host gate boundary for the optional `uat.testerVerifier` (Task 8) —
+   * `runProcess` from `workflow/gates/run.ts`, injected so the stage never
+   * spawns its own processes. Absent with a configured verifier, the UAT
+   * stage parks; absent with no verifier configured, it is unused.
+   */
+  runVerifier?: TesterGateRunner;
   log: (message: string) => void;
   /**
    * Where the findings lane's boundary diagnostics land (a failed AI call, an
@@ -153,22 +179,33 @@ export async function driveTicket(
         // `runUat` reports its own StageRunResult, so it is passed through
         // verbatim: wrapping a park as 'advanced' at the ticket's unchanged
         // stage would send the driver round the same blocked gate forever.
-        runUat: (id, cwd) =>
-          uat(deps.store, {
-            ticketId: id,
-            cwd,
-            artifactDir: deps.artifactDirFor(id),
-            manifest: deps.manifest(),
-            signal: controller.signal,
-            onGateComplete: () => deps.onProgress(id, 'uat', 'running'),
-          }),
+        // The Tester process is resolved ONCE per run — the host's resolver
+        // builds a fresh instrumented adapter per call, so calling it twice
+        // would instrument twice (Task 8).
+        runUat: (id, cwd) => {
+          const tester = deps.uatTester?.(id);
+          return uat(
+            deps.store,
+            {
+              ticketId: id,
+              cwd,
+              artifactDir: deps.artifactDirFor(id),
+              manifest: deps.manifest(),
+              signal: controller.signal,
+              onGateComplete: () => deps.onProgress(id, 'uat', 'running'),
+            },
+            { tester, runVerifier: deps.runVerifier },
+          );
+        },
         // `runReview` reports its own StageRunResult too, so it is passed
         // through verbatim for the same reason: a park re-labelled 'advanced'
         // at the ticket's unchanged stage sends the driver round the same
         // blocked gate forever. `deps.openDiff` is threaded straight through —
-        // absent here means absent there, never a no-op default.
-        runReview: (id, cwd) =>
-          review(
+        // absent here means absent there, never a no-op default. The Review
+        // findings process resolves ONCE per run, like the Tester above.
+        runReview: (id, cwd) => {
+          const reviewProcess = deps.reviewProcess?.(id);
+          return review(
             deps.store,
             {
               ticketId: id,
@@ -178,8 +215,14 @@ export async function driveTicket(
               signal: controller.signal,
               onGateComplete: () => deps.onProgress(id, 'review', 'running'),
             },
-            { openDiff: deps.openDiff, findingsAdapter: deps.agentAdapter?.(id), warn: deps.warn },
-          ),
+            {
+              openDiff: deps.openDiff,
+              findingsAdapter: reviewProcess?.adapter,
+              reviewProcess,
+              warn: deps.warn,
+            },
+          );
+        },
       },
       ticketId,
     );

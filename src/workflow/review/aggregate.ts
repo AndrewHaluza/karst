@@ -49,11 +49,25 @@ export type AggregateOutcome =
  *   also reports `ran` with whatever it did manage to parse (often `[]`): the
  *   lane must not be able to break the stage, so a failed/garbage call still
  *   lets the run reach a verdict decided by the gates (R7/R9), never a park.
+ *   The optional `crashes` member (Task 8) carries the collapsed one-line
+ *   boundary diagnostics of any target whose call THREW, so the stage can
+ *   distinguish "the agent looked and found nothing" from "the agent could not
+ *   be asked" — the crash still never fails the stage, but it is recorded
+ *   (`execution-failed` on the process run) rather than read as a clean
+ *   review. `processRunId` (Task 8) names the Review findings process run the
+ *   lane opened, when the caller supplied a process and the lane actually ran.
  */
 export type FindingsLaneOutcome =
   | { kind: 'not-run' }
   | { kind: 'capability-missing'; reason: string }
-  | { kind: 'ran'; findings: readonly FindingInput[] };
+  | {
+      kind: 'ran';
+      findings: readonly FindingInput[];
+      /** One collapsed one-line diagnostic per target whose call THREW. Absent = every call succeeded. */
+      crashes?: readonly string[];
+      /** The Review process run this invocation opened; absent = none was opened. */
+      processRunId?: number | null;
+    };
 
 export interface AggregateReviewOpts {
   /**

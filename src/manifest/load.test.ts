@@ -252,6 +252,37 @@ describe('loadManifest', () => {
       cleanup();
     }
   });
+
+  // Task 8: `uat.testerVerifier` is a host-authored GateDef (never AI output)
+  // and must survive load with its shape intact.
+  it('loads an optional uat.testerVerifier gate', () => {
+    const yaml = `${VALID}
+uat:
+  testerVerifier:
+    name: verify-uat
+    kind: command
+    command: ./scripts/verify-uat.sh
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).uat?.testerVerifier).toEqual({
+        name: 'verify-uat',
+        kind: 'command',
+        command: './scripts/verify-uat.sh',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('leaves uat.testerVerifier absent for a manifest without a uat block', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).uat).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('repositories without a service', () => {

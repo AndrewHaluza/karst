@@ -10,7 +10,8 @@ import { instrumentAdapter } from '../agent/instrumentedAdapter.js';
 import { attachUsage } from '../agent/tokenUsage.js';
 import { recordTokenUsage, queryTokenUsageStats } from '../store/tokenUsage.js';
 import { listTokenUsage, summarizeRecordedTokenUsage } from '../store/tokenUsage.js';
-import { openProcessRun } from '../store/processRuns.js';
+import { openProcessRun, listProcessRuns } from '../store/processRuns.js';
+import { runUatTester } from './uat/tester.js';
 import { parseUsageQuery } from '../store/tokenUsageQuery.js';
 
 /**
@@ -58,6 +59,7 @@ function instrumented(inner: AgentAdapter, logError = vi.fn()): AgentAdapter {
 
 function rows(): {
   ticket_id: number | null;
+  process_run_id: number | null;
   call_site: string;
   provider: string | null;
   model: string | null;
@@ -227,5 +229,41 @@ describe('instrumented AI calls', () => {
     expect(listTokenUsage(store, { ticketId: id, processRunId: run.id })).toHaveLength(1);
     expect(listTokenUsage(store, { processRunId: run.id })[0]!.ticketId).toBe(id);
     expect(summarizeRecordedTokenUsage(store, id)).toEqual({ input: 0, output: 0, total: 0 });
+  });
+
+  // Task 8: the UAT Tester's headless call goes through the REAL
+  // `runUatTester` with an instrumented adapter, so its spend must land on the
+  // Tester process run under the `uat-tester` call site — the same contract
+  // the inside view's per-process spend reads back.
+  it('attributes the uat tester’s spend to its process run under the uat-tester call site', async () => {
+    const id = createTicketFlow(store, { key: 'T-6', title: 'Six' }).id;
+    store.db.prepare('UPDATE tickets SET project_id = 1 WHERE id = ?').run(id);
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+
+    await runUatTester(
+      store,
+      {
+        ticketId: id,
+        targets: [{ repo: '/web', worktreePath: '/wt/web' }],
+        assignment: { agentName: 'UAT Agent', provider: 'claude', model: 'claude-opus-5' },
+        adapter: instrumented(reportingAdapter()),
+      },
+      { now: () => '2026-08-01T00:00:00.000Z' },
+    );
+
+    const run = listProcessRuns(store, id)[0]!;
+    expect(run.processId).toBe('tester');
+    const row = rows()[0]!;
+    expect(row).toMatchObject({
+      ticket_id: id,
+      call_site: 'uat-tester',
+      provider: 'claude',
+      model: 'claude-opus-5',
+      total_tokens: 125,
+      outcome: 'ok',
+      project_id: 1,
+    });
+    expect(row.process_run_id).toBe(run.id);
   });
 });

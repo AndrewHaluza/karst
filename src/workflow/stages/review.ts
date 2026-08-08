@@ -4,7 +4,9 @@ import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
+import { finishProcessRun } from '../../store/processRuns.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
@@ -91,6 +93,19 @@ export interface ReviewDeps {
    * outcome, never a failure: an agent that cannot be asked is environmental.
    */
   findingsAdapter?: AgentAdapter;
+  /**
+   * The Review findings PROCESS (Task 8): its immutable assignment snapshot
+   * and the already instrumented adapter. When present, the lane opens a
+   * `process_runs` row before its first call (snapshotting the assignment),
+   * threads the run id through token attribution and the findings batch, and
+   * the stage finishes the run with an explicit result kind
+   * (`validated`/`blocking`/`execution-failed`). Absent → the lane runs with
+   * `findingsAdapter` (or capability-missing) and opens no process run.
+   */
+  reviewProcess?: {
+    assignment: ProcessAssignmentSnapshot;
+    adapter: AgentAdapter;
+  };
   /**
    * Where the findings lane's boundary diagnostics land (a failed AI call,
    * an unparseable response, an untrustworthy `file`) — threaded through to
@@ -351,6 +366,11 @@ export async function runReview(
     }
   }
 
+  // The Review AI process (Task 8) carries its own adapter; absent, the lane
+  // falls back to the plain findings adapter (or capability-missing).
+  const reviewProcess = deps.reviewProcess;
+  const findingsAdapter = reviewProcess?.adapter ?? deps.findingsAdapter;
+
   // `worktrees.base_ref` per repository path, so the findings prompt can name
   // the exact range it must diff against instead of asking the agent to guess.
   const baseRefByRepo = new Map(worktrees.map((w) => [w.repo, w.baseRef]));
@@ -365,10 +385,23 @@ export async function runReview(
       baseRef: baseRefByRepo.get(t.repo) ?? null,
     })),
     findingsConfig: opts.manifest?.review?.findings,
-    adapter: deps.findingsAdapter,
+    adapter: findingsAdapter,
     ticketId: opts.ticketId,
     signal: opts.signal,
     warn: deps.warn,
+    // Task 8: open the Review process run before the lane's first call,
+    // snapshotting the resolved assignment identity.
+    store,
+    process: reviewProcess
+      ? {
+          assignment: reviewProcess.assignment,
+          adapter: reviewProcess.adapter,
+          stageRunId: evidence.runId,
+          attempt: evidence.attempt,
+          pid: process.pid,
+          startedAt: runAt,
+        }
+      : undefined,
   });
   // F2 — persisted the INSTANT the lane returns, before a single aggregation
   // rule reads them. These are completed model output the user has already paid
@@ -376,7 +409,10 @@ export async function runReview(
   // is what let a host restart discard them with nothing recorded anywhere.
   const collectedFindings: readonly FindingInput[] =
     findingsLane.kind === 'ran' ? findingsLane.findings : [];
-  evidence.appendFindings(collectedFindings);
+  evidence.appendFindings(
+    collectedFindings,
+    findingsLane.kind === 'ran' ? findingsLane.processRunId ?? null : null,
+  );
 
   const outcome = aggregateReview(
     entries,
@@ -392,10 +428,42 @@ export async function runReview(
       disabledGateNames: skippedNames,
     },
   );
+
+  // Task 8: close the Review findings process run with its EXPLICIT result
+  // kind — the AI call's crash is recorded as `execution-failed` (never a code
+  // verdict, never a recovery round), blocking findings as `blocking`, and a
+  // clean lane as `validated`. The artifact path rides along so the inside
+  // view can expose the run's log.
+  const crashes: readonly string[] =
+    findingsLane.kind === 'ran' ? (findingsLane.crashes ?? []) : [];
+  const processRunId =
+    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
+  if (processRunId !== null) {
+    const blocking =
+      outcome.kind === 'verdict' &&
+      outcome.verdict.kind === 'failed' &&
+      (outcome.verdict.reason ?? '').startsWith(FINDINGS_FAILURE_PREFIX);
+    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
+    if (crashes.length > 0) {
+      finishProcessRun(store, processRunId, 'failed', now(), 'execution-failed', artifactPath);
+    } else if (blocking) {
+      finishProcessRun(store, processRunId, 'failed', now(), 'blocking', artifactPath);
+    } else {
+      finishProcessRun(store, processRunId, 'passed', now(), 'validated', artifactPath);
+    }
+  }
+  // The crash diagnostics land in the artifact too — a failed lane must be
+  // distinguishable from a clean review in the log, not just in a log line.
+  const crashNotes = crashes.map((c) => `review findings lane failed: ${c}`);
+
   if (outcome.kind === 'blocked') {
     return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
       outcome.reason,
+      ...crashNotes,
     ]);
   }
-  return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+  return finish({ kind: 'verdict', verdict: outcome.verdict }, [
+    ...outcome.warnings,
+    ...crashNotes,
+  ]);
 }

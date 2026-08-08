@@ -186,19 +186,42 @@ export function openProcessRun(store: Store, input: OpenProcessRunInput): Proces
  * superseded, and letting a late finisher overwrite that would erase the very
  * fact the table records. Only the status and its end are written — the
  * identity snapshot is immutable and nothing here may touch it.
+ *
+ * `resultKind`/`artifactPath` (v31, Task 8) name the outcome's verdict kind
+ * and its artifact when the caller closes with a specific result — the Tester
+ * finishes `observed`, Review's findings process `validated`/`blocking`/
+ * `execution-failed`. Written with COALESCE so an absent value never clobbers
+ * what a previous close recorded; legacy four-argument callers keep exactly
+ * the pre-v31 behavior.
  */
 export function finishProcessRun(
   store: Store,
   runId: number,
   status: ProcessRunFinishStatus,
   endedAt: string,
+  resultKind?: string | null,
+  artifactPath?: string | null,
 ): void {
   store.db
     .prepare(
-      `UPDATE process_runs SET status = ?, ended_at = ?
+      `UPDATE process_runs
+          SET status = ?, ended_at = ?,
+              result_kind = COALESCE(?, result_kind),
+              artifact_path = COALESCE(?, artifact_path)
         WHERE id = ? AND status = 'running'`,
     )
-    .run(status, endedAt, runId);
+    .run(status, endedAt, resultKind ?? null, artifactPath ?? null, runId);
+}
+
+/**
+ * The ONE late fact a finished process run is allowed to gain (v31, Task 8):
+ * the deterministic Tester verifier disproving the observation the run
+ * already recorded (`observed` → `verification-failed`). Only `result_kind`
+ * is written — the status and end stamp were truthful when they were written,
+ * and the verifier is the SAME process's outcome, not a second run.
+ */
+export function setProcessRunResultKind(store: Store, runId: number, resultKind: string): void {
+  store.db.prepare('UPDATE process_runs SET result_kind = ? WHERE id = ?').run(resultKind, runId);
 }
 
 /** Every run recorded for a ticket, oldest first (insertion order is run order). */

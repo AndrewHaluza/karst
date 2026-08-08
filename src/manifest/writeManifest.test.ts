@@ -224,6 +224,7 @@ describe('writeManifest', () => {
             { name: 'test', kind: 'script', script: 'test' },
             { name: 'gotest', kind: 'command', command: 'go', args: ['test', './...'], repo: 'backend' },
           ],
+          testerVerifier: { name: 'verify-uat', kind: 'command', command: './scripts/verify-uat.sh' },
           env: { SMTP_HOST: '127.0.0.1' },
           secrets: ['STRIPE_SECRET_KEY'],
           passthrough: ['CUSTOM_REGISTRY_TOKEN'],

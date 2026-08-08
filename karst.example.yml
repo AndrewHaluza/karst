@@ -213,8 +213,8 @@ agents:
 # rule, failure playbook) sits beside this file: karst.uat-review-setup.md
 #
 # ABSENT (the default) yields the probe pipeline: karst looks for
-# known package.json scripts. Only two keys under `uat:` are read today —
-# `maxFixAttempts` and `gates` (plus per-repository `gates`).
+# known package.json scripts. Only three keys under `uat:` are read today —
+# `maxFixAttempts`, `gates` (plus per-repository `gates`) and `testerVerifier`.
 uat:
   # WIRED. Fix→UAT→fix retries before the ticket parks. Narrows UAT only; review
   # has its own `review.maxFixAttempts`.
@@ -224,6 +224,13 @@ uat:
   gates:
     - { name: test, kind: script, script: test }
     - { name: e2e, kind: command, command: npx, args: [playwright, test], repo: frontend }
+  # WIRED (Task 8). An optional deterministic verification command for the UAT
+  # Tester's observations, run AFTER the required gates pass. Its COMPLETED exit
+  # code is the sole Tester-specific verdict: 0 completes the Tester, a
+  # completed nonzero exit fails UAT (one Fix round, attributed to the Tester
+  # process), and a command that cannot run parks without spending a round.
+  # Absent → the Tester's observations are advisory and the gates decide alone.
+  testerVerifier: { name: verify-uat, kind: command, command: ./scripts/verify-uat.sh }
   repositories:
     frontend:
       # WIRED, and it REPLACES the global list for this repository — it is not

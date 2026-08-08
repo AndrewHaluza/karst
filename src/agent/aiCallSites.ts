@@ -30,6 +30,11 @@ export const AI_CALL_SITES = [
   /** Review's Lane B — asking an agent for structured findings over a target's diff. */
   'review-findings',
   /**
+   * The UAT stage's Tester process (Task 8) — asking an agent for structured
+   * observations of a ticket's behavior after the required gates pass.
+   */
+  'uat-tester',
+  /**
    * The impl stage's interactive Session process — the call site of measured
    * interactive deltas attributed to an implementation session (Task 5).
    */
@@ -55,6 +60,7 @@ const LABELS: Record<AiCallSite, string> = {
   'pr-description': 'PR description',
   'fix-resume': 'Fix resume',
   'review-findings': 'Review findings',
+  'uat-tester': 'UAT tester',
   implementation: 'Implementation session',
   unknown: 'Undeclared',
 };

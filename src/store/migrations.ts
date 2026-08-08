@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 31;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -946,6 +946,37 @@ export function migrate(db: Database): void {
         );
       }
     }
+  }
+
+  if (current < 31) {
+    // v31 makes the UAT Tester process's structured observations durable
+    // (Task 8): one row per observation, attributed to the Tester process run
+    // that reported it. The same DDL as schema.sql, IF NOT EXISTS throughout —
+    // a fresh DB (already carrying it) and a re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst ran a Tester process or recorded
+    // an observation — a synthesized row would assert exactly the facts this
+    // table exists to stop being guessed at. Pre-v31 tickets show no Tester
+    // observations until their next UAT run.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS uat_findings (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id      INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+        repo           TEXT,
+        severity       TEXT NOT NULL,
+        title          TEXT NOT NULL,
+        file_path      TEXT,
+        line           INTEGER,
+        created_at     TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_uat_findings_ticket ON uat_findings(ticket_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_uat_findings_process ON uat_findings(process_run_id, id)',
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
