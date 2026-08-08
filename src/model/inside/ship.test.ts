@@ -311,4 +311,111 @@ describe('shipProcesses', () => {
       expect(process.detail).toContain('no recorded evidence');
     }
   });
+
+  describe('process aggregation keeps note honest', () => {
+    const pushViews = (stepsByRepo: Record<string, Partial<ShipRepoStepEvidence>>) =>
+      shipProcesses(
+        shipInput({
+          evidence: evidence({
+            repos: Object.fromEntries(
+              Object.entries(stepsByRepo).map(([repo, over]) => [
+                repo,
+                repoEvidence(repo, { steps: { push: step('push', { repo, ...over }) } }),
+              ]),
+            ),
+          }),
+        }),
+      );
+
+    it('reads all-note as note, never pass', () => {
+      const views = pushViews({ '/web': { status: 'note' }, '/api': { status: 'note' } });
+      expect(views[1]!.status).toBe('note');
+    });
+
+    it('does not read a pass beside a note as green — the note is absence', () => {
+      const views = pushViews({ '/web': { status: 'passed' }, '/api': { status: 'note' } });
+      expect(views[1]!.status).not.toBe('pass');
+      expect(views[1]!.status).toBe('note');
+    });
+
+    it('reads pass-only as pass', () => {
+      const views = pushViews({ '/web': { status: 'passed' }, '/api': { status: 'passed' } });
+      expect(views[1]!.status).toBe('pass');
+    });
+
+    it('keeps a running row ahead of note — run retains precedence', () => {
+      const views = pushViews({ '/web': { status: 'running' }, '/api': { status: 'note' } });
+      expect(views[1]!.status).toBe('run');
+    });
+
+    it('keeps a failed row ahead of a passed one', () => {
+      const views = pushViews({ '/web': { status: 'failed' }, '/api': { status: 'passed' } });
+      expect(views[1]!.status).toBe('fail');
+    });
+
+    it('reads a missing step record as note even beside a passed row', () => {
+      const views = shipProcesses(
+        shipInput({
+          evidence: evidence({
+            repos: {
+              '/web': repoEvidence('/web', { steps: { push: step('push', { status: 'passed' }) } }),
+              '/api': repoEvidence('/api'),
+            },
+          }),
+        }),
+      );
+      expect(views[1]!.status).toBe('note');
+    });
+
+    it('keeps an all-pass process green past the per-repo display bound', () => {
+      // The bounded remainder row ("+N more") is a display marker, not a
+      // recorded row — it must not turn a fully-passed process into a note.
+      const repos: Record<string, ShipRepoEvidence> = {};
+      for (let i = 0; i < 10; i += 1) {
+        repos[`/repo-${i}`] = repoEvidence(`/repo-${i}`, {
+          steps: { push: step('push', { repo: `/repo-${i}` }) },
+        });
+      }
+      const views = shipProcesses(shipInput({ evidence: evidence({ repos }) }));
+      expect(views[1]!.status).toBe('pass');
+    });
+  });
+
+  describe('landing reads only literal merged status', () => {
+    it('does not read a merge stamp on an open PR as landed', () => {
+      const views = shipProcesses(
+        shipInput({ prs: [pr('/web', { number: 40, status: 'open', mergedAt: NOW })] }),
+      );
+      const merge = views[3]!;
+      expect(merge.status).toBe('wait');
+      expect(rowsOf(merge)[0]).toMatchObject({ status: 'wait' });
+      expect(rowsOf(merge)[0]!.detail).toContain('not merged yet');
+    });
+
+    it('does not read a merge stamp on an unknown PR as landed', () => {
+      const views = shipProcesses(
+        shipInput({ prs: [pr('/web', { number: 40, status: 'unknown', mergedAt: NOW })] }),
+      );
+      expect(views[3]!.status).toBe('wait');
+    });
+
+    it('counts a stamped-but-open PR as open in the pr process evidence', () => {
+      const views = shipProcesses(
+        shipInput({ prs: [pr('/web', { number: 40, status: 'open', mergedAt: NOW })] }),
+      );
+      const prView = views[2]!;
+      const prsEvidence = prView.evidence as { kind: 'prs'; open: number; merged: number };
+      expect(prsEvidence.merged).toBe(0);
+      expect(prsEvidence.open).toBe(1);
+    });
+
+    it('reads a PR with literal merged status as landed, stamp or no stamp', () => {
+      const views = shipProcesses(
+        shipInput({ prs: [pr('/web', { number: 40, status: 'merged' })] }),
+      );
+      const merge = views[3]!;
+      expect(merge.status).toBe('pass');
+      expect(rowsOf(merge)[0]).toMatchObject({ status: 'pass', label: 'merged' });
+    });
+  });
 });

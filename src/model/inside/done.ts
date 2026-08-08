@@ -5,7 +5,7 @@ import type { ShipEvidence } from '../../store/shipRuns.js';
 import type { RecordedRoleUsage, RecordedUsageSummary } from '../../store/tokenUsage.js';
 import { formatTokens } from '../tokenFormat.js';
 import { latestBatch } from './gates.js';
-import { currentPerRepo } from './ship.js';
+import { currentPerRepo, isMerged } from './ship.js';
 import type { EvidenceRow, ShipPrView } from './types.js';
 
 /**
@@ -82,7 +82,7 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
     };
   }
 
-  const merged = currentPerRepo(input.prs).filter((pr) => pr.status === 'merged' || pr.mergedAt);
+  const merged = currentPerRepo(input.prs).filter(isMerged);
   const commits = Object.values(input.ship.repos).reduce(
     (sum, r) => sum + r.commits.filter((c) => c.origin === 'created-by-ship').length,
     0,

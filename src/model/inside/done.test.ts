@@ -239,4 +239,30 @@ describe('doneReceipt', () => {
     ) as Extract<DoneReceiptView, { status: 'complete' }>;
     expect(view.tokens!.label).toContain('0');
   });
+
+  describe('delivery reads only literal merged status', () => {
+    it('does not count a merge-stamped open PR as delivered', () => {
+      const view = doneReceipt(
+        receiptInput({ prs: [pr('/web', { number: 40, status: 'open', mergedAt: NOW })] }),
+      ) as Extract<DoneReceiptView, { status: 'complete' }>;
+      expect(view.delivered).toEqual({ repos: 0, prs: 0, commits: 0 });
+      expect(rowsOf(view).filter((r) => r.label === 'merged')).toHaveLength(0);
+    });
+
+    it('keeps the delivery pending for a merge-stamped unknown PR', () => {
+      const view = doneReceipt(
+        receiptInput({ prs: [pr('/web', { number: 41, status: 'unknown', mergedAt: NOW })] }),
+      ) as Extract<DoneReceiptView, { status: 'complete' }>;
+      expect(view.delivered).toEqual({ repos: 0, prs: 0, commits: 0 });
+      expect(rowsOf(view).filter((r) => r.label === 'merged')).toHaveLength(0);
+    });
+
+    it('counts a PR with literal merged status as delivered, stamp or no stamp', () => {
+      const view = doneReceipt(
+        receiptInput({ prs: [pr('/web', { number: 40, status: 'merged' })] }),
+      ) as Extract<DoneReceiptView, { status: 'complete' }>;
+      expect(view.delivered).toEqual({ repos: 1, prs: 1, commits: 0 });
+      expect(rowsOf(view).filter((r) => r.label === 'merged')).toHaveLength(1);
+    });
+  });
 });

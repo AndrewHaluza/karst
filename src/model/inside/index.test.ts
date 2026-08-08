@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../types.js';
 import { buildStepper, type StepperCell, type StepperStageRow } from '../stepper.js';
-import { buildStageInside, scopeProcesses, uatProcesses, reviewProcesses, shipProcesses, doneReceipt, implementationSessionProcess, type StageInsideInput } from './index.js';
+import { buildStageInside, scopeProcesses, uatProcesses, reviewProcesses, shipProcesses, doneReceipt, implementationSessionProcess, type StageInsideInput, type DoneReceiptView } from './index.js';
 import type { EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -515,6 +515,32 @@ describe('ship and done reducers (re-exported)', () => {
   it('exposes shipProcesses and doneReceipt from the index', () => {
     expect(typeof shipProcesses).toBe('function');
     expect(typeof doneReceipt).toBe('function');
+  });
+
+  it('reads ship landing through the index boundary from literal merged status only', () => {
+    const merge = shipProcesses({
+      cell: { stageKey: 'ship', status: 'passed' },
+      evidence: { run: undefined, repos: {} },
+      prs: [{ repo: 'api', number: 12, status: 'open', mergedAt: NOW }],
+      mergeChecks: [],
+      now: NOW,
+    }).find((p) => p.id === 'merge')!;
+    expect(merge.status).toBe('wait');
+  });
+
+  it('keeps the done receipt pending of delivery through the index boundary', () => {
+    const view = doneReceipt({
+      stageCurrent: 'done',
+      ship: { run: undefined, repos: {} },
+      prs: [{ repo: 'api', number: 12, status: 'unknown', mergedAt: NOW }],
+      mergeChecks: [],
+      gateRuns: [],
+      rounds: [],
+      tokens: null,
+      roles: [],
+      now: NOW,
+    }) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(view.delivered).toEqual({ repos: 0, prs: 0, commits: 0 });
   });
 });
 

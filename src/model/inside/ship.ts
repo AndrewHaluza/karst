@@ -88,6 +88,15 @@ function stepStatus(step: ShipRepoStepEvidence | undefined): InsideStatus {
   }
 }
 
+/**
+ * A repo's delivery is landed only when its CURRENT PR's status literally
+ * reads `merged`. Any other reading — `open`, `unknown` (a degraded probe),
+ * `closed`, a null status — is not landed, however well-stamped `mergedAt`
+ * is. `mergedAt` is display metadata, never landing authority. The one
+ * predicate both Ship and Done consume, so a landing has exactly one answer.
+ */
+export const isMerged = (pr: ShipPrView): boolean => pr.status === 'merged';
+
 /** Bound per-repo rows and name the remainder. */
 function boundedRepoRows(rows: readonly EvidenceRow[]): EvidenceRow[] {
   const boundedRows = bounded(rows, REPO_ROWS_LIMIT);
@@ -98,19 +107,25 @@ function boundedRepoRows(rows: readonly EvidenceRow[]): EvidenceRow[] {
   return out;
 }
 
-/** One repo's process status: fail beats run beats pass, and note is absence. */
+/**
+ * One process's status from its recorded rows: fail beats run, and a pass is
+ * claimed only when EVERY required recorded row is green — a single `note` (or
+ * a missing record) is absence and keeps the process from reading as done.
+ * Aggregated over the recorded rows BEFORE the display bound truncates them:
+ * the "+N more" remainder marker is presentation, not a recorded row.
+ */
 function aggregateStatus(rows: readonly EvidenceRow[]): InsideStatus {
   if (rows.some((r) => r.status === 'fail')) return 'fail';
   if (rows.some((r) => r.status === 'run')) return 'run';
-  if (rows.length > 0) return 'pass';
+  if (rows.length > 0 && rows.every((r) => r.status === 'pass' || r.status === 'skip')) return 'pass';
   return 'note';
 }
 
 /** The commit process: per repo, what the ship created vs what was already there. */
 function commitProcess(input: ShipProcessesInput): InsideProcessView {
   const repos = Object.keys(input.evidence.repos).sort();
-  const rows = boundedRepoRows(
-    repos.map((repo): EvidenceRow => {
+  const recorded = repos.map(
+    (repo): EvidenceRow => {
       const evidence = input.evidence.repos[repo]!;
       const created = evidence.commits.filter((c) => c.origin === 'created-by-ship');
       const before = evidence.commits.filter((c) => c.origin === 'before-ship').length;
@@ -129,14 +144,15 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
         ...(action ? { action } : {}),
         ...(step?.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
       };
-    }),
+    },
   );
+  const rows = boundedRepoRows(recorded);
   return {
     id: 'commit',
     kind: 'commit',
     label: 'Commit',
-    status: rows.length > 0 ? aggregateStatus(rows) : ranStatus(input),
-    ...(rows.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
+    status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
+    ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
     evidence: {
       kind: 'commits',
       rows,
@@ -162,8 +178,8 @@ function noEvidenceDetail(input: ShipProcessesInput): string {
 /** The push process: per repo, the push step's recorded outcome. */
 function pushProcess(input: ShipProcessesInput): InsideProcessView {
   const repos = Object.keys(input.evidence.repos).sort();
-  const rows = boundedRepoRows(
-    repos.map((repo): EvidenceRow => {
+  const recorded = repos.map(
+    (repo): EvidenceRow => {
       const step = input.evidence.repos[repo]!.steps.push;
       return {
         status: stepStatus(step),
@@ -171,14 +187,15 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
         detail: step?.detail || 'no push recorded',
         ...(step?.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
       };
-    }),
+    },
   );
+  const rows = boundedRepoRows(recorded);
   return {
     id: 'push',
     kind: 'push',
     label: 'Push',
-    status: rows.length > 0 ? aggregateStatus(rows) : ranStatus(input),
-    ...(rows.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
+    status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
+    ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
     evidence: { kind: 'rows', rows },
   };
 }
@@ -189,8 +206,8 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
  */
 function prProcess(input: ShipProcessesInput): InsideProcessView {
   const repos = Object.keys(input.evidence.repos).sort();
-  const rows = boundedRepoRows(
-    repos.map((repo): EvidenceRow => {
+  const recorded = repos.map(
+    (repo): EvidenceRow => {
       const step = input.evidence.repos[repo]!.steps.pr;
       if (!step) {
         return { status: 'note', label: repo, detail: 'pr step not recorded' };
@@ -203,17 +220,18 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
         detail: `${kind}${number}`,
         ...(step.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
       };
-    }),
+    },
   );
+  const rows = boundedRepoRows(recorded);
   const current = currentPerRepo(input.prs);
-  const open = current.filter((pr) => pr.status !== 'merged' && !pr.mergedAt).length;
-  const merged = current.length - open;
+  const merged = current.filter(isMerged).length;
+  const open = current.length - merged;
   return {
     id: 'pr',
     kind: 'pr',
     label: 'Pull request',
-    status: rows.length > 0 ? aggregateStatus(rows) : ranStatus(input),
-    ...(rows.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
+    status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
+    ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
     evidence: { kind: 'prs', rows, open, merged },
   };
 }
@@ -231,7 +249,7 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
   const rows = current.map((pr): EvidenceRow => {
     const label = pr.repoDisplay || pr.repo;
     const name = pr.number ? `${label} #${pr.number}` : label;
-    if (pr.status === 'merged' || pr.mergedAt) {
+    if (isMerged(pr)) {
       return { status: 'pass', label: 'merged', detail: name };
     }
     const check = checksByRepo.get(pr.repo);
