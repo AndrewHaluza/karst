@@ -16,7 +16,8 @@
 - Evidence is written when it happens. Process rows open before work and preserve partial results across extension-host death.
 - Explicit `impl`/`fix` pass markers close their durable execution rows in the same transaction as the stage transition; lifecycle hooks never infer a pass.
 - Permanent ticket deletion remains executable with foreign keys enabled: ticket-owned evidence is removed leaf-first, while global usage rows are detached and retain only unattributed counts.
-- Interactive cumulative-usage baselines are scoped to provider session identity across Karst resume segments; a new segment is not a new counter lifetime.
+- Interactive cumulative-usage baselines are scoped to provider session identity across Karst processes/segments; a new Karst process or segment is not a new counter lifetime. Count a first cumulative observation from zero only when a durable launch intent proves Karst created a newly instrumented provider session; otherwise persist it as an unattributed baseline.
+- Provider capability is evidence-based. Claude Code and Antigravity interactive token usage remain unsupported until an authoritative provider event exposes numeric counters plus a stable event id; unsupported processes omit tokens rather than estimating or displaying zero.
 - Settings are future configuration. Every started AI process snapshots agent name, provider, model, and recovery cap where applicable.
 - Missing historical facts render as absence, never zero, pass, or reconstructed prose.
 - The webview does not order processes, aggregate repositories, derive statuses, parse references, or invent navigation targets.
@@ -226,7 +227,7 @@ expect(listTokenUsage(store, { ticketId, processRunId: run.id })).toHaveLength(1
 expect(summarizeRecordedTokenUsage(store, ticketId)).toEqual({ input: 120, output: 30, total: 150 });
 ```
 
-Seed a second `estimated = 1` row and prove it is excluded from the recorded summary. Seed legacy null-linked rows and prove normal ticket-level queries still return them. Enable foreign keys, seed every new linked evidence shape, permanently delete the ticket, and prove deletion succeeds without leaving ticket-owned process/implementation/recovery rows or destroying the global token ledger.
+Seed a second `estimated = 1` row and prove it is excluded from the recorded summary. Seed legacy null-linked rows and prove normal ticket-level queries still return them. Enable foreign keys, seed every new linked evidence shape, permanently delete the ticket, and prove deletion succeeds without leaving ticket-owned process/implementation/launch-intent/recovery/Ship rows or destroying the global token ledger.
 
 - [ ] **Step 2: Verify RED**
 
@@ -244,7 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_review_findings_process ON review_findings(proces
 
 Increment `SCHEMA_VERSION` to 27. Guard the migration with `tableColumns`; fresh schema includes the columns directly. Do not assign legacy rows to invented runs. Every later nullable attribution link to ticket-owned execution evidence must also use `ON DELETE SET NULL`; every new ticket-owned root/child (`process_runs`, implementation runs/segments/samples, Tester evidence, recovery rounds, and Ship runs/steps) uses a cascade rooted at its ticket or parent. This keeps partial cleanup FK-safe without making cascade order an implicit product contract.
 
-Extend `src/store/tickets.ts`'s hard-delete transaction rather than relying on SQLite to discover an order. First detach the global accounting ledger with `UPDATE token_usage SET ticket_id = NULL` and clear every execution/sample attribution column present in the final schema. Then delete ticket-owned evidence leaf-first (Tester/Review findings, recovery rounds, gate/phase evidence, stage/process/implementation/Ship runs), followed by the existing child tables and ticket row. Extend the hard-delete tests whenever Tasks 4–9 add a table. The final test must create every linked evidence shape, call the real `deleteTicket`/`deleteTicketPermanently` path, and prove no `SQLITE_CONSTRAINT_FOREIGNKEY`, no ticket-owned evidence rows, and a surviving token row with `ticket_id` plus all execution attribution set to `NULL`. Do not rely only on direct `DELETE FROM tickets`: `src/store/tickets.ts` is the product deletion contract.
+Extend `src/store/tickets.ts`'s hard-delete transaction rather than relying on SQLite to discover an order. First detach the global accounting ledger with `UPDATE token_usage SET ticket_id = NULL` and clear every execution/sample attribution column present in the final schema. Then delete ticket-owned evidence leaf-first (Tester/Review findings, interactive samples, recovery rounds, session launch intents, Ship operation intents/steps/commits, gate/phase evidence, and stage/process/implementation/Ship roots), followed by the existing child tables and ticket row. Extend the hard-delete tests whenever Tasks 4–9 add a table. The final test must create every linked evidence shape, call the real `deleteTicket`/`deleteTicketPermanently` path, and prove no `SQLITE_CONSTRAINT_FOREIGNKEY`, no ticket-owned evidence rows, and a surviving token row with `ticket_id` plus all execution attribution set to `NULL`. Do not rely only on direct `DELETE FROM tickets`: `src/store/tickets.ts` is the product deletion contract.
 
 - [ ] **Step 4: Thread the closed tracking field through the adapter seam**
 
@@ -271,6 +272,8 @@ Commit: `feat: attribute recorded tokens to inside processes`
 - Modify: `src/store/migrations.ts`
 - Create: `src/store/implementationRuns.ts`
 - Create: `src/store/implementationRuns.test.ts`
+- Create: `src/store/sessionLaunchIntents.ts`
+- Create: `src/store/sessionLaunchIntents.test.ts`
 - Modify: `src/store/phaseMarks.ts`
 - Modify: `src/store/phaseMarks.test.ts`
 - Modify: `src/agent/sessionSwitch.ts`
@@ -287,8 +290,8 @@ Commit: `feat: attribute recorded tokens to inside processes`
 - Modify: `src/extension.ts`
 
 **Interfaces:**
-- Produces: `openImplementationRun`, `openImplementationSegment`, `confirmImplementationSegment`, `closeImplementationSegment`, `completeImplementationRun`, `interruptImplementationRun`, `listImplementationTimeline`.
-- Consumes: every provider `SessionStart` as confirmation; a synchronous `SessionManager.onLaunchPrepared` callback records pending intent for any actual ordinary/switch launch but not for a focus/adoption no-op; the explicit `stage impl pass` marker is the only completion authority.
+- Produces: `openImplementationRun`, `openImplementationSegment`, `confirmImplementationSegment`, `closeImplementationSegment`, `completeImplementationRun`, `interruptImplementationRun`, `listImplementationTimeline`, `recordSessionLaunchIntent`, `failSessionLaunchIntent`, `confirmSessionLaunchIntent`, and `supersedePendingLaunchIntents`.
+- Consumes: every provider `SessionStart` as confirmation; a synchronous `SessionManager.onLaunchPrepared` callback records pending intent for any actual ordinary/switch launch but not for a focus/adoption no-op; `onLaunchFailed` resolves terminal-creation failures; the explicit `stage impl pass` marker is the only completion authority.
 
 - [ ] **Step 1: Write failing same-run/multiple-segment tests**
 
@@ -301,11 +304,11 @@ expect(timeline.segments.map((s) => [s.provider, s.model])).toEqual([
 expect(timeline.segments[1]!.providerSessionId).toBe('codex-session-2');
 ```
 
-Also prove that an ordinary first launch creates the first segment without any switch intent, an ordinary resume/reload reattaches the provider session to the stable run, a switch creates a later segment, focus/adoption invokes no launch callback and creates no pending segment, a cancelled/failed terminal launch creates no confirmed segment, and legacy phase marks keep null segment linkage. Fire the real `runStageCommand(..., ['stage','impl','pass'])` path and prove it closes the active segment, marks the stable run `passed`, stamps both end times, and advances to UAT in one transaction. A refused/stale marker must change neither the run nor the segment; a `SessionEnd` without the marker may interrupt a segment but must never mark the implementation run passed.
+Also prove that an ordinary first launch creates the first segment without any switch intent, an ordinary resume/reload reattaches the provider session to the stable run, a switch creates a later segment, focus/adoption invokes no launch callback and creates no pending intent, and legacy phase marks keep null segment linkage. Persist a launch intent, close and reopen the store, then prove only a `SessionStart` carrying the same launch id can confirm it. A second pending launch for the same ticket/purpose supersedes the first; a stale/mismatched start mutates neither intent nor timeline; terminal creation failure marks the intent `failed` and creates no segment. Fire the real `runStageCommand(..., ['stage','impl','pass'])` path and prove it closes the active segment and its Session process run, marks the stable run `passed`, stamps all end times, and advances to UAT in one transaction. A refused/stale marker must change none of them; a `SessionEnd` without the marker may interrupt a segment/process run but must never mark the implementation run passed.
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/store/implementationRuns.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts src/ui/session.test.ts src/ui/sessionReloadIdentity.test.ts src/workflow/stages/implement.test.ts src/cli/stage.test.ts`
+Run: `npx vitest run src/store/implementationRuns.test.ts src/store/sessionLaunchIntents.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts src/ui/session.test.ts src/ui/sessionReloadIdentity.test.ts src/workflow/stages/implement.test.ts src/cli/stage.test.ts`
 Expected: FAIL because stable implementation runs, segments, and explicit-marker completion wiring are absent.
 
 - [ ] **Step 3: Add implementation run/segment schema**
@@ -314,6 +317,7 @@ Expected: FAIL because stable implementation runs, segments, and explicit-marker
 CREATE TABLE IF NOT EXISTS implementation_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  process_run_id INTEGER NOT NULL UNIQUE REFERENCES process_runs(id) ON DELETE CASCADE,
   attempt INTEGER NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('running','passed','interrupted')),
   started_at TEXT NOT NULL,
@@ -330,15 +334,33 @@ CREATE TABLE IF NOT EXISTS implementation_segments (
   started_at TEXT,
   ended_at TEXT
 );
+CREATE TABLE IF NOT EXISTS session_launch_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  launch_id TEXT NOT NULL UNIQUE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('implementation','fix')),
+  implementation_run_id INTEGER REFERENCES implementation_runs(id) ON DELETE CASCADE,
+  process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL,
+  model TEXT,
+  reason TEXT NOT NULL,
+  session_origin TEXT NOT NULL CHECK (session_origin IN ('new','resume','unknown')),
+  provider_session_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('pending','confirmed','failed','superseded')),
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending
+  ON session_launch_intents(ticket_id, purpose) WHERE status = 'pending';
 ```
 
-Increment `SCHEMA_VERSION` to 28. Add nullable `implementation_run_id` and `implementation_segment_id` to `phase_marks`, add nullable `implementation_segment_id` to `token_usage`, and create an index on `token_usage(implementation_segment_id, id)`. All three nullable links use `ON DELETE SET NULL`, as required by the permanent-delete contract from Task 3; legacy rows keep null links.
+Increment `SCHEMA_VERSION` to 28. Add nullable `implementation_run_id` and `implementation_segment_id` to `phase_marks`, add nullable `implementation_segment_id` to `token_usage`, and create an index on `token_usage(implementation_segment_id, id)`. Add `launch_intent_id INTEGER NOT NULL UNIQUE REFERENCES session_launch_intents(id) ON DELETE CASCADE` to `implementation_segments`, so a confirmed segment is traceable to the exact prepared launch. All nullable evidence links use `ON DELETE SET NULL`, as required by the permanent-delete contract from Task 3; legacy rows keep null links. Opening an Implementation run also opens its canonical `process_runs(stage_key='impl', process_id='session')` row and stores that id on `implementation_runs`.
 
 - [ ] **Step 4: Record only confirmed provider sessions**
 
-Add a host-agnostic synchronous `onLaunchPrepared` callback to `SessionManager`, invoked only after it has allocated the hook `launchId` for an actual new terminal and before `createTerminal`. The existing-terminal focus and revived-terminal adoption returns must not invoke it. The `karst.openSession` command supplies the already resolved provider/model and persists launch intent from that callback. This covers initial sessions, recovery/resume launches, switches, and every caller that funnels through the command without leaving a phantom pending segment when `openSession` merely focuses an existing session. The intent records the stable Implementation run, provider, model, reason (`initial | resume | switch`), and launch id; it is still pending because terminal creation is not proof the provider started.
+Add host-agnostic synchronous `onLaunchPrepared` and `onLaunchFailed` callbacks to `SessionManager`. `onLaunchPrepared` runs only after allocating the hook `launchId` for an actual new terminal and before `createTerminal`; existing-terminal focus and revived-terminal adoption returns invoke neither callback. The `karst.openSession` command supplies the resolved provider/model and persists the full `session_launch_intents` row, including launch id, stable Implementation run, Session process run, reason (`initial | resume | switch`), and whether the adapter command creates a new provider session or resumes one. Wrap terminal creation so a synchronous creation failure calls `onLaunchFailed(launchId)`; starting a newer launch transactionally marks the older pending intent for that ticket/purpose `superseded`. The row stays pending because terminal creation is not proof the provider started.
 
-`hooks/dispatch.ts` resolves every accepted `SessionStart` by ticket plus launch id. For an ordinary first launch it confirms the pending intent as the first segment. For a resume/reload it attaches the provider session id to the current compatible segment or confirms the pending resume segment according to the stored launch intent. For a switch it confirms the new segment, then closes the previous segment while preserving the stable Karst run id. A stale/mismatched `SessionStart` is rejected by the existing lifecycle barrier and cannot mutate the timeline. Never require a switch record to create an initial segment, and never pretend provider session ids are shared across cores.
+`hooks/dispatch.ts` resolves every accepted `SessionStart` by the URL-authenticated launch id, then verifies ticket, pending status, provider, and current lifecycle generation before mutating anything. In one transaction it stores the provider session id on the intent and confirms the corresponding segment. For an ordinary first launch it confirms the first segment; for a resume/reload it reattaches the provider session to the compatible segment or confirms a resume segment according to the stored intent; for a switch it confirms the new segment and closes the previous one while preserving the stable Karst run id. An unknown, failed, superseded, already-consumed, or mismatched launch id is rejected by the existing lifecycle barrier. Never recover intent from in-memory callback state after reload, require a switch record for an initial segment, or pretend provider session ids are shared across cores.
 
 Route the parsed `impl` marker in `src/cli/stage.ts` through `markImplementDone`, not directly through the generic four-argument transition. `markImplementDone` calls `transition(..., premutate)` and uses that same transaction to `completeImplementationRun`: close the current confirmed segment, mark the stable run `passed`, and record its end time. Keep `parseStageArgs`'s narrow security boundary unchanged. The marker remains the only completion signal; `SessionEnd`/terminal close can call `interruptImplementationRun` only when the host has evidence of interruption and can never synthesize a passed run. This gives every opened implementation run a durable terminal path without weakening the explicit-marker invariant.
 
@@ -348,7 +370,7 @@ Do not synthesize token values for interactive sessions in this task. Add a redu
 
 - [ ] **Step 6: Run focused tests and commit**
 
-Run: `npx vitest run src/store/implementationRuns.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts src/ui/session.test.ts src/ui/sessionReloadIdentity.test.ts src/workflow/stages/implement.test.ts src/cli/stage.test.ts`
+Run: `npx vitest run src/store/implementationRuns.test.ts src/store/sessionLaunchIntents.test.ts src/agent/sessionSwitch.test.ts src/hooks/dispatch.test.ts src/store/phaseMarks.test.ts src/ui/session.test.ts src/ui/sessionReloadIdentity.test.ts src/workflow/stages/implement.test.ts src/cli/stage.test.ts`
 Expected: PASS.
 Commit: `feat: preserve implementation agent switch history`
 
@@ -363,7 +385,6 @@ Commit: `feat: preserve implementation agent switch history`
 - Create: `src/store/interactiveUsageSamples.ts`
 - Create: `src/store/interactiveUsageSamples.test.ts`
 - Modify: `src/agent/aiCallSites.ts`
-- Modify: `src/agent/settings.ts`
 - Modify: `src/agent/settings.test.ts`
 - Modify: `src/agent/codex.ts`
 - Modify: `src/agent/codex.test.ts`
@@ -379,8 +400,8 @@ Commit: `feat: preserve implementation agent switch history`
 - Modify: `src/agent/provider.ts`
 
 **Interfaces:**
-- Produces: `InteractiveUsageSample`, `appendInteractiveUsageSample`, `lastInteractiveUsageSample`, `interactiveUsageDelta`, and closed `UsageUpdate` hook handling linked to `implementation_segment_id`.
-- Consumes: provider-reported numeric cumulative usage only; payloads without authoritative counts produce no row.
+- Produces: `InteractiveUsageSample`, `appendInteractiveUsageSample`, `lastInteractiveUsageSample`, `interactiveUsageDelta`, and closed `UsageUpdate` hook handling owned by `process_run_id` with optional `implementation_segment_id` refinement.
+- Consumes: provider-reported numeric cumulative usage plus a stable provider event id; the confirmed session binding and durable launch intent determine process ownership and whether the first observation is billable or baseline-only.
 
 - [ ] **Step 1: Write failing delta and validation tests**
 
@@ -391,7 +412,7 @@ expect(interactiveUsageDelta(
 )).toEqual({ input: 450, output: 120, cacheRead: 80, cacheWrite: 20, total: 670 });
 ```
 
-Cover first sample, repeated cumulative sample, negative/reset counters, distinct cache-read/cache-write counts, provider totals, non-numeric fields, wrong provider/session, stale segment, and duplicate event id. The first cumulative sample for a genuinely new `(provider, providerSessionId)` must write its full non-negative counts; it is usage, not a throwaway baseline. Close and reopen the store between samples to prove later deltas are reconstructed from persisted cumulative evidence. Then close one Karst segment, resume the **same provider session id** in a later segment, and prove the first sample on the resumed segment subtracts the provider session's last persisted cumulative sample instead of billing the lifetime total again. A genuinely new provider session starts from implicit zero. When any counter decreases, open a new provider-session counter epoch and write that reset sample's full non-negative counts as the first delta of the new epoch; another host restart must still derive the next delta from that persisted epoch.
+Cover first sample, repeated cumulative sample, negative/reset counters, distinct cache-read/cache-write counts, provider totals, non-numeric fields, wrong provider/session, stale process ownership, optional Implementation segment attribution, Fix process attribution, and duplicate event id. A first sample starts from implicit zero only when its confirmed `session_launch_intents.session_origin='new'` proves Karst created that provider session under instrumentation. For a resumed/adopted/pre-v29 provider session with no prior sample, persist the observation as `baseline_only=1` and write no `token_usage` row; the next observation subtracts that baseline. Close and reopen the store between samples to prove the decision is durable. Then close one Karst segment/process, resume the **same provider session id** into a later Implementation segment and into a Fix process, and prove each later sample subtracts the provider session's last persisted cumulative sample while attributing only its delta to the currently bound process. When any counter decreases during a confirmed continuously instrumented session, open a new provider-session counter epoch and write that reset sample's full non-negative counts; if continuity cannot be proved, treat the reset sample as a new unattributed baseline.
 
 - [ ] **Step 2: Verify RED**
 
@@ -423,7 +444,8 @@ Increment `SCHEMA_VERSION` to 29 and add this durable source table plus nullable
 ```sql
 CREATE TABLE IF NOT EXISTS interactive_usage_samples (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  implementation_segment_id INTEGER NOT NULL REFERENCES implementation_segments(id) ON DELETE CASCADE,
+  process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL,
   source_event_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   provider_session_id TEXT NOT NULL,
@@ -433,38 +455,41 @@ CREATE TABLE IF NOT EXISTS interactive_usage_samples (
   cache_write_tokens INTEGER,
   total_tokens INTEGER,
   counter_epoch INTEGER NOT NULL DEFAULT 0,
+  baseline_only INTEGER NOT NULL DEFAULT 0 CHECK (baseline_only IN (0,1)),
   observed_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_interactive_usage_event
   ON interactive_usage_samples(provider, provider_session_id, source_event_id);
 CREATE INDEX IF NOT EXISTS idx_interactive_usage_segment
   ON interactive_usage_samples(implementation_segment_id, id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_process
+  ON interactive_usage_samples(process_run_id, id);
 CREATE INDEX IF NOT EXISTS idx_interactive_usage_provider_session
   ON interactive_usage_samples(provider, provider_session_id, id);
 ```
 
-The v29 migration also adds nullable `interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL` to `token_usage` plus a partial unique index for non-null sample ids. In one transaction, resolve the confirmed current segment, reject an already-recorded `(provider, provider_session_id, source_event_id)` idempotently, read the preceding persisted sample for the **provider session and epoch across all Karst segments**, append the new cumulative sample linked to the current segment, and append exactly one non-negative delta row to `token_usage(call_site='implementation', estimated=0, implementation_segment_id=..., interactive_usage_sample_id=sample.id)`. Segment linkage answers where the increment occurred; provider-session linkage is the baseline scope. Never reset the baseline merely because Karst opened a resume segment.
+The v29 migration also adds nullable `interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL` to `token_usage` plus a partial unique index for non-null sample ids. In one transaction, resolve the accepted provider session's **current process binding**, reject an already-recorded `(provider, provider_session_id, source_event_id)` idempotently, read the preceding persisted sample for that provider session/epoch across every Karst process, append the cumulative sample with required `process_run_id` and optional `implementation_segment_id`, and append at most one non-negative delta row to `token_usage(process_run_id=..., implementation_segment_id=..., interactive_usage_sample_id=sample.id)`. Use `call_site='implementation'` for the Session process and `call_site='fix-resume'` for a Fix process. Process linkage answers where the increment occurred; provider-session linkage is the baseline scope. Never reopen or misattribute an Implementation segment for Fix usage, and never reset the baseline merely because Karst changed process/segment ownership.
 
-For the first sample ever recorded for a `(provider, providerSessionId)`, compare against an implicit zero sample and write the full reported counts. If the same provider session resumes in a later Karst segment, carry forward its latest persisted counters and `counter_epoch`; only the new increment belongs to the resumed segment. If any reported counter decreases, increment that provider session's `counter_epoch`, compare the reset sample against implicit zero, and write its full counts as the first delta of the new epoch. Later samples subtract only the preceding sample for that provider session in the same persisted epoch. This loses neither the first billable sample nor tokens reported in the reset event, avoids double-counting on resume, remains reconstructable after restart, and lets the partial unique index make event replay idempotent. Add `implementation` to the closed AI call-site set and use the schema-v28 segment linkage from Task 4.
+For a proven-new session, compare the first sample against implicit zero and write the full reported counts. For an unproven/resumed session with no stored predecessor, persist `baseline_only=1`, emit no accounting row, and use it as the next delta's predecessor. If the same provider session later moves between Karst processes or segments, carry forward its latest persisted counters and `counter_epoch`; only the new increment belongs to the new owner. A counter decrease increments the epoch; count the reset observation from zero only when the confirmed binding proves continuous instrumentation, otherwise baseline it. Later samples subtract only the preceding sample for that provider session in the same persisted epoch. Add `implementation` to the closed AI call-site set and retain `fix-resume`; the source row makes replay idempotent and the explicit baseline flag prevents pre-instrumentation usage from being billed to this ticket.
 
 - [ ] **Step 5: Make supported provider bridges produce UsageUpdate**
 
-- Claude: extend `settings.ts`/the hook endpoint to normalize token-bearing `Stop` or `SessionEnd` payloads through `interactiveUsage.ts`; map `cache_read_input_tokens` and `cache_creation_input_tokens` separately, and leave payloads without cumulative counts or a stable id as ordinary lifecycle events.
 - Codex: extend `CODEX_HOOK_BRIDGE` in `codex.ts` to forward authoritative cumulative input/output/cache-read/cache-write/total usage and the provider event id instead of discarding them while normalizing lifecycle events.
 - OpenCode: extend the generated bridge in `opencode.ts` to observe its token-bearing step/message completion event and post the same normalized usage payload without folding cache writes into cache reads.
+- Claude Code: keep `interactiveUsage: false`. Its documented `Stop` payload exposes `session_id`, `stop_hook_active`, and `last_assistant_message`; `SessionEnd` adds only `reason`. Neither event supplies authoritative token counters plus a stable usage-event id, so do not invent token-bearing fixtures or parse transcripts. Pin this against captured payloads matching the official [Claude Code hooks reference](https://code.claude.com/docs/en/hooks).
 - Antigravity: keep `interactiveUsage: false` because the adapter has no lifecycle channel; its test pins truthful absence.
 
-Use captured provider event fixtures in `settings.test.ts`, `codex.test.ts`, and `opencode.test.ts` to prove each supported bridge actually posts `UsageUpdate`, and prove malformed/partial usage is dropped before it reaches the store.
+Use captured provider event fixtures in `codex.test.ts` and `opencode.test.ts` to prove each supported bridge actually posts `UsageUpdate`, and prove malformed/partial usage is dropped before it reaches the store. In the existing Claude settings tests, assert documented `Stop`/`SessionEnd` payloads remain lifecycle-only and the provider capability remains false.
 
 - [ ] **Step 6: Preserve absence for unsupported provider events**
 
-When a provider exposes no authoritative usage fields, its bridge emits no `UsageUpdate`; the segment remains token-absent. Add a capability result to `provider.ts` so reducers can distinguish “not measured” from a measured zero without inventing a count.
+When a provider exposes no authoritative usage fields, its bridge emits no `UsageUpdate`; the process remains token-absent. Add a capability result to `provider.ts` so reducers can distinguish “not measured” from a measured zero without inventing a count.
 
 - [ ] **Step 7: Run focused tests and commit**
 
 Run: `npx vitest run src/agent/interactiveUsage.test.ts src/store/interactiveUsageSamples.test.ts src/agent/settings.test.ts src/agent/codex.test.ts src/agent/opencode.test.ts src/agent/antigravity.test.ts src/hooks/endpoint.test.ts src/hooks/dispatch.test.ts src/store/tokenUsage.test.ts src/workflow/tokenUsageAttribution.test.ts`
 Expected: PASS.
-Commit: `feat: record measured implementation token deltas`
+Commit: `feat: record measured interactive token deltas`
 
 ### Task 6: Persist Causal Recovery Rounds and Cap Snapshots
 
@@ -473,6 +498,8 @@ Commit: `feat: record measured implementation token deltas`
 - Modify: `src/store/migrations.ts`
 - Create: `src/store/recoveryRounds.ts`
 - Create: `src/store/recoveryRounds.test.ts`
+- Modify: `src/store/sessionLaunchIntents.ts`
+- Modify: `src/store/sessionLaunchIntents.test.ts`
 - Modify: `src/workflow/gates/commit.ts`
 - Create: `src/workflow/gates/commit.test.ts`
 - Modify: `src/workflow/stages/uat.ts`
@@ -507,7 +534,7 @@ manifest.review!.maxFixAttempts = 5;
 expect(recoveryDecision(store, ticketId, 'review').maxRounds).toBe(2);
 ```
 
-Add cases for source process identity, round ordering, exhaustion, a Fix process-run link, and an execution crash that creates no recovery round. Exercise both production branches: a live-session nudge opens and attaches exactly one Fix process run before the prompt is delivered; a closed-session relaunch records intent but opens/attaches the process run only when the matching `SessionStart` is accepted. Prove `src/workflow/stages/fix.ts::runFix` is not required for production tracking. The real `stage fix pass` marker must atomically pass the process run, move the recovery round to `revalidating`, and transition to the source gate; a rejected marker mutates none of them.
+Add cases for source process identity, round ordering, exhaustion, a Fix process-run link, and an execution crash that creates no recovery round. Exercise both production branches: a live-session nudge opens and attaches exactly one Fix process run before the prompt is delivered; a closed-session relaunch persists a `session_launch_intents(purpose='fix')` row linked to the recovery round but opens/attaches the process run only when the matching `SessionStart` is accepted. Prove `src/workflow/stages/fix.ts::runFix` is not required for production tracking. The real `stage fix pass` marker must atomically pass the process run, move the recovery round to `revalidating`, and follow the only legal graph edge `fix -> uat`; a rejected marker mutates none of them. For a Review-origin round, prove UAT is attached and must pass before the later Review run is attached; no direct Fix-to-Review transition is attempted.
 
 - [ ] **Step 2: Verify RED**
 
@@ -529,7 +556,8 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   round INTEGER NOT NULL,
   max_rounds INTEGER NOT NULL,
   fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
-  revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted')),
   started_at TEXT NOT NULL,
   ended_at TEXT
@@ -538,7 +566,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
   ON recovery_rounds(ticket_id, source_stage, round);
 ```
 
-Increment `SCHEMA_VERSION` to 30 and mirror the table/index in the fresh schema.
+Increment `SCHEMA_VERSION` to 30 and mirror the table/index in the fresh schema. Add nullable `recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE CASCADE` to `session_launch_intents`; it is required when `purpose='fix'` and absent for Implementation intents. This gives a pending Fix launch a durable owner before its process run exists.
 
 - [ ] **Step 4: Open the round with the failing outcome transaction**
 
@@ -564,10 +592,10 @@ Extend `commitGateOutcome`'s transition premutation to pass this complete snapsh
 Do not wire this through `src/workflow/stages/fix.ts::runFix`: production recovery never calls that headless helper. Thread the committed recovery-round id through `driveTicket`'s `resumeFix` callback into the existing `extension.ts::resumeFixSession` path.
 
 - **Live session:** use the session manager's recorded active provider/model snapshot, then transactionally open `process_runs(process_id='fix')` and attach it to the recovery round immediately before delivering the Fix brief. If delivery fails, mark both execution and round interrupted.
-- **Closed session:** persist a Fix launch intent containing recovery-round id, assignment snapshot, and launch id from `onLaunchPrepared`; the matching accepted `SessionStart` transactionally opens the Fix process run and attaches it. A cancelled launch or stale/mismatched start creates no process run.
-- **Usage:** while a Fix execution is active, `UsageUpdate` still computes deltas from the provider-session baseline in Task 5 but records them with `call_site='fix-resume'` and that active `processRunId`; ordinary Implementation samples remain `call_site='implementation'`.
-- **Completion:** route the parsed `fix` marker through a workflow helper that calls `transition(..., premutate)` to mark the linked Fix process run passed and the recovery round revalidating in the same transaction. A session crash marks both interrupted and consumes no additional round.
-- **Revalidation:** when the next source UAT/Review `stage_run` opens, attach that exact id to the revalidating round; finishing revalidation passes/fails/exhausts that round from recorded outcome evidence.
+- **Closed session:** persist a Fix launch intent containing `recovery_round_id`, assignment snapshot, launch id, and session origin from `onLaunchPrepared`; the matching accepted `SessionStart` transactionally opens the Fix process run, attaches it to both intent and round, and confirms the intent. `onLaunchFailed`, supersession, or a stale/mismatched start resolves the intent without creating a process run.
+- **Usage:** while a Fix execution is active, `UsageUpdate` computes deltas from Task 5's provider-session baseline and owns each sample with the active Fix `processRunId`, no Implementation segment, and `call_site='fix-resume'`; ordinary Session samples use their Session process run plus optional Implementation segment and `call_site='implementation'`.
+- **Completion:** route the parsed `fix` marker through a workflow helper that calls the existing `transition(..., premutate)` from `fix` with a passed verdict. The premutation marks the linked Fix process run passed and the recovery round revalidating; the graph itself moves the ticket to UAT. A session crash marks both interrupted and consumes no additional round.
+- **Revalidation:** `openGateRun`/the UAT stage attaches the next UAT `stage_run` to `uat_revalidation_stage_run_id`. For a UAT-origin round, that UAT outcome completes or fails the round. For a Review-origin round, a passing UAT leaves the round revalidating; when the driver subsequently reaches Review, its new run is attached to `review_revalidation_stage_run_id`, and only that Review outcome completes/fails the original round. If the intermediate UAT fails, mark the Review-origin round failed and let the atomically created UAT recovery round describe the new cause. Never call `transition()` directly from Fix to Review and never skip UAT.
 
 Keep `runFix` only if another tested caller still needs it; otherwise remove it rather than presenting a second, untracked production route.
 
@@ -688,11 +716,15 @@ Commit: `feat: configure inside ai process assignments`
 - Modify: `src/workflow/review/findingsLane.test.ts`
 - Modify: `src/workflow/stages/review.ts`
 - Modify: `src/workflow/stages/review.test.ts`
+- Modify: `src/workflow/driveTicket.ts`
+- Modify: `src/workflow/driveTicket.test.ts`
 - Modify: `src/agent/aiCallSites.ts`
+- Modify: `src/extension.ts`
+- Modify: `src/extensionActivation.test.ts`
 
 **Interfaces:**
-- Produces: `runUatTester`, advisory `TesterObservation`, `runTesterVerifier`, deterministic `TesterVerificationOutcome`, and explicit Review process outcomes `validated | blocking | execution-failed | interrupted`.
-- Consumes: resolved assignment snapshot, target list, `processRunId`, the instrumented adapter, and optional validated `uat.testerVerifier: GateDef` run through an injected host `GateRunner`; its exit code is the sole Tester-specific UAT verdict.
+- Produces: `runUatTester`, advisory `TesterObservation`, `runTesterVerifier`, deterministic `TesterVerificationOutcome`, explicit Review process outcomes `validated | blocking | execution-failed | interrupted`, and production `DriveTicketDeps` seams for resolved Tester/Review assignments, instrumented adapters, and the verifier runner.
+- Consumes: resolved assignment snapshots, target list, `processRunId`, instrumented adapter, and optional validated `uat.testerVerifier: GateDef` run through an injected host `GateRunner`; its exit code is the sole Tester-specific UAT verdict. `extension.ts` remains the composition root that resolves adapters/assignments and applies `instrument(...)` before handing them to `driveTicket`.
 
 - [ ] **Step 1: Write failing Tester tests**
 
@@ -705,7 +737,7 @@ expect(await runTesterVerifier(input, { run: async () => ({ exitCode: 1 }) }))
   .toEqual({ kind: 'failed', exitCode: 1 });
 ```
 
-Cover observations with and without blocking-severity findings, malformed output, adapter crash, cancellation, target linkage, and `uat-tester` token attribution. Prove none of those AI-authored result shapes transitions UAT or opens a recovery round. Separately cover verifier exit 0, nonzero, cancellation, execution failure, and no verifier configured; only a completed nonzero exit code is a deterministic validation failure eligible for recovery, while absence keeps Tester advisory and leaves progression to the ordinary UAT gates.
+Cover observations with and without blocking-severity findings, malformed output, adapter crash, cancellation, target linkage, and `uat-tester` token attribution. Prove none of those AI-authored result shapes transitions UAT or opens a recovery round. Separately cover verifier exit 0, nonzero, cancellation, execution failure, and no verifier configured; only a completed nonzero exit code is a deterministic validation failure eligible for recovery, while absence keeps Tester advisory and leaves progression to the ordinary UAT gates. At the production boundary, call the real `driveTicket` with spies from the extension composition seam and prove the configured Tester assignment reaches `runUat`, the adapter is instrumented exactly once, the verifier runner is supplied, and the opened Tester process id is used for usage/findings. Repeat for Review to prove its configured assignment snapshot and process-run tracking reach the existing findings lane.
 
 - [ ] **Step 2: Write failing Review crash-vs-finding tests**
 
@@ -713,7 +745,7 @@ Prove the existing Review finding behavior remains distinguishable from an adapt
 
 - [ ] **Step 3: Verify RED**
 
-Run: `npx vitest run src/manifest/validate/uat.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/workflow/uat/tester.test.ts src/workflow/uat/testerVerifier.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts`
+Run: `npx vitest run src/manifest/validate/uat.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/workflow/uat/tester.test.ts src/workflow/uat/testerVerifier.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts src/workflow/driveTicket.test.ts src/extensionActivation.test.ts`
 Expected: FAIL because Tester and explicit execution outcomes are absent.
 
 - [ ] **Step 4: Add structured Tester findings**
@@ -740,9 +772,11 @@ Parse bounded structured JSON using the same untrusted-prose collapsing and file
 
 Gates keep deterministic exit-code semantics. Services contributes host-known read-only context. The AI Tester runs only after required gates pass and records observations. When `uat.testerVerifier` is configured, the host runs it through the injected gate boundary: exit 0 completes Tester, a completed nonzero exit code records `result_kind='verification-failed'` and may open recovery, and verifier execution failure parks/retries without consuming a Fix round. Without a verifier, render the Tester observation as advisory/`note` and let the ordinary UAT gate result decide progression. AI findings remain visible under Tester but cannot pass, fail, transition, or spend a recovery round by themselves.
 
+Extend `DriveTicketDeps` with functions that resolve the immutable Tester and Review assignments at process start, return the already instrumented per-ticket adapter, and run the optional Tester verifier through the host gate runner. Thread those dependencies into `runUat`/`runReview` rather than resolving providers inside workflow code. In `extension.ts`, use the same `instrument(resolveAdapter(...), provider)` composition path pinned by `src/ui/usage/wiring.test.ts`; pass the process run id through `tracking.processRunId`. Open each Tester/Review process run before the AI call, snapshot assignment identity there, finish it with the explicit result kind after the call, and mark execution failures/interruption without creating a recovery trigger. Add a wiring test that fails if either workflow can pass focused unit tests while remaining unreachable from the extension composition root.
+
 - [ ] **Step 6: Run focused tests and commit**
 
-Run: `npx vitest run src/manifest/validate/uat.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/store/uatFindings.test.ts src/workflow/uat/tester.test.ts src/workflow/uat/testerVerifier.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts`
+Run: `npx vitest run src/manifest/validate/uat.test.ts src/manifest/load.test.ts src/manifest/writeManifest.test.ts src/store/uatFindings.test.ts src/workflow/uat/tester.test.ts src/workflow/uat/testerVerifier.test.ts src/workflow/stages/uat.test.ts src/workflow/review/findingsLane.test.ts src/workflow/stages/review.test.ts src/workflow/driveTicket.test.ts src/workflow/tokenUsageAttribution.test.ts src/ui/usage/wiring.test.ts src/extensionActivation.test.ts`
 Expected: PASS.
 Commit: `feat: add uat tester execution evidence`
 
@@ -760,7 +794,7 @@ Commit: `feat: add uat tester execution evidence`
 - Modify: `src/workflow/prDescription.ts`
 
 **Interfaces:**
-- Produces: `openShipRun`, `openShipRepoStep`, `finishShipRepoStep`, `recordShipCommit`, `listShipEvidence`; richer Git probes `workingTreeSummary`, `listCommitsFrom`, `headCommit`.
+- Produces: `openShipRun`, `prepareShipOperation`, `markShipOperationApplied`, `reconcileShipOperation`, `openShipRepoStep`, `finishShipRepoStep`, `recordShipCommit`, `listShipEvidence`; discriminated `ShipOperationIntent` pre-state and richer Git primitives `prepareCommitObject`, `updateHeadRef`, `workingTreeSummary`, `listCommitsFrom`, `headCommit`, `remoteRefSha`.
 - Consumes: existing PR/current merge checks and the `pr-description` process run.
 
 - [ ] **Step 1: Write failing persistence/restart tests**
@@ -773,7 +807,7 @@ expect(listShipEvidence(store, ticketId).repos.web).toMatchObject({
 expect(listShipEvidence(store, ticketId).repos.api.commits[0]).toMatchObject({ origin: 'before-ship' });
 ```
 
-Cover partial success, adopted PR, existing human description preservation, created commit SHA, push failure, host restart after Git/GitHub effect but before result write, and rerun reconciliation.
+Cover partial success, adopted PR, existing human description preservation, created commit SHA, push failure, and rerun reconciliation. For each irreversible boundary—`git commit`, `git push`, PR body update, and PR creation—inject a crash immediately after the external side effect but before the result write, reopen the store, and prove reconciliation uses the persisted typed pre-state/intent to adopt only the exact intended effect. Also prove an intervening human commit/body edit makes reconciliation stop for user input rather than label that change `created-by-ship` or overwrite it.
 
 - [ ] **Step 2: Verify RED**
 
@@ -805,6 +839,19 @@ CREATE TABLE IF NOT EXISTS ship_repo_steps (
   started_at TEXT NOT NULL,
   ended_at TEXT
 );
+CREATE TABLE IF NOT EXISTS ship_operation_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  step TEXT NOT NULL CHECK (step IN ('commit','push','describe','pr')),
+  operation_key TEXT NOT NULL UNIQUE,
+  pre_state_json TEXT NOT NULL,
+  intent_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('prepared','applied','reconciled','failed','ambiguous')),
+  prepared_at TEXT NOT NULL,
+  applied_at TEXT,
+  resolved_at TEXT
+);
 CREATE TABLE IF NOT EXISTS ship_commits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
@@ -815,11 +862,28 @@ CREATE TABLE IF NOT EXISTS ship_commits (
 );
 ```
 
-Increment `SCHEMA_VERSION` to 32 and mirror all three tables/indexes in the fresh schema.
+Increment `SCHEMA_VERSION` to 32 and mirror all four tables/indexes in the fresh schema. Add nullable `operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL` to `ship_repo_steps`. `pre_state_json` and `intent_json` are parsed through a closed TypeScript union keyed by `step`, never exposed as arbitrary webview data:
+
+```ts
+type ShipOperationIntent =
+  | { step: 'commit'; preHead: string; intendedTree: string; expectedHead: string; message: string }
+  | { step: 'push'; localHead: string; remote: string; ref: string; preRemoteHead: string | null }
+  | { step: 'describe'; prUrl: string; preBodyHash: string; intendedBody: string }
+  | { step: 'pr'; head: string; base: string | null; title: string; body: string; preExistingUrl: string | null };
+```
+
+Validate decoded rows and treat malformed/unknown intent as `ambiguous`, never as permission to repeat an operation.
 
 - [ ] **Step 4: Write before/after evidence around every external operation**
 
-Open each step as `running`, perform or re-probe the operation, then record `passed | failed | note`. A retry first inspects current Git/GitHub state and reconciles an interrupted row; it does not blindly repeat commit, push, body update, or PR creation.
+Before each external call, obtain and persist the complete `ShipOperationIntent` in the same transaction that opens the `running` step. Only then perform the side effect. After it returns, persist the observed result and mark the intent `applied`/step terminal. A retry first loads that durable intent and compares current Git/GitHub state with both its pre-state and intended state:
+
+- Commit: replace the opaque `git add && git commit` helper with a prepare/apply split. Stage the intended content, use `git write-tree` plus fixed/persisted commit identity/timestamps to create the commit object without moving the branch, and persist `preHead`, `intendedTree`, and the resulting `expectedHead`. Apply with compare-and-swap `git update-ref HEAD <expectedHead> <preHead>`. After a crash, adopt only when HEAD equals `expectedHead`; if it still equals `preHead`, the CAS may be retried; any third SHA is an intervening change and becomes ambiguous. This exact expected object id—not message heuristics—is what authorizes `created-by-ship` provenance.
+- Push: compare the recorded local HEAD and pre-operation remote ref with the current remote ref; adopt only the exact intended SHA.
+- Description: compare the current PR body hash with the recorded prior hash and intended body; preserve any third value as a human/intervening edit.
+- PR creation: probe by recorded head/base and adopt the matching PR; never invent a number or open a second PR while the probe is degraded.
+
+Test the prepare write itself transactionally, every post-side-effect crash point, restart/reload, exact adoption, ambiguous divergence, and partial success in another repo. Generic `running` rows without typed pre-state are insufficient and must never authorize replay.
 
 - [ ] **Step 5: Run focused tests and commit**
 
@@ -1133,18 +1197,22 @@ Commit: `feat: add specialized inside evidence views`
 - Modify: `src/ui/dashboard/webview.test.ts`
 - Create: `src/ui/dashboard/insideFixtures.ts`
 - Create: `src/ui/dashboard/insideFixtures.test.ts`
+- Create: `src/ui/dashboard/insidePreview.ts`
+- Create: `src/ui/dashboard/insidePreview.test.ts`
+- Modify: `src/extension.ts`
+- Modify: `package.json`
 
 **Interfaces:**
-- Produces: deterministic fixture matrix for 2/5/10/15/20 repositories and all live/error states.
-- Consumes: production `InsideStageView` shapes; fixture data never enters extension runtime.
+- Produces: deterministic fixture matrix for 2/5/10/15/20 repositories and all live/error states, plus a development-only `karst.dev.openInsidePreview` command that renders those exact `InsideStageView` snapshots through the production renderer.
+- Consumes: production `InsideStageView` shapes. The normal dashboard/state builder never imports fixtures; the preview command is registered only when `context.extensionMode === vscode.ExtensionMode.Development` and refuses to open otherwise.
 
 - [ ] **Step 1: Write failing scale and compact-contract tests**
 
-Prove top-level process count is constant at every repo size, `remaining` is exact, no untrusted value enters HTML unescaped, compact metadata stays attached to its process, and every interactive object is keyboard-semantic.
+Prove top-level process count is constant at every repo size, `remaining` is exact, no untrusted value enters HTML unescaped, compact metadata stays attached to its process, and every interactive object is keyboard-semantic. Exercise the development preview boundary: Development mode registers and opens every fixture through the production renderer; Production/Test mode does not register the command; the normal dashboard dependency graph cannot reach `insideFixtures.ts`.
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/ui/dashboard/insideFixtures.test.ts src/ui/dashboard/webview.test.ts`
+Run: `npx vitest run src/ui/dashboard/insideFixtures.test.ts src/ui/dashboard/insidePreview.test.ts src/ui/dashboard/webview.test.ts`
 Expected: FAIL until the fixture matrix and compact container rules exist.
 
 - [ ] **Step 3: Add container-responsive layout**
@@ -1153,7 +1221,9 @@ Set container context on Inside and use token-backed compact layouts at supporte
 
 - [ ] **Step 4: Perform manual Extension Dev Host verification**
 
-In VS Code, select the checked-in **Run Karst Extension** launch configuration and press F5. Its `preLaunchTask` runs `npm run dev:extension` (build + Electron ABI rebuild), then VS Code launches the Extension Development Host; running the npm script by itself does **not** launch that host. In the Extension Development Host, inspect 300px, 360px, 430px, and normal dashboard widths with 2/5/10/15/20-repo fixtures. Verify keyboard disclosure navigation, nested actions, focus visibility, reduced motion, long names/paths, and current-operation updates. Record screenshots or notes in the PR description; do not commit generated screenshots unless requested.
+Contribute `karst.dev.openInsidePreview` in `package.json` but hide it from the production command palette with a development-only context key. Register the handler only when `context.extensionMode === vscode.ExtensionMode.Development`; `insidePreview.ts` opens an isolated preview panel, injects a selected checked-in fixture snapshot into the same production render/protocol path, and provides development-only controls outside the delivered Inside DOM for stage/scenario, 2/5/10/15/20 repos, and 300/360/430/normal widths. No fixture write touches SQLite or the real ticket state.
+
+In VS Code, select the checked-in **Run Karst Extension** launch configuration and press F5. Its `preLaunchTask` runs `npm run dev:extension` (build + Electron ABI rebuild), then VS Code launches the Extension Development Host; running the npm script by itself does **not** launch that host. Run **Karst: Open Inside Preview (Development)** and inspect every fixture/width combination. Verify keyboard disclosure navigation, nested actions, focus visibility, reduced motion, long names/paths, and current-operation updates. Also open a real ticket once to prove the production dashboard is not in fixture mode. Record screenshots or notes in the PR description; do not commit generated screenshots unless requested.
 
 - [ ] **Step 5: Run the complete verification gate**
 
@@ -1175,7 +1245,7 @@ Request review against this plan, `docs/superpowers/specs/2026-08-08-inside-rede
 | Six-stage registry and unknown-process fallback | 1, 9–14 |
 | Immutable AI execution identity | 2–8, 10–13 |
 | Implementation switch history/timeline | 4–5, 10, 15 |
-| Measured Implementation token attribution and truthful absence | 4–5, 10, 12 |
+| Measured interactive token attribution across Session/Fix and truthful provider absence | 4–6, 10–12 |
 | UAT Tester and Review execution distinction | 7–8, 11 |
 | Causal Fix and bounded recovery history | 6, 11, 15 |
 | Commit/push/PR/merge persistence | 9, 12, 15 |
