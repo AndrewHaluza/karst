@@ -6,6 +6,9 @@ import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import { listImplementationTimeline } from '../store/implementationRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
+import { openProcessRun } from '../store/processRuns.js';
+import { listTokenUsage } from '../store/tokenUsage.js';
+import { lastInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
 
 /** Register a worktree row directly so a payload cwd resolves to a ticket. */
 function seedWorktree(store: Store, ticketId: number, path: string): void {
@@ -398,6 +401,196 @@ describe('dispatchHook', () => {
   });
 });
 
+/**
+ * The closed UsageUpdate event (Task 5): a provider bridge posts measured
+ * cumulative token counts for an interactive session, and the dispatch records
+ * the delta against the session's last persisted observation, attributed to the
+ * currently bound process. Usage is not a liveness signal — agent_state never
+ * changes — and a malformed or unattributable update reaches no table.
+ */
+describe('dispatchHook — UsageUpdate', () => {
+  let store: Store;
+  const WT = '/repo/.karst/worktrees/x';
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function ticketAt(provider = 'claude'): number {
+    const t = createTicket(store, { key: 'U', title: 'usage' });
+    seedWorktree(store, t.id, WT);
+    return t.id;
+  }
+
+  function startImplementation(id: number, sessionId: string, launchId = 'launch-u'): void {
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId, purpose: 'implementation',
+      provider: 'claude', model: 'opus', reason: 'initial', sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: sessionId, launchId },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+  }
+
+  function usageUpdate(sessionId: string, usage: unknown, launchId?: string): void {
+    dispatchHook(
+      store,
+      {
+        hook_event_name: 'UsageUpdate',
+        cwd: WT,
+        session_id: sessionId,
+        usage,
+        ...(launchId !== undefined ? { launchId } : {}),
+      },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+  }
+
+  it('records a measured delta against the confirmed session, attributed to the Session process', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    usageUpdate('sess-1', { event_id: 'e1', input: 1_000, output: 200 });
+    usageUpdate('sess-1', { event_id: 'e2', input: 1_450, output: 320, cache_read: 180, cache_write: 40, total: 1_990 });
+
+    const entries = listTokenUsage(store, { ticketId: id });
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({ callSite: 'implementation', inputTokens: 1_000, outputTokens: 200 });
+    // e1 carried no cache counts: its derived total is 1_200, so the delta
+    // total against e2's provider-reported 1_990 is 790.
+    expect(entries[1]).toMatchObject({
+      callSite: 'implementation',
+      inputTokens: 450,
+      outputTokens: 120,
+      cacheReadTokens: 180,
+      cacheWriteTokens: 40,
+      totalTokens: 790,
+    });
+    // Usage is not a liveness signal.
+    expect(getTicket(store, id).agentState).toBe('running'); // still the SessionStart state
+  });
+
+  it('attributes a fix session’s updates to the fix process run with call_site fix-resume', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    usageUpdate('sess-1', { event_id: 'e1', input: 1_000, output: 200 });
+    // The implementation completes; a Fix process resumes the same provider session.
+    store.db
+      .prepare('UPDATE implementation_runs SET status = ? WHERE ticket_id = ?')
+      .run('passed', id);
+    const fixRun = openProcessRun(store, {
+      ticketId: id, stageKey: 'fix', processId: 'session', attempt: 1,
+      startedAt: '2026-08-01T12:00:00.000Z',
+    });
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-fix', purpose: 'fix',
+      provider: 'claude', model: 'opus', reason: 'resume', sessionOrigin: 'resume',
+      at: '2026-08-01T12:01:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-fix' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    usageUpdate('sess-1', { event_id: 'e2', input: 1_700, output: 340 });
+
+    const fixEntry = listTokenUsage(store, { ticketId: id, processRunId: fixRun.id });
+    expect(fixEntry).toHaveLength(1);
+    expect(fixEntry[0]).toMatchObject({
+      callSite: 'fix-resume',
+      processRunId: fixRun.id,
+      inputTokens: 700,
+      outputTokens: 140,
+      totalTokens: 840,
+    });
+  });
+
+  it('baselines a resumed session with no prior sample — nothing reaches the ledger', () => {
+    const id = ticketAt();
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-r', purpose: 'implementation',
+      provider: 'claude', model: 'opus', reason: 'resume', sessionOrigin: 'resume',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-r' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    usageUpdate('sess-1', { event_id: 'e1', input: 5_000, output: 400 });
+
+    expect(listTokenUsage(store, { ticketId: id })).toHaveLength(0);
+    const baseline = lastInteractiveUsageSample(store, 'claude', 'sess-1')!;
+    expect(baseline.baselineOnly).toBe(true);
+  });
+
+  it('drops malformed or partial usage before it reaches the store', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    usageUpdate('sess-1', { event_id: 'e1', input: 'not-a-number', output: 200 });
+    usageUpdate('sess-1', { input: 1_000, output: 200 }); // no event id
+    usageUpdate('sess-1', { event_id: 'e3', input: -5, output: 200 });
+    usageUpdate('sess-1', 'usage');
+
+    expect(listTokenUsage(store, { ticketId: id })).toHaveLength(0);
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
+      n: 0,
+    });
+  });
+
+  it('drops an update for a session with no confirmed binding', () => {
+    const id = ticketAt();
+    // No SessionStart ever confirmed an intent for sess-1.
+    usageUpdate('sess-1', { event_id: 'e1', input: 100, output: 20 });
+    expect(listTokenUsage(store, { ticketId: id })).toHaveLength(0);
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
+      n: 0,
+    });
+  });
+
+  it('a stale generation barrier rejects a UsageUpdate from a superseded launch', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    dispatchHook(
+      store,
+      { hook_event_name: 'UsageUpdate', cwd: WT, session_id: 'sess-1', usage: { event_id: 'e1', input: 100, output: 20 } },
+      undefined,
+      () => false, // the lifecycle barrier refuses this generation
+      () => 'claude',
+    );
+    expect(listTokenUsage(store, { ticketId: id })).toHaveLength(0);
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
+      n: 0,
+    });
+  });
+
+  it('an unknown cwd or missing session id is ignored', () => {
+    ticketAt();
+    dispatchHook(store, {
+      hook_event_name: 'UsageUpdate',
+      cwd: '/elsewhere',
+      session_id: 'sess-1',
+      usage: { event_id: 'e1', input: 100, output: 20 },
+    });
+    dispatchHook(store, {
+      hook_event_name: 'UsageUpdate',
+      cwd: WT,
+      usage: { event_id: 'e1', input: 100, output: 20 },
+    });
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
+      n: 0,
+    });
+  });
+});
+
 describe('parseHookPayload', () => {
   it('accepts a well-formed payload of optional strings', () => {
     expect(
@@ -441,5 +634,21 @@ describe('parseHookPayload', () => {
     expect(parseHookPayload({ cwd: 123 })).toBeNull();
     expect(parseHookPayload({ cwd: {} })).toBeNull();
     expect(parseHookPayload({ hook_event_name: ['Stop'] })).toBeNull();
+  });
+
+  it('accepts a UsageUpdate payload carrying an unvalidated usage object', () => {
+    const parsed = parseHookPayload({
+      hook_event_name: 'UsageUpdate',
+      cwd: '/wt',
+      session_id: 's',
+      usage: { event_id: 'e1', input: 100, output: 20, cache_read: 0, total: 120 },
+    });
+    expect(parsed?.hook_event_name).toBe('UsageUpdate');
+    expect(parsed?.usage).toEqual({ event_id: 'e1', input: 100, output: 20, cache_read: 0, total: 120 });
+  });
+
+  it('rejects a non-object usage at the boundary', () => {
+    expect(parseHookPayload({ hook_event_name: 'UsageUpdate', cwd: '/wt', usage: 7 })).toBeNull();
+    expect(parseHookPayload({ hook_event_name: 'UsageUpdate', cwd: '/wt', usage: [1] })).toBeNull();
   });
 });

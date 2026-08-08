@@ -166,6 +166,14 @@ export interface InteractiveCommand {
 export interface AgentCapabilities {
   lifecycleEvents: boolean;
   resume: boolean;
+  /**
+   * Task 5: whether the adapter's bridge can emit measured `UsageUpdate`
+   * events. Optional so pre-Task-5 constructors (tests, launcher fakes) keep
+   * compiling; the adapters themselves declare it explicitly, and reducers
+   * that need a definite answer read `providerInteractiveUsage` from
+   * `provider.ts`, never an adapter's absence.
+   */
+  interactiveUsage?: boolean;
 }
 
 export interface AgentAdapter {

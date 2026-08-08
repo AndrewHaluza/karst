@@ -14,6 +14,7 @@ describe('aiCallSites', () => {
     expect(AI_CALL_SITES).toContain('pr-description');
     expect(AI_CALL_SITES).toContain('fix-resume');
     expect(AI_CALL_SITES).toContain('review-findings');
+    expect(AI_CALL_SITES).toContain('implementation');
   });
 
   it('files an undeclared call under a site that is itself a known id', () => {
@@ -33,6 +34,7 @@ describe('aiCallSites', () => {
       expect(aiCallSiteLabel(site)).not.toBe('');
     }
     expect(aiCallSiteLabel('ticket-analysis')).toBe('Ticket analysis');
+    expect(aiCallSiteLabel('implementation')).toBe('Implementation session');
     expect(aiCallSiteLabel('made-up')).toBe('made-up');
   });
 });

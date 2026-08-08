@@ -485,7 +485,13 @@ CREATE TABLE IF NOT EXISTS token_usage (
   -- outside a segment (a draft, a gate, a pre-v28 call). Never backfilled.
   -- ON DELETE SET NULL: deleting a segment never takes the ledger's spend with
   -- it — the count stays, its attribution goes.
-  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL,
+  -- v29 interactive-sample linkage (kept in sync with migrations.ts v29 ALTER):
+  -- the interactive_usage_samples row this measured delta was computed from.
+  -- NULL = a call recorded by an instrumented headless run, or a pre-v29 row.
+  -- Never backfilled. ON DELETE SET NULL: deleting a sample never takes the
+  -- ledger's spend with it — the count stays, its measurement source goes.
+  interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL
 );
 -- The aggregation index set. Every stats query filters on (project_id,
 -- recorded_at) and then groups by one of ticket / call_site / model, so each
@@ -500,6 +506,58 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, mode
 CREATE INDEX IF NOT EXISTS idx_token_usage_process ON token_usage(process_run_id, id);
 -- v28: per-implementation-segment evidence reads, `id` second for call order.
 CREATE INDEX IF NOT EXISTS idx_token_usage_segment ON token_usage(implementation_segment_id, id);
+-- v29: the measured interactive delta rows; `id` second for observation order.
+-- `interactive_usage_sample_id` is kept in sync with migrations.ts v29 ALTER.
+CREATE INDEX IF NOT EXISTS idx_token_usage_interactive_sample
+  ON token_usage(interactive_usage_sample_id) WHERE interactive_usage_sample_id IS NOT NULL;
+
+-- v29: one row per measured CUMULATIVE token observation of an interactive
+-- provider session (Task 5). The provider bridge POSTs a UsageUpdate carrying
+-- numeric counts and a stable event id; the appender (store/interactiveUsageSamples.ts)
+-- persists the sample HERE before computing any delta, so a restart between
+-- observations cannot lose the baseline decision.
+--
+-- The baseline scope is the PROVIDER SESSION: (provider, provider_session_id)
+-- is the same conversation across every Karst process and segment, and a later
+-- sample subtracts the session's last persisted observation wherever it was
+-- recorded. `process_run_id` (the Karst process bound to the session when the
+-- sample landed) is REQUIRED — an observation that cannot be attributed to a
+-- process is dropped, never guessed at. `implementation_segment_id` refines the
+-- attribution for an implementation session; a fix session has none.
+--
+-- `counter_epoch` is the provider's counter generation: a decrease in any
+-- counter opens a new epoch and the reset observation is counted from zero
+-- (full non-negative counts) only when the binding proves continuous
+-- instrumentation. `baseline_only = 1` marks an observation persisted as the
+-- next delta's predecessor that wrote no `token_usage` row — a resumed/adopted
+-- session's first observation, or an unprovable reset.
+--
+-- Append-only evidence: nothing here is ever UPDATEd. A duplicate event id is
+-- rejected by the unique index, never overwritten.
+CREATE TABLE IF NOT EXISTS interactive_usage_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL,
+  source_event_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  provider_session_id TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
+  total_tokens INTEGER,
+  counter_epoch INTEGER NOT NULL DEFAULT 0,
+  baseline_only INTEGER NOT NULL DEFAULT 0 CHECK (baseline_only IN (0,1)),
+  observed_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_interactive_usage_event
+  ON interactive_usage_samples(provider, provider_session_id, source_event_id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_segment
+  ON interactive_usage_samples(implementation_segment_id, id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_process
+  ON interactive_usage_samples(process_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_provider_session
+  ON interactive_usage_samples(provider, provider_session_id, id);
 
 -- Images and video attached to a ticket's prompt. An INDEX of bytes that live on
 -- disk under <globalStorage>/attachments/<ticket_id>/<stored_name>, never the

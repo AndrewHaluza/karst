@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -828,6 +828,72 @@ export function migrate(db: Database): void {
     if (tokenCols28.size > 0) {
       db.exec(
         'CREATE INDEX IF NOT EXISTS idx_token_usage_segment ON token_usage(implementation_segment_id, id)',
+      );
+    }
+  }
+
+  if (current < 29) {
+    // v29 makes measured INTERACTIVE token observations durable (Task 5): the
+    // cumulative samples provider bridges POST (interactive_usage_samples) and
+    // the token_usage linkage of the delta rows computed from them. Samples are
+    // persisted BEFORE their delta is calculated, so a host restart between
+    // observations never loses the baseline decision.
+    //
+    // A whole new table, so the step is the same DDL as schema.sql rather than
+    // an ALTER, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops. `process_run_id` is NOT NULL:
+    // an observation that cannot be attributed to a Karst process is dropped,
+    // never stored against an invented one.
+    //
+    // NOTHING IS BACKFILLED. No prior karst ever measured an interactive
+    // session's tokens — the channel did not exist — so a synthesized sample
+    // would assert exactly the fact this table exists to stop being guessed at.
+    // Pre-v29 ledger rows keep NULL `interactive_usage_sample_id`; the partial
+    // unique index keeps each sample feeding at most one delta row.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS interactive_usage_samples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+        implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL,
+        source_event_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_session_id TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL,
+        cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER,
+        total_tokens INTEGER,
+        counter_epoch INTEGER NOT NULL DEFAULT 0,
+        baseline_only INTEGER NOT NULL DEFAULT 0 CHECK (baseline_only IN (0,1)),
+        observed_at TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_interactive_usage_event ' +
+        'ON interactive_usage_samples(provider, provider_session_id, source_event_id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_interactive_usage_segment ' +
+        'ON interactive_usage_samples(implementation_segment_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_interactive_usage_process ' +
+        'ON interactive_usage_samples(process_run_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_interactive_usage_provider_session ' +
+        'ON interactive_usage_samples(provider, provider_session_id, id)',
+    );
+    const tokenCols29 = tableColumns(db, 'token_usage');
+    if (tokenCols29.size > 0 && tableColumns(db, 'interactive_usage_samples').size > 0) {
+      if (!tokenCols29.has('interactive_usage_sample_id')) {
+        db.exec(
+          'ALTER TABLE token_usage ADD COLUMN interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL',
+        );
+      }
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_interactive_sample ' +
+          'ON token_usage(interactive_usage_sample_id) WHERE interactive_usage_sample_id IS NOT NULL',
       );
     }
   }

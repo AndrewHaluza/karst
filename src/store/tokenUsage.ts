@@ -99,8 +99,8 @@ const INSERT = `
 INSERT INTO token_usage (
   project_id, ticket_id, process_run_id, call_site, provider, model,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
-  estimated, outcome, recorded_at, implementation_segment_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  estimated, outcome, recorded_at, implementation_segment_id, interactive_usage_sample_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`;
 
 /**
  * Append one call to the ledger. Throws only on a genuine store failure — the
@@ -310,6 +310,11 @@ export interface TokenUsageRow {
   estimated: boolean;
   outcome: 'ok' | 'error';
   recordedAt: string;
+  /**
+   * v28: the implementation segment the call was made inside; NULL outside a
+   * segment (Task 5 writes it for measured interactive deltas).
+   */
+  implementationSegmentId: number | null;
 }
 
 interface TokenUsageRowRow {
@@ -327,6 +332,7 @@ interface TokenUsageRowRow {
   estimated: number;
   outcome: string;
   recorded_at: string;
+  implementation_segment_id: number | null;
 }
 
 function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
@@ -346,6 +352,7 @@ function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
     // An unrecognized outcome degrades to 'error' — never silently 'ok'.
     outcome: r.outcome === 'ok' ? 'ok' : 'error',
     recordedAt: r.recorded_at,
+    implementationSegmentId: r.implementation_segment_id,
   };
 }
 
@@ -383,7 +390,8 @@ export function listTokenUsage(
     .prepare(
       `SELECT id, ticket_id, process_run_id, call_site, provider, model,
               input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-              total_tokens, estimated, outcome, recorded_at
+              total_tokens, estimated, outcome, recorded_at,
+              implementation_segment_id
          FROM token_usage ${where}
         ORDER BY id`,
     )

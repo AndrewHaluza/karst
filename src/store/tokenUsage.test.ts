@@ -92,6 +92,21 @@ describe('recordTokenUsage', () => {
     }
   });
 
+  it('carries the v29 interactive sample linkage, NULL for ordinary ledger writes', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ input: 10 });
+    const row = store.db.prepare('SELECT interactive_usage_sample_id FROM token_usage').get() as {
+      interactive_usage_sample_id: number | null;
+    };
+    expect(row.interactive_usage_sample_id).toBeNull();
+    const index = store.db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+      )
+      .get('idx_token_usage_interactive_sample');
+    expect(index).toEqual({ name: 'idx_token_usage_interactive_sample' });
+  });
+
   it('records a call made before the ticket exists, unattributed', () => {
     seed({ ticketId: null });
     const row = store.db.prepare('SELECT ticket_id FROM token_usage').get() as {
