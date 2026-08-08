@@ -16,6 +16,8 @@ import { openGateRun } from '../gates/evidence.js';
 import { commitGateOutcome } from '../gates/commit.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
+import type { Manifest } from '../../manifest/types.js';
+import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import { runUat, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
@@ -1349,6 +1351,117 @@ describe('runReview — findings process run (Task 8)', () => {
     );
     const run = listProcessRuns(store, id)[0]!;
     expect(listFindings(store, id)[0]!.processRunId).toBe(run.id);
+  });
+
+  // Finding 2: a disabled `processes.review` resolves to NULL — configured
+  // absence, short-circuited before any provider/model resolution. The stage
+  // then has no Review process and no adapter to ask: the deterministic gate
+  // lane still runs, but no AI call is made and no process run is opened.
+  it('a disabled Review process reads as configured absence — no AI call, no process run, gates still run', async () => {
+    const disabled: Manifest = { ...manifest({}), processes: { review: { enabled: false } } };
+    const assignment = resolveProcessAssignment(disabled, 'review');
+    expect(assignment).toBeNull();
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: disabled },
+      deps({ reviewProcess: null, findingsAdapter: undefined }),
+    );
+    // The lane has no agent core to ask: capability-missing park — the absence
+    // is NAMED, never read as a green review the AI skipped.
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    expect(listProcessRuns(store, id).filter((r) => r.processId === 'review')).toHaveLength(0);
+    expect(listFindings(store, id)).toEqual([]);
+    expect(listGateRuns(store, id).length).toBeGreaterThan(0);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+  });
+
+  // Finding 3: a Stop during the findings lane is an explicit stopped outcome —
+  // the Review process is interrupted, and the run returns stopped before any
+  // aggregation, recovery round, or transition. Gates that already finished
+  // stay recorded; nothing further opens.
+  it('a Stop before the lane first target returns stopped with the process interrupted — no verdict, no round, no transition', async () => {
+    const controller = new AbortController();
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig() }),
+        signal: controller.signal,
+      },
+      deps({
+        reviewProcess: {
+          assignment: { agentName: 'Review Agent', provider: 'claude' },
+          adapter: { ...findingsAgent('[]'), runHeadless },
+        },
+        runGates: async (gates) => {
+          controller.abort();
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({
+              name: g.name,
+              exitCode: 0,
+              output: 'ok',
+              startedAt: now(),
+              endedAt: now(),
+            })),
+          };
+        },
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(runHeadless).not.toHaveBeenCalled();
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'review',
+      resultKind: 'interrupted',
+      status: 'interrupted',
+    });
+  });
+
+  it('a Stop between lane targets returns stopped — the second target is never asked and the process is interrupted', async () => {
+    const controller = new AbortController();
+    const runHeadless = vi.fn(async () => {
+      controller.abort();
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig() }),
+        signal: controller.signal,
+      },
+      deps({
+        reviewProcess: {
+          assignment: { agentName: 'Review Agent', provider: 'claude' },
+          adapter: { ...findingsAgent('[]'), runHeadless },
+        },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'review',
+      resultKind: 'interrupted',
+      status: 'interrupted',
+    });
   });
 });
 

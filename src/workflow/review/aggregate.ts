@@ -56,6 +56,13 @@ export type AggregateOutcome =
  *   (`execution-failed` on the process run) rather than read as a clean
  *   review. `processRunId` (Task 8) names the Review findings process run the
  *   lane opened, when the caller supplied a process and the lane actually ran.
+ * - `stopped`: the run's signal aborted during the lane (before the first
+ *   target or between two calls) — an explicit cancellation, never a silently
+ *   truncated `ran`. The caller (`stages/review.ts`) MUST close the open
+ *   process run as interrupted and return `{kind:'stopped'}` BEFORE calling
+ *   `aggregateReview` or constructing any recovery trigger: a stopped lane is
+ *   not evidence, and this union deliberately carries no aggregate verdict for
+ *   it.
  */
 export type FindingsLaneOutcome =
   | { kind: 'not-run' }
@@ -66,6 +73,13 @@ export type FindingsLaneOutcome =
       /** One collapsed one-line diagnostic per target whose call THREW. Absent = every call succeeded. */
       crashes?: readonly string[];
       /** The Review process run this invocation opened; absent = none was opened. */
+      processRunId?: number | null;
+    }
+  | {
+      kind: 'stopped';
+      /** One bounded reason; the caller folds it into the stopped notes. */
+      reason: string;
+      /** The Review process run this invocation opened; the caller interrupts it. Absent = none was opened. */
       processRunId?: number | null;
     };
 

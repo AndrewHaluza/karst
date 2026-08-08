@@ -102,13 +102,14 @@ export interface ReviewDeps {
    * `process_runs` row before its first call (snapshotting the assignment),
    * threads the run id through token attribution and the findings batch, and
    * the stage finishes the run with an explicit result kind
-   * (`validated`/`blocking`/`execution-failed`). Absent → the lane runs with
-   * `findingsAdapter` (or capability-missing) and opens no process run.
+   * (`validated`/`blocking`/`execution-failed`/`interrupted`). NULL means the
+   * configured process is DISABLED (Finding 2) — the same as absent: the lane
+   * falls back to the plain findings adapter and opens no process run.
    */
   reviewProcess?: {
     assignment: ProcessAssignmentSnapshot;
     adapter: AgentAdapter;
-  };
+  } | null;
   /**
    * Where the findings lane's boundary diagnostics land (a failed AI call,
    * an unparseable response, an untrustworthy `file`) — threaded through to
@@ -417,6 +418,19 @@ export async function runReview(
     collectedFindings,
     findingsLane.kind === 'ran' ? findingsLane.processRunId ?? null : null,
   );
+
+  // Finding 3: a Stop during the findings lane is not a review of anything —
+  // the open Review process is closed interrupted, and the run returns stopped
+  // BEFORE `aggregateReview` (a stopped lane is not evidence) and before any
+  // recovery trigger construction. Nothing is appended beyond the gate rows
+  // that already finished.
+  if (findingsLane.kind === 'stopped') {
+    const stoppedRunId = findingsLane.processRunId ?? null;
+    if (stoppedRunId !== null) {
+      finishProcessRun(store, stoppedRunId, 'interrupted', now(), 'interrupted');
+    }
+    return finish({ kind: 'stopped' }, ['review stopped before the findings lane finished']);
+  }
 
   const outcome = aggregateReview(
     entries,

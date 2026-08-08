@@ -60,7 +60,11 @@ export interface RunUatTesterOpts {
   /** One signal for the whole run, so Stop reaches a call already in flight. */
   signal?: AbortSignal;
   warn?: WarnFn;
-  /** Observations beyond this count are truncated by severity (like review's `maxFindings`). */
+  /**
+   * ONE cap for the whole execution, across every target (Finding 13) —
+   * observations beyond it are truncated by severity exactly like review's
+   * `maxFindings`, and later targets are not asked once the budget is spent.
+   */
   maxObservations?: number;
 }
 
@@ -146,6 +150,12 @@ export async function runUatTester(
   };
 
   const observations: UatFindingInput[] = [];
+  // Finding 13: ONE execution-wide cap across every target — the budget is
+  // tracked OUTSIDE the target loop and shrinks as each target contributes,
+  // so a 10-repository run can never persist ten times `maxObservations`.
+  // A target's parse is capped at what the execution has left; when the
+  // budget hits zero the remaining targets are never even asked.
+  let remaining = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
   try {
     for (const target of opts.targets) {
       if (opts.signal?.aborted) break;
@@ -159,23 +169,24 @@ export async function runUatTester(
           processRunId: run.id,
         },
       });
-      observations.push(
-        ...parseFindings(
-          result.raw,
-          {
-            repo: target.repo,
-            worktreePath: target.worktreePath,
-            max: opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS,
-          },
-          opts.warn,
-        ).map((f) => ({
-          severity: f.severity,
-          repo: f.repo,
-          file: f.file,
-          line: f.line,
-          title: f.title,
-        })),
-      );
+      const parsed = parseFindings(
+        result.raw,
+        {
+          repo: target.repo,
+          worktreePath: target.worktreePath,
+          max: remaining,
+        },
+        opts.warn,
+      ).map((f) => ({
+        severity: f.severity,
+        repo: f.repo,
+        file: f.file,
+        line: f.line,
+        title: f.title,
+      }));
+      observations.push(...parsed);
+      remaining -= parsed.length;
+      if (remaining === 0) break;
     }
     if (opts.signal?.aborted) {
       close('interrupted', 'interrupted');

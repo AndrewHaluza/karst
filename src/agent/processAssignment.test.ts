@@ -3,6 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { openProcessRun, listProcessRuns } from '../store/processRuns.js';
 import { resolveProcessAssignment, DEFAULT_PROCESS_AGENT_NAMES } from './processAssignment.js';
+import { PROCESS_KEY_BY_ROLE } from '../manifest/validate/processAssignments.js';
 import type { Manifest } from '../manifest/types.js';
 import { manifest as buildManifest } from '../manifest/fixtures.js';
 
@@ -83,7 +84,7 @@ describe('resolveProcessAssignment', () => {
       agents: { 'uat-author': { role: 'uat' } },
       processes: { uatTester: { agent: 'uat-author', agentName: 'My UAT' } },
     };
-    expect(resolveProcessAssignment(manifest, 'uat-tester').agentName).toBe('My UAT');
+    expect(resolveProcessAssignment(manifest, 'uat-tester')!.agentName).toBe('My UAT');
   });
 
   it('ticket override wins over manifest defaults', () => {
@@ -137,6 +138,31 @@ describe('resolveProcessAssignment', () => {
     });
   });
 
+  it('returns null for every role whose configured process is disabled (Finding 2)', () => {
+    for (const role of ['uat-tester', 'uat-fix', 'review', 'review-fix'] as const) {
+      const manifest: Manifest = {
+        ...BASE,
+        processes: { [PROCESS_KEY_BY_ROLE[role]]: { enabled: false } },
+      };
+      expect(resolveProcessAssignment(manifest, role)).toBeNull();
+    }
+  });
+
+  it('keeps resolving when the process config is absent or explicitly enabled', () => {
+    expect(resolveProcessAssignment(BASE, 'uat-tester')).toMatchObject({ provider: 'codex' });
+    const enabled: Manifest = { ...BASE, processes: { uatTester: { enabled: true } } };
+    expect(resolveProcessAssignment(enabled, 'uat-tester')).toMatchObject({ provider: 'codex' });
+  });
+
+  it('pr-description keeps its existing behavior — unaffected by another role being disabled', () => {
+    const manifest: Manifest = { ...BASE, processes: { uatTester: { enabled: false } } };
+    expect(resolveProcessAssignment(manifest, 'pr-description')).toEqual({
+      agentName: 'Codex',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+  });
+
   it('falls back to claude when the manifest declares no provider', () => {
     const manifest = buildManifest({ api: { repoPath: '/repo/api', hasMigrations: false } });
     expect(resolveProcessAssignment(manifest, 'uat-tester')).toEqual({
@@ -166,7 +192,7 @@ describe('process_runs snapshot immutability', () => {
 
   it('a later Settings edit does not mutate an already stored process_runs row', () => {
     const ticketId = createTicket(store, { key: 'T-1', title: 't' }).id;
-    const snapshot = resolveProcessAssignment(BASE, 'review');
+    const snapshot = resolveProcessAssignment(BASE, 'review')!;
     openProcessRun(store, {
       ticketId,
       stageKey: 'review',

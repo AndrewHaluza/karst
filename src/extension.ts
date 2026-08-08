@@ -753,21 +753,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * through. The driver resolves each process exactly once per run, so the
    * adapter is instrumented exactly once — a second resolution would wrap a
    * second adapter around the same core.
+   *
+   * Finding 2: a role whose `processes.<key>.enabled` is `false` resolves to
+   * NULL — configured absence. The short-circuit happens BEFORE
+   * `currentAgentAdapter`, so a disabled role is never created or
+   * instrumented and opens no process run.
    */
+  type DriveProcessBundle = { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
   const processFor = (
     ticketId: number,
     role: ProcessRole,
-  ): { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter } => {
+  ): DriveProcessBundle | null => {
     const t = getTicket(localStore, ticketId);
+    const assignment = resolveProcessAssignment(
+      currentManifest() ?? emptyManifest(),
+      role,
+      {
+        provider: t.agentProvider ?? undefined,
+        model: t.model || undefined,
+      },
+    );
+    if (assignment === null) return null;
     return {
-      assignment: resolveProcessAssignment(
-        currentManifest() ?? emptyManifest(),
-        role,
-        {
-          provider: t.agentProvider ?? undefined,
-          model: t.model || undefined,
-        },
-      ),
+      assignment,
       adapter: currentAgentAdapter(ticketId),
     };
   };
@@ -1982,8 +1990,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // The Tester and Review AI processes (Task 8): resolved per ticket
           // as an identity snapshot + the instrumented adapter, exactly once
           // per driver run. The verifier boundary is the host gate runner.
-          uatTester: (id) => processFor(id, 'uat-tester'),
-          reviewProcess: (id) => processFor(id, 'review'),
+          // Finding 2: a role configured `enabled: false` resolves to null —
+          // the drive seam predates the nullable resolution, so the
+          // null → absent collapse happens here and the process is OMITTED:
+          // the driver then passes no tester/reviewProcess to the stage, so
+          // nothing is created or instrumented for the disabled role. (The
+          // assertion names the drive deps' declared return type, which has
+          // no null member — the collapse is typed at the seam.)
+          uatTester: (id) => processFor(id, 'uat-tester') ?? (undefined as unknown as DriveProcessBundle),
+          reviewProcess: (id) => processFor(id, 'review') ?? (undefined as unknown as DriveProcessBundle),
           runVerifier: runProcess,
           log: (message) => logger.info(message),
           // Findings-lane boundary diagnostics (a failed AI call, garbage

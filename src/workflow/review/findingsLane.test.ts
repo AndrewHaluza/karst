@@ -189,18 +189,39 @@ describe('runFindingsLane', () => {
     expect(outcome.kind === 'ran' && outcome.findings.map((f) => f.severity)).toEqual(['high', 'low']);
   });
 
-  it('stops asking further targets once the signal is already aborted', async () => {
+  // Finding 3: an aborted signal is an explicit stopped outcome, never a
+  // silently truncated `ran` — checked before the first target and after
+  // every awaited call.
+  it('stops explicitly when the signal is already aborted, without asking any target', async () => {
     const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
     const controller = new AbortController();
     controller.abort();
-    await runFindingsLane({
+    const outcome = await runFindingsLane({
       config: CONFIG,
       adapter: { ...adapter('[]'), runHeadless },
       targets: [TARGET, { repo: '/api', worktreePath: '/wt/api' }],
       ticketId: 1,
       signal: controller.signal,
     });
+    expect(outcome).toEqual({ kind: 'stopped', reason: 'Review stopped' });
     expect(runHeadless).not.toHaveBeenCalled();
+  });
+
+  it('stops explicitly when the signal aborts between targets — the next target is never asked', async () => {
+    const controller = new AbortController();
+    const runHeadless = vi.fn(async () => {
+      controller.abort();
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET, { repo: '/api', worktreePath: '/wt/api' }],
+      ticketId: 1,
+      signal: controller.signal,
+    });
+    expect(outcome).toEqual({ kind: 'stopped', reason: 'Review stopped' });
+    expect(runHeadless).toHaveBeenCalledTimes(1);
   });
 
   it('declares its call site and ticket so token spend is attributable', async () => {

@@ -12,6 +12,8 @@ import { listProcessRuns } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
+import type { Manifest } from '../../manifest/types.js';
+import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { runUat, resolveTargetGates, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 import type { ScriptProbe } from '../gates/probe.js';
@@ -997,6 +999,28 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(runHeadless).not.toHaveBeenCalled();
     expect(listProcessRuns(store, id)).toEqual([]);
+  });
+
+  // Finding 2: a disabled `processes.uatTester` resolves to NULL — configured
+  // absence. The stage then has no Tester at all: no adapter call, no process
+  // run, and UAT's ordinary deterministic gates decide alone (a real pass,
+  // never a fabricated one).
+  it('a disabled Tester assignment reads as configured absence — no AI call, no process run, gates decide alone', async () => {
+    const disabled: Manifest = { ...manifest({}), processes: { uatTester: { enabled: false } } };
+    const assignment = resolveProcessAssignment(disabled, 'uat-tester');
+    expect(assignment).toBeNull();
+    // The disabled resolution injects ABSENCE — exactly what the host seam
+    // collapses a null resolution into: no process bundle reaches the stage.
+    const tester = assignment === null ? undefined : { assignment, adapter: testerAgent('[]') };
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ tester }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listProcessRuns(store, id)).toEqual([]);
+    expect(listUatFindings(store, id)).toEqual([]);
+    expect(listGateRuns(store, id).length).toBeGreaterThan(0);
   });
 
   it('a Stop during the Tester stops the whole run without a verdict', async () => {

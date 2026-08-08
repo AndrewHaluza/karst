@@ -181,6 +181,40 @@ describe('runUatTester', () => {
     expect(listUatFindings(store, ticketId).map((f) => f.repo).sort()).toEqual(['/api', '/web']);
   });
 
+  // Finding 13: the cap used to apply PER target, so a 10-repository run could
+  // persist ten times the documented execution cap. It is ONE execution-wide
+  // budget: two targets each returning more than half the cap must persist
+  // EXACTLY `maxObservations`, in target order, with the second target
+  // truncated at the shared budget.
+  it('applies ONE observation cap across the whole execution, truncating later targets at the shared budget', async () => {
+    const many = (n: number): string =>
+      JSON.stringify(
+        Array.from({ length: n }, (_, i) => ({ severity: 'info' as const, title: `o${i}`, detail: '' })),
+      );
+    const { adapter, calls } = rawAdapter(many(40));
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        maxObservations: 60,
+        targets: [
+          { repo: '/web', worktreePath: '/wt/web' },
+          { repo: '/api', worktreePath: '/wt/api' },
+        ],
+        warn: () => {},
+      }),
+      { now },
+    );
+    expect(res.kind).toBe('observed');
+    const rows = listUatFindings(store, ticketId);
+    expect(rows).toHaveLength(60);
+    // Target order preserved: the first target's 40 survive whole, the second
+    // is cut to the 20 the execution had left.
+    expect(rows.slice(0, 40).every((f) => f.repo === '/web')).toBe(true);
+    expect(rows.slice(40).every((f) => f.repo === '/api')).toBe(true);
+    expect(calls).toHaveLength(2);
+  });
+
   it('supersedes a still-running Tester run of the same process as stale the moment a fresh one opens', async () => {
     // A run still `running` when a second one opens is exactly the
     // destroyed-run case a host restart produces: the driver single-flights,

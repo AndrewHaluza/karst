@@ -117,6 +117,11 @@ export function buildFindingsPrompt(repo: string, baseRef?: string | null): stri
  * still reaches `{kind:'ran', findings}`, so the stage's verdict is decided
  * from its gates (R7/R9), never broken by this lane. `capability-missing` is
  * reserved for the one case that IS environmental: no adapter to call at all.
+ *
+ * Finding 3: a Stop is an EXPLICIT `{kind:'stopped'}` outcome, checked before
+ * AND after every awaited call — never a silently truncated `ran`. The caller
+ * (`stages/review.ts`) closes the open process run as interrupted and returns
+ * stopped before any aggregation.
  */
 export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<FindingsLaneOutcome> {
   if (!opts.config.enabled) return { kind: 'not-run' };
@@ -149,13 +154,25 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     });
   }
 
+  // Finding 3: one stopped outcome, carrying the opened run so the caller can
+  // interrupt it. Returns immediately — the user stopped; nothing further is
+  // asked and no aggregation may read the lane as a truncated `ran`.
+  const stopped = (): FindingsLaneOutcome => {
+    const outcome: Extract<FindingsLaneOutcome, { kind: 'stopped' }> = {
+      kind: 'stopped',
+      reason: 'Review stopped',
+    };
+    if (processRun !== null) outcome.processRunId = processRun.id;
+    return outcome;
+  };
+
   const findings: FindingInput[] = [];
   // One collapsed one-line diagnostic per target whose call THREW — the
   // "the agent looked and found nothing" vs "the agent could not be asked"
   // distinction (Task 8). Never the raw message: it is untrusted CLI prose.
   const crashes: string[] = [];
   for (const target of opts.targets) {
-    if (opts.signal?.aborted) break;
+    if (opts.signal?.aborted) return stopped();
     try {
       const result = await adapter.runHeadless({
         prompt: buildFindingsPrompt(target.repo, target.baseRef),
@@ -167,6 +184,9 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           processRunId: processRun?.id ?? null,
         },
       });
+      // The call returned — but if the signal aborted WHILE it ran, the user
+      // stopped and its output is not evidence to aggregate.
+      if (opts.signal?.aborted) return stopped();
       findings.push(
         ...parseFindings(
           result.raw,

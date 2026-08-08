@@ -6,6 +6,12 @@
  * Settings edits never touch an already-stored run — that immutability is the
  * point of snapshotting (§ processRuns.ts).
  *
+ * Returns `null` when the role's `processes.<key>.enabled` is `false`: a
+ * disabled process is configured ABSENCE, not a resolution — no snapshot
+ * exists for it, so the execution boundary never creates or instruments an
+ * adapter and never opens a process run for it (Finding 2). The check
+ * short-circuits BEFORE provider/model resolution.
+ *
  * Precedence per field (most specific wins, matching `resolveProvider` /
  * `resolveModelForProvider`'s launch conventions):
  *   agentName: config.agentName → config.agent (the referenced profile's
@@ -60,16 +66,21 @@ export const DEFAULT_PROCESS_AGENT_NAMES: Readonly<
  * Resolve the effective identity for `role`: explicit `processes:` config,
  * then the ticket override, then the manifest defaults, then 'claude' — with
  * the model run through the provider-compatibility check at every
- * non-explicit layer.
+ * non-explicit layer. Returns `null` when the role's process config sets
+ * `enabled: false` — the disabled role is absent, not resolved.
  */
 export function resolveProcessAssignment(
   manifest: Manifest,
   role: ProcessRole,
   ticketOverride: ProcessTicketOverride = {},
   catalog: ModelCatalog = bundledModelCatalog(),
-): ProcessAssignmentSnapshot {
+): ProcessAssignmentSnapshot | null {
   const key = PROCESS_KEY_BY_ROLE[role];
   const config = key === undefined ? undefined : manifest.processes?.[key];
+  // Finding 2: a disabled process is configured ABSENCE — short-circuit before
+  // any provider/model resolution, so the execution boundary offers no
+  // adapter for the role and opens no process run.
+  if (config?.enabled === false) return null;
 
   const provider =
     config?.provider ?? resolveProvider(ticketOverride.provider ?? null, manifest.agentProvider);
