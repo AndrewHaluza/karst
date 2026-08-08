@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import { stageAttempt } from './stages.js';
+import { reopenProcessRun } from './processRuns.js';
 import {
   confirmImplementationSegment,
   closeImplementationSegment,
@@ -323,6 +324,14 @@ export function confirmSessionLaunchIntent(
         store.db
           .prepare("UPDATE implementation_runs SET status = 'running', ended_at = NULL WHERE id = ?")
           .run(run.id);
+        // The canonical Session process run must reopen with it — the run and
+        // its process are one fact. A process row that cannot be reopened is a
+        // split canonical state, so the whole confirmation rolls back.
+        if (!reopenProcessRun(store, run.processRunId)) {
+          throw new Error(
+            `implementation process run ${run.processRunId} cannot be reopened: it is not interrupted`,
+          );
+        }
       }
 
       if (run.status !== 'passed') {

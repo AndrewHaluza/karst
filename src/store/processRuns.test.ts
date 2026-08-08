@@ -5,6 +5,7 @@ import { openStageRun } from './stageRuns.js';
 import {
   openProcessRun,
   finishProcessRun,
+  reopenProcessRun,
   listProcessRuns,
   reconcileProcessRuns,
   describeStaleProcessRun,
@@ -156,6 +157,47 @@ describe('process_runs', () => {
     expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
       status: 'passed',
       endedAt: '2026-08-08T10:01:00.000Z',
+    });
+  });
+
+  describe('reopenProcessRun', () => {
+    it('reopens an interrupted run as running with its end stamp cleared', () => {
+      const run = open();
+      finishProcessRun(store, run.id, 'interrupted', '2026-08-08T10:01:00.000Z');
+      expect(reopenProcessRun(store, run.id)).toBe(true);
+      expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+        status: 'running',
+        endedAt: null,
+      });
+    });
+
+    it('never reopens a passed run', () => {
+      const run = open();
+      finishProcessRun(store, run.id, 'passed', '2026-08-08T10:01:00.000Z');
+      expect(reopenProcessRun(store, run.id)).toBe(false);
+      expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+        status: 'passed',
+        endedAt: '2026-08-08T10:01:00.000Z',
+      });
+    });
+
+    it('never reopens a failed run', () => {
+      const run = open();
+      finishProcessRun(store, run.id, 'failed', '2026-08-08T10:01:00.000Z');
+      expect(reopenProcessRun(store, run.id)).toBe(false);
+      expect(listProcessRuns(store, ticketId)[0]!.status).toBe('failed');
+    });
+
+    it('never reopens a stale run — it was superseded, not interrupted', () => {
+      const first = open();
+      open({ startedAt: '2026-08-08T10:30:00.000Z' });
+      expect(listProcessRuns(store, ticketId)[0]!.status).toBe('stale');
+      expect(reopenProcessRun(store, first.id)).toBe(false);
+      expect(listProcessRuns(store, ticketId)[0]!.status).toBe('stale');
+    });
+
+    it('reports false for a row that does not exist', () => {
+      expect(reopenProcessRun(store, 9999)).toBe(false);
     });
   });
 

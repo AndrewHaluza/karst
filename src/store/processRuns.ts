@@ -214,6 +214,24 @@ export function finishProcessRun(
 }
 
 /**
+ * Reopen an INTERRUPTED process run — the process half of resuming an
+ * implementation whose session ended without the marker. Strictly constrained:
+ * only a row literally `interrupted` becomes `running` again with its end stamp
+ * cleared. A passed/failed run is a finished fact and must never be un-finished;
+ * a stale run was superseded and is not the same invocation. Returns whether a
+ * row was reopened, so the caller can fail the pairing with `implementation_runs`
+ * instead of splitting canonical state.
+ */
+export function reopenProcessRun(store: Store, id: number): boolean {
+  const info = store.db
+    .prepare(
+      "UPDATE process_runs SET status = 'running', ended_at = NULL WHERE id = ? AND status = 'interrupted'",
+    )
+    .run(id);
+  return info.changes === 1;
+}
+
+/**
  * The ONE late fact a finished process run is allowed to gain (v31, Task 8):
  * the deterministic Tester verifier disproving the observation the run
  * already recorded (`observed` → `verification-failed`). Only `result_kind`

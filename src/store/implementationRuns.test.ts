@@ -16,7 +16,7 @@ import {
   recordSessionLaunchIntent,
   confirmSessionLaunchIntent,
 } from './sessionLaunchIntents.js';
-import { listProcessRuns } from './processRuns.js';
+import { getProcessRunById, listProcessRuns } from './processRuns.js';
 
 describe('implementation runs and segments', () => {
   let store: Store;
@@ -161,6 +161,51 @@ describe('implementation runs and segments', () => {
     expect(timeline.run.status).toBe('running');
     expect(timeline.run.endedAt).toBeNull();
     expect(timeline.segments[0]!.status).toBe('running');
+    // The canonical Session process run is reopened alongside the run — a
+    // resume continues the SAME process, never a second row for one conversation.
+    expect(getProcessRunById(store, timeline.run.processRunId)).toMatchObject({
+      status: 'running',
+      endedAt: null,
+    });
+  });
+
+  it('a resumed implementation continues the same interrupted process run through the marker', () => {
+    const original = recordSessionLaunchIntent(store, {
+      ticketId, launchId: 'l1', purpose: 'implementation', provider: 'claude', model: 'opus',
+      reason: 'initial', sessionOrigin: 'new', at: '2026-08-01T10:00:00.000Z',
+    });
+    confirmSessionLaunchIntent(store, 'l1', {
+      ticketId, provider: 'claude', providerSessionId: 'claude-session-1',
+      at: '2026-08-01T10:01:00.000Z',
+    });
+    // The session ended without the marker: run AND process run are interrupted.
+    expect(interruptImplementationRun(store, ticketId, '2026-08-01T10:20:00.000Z')).toBe(true);
+
+    const resumed = recordSessionLaunchIntent(store, {
+      ticketId, launchId: 'l4', purpose: 'implementation', provider: 'claude', model: 'opus',
+      reason: 'resume', sessionOrigin: 'resume', at: '2026-08-01T10:30:00.000Z',
+    });
+    expect(resumed.processRunId).toBe(original.processRunId);
+    expect(confirmSessionLaunchIntent(store, 'l4', {
+      ticketId, provider: 'claude', providerSessionId: 'claude-session-1',
+      at: '2026-08-01T10:31:00.000Z',
+    })).toBe('confirmed');
+
+    expect(getProcessRunById(store, original.processRunId!)).toMatchObject({
+      status: 'running',
+      endedAt: null,
+    });
+
+    // The explicit marker closes run and process run as ONE passed fact.
+    completeImplementationRun(store, ticketId, '2026-08-01T11:00:00.000Z');
+    expect(listImplementationTimeline(store, ticketId)!.run).toMatchObject({
+      status: 'passed',
+      endedAt: '2026-08-01T11:00:00.000Z',
+    });
+    expect(getProcessRunById(store, original.processRunId!)).toMatchObject({
+      status: 'passed',
+      endedAt: '2026-08-01T11:00:00.000Z',
+    });
   });
 
   it('completeImplementationRun closes the segment and the Session process run and passes the run', () => {

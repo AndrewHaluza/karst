@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { openStore, type Store } from './db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { transition } from '../workflow/machine.js';
-import { listImplementationTimeline } from './implementationRuns.js';
+import { listImplementationTimeline, currentImplementationRun, interruptImplementationRun } from './implementationRuns.js';
 import { openRecoveryRound } from './recoveryRounds.js';
 import {
   recordSessionLaunchIntent,
@@ -141,6 +141,37 @@ describe('session launch intents', () => {
 
   it('refuses a fix launch intent with no recovery round — the round is its durable owner', () => {
     expect(() => record('l-fix', { purpose: 'fix' })).toThrow(/recovery round/);
+  });
+
+  it('a resume cannot reopen a terminal process run — the confirmation rolls back', () => {
+    record('l1');
+    confirmSessionLaunchIntent(store, 'l1', {
+      ticketId, provider: 'claude', providerSessionId: 'claude-session-1',
+      at: '2026-08-01T10:01:00.000Z',
+    });
+    expect(interruptImplementationRun(store, ticketId, '2026-08-01T10:20:00.000Z')).toBe(true);
+
+    // The paired process row is somehow terminal (a foreign writer, an older
+    // build). Resuming must fail as a whole — never reopen the implementation
+    // run and leave it split from its canonical process.
+    const run = currentImplementationRun(store, ticketId)!;
+    store.db
+      .prepare('UPDATE process_runs SET status = ?, ended_at = ? WHERE id = ?')
+      .run('passed', '2026-08-01T10:25:00.000Z', run.processRunId);
+
+    record('l4', { reason: 'resume', sessionOrigin: 'resume', at: '2026-08-01T10:30:00.000Z' });
+    expect(() => confirmSessionLaunchIntent(store, 'l4', {
+      ticketId, provider: 'claude', providerSessionId: 'claude-session-1',
+      at: '2026-08-01T10:31:00.000Z',
+    })).toThrow(/reopen/);
+
+    // The transaction rolled back: the run stays interrupted and the process
+    // row stays exactly as the foreign writer left it.
+    expect(listImplementationTimeline(store, ticketId)!.run.status).toBe('interrupted');
+    const processRow = store.db
+      .prepare('SELECT status, ended_at FROM process_runs WHERE id = ?')
+      .get(run.processRunId) as { status: string; ended_at: string | null };
+    expect(processRow).toEqual({ status: 'passed', ended_at: '2026-08-01T10:25:00.000Z' });
   });
 
   it('persists a pending intent across a reopen — only a SessionStart with the same launch id confirms it', () => {
