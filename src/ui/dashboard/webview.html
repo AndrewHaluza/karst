@@ -660,6 +660,9 @@
     .inside-ledger .process-evidence{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
     .inside-ledger .erow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
     .inside-ledger .timeline-row{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
+    /* The thinner row padding shifts the node column; the spine must follow
+       it or it drifts off the node centers at the floor width. */
+    .inside-ledger .timeline-row::before{left:calc(var(--k-space-2) + var(--k-space-3))}
   }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */

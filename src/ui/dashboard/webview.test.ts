@@ -1453,6 +1453,11 @@ describe('dashboard webview.html', () => {
     expect(nodeWidth).toBe('width:calc(var(--k-space-6) + var(--k-space-1))');
     expect(nodeWidth).toBe(glyphWidth);
     expect(HTML).toMatch(/\.timeline-row \.tnode\{[^}]*text-align:center/);
+    // The ≤300 floor thins the row padding from --k-space-4 to --k-space-2,
+    // moving the node column with it; the spine must override its offset in
+    // the same container block or it drifts off the node centers.
+    const at300 = /@container \(max-width: 300px\)\{([\s\S]*?)\n  \}/.exec(HTML)?.[1] ?? '';
+    expect(at300).toMatch(/\.inside-ledger \.timeline-row::before\{left:calc\(var\(--k-space-2\) \+ var\(--k-space-3\)\)\}/);
   });
 
   it('nulls animation under reduced motion without hiding the spinner ring', () => {
