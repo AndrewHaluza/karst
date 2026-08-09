@@ -2,6 +2,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { BlockerKind } from '../../model/types.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
+import { canonicalPath } from '../../runtime/pathScope.js';
 
 export interface ReviewWorktree {
   /** Repository path persisted on the worktree row. */
@@ -56,14 +57,15 @@ export interface GateTarget {
 export function dedupeTargetsByRepoPath(targets: readonly ReviewTarget[]): GateTarget[] {
   const byPath = new Map<string, GateTarget>();
   for (const target of targets) {
-    const existing = byPath.get(target.repo);
+    const key = canonicalPath(target.repo);
+    const existing = byPath.get(key);
     if (existing) {
       for (const name of target.names) {
         if (!existing.names.includes(name)) existing.names.push(name);
       }
       continue;
     }
-    byPath.set(target.repo, { repo: target.repo, path: target.path, names: [...target.names] });
+    byPath.set(key, { repo: target.repo, path: target.path, names: [...target.names] });
   }
   return [...byPath.values()];
 }
@@ -137,14 +139,15 @@ export async function selectReviewTargets(
   const namesByPath = new Map<string, string[]>();
   for (const [name, repository] of Object.entries(manifest.repositories)) {
     if (repository.enabled === false) continue;
-    const names = namesByPath.get(repository.repoPath) ?? [];
+    const key = canonicalPath(repository.repoPath);
+    const names = namesByPath.get(key) ?? [];
     names.push(name);
-    namesByPath.set(repository.repoPath, names);
+    namesByPath.set(key, names);
   }
 
   const changed = new Set<string>();
   for (const worktree of worktrees) {
-    const names = namesByPath.get(worktree.repo) ?? [];
+    const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
     const base = resolveBaselineBranchForPath(manifest, worktree.repo);
     const probe = await hasReviewChanges(git, worktree.path, base);
     if (probe.kind === 'unavailable') {
@@ -171,7 +174,7 @@ export async function selectReviewTargets(
   return {
     kind: 'targets',
     targets: worktrees.flatMap((worktree) => {
-      const names = namesByPath.get(worktree.repo) ?? [];
+      const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
       return names.some((name) => affected.has(name)) ? [{ ...worktree, names }] : [];
     }),
   };

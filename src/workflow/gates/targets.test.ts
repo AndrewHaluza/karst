@@ -71,6 +71,20 @@ describe('selectReviewTargets', () => {
     expect(targets.flatMap((target) => target.names)).not.toContain('docs');
   });
 
+  it('maps a worktree to its manifest entry through a symlinked or non-normalised path', async () => {
+    const slashProject = manifest({
+      api: runnableRepo({}, { repoPath: '/repos/api/' }),
+    });
+    const targets = targetsOf(
+      await selectReviewTargets(
+        slashProject,
+        [{ repo: '/repos/api', path: '/wt/api', baseRef: 'develop' }],
+        changed('/wt/api'),
+      ),
+    );
+    expect(targets).toEqual([expect.objectContaining({ names: ['api'], repo: '/repos/api' })]);
+  });
+
   it('reports a git failure as unavailable rather than throwing', async () => {
     const git: GitRunner = async (args) => ({
       stdout: '',
