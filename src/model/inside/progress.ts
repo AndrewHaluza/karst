@@ -199,3 +199,57 @@ export function shipClearedEvent(ticketId: number): InsideProgressEvent {
     processId: 'ship',
   };
 }
+
+/**
+ * One ship STEP as a live header event.
+ *
+ * A step that is running (or that just failed) is what the header should name;
+ * a `pass`/`note` step is not an operation in flight, so it produces nothing
+ * and the next `run` event replaces the header. Ship's own
+ * `shipClearedEvent` retires the header when the invocation ends.
+ */
+export function shipStepEvent(
+  ticketId: number,
+  event: {
+    repo: string;
+    step: 'commit' | 'push' | 'describe' | 'pr' | 'merge';
+    status: 'run' | 'pass' | 'fail' | 'note';
+    detail?: string;
+  },
+): InsideProgressEvent | null {
+  if (event.status === 'pass' || event.status === 'note') return null;
+  return {
+    kind: 'active',
+    ticketId,
+    stage: 'ship',
+    processId: 'ship',
+    live: {
+      status: event.status === 'fail' ? 'fail' : 'run',
+      label: `${STEP_LABEL[event.step]} · ${event.repo}`,
+      // Untrusted prose (CLI/model output) when ship recorded it, else the
+      // step's own wording. Capped to fit the wire validator (MAX_WIRE_TEXT);
+      // an event the boundary drops is a header that silently goes silent.
+      detail: (event.detail ?? stepDetail(event)).slice(0, 200),
+    },
+  };
+}
+
+/** The step's own one-line wording; a failed step names what did not happen. */
+function stepDetail(event: {
+  step: 'commit' | 'push' | 'describe' | 'pr' | 'merge';
+  status: 'run' | 'pass' | 'fail' | 'note';
+}): string {
+  return event.status === 'fail'
+    ? `${STEP_DETAIL[event.step]} failed`
+    : STEP_DETAIL[event.step];
+}
+
+const STEP_LABEL = { commit: 'Commit', push: 'Push', describe: 'PR', pr: 'PR', merge: 'Merge' } as const;
+
+const STEP_DETAIL = {
+  commit: 'committing the worktree',
+  push: 'pushing the branch',
+  describe: 'updating description',
+  pr: 'opening the pull request',
+  merge: 'checking mergeability',
+} as const;

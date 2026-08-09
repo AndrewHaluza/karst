@@ -3,6 +3,7 @@ import {
   shipStartedEvent,
   shipFinishedEvent,
   shipClearedEvent,
+  shipStepEvent,
   validateInsideProgressEvent,
 } from './progress.js';
 import { shipProcesses } from './ship.js';
@@ -77,5 +78,51 @@ describe('ship lifecycle events (Finding 12)', () => {
   it('refuses to finish with any status the live/terminal vocabularies reject', () => {
     expect(validateInsideProgressEvent(shipFinishedEvent(7, 'pass'))).not.toBeNull();
     expect(validateInsideProgressEvent(shipFinishedEvent(7, 'fail'))).not.toBeNull();
+  });
+});
+
+describe('shipStepEvent (the live header names the step)', () => {
+  it('names the running describe step as the PR operation on its repo', () => {
+    const event = shipStepEvent(7, { repo: 'api', step: 'describe', status: 'run' });
+    expect(event).toEqual({
+      kind: 'active',
+      ticketId: 7,
+      stage: 'ship',
+      processId: 'ship',
+      live: { status: 'run', label: 'PR · api', detail: 'updating description' },
+    });
+    expect(validateInsideProgressEvent(event!)).toEqual(event);
+  });
+
+  it('produces nothing for a passed step — the next run event replaces the header', () => {
+    expect(shipStepEvent(7, { repo: 'api', step: 'describe', status: 'pass' })).toBeNull();
+  });
+
+  it('produces nothing for a note step — work not (re-)run is not an operation in flight', () => {
+    expect(shipStepEvent(7, { repo: 'api', step: 'describe', status: 'note' })).toBeNull();
+  });
+
+  it('names a failed step as failed, with the step detail', () => {
+    const event = shipStepEvent(7, { repo: 'api', step: 'describe', status: 'fail' });
+    expect(event).not.toBeNull();
+    if (event?.kind !== 'active') return;
+    expect(event.live.status).toBe('fail');
+    expect(event.live.label).toBe('PR · api');
+    expect(event.live.detail).toBe('updating description failed');
+  });
+
+  it('caps untrusted detail at 200 chars so the event survives the wire validator', () => {
+    // `event.detail` can carry CLI or model prose; without the cap the whole
+    // event would be dropped at the wire boundary (>240 chars).
+    const event = shipStepEvent(7, {
+      repo: 'api',
+      step: 'pr',
+      status: 'run',
+      detail: 'x'.repeat(5000),
+    });
+    expect(event).not.toBeNull();
+    if (event?.kind !== 'active') return;
+    expect(event.live.detail).toHaveLength(200);
+    expect(validateInsideProgressEvent(event)).toEqual(event);
   });
 });

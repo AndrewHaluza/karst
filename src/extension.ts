@@ -208,7 +208,7 @@ import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
 import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
-import { shipClearedEvent, type InsideProgressEvent } from './model/inside/progress.js';
+import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
 import { getPrById } from './store/prs.js';
 import { getShipCommitById } from './store/shipRuns.js';
@@ -3917,7 +3917,10 @@ function makeDashboardActions(
         undefined,
         undefined,
         undefined,
-        undefined,
+        (step) => {
+          const event = shipStepEvent(ticketId, step);
+          if (event) onInsideProgress(event);
+        },
         onInsideProgress,
       )
         .then(async () => {
