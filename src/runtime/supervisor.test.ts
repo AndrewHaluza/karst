@@ -11,7 +11,7 @@ import {
   pruneOrphanServers,
   tailLog,
 } from './supervisor.js';
-import { freePortWindow, removeTempDir } from './fixtures.js';
+import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
 
 /**
  * A fixture dev server: comes up on PORT, serves /health 200 only after a delay
@@ -33,11 +33,36 @@ createServer((req, res) => {
 }).listen(port);
 `;
 
-/** A server that binds but never returns healthy — to exercise the timeout path. */
+/**
+ * A server that binds but never returns healthy — to exercise the timeout path.
+ */
 const NEVER_HEALTHY_SRC = `
 import { createServer } from 'node:http';
 const port = Number(process.env.PORT);
 createServer((_req, res) => { res.writeHead(503); res.end('never'); }).listen(port);
+`;
+
+/**
+ * The reported squatter: a dev server that binds its hardcoded port and answers
+ * NOTHING the health URL asks (a plain FE dev server 404s /health). It occupies
+ * the port without ever being "serving", so the health probe cannot see it and
+ * a spawned child dies of EADDRINUSE.
+ */
+const DEAF_SERVER_SRC = `
+import { createServer } from 'node:http';
+const port = Number(process.env.PORT);
+createServer((_req, res) => { res.writeHead(404); res.end(); }).listen(port);
+`;
+
+/** A server that answers ONLY its own health path — 404s every other URL. */
+const CUSTOM_HEALTH_SRC = `
+import { createServer } from 'node:http';
+const port = Number(process.env.PORT);
+const healthPath = process.env.HEALTH_PATH;
+createServer((req, res) => {
+  if (req.url === healthPath) { res.writeHead(200); res.end('ok'); return; }
+  res.writeHead(404); res.end();
+}).listen(port);
 `;
 
 /**
@@ -95,6 +120,8 @@ describe('server supervisor', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-sup-'));
     writeFileSync(join(dir, 'server.mjs'), SERVER_SRC);
     writeFileSync(join(dir, 'never.mjs'), NEVER_HEALTHY_SRC);
+    writeFileSync(join(dir, 'deaf.mjs'), DEAF_SERVER_SRC);
+    writeFileSync(join(dir, 'custom.mjs'), CUSTOM_HEALTH_SRC);
     writeFileSync(join(dir, 'launcher.mjs'), LAUNCHER_SRC);
   });
   afterEach(() => {
@@ -130,6 +157,7 @@ describe('server supervisor', () => {
           command: 'karst-no-such-binary',
           args: ['up'],
           cwd: dir,
+          repoPath: dir,
           env: {},
           host: '127.0.0.1',
           port,
@@ -155,6 +183,7 @@ describe('server supervisor', () => {
         command: 'karst-no-such-binary',
         args: [],
         cwd: dir,
+        repoPath: dir,
         env: {},
         host: '127.0.0.1',
         port,
@@ -173,6 +202,7 @@ describe('server supervisor', () => {
       command: process.execPath,
       args: [join(dir, 'server.mjs')],
       cwd: dir,
+      repoPath: dir,
       env: { PORT: String(port), READY_AFTER_MS: '400' },
       host: '127.0.0.1',
       port,
@@ -216,6 +246,7 @@ describe('server supervisor', () => {
       command: process.execPath,
       args: [join(dir, 'server.mjs')],
       cwd: dir,
+      repoPath: dir,
       env: { PORT: String(port) },
       host: '127.0.0.1',
       port,
@@ -246,6 +277,7 @@ describe('server supervisor', () => {
       command: process.execPath,
       args: [join(dir, 'server.mjs')],
       cwd: dir,
+      repoPath: dir,
       env: { PORT: String(port1) },
       host: '127.0.0.1',
       port: port1,
@@ -261,6 +293,7 @@ describe('server supervisor', () => {
       command: process.execPath,
       args: [join(dir, 'server.mjs')],
       cwd: dir,
+      repoPath: dir,
       env: { PORT: String(port2) },
       host: '127.0.0.1',
       port: port2,
@@ -289,6 +322,7 @@ describe('server supervisor', () => {
         command: process.execPath,
         args: [join(dir, 'never.mjs')],
         cwd: dir,
+        repoPath: dir,
         env: { PORT: String(port) },
         host: '127.0.0.1',
         port,
@@ -300,13 +334,14 @@ describe('server supervisor', () => {
   });
 
   // A foreign process on the port answers /health, so health alone cannot tell
-  // "my service is up" from "somebody else's is". Our own child meanwhile dies of
-  // EADDRINUSE, and startHot used to record its dead pid as status='running' —
-  // the dashboard then showed a healthy server nothing could stop or restart.
-  it('rejects when its own process dies of a port conflict instead of adopting the foreign listener', async () => {
+  // "my service is up" from "somebody else's is". Port ownership is attributed
+  // before spawn: an outside-repository listener is refused, never adopted and
+  // never killed.
+  it('rejects a foreign healthy listener instead of adopting it', async () => {
     const port = nextPort();
+    const outside = mkdtempSync(join(tmpdir(), 'karst-foreign-'));
     const foreign = spawn(process.execPath, [join(dir, 'server.mjs')], {
-      cwd: dir,
+      cwd: outside,
       env: { ...process.env, PORT: String(port) },
       stdio: 'ignore',
     });
@@ -320,6 +355,7 @@ describe('server supervisor', () => {
           command: process.execPath,
           args: [join(dir, 'server.mjs')],
           cwd: dir,
+          repoPath: dir,
           env: { PORT: String(port) },
           host: '127.0.0.1',
           port,
@@ -333,7 +369,163 @@ describe('server supervisor', () => {
       expect(rows.n).toBe(0); // nothing recorded as running
     } finally {
       foreign.kill('SIGKILL');
+      removeTempDir(outside);
     }
+  });
+
+  it('reclaims a same-repository SPA server even when its fallback returns health 200', async () => {
+    const port = nextPort();
+    const squatter = spawn(process.execPath, [join(dir, 'server.mjs')], {
+      cwd: dir,
+      env: { ...process.env, PORT: String(port) },
+      stdio: 'ignore',
+    });
+    try {
+      await waitUntilServing(`http://127.0.0.1:${port}/health`);
+
+      const rec = await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'server.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+      });
+
+      expect(rec.status).toBe('running');
+      await new Promise((r) => setTimeout(r, 200));
+      expect(alive(squatter.pid!)).toBe(false);
+    } finally {
+      squatter.kill('SIGKILL');
+    }
+  });
+
+  // The reported spin failure: a dev server squats the port, answering nothing
+  // the health URL asks (a plain FE dev server 404s /health), so the health
+  // probe cannot see it and the spawned child dies of EADDRINUSE with exit 1.
+  // A squatter running INSIDE the service's repository is a dev server of this
+  // repo — startHot reclaims the port from it and starts cleanly.
+  it('reclaims the port from a conflicting dev server running in the repo, then starts', async () => {
+    const port = nextPort();
+    const squatter = spawn(process.execPath, [join(dir, 'deaf.mjs')], {
+      cwd: dir,
+      env: { ...process.env, PORT: String(port) },
+      stdio: 'ignore',
+    });
+    try {
+      await waitUntilListening(port);
+
+      const rec = await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'server.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+      });
+
+      expect(rec.status).toBe('running');
+      const health = await fetch(`http://127.0.0.1:${port}/health`);
+      expect(health.status).toBe(200);
+      // the squatter was reaped, not left to fight for the port
+      await new Promise((r) => setTimeout(r, 200));
+      expect(alive(squatter.pid!)).toBe(false);
+    } finally {
+      squatter.kill('SIGKILL');
+    }
+  });
+
+  // The OTHER half of the same situation: the squatter runs OUTSIDE the repo —
+  // an unrelated app on the port. Karst never kills a stranger, so the start is
+  // refused with the port named, and the squatter survives untouched.
+  it('refuses when the port is held by a process outside the repo — never kills a stranger', async () => {
+    const port = nextPort();
+    const outside = mkdtempSync(join(tmpdir(), 'karst-out-'));
+    const squatter = spawn(process.execPath, [join(dir, 'deaf.mjs')], {
+      cwd: outside,
+      env: { ...process.env, PORT: String(port) },
+      stdio: 'ignore',
+    });
+    try {
+      await waitUntilListening(port);
+
+      await expect(
+        startHot(store, {
+          ticketId: 1,
+          service: 'backend',
+          command: process.execPath,
+          args: [join(dir, 'server.mjs')],
+          cwd: dir,
+          repoPath: dir,
+          env: { PORT: String(port) },
+          host: '127.0.0.1',
+          port,
+          healthUrl: `http://127.0.0.1:${port}/health`,
+          logPath: join(dir, 'svc.log'),
+        }),
+      ).rejects.toThrow(/in use/);
+
+      await new Promise((r) => setTimeout(r, 200));
+      expect(alive(squatter.pid!)).toBe(true); // untouched
+      const rows = store.db.prepare('SELECT COUNT(*) AS n FROM servers').get() as { n: number };
+      expect(rows.n).toBe(0); // nothing recorded, nothing killed
+    } finally {
+      squatter.kill('SIGKILL');
+    }
+  });
+
+  // The same conflict, but the squatter IS a karst-recorded server — another
+  // ticket's, answering its OWN health path (not ours). It is attributable and
+  // reaped, and its row is retired rather than left claiming a dead pid.
+  it('kills a conflicting karst-recorded server of another ticket and marks its row stopped', async () => {
+    const port = nextPort();
+    const old = await startHot(store, {
+      ticketId: 9,
+      service: 'frontend',
+      command: process.execPath,
+      args: [join(dir, 'custom.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port), HEALTH_PATH: '/fe-health' },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/fe-health`,
+      logPath: join(dir, 'fe.log'),
+    });
+
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+    });
+
+    expect(rec.status).toBe('running');
+    const row = store.db.prepare('SELECT status, pid FROM servers WHERE id = ?').get(old.id) as {
+      status: string;
+      pid: number | null;
+    };
+    expect(row.status).toBe('stopped'); // retired with the kill, not left phantom-running
+    expect(row.pid).toBeNull();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(alive(old.pid)).toBe(false);
   });
 
   it('kills the grandchild when a launcher fails health (no orphan)', async () => {
@@ -346,6 +538,7 @@ describe('server supervisor', () => {
         command: process.execPath,
         args: [join(dir, 'launcher.mjs')],
         cwd: dir,
+        repoPath: dir,
         env: { PORT: String(port), GRANDCHILD_PID_FILE: pidFile },
         host: '127.0.0.1',
         port,
@@ -374,6 +567,7 @@ describe('server supervisor', () => {
         command: process.execPath,
         args: [join(dir, 'never.mjs')],
         cwd: dir,
+        repoPath: dir,
         env: { PORT: String(port) },
         host: '127.0.0.1',
         port,
@@ -395,6 +589,7 @@ describe('server supervisor', () => {
         command: process.execPath,
         args: [join(dir, 'server.mjs')],
         cwd: dir,
+        repoPath: dir,
         env: { PORT: String(port) },
         host: '127.0.0.1',
         port,
@@ -433,6 +628,7 @@ describe('server supervisor', () => {
       command: process.execPath,
       args: [join(dir, 'server.mjs')],
       cwd: dir,
+      repoPath: dir,
       env: { PORT: String(port) },
       host: '127.0.0.1',
       port,
@@ -462,6 +658,7 @@ describe('server supervisor', () => {
       command: process.execPath,
       args: [join(dir, 'server.mjs')],
       cwd: dir,
+      repoPath: dir,
       env: { PORT: String(port) },
       host: '127.0.0.1',
       port,

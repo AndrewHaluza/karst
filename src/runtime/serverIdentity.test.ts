@@ -1,10 +1,18 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   attributeServer,
   parseStartedAt,
+  processStartMsAsync,
+  systemAsyncProcessFacts,
+  systemProcessFacts,
   type ProcessFacts,
   type LiveCwd,
 } from './serverIdentity.js';
+import { canonicalPath } from './pathScope.js';
 
 const RECORDED_START = Date.parse('2026-08-03T07:00:00.000Z');
 
@@ -28,6 +36,23 @@ describe('parseStartedAt', () => {
   });
 });
 
+describe('processStartMsAsync', () => {
+  it('reads a Windows process creation time through bounded PowerShell output', async () => {
+    const calls: { command: string; args: string[] }[] = [];
+    const run = async (command: string, args: string[]): Promise<string> => {
+      calls.push({ command, args });
+      return '2026-08-03T07:00:00.0000000Z\r\n';
+    };
+
+    const startedAt = await processStartMsAsync(4242, 'win32', run);
+
+    expect(startedAt).toBe(RECORDED_START);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.command).toBe('powershell.exe');
+    expect(calls[0]!.args.join(' ')).toContain('4242');
+  });
+});
+
 describe('attributeServer', () => {
   const row = { pid: 4242, cwd: '/w/abc', startedAt: '2026-08-03T07:00:00.000Z' };
 
@@ -39,7 +64,7 @@ describe('attributeServer', () => {
     expect(attributeServer({ ...row, pid: null }, facts())).toBe('unknown');
   });
 
-  describe('with a cwd probe (Linux /proc)', () => {
+  describe('with a cwd probe (Linux /proc, macOS lsof)', () => {
     it('attributes a live process whose cwd is the recorded one', () => {
       const f = facts({ liveCwd: () => ({ path: '/w/abc', deleted: false }) });
       expect(attributeServer(row, f)).toBe('attributable');
@@ -55,8 +80,22 @@ describe('attributeServer', () => {
       expect(attributeServer(row, f)).toBe('foreign');
     });
 
-    it('refuses when the row has no recorded directory to compare against', () => {
+    // The OS answers the cwd probe, but a pre-v21 row never recorded where the
+    // server runs — there is nothing to compare against, so the probe is not
+    // evidence EITHER WAY. The decision must fall through to the start-time
+    // rule rather than refuse on a question the row cannot answer: before the
+    // lsof probe gave macOS a cwd answer, those rows were attributable by
+    // start time, and gaining a probe must not strand them.
+    it('falls through to the start-time rule when the row has no recorded directory', () => {
       const f = facts({ liveCwd: () => ({ path: '/w/abc', deleted: false }) });
+      expect(attributeServer({ ...row, cwd: null }, f)).toBe('attributable'); // start time matches
+    });
+
+    it('refuses when the row has no recorded directory AND no start time is usable', () => {
+      const f = facts({
+        liveCwd: () => ({ path: '/w/abc', deleted: false }),
+        processStartMs: () => null,
+      });
       expect(attributeServer({ ...row, cwd: null }, f)).toBe('unknown');
     });
 
@@ -83,7 +122,7 @@ describe('attributeServer', () => {
     });
   });
 
-  describe('without a cwd probe (macOS, Windows)', () => {
+  describe('without a cwd probe (Windows, or a missing lsof)', () => {
     it('attributes a live pid whose own start time matches the recorded one', () => {
       expect(attributeServer(row, facts())).toBe('attributable');
     });
@@ -112,5 +151,37 @@ describe('attributeServer', () => {
       expect(attributeServer({ ...row, startedAt: null }, facts())).toBe('unknown');
       expect(attributeServer({ ...row, startedAt: 'whenever' }, facts())).toBe('unknown');
     });
+  });
+});
+
+describe('systemProcessFacts (real OS probes)', () => {
+  it('reports the live cwd of a running process', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-cwd-'));
+    const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1e9)'], {
+      cwd: dir,
+      stdio: 'ignore',
+    });
+    try {
+      const live = systemProcessFacts.liveCwd(child.pid!);
+      const asyncLive = await systemAsyncProcessFacts.liveCwd(child.pid!);
+      if (process.platform === 'linux') {
+        // /proc readlink always answers.
+        expect(live).not.toBeNull();
+        expect(canonicalPath(live!.path)).toBe(canonicalPath(dir));
+        expect(asyncLive).not.toBeNull();
+        expect(canonicalPath(asyncLive!.path)).toBe(canonicalPath(dir));
+      } else if (process.platform === 'darwin') {
+        // lsof ships with macOS; where it is missing the probe degrades to
+        // null (evidence not obtained), so there is nothing to assert then.
+        if (live) expect(canonicalPath(live.path)).toBe(canonicalPath(dir));
+        if (asyncLive) expect(canonicalPath(asyncLive.path)).toBe(canonicalPath(dir));
+      } else {
+        // Windows has neither /proc nor lsof by default.
+        expect(live).toBeNull();
+        expect(asyncLive).toBeNull();
+      }
+    } finally {
+      child.kill('SIGKILL');
+    }
   });
 });

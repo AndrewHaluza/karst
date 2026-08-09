@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
@@ -9,7 +9,7 @@ import { stopServer } from './supervisor.js';
 import { spinTicket, SpinCancelledError } from './spin.js';
 import { worktreeSlug } from './slug.js';
 import { createWorktree } from './worktree.js';
-import { freePortWindow, removeTempDir } from './fixtures.js';
+import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
 import type { DependsOn, Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
   dependsOn,
@@ -532,5 +532,84 @@ describe('spinTicket integration', () => {
 
     const baselines = store.db.prepare("SELECT COUNT(*) AS n FROM servers WHERE repo='backend' AND ticket_id IS NULL AND status='running'").get() as { n: number };
     expect(baselines.n).toBe(1); // one baseline shared by both tickets
+  });
+
+  /** True if pid is alive (signal 0 probes without killing). */
+  function alive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** A squatter dev server: binds its port and answers 404 — deaf to /health. */
+  const DEAF_EVAL = `require('node:http').createServer((_q, s) => { s.writeHead(404); s.end(); }).listen(Number(process.env.PORT));`;
+
+  // The reported incident: a dev server already occupies the port the allocator
+  // hands the service — invisible to the health probe because it 404s /health,
+  // so the spawned child dies of EADDRINUSE and the whole spin fails. The
+  // squatter runs INSIDE the service's repository (the main checkout), so it is
+  // attributable as a dev server of this repo and reclaimed: the spin completes
+  // on the SAME port, and the squatter is gone.
+  it('reclaims a dev server squatting the allocated port so the spin completes', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
+
+    const squatter = spawn(process.execPath, ['-e', DEAF_EVAL], {
+      cwd: frontend,
+      env: { ...process.env, PORT: String(fePort) },
+      stdio: 'ignore',
+    });
+    try {
+      await waitUntilListening(fePort);
+
+      const ticket = createTicket(store, { key: 'PROJ-SQ', title: 'squat' });
+      const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+
+      const feServer = result.servers.find((s) => s.service === 'frontend')!;
+      expect(feServer.status).toBe('running');
+      expect(feServer.port).toBe(fePort); // reclaimed the SAME port, not reallocated
+      const health = await fetch(`http://127.0.0.1:${fePort}/health`);
+      expect(health.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 200));
+      expect(alive(squatter.pid!)).toBe(false); // reaped
+    } finally {
+      squatter.kill('SIGKILL');
+    }
+  });
+
+  // The other half: the port is held by a process OUTSIDE every repository — an
+  // unrelated app. Karst never kills a stranger: the spin rejects with the port
+  // named, and the squatter survives untouched.
+  it('rejects the spin when an unrelated process holds the allocated port', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
+    const outside = mkdtempSync(join(tmpdir(), 'karst-out-'));
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
+
+    const squatter = spawn(process.execPath, ['-e', DEAF_EVAL], {
+      cwd: outside,
+      env: { ...process.env, PORT: String(fePort) },
+      stdio: 'ignore',
+    });
+    try {
+      await waitUntilListening(fePort);
+
+      const ticket = createTicket(store, { key: 'PROJ-SQ2', title: 'squat foreign' });
+      await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(/in use/);
+
+      await new Promise((r) => setTimeout(r, 200));
+      expect(alive(squatter.pid!)).toBe(true); // untouched
+    } finally {
+      squatter.kill('SIGKILL');
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

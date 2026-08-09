@@ -113,6 +113,7 @@ export async function ensureBaseline(
     port,
     healthUrl,
     logPath: serverLogPath(checkout, `${service}.baseline`),
+    repoPath: repo.repoPath,
   });
 }
 

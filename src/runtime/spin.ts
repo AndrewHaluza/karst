@@ -223,6 +223,7 @@ export async function spinTicket(
         port: ownPort,
         healthUrl,
         logPath: serverLogPath(cwd, name),
+        repoPath: repo.repoPath,
         signal,
       });
       servers.push(rec);

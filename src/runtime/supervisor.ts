@@ -2,8 +2,9 @@ import { spawn } from 'node:child_process';
 import { openSync, closeSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
-import { isServing, waitForHealth } from './health.js';
+import { waitForHealth } from './health.js';
 import { killTree } from './processTree.js';
+import { isPortOpen, reclaimPort } from './portConflict.js';
 export { killTree } from './processTree.js';
 
 /**
@@ -36,6 +37,13 @@ export interface StartHotOpts {
   port: number;
   healthUrl: string;
   logPath: string;
+  /**
+   * The repository root the service belongs to — the boundary for reclaiming a
+   * port from a conflicting dev server (see `runtime/portConflict.ts`): a
+   * process whose cwd is inside it is a dev server of this repo and may be
+   * reaped; anything outside it is a stranger and never touched.
+   */
+  repoPath: string;
   healthTimeoutMs?: number;
   /** Abort the health-gated start early (spin cancellation). */
   signal?: AbortSignal;
@@ -72,18 +80,26 @@ function rejectAfter(ms: number, err: Error): Promise<never> {
 }
 
 export async function startHot(store: Store, opts: StartHotOpts): Promise<ServerRecord> {
-  // Somebody is already on this port and answering health. Nothing we spawn can
-  // bind it, so the child will die of EADDRINUSE while the health check passes
-  // against the FOREIGN listener — and karst would record the dead pid as
-  // 'running', offering a server nothing could stop or restart. Refuse instead,
-  // and say whose problem it is. Reuse of a server karst itself started is
-  // decided upstream from the `servers` table, never by adopting a health 200.
-  if (await isServing(opts.healthUrl)) {
-    throw new Error(
-      `could not start '${opts.service}': ${opts.host}:${opts.port} is already serving ` +
-        `${opts.healthUrl}. Another process owns that port — a server leaked by an earlier ` +
-        `run, or an unrelated app. Stop it, or give '${opts.service}' a different port in karst.yml.`,
-    );
+  // A port owner may answer the configured health URL (SPA fallbacks commonly
+  // return index.html with 200 for every path) or may answer nothing useful at
+  // all. Health therefore cannot identify the owner. Attribute every occupied
+  // port before spawning: reclaim only dev servers of this repository or
+  // karst-recorded servers, and refuse strangers without signalling them.
+  if (await isPortOpen(opts.host, opts.port)) {
+    const reclaimed = await reclaimPort(store, opts.host, opts.port, opts.repoPath);
+    for (const id of reclaimed.stoppedRows) markServerStopped(store, id);
+    if (!reclaimed.portFree) {
+      const who = reclaimed.survivors
+        .map((s) => (s.pid === null ? 'a process karst cannot identify' : `pid ${s.pid}`))
+        .join(', ');
+      const holder = who ? `${opts.host}:${opts.port} is in use by ${who} — ` : '';
+      throw new Error(
+        `could not start '${opts.service}': ${holder}` +
+          `not a dev server of this repository and not a server karst started, so karst will ` +
+          `not stop it. Stop the process on that port, or give '${opts.service}' a different ` +
+          `port in karst.yml.`,
+      );
+    }
   }
 
   // Logs live in a subdirectory (`serverLogPath`), and a freshly created
