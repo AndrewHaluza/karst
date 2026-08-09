@@ -5,6 +5,7 @@ import {
   shipClearedEvent,
   validateInsideProgressEvent,
 } from './progress.js';
+import { shipProcesses } from './ship.js';
 
 /**
  * The ship lifecycle as ONE generic inside-progress 'ship' process (Finding
@@ -14,6 +15,19 @@ import {
  * what the workflow boundary emits; the panel boundary re-validates the result,
  * so every event below must survive `validateInsideProgressEvent`.
  */
+/**
+ * The ids the ship snapshot's process roster actually carries — derived from
+ * the real reducer, never hardcoded, so the overlay's completed row can always
+ * replace a row the snapshot contains instead of appending a phantom one.
+ */
+const SHIP_PROCESS_IDS = shipProcesses({
+  cell: { stageKey: 'ship', status: 'pending' },
+  evidence: { run: undefined, repos: {} },
+  prs: [],
+  mergeChecks: [],
+  now: '2026-08-09T00:00:00.000Z',
+}).map((p) => p.id);
+
 describe('ship lifecycle events (Finding 12)', () => {
   it('starts with a host-formatted live operation, not raw repo/step structures', () => {
     const event = shipStartedEvent(7);
@@ -27,13 +41,19 @@ describe('ship lifecycle events (Finding 12)', () => {
     expect(validateInsideProgressEvent(event)).toEqual(event);
   });
 
+  it('emits a completed event whose id exists in the ship snapshot', () => {
+    const ev = shipFinishedEvent(7, 'pass');
+    if (ev.kind !== 'completed') throw new Error('shipFinishedEvent must emit a completed event');
+    expect(SHIP_PROCESS_IDS).toContain(ev.process.id);
+  });
+
   it('finishes with a complete process row that passes the wire validator', () => {
     const event = shipFinishedEvent(7, 'pass');
     expect(event).toEqual({
       kind: 'completed',
       ticketId: 7,
       stage: 'ship',
-      process: { id: 'ship', kind: 'ship', label: 'Ship', status: 'pass' },
+      process: { id: 'pr', kind: 'ship', label: 'Ship', status: 'pass' },
     });
     expect(validateInsideProgressEvent(event)).toEqual(event);
   });
@@ -43,7 +63,7 @@ describe('ship lifecycle events (Finding 12)', () => {
     expect(event).toMatchObject({
       kind: 'completed',
       stage: 'ship',
-      process: { id: 'ship', kind: 'ship', label: 'Ship', status: 'fail' },
+      process: { id: 'pr', kind: 'ship', label: 'Ship', status: 'fail' },
     });
     expect(validateInsideProgressEvent(event)).toEqual(event);
   });

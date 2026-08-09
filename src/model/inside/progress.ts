@@ -186,7 +186,7 @@ export function shipFinishedEvent(ticketId: number, status: 'pass' | 'fail'): In
     kind: 'completed',
     ticketId,
     stage: 'ship',
-    process: { id: 'ship', kind: 'ship', label: 'Ship', status },
+    process: { id: 'pr', kind: 'ship', label: 'Ship', status },
   };
 }
 
