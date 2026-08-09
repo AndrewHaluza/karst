@@ -7,7 +7,12 @@ import type {
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
-import { implementationSessionProcess, reportedPhases, tokenView } from './agent.js';
+import {
+  implementationSessionProcess,
+  reportedPhases,
+  SESSION_STATUS_LABELS,
+  tokenView,
+} from './agent.js';
 import { formatTime, type EvidenceRow, type InsideEvidenceTarget, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -477,5 +482,223 @@ describe('implementationSessionProcess', () => {
     expect(timeline.length).toBe(21);
     expect(timeline.at(-1)).toMatchObject({ label: 'more', status: 'note' });
     expect(timeline.at(-1)!.detail).toContain('6');
+  });
+});
+
+describe('implementationSessionProcess visible status and footer', () => {
+  const runAt = (t: string) => `2026-07-20T${t}:00.000Z`;
+
+  function segment(over: Partial<ImplementationSegment> = {}): ImplementationSegment {
+    return {
+      id: 1,
+      implementationRunId: 1,
+      provider: 'claude',
+      model: 'claude-opus-4-8',
+      providerSessionId: 'sess-1',
+      reason: null,
+      status: 'running',
+      launchIntentId: 1,
+      startedAt: runAt('12:00'),
+      endedAt: null,
+      ...over,
+    };
+  }
+
+  function run(over: Partial<ImplementationRun> = {}): ImplementationRun {
+    return {
+      id: 1,
+      ticketId: 1,
+      processRunId: 1,
+      attempt: 0,
+      status: 'running',
+      startedAt: runAt('12:00'),
+      endedAt: null,
+      ...over,
+    };
+  }
+
+  function tl(
+    segments: readonly ImplementationSegment[],
+    over: Partial<ImplementationRun> = {},
+  ): ImplementationTimeline {
+    return { run: run(over), segments: [...segments] };
+  }
+
+  function footer(process: InsideProcessView): readonly string[] {
+    expect(process.footer).toBeDefined();
+    return process.footer!;
+  }
+
+  it('maps every inside status to a visible label', () => {
+    expect(SESSION_STATUS_LABELS).toEqual({
+      pending: 'Pending',
+      run: 'Running',
+      wait: 'Waiting',
+      pass: 'Completed',
+      fail: 'Failed',
+      note: 'Note',
+      skip: 'Skipped',
+    });
+  });
+
+  it('derives the visible label from the SAME status the row carries', () => {
+    const cases: Array<[StageStatus, string]> = [
+      ['pending', 'Pending'],
+      ['running', 'Running'],
+      ['passed', 'Completed'],
+      ['failed', 'Failed'],
+      ['skipped', 'Skipped'],
+    ];
+    for (const [status, label] of cases) {
+      const process = implementationSessionProcess(
+        cell('impl', status),
+        null,
+        [],
+        undefined,
+        undefined,
+        NOW,
+      );
+      expect(process.statusLabel).toBe(label);
+    }
+  });
+
+  it('renders the recorded session facts as footer items, in plan order', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'passed'),
+      tl([
+        segment({ id: 1, providerSessionId: 'c7f1', status: 'closed', endedAt: runAt('12:20') }),
+        segment({
+          id: 2,
+          reason: 'switch',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+          providerSessionId: 'sess-2',
+          startedAt: runAt('13:00'),
+        }),
+        segment({
+          id: 3,
+          reason: 'switch',
+          provider: 'claude',
+          model: 'claude-opus-4-8',
+          providerSessionId: 'sess-3',
+          startedAt: runAt('14:00'),
+        }),
+      ]),
+      [],
+      undefined,
+      { total: 58_300, input: 46_100, output: 12_200 },
+      NOW,
+    );
+    expect(process.statusLabel).toBe('Completed');
+    expect(footer(process)).toEqual([
+      'session c7f1',
+      '2 switches',
+      '46.1k input · 12.2k output',
+      'same session continues across switches',
+      'advances only on explicit done marker',
+    ]);
+  });
+
+  it('omits the session-id item when no segment recorded one', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1, providerSessionId: null })]),
+      [],
+      undefined,
+      { total: 58_300, input: 46_100, output: 12_200 },
+      NOW,
+    );
+    expect(footer(process)).toEqual([
+      '46.1k input · 12.2k output',
+      'advances only on explicit done marker',
+    ]);
+  });
+
+  it('omits the token split unless BOTH directions were recorded — never 0 input', () => {
+    // No split recorded at all: no token item.
+    const noSplit = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1, providerSessionId: null })]),
+      [],
+      undefined,
+      { total: 58_300 },
+      NOW,
+    );
+    expect(footer(noSplit)).toEqual(['advances only on explicit done marker']);
+
+    // A recorded zero in one direction must not read as a measured free side.
+    const zeroOutput = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1, providerSessionId: null })]),
+      [],
+      undefined,
+      { total: 58_300, input: 58_300, output: 0 },
+      NOW,
+    );
+    expect(footer(zeroOutput)).toEqual(['advances only on explicit done marker']);
+  });
+
+  it('omits the switch count and the continuity claim when no switch was recorded', () => {
+    // A resume is NOT a switch: continuity across switches never claims a
+    // continuity that did not happen.
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1, providerSessionId: null }),
+        segment({
+          id: 2,
+          reason: 'resume',
+          providerSessionId: 'sess-2',
+          startedAt: runAt('13:00'),
+        }),
+      ]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(footer(process)).toEqual([
+      'session sess-2',
+      'advances only on explicit done marker',
+    ]);
+  });
+
+  it('states a single recorded switch in the singular', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1, providerSessionId: null }),
+        segment({
+          id: 2,
+          reason: 'switch',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+          providerSessionId: 'sess-2',
+          startedAt: runAt('13:00'),
+        }),
+      ]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(footer(process)).toEqual([
+      'session sess-2',
+      '1 switch',
+      'same session continues across switches',
+      'advances only on explicit done marker',
+    ]);
+  });
+
+  it('carries no footer before any timeline exists', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'pending'),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.footer).toBeUndefined();
   });
 });

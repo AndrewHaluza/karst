@@ -270,6 +270,21 @@ export interface InsideProcessView {
   kind: string;
   label: string;
   status: InsideStatus;
+  /**
+   * Visible status copy — "Completed", "Running" — so the status colour/glyph
+   * is never the only carrier. Derived host-side from the SAME status reading
+   * the row carries; the webview renders it verbatim and never re-derives it
+   * from the glyph. Absent → no label (a process that has not adopted the
+   * contract yet must not fabricate one).
+   */
+  statusLabel?: string;
+  /**
+   * Host-formatted, non-interactive facts shown below the expanded process —
+   * the recorded session id, switch count, token split, and the rule copy.
+   * Every item is a finished string; the webview renders and concatenates
+   * nothing. Absent → no footer strip at all.
+   */
+  footer?: readonly string[];
   detail?: string;
   /**
    * The kind-specific aggregate copy for the process row — "4 passed · 1

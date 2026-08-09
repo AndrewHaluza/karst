@@ -560,6 +560,14 @@ export function implementationPrototypeFixture(): InsideRenderFixture {
           kind: 'session',
           label: 'Session',
           status: 'pass',
+          statusLabel: 'Completed',
+          footer: [
+            'session c7f1',
+            '2 switches',
+            '46.1k input · 12.2k output',
+            'same session continues across switches',
+            'advances only on explicit done marker',
+          ],
           detail: 'session c7f1 · completed',
           duration: '19m',
           execution: {

@@ -71,6 +71,10 @@ export interface SessionTokensInput {
   total: number;
   /** Count of calls whose numbers are estimates, not reports. */
   estimatedCalls?: number;
+  /** Measured input tokens, when the record splits directions. */
+  input?: number;
+  /** Measured output tokens, when the record splits directions. */
+  output?: number;
 }
 
 /** The provider/model karst was configured to run, shown before any segment. */
@@ -229,6 +233,75 @@ function sessionStatus(cell: StepperCell): InsideStatus {
 }
 
 /**
+ * The visible status copy per inside status — the textual channel beside the
+ * glyph, keyed by the SAME `InsideStatus` union `sessionStatus` produces, so
+ * the row's status and its label can never disagree. Exhaustive by type: a
+ * status added to the union has no label until this record grows a key.
+ */
+export const SESSION_STATUS_LABELS: Readonly<Record<InsideStatus, string>> = {
+  pending: 'Pending',
+  run: 'Running',
+  wait: 'Waiting',
+  pass: 'Completed',
+  fail: 'Failed',
+  note: 'Note',
+  skip: 'Skipped',
+};
+
+/** The rule copy naming the session's only advance condition. */
+const EXPLICIT_MARKER_COPY = 'advances only on explicit done marker';
+
+/** The rule copy for a run that actually switched providers. */
+const CONTINUITY_COPY = 'same session continues across switches';
+
+/**
+ * The session's recorded facts as footer lines, in plan order: session id,
+ * switch count, input/output totals, continuity claim, explicit-marker rule.
+ *
+ * Every item is omitted when its fact was not recorded — a session id no
+ * segment confirmed, a run with no switch, a token record without a
+ * per-direction split. The split renders only when BOTH directions were
+ * recorded and non-zero: `0 input` would read as a measured free side. The
+ * continuity claim is conditional on a recorded switch so it never asserts a
+ * continuity that did not happen; the explicit-marker rule is the stage's own
+ * contract and always closes the footer.
+ */
+function implementationFooter(
+  timeline: ImplementationTimeline | null,
+  tokens: SessionTokensInput | null | undefined,
+): readonly string[] {
+  if (!timeline) return [];
+  const items: string[] = [];
+
+  // The session identity is the FIRST confirmed segment's provider session id
+  // — the session the run was opened with. A launch that never confirmed
+  // recorded none.
+  for (const segment of timeline.segments) {
+    if (segment.status !== 'pending' && segment.providerSessionId) {
+      items.push(`session ${segment.providerSessionId}`);
+      break;
+    }
+  }
+
+  const switches = timeline.segments.filter((s) => s.reason === 'switch').length;
+  if (switches > 0) items.push(`${switches} switch${switches === 1 ? '' : 'es'}`);
+
+  if (
+    tokens &&
+    tokens.input !== undefined &&
+    tokens.output !== undefined &&
+    tokens.input > 0 &&
+    tokens.output > 0
+  ) {
+    items.push(`${formatTokens(tokens.input)} input · ${formatTokens(tokens.output)} output`);
+  }
+
+  if (switches > 0) items.push(CONTINUITY_COPY);
+  items.push(EXPLICIT_MARKER_COPY);
+  return items;
+}
+
+/**
  * The impl stage's `session` process: the stable run's timeline (Task 10).
  *
  * The timeline is a LOG — every reported phase event stays, repeats included,
@@ -293,11 +366,18 @@ export function implementationSessionProcess(
       ? undefined
       : { state: 'unavailable', title: UNAVAILABLE_TOKEN_TITLE };
 
+  // One status reading feeds both the row's dot and its label — a second
+  // derivation from `cell` is how the two would drift apart.
+  const status = sessionStatus(cell);
+  const footer = implementationFooter(timeline, tokens);
+
   return {
     id: 'session',
     kind: 'session',
     label: 'Session',
-    status: sessionStatus(cell),
+    status,
+    statusLabel: SESSION_STATUS_LABELS[status],
+    ...(footer.length > 0 ? { footer } : {}),
     ...(action ? { action } : {}),
     ...(cell.startedAt ? { duration: formatDuration(cell.startedAt, cell.endedAt ?? now) } : {}),
     ...(execution ? { execution: executionView(execution.provider, execution.model) } : {}),
