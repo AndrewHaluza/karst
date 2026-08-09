@@ -222,7 +222,7 @@ const GATE_STAGES: readonly StageKey[] = ['uat', 'review'];
  * nothing follows the last, so the line would only be noise on a fresh or a
  * finished ticket.
  */
-const ADVISORY_STAGES: readonly string[] = ['uat', 'review', 'ship', 'merge'];
+const ADVISORY_STAGES: readonly string[] = ['uat', 'review', 'ship'];
 
 /**
  * The stage row whose gate/finding evidence a session actually wants.

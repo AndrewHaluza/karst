@@ -28,7 +28,14 @@ export interface RailNeedsInput {
   stage: string | null;
   /** The agent asked a question (`agentState === 'waiting'`). */
   agentWaiting: boolean;
-  /** The merge gate's current read; only consulted at `merge`. */
+  /**
+   * True when `stage` is `ship` because it is blocked on the merge gate
+   * (`stages.blocked_kind === 'awaiting-merge'`), rather than parked pending its
+   * first "Confirm ship" click. Both read `stage === 'ship'`, and only this
+   * distinguishes which sentence applies.
+   */
+  shipAwaitingMerge: boolean;
+  /** The merge gate's current read; only consulted when `shipAwaitingMerge`. */
   mergeGate: MergeGateState | null;
 }
 
@@ -40,9 +47,9 @@ const count = (repos: readonly string[]): string =>
  * question outranks a parked stage: the agent is asking RIGHT NOW, and the
  * confirm will still be there afterwards.
  *
- * Returns null when nothing is blocked on the user — including at `merge` once
- * everything has landed, where the gate is about to advance the ticket on its
- * own and there is no action to name.
+ * Returns null when nothing is blocked on the user — including once everything
+ * has landed, where the gate is about to advance the ticket on its own and
+ * there is no action to name.
  */
 export function railNeeds(input: RailNeedsInput): RailNeeds | null {
   if (input.agentWaiting) {
@@ -50,14 +57,13 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
   }
 
   if (input.stage === 'ship') {
-    return { detail: 'ready to open the PRs', action: 'Confirm ship' };
-  }
-
-  if (input.stage === 'merge') {
+    if (!input.shipAwaitingMerge) {
+      return { detail: 'ready to open the PRs', action: 'Confirm ship' };
+    }
     const gate = input.mergeGate;
     if (!gate) return null;
     switch (gate.kind) {
-      // A conflict is a WORDING difference, not a new state: `merge` has no
+      // A conflict is a WORDING difference, not a new state: ship has no
       // failed edge, so it must never read as something a retry could clear.
       // Only a human rebase resolves it.
       case 'conflicted':

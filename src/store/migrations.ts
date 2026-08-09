@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 33;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -600,6 +600,485 @@ export function migrate(db: Database): void {
     const gateRunCols25 = tableColumns(db, 'gate_runs');
     if (gateRunCols25.size > 0 && !gateRunCols25.has('stage_run_id')) {
       db.exec('ALTER TABLE gate_runs ADD COLUMN stage_run_id INTEGER');
+    }
+
+    // v25 also retires the standalone `merge` stage (workflow/graph.ts) — its
+    // logic is now an entry gate on `done`, resolved by `workflow/mergeGate.ts`'s
+    // `resolveShipLanding`/`settleShipGate` at `ship` itself rather than at a
+    // separate node. A ticket a prior build parked at `merge` has nowhere valid
+    // left to sit, so it moves back to `ship`, blocked exactly like a fresh
+    // unlanded ship would be.
+    //
+    // The block is a PLACEHOLDER, not a judgement: whether that ticket's PRs
+    // have actually landed by now is answered by the same read a fresh ship
+    // uses (`mergeGateState`), and duplicating that logic in raw SQL here would
+    // be a second, driftable answer to the same question. The next PR/merge
+    // sweep tick (`settleShipGates`, already running on a timer) re-checks it
+    // for real and clears the block immediately if everything already landed.
+    //
+    // The orphaned `stage_key = 'merge'` rows are left in place — harmless,
+    // unreferenced once `STAGE_KEYS` no longer includes `merge`, and a DELETE
+    // would only destroy evidence for no behavioral gain.
+    const ticketCols25 = tableColumns(db, 'tickets');
+    const stageCols25 = tableColumns(db, 'stages');
+    if (ticketCols25.size > 0 && stageCols25.size > 0) {
+      const at = new Date().toISOString();
+      db.transaction(() => {
+        // Ensure a ship row exists for every ticket at merge before setting the
+        // block — without this, a ticket whose ship row was manually deleted
+        // would move to ship without the awaiting-merge block, and
+        // settleShipGate would never pick it up (it requires the block).
+        db.prepare(
+          `INSERT OR IGNORE INTO stages (ticket_id, stage_key, status)
+            SELECT id, 'ship', 'pending'
+              FROM tickets WHERE stage_current = 'merge'`,
+        ).run();
+        db.prepare(
+          `UPDATE stages
+              SET status = 'passed',
+                  blocked_kind = 'awaiting-merge',
+                  blocked_reason = 'awaiting merge (re-checked after upgrade)',
+                  blocked_at = ?
+            WHERE stage_key = 'ship'
+              AND ticket_id IN (SELECT id FROM tickets WHERE stage_current = 'merge')`,
+        ).run(at);
+        db.exec(`UPDATE tickets SET stage_current = 'ship' WHERE stage_current = 'merge'`);
+      })();
+    }
+  }
+
+  if (current < 26) {
+    // v26 makes an inside-process invocation itself durable (gates, commit,
+    // delivery-receipt, recovery…). Before this, a stage's processes were
+    // rendered from evidence that only existed once work FINISHED — so an
+    // execution whose host died mid-flight left no record of having run at all,
+    // and the AI identity that resolved for it (agent/provider/model) was never
+    // captured anywhere. This table is opened at process entry and closed at
+    // its outcome, exactly like stage_runs (v25), with the same crash policy:
+    // a superseded run is marked `stale`, never deleted.
+    //
+    // A whole new table, so the step is the same DDL as schema.sql rather than
+    // an ALTER, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which process ran, with
+    // which identity or pid — a synthesized row would assert exactly the facts
+    // this table exists to stop being guessed at, and an invented identity
+    // snapshot would be a lie written into the one column set whose whole job
+    // is never to change.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS process_runs (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        stage_key     TEXT NOT NULL,
+        process_id    TEXT NOT NULL,
+        attempt       INTEGER NOT NULL,
+        stage_run_id  INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        agent_name    TEXT,
+        provider      TEXT,
+        model         TEXT,
+        pid           INTEGER,
+        status        TEXT NOT NULL CHECK (status IN ('running','passed','failed','interrupted','stale')),
+        result_kind   TEXT,
+        artifact_path TEXT,
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_process_runs_ticket ON process_runs(ticket_id, stage_key, process_id, id)',
+    );
+  }
+
+  if (current < 27) {
+    // v27 links token usage and review findings to the process_runs row that
+    // produced them (task 3), so the inside view can show ONE process's spend
+    // and findings. Both columns are nullable with ON DELETE SET NULL: a call
+    // or finding made outside a process stays unattributed, and deleting a run
+    // must never destroy the evidence it merely attributes.
+    //
+    // Guarded like every other column addition: a fresh DB already carries them
+    // via schema.sql, a re-open is a no-op, and a partial legacy DB without
+    // `process_runs` skips the REFERENCES column (there is nothing to link to).
+    //
+    // NOTHING IS BACKFILLED. A pre-v27 row genuinely does not know which
+    // process produced it — that information was never captured — and assigning
+    // one to an invented run would be exactly the inference the no-inference
+    // guarantee forbids. NULL reads as "no process", which is the truthful
+    // answer for every existing row.
+    const tokenCols27 = tableColumns(db, 'token_usage');
+    if (tokenCols27.size > 0 && tableColumns(db, 'process_runs').size > 0) {
+      if (!tokenCols27.has('process_run_id')) {
+        db.exec(
+          'ALTER TABLE token_usage ADD COLUMN process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    const findingCols27 = tableColumns(db, 'review_findings');
+    if (findingCols27.size > 0 && tableColumns(db, 'process_runs').size > 0) {
+      if (!findingCols27.has('process_run_id')) {
+        db.exec(
+          'ALTER TABLE review_findings ADD COLUMN process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    // Indexes only where the table exists — a partial legacy DB that never had
+    // `token_usage` (a step-synthetic test schema) must upgrade, not fault.
+    if (tokenCols27.size > 0) {
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_token_usage_process ON token_usage(process_run_id, id)',
+      );
+    }
+    if (findingCols27.size > 0) {
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_review_findings_process ON review_findings(process_run_id, id)',
+      );
+    }
+  }
+
+  if (current < 28) {
+    // v28 makes the interactive implementation itself durable: a STABLE
+    // implementation run per impl pass (implementation_runs), one segment per
+    // provider session inside it (implementation_segments), and the prepared
+    // launches that produced them (session_launch_intents).
+    //
+    // A whole new table set, so the step is the same DDL as schema.sql rather
+    // than ALTERs, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which provider session ran
+    // when, or which launch prepared it — a synthesized run would assert exactly
+    // the facts this table set exists to stop being guessed at. Pre-v28 tickets
+    // show no implementation timeline until their next launch.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS implementation_runs (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        process_run_id INTEGER NOT NULL UNIQUE REFERENCES process_runs(id) ON DELETE CASCADE,
+        attempt       INTEGER NOT NULL,
+        status        TEXT NOT NULL CHECK (status IN ('running','passed','interrupted')),
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_launch_intents (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        launch_id     TEXT NOT NULL UNIQUE,
+        purpose       TEXT NOT NULL CHECK (purpose IN ('implementation','fix')),
+        implementation_run_id INTEGER REFERENCES implementation_runs(id) ON DELETE CASCADE,
+        process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        provider      TEXT NOT NULL,
+        model         TEXT,
+        reason        TEXT NOT NULL,
+        session_origin TEXT NOT NULL CHECK (session_origin IN ('new','resume','unknown')),
+        provider_session_id TEXT,
+        status        TEXT NOT NULL CHECK (status IN ('pending','confirmed','failed','superseded')),
+        created_at    TEXT NOT NULL,
+        resolved_at   TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS implementation_segments (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        implementation_run_id INTEGER NOT NULL REFERENCES implementation_runs(id) ON DELETE CASCADE,
+        provider      TEXT NOT NULL,
+        model         TEXT,
+        provider_session_id TEXT,
+        reason        TEXT,
+        status        TEXT NOT NULL CHECK (status IN ('pending','running','closed','interrupted')),
+        launch_intent_id INTEGER NOT NULL UNIQUE
+                        REFERENCES session_launch_intents(id) ON DELETE CASCADE,
+        started_at    TEXT,
+        ended_at      TEXT
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending ' +
+        "ON session_launch_intents(ticket_id, purpose) WHERE status = 'pending'",
+    );
+    // Existing phase marks predate the run/segment vocabulary — the linkage is
+    // left NULL, never backfilled, for the same reason every other attribution
+    // column here stays NULL: the fact was never captured and a guess would be
+    // a lie in the one column set whose job is attribution.
+    const markCols28 = tableColumns(db, 'phase_marks');
+    if (markCols28.size > 0 && tableColumns(db, 'implementation_runs').size > 0) {
+      if (!markCols28.has('implementation_run_id')) {
+        db.exec(
+          'ALTER TABLE phase_marks ADD COLUMN implementation_run_id INTEGER REFERENCES implementation_runs(id) ON DELETE SET NULL',
+        );
+      }
+      if (!markCols28.has('implementation_segment_id')) {
+        db.exec(
+          'ALTER TABLE phase_marks ADD COLUMN implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    // Token usage stays unattributed to a segment for every pre-v28 call (all
+    // of them — Task 5 adds the measured ingestion seam that writes this).
+    const tokenCols28 = tableColumns(db, 'token_usage');
+    if (tokenCols28.size > 0 && tableColumns(db, 'implementation_segments').size > 0) {
+      if (!tokenCols28.has('implementation_segment_id')) {
+        db.exec(
+          'ALTER TABLE token_usage ADD COLUMN implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    if (tokenCols28.size > 0) {
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_token_usage_segment ON token_usage(implementation_segment_id, id)',
+      );
+    }
+  }
+
+  if (current < 29) {
+    // v29 makes measured INTERACTIVE token observations durable (Task 5): the
+    // cumulative samples provider bridges POST (interactive_usage_samples) and
+    // the token_usage linkage of the delta rows computed from them. Samples are
+    // persisted BEFORE their delta is calculated, so a host restart between
+    // observations never loses the baseline decision.
+    //
+    // A whole new table, so the step is the same DDL as schema.sql rather than
+    // an ALTER, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops. `process_run_id` is NOT NULL:
+    // an observation that cannot be attributed to a Karst process is dropped,
+    // never stored against an invented one.
+    //
+    // NOTHING IS BACKFILLED. No prior karst ever measured an interactive
+    // session's tokens — the channel did not exist — so a synthesized sample
+    // would assert exactly the fact this table exists to stop being guessed at.
+    // Pre-v29 ledger rows keep NULL `interactive_usage_sample_id`; the partial
+    // unique index keeps each sample feeding at most one delta row.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS interactive_usage_samples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+        implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL,
+        source_event_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_session_id TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL,
+        cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER,
+        total_tokens INTEGER,
+        counter_epoch INTEGER NOT NULL DEFAULT 0,
+        baseline_only INTEGER NOT NULL DEFAULT 0 CHECK (baseline_only IN (0,1)),
+        observed_at TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_interactive_usage_event ' +
+        'ON interactive_usage_samples(provider, provider_session_id, source_event_id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_interactive_usage_segment ' +
+        'ON interactive_usage_samples(implementation_segment_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_interactive_usage_process ' +
+        'ON interactive_usage_samples(process_run_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_interactive_usage_provider_session ' +
+        'ON interactive_usage_samples(provider, provider_session_id, id)',
+    );
+    const tokenCols29 = tableColumns(db, 'token_usage');
+    if (tokenCols29.size > 0 && tableColumns(db, 'interactive_usage_samples').size > 0) {
+      if (!tokenCols29.has('interactive_usage_sample_id')) {
+        db.exec(
+          'ALTER TABLE token_usage ADD COLUMN interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL',
+        );
+      }
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_interactive_sample ' +
+          'ON token_usage(interactive_usage_sample_id) WHERE interactive_usage_sample_id IS NOT NULL',
+      );
+    }
+  }
+
+  if (current < 30) {
+    // v30 persists CAUSAL recovery rounds (Task 6): one row per gate failure
+    // that entered the fix loop, opened atomically with the failing verdict.
+    //
+    // A whole new table, so the step is the same DDL as schema.sql rather than
+    // an ALTER, and every statement is IF NOT EXISTS — a fresh DB (already
+    // carrying it) and a re-open are both no-ops. The linked
+    // `session_launch_intents.recovery_round_id` column gives a pending Fix
+    // launch a durable owner before its process run exists.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which failure sent a
+    // ticket to fix, with which evidence and under which budget — a
+    // synthesized round would assert exactly the facts this table exists to
+    // stop being guessed at. A ticket already parked at fix when the upgrade
+    // lands simply has no round until its next gate failure (the driver
+    // falls back to the stages-attempt budget for it).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS recovery_rounds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review')),
+        source_process_id TEXT NOT NULL,
+        source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        trigger_kind TEXT NOT NULL,
+        trigger_detail TEXT NOT NULL,
+        round INTEGER NOT NULL,
+        max_rounds INTEGER NOT NULL,
+        fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted')),
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      )
+    `);
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round ' +
+        'ON recovery_rounds(ticket_id, source_stage, round)',
+    );
+    const intentCols30 = tableColumns(db, 'session_launch_intents');
+    if (intentCols30.size > 0 && tableColumns(db, 'recovery_rounds').size > 0) {
+      if (!intentCols30.has('recovery_round_id')) {
+        db.exec(
+          'ALTER TABLE session_launch_intents ADD COLUMN recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE CASCADE',
+        );
+      }
+    }
+  }
+
+  if (current < 31) {
+    // v31 makes the UAT Tester process's structured observations durable
+    // (Task 8): one row per observation, attributed to the Tester process run
+    // that reported it. The same DDL as schema.sql, IF NOT EXISTS throughout —
+    // a fresh DB (already carrying it) and a re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst ran a Tester process or recorded
+    // an observation — a synthesized row would assert exactly the facts this
+    // table exists to stop being guessed at. Pre-v31 tickets show no Tester
+    // observations until their next UAT run.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS uat_findings (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id      INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+        repo           TEXT,
+        severity       TEXT NOT NULL,
+        title          TEXT NOT NULL,
+        file_path      TEXT,
+        line           INTEGER,
+        created_at     TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_uat_findings_ticket ON uat_findings(ticket_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_uat_findings_process ON uat_findings(process_run_id, id)',
+    );
+  }
+
+  if (current < 32) {
+    // v32 makes the SHIP SAGA durable (Task 9): one run per ship invocation,
+    // one row per per-repo step, one typed ownership row per irreversible
+    // operation persisted BEFORE the external side effect, and the commits
+    // ship created (or found already present). A whole new table set, so the
+    // step is the same DDL as schema.sql rather than ALTERs, and every
+    // statement is IF NOT EXISTS — a fresh DB (already carrying it) and a
+    // re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded a ship run, a repo step,
+    // an operation intent, or a commit — a synthesized row would assert exactly
+    // the facts this table set exists to stop being guessed at, and an invented
+    // pre-state would authorize cleanup of something never owned. Pre-v32
+    // tickets show no ship timeline until their next ship.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        attempt INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_repo_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+        repo TEXT NOT NULL,
+        step TEXT NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        pr_number INTEGER,
+        pr_status TEXT,
+        existed_before_ship INTEGER,
+        process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_operation_intents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+        repo TEXT NOT NULL,
+        step TEXT NOT NULL,
+        operation_key TEXT NOT NULL UNIQUE,
+        pre_state_json TEXT NOT NULL,
+        intent_json TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        prepared_at TEXT,
+        applied_at TEXT,
+        resolved_at TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ship_commits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+        repo TEXT NOT NULL,
+        sha TEXT NOT NULL,
+        message TEXT NOT NULL,
+        origin TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ship_run_ticket ON ship_runs(ticket_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ship_step_run ON ship_repo_steps(ship_run_id, id)',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ship_commit_run ON ship_commits(ship_run_id, id)',
+    );
+    // Ownership linkage on the step rows. A partial/dev DB whose
+    // `ship_repo_steps` predates the linkage column gets it appended — the
+    // same guard pattern as every other column addition; a fresh DB created
+    // with the column above skips the ALTER.
+    const stepCols32 = tableColumns(db, 'ship_repo_steps');
+    if (stepCols32.size > 0 && !stepCols32.has('operation_intent_id')) {
+      db.exec(
+        'ALTER TABLE ship_repo_steps ADD COLUMN operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL',
+      );
+    }
+  }
+
+  if (current < 33) {
+    // v33 makes the CONFIGURED Fix process identity durable on the prepared
+    // launch: `session_launch_intents.agent_name` carries the resolved
+    // `uat-fix`/`review-fix` agent name, so a closed-session Fix launch whose
+    // SessionStart confirms later (possibly after a reload) opens its process
+    // run with the identity that was resolved at resume time — later manifest
+    // edits never rewrite history. Provider/model already ride the row.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which agent a prepared
+    // launch was FOR — a NULL names the unknown, never an invented name.
+    const intentCols33 = tableColumns(db, 'session_launch_intents');
+    if (intentCols33.size > 0 && !intentCols33.has('agent_name')) {
+      db.exec('ALTER TABLE session_launch_intents ADD COLUMN agent_name TEXT');
     }
   }
 

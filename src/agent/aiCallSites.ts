@@ -22,10 +22,23 @@ export const AI_CALL_SITES = [
   'signal-suggestion',
   /** The ship stage asking for a PR body. */
   'pr-description',
-  /** The fix stage resuming a session to address failing gates. */
+  /**
+   * The fix stage resuming a session to address failing gates — also the call
+   * site of measured interactive deltas attributed to a Fix process (Task 5).
+   */
   'fix-resume',
   /** Review's Lane B — asking an agent for structured findings over a target's diff. */
   'review-findings',
+  /**
+   * The UAT stage's Tester process (Task 8) — asking an agent for structured
+   * observations of a ticket's behavior after the required gates pass.
+   */
+  'uat-tester',
+  /**
+   * The impl stage's interactive Session process — the call site of measured
+   * interactive deltas attributed to an implementation session (Task 5).
+   */
+  'implementation',
   /** An instrumented call that declared no site (see the module doc). */
   'unknown',
 ] as const;
@@ -47,6 +60,8 @@ const LABELS: Record<AiCallSite, string> = {
   'pr-description': 'PR description',
   'fix-resume': 'Fix resume',
   'review-findings': 'Review findings',
+  'uat-tester': 'UAT tester',
+  implementation: 'Implementation session',
   unknown: 'Undeclared',
 };
 

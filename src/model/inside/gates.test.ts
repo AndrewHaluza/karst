@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { GateRun } from '../../store/gateRuns.js';
+import type { ProcessRun } from '../../store/processRuns.js';
+import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { Finding } from '../../store/reviewFindings.js';
+import type { UatFinding } from '../../store/uatFindings.js';
 import type { Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
-import { reviewInside, uatInside } from './gates.js';
+import { reviewInside, uatInside, reviewProcesses, uatProcesses, type QualityProcessesInput } from './gates.js';
+import type { EvidenceRow, InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -45,6 +49,7 @@ function finding(severity: Severity, extra: Partial<Finding> = {}): Finding {
     ticketId: 1,
     attempt: 0,
     runAt: '2026-07-20T12:00:00.000Z',
+    processRunId: null,
     severity,
     repo: '/web',
     file: null,
@@ -55,6 +60,93 @@ function finding(severity: Severity, extra: Partial<Finding> = {}): Finding {
     createdAt: '2026-07-20T12:00:00.000Z',
     ...extra,
   };
+}
+
+let nextRunId = 1;
+function processRun(extra: Partial<ProcessRun> = {}): ProcessRun {
+  return {
+    id: nextRunId++,
+    ticketId: 1,
+    stageKey: 'uat',
+    processId: 'tester',
+    attempt: 0,
+    stageRunId: null,
+    agentName: 'UAT Agent',
+    provider: 'codex',
+    model: 'sol',
+    pid: null,
+    status: 'passed',
+    resultKind: 'observed',
+    artifactPath: null,
+    startedAt: '2026-07-20T12:00:00.000Z',
+    endedAt: '2026-07-20T12:01:00.000Z',
+    ...extra,
+  };
+}
+
+let nextRoundId = 1;
+function round(extra: Partial<RecoveryRound> = {}): RecoveryRound {
+  return {
+    id: nextRoundId++,
+    ticketId: 1,
+    sourceStage: 'uat',
+    sourceProcessId: 'gates',
+    sourceStageRunId: null,
+    sourceProcessRunId: null,
+    triggerKind: 'gate-failure',
+    triggerDetail: 'exit 1',
+    round: 1,
+    maxRounds: 2,
+    fixProcessRunId: null,
+    uatRevalidationStageRunId: null,
+    reviewRevalidationStageRunId: null,
+    status: 'pending',
+    startedAt: '2026-07-20T12:00:00.000Z',
+    endedAt: null,
+    ...extra,
+  };
+}
+
+let nextUatFindingId = 1;
+function uatFinding(severity: Severity, extra: Partial<UatFinding> = {}): UatFinding {
+  return {
+    id: nextUatFindingId++,
+    ticketId: 1,
+    processRunId: 1,
+    repo: '/web',
+    severity,
+    title: 'x',
+    filePath: null,
+    line: null,
+    createdAt: '2026-07-20T12:00:00.000Z',
+    ...extra,
+  };
+}
+
+function qualityInput(extra: Partial<QualityProcessesInput> = {}): QualityProcessesInput {
+  return {
+    cell: cell('uat', 'passed', {
+      startedAt: '2026-07-20T12:00:00.000Z',
+      endedAt: '2026-07-20T12:02:00.000Z',
+    }),
+    gateRuns: [],
+    findings: [],
+    uatFindings: [],
+    processRuns: [],
+    rounds: [],
+    services: ['web', 'api'],
+    now: NOW,
+    ...extra,
+  };
+}
+
+function rowsOf(process: InsideProcessView): readonly EvidenceRow[] {
+  const evidence = process.evidence;
+  if (evidence?.kind === 'rows') return evidence.rows;
+  if (evidence?.kind === 'gates') return evidence.rows;
+  if (evidence?.kind === 'findings') return evidence.rows;
+  if (evidence?.kind === 'recovery') return evidence.rows;
+  throw new Error(`expected rows-bearing evidence, got ${process.evidence?.kind ?? 'none'}`);
 }
 
 describe('reviewInside', () => {
@@ -411,5 +503,351 @@ describe('uatInside', () => {
 
   it("ignores another stage's rows", () => {
     expect(uatInside(cell('uat', 'passed'), [run('review', 'lint', 0)], NOW).ops).toEqual([]);
+  });
+});
+
+describe('uatProcesses', () => {
+  it('emits gates, services, tester in registry order when nothing triggered recovery', () => {
+    const views = uatProcesses(qualityInput());
+    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
+  });
+
+  it('inserts the fix process immediately after gates for a gate-triggered round', () => {
+    const views = uatProcesses(qualityInput({ rounds: [round()] }));
+    expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'tester']);
+  });
+
+  it('inserts the fix process after the tester process for a verifier-triggered round', () => {
+    const views = uatProcesses(
+      qualityInput({
+        rounds: [round({ sourceProcessId: 'tester', triggerKind: 'tester-verifier-failure' })],
+      }),
+    );
+    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'tester', 'fix']);
+  });
+
+  it('creates no fix process without recovery evidence, whatever the gate verdict', () => {
+    const views = uatProcesses(
+      qualityInput({ gateRuns: [run('uat', 'test (web)', 1, { runAt: NOW })] }),
+    );
+    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
+  });
+
+  it('counts gate outcomes and keeps skip and note distinct from pass and fail', () => {
+    const views = uatProcesses(
+      qualityInput({
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: NOW }),
+          run('uat', 'e2e (web)', 3, { runAt: NOW }),
+          run('uat', 'lint (web)', null, { runAt: NOW, skipped: true }),
+          run('uat', 'typecheck (web)', null, { runAt: NOW }),
+        ],
+      }),
+    );
+    const gates = views[0]!;
+    expect(gates.status).toBe('fail');
+    const evidence = gates.evidence as { kind: 'gates'; rows: readonly EvidenceRow[]; passed: number; failed: number; skipped: number };
+    expect(evidence.passed).toBe(1);
+    expect(evidence.failed).toBe(1);
+    expect(evidence.skipped).toBe(1);
+    expect(evidence.rows.map((r) => r.status)).toEqual(['pass', 'fail', 'skip', 'note']);
+  });
+
+  it('shows only the latest gate batch by its stamp, not array position', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'passed', { startedAt: '2026-07-20T12:00:00.000Z', endedAt: NOW }),
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: NOW }),
+          run('uat', 'test (web)', 1, { runAt: '2026-07-20T11:00:00.000Z' }),
+        ],
+      }),
+    );
+    const evidence = views[0]!.evidence as { kind: 'gates'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows).toHaveLength(1);
+    expect(evidence.rows[0]!.status).toBe('pass');
+  });
+
+  it('bounds gate rows at 8 and names the remainder', () => {
+    const gates = Array.from({ length: 10 }, (_, i) => run('uat', `test (${i})`, 0, { runAt: NOW }));
+    const views = uatProcesses(qualityInput({ gateRuns: gates }));
+    const evidence = views[0]!.evidence as { kind: 'gates'; rows: readonly EvidenceRow[]; passed: number };
+    expect(evidence.rows).toHaveLength(9);
+    expect(evidence.passed).toBe(10);
+    expect(evidence.rows.at(-1)).toMatchObject({ status: 'note', label: 'more' });
+    expect(evidence.rows.at(-1)!.detail).toContain('2');
+  });
+
+  it('renders advisory tester observations as note rows and never a fix', () => {
+    const tester = processRun({ id: 5, status: 'passed', resultKind: 'observed' });
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [tester],
+        uatFindings: [uatFinding('high', { processRunId: 5, title: 'slow query' })],
+      }),
+    );
+    const row = views.find((p) => p.id === 'tester')!;
+    expect(row.status).toBe('pass');
+    expect(rowsOf(row)).toMatchObject([{ status: 'note', label: 'high' }]);
+    expect(rowsOf(row)[0]!.detail).toContain('slow query');
+    expect(views.map((p) => p.id)).not.toContain('fix');
+  });
+
+  it('scopes observations to the LATEST tester run by invocation id', () => {
+    const tester = processRun({ id: 9, status: 'passed', resultKind: 'observed' });
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [processRun({ id: 1, status: 'passed', resultKind: 'observed' }), tester],
+        uatFindings: [uatFinding('high', { processRunId: 1, title: 'from the older run' })],
+      }),
+    );
+    expect(rowsOf(views.find((p) => p.id === 'tester')!)).toEqual([]);
+  });
+
+  it('reads a verifier failure as a failed tester process', () => {
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [processRun({ status: 'passed', resultKind: 'verification-failed' })],
+      }),
+    );
+    const tester = views.find((p) => p.id === 'tester')!;
+    expect(tester.status).toBe('fail');
+    expect(tester.detail).toContain('verifier failed');
+  });
+
+  it('reads an execution crash as failed and interrupts as note', () => {
+    const crashed = uatProcesses(
+      qualityInput({
+        processRuns: [processRun({ status: 'failed', resultKind: 'execution-failed' })],
+      }),
+    ).find((p) => p.id === 'tester')!;
+    expect(crashed.status).toBe('fail');
+    expect(crashed.detail).toContain('execution failed');
+
+    const interrupted = uatProcesses(
+      qualityInput({
+        processRuns: [processRun({ status: 'interrupted', resultKind: 'interrupted' })],
+      }),
+    ).find((p) => p.id === 'tester')!;
+    expect(interrupted.status).toBe('note');
+  });
+
+  it('reads a stale tester run as note, never as pass or fail', () => {
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [processRun({ status: 'stale', endedAt: null, resultKind: null })],
+      }),
+    );
+    const tester = views.find((p) => p.id === 'tester')!;
+    expect(tester.status).toBe('note');
+    expect(tester.status).not.toBe('pass');
+    expect(tester.status).not.toBe('fail');
+  });
+
+  it('shows the configured assignment only before anything ran; recorded identity wins after', () => {
+    const configured = { provider: 'claude', model: 'opus' };
+    const before = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'pending'),
+        configured,
+        processRuns: [],
+      }),
+    ).find((p) => p.id === 'tester')!;
+    expect(before.status).toBe('pending');
+    expect(before.configuredExecution).toMatchObject({ provider: 'claude', model: 'opus' });
+    expect(before.execution).toBeUndefined();
+
+    const after = uatProcesses(
+      qualityInput({
+        configured,
+        processRuns: [processRun({ id: 4, provider: 'codex', model: 'sol' })],
+      }),
+    ).find((p) => p.id === 'tester')!;
+    expect(after.execution).toMatchObject({ provider: 'codex', model: 'sol' });
+    expect(after.configuredExecution).toBeUndefined();
+  });
+
+  it('omits tokens unless measured, then renders the recorded view', () => {
+    const bare = uatProcesses(qualityInput()).find((p) => p.id === 'tester')!;
+    expect(bare.tokens).toBeUndefined();
+
+    const measured = uatProcesses(
+      qualityInput({ tokens: { total: 150, estimatedCalls: 0 } }),
+    ).find((p) => p.id === 'tester')!;
+    expect(measured.tokens).toEqual({ total: '150', exact: '150', estimated: false });
+  });
+
+  it('keeps services as pending config before the stage runs, naming the configured services after', () => {
+    const before = uatProcesses(
+      qualityInput({ cell: cell('uat', 'pending'), services: ['web', 'api'] }),
+    ).find((p) => p.id === 'services')!;
+    expect(before.status).toBe('pending');
+    expect(before.detail).toBe('web · api');
+
+    const after = uatProcesses(
+      qualityInput({ services: ['web'] }),
+    ).find((p) => p.id === 'services')!;
+    expect(after.status).toBe('note');
+    expect(after.detail).toBe('web');
+  });
+
+  it('notes the absence of services rather than claiming any', () => {
+    const views = uatProcesses(qualityInput({ services: [] }));
+    expect(views.find((p) => p.id === 'services')!.detail).toContain('no service blocks');
+  });
+
+  it('renders one fix row for an exhausted series, with every round in its evidence', () => {
+    const views = uatProcesses(
+      qualityInput({
+        rounds: [
+          round({ id: 1, round: 1, status: 'failed' }),
+          round({ id: 2, round: 2, status: 'exhausted' }),
+        ],
+      }),
+    );
+    const fix = views.filter((p) => p.id === 'fix');
+    expect(fix).toHaveLength(1);
+    expect(rowsOf(fix[0]!).map((r) => r.label)).toEqual(['round 1', 'round 2']);
+    expect(fix[0]!.status).toBe('fail');
+    expect(fix[0]!.detail).toBe('no fix attempts left');
+  });
+
+  it('renders the round budget from the STORED max_rounds, never the live manifest', () => {
+    const views = uatProcesses(
+      qualityInput({ rounds: [round({ maxRounds: 3 })] }),
+    );
+    const fix = views.find((p) => p.id === 'fix')!;
+    expect(rowsOf(fix)[0]!.detail).toContain('max 3');
+  });
+
+  it('renders a crash without a round as no fix and a failed process row', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running'),
+        processRuns: [processRun({ status: 'failed', resultKind: 'execution-failed' })],
+      }),
+    );
+    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
+    expect(views.find((p) => p.id === 'tester')!.status).toBe('fail');
+  });
+
+  it('has no tester execution to claim before the stage ran', () => {
+    const tester = uatProcesses(qualityInput({ cell: cell('uat', 'pending') })).find(
+      (p) => p.id === 'tester',
+    )!;
+    expect(tester.status).toBe('pending');
+    expect(tester.execution).toBeUndefined();
+  });
+});
+
+describe('reviewProcesses', () => {
+  const reviewCell = {
+    stageKey: 'review' as const,
+    status: 'passed' as const,
+    startedAt: '2026-07-20T12:00:00.000Z',
+    endedAt: '2026-07-20T12:02:00.000Z',
+  };
+
+  it('emits gates, services, review in registry order when nothing triggered recovery', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        processRuns: [processRun({ stageKey: 'review', processId: 'review', status: 'passed', resultKind: 'validated' })],
+      }),
+    );
+    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'review']);
+  });
+
+  it('inserts the fix process after review for a findings-triggered round', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        rounds: [
+          round({
+            sourceStage: 'review',
+            sourceProcessId: 'review',
+            triggerKind: 'blocking-review-findings',
+          }),
+        ],
+      }),
+    );
+    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'review', 'fix']);
+  });
+
+  it('inserts the fix process after gates for a review gate-triggered round', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        rounds: [round({ sourceStage: 'review', sourceProcessId: 'gates' })],
+      }),
+    );
+    expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'review']);
+  });
+
+  it('reads blocking findings as a failed review process naming the count', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: { ...reviewCell, status: 'failed' },
+        processRuns: [
+          processRun({ stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'blocking' }),
+        ],
+        findings: [finding('critical', { runAt: NOW }), finding('high', { runAt: NOW })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(review.status).toBe('fail');
+    expect(review.detail).toContain('2 blocking findings');
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number };
+    expect(evidence.blocking).toBe(2);
+  });
+
+  it('reads a validated review as passed, distinct from blocking', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        processRuns: [
+          processRun({ stageKey: 'review', processId: 'review', status: 'passed', resultKind: 'validated' }),
+        ],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(review.status).toBe('pass');
+    expect(review.detail).toContain('no blocking findings');
+  });
+
+  it('reads an execution crash as failed with the cause named', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: { ...reviewCell, status: 'failed' },
+        processRuns: [
+          processRun({ stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'execution-failed' }),
+        ],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(review.status).toBe('fail');
+    expect(review.detail).toContain('execution failed');
+  });
+
+  it('shows only the latest findings batch and bounds it at 6', () => {
+    const stale = finding('high', { runAt: '2026-07-20T11:00:00.000Z', title: 'stale' });
+    const fresh = Array.from({ length: 8 }, (_, i) =>
+      finding('low', { runAt: NOW, title: `fresh ${i}` }),
+    );
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        processRuns: [
+          processRun({ stageKey: 'review', processId: 'review', status: 'passed', resultKind: 'validated' }),
+        ],
+        findings: [stale, ...fresh],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const rows = rowsOf(review);
+    expect(rows).toHaveLength(7);
+    expect(rows[0]!.detail).toContain('fresh 0');
+    expect(rows.at(-1)).toMatchObject({ status: 'note', label: 'more' });
+    expect(rows.at(-1)!.detail).toContain('2');
   });
 });

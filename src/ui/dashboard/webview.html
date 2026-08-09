@@ -503,6 +503,62 @@
   .op.skip{opacity:.7}
   .op.skip .ocmd{font-style:italic}
 
+  /* ── inside ledger: process rows with evidence (the inside redesign) ────
+     One generic row per process. Everything on the row — status, label,
+     detail, counts, identity, tokens, action id — arrives pre-built in the
+     snapshot; the webview never derives a verdict or a label from prose. The
+     disclosure is a real button with aria-expanded (UI-R09), never a clickable
+     div. */
+  .act .procs{padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
+  .proc{border-radius:var(--k-radius-md)}
+  .proc:hover{background:var(--k-surface-hover)}
+  .proc .prow{display:flex;flex-wrap:wrap;align-items:center;column-gap:var(--k-space-5);row-gap:var(--k-space-2);padding:var(--k-space-3) var(--k-space-4)}
+  .proc .pglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
+  .proc.pass .pglyph{color:var(--k-passed)} .proc.run .pglyph{color:var(--k-running)}
+  .proc.fail .pglyph{color:var(--k-failed)} .proc.wait .pglyph{color:var(--k-attention)}
+  .proc .pname{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+  /* The recorded execution identity — `execution` when the process ran,
+     `configuredExecution` when it has not. One compact chip, never both: they
+     make two different claims and must not read as one. */
+  .proc .pchip{display:inline-flex;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
+    font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
+  .proc .pchip::before{content:'';width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);background:var(--k-text-faint)}
+  .proc .ptok{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .proc .pdetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
+    overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .proc .pright{margin-left:auto;display:flex;align-items:center;gap:var(--k-space-4);flex:none}
+  .proc .pmeta{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);white-space:nowrap}
+  .proc.pending{opacity:.5}
+  .proc.note .pdetail{font-style:italic;opacity:.75}
+  .proc.skip .pdetail{font-style:italic;opacity:.7}
+  /* Built on `.k-iconbtn` (UI-R07) so the shared focus-visible ring applies;
+     only size/padding are local, exactly like sidebar's chevron. */
+  .proc .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);display:inline-flex;align-items:center;justify-content:center;
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:transparent;color:var(--k-text-dim);
+    font-size:var(--k-text-md);line-height:1;cursor:pointer}
+  .proc .chev:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .proc .pev{border-top:var(--k-border-w) solid var(--k-border);margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-3) 0}
+  .erow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
+  .erow:hover{background:var(--k-surface-hover)}
+  .erow .eglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
+  .erow.pass .eglyph{color:var(--k-passed)} .erow.fail .eglyph{color:var(--k-failed)}
+  .erow.run .eglyph{color:var(--k-running)} .erow.wait .eglyph{color:var(--k-attention)}
+  /* The timeline's relationship arrow: the same execution continuing through
+     a provider switch or resume. Aligned with the status glyph column above,
+     so the segments read as one spine without becoming a diagram. */
+  .erow .econn{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-sm);color:var(--k-text-dim);flex:none}
+  .erow .elabel{font-size:var(--k-text-sm);color:var(--k-text)}
+  .erow .edetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
+    overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .erow .edur{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint)}
+  .erow .eact{margin-left:auto;flex:none}
+  /* A live operation in the stage header: one current process, spinner +
+     label, host-worded. Never a second process row and never a verdict. */
+  .act .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
+    font-family:var(--k-font-mono);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .act .alive .spin{width:var(--k-text-xs);height:var(--k-text-xs);flex:none;color:var(--k-running)}
+
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
   .fault{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);padding:var(--k-space-5) var(--k-space-6);
@@ -752,6 +808,38 @@
   .gaterow.off .gname{text-decoration:line-through;color:var(--k-text-faint)}
   .gaterow .gname{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1}
   .gaterow .gstate{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+
+  /* ── development-only Inside preview toolbar (Finding 1 / Task 9) ─────────
+     The preview panel renders THIS SAME asset; the toolbar is inert and hidden
+     in the production dashboard (the preview-fixtures message is the only
+     thing that reveals it). The controls sit OUTSIDE the delivered Inside DOM
+     (#inside) and are pure view state: selecting a fixture dispatches
+     {type:'state'} through the SAME message listener a real snapshot arrives
+     on, and the width buttons only toggle a body data attribute — neither
+     posts to the host (the design system's immediate exemption for view-state
+     controls, DESIGN-SYSTEM.md §5.3). */
+  .pvtoolbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
+    margin:var(--k-space-7) var(--k-space-3) 0;padding:var(--k-space-4) var(--k-space-6);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface)}
+  .pvtoolbar .pvlabel{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .pvtoolbar select{flex:none}
+  .pvtoolbar .pvwidth{display:inline-flex;align-items:center;gap:var(--k-space-1);
+    margin-left:auto;flex-wrap:wrap}
+  /* The pressed width button re-themes like the bind toggle: a mode the panel
+     reports is a filled state, not a hover shade (same rationale as
+     .bindtoggle[aria-pressed="true"]). */
+  .pvtoolbar .k-btn[aria-pressed="true"]{color:var(--k-action-fg);
+    background:var(--k-action-bg);border-color:transparent}
+  /* Width frame: dev-only. The preview constrains the Inside component's own
+     width (300/360/430) to exercise the narrow renderers; `normal` matches
+     nothing, so the default page width stands. Raw px with no scale match —
+     the same UI-R04 exemption class as a @container breakpoint (a component
+     dimension with no token) — and gated on .preview-mode so production
+     renders are never touched. */
+  body.preview-mode[data-pv-w="300"] .stepper{width:300px}
+  body.preview-mode[data-pv-w="360"] .stepper{width:360px}
+  body.preview-mode[data-pv-w="430"] .stepper{width:430px}
 </style>
 
 <!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
@@ -825,6 +913,29 @@
   <button id="editBtn" type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="edit-ticket" title="Edit this ticket's title, description, and scope">Edit</button>
 </div>
 
+<!-- Development-only Inside preview toolbar (Finding 1 / Task 9). Hidden and
+     inert in the production dashboard — only the preview panel's
+     preview-fixtures message reveals it. The controls are view state and live
+     OUTSIDE the delivered Inside DOM; the fixture's snapshot arrives through
+     the same {type:'state'} message a real dashboard push uses. -->
+<div class="pvtoolbar hidden" id="previewToolbar">
+  <label class="pvlabel" for="pvScenario">Stage / scenario</label>
+  <select id="pvScenario" class="k-input"></select>
+  <label class="pvlabel" for="pvRepos">Repositories</label>
+  <select id="pvRepos" class="k-input"></select>
+  <span class="pvwidth" role="group" aria-label="Preview width">
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="300" aria-pressed="false" title="Preview the Inside panel at 300px wide">300</button>
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="360" aria-pressed="false" title="Preview the Inside panel at 360px wide">360</button>
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="430" aria-pressed="false" title="Preview the Inside panel at 430px wide">430</button>
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="normal" aria-pressed="true" title="Preview at the panel's natural width">normal</button>
+  </span>
+  <span class="pvwidth" role="group" aria-label="Preview process lifecycle">
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="active" title="Send a preview active inside-progress event">Start live operation</button>
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="completed" title="Send a preview completed inside-progress event">Complete</button>
+    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="cleared" title="Send a preview cleared inside-progress event">Clear</button>
+  </span>
+</div>
+
 <div class="stepper">
   <!-- The main rail + the fix return channel + impl's approach chip. -->
   <div class="railwrap" id="rail"></div>
@@ -891,7 +1002,7 @@
   const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·', skip: '⊘' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-  const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', merge: 'Merge', done: 'Done' };
+  const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
 
   // The last snapshot the host pushed, and which stage the user is looking at.
   // Selection is LOCAL: it is not in DashboardState and is never posted back.
@@ -914,28 +1025,22 @@
   // unrelated refresh. The follow-up message replaces it wholesale — including
   // with an empty list when resolution fails — so it cannot go stale unnoticed.
   let gateOptions = { uat: [], review: [] };
-  // Ship-in-flight view state. `shipping` is set the instant the user clicks
-  // Confirm ship — BEFORE any host round trip — so the click always registers
-  // visibly. It stays true (overriding every state push, which still reads the
-  // ship stage as "ready") until the ship stage resolves: advanced past ship
-  // (success) or landed failed (error). `shipOps` is per-repo/per-step live
-  // state the host streams via `ship-progress`, overlaid onto the Inside block;
-  // `shipDone` is the brief post-success flash.
-  //
+  // The development-only Inside preview's fixture list, each entry carrying its
+  // HOST-BUILT dashboard snapshot (Finding 1). Empty in the production
+  // dashboard — the preview-fixtures message is the only thing that fills it.
+  let previewFixtures = [];
   // `shipRequestId` / `mergeRequests` / `prRefreshId` below are the runtime's
-  // pending bookkeeping (karstBeginPending/karstSettle) for these same three
-  // controls. They are tracked SEPARATELY from `shipping`/`openMergeRepos`'s
-  // fellow view-state because ship/merge/refresh-prs are the one place this
-  // file's full-innerHTML re-render (§ render()) collides with the runtime's
-  // element-keyed pending map: a `state` push mid-ship replaces the "Confirm
-  // ship" button with a brand-new DOM node, so a pending flag living only on
-  // the OLD (now detached) element would vanish from the redraw even though
-  // the request is still outstanding. Keeping the requestId here — consulted
-  // by the render functions below — is what survives that replacement; the
-  // runtime is still what emits the toast and the `aria-busy`/`disabled` pair
-  // on whichever element is live when a request begins or ends.
-  let shipping = false;
-  let shipOps = null;
+  // pending bookkeeping (karstBeginPending/karstSettle) for the ship/merge/
+  // refresh-prs controls. They are tracked SEPARATELY from the view state
+  // because ship/merge/refresh-prs are the one place this file's full-innerHTML
+  // re-render (§ render()) collides with the runtime's element-keyed pending
+  // map: a `state` push mid-ship replaces the "Confirm ship" button with a
+  // brand-new DOM node, so a pending flag living only on the OLD (now detached)
+  // element would vanish from the redraw even though the request is still
+  // outstanding. Keeping the requestId here — consulted by the render functions
+  // below — is what survives that replacement; the runtime is still what emits
+  // the toast and the `aria-busy`/`disabled` pair on whichever element is live
+  // when a request begins or ends. `shipDone` is the brief post-success flash.
   let shipDone = null;
   let shipRequestId = null;
   // Per-repo merge-in-flight request ids, keyed by repo path. NOT persisted: a
@@ -947,74 +1052,38 @@
   let mergeRequests = {};
   // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
   // state, exactly like `selectedStage`: render() replaces #prs wholesale on
-  // every `state` push AND every ship-progress tick, so a disclosure that is
+  // every `state` push AND every inside-progress tick, so a disclosure that is
   // open only in the DOM — and the reader's scroll position inside it — would
   // snap shut on the very next one. Never in DashboardState, never
   // round-tripped through the host; only the `toggle` listener below mutates
   // it, and render() itself must never reset it.
   let openMergeRepos = new Set();
+  // Which inside process disclosures are open, keyed `stage:id`. Local view
+  // state, exactly like `openMergeRepos`: render() replaces #inside wholesale
+  // on every state push, so a disclosure open only in the DOM would snap shut
+  // on the very next one. Never in DashboardState, never round-tripped
+  // through the host; only the `data-chev` click handler mutates it.
+  let openProcesses = new Set();
   // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
   // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
   // in which a button with no busy state looks inert and gets pressed again.
   // Cleared by the next state push (the host always sends one when the refresh
   // settles, including when nothing moved), so it can never stick.
   let prRefreshId = null;
+  // Transient inside-progress overlays (the inside redesign): the live header
+  // for one running operation (`active`) and the process row that replaces the
+  // snapshot's row when it completes (`completed`). Keyed by stage. The FULL
+  // snapshot remains authoritative — an overlay entry dies the moment a
+  // snapshot that actually contains its process lands (see the state handler),
+  // or on `cleared`; absence keeps it, because a snapshot that does not know
+  // the process cannot be an answer about it. Deliberately NOT persisted: a
+  // restored overlay would claim a process is running that nobody is.
+  let liveOps = {};
   // The window's terminal binding. UNLIKE the view state above, this is NOT a
   // webview concern: it is one host-owned preference shared by every open
   // dashboard, so it is never persisted here — a stored copy could only go
   // stale against another panel's toggle. The host pushes it on every open.
   let bindEnabled = false;
-
-  // The steps a ship COULD show, in the order they happen. `describe` is
-  // omitted unless it's actually touched (a ticket with no agent adapter never
-  // fires it, and a permanently-pending row would misreport that).
-  const SHIP_STEP_ORDER = ['commit', 'push', 'describe', 'pr', 'merge'];
-  const SHIP_BASE_STEPS = ['commit', 'push', 'pr', 'merge'];
-
-  function seedShipOps(worktrees) {
-    const map = {};
-    for (const w of worktrees || []) map[w.repo] = {};
-    return map;
-  }
-
-  // Pure: repo list + accumulated per-repo/per-step events → ordered StageOp[].
-  // Kept separate from rendering so the shape mirrors `StageOp` exactly and the
-  // logic reads the same as the host's `shipInside`/`gateOp` pending rows.
-  function flattenShipOps(worktrees, opsByRepo) {
-    const out = [];
-    for (const w of worktrees || []) {
-      const touched = (opsByRepo && opsByRepo[w.repo]) || {};
-      const steps = SHIP_STEP_ORDER.filter(
-        (s) => SHIP_BASE_STEPS.includes(s) || Object.prototype.hasOwnProperty.call(touched, s),
-      );
-      // A host-supplied detail (the idempotent-skip / merge-failure notes) must
-      // not silently replace the repo name on a multi-repo ship — otherwise two
-      // repos' "note" rows read identically with no way to tell them apart.
-      const repoTag = worktrees.length > 1 ? w.repoDisplay || w.repo : '';
-      for (const step of steps) {
-        const row = touched[step];
-        const base = (row && row.detail) || w.repoDisplay || w.repo;
-        out.push({
-          status: row ? row.status : 'pending',
-          name: step,
-          detail: repoTag && row && row.detail ? `${repoTag}: ${base}` : base,
-          duration: '',
-        });
-      }
-    }
-    return out;
-  }
-
-  // Overlay the live per-step ops onto the ship strip while a ship is in
-  // flight and the ship stage is the one selected — every other stage/state
-  // reads `state.inside` exactly as the host built it.
-  function shippingView(state, sel) {
-    if (!shipping || sel !== 'ship' || !state.inside || !state.inside.ship) return state;
-    return {
-      ...state,
-      inside: { ...state.inside, ship: { ...state.inside.ship, ops: flattenShipOps(state.worktrees, shipOps) } },
-    };
-  }
 
   // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
   // omitted while a stage is still running (no endedAt yet).
@@ -1195,6 +1264,87 @@
     if (over()) track.classList.add('bare');
   }
 
+  // ── development-only Inside preview (Finding 1 / Task 9) ────────────────
+  // The preview panel renders this SAME asset; the preview-fixtures message
+  // (sent only by the preview host) fills and reveals the toolbar. The
+  // fixtures arrive with their host-built dashboard snapshots already
+  // attached; selecting one dispatches {type:'state'} through the SAME window
+  // message listener a real snapshot arrives on, so the preview exercises the
+  // production render path byte for byte. Everything here is view state —
+  // nothing posts to the host (the design system's immediate exemption for
+  // view-state controls, DESIGN-SYSTEM.md §5.3).
+  function selectPreviewFixture() {
+    const fixture = previewFixtures.find((f) =>
+      f.repositoryCount === Number(el('pvRepos').value)
+      && f.scenario === el('pvScenario').value);
+    if (!fixture) return;
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'state', state: fixture.state } }));
+  }
+
+  // Populate the toolbar from the fixture list. The selects list the distinct
+  // scenarios and repo counts the matrix actually carries; every option maps
+  // back to exactly one fixture via selectPreviewFixture().
+  function renderPreviewToolbar(fixtures) {
+    previewFixtures = fixtures || [];
+    const scenarios = [];
+    const repoCounts = [];
+    for (const f of previewFixtures) {
+      if (!scenarios.includes(f.scenario)) scenarios.push(f.scenario);
+      if (!repoCounts.includes(f.repositoryCount)) repoCounts.push(f.repositoryCount);
+    }
+    repoCounts.sort((a, b) => a - b);
+    el('pvScenario').innerHTML = scenarios
+      .map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    el('pvRepos').innerHTML = repoCounts
+      .map((n) => `<option value="${n}">${n} repositories</option>`).join('');
+    el('previewToolbar').classList.remove('hidden');
+    document.body.classList.add('preview-mode');
+    document.body.dataset.pvW = 'normal';
+    selectPreviewFixture();
+  }
+
+  // Preview-only lifecycle controls deliberately dispatch the exact generic
+  // inside-progress envelope the production host uses. They are local to this
+  // toolbar (which production never reveals), so no fixture action can mutate
+  // a ticket; the three buttons let Dev Host verification visibly step through
+  // active → completed → cleared instead of merely asserting the renderer's
+  // event branch in a test.
+  function previewProgress(kind) {
+    if (!lastState) return;
+    const stage = lastState.presentedStage || lastState.stageCurrent || 'scope';
+    const processId = 'preview-live-operation';
+    const event = kind === 'active'
+      ? { kind: 'active', ticketId: lastState.ticketId, stage, processId,
+          live: { status: 'run', label: 'Preview live operation' } }
+      : kind === 'completed'
+        ? { kind: 'completed', ticketId: lastState.ticketId, stage,
+            process: { id: processId, kind: 'preview', label: 'Preview live operation', status: 'pass' } }
+        : { kind: 'cleared', ticketId: lastState.ticketId, stage, processId };
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'inside-progress', event } }));
+  }
+
+  // The two fixture selects are attached ONCE at load (the toolbar markup is
+  // static); renderPreviewToolbar only swaps the options beneath them.
+  el('pvScenario').addEventListener('change', selectPreviewFixture);
+  el('pvRepos').addEventListener('change', selectPreviewFixture);
+
+  // The width buttons toggle a body data attribute; the CSS constrains the
+  // Inside component under .preview-mode only. Purely local, like the selects.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pv-w]');
+    if (!btn) return;
+    for (const b of el('previewToolbar').querySelectorAll('[data-pv-w]')) {
+      b.setAttribute('aria-pressed', String(b === btn));
+    }
+    document.body.dataset.pvW = btn.dataset.pvW;
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pv-progress]');
+    if (!btn) return;
+    previewProgress(btn.dataset.pvProgress);
+  });
+
   // The needs-you button is NAVIGATIONAL. It scrolls the control that owns the
   // action into view and focuses it; it posts no host message and duplicates no
   // actor. merge is per-repo and its confirmation modal lives in the host
@@ -1212,13 +1362,112 @@
     if (target && typeof target.focus === 'function') target.focus();
   }
 
-  // What happens inside the selected stage. Three shapes, because a stage has
-  // three things it can be: it ran, it is running, or it has not run — and the
-  // last shows a blurb, because empty rows would imply karst tried and got
-  // nothing back.
+  // ── the inside ledger (the inside redesign) ─────────────────────────────
+  // The host ships ONE snapshot per stage (`InsideStageView`): ordered process
+  // rows, each carrying pre-built status/detail/counts/identity/evidence and
+  // an opaque action id. The webview renders rows and evidence rows
+  // verbatim — it never parses prose, never formats a number, never derives a
+  // verdict. Only the kind→label copy for the closed action vocabulary lives
+  // here, exactly like NOW_TITLE: a presentation hint, not business logic.
+
+  // kind → label, from the closed InsideActionKind vocabulary. Static control
+  // copy (UI-R20), like NOW_TITLE — the host never ships these strings.
+  const INSIDE_ACTION_LABEL = {
+    'open-pr': 'Open PR',
+    'open-commit': 'Open commit',
+    'open-file': 'Open file',
+    'open-stage-log': 'Open log',
+    'resume-stage': 'Resume',
+    'open-full-evidence': 'Show all',
+    'open-bounded-evidence': 'Show all',
+  };
+  const INSIDE_ACTION_TITLE = {
+    'open-pr': 'Open this pull request on the host',
+    'open-commit': 'Open this commit on the host',
+    'open-file': 'Open this file in an editor',
+    'open-stage-log': "Open this stage's log file",
+    'resume-stage': "Resume this ticket's stage",
+    'open-full-evidence': 'Show every recorded row',
+    'open-bounded-evidence': 'Show every repository row',
+  };
+
+  function insideActionBtnHtml(a) {
+    if (!a || !INSIDE_ACTION_LABEL[a.kind]) return '';
+    return `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="inside-action"`
+      + ` data-action-id="${esc(a.actionId)}" title="${esc(INSIDE_ACTION_TITLE[a.kind])}">`
+      + `${esc(INSIDE_ACTION_LABEL[a.kind])}</button>`;
+  }
+
+  // The recorded execution identity. `execution` = what RAN; `configured`
+  // = what settings said WOULD run. One chip, whichever exists; the title
+  // says which claim it is, so a pending process never reads as evidence.
+  function identityChipHtml(p) {
+    const e = p.execution || p.configuredExecution;
+    if (!e) return '';
+    const core = e.providerLabel || e.provider;
+    const model = e.modelLabel || e.model;
+    if (!core) return '';
+    const label = [e.agentName, core, model && model !== core ? model : ''].filter(Boolean).join(' · ');
+    const tip = p.execution ? 'Executed with this identity' : 'Configured to run — has not executed yet';
+    return `<span class="pchip" title="${esc(tip)}">${esc(label)}</span>`;
+  }
+
+  function tokensHtml(t) {
+    if (!t) return '';
+    const tip = t.exact ? ` title="${esc(t.exact)}"` : '';
+    return `<span class="ptok"${tip}>${esc(t.total)} tokens</span>`;
+  }
+
+  function evidenceRowHtml(r) {
+    const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
+    // The timeline's relationship marker: this row continues the SAME
+    // execution through a provider switch or a resume. Structural (the host
+    // sets `connector`), never guessed from the label. Static tooltip copy
+    // from the closed vocabulary, like the action titles above.
+    const conn = r.connector === 'switch' || r.connector === 'resume'
+      ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
+      : '';
+    const act = r.action ? insideActionBtnHtml(r.action) : '';
+    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
+      + `<span class="elabel">${esc(r.label)}</span>`
+      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
+      + (r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '')
+      + (act ? `<span class="eact">${act}</span>` : '')
+      + `</div>`;
+  }
+
+  function processRowHtml(p, key, open) {
+    const glyph = OP_GLYPH[p.status] || '·';
+    const meta = [p.count, p.duration].filter(Boolean)
+      .map((m) => `<span class="pmeta">${esc(m)}</span>`).join('');
+    const act = p.action ? insideActionBtnHtml(p.action) : '';
+    const hasEv = p.evidence && p.evidence.rows.length;
+    const chev = hasEv
+      ? `<button type="button" class="k-iconbtn chev" data-chev="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}"`
+        + ` aria-label="Show ${esc(p.label)} details" title="Show ${esc(p.label)} details">${open ? '–' : '+'}</button>`
+      : '';
+    const ev = hasEv && open ? `<div class="pev pev-${esc(p.evidence.kind)}">${p.evidence.rows.map(evidenceRowHtml).join('')}</div>` : '';
+    return `<div class="proc ${esc(p.status)}"><div class="prow"><span class="pglyph">${glyph}</span>`
+      + `<span class="pname">${esc(p.label)}</span>${identityChipHtml(p)}${tokensHtml(p.tokens)}`
+      + `<span class="pdetail">${esc(p.detail || '')}</span>`
+      + `<span class="pright">${meta}${act}</span>${chev}</div>${ev}</div>`;
+  }
+
+  // Live overlays, in order of precedence: a `completed` process row replaces
+  // the snapshot's same-id row (or appends), and an `active` operation rides
+  // the header without touching the rows. The snapshot that follows retires
+  // both (see the state handler).
+  function overlayProcesses(view) {
+    const live = liveOps[view.stageKey];
+    if (!live || !live.completed) return view.processes;
+    const id = live.completed.id;
+    if (!view.processes.some((p) => p.id === id)) return view.processes.concat(live.completed);
+    return view.processes.map((p) => (p.id === id ? live.completed : p));
+  }
+
   function renderInside(state, sel) {
-    const strip = (state.inside || {})[sel];
-    if (!strip) { el('inside').innerHTML = ''; return; }
+    const view = (state.insideViews || {})[sel];
+    if (!view) { el('inside').innerHTML = ''; return; }
 
     // "Not the current stage" is only meaningful when there IS one. On a ticket
     // that never started, every stage is equally uncurrent and the bar would be
@@ -1226,23 +1475,27 @@
     const viewing = state.stageCurrent && sel !== state.stageCurrent;
     const back = viewing ? STAGE_TITLE[state.stageCurrent] || state.stageCurrent : '';
     const vbar = viewing
-      ? `<div class="vbar"><span>Viewing ${esc(strip.title)} — not the current stage.</span>`
+      ? `<div class="vbar"><span>Viewing ${esc(view.title)} — not the current stage.</span>`
         + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-back`
         + ` title="Return the strip to the stage the ticket is actually on">Back to ${esc(back)}</button></span></div>`
       : '';
 
-    const body = strip.ops.length
-      ? `<div class="ops">${strip.ops.map((o) => `<div class="op ${esc(o.status)}">`
-        + `<span class="oglyph">${OP_GLYPH[o.status] || '·'}</span>`
-        + `<span class="oname">${esc(o.name)}</span>`
-        + `<span class="ocmd">${esc(o.detail)}</span>`
-        + `<span class="odur">${esc(o.duration)}</span></div>`).join('')}</div>`
-      : `<div class="blurb">${esc(strip.blurb)}</div>`;
+    // One current operation in the header while it runs — spinner + host label,
+    // never a verdict (progress.ts: a live operation is run/wait/fail only).
+    const live = liveOps[view.stageKey];
+    const alive = live && live.active
+      ? `<span class="alive"><span class="spin" aria-hidden="true"></span>${esc(live.active.label || 'Running')}</span>`
+      : '';
+
+    const procs = overlayProcesses(view);
+    const body = procs.length
+      ? `<div class="procs">${procs.map((p) => processRowHtml(p, view.stageKey, openProcesses.has(`${view.stageKey}:${p.id}`))).join('')}</div>`
+      : `<div class="blurb">${esc(view.blurb)}</div>`;
 
     el('inside').innerHTML = `<div class="act ${viewing ? 'viewing' : ''}">${vbar}`
-      + `<div class="ahead"><span class="adot ${esc(strip.dot)}"></span>`
-      + `<span class="aname">Inside ${esc(strip.title.toLowerCase())}</span>`
-      + `<span class="aclock">${esc(strip.clock)}</span></div>${body}</div>`;
+      + `<div class="ahead"><span class="adot ${esc(view.dot)}"></span>`
+      + `<span class="aname">Inside ${esc(view.title.toLowerCase())}</span>${alive}`
+      + `<span class="aclock">${esc(view.clock)}</span></div>${body}</div>`;
   }
 
   // The fault card: the reason a red node is red, the log behind it, and when it
@@ -1275,6 +1528,18 @@
     const blocked = cell && cell.blocked;
     box.classList.toggle('hidden', !blocked);
     if (!blocked) { box.innerHTML = ''; return; }
+    // `awaiting-merge` is not a fault: ship's own work is done and the PRs are
+    // open, and this reads as a normal wait for one of them to land, not a
+    // stage karst failed to run. It also gets no Resume button — every OTHER
+    // BlockerKind means "karst could not ask the question, retry it", but
+    // `stageResume.ts`'s `resumeBlockedStage` REFUSES to clear this one (only
+    // the merge gate observing the actual landing is entitled to), so a
+    // Resume button here would be a dead affordance that always no-ops.
+    if (blocked.kind === 'awaiting-merge') {
+      box.innerHTML = `<div class="ftitle">Waiting to merge</div>`
+        + `<div class="freason">${esc(blocked.reason)}</div>`;
+      return;
+    }
     const title = `${STAGE_TITLE[cell.stageKey] || cell.stageKey} is blocked`;
     box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
       + `<div class="freason">${esc(blocked.reason)}</div>`
@@ -1309,7 +1574,9 @@
     // While a ship is in flight, the real per-step progress lives in the Inside
     // block; this line is a static sentence, never a spinner label — and no
     // button, since the confirm click already happened (no second one to make).
-    if (shipping) {
+    // The in-flight marker is the pending requestId (the old `shipping` flag
+    // is gone), so the hold survives every push until the stage resolves.
+    if (shipRequestId) {
       el('now').innerHTML = `<span class="ntext">${esc('Now: shipping — committing, pushing, and opening PRs for each hot repo.')}</span>`;
       return;
     }
@@ -1341,30 +1608,27 @@
   }
 
   // Decide whether an incoming snapshot ends the in-flight ship. Keyed off host
-  // truth (the ship stage's own status), never the copy: while shipping the
-  // stage sits at `running`, so every push would otherwise rebuild the plain
-  // "Confirm ship" line and wipe the spinner. Success = advanced past ship;
-  // error = ship landed failed (the Now line + fault card then explain it).
+  // truth (the ship stage's own status), never the copy: while the ship runs
+  // the stage sits at `running`, so every push would otherwise rebuild the
+  // plain "Confirm ship" line and wipe the spinner. Success = advanced past
+  // ship; error = ship landed failed (the Now line + fault card then explain
+  // it). The in-flight marker is `shipRequestId` — the old `shipping` flag is
+  // gone with the legacy ship-progress overlay it drove (Finding 12).
   function resolveShipping(state) {
-    if (!shipping) return;
+    const requestId = shipRequestId;
+    if (!requestId) return;
     const atShip = state.stageCurrent === 'ship';
     const failed = atShip && state.currentStage && state.currentStage.status === 'failed';
-    const requestId = shipRequestId;
     shipRequestId = null;
     if (failed) {
-      shipping = false; // the failed Now line + fault card are the explicit error state
-      shipOps = null;
-      // The fault card already carries the reason inline (UI-R14b territory);
-      // the toast stays generic so the two do not repeat host prose twice.
-      if (requestId) karstSettle(requestId, false);
+      // The failed Now line + fault card are the explicit error state.
+      karstSettle(requestId, false);
     } else if (!atShip) {
-      shipping = false;
-      shipOps = null;
       shipDone = 'success';
-      if (requestId) karstSettle(requestId, true);
+      karstSettle(requestId, true);
       setTimeout(() => { shipDone = null; render(lastState); }, 2400);
     }
-    // else still at ship (running) → hold the spinner across this push, and
+    // else still at ship (running) → hold the sentence across this push, and
     // leave requestId in place (restored below) so a later push can still
     // settle it.
     if (!failed && atShip) shipRequestId = requestId;
@@ -1711,7 +1975,7 @@
     el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done');
     renderAgent(state.agentState);
     renderTrack(state.rail, state.approach, sel);
-    renderInside(shippingView(state, sel), sel);
+    renderInside(state, sel);
     // The fault card scans the FLAT stepper, so it still sees fix.
     renderFault(state.stepper);
     renderBlocked(state);
@@ -1818,7 +2082,7 @@
   });
 
   // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired
-  // by a state push or a ship-progress tick, not by this click — restores
+  // by a state push or an inside-progress tick, not by this click — restores
   // exactly the ones the user had open. Listens in the CAPTURE phase: `toggle`
   // does not bubble in every engine, so a bubble-phase delegate on `#prs` could
   // silently miss it.
@@ -1865,7 +2129,7 @@
   // just its type.
   //
   // Rows here render by full innerHTML replacement (every `state` push and
-  // every `ship-progress` tick calls render()), so a per-element `karstAction`
+  // every `inside-progress` tick calls render()), so a per-element `karstAction`
   // binding — which keys pending state to the ONE element it was bound to —
   // would go stale the instant a re-render swaps that element out from under
   // it. This delegated handler instead calls the runtime's underlying pieces
@@ -1895,12 +2159,12 @@
     // Confirm ship kicks off slow backend work (model call + gh pr create).
     // Guard against double-submit and show that the click registered BEFORE
     // the host is even asked — no window where the button looks inert with
-    // work underway.
+    // work underway. The in-flight marker is the pending requestId, which
+    // resolveShipping() settles from the next meaningful state push (the old
+    // `shipping` flag is gone with the legacy ship-progress overlay).
     if (act === 'ship-ticket') {
-      if (shipping) return;
-      shipping = true;
+      if (shipRequestId) return;
       shipDone = null;
-      shipOps = seedShipOps(lastState ? lastState.worktrees : []);
       shipRequestId = karstRequestId();
       karstBeginPending(btn, shipRequestId);
       render(lastState);
@@ -1968,11 +2232,35 @@
     else if (btn.dataset.stagekey) {
       post({ type: act, ticketId: lastState.ticketId, stageKey: btn.dataset.stagekey, requestId });
     }
+    // inside-action: the message carries ONLY the opaque actionId (messages.ts
+    // drops any payload with a companion field) — never a path, URL, PR
+    // number, repo, or stage as authority. The host resolves the id against
+    // its snapshot-scoped allowlist.
+    else if (btn.dataset.actionId) {
+      post({ type: act, actionId: btn.dataset.actionId, requestId });
+    }
     else post({ type: act, requestId });
     // Optimistic clipboard confirmation (UI-R15) rides ALONGSIDE the pending
     // state above, not instead of it — the button still reports whatever the
     // host's real ack says, same as every other control.
     if (btn.hasAttribute('data-copy')) flashCopied(btn);
+  });
+
+  // The inside ledger's disclosure toggles. NOT `[data-act]`: expanding a row
+  // is view state, not an action — nothing posts, and the open set must
+  // survive the next full re-render, which is why it lives here beside
+  // `openProcesses` rather than on the row itself.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-chev]');
+    if (!btn) return;
+    e.preventDefault();
+    const key = btn.dataset.chev;
+    if (!key) return;
+    const next = new Set(openProcesses);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    openProcesses = next;
+    if (lastState) render(lastState);
   });
 
   // Settle every outstanding merge request against the fresh PR list. `merged`
@@ -2010,16 +2298,25 @@
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    // Live per-repo/per-step ship progress. Ignored unless a ship is in flight
-    // (a stale message can't resurrect a stale overlay).
-    if (msg.type === 'ship-progress') {
-      if (shipping && msg.event && msg.event.repo) {
-        const e = msg.event;
-        if (!shipOps) shipOps = {};
-        if (!shipOps[e.repo]) shipOps[e.repo] = {};
-        shipOps[e.repo][e.step] = { status: e.status, detail: e.detail };
-        render(lastState);
+    // Transient inside-progress events (the inside redesign): the live header
+    // for the ONE operation now running, and the completed process row that
+    // replaces the snapshot's same-id row until the next full snapshot. Ship
+    // rides this same union (Finding 12) — the legacy `ship-progress` stream
+    // is gone. The host pushes a snapshot when the stage moves, which retires
+    // the overlay (see the state handler below) — the overlay is a same-tick
+    // update, never a state source. A `cleared` event covers
+    // cancellation/supersession with no invented result.
+    if (msg.type === 'inside-progress') {
+      const e = msg.event;
+      if (!e) return;
+      if (e.kind === 'active') {
+        liveOps[e.stage] = { active: e.live, processId: e.processId };
+      } else if (e.kind === 'completed') {
+        liveOps[e.stage] = { completed: e.process };
+      } else if (e.kind === 'cleared') {
+        delete liveOps[e.stage];
       }
+      if (lastState) render(lastState);
       return;
     }
     // The window's terminal binding. Host-owned: it is one preference shared by
@@ -2046,6 +2343,14 @@
       renderGates();
       return;
     }
+    // Development-only Inside preview (Finding 1): the fixture list + the
+    // host-built snapshot per fixture. Only the preview panel ever sends it,
+    // and only it reveals the toolbar — the production dashboard never
+    // receives this message, so the toolbar stays hidden there.
+    if (msg.type === 'preview-fixtures') {
+      renderPreviewToolbar(msg.fixtures);
+      return;
+    }
     // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13).
     // ship-ticket/merge-pr/refresh-prs never reach here (they carry no
     // requestId on the wire, by design — see the click handler above); every
@@ -2070,6 +2375,23 @@
       if (prRefreshId) {
         karstSettle(prRefreshId, true);
         prRefreshId = null;
+      }
+      // The full snapshot supersedes the inside live overlay: progress.ts is
+      // explicit that the snapshot is authoritative. A snapshot that actually
+      // CONTAINS the process retires the overlay — for `completed`, any
+      // presence (its row is the final one); for `active`, only a terminal
+      // row, because an unrelated push mid-gate must not drop the live header
+      // while the same row still reads `run` in the snapshot. Absence keeps
+      // the overlay: a snapshot that does not know the process cannot answer
+      // about it.
+      const views = msg.state.insideViews || {};
+      for (const stage of Object.keys(liveOps)) {
+        const entry = liveOps[stage];
+        const procs = (views[stage] || {}).processes || [];
+        const id = entry.completed ? entry.completed.id : entry.processId;
+        if (!id) continue;
+        const row = procs.find((p) => p.id === id);
+        if (row && (entry.completed || row.status !== 'run')) delete liveOps[stage];
       }
       // The matching async totals message follows this snapshot. Until then,
       // omit numbers rather than showing values for an older working tree.

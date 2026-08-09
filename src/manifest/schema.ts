@@ -22,6 +22,7 @@ import { assertSharedRepoBaselineBranches } from './baselineBranch.js';
 import { validateGraph } from './validate/graph.js';
 import { validateUat } from './validate/uat.js';
 import { validateReview } from './validate/review.js';
+import { validateProcessAssignments } from './validate/processAssignments.js';
 import {
   validateArtifactTemplate,
   type ArtifactConventionName,
@@ -407,6 +408,9 @@ export function validateManifest(raw: unknown): Manifest {
   validateGraph(repositories);
   assertSharedRepoBaselineBranches(repositories, baselineBranch);
 
+  const agents = validateAgents(raw.agents);
+  const processes = validateProcessAssignments(raw.processes, agents);
+
   return {
     id: validateProjectId(raw.id),
     host,
@@ -414,7 +418,8 @@ export function validateManifest(raw: unknown): Manifest {
     baselineBranch,
     repositories,
     approaches: validateApproaches(raw.approaches),
-    agents: validateAgents(raw.agents),
+    agents,
+    processes,
     worktreePathDisplay: validateWorktreePathDisplay(raw.worktreePathDisplay),
     ticketLabelTemplate: validateTicketLabelTemplate(raw.ticketLabelTemplate),
     terminalNameTemplate: validateTerminalNameTemplate(raw.terminalNameTemplate),

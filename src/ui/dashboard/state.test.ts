@@ -33,7 +33,7 @@ describe('buildDashboardState', () => {
     expect(state.stepper[0]!.stageKey).toBe('scope');
     expect(state.stepper[0]!.status).toBe('passed');
     expect(state.stepper.map((s) => s.stageKey)).toEqual([
-      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'merge', 'done',
+      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'done',
     ]);
     expect(state.servers).toHaveLength(1);
     expect(state.servers[0]!.port).toBe(5173);
@@ -66,6 +66,24 @@ describe('buildDashboardState', () => {
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
       { isSessionOpen: () => open },
     );
+    expect(state.agentSession.canSwitch).toBe(false);
+  });
+
+  it('does not offer switching while a Fix recovery execution owns the live session', () => {
+    const t = createTicket(store, { key: 'SW-FIX', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(t.id);
+    store.db.prepare(
+      `INSERT INTO recovery_rounds
+         (ticket_id, source_stage, source_process_id, trigger_kind, trigger_detail,
+          round, max_rounds, status, started_at)
+       VALUES (?, 'uat', 'gates', 'gate-failure', 'test failed', 1, 3, 'fixing', ?)`,
+    ).run(t.id, '2026-08-09T10:00:00.000Z');
+
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { isSessionOpen: () => true },
+    );
+
     expect(state.agentSession.canSwitch).toBe(false);
   });
 
@@ -458,5 +476,66 @@ describe('buildDashboardState — runnable scope', () => {
 
   it('reports false for an empty scope — there is nothing to start', () => {
     expect(buildDashboardState(store, scoped([])).hasRunnableRepos).toBe(false);
+  });
+});
+
+describe('insideViews (the six-stage inside presentation)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function ticketAt(stage: string): number {
+    const t = createTicket(store, { key: 'IN-1', title: 'inside' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    return t.id;
+  }
+
+  it('has EXACTLY six stages and never a peer Fix stage', () => {
+    const ticketId = ticketAt('impl');
+    const state = buildDashboardState(store, ticketId);
+    expect(Object.keys(state.insideViews).sort()).toEqual(['done', 'impl', 'review', 'scope', 'ship', 'uat']);
+    expect((state.insideViews as Record<string, unknown>).fix).toBeUndefined();
+  });
+
+  it('projects the runtime fix stage onto the stage it is causally attached to', () => {
+    // A ticket parked at fix with an active UAT recovery round presents UAT.
+    const ticketId = ticketAt('fix');
+    const state = buildDashboardState(store, ticketId);
+    expect(state.presentedStage).toBe('uat');
+  });
+
+  it('renders the quality stages as process lists with recovery inserted causally', () => {
+    const ticketId = ticketAt('uat');
+    const views = buildDashboardState(store, ticketId).insideViews;
+    expect(views.uat.processes.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
+    expect(views.review.processes.map((p) => p.id)).toEqual(['gates', 'services', 'review']);
+  });
+
+  it('renders ship and done from the same current PR read', () => {
+    const ticketId = ticketAt('ship');
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status)
+         VALUES (?, 'web', 40, 'https://github.com/o/r/pull/40', 'open')`,
+      )
+      .run(ticketId);
+    const state = buildDashboardState(store, ticketId);
+    const shipMerge = state.insideViews.ship.processes.find((p) => p.id === 'merge')!;
+    expect(shipMerge.status).toBe('wait');
+    // The done receipt stays pending — nothing is merged.
+    expect(state.insideViews.done.processes[0]!.status).toBe('wait');
+  });
+
+  it('mints opaque actions onto evidence rows only when a registry is supplied', () => {
+    const ticketId = ticketAt('uat');
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-08T10:00:00.000Z',
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+    const plain = buildDashboardState(store, ticketId).insideViews.uat;
+    expect(plain.processes.find((p) => p.id === 'gates')!.action).toBeUndefined();
   });
 });

@@ -163,6 +163,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // the writeManifest round-trip test exists to catch.
     uat: manifest.uat,
     review: manifest.review,
+    // Same seam, same failure mode: the Agents tab owns `processes`, and an
+    // explicit save must never drop the block (writeManifest.test.ts pins it).
+    processes: manifest.processes,
   };
 
   // Re-validate before persisting — never write a file the loader would reject.

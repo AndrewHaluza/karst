@@ -77,3 +77,26 @@ export function capForGate(gate: GateStageKey, uatMax?: number, reviewMax?: numb
 export function fixAttemptsRemain(attempts: number, cap: number = FIX_ATTEMPT_CAP): boolean {
   return attempts < cap;
 }
+
+/**
+ * v30: the driver's fix decision for a ticket with a COMMITTED recovery round.
+ *
+ * The round is the source of truth for both the attempt number (its `round`)
+ * and the budget (its committed `max_rounds`): the manifest knob may have
+ * changed since the failure was committed, and must not retroactively widen or
+ * narrow a round already in flight — `recoveryDecision` reads the snapshot
+ * back from the store, never from the live manifest.
+ */
+export type RoundFixDecision =
+  | { kind: 'resume'; roundId: number; attempts: number }
+  | { kind: 'exhausted'; roundId: number; attempts: number; cap: number };
+
+export function roundFixDecision(round: {
+  roundId: number;
+  round: number;
+  maxRounds: number;
+}): RoundFixDecision {
+  return fixAttemptsRemain(round.round, round.maxRounds)
+    ? { kind: 'resume', roundId: round.roundId, attempts: round.round }
+    : { kind: 'exhausted', roundId: round.roundId, attempts: round.round, cap: round.maxRounds };
+}

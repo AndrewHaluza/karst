@@ -42,6 +42,10 @@ function fakeHost(
 } {
   const terminals: FakeTerminal[] = [];
   const pendingCloseEvents: Array<() => void> = [];
+  // VS Code keeps a terminal in `window.terminals` until its close event is
+  // delivered, not until `dispose()` is called. This tracks delivered closes
+  // so the fake's restored-sessions view mirrors that async cleanup gap.
+  const closeDelivered = new Set<FakeTerminal>();
   let restoredSessions = restored;
   const host: TerminalHost & {
     restoreCreatedTerminals(): void;
@@ -64,6 +68,10 @@ function fakeHost(
         disposed: false,
         sent: [],
         show: (preserveFocus) => {
+          // A disposed VS Code terminal throws on `.show()` ("Terminal has
+          // already been disposed") — the exact failure this module's
+          // recently-disposed guard exists to prevent.
+          if (term.disposed) throw new Error('Terminal has already been disposed');
           term.shown++;
           term.shownPreserveFocus.push(preserveFocus);
         },
@@ -71,8 +79,15 @@ function fakeHost(
         dispose: () => {
           term.disposed = true;
           if (!term.disposeHandler) return;
-          if (delayClose) pendingCloseEvents.push(term.disposeHandler);
-          else term.disposeHandler();
+          if (delayClose) {
+            pendingCloseEvents.push(() => {
+              closeDelivered.add(term);
+              term.disposeHandler?.();
+            });
+          } else {
+            closeDelivered.add(term);
+            term.disposeHandler();
+          }
         },
         onDidClose: (h) => (term.disposeHandler = h),
       };
@@ -81,12 +96,17 @@ function fakeHost(
     },
     restoredSessions: () => restoredSessions,
     restoreCreatedTerminals: () => {
-      restoredSessions = terminals.filter((terminal) => !terminal.disposed).flatMap((terminal) => {
-        const raw = terminal.env[KARST_TICKET_ENV];
-        return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
-          ? [{ ticketId: Number(raw), terminal }]
-          : [];
-      });
+      // Mirrors `vscode.window.terminals`: a terminal stays listed until its
+      // close event is delivered, so a disposed-but-not-yet-closed terminal is
+      // still visible (that is what makes the agent-core-switch race real).
+      restoredSessions = terminals
+        .filter((terminal) => !closeDelivered.has(terminal))
+        .flatMap((terminal) => {
+          const raw = terminal.env[KARST_TICKET_ENV];
+          return typeof raw === 'string' && /^[1-9]\d*$/.test(raw)
+            ? [{ ticketId: Number(raw), terminal }]
+            : [];
+        });
     },
     liveTerminals: () => terminals.filter((terminal) => !terminal.disposed),
     flushCloseEvents: () => {
@@ -702,6 +722,63 @@ describe('SessionManager', () => {
     expect(observedCloses).toEqual([1]);
   });
 
+  it('does not adopt a recently-disposed terminal when VS Code still lists it', () => {
+    // Simulates the agent core switch race: disposeSession disposes the
+    // terminal, but VS Code's async cleanup has not yet delivered its close
+    // event, so the disposed terminal is still listed in `window.terminals`
+    // with no `exitStatus`. A subsequent openSession must create a fresh
+    // terminal instead of adopting the disposed one (whose `.show()` throws
+    // "Terminal has already been disposed").
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 7, '/wt/a');
+    expect(terminals).toHaveLength(1);
+
+    // Dispose the session (karst-initiated, not VS Code); the close event is
+    // still pending, exactly like the real async gap.
+    mgr.disposeSession(7);
+
+    // VS Code still lists the disposed terminal in `window.terminals`.
+    host.restoreCreatedTerminals();
+
+    // openSession must NOT adopt the disposed terminal.
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(terminals).toHaveLength(2);
+    expect(terminals[0]!.disposed).toBe(true);
+    expect(terminals[1]!.disposed).toBe(false);
+    expect(mgr.isOpen(7)).toBe(true);
+  });
+
+  it('holds the disposed-terminal guard until the disposed terminal closes, not a newer session', () => {
+    // A newer session closing first must not release the guard: the disposed
+    // terminal is still listed in `window.terminals` while its own close is
+    // pending, and re-adopting it would throw "Terminal has already been
+    // disposed".
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost([], true);
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 7, '/wt/a');
+    mgr.disposeSession(7);
+    mgr.openSession(adapter, 7, '/wt/a');
+    host.restoreCreatedTerminals();
+
+    // The replacement session's close is delivered while the disposed
+    // terminal's own close is still pending.
+    closeWithExitCode(terminals[1]!, 0);
+    host.restoreCreatedTerminals();
+
+    // A third open must still create a fresh terminal, never adopt the corpse.
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(terminals).toHaveLength(3);
+    expect(terminals[2]!.disposed).toBe(false);
+    expect(mgr.isOpen(7)).toBe(true);
+  });
+
   it('cleans owned assets exactly once when deliberately disposed without replacement', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost([], true);
@@ -974,6 +1051,212 @@ describe('SessionManager', () => {
     terminals[0]!.dispose();
 
     expect(cleanup).toHaveBeenCalledWith('/wt/a', ['/wt/a/.codex/karst']);
+  });
+
+  it('invokes onLaunchPrepared for a fresh launch, carrying the allocated launch id', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false }]);
+  });
+
+  it('an ordinary resume launch records resume: true', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, 'sess-7');
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: true, switchLaunch: false }]);
+  });
+
+  it('an agent switch launch records switchLaunch: true', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], { allowResume: false, providerReady: true });
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: true }]);
+  });
+
+  it('focusing an existing terminal invokes no launch callback', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a');
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(prepared).toHaveLength(1);
+  });
+
+  // Task 3: the host-only Fix assignment rides the prepared launch so the
+  // eventual fix launch intent can be recorded with the CONFIGURED identity —
+  // never re-resolved from live configuration after the launch is prepared.
+  it('forwards the host-only assignment override into the prepared-launch info', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], { assignment: { agentName: 'UAT Fix Agent', provider: 'codex', model: 'sol' } });
+
+    expect(prepared).toEqual([{
+      ticketId: 7,
+      launchId,
+      resume: false,
+      switchLaunch: false,
+      assignment: { agentName: 'UAT Fix Agent', provider: 'codex', model: 'sol' },
+    }]);
+  });
+
+  it('carries no assignment when the launch options set none', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false }]);
+  });
+
+  it('records the session identity snapshot and returns it on demand', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(
+      adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], {}, { provider: 'codex', model: 'sol' },
+    );
+
+    expect(mgr.sessionIdentity(7)).toEqual({ provider: 'codex', model: 'sol' });
+    expect(mgr.sessionIdentity(99)).toBeNull();
+  });
+
+  it('carries the configured agent name in the recorded identity snapshot', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(
+      adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], {}, { provider: 'codex', model: 'sol', agentName: 'UAT Fix Agent' },
+    );
+
+    expect(mgr.sessionIdentity(7)).toEqual({
+      provider: 'codex',
+      model: 'sol',
+      agentName: 'UAT Fix Agent',
+    });
+  });
+
+  it('no identity is recorded when none was supplied at launch', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(mgr.sessionIdentity(7)).toBeNull();
+  });
+
+  it('reports a ticket live only while its terminal is open', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.isLive(7)).toBe(false);
+    mgr.openSession(adapter, 7, '/wt/a');
+    expect(mgr.isLive(7)).toBe(true);
+  });
+
+  it('reports a revived handle live, adopting it without revealing it', () => {
+    const restored = fakeRestored(7);
+    const { host } = fakeHost([restored]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.isLive(7)).toBe(true);
+    expect(mgr.isOpen(7)).toBe(true);
+    // An automated continuation must not yank the user out of what they are doing.
+    expect(restored.terminal.shown).toBe(0);
+    // The adopted handle carries no recorded identity — the caller falls back.
+    expect(mgr.sessionIdentity(7)).toBeNull();
+  });
+
+  it('restores a revived terminal\'s durable session identity when the host recovered it', () => {
+    const restored = Object.assign(fakeRestored(7), {
+      identity: { provider: 'codex', model: 'sol' },
+    });
+    const { host } = fakeHost([restored]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.isLive(7)).toBe(true);
+    expect(mgr.sessionIdentity(7)).toEqual({ provider: 'codex', model: 'sol' });
+  });
+
+  it('adopting a revived terminal invokes no launch callback', () => {
+    const restored = fakeRestored(7);
+    const { host } = fakeHost([restored]);
+    const prepared: unknown[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(fakeAdapter().adapter, 7, '/wt/a');
+
+    expect(prepared).toHaveLength(0);
+    expect(mgr.isOpen(7)).toBe(true);
+  });
+
+  it('terminal creation failure invokes onLaunchFailed with the launch id and rethrows', () => {
+    const { adapter } = fakeAdapter();
+    const failingHost: TerminalHost = {
+      createTerminal: () => {
+        throw new Error('spawn failed');
+      },
+    };
+    const prepared: unknown[] = [];
+    const failed: string[] = [];
+    const mgr = new SessionManager(
+      failingHost, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+      (launchId) => failed.push(launchId),
+    );
+
+    expect(() => mgr.openSession(adapter, 7, '/wt/a')).toThrow('spawn failed');
+    expect(prepared).toHaveLength(1);
+    expect(failed).toEqual([launchId]);
   });
 });
 

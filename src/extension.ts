@@ -16,6 +16,7 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import type { InsidePreviewHost } from './ui/dashboard/insidePreview.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
@@ -39,13 +40,13 @@ import {
   VirtualDocumentRegistry,
 } from './ui/diffs/hostResources.js';
 import {
-  continueSessionInBackground,
   deferSessionRetry,
   KARST_LAUNCH_ENV,
   SessionManager,
   ticketIdFromTerminalEnv,
   type TerminalHost,
   type SessionTerminal,
+  type SessionIdentity,
   type OpenSessionOptions,
   type RestoredSession,
   type RestoredSessionDisposition,
@@ -56,6 +57,7 @@ import {
   parseSessionTerminalRecords,
   pruneSessionTerminals,
   rememberSessionTerminal,
+  type DurableSessionIdentityLookup,
   type SessionTerminalRecord,
   type TerminalIdentity,
 } from './ui/terminalIdentity.js';
@@ -72,6 +74,23 @@ import {
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
+import {
+  resolveProcessAssignment,
+  type DriveProcessBundle,
+  type ProcessAssignmentSnapshot,
+} from './agent/processAssignment.js';
+import type { ProcessRole } from './manifest/validate/processAssignments.js';
+import { runProcess } from './workflow/gates/run.js';
+import {
+  recordSessionLaunchIntent,
+  failSessionLaunchIntent,
+  getSessionLaunchIntent,
+} from './store/sessionLaunchIntents.js';
+import {
+  recordFixLaunchIntent,
+  recoveryDecision,
+  listRecoveryRounds,
+} from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
@@ -119,14 +138,19 @@ import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
-import { settleMergeGates } from './workflow/mergeGate.js';
-import { capForGate } from './workflow/fixAttempts.js';
+import { settleShipGates } from './workflow/mergeGate.js';
+import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
+import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
 import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
+import {
+  reconcileProcessRuns,
+  describeStaleProcessRun,
+} from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
@@ -142,6 +166,7 @@ import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
+import { setPreviewContextThenContinue } from './extension/previewContext.js';
 import {
   createReportIssueHandler,
   DiagnosticDocumentProvider,
@@ -184,7 +209,11 @@ import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
-import { shipTicket as runShipTicket, type ShipStepEvent } from './workflow/stages/ship.js';
+import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
+import { shipClearedEvent, type InsideProgressEvent } from './model/inside/progress.js';
+import type { InsideActionHost } from './ui/dashboard/insideActions.js';
+import { getPrById } from './store/prs.js';
+import { getShipCommitById } from './store/shipRuns.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
@@ -505,6 +534,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   } catch (err) {
     logError('karst: stale gate-run sweep failed', err);
   }
+  // Stale process-run sweep (inside redesign). The inside view renders a stage
+  // as processes opened durably before they start, so a process whose
+  // extension host died mid-flight is still on record as `running` — a state
+  // nothing can leave on its own, since process death fires no abort signal.
+  // Marking it `stale` is what turns a process that will never finish into the
+  // record that it was destroyed, with its identity snapshot still readable.
+  //
+  // GLOBAL for the same reason as the gate-run pass above, and safe for the
+  // same reason: attribution, not scope. A run opened by ANOTHER LIVE window
+  // has a live pid and is left strictly alone; a run with no recorded pid is
+  // left alone too, because absence of evidence is not evidence that it died.
+  //
+  // Reported, never silent — an invisibly-discarded run is the whole failure
+  // this closes, and a sweep that quietly corrected the data would repeat it.
+  try {
+    for (const r of reconcileProcessRuns(localStore, pidAlive)) {
+      logger.info(describeStaleProcessRun(r));
+    }
+  } catch (err) {
+    logError('karst: stale process-run sweep failed', err);
+  }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package
   // into agent-specific launch args).
@@ -530,6 +580,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const terminalIdentity = makeTerminalIdentityRegistry(
     parseSessionTerminalRecords(context.workspaceState.get(SESSION_TERMINALS_KEY)),
     (records) => void terminalRecordWriter.enqueue(records),
+    (launchId) => {
+      const intent = getSessionLaunchIntent(localStore, launchId);
+      return intent === undefined
+        ? undefined
+        : {
+            ticketId: intent.ticketId,
+            provider: intent.provider,
+            model: intent.model,
+            agentName: intent.agentName,
+          };
+    },
   );
   flushSessionOwnership = async () => {
     await ownershipWriter.flush();
@@ -594,6 +655,84 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       });
     },
+    // A launch is PREPARED: record the pending session launch intent so the
+    // eventual SessionStart can be confirmed against the exact prepared launch
+    // (durable across reloads — never recovered from in-memory callback state).
+    // The provider/model/purpose/reason are re-resolved from the ticket at this
+    // moment, which is what makes a switch's intent carry the NEW core: the
+    // switch flow persists the selection BEFORE its launch, and this callback
+    // fires synchronously inside that launch. Best-effort: a bookkeeping
+    // failure must never fail the terminal launch itself.
+    ({ ticketId, launchId, resume, switchLaunch, assignment }) => {
+      try {
+        const ticket = getTicket(localStore, ticketId);
+        const purpose =
+          ticket.stageCurrent === 'impl'
+            ? 'implementation'
+            : ticket.stageCurrent === 'fix'
+              ? 'fix'
+              : null;
+        if (purpose === null) return;
+        // Task 3: a launch prepared under a host-only configured assignment
+        // (the Fix path) records THAT snapshot — provider/model/agent name as
+        // resolved once at resume time, never re-derived from live config.
+        const provider =
+          assignment?.provider ??
+          resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider);
+        const model =
+          assignment !== undefined
+            ? (assignment.model ?? null)
+            : resolveModelForProvider(
+                provider,
+                ticket.model,
+                currentManifest()?.defaultModel,
+                modelCatalog,
+              );
+        if (purpose === 'fix') {
+          // v30: a fix launch belongs to the ticket's committed recovery round
+          // (the gate that failed opened it atomically). Without one — a
+          // pre-v30 ticket, or a round already consumed — no fix intent is
+          // recorded and the session runs untracked.
+          const gate = lastFailedGate(ticket.stages);
+          const round = gate === null ? null : recoveryDecision(localStore, ticketId, gate);
+          if (round === null || round.status !== 'pending') return;
+          recordFixLaunchIntent(localStore, {
+            ticketId,
+            launchId,
+            provider,
+            model: model ?? null,
+            agentName: assignment?.agentName ?? null,
+            reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
+            sessionOrigin: resume ? 'resume' : 'new',
+            recoveryRoundId: round.roundId,
+            at: new Date().toISOString(),
+          });
+          return;
+        }
+        recordSessionLaunchIntent(localStore, {
+          ticketId,
+          launchId,
+          purpose,
+          provider,
+          model: model ?? null,
+          reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
+          sessionOrigin: resume ? 'resume' : 'new',
+          at: new Date().toISOString(),
+        });
+      } catch (error) {
+        logError(`karst: could not record session launch intent for ticket ${ticketId}`, error);
+      }
+    },
+    // Terminal creation failed synchronously: the prepared launch died before
+    // any provider session could start. Mark the intent failed — no segment is
+    // created, because the launch never started anything.
+    (launchId) => {
+      try {
+        failSessionLaunchIntent(localStore, launchId, new Date().toISOString());
+      } catch (error) {
+        logError(`karst: could not record launch failure for ${launchId}`, error);
+      }
+    },
   );
 
   // The live manifest. Loaded on first read rather than assigned by whichever
@@ -630,6 +769,70 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
     return instrument(resolveAdapter(provider), provider);
   };
+
+  /**
+   * Task 8: one inside AI process (uat-tester, review, uat-fix, review-fix,
+   * pr-description), resolved as the identity SNAPSHOT its `process_runs` row
+   * opens with (Task 7's `resolveProcessAssignment` — agent/provider/model,
+   * immutable thereafter) plus the SAME instrumented per-ticket adapter every
+   * other AI call goes through. The driver resolves each process exactly once
+   * per run, so the adapter is instrumented exactly once — a second resolution
+   * would wrap a second adapter around the same core.
+   *
+   * Finding 2: a role whose `processes.<key>.enabled` is `false` resolves to
+   * NULL — configured absence. The short-circuit happens BEFORE
+   * `currentAgentAdapter`, so a disabled role is never created or
+   * instrumented and opens no process run. NULL is carried as NULL into the
+   * drivers' nullable callbacks — never collapsed to `undefined` by an
+   * assertion at this seam.
+   */
+  const processFor = (
+    ticketId: number,
+    role: ProcessRole,
+  ): DriveProcessBundle | null => {
+    const t = getTicket(localStore, ticketId);
+    const assignment = resolveProcessAssignment(
+      currentManifest() ?? emptyManifest(),
+      role,
+      {
+        provider: t.agentProvider ?? undefined,
+        model: t.model || undefined,
+      },
+      modelCatalog,
+    );
+    if (assignment === null) return null;
+    return {
+      assignment,
+      // The process assignment is the execution identity. In particular, a
+      // configured UAT/Review/Fix role may deliberately differ from the
+      // ticket's interactive provider, so resolving through the ticket here
+      // would run and account the wrong core under a correct-looking snapshot.
+      adapter: instrument(resolveAdapter(assignment.provider), assignment.provider),
+    };
+  };
+
+  /**
+   * Task 3: the configured Fix process for the gate that failed — `uat` →
+   * `uat-fix`, `review` → `review-fix`, resolved EXACTLY once per driver run
+   * (each call takes one branch). NULL (enabled: false) logs the refusal here,
+   * where the role is known, and rides the resume call so the host's session
+   * seam performs no launch and no nudge: the pending recovery round stays for
+   * a human.
+   */
+  const fixProcess = (ticketId: number, gate: GateStageKey): DriveProcessBundle | null => {
+    const bundle =
+      gate === 'uat' ? processFor(ticketId, 'uat-fix') : processFor(ticketId, 'review-fix');
+    if (bundle === null) {
+      logger.info(
+        `configured Fix process disabled (${gate === 'uat' ? 'uat-fix' : 'review-fix'}) — leaving the pending recovery round for a human`,
+      );
+    }
+    return bundle;
+  };
+
+  /** Task 3: the configured PR-description process for Ship (nullable). */
+  const prDescriptionProcess = (ticketId: number): DriveProcessBundle | null =>
+    processFor(ticketId, 'pr-description');
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -833,6 +1036,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
             ticketModel: ticket.model,
             defaultModel: currentManifest()?.defaultModel ?? null,
+            fixExecutionActive: listRecoveryRounds(localStore, ticketId)
+              .some((round) => round.status === 'fixing'),
           };
         },
         isSessionOpen: () => sessions.isOpen(ticketId),
@@ -1044,7 +1249,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           //
           // Submit doubles as the edit surface for an already-started ticket
           // (repos/approach changed after the fact), so `scope` may already
-          // have passed by the time this runs — mirror settleMergeStage's
+          // have passed by the time this runs — mirror settleShipGate's
           // idiom rather than let transition() throw its internal invariant
           // string onto the page: only advance the run that is genuinely
           // still at scope, a ticket already past it just needs its session
@@ -1309,6 +1514,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const manifest = currentManifest();
       return { value: resolveProjectSlug(manifest?.id, root), derived: manifest?.id === undefined };
     },
+    () => context.extension.packageJSON.version as string,
   );
 
   // Discovery is deliberately detached from activation: bundled models render
@@ -1507,7 +1713,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       makeDashboardActions(
         localStore,
         ticketId,
-        () => currentAgentAdapter(ticketId),
         () => ticketForm.openEdit(ticketId),
         () => {
           provider.refresh();
@@ -1518,8 +1723,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logError,
         guardCapability,
         currentManifest,
+        (ticketId) => prDescriptionProcess(ticketId),
         () => pushDoneStatus(ticketId, true),
-        (event) => dashboard.postShipProgress(ticketId, event),
+        // Live Ship rides the generic inside-progress union (Finding 12): the
+        // manager has no ship-specific progress channel any more.
+        (event) => dashboard.postInsideProgress(ticketId, event),
+        // The inside-action seam: the panel posts only an opaque id; the
+        // manager resolves it through the ticket's CURRENT snapshot registry
+        // and dispatches the stored host-only target.
+        (actionId) => dashboard.dispatchInsideAction(ticketId, actionId),
         // A live session already owns the worktrees: nudge it and reveal the
         // terminal so the user sees the agent take the job. With none open,
         // launch one seeded with the brief instead of the ticket's own context.
@@ -1596,6 +1808,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // mid-run `karst.yml` edit and a mid-run gate toggle are honored on
     // identical terms.
     buildGateOptionsLoader({ store: localStore, manifest: currentManifest }),
+    // The inside-action host: vscode bindings for the containment-checked
+    // dispatches (the panel already proved ownership + containment).
+    makeInsideActionHost(localStore),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -1802,11 +2017,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             provider.refresh();
             dashboard.pushState(id);
           },
+          // Live inside operation events (Task 13/14): a same-tick overlay
+          // between full snapshots — the driver's own onGateComplete pushes a
+          // snapshot right after, which supersedes it. No-op when the panel
+          // is closed; validated again at the panel boundary.
+          onInsideProgress: (event) => dashboard.postInsideProgress(ticketId, event),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
-          resumeFix: (id, _gate, attempts) => resumeFixSession(id, attempts),
+          resumeFix: (id, gate, attempts, roundId, process) =>
+            resumeFixSession(id, gate, attempts, roundId, process),
           // Reveals the ticket's Changes panel (`TicketChangesManager`,
           // already wired above) — it does NOT itself call `openTicketDiff`/
           // `vscode.diff`; that only fires once the human clicks a file row
@@ -1825,12 +2046,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // revealing it by ticket id covers every affected target review
           // calls this for; `cwd` names nothing further to open.
           openDiff: (id) => changes.open(id),
-          // Review's findings lane (Lane B). Same instrumented, per-ticket
-          // resolution every other AI call in karst goes through
-          // (`currentAgentAdapter` → `instrument(resolveAdapter(...))`), so
-          // findings spend is attributed exactly like `pr-description`/
-          // `fix-resume` — no second wiring path to keep in sync.
-          agentAdapter: (id) => currentAgentAdapter(id),
+          // The Tester, Review and Fix AI processes (Task 8/Task 3): resolved
+          // per ticket as an identity snapshot + the instrumented adapter,
+          // exactly once per driver run. The callbacks return
+          // `DriveProcessBundle | null` Natively — a role configured
+          // `enabled: false` resolves to null and the driver omits the
+          // process: nothing is created or instrumented for the disabled role,
+          // and the Fix seam performs no launch or nudge.
+          uatTester: (id) => processFor(id, 'uat-tester'),
+          reviewProcess: (id) => processFor(id, 'review'),
+          fixProcess,
+          runVerifier: runProcess,
           log: (message) => logger.info(message),
           // Findings-lane boundary diagnostics (a failed AI call, garbage
           // output, an untrustworthy `file`) — routed to `Logger.warn` so
@@ -1865,9 +2091,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   //
   // Capped: an unfixable ticket would otherwise loop fix→uat/review→fix forever,
   // burning tokens with no human ever looking. The cap itself is decided by
-  // `fixResumeDecision` in the driver module — this function only runs once a
-  // resume has been granted, so reaching it IS the decision.
-  function resumeFixSession(ticketId: number, attempts: number): void {
+  // the driver (`fixResumeDecision` / the committed recovery round) — this
+  // function only runs once a resume has been granted, so reaching it IS the
+  // decision.
+  function resumeFixSession(
+    ticketId: number,
+    gate: GateStageKey,
+    attempts: number,
+    roundId: number | null,
+    process: DriveProcessBundle | null,
+  ): void {
+    // Task 3: a configured-ABSENT Fix process (enabled: false) never reaches
+    // the session manager — no launch, no nudge, no fabricated process
+    // evidence. The pending recovery round is left for a human, exactly as the
+    // driver's fix block reads it.
+    if (process === null) {
+      logger.info(
+        `configured Fix process disabled — ticket ${ticketId} left at fix for a human (${gate} round ${roundId ?? 'untracked'})`,
+      );
+      return;
+    }
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
@@ -1877,19 +2120,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       buildCliStagePrefix(context, dbPath, 'fix'),
       t.key ?? String(ticketId),
     );
-    const nudged = continueSessionInBackground(
-      sessions,
-      (id, options) => {
-        void vscode.commands.executeCommand('karst.openSession', id, options);
-      },
+    // Task 3: the Fix execution carries the CONFIGURED identity — the bundle's
+    // assignment snapshot resolved once at the driver boundary — never the
+    // live session's recorded identity and never a fresh resolution.
+    const configured = {
+      provider: process.assignment.provider,
+      model: process.assignment.model ?? null,
+      agentName: process.assignment.agentName ?? null,
+    };
+    // v30: the Fix execution is tracked against its committed recovery round.
+    // A LIVE session opens and attaches the Fix process run BEFORE the brief
+    // is delivered (the configured identity snapshot is captured into the
+    // run); a closed session launches and the run opens when its SessionStart
+    // is accepted. Neither path reveals the IDE.
+    const outcome = resumeConfiguredFixExecution(localStore, {
       ticketId,
-      `${brief}\n\n${marker}`,
+      roundId,
+      configuredIdentity: configured,
+      startedAt: new Date().toISOString(),
+      prompt: `${brief}\n\n${marker}`,
+      isLive: () => sessions.isLive(ticketId),
+      sessionIdentity: () => sessions.sessionIdentity(ticketId),
+      // A matching live core is already ready and is nudged without probing.
+      // Closed, divergent and unknown-identity paths prove the configured core
+      // immediately before any disposal or replacement launch.
+      providerReady: () =>
+        guardProviderCapability('sessions', process.assignment.provider),
+      nudge: (prompt) => sessions.nudge(ticketId, prompt),
+      dispose: () => sessions.disposeSession(ticketId),
+      open: (replacement) => {
+        void vscode.commands.executeCommand('karst.openSession', ticketId, {
+          reveal: false,
+          providerReady: true,
+          // A live terminal with a divergent or unknown identity was retired;
+          // never resume its conversation under the configured assignment.
+          ...(replacement ? { allowResume: false } : {}),
+          // Host-only: the configured Fix identity overrides ticket/manifest
+          // precedence inside `karst.openSession`.
+          assignment: process.assignment,
+        });
+      },
+    });
+    if (outcome === 'unavailable') return;
+    logger.info(
+      `stage driver: ticket ${ticketId} → ${outcome === 'nudged' ? 'nudged live session to fix' : 'resuming agent to fix'} (attempt ${attempts})`,
     );
-    if (nudged) {
-      logger.info(`stage driver: ticket ${ticketId} → nudged live session to fix (attempt ${attempts})`);
-      return;
-    }
-    logger.info(`stage driver: ticket ${ticketId} → resuming agent to fix (attempt ${attempts})`);
   }
 
   // The §5.4-safe driver nudge, from any trigger: the explicit marker (or a prior
@@ -2036,7 +2311,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // having to reopen the dashboard.
       let landed: number[] = [];
       try {
-        landed = settleMergeGates(localStore, { projectId: project.id });
+        landed = settleShipGates(localStore, { projectId: project.id });
         for (const id of landed) void pushDoneStatus(id, false);
       } catch (e) {
         // Bookkeeping over state that is already stored: the next tick retries.
@@ -2135,7 +2410,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (arg: unknown, options: OpenSessionOptions = {}) => {
         const ticketId = ticketIdArg(arg);
         if (ticketId === undefined) return;
-        const adapter = currentAgentAdapter(ticketId);
+        // Task 3: a host-only configured assignment (the Fix path) resolves the
+        // adapter from ITS provider — the ticket/manifest precedence only
+        // applies when no assignment is present. The assignment is never
+        // accepted from a webview message (it is not a webview message shape).
+        const adapter = options.assignment
+          ? instrument(resolveAdapter(options.assignment.provider), options.assignment.provider)
+          : currentAgentAdapter(ticketId);
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
@@ -2289,7 +2570,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // One resolution for the whole launch: the resume check below and the
       // model pick further down must agree on which core is actually starting,
       // or a ticket could be handed a session id the launching CLI cannot find.
-      const launchProvider = resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+      // A host-only assignment override wins over ticket/manifest precedence.
+      const launchProvider =
+        options.assignment?.provider ??
+        resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
       const resumeId = shouldResumeSession({
         sessionId: t.sessionId,
         sessionProvider: t.sessionProvider,
@@ -2377,12 +2661,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The provider it's resolved against is this same ticket's own resolved
       // agent core (§ agent core selection) — a ticket overridden to a different
       // provider must not carry an incompatible model pick across the switch.
-      const model = resolveModelForProvider(
-        launchProvider,
-        t.model,
-        currentManifest()?.defaultModel,
-        modelCatalog,
-      );
+      // A host-only assignment override (the Fix path) supplies the model
+      // VERBATIM: the assignment was already provider-checked and fully
+      // resolved at the process boundary, so no precedence is re-applied here.
+      const model = options.assignment
+        ? (options.assignment.model ?? undefined)
+        : resolveModelForProvider(
+            launchProvider,
+            t.model,
+            currentManifest()?.defaultModel,
+            modelCatalog,
+          );
 
       // Terminal name/icon/color are frozen at creation, so resolve the ticket's
       // glyph ONCE here: the color is the stage-at-launch, and the template keeps
@@ -2412,6 +2701,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           naming,
           materialized.ownedPaths,
           options,
+          // Record the session manager's active provider/model snapshot, so a
+          // later fix recovery reads the identity that ACTUALLY launched this
+          // session — not the one a manifest edit resolves today. A host-only
+          // assignment carries its configured agent name too.
+          {
+            provider: launchProvider,
+            model: model ?? null,
+            ...(options.assignment?.agentName
+              ? { agentName: options.assignment.agentName }
+              : {}),
+          },
         );
         if (sessions.isOpen(ticketId)) {
           ownedSessionTickets.add(ticketId);
@@ -2756,6 +3056,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
+  // Development-only Inside preview (Finding 1 / Task 9): the checked-in
+  // fixture matrix + preview panel for the Extension Development Host. The
+  // command is registered ONLY here, behind the mode guard — Production and
+  // Test never register it, so an unregistered/non-development path cannot
+  // open a panel — and the fixture/preview modules are pulled in LAZILY by
+  // this branch, so the production dashboard/state dependency graph never
+  // imports them (pinned by insidePreview.test.ts's import walk).
+  //
+  // The command-palette entry is gated on a karst-OWNED context key
+  // (`karst.insidePreviewAvailable`), not VS Code's built-in mode expression:
+  // activation is the one writer, and it writes the key BEFORE the guarded
+  // registration below reads the mode, so a Production or Test activation
+  // sets it to false and the palette can never offer an entry for a command
+  // this window did not register (pinned by extensionActivation.test.ts).
+  await setPreviewContextThenContinue({
+    setContext: () =>
+      vscode.commands.executeCommand(
+        'setContext',
+        'karst.insidePreviewAvailable',
+        context.extensionMode === vscode.ExtensionMode.Development,
+      ),
+    logError,
+    continueActivation: () => {
+      if (context.extensionMode === vscode.ExtensionMode.Development) {
+        context.subscriptions.push(
+          vscode.commands.registerCommand('karst.dev.openInsidePreview', () => {
+            const previewHost: InsidePreviewHost = {
+              createPanel: (title, _html) => {
+                const panel = vscode.window.createWebviewPanel(
+                  'karst.insidePreview',
+                  title,
+                  { viewColumn: vscode.ViewColumn.Active },
+                  { enableScripts: true, retainContextWhenHidden: true },
+                );
+                // The preview renders the SAME injected dashboard asset production
+                // renders — the html argument is the interface's test seam, the
+                // asset is bound here. The tab is branded like every other panel.
+                panel.webview.html = injectCsp(dashboardWebviewHtml(), newNonce());
+                panel.iconPath = brandIconUri(brandIcon);
+                return {
+                  postMessage: (message) => void panel.webview.postMessage(message),
+                  onDidReceiveMessage: () => undefined,
+                  onDidDispose: () => undefined,
+                };
+              },
+            };
+            void Promise.all([
+              import('./ui/dashboard/insidePreview.js'),
+              import('./ui/dashboard/insideFixtures.js'),
+            ])
+              .then(([preview, fixtures]) =>
+                preview.openInsidePreview(previewHost, fixtures.insidePreviewFixtures()),
+              )
+              .catch((error) => logError('inside preview failed to load', error));
+          }),
+          // The palette key is owned by this host. Clear it when the development
+          // host goes away so a reload into a Production host never inherits a
+          // stale `true` from the window this host was running in.
+          {
+            dispose: () => {
+              void vscode.commands.executeCommand('setContext', 'karst.insidePreviewAvailable', false);
+            },
+          },
+        );
+      }
+    },
+  });
+
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-
   // project terminals into the new manager, then recover only owned sessions
@@ -3094,16 +3462,27 @@ function buildCliPhasePrefix(
     composePhaseCommand(cliEntry, dbPath, phaseName, manifestPath);
 }
 
+/**
+ * The injected dashboard webview asset, built once per call: design system,
+ * status palette, and provider identity markers are all substituted host-side
+ * (CSP forbids a shared stylesheet/script). Shared by the production dashboard
+ * panels and the development-only Inside preview, so the preview renders the
+ * exact asset production does (Finding 1).
+ */
+function dashboardWebviewHtml(): string {
+  return injectProviderIdentity(
+    injectPalette(
+      injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+    ),
+  );
+}
+
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): PanelHost {
-  const html = injectProviderIdentity(
-    injectPalette(
-      injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
-    ),
-  );
+  const html = dashboardWebviewHtml();
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
@@ -3244,7 +3623,11 @@ interface TerminalIdentityRegistry {
   /** Name a terminal's ticket from what is already known. Never awaits. */
   identify(terminal: vscode.Terminal): TerminalIdentity | undefined;
   /** Remember a terminal karst just launched, once its pid resolves. */
-  remember(terminal: vscode.Terminal, env: Record<string, string>): void;
+  remember(
+    terminal: vscode.Terminal,
+    env: Record<string, string>,
+    identity?: SessionIdentity,
+  ): void;
   /** Release a ticket's record — its terminal closed, freeing the pid. */
   forget(ticketId: number): void;
   /** Drop records for tickets this window can no longer act on. */
@@ -3254,6 +3637,7 @@ interface TerminalIdentityRegistry {
 function makeTerminalIdentityRegistry(
   initial: readonly SessionTerminalRecord[],
   persist: (records: SessionTerminalRecord[]) => void,
+  lookupIdentity?: DurableSessionIdentityLookup,
 ): TerminalIdentityRegistry {
   let records: SessionTerminalRecord[] = [...initial];
   const pidByTerminal = new WeakMap<vscode.Terminal, number>();
@@ -3297,8 +3681,9 @@ function makeTerminalIdentityRegistry(
       identifyTerminal(
         { env: terminalEnv(terminal), pid: pidByTerminal.get(terminal) },
         records,
+        lookupIdentity,
       ),
-    remember: (terminal, env) => {
+    remember: (terminal, env, sessionIdentity) => {
       const ticketId = ticketIdFromTerminalEnv(env);
       if (ticketId === undefined) return;
       const launchId = env[KARST_LAUNCH_ENV];
@@ -3310,6 +3695,7 @@ function makeTerminalIdentityRegistry(
             ticketId,
             pid,
             ...(launchId ? { launchId } : {}),
+            ...(sessionIdentity ? { identity: sessionIdentity } : {}),
           }),
         );
       });
@@ -3338,6 +3724,7 @@ function restoredSessionOf(
   return {
     ticketId: named.ticketId,
     ...(named.launchId ? { launchId: named.launchId } : {}),
+    ...(named.identity ? { identity: named.identity } : {}),
     ...(terminal.exitStatus !== undefined ? { exited: true } : {}),
     terminal: wrapTerminal(terminal),
   };
@@ -3381,7 +3768,7 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
       });
       // Capture the launch pid NOW: it is what re-identifies this terminal
       // after a reload strips the env that carries the ticket today.
-      identity.remember(terminal, opts.env);
+      identity.remember(terminal, opts.env, opts.identity);
       return wrapTerminal(terminal);
     },
     restoredSessions: () =>
@@ -3401,10 +3788,58 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
 /** True when the capability's tools are present; otherwise tells the user why not. */
 type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: boolean) => boolean;
 
+/** The vscode bindings for the inside-action dispatches (Task 13). Every
+ *  target was already containment- and ownership-checked by the panel; these
+ *  resolve the recorded object to its real-world surface. */
+function makeInsideActionHost(store: Store): InsideActionHost {
+  return {
+    openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
+    openPr: (_ticketId, prId) => {
+      const pr = getPrById(store, prId);
+      if (pr) void vscode.env.openExternal(vscode.Uri.parse(pr.url));
+    },
+    openCommit: (_ticketId, shipCommitId) => {
+      const commit = getShipCommitById(store, shipCommitId);
+      if (commit) {
+        void vscode.window.showInformationMessage(
+          `Commit ${commit.sha.slice(0, 8)} — recorded by ship in ${commit.repo}`,
+        );
+      }
+    },
+    resumeStage: (ticketId, stageKey) => {
+      if (!resumeBlockedStage(store, ticketId, ticketId, stageKey)) return;
+      void vscode.commands.executeCommand('karst.openDashboard', ticketId);
+    },
+    openFullEvidence: (ticketId, processRunId) => {
+      void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket #${ticketId}`);
+    },
+    openBoundedEvidence: (_ticketId, title, rows) => {
+      const statusLabel: Record<string, string> = {
+        pending: 'Pending',
+        run: 'Running',
+        wait: 'Waiting',
+        pass: 'Passed',
+        fail: 'Failed',
+        note: 'Note',
+        skip: 'Skipped',
+      };
+      void vscode.window.showQuickPick(
+        rows.map((row) => ({
+          label: row.label,
+          ...(row.detail || row.status
+            ? { description: [row.status ? (statusLabel[row.status] ?? 'Recorded') : '', row.detail ?? ''].filter(Boolean).join(' · ') }
+            : {}),
+          ...(row.duration ? { detail: row.duration } : {}),
+        })),
+        { title, placeHolder: 'Recorded repository evidence' },
+      );
+    },
+  };
+}
+
 function makeDashboardActions(
   store: Store,
   ticketId: number,
-  agentAdapter: () => AgentAdapter,
   editTicket: () => void,
   afterServerChange: () => void,
   logError: LogError,
@@ -3412,16 +3847,24 @@ function makeDashboardActions(
   // Read fresh when the user confirms ship so a mid-session branch edit
   // controls the PR target and convention edits apply without a window reload.
   manifest: () => Manifest | undefined,
+  // Task 3: the configured pr-description process, resolved once at the click.
+  // NULL (enabled: false) makes ship skip the AI step for the deterministic
+  // fallback — no model call, no pr-description process run.
+  prDescriptionProcess: (ticketId: number) => DriveProcessBundle | null,
   // Push the configured post-delivery status for THIS ticket, now that it has
   // reached `done`. A callback rather than the ticketing config + provider,
   // because reaching done is no longer something the ship click can conclude on
   // its own: the same push has to fire from the merge click and from the
   // background sweep, so the decision and the reporting live in one host helper.
   onTicketCompleted: () => Promise<void>,
-  // Stream structured per-repo/per-step progress to the dashboard while
+  // Stream the generic inside-progress union (active/completed/cleared) while
   // `shipTicket` runs, so the confirm-ship click has visible progress instead
-  // of a frozen button.
-  onShipProgress: (event: ShipStepEvent) => void,
+  // of a frozen button — ship rides the same channel as gates and Fix, never
+  // the legacy per-repo/per-step `ship-progress` stream (Finding 12).
+  onInsideProgress: (event: InsideProgressEvent) => void,
+  // Dispatch one opaque inside action id: the panel posts only the id; the
+  // dashboard manager resolves it through the ticket's current registry.
+  onInsideAction: (actionId: string) => void,
   // Deliver a prompt to this ticket's session, live or not: nudge the open
   // terminal, else launch one seeded with it. A conflict brief handed to
   // `openSession` alone would be dropped whenever a session is already up —
@@ -3525,11 +3968,19 @@ function makeDashboardActions(
       if (!guardCapability('ship')) return;
       void runShipTicket(
         store,
-        { ticketId, manifest: manifest() },
+        {
+          ticketId,
+          manifest: manifest(),
+          // Task 3: the configured pr-description process, resolved once. Its
+          // adapter AND identity snapshot drive the description step; NULL
+          // (enabled: false) skips the AI step for the deterministic fallback.
+          prDescriptionProcess: prDescriptionProcess(ticketId),
+        },
         undefined,
-        agentAdapter(),
         undefined,
-        onShipProgress,
+        undefined,
+        undefined,
+        onInsideProgress,
       )
         .then(async () => {
           // The PRs are open and the branch is pushed — the irreversible part
@@ -3541,6 +3992,10 @@ function makeDashboardActions(
             await onTicketCompleted();
           }
           afterServerChange();
+          // The fresh snapshot just pushed carries the real commit/push/pr/merge
+          // ledger, so the transient 'ship' overlay is superseded: retire it
+          // rather than leaving a host-authored row past its snapshot.
+          onInsideProgress(shipClearedEvent(ticketId));
         })
         .catch((e) => {
           logError('ship failed', e);
@@ -3549,6 +4004,7 @@ function makeDashboardActions(
           // and deserves an answer to THAT click, not a ticket that quietly goes
           // red. Refresh first so the fault card is there when the toast lands.
           afterServerChange();
+          onInsideProgress(shipClearedEvent(ticketId));
           void vscode.window.showErrorMessage(
             `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
           );
@@ -3701,6 +4157,7 @@ function makeDashboardActions(
     // Returns a promise, so the button reports a REAL terminal outcome rather
     // than a bare ack (UI-R13): the write is fast and local, so there is no
     // reason to settle on anything weaker.
+    insideAction: (actionId) => onInsideAction(actionId),
     setDisabledGate: async (stage, name, disabled) => {
       const current = getDisabledGates(store, ticketId)[stage];
       const next = disabled ? [...current, name] : current.filter((n) => n !== name);

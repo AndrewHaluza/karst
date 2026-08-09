@@ -31,6 +31,13 @@ describe('AntigravityAdapter', () => {
     expect(adapter.capabilities.resume).toBe(false);
   });
 
+  // Antigravity has no lifecycle channel at all, so it can have no usage
+  // channel either — the capability is truthfully absent, never a measured zero.
+  it('pins truthful absence of interactive usage — no lifecycle channel exists', () => {
+    const adapter = new AntigravityAdapter();
+    expect(adapter.capabilities.interactiveUsage).toBe(false);
+  });
+
   describe('buildInteractiveCommand', () => {
     it('builds a basic command', () => {
       const adapter = new AntigravityAdapter();

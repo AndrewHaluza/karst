@@ -212,6 +212,13 @@ export function validateUat(raw: unknown): UatConfig | undefined {
   }
   const gates = validateGates(raw.gates, 'uat.gates');
   if (gates !== undefined) config.gates = gates;
+  // Task 8: a single optional deterministic verifier gate for the UAT Tester.
+  // Host-authored command/script definition — never AI output — parsed through
+  // the SAME argv-safe `validateGate` path as `uat.gates` entries so a forged
+  // shell token has no more of a quoting surface here than there.
+  if (raw.testerVerifier !== undefined) {
+    config.testerVerifier = validateGate(raw.testerVerifier, 0, 'uat.testerVerifier');
+  }
   const authBootstrap = validateAuthBootstrap(raw.authBootstrap);
   if (authBootstrap !== undefined) config.authBootstrap = authBootstrap;
   const author = validateAuthor(raw.author);

@@ -81,10 +81,12 @@ function fixing(attempts: number, sessionAction?: SessionAction): NowLine {
  * — the fix stage's own `attempt` is always 0, so the caller must supply it.
  */
 /**
- * The merge stage's line. The stage row itself carries nothing to say here — it
- * is parked pending, and a verdict written beside a pending status would read as
- * a contradiction — so the wording comes from the gate's read of the PR rows and
- * the merge checks, which are the current state of the thing being waited on.
+ * The line for a `ship` blocked on the merge gate (`awaiting-merge`). The stage
+ * row itself carries nothing to say here — its verdict is cleared by
+ * `entryPatch`/`transition` rules, and a stale one beside a `passed` status
+ * would read as a contradiction — so the wording comes from the gate's read of
+ * the PR rows and the merge checks, which are the current state of the thing
+ * being waited on.
  *
  * No action: merging and resolving are BOTH per-repo, and the buttons that do
  * them already sit on the PR rows just below. A single button here would have to
@@ -179,6 +181,11 @@ export function buildNowLine(
           action: { kind: 'ship', label: 'Retry ship' },
         };
       }
+      // PRs are open but the entry gate into `done` (workflow/mergeGate.ts)
+      // is holding: at least one still has to land.
+      if (cell.blocked?.kind === 'awaiting-merge') {
+        return merging(ctx.mergeGate);
+      }
       // Running: the confirm click already happened — no button, and no more
       // free-text step narration here. The real per-step progress lives in the
       // Inside block; this line just says what phase the ticket is in.
@@ -186,8 +193,6 @@ export function buildNowLine(
         return { text: 'Now: shipping — committing, pushing, and opening PRs for each hot repo.' };
       }
       return { text: 'Now: ready to ship. Confirm to open the PRs.', action: { kind: 'ship', label: 'Confirm ship' } };
-    case 'merge':
-      return merging(ctx.mergeGate);
     case 'done':
       return { text: 'Done.' };
   }

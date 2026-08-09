@@ -75,4 +75,27 @@ describe('resumeBlockedStage', () => {
 
     expect(ok).toBe(false);
   });
+
+  it('refuses to clear an awaiting-merge block — only the merge gate is entitled to', () => {
+    // Unlike every other BlockerKind, awaiting-merge does not mean "karst
+    // could not ask the question, retry it" — the question WAS asked (ship
+    // opened its PRs) and answered "not yet". A Resume click here cannot make
+    // a PR merge; only settleShipGate, observing the actual landing, may
+    // clear this block. Clearing it any other way strands the ticket at
+    // `ship` forever, because settleShipGate requires this exact block to
+    // distinguish "waiting to land" from "parked pending the first confirm".
+    const t = createTicket(store, { key: 'RB-5', title: 'thing' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" has changes and is not merged yet.',
+      blockedAt: '2026-07-16T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+
+    const ok = resumeBlockedStage(store, t.id, t.id, 'ship');
+
+    expect(ok).toBe(false);
+    expect(stageBlock(store, t.id, 'ship')?.kind).toBe('awaiting-merge');
+  });
 });

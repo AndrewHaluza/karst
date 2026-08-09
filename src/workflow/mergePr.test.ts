@@ -5,6 +5,7 @@ import { transition } from './machine.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import type { GhRunner } from '../integrations/github.js';
 import { mergeTicketPr } from './mergePr.js';
+import { resolveShipLanding } from './mergeGate.js';
 
 const PR12 = 'https://github.com/o/r/pull/12';
 
@@ -141,11 +142,14 @@ describe('mergeTicketPr', () => {
   // post-delivery status exactly once, from the call that actually finished it.
   it('completes a ticket parked at merge when its last PR lands', async () => {
     const a = createTicket(store, { key: 'A', title: 'a' });
-    for (const from of ['scope', 'impl', 'uat', 'review', 'ship'] as const) {
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) {
       transition(store, a.id, from, { kind: 'passed' });
     }
     seedPr(store, a.id, 'api', 'open');
     seedWorktree(store, a.id, 'api', '/wt/api');
+    // Mirrors ship's own tail: an open PR parks the ticket at `ship` blocked on
+    // the merge gate, rather than landing it straight away.
+    resolveShipLanding(store, a.id);
     const { gh } = ghFake({ view: { state: 'MERGED', mergedAt: '2026-07-28T09:30:00Z' } });
 
     const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
@@ -159,7 +163,7 @@ describe('mergeTicketPr', () => {
   // the bug the merge stage exists to prevent, one repo further along.
   it('does not complete a ticket whose other repo is still open', async () => {
     const a = createTicket(store, { key: 'A', title: 'a' });
-    for (const from of ['scope', 'impl', 'uat', 'review', 'ship'] as const) {
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) {
       transition(store, a.id, from, { kind: 'passed' });
     }
     seedPr(store, a.id, 'api', 'open');
@@ -167,13 +171,16 @@ describe('mergeTicketPr', () => {
     store.db
       .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
       .run(a.id, 'web', 13, 'https://github.com/o/r/pull/13', 'open');
+    // Mirrors ship's own tail: two unmerged PRs park the ticket at `ship`
+    // blocked on the merge gate.
+    resolveShipLanding(store, a.id);
     const { gh } = ghFake({ view: { state: 'MERGED' } });
 
     const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
 
     expect(r.ok).toBe(true);
     expect(r.completedTicket).toBe(false);
-    expect(getTicket(store, a.id).stageCurrent).toBe('merge');
+    expect(getTicket(store, a.id).stageCurrent).toBe('ship');
   });
 
   it('never runs gh when the ticket has no PR for that repo', async () => {

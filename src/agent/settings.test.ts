@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildHookSettings, writeHookSettings, hookUrl } from './settings.js';
+import { providerInteractiveUsage } from './provider.js';
 
 describe('buildHookSettings', () => {
   it('builds Claude hook settings from an explicit endpoint URL', () => {
@@ -43,6 +44,38 @@ describe('buildHookSettings', () => {
       expect(hook.type, event).toBe('http');
       expect(hook.url, event).toBe(hookUrl(4000));
     }
+  });
+
+  // Claude's documented hook payloads (Stop: session_id, stop_hook_active,
+  // last_assistant_message; SessionEnd: only `reason`) carry no authoritative
+  // token counters and no stable usage-event id, so Claude's bridge is the
+  // http/command lifecycle registration and nothing more — there is no
+  // UsageUpdate hook to register, and the capability reads false.
+  it('registers lifecycle events only — Claude never gets a UsageUpdate hook', () => {
+    const s = JSON.parse(buildHookSettings(hookUrl(4000)));
+    expect(s.hooks.UsageUpdate).toBeUndefined();
+    for (const event of ['Stop', 'SessionEnd', 'Notification', 'UserPromptSubmit', 'PostToolUse']) {
+      expect(s.hooks[event], event).toBeDefined();
+    }
+  });
+
+  it('surfaces the per-provider interactive-usage capability as a typed result', () => {
+    expect(providerInteractiveUsage('claude')).toEqual({
+      provider: 'claude',
+      interactiveUsage: false,
+    });
+    expect(providerInteractiveUsage('codex')).toEqual({
+      provider: 'codex',
+      interactiveUsage: true,
+    });
+    expect(providerInteractiveUsage('antigravity')).toEqual({
+      provider: 'antigravity',
+      interactiveUsage: false,
+    });
+    expect(providerInteractiveUsage('opencode')).toEqual({
+      provider: 'opencode',
+      interactiveUsage: true,
+    });
   });
 
   it('refuses a non-loopback or unbound endpoint', () => {

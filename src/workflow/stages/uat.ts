@@ -3,12 +3,15 @@ import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
+import type { AgentAdapter } from '../../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { GateRunInput } from '../../store/gateRuns.js';
-import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
+import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listGateRuns } from '../../store/gateRuns.js';
+import { listProcessRuns, setProcessRunResultKind } from '../../store/processRuns.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { noTargetsReason } from '../gates/targets.js';
@@ -17,7 +20,15 @@ import { partitionDisabled, type StageGateResolution } from '../gates/disable.js
 import { runGateList } from '../gates/runList.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
+import { runUatTester, type TesterTarget, type TesterRunResult } from '../uat/tester.js';
+import {
+  runTesterVerifier,
+  TESTER_VERIFIER_FAILURE_PREFIX,
+  type TesterGateRunner,
+} from '../uat/testerVerifier.js';
+import type { WarnFn } from '../review/findings.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
+import { capForGate } from '../fixAttempts.js';
 import {
   aggregateUat,
   reviewIdentitiesFrom,
@@ -48,10 +59,13 @@ export interface RunUatOpts {
   /** One signal for the whole run, so a Stop reaches the gate in flight. */
   signal?: AbortSignal;
   /**
-   * Called after each gate finishes, with the gate's name. Lets callers push
-   * dashboard progress during long-running gate sets.
+   * Called after each gate finishes, with the gate's name and its recorded
+   * outcome (`null` = the repo could not answer — the note, never a verdict).
+   * Lets callers push dashboard progress during long-running gate sets.
    */
-  onGateComplete?: (gateName: string) => void;
+  onGateComplete?: (gateName: string, exitCode: number | null) => void;
+  /** Called before each gate's work begins, with the gate's name. */
+  onGateStart?: (gateName: string) => void;
 }
 
 export interface UatDeps {
@@ -60,6 +74,21 @@ export interface UatDeps {
   runGates?: typeof runGateList;
   git?: GitRunner;
   now?: () => string;
+  /**
+   * The Tester process (Task 8): its immutable assignment snapshot and the
+   * already instrumented per-ticket adapter. Absent → no Tester runs at all:
+   * UAT's ordinary gates (and the verifier, when configured) decide alone,
+   * and the Tester's advisory observations are simply absent.
+   */
+  tester?: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
+  /**
+   * The host gate boundary for the optional `uat.testerVerifier` (Task 8) —
+   * `runProcess` from `workflow/gates/run.ts`. Absent with a configured
+   * verifier, the stage parks (the verifier could not be asked).
+   */
+  runVerifier?: TesterGateRunner;
+  /** Where the Tester's boundary diagnostics land (a failed AI call, garbage output). */
+  warn?: WarnFn;
 }
 
 /** What a gate invocation IS, as a dedup key: the command, not the label on it. */
@@ -168,6 +197,33 @@ export async function runUat(
   // is what identifies an invocation, and the block reason already parenthesizes
   // the list — reusing it there nests the parentheses.
   const skippedNames: string[] = [];
+  // Set when the Tester runs: the process run the verifier failure is
+  // attributed to (Task 8). Null until then, so a plain gate failure — or a
+  // run that never reached the Tester — names no process.
+  let testerRunId: number | null = null;
+
+  /**
+   * The recovery trigger for this run's outcome (v30), constructed HERE while
+   * the failing evidence, the current stage run and the manifest cap are all
+   * still in hand — never reconstructed later from `stages.verdict` or the
+   * live manifest. A deterministic failed gate is its own source: `gates`,
+   * with no AI process run. A completed nonzero `testerVerifier` exit is the
+   * Tester PROCESS's failure: `tester`, carrying the Tester run's id. Blocks,
+   * stops and passes carry no trigger.
+   */
+  const recoveryTriggerFor = (outcome: RunOutcome): RecoveryTriggerInput | null => {
+    if (outcome.kind !== 'verdict' || outcome.verdict.kind !== 'failed') return null;
+    const triggerDetail = outcome.verdict.reason ?? 'uat gates failed';
+    const fromVerifier = triggerDetail.startsWith(TESTER_VERIFIER_FAILURE_PREFIX);
+    return {
+      sourceProcessId: fromVerifier ? 'tester' : 'gates',
+      sourceStageRunId: evidence.runId,
+      sourceProcessRunId: fromVerifier ? testerRunId : null,
+      triggerKind: fromVerifier ? 'tester-verifier-failure' : 'gate-failure',
+      triggerDetail,
+      maxRounds: capForGate('uat', opts.manifest?.uat?.maxFixAttempts, opts.manifest?.review?.maxFixAttempts),
+    };
+  };
 
   /**
    * Write the log and commit the outcome.
@@ -189,6 +245,7 @@ export async function runUat(
       gates: [],
       outcome,
       stageRunId: evidence.runId,
+      recoveryTrigger: recoveryTriggerFor(outcome) ?? undefined,
       now,
     });
   };
@@ -289,6 +346,7 @@ export async function runUat(
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
       onGateComplete: opts.onGateComplete,
+      onGateStart: opts.onGateStart,
     });
 
     const produced: AggregateEntry[] = [];
@@ -329,5 +387,122 @@ export async function runUat(
       outcome.reason,
     ]);
   }
+  // A failed gate verdict is decided and closed exactly as before — the Tester
+  // never runs, because it only ever runs after the required gates PASS.
+  if (outcome.verdict.kind === 'failed') {
+    return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+  }
+
+  // ---- Tester + optional deterministic verifier (Task 8) ----
+  // The AI Tester contributes OBSERVATIONS only: its findings can never pass,
+  // fail, transition, or spend a recovery round by themselves. The optional
+  // `uat.testerVerifier` is the deterministic boundary whose COMPLETED exit
+  // code is the sole Tester-specific verdict; without one, the Tester's
+  // observations are advisory and this gate verdict decides progression.
+  const testerResult: TesterRunResult | null = deps.tester
+    ? await runUatTester(
+        store,
+        {
+          ticketId: opts.ticketId,
+          targets: testerTargets(opts.manifest, targets, worktrees),
+          assignment: deps.tester.assignment,
+          adapter: deps.tester.adapter,
+          stageRunId: evidence.runId,
+          attempt: evidence.attempt,
+          signal: opts.signal,
+          warn: deps.warn,
+        },
+        { now },
+      )
+    : null;
+  // The run was opened by `runUatTester` under the driver's single-flight;
+  // read the id back so the verifier trigger can name the exact Tester
+  // execution (a recovery round must never guess at its source process).
+  for (const run of listProcessRuns(store, opts.ticketId).reverse()) {
+    if (run.processId === 'tester') {
+      testerRunId = run.id;
+      break;
+    }
+  }
+  if (testerResult?.kind === 'interrupted') {
+    return finish({ kind: 'stopped' }, ['tester interrupted before it finished']);
+  }
+  if (testerResult?.kind === 'execution-failed') {
+    // Advisory absence, exactly like review's lane: a failed AI call must not
+    // break the run's gates — it is reported, and the gates decide.
+    deps.warn?.(`uat tester: call failed, contributing no observations: ${testerResult.message}`);
+  }
+
+  const verifierGate = opts.manifest?.uat?.testerVerifier;
+  if (verifierGate !== undefined) {
+    const verification = await runTesterVerifier(
+      { gate: verifierGate, cwd: targets[0]?.path ?? opts.cwd, signal: opts.signal },
+      { run: deps.runVerifier },
+    );
+    switch (verification.kind) {
+      case 'passed':
+        break;
+      case 'absent':
+        // Unreachable when a gate was supplied; kept for exhaustiveness.
+        break;
+      case 'failed': {
+        // A completed nonzero exit is a DETERMINISTIC validation failure: the
+        // Tester's observation is disproven, the run records it, and the
+        // failed verdict opens a recovery round naming the Tester process.
+        if (testerRunId !== null) {
+          setProcessRunResultKind(store, testerRunId, 'verification-failed');
+        }
+        const reason = `${TESTER_VERIFIER_FAILURE_PREFIX}exit code ${verification.exitCode}`;
+        return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } });
+      }
+      case 'execution-failed': {
+        // A command that could not run is environmental: park, never a
+        // verdict — no attempt is consumed and no recovery round opens.
+        const reason =
+          `uat tester verifier "${verifierGate.name}" could not run: ${verification.message}`;
+        return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+      }
+      case 'interrupted':
+        return finish({ kind: 'stopped' }, ['uat tester verifier interrupted']);
+      default: {
+        const unreachable: never = verification;
+        throw new Error(`unrecognized verifier outcome: ${JSON.stringify(unreachable)}`);
+      }
+    }
+  }
+
   return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+}
+
+/**
+ * The Tester's view of the planned targets: repo + worktree path (what the
+ * prompt and parse containment need), the plain base branch (`worktrees.base_ref`),
+ * and the host-known service context from the manifest — READ-ONLY, never AI
+ * output. `repo` stays the repoPath exactly as the gates recorded it, so the
+ * observation's attribution matches every other table's.
+ */
+function testerTargets(
+  manifest: Manifest | undefined,
+  targets: readonly UatTarget[],
+  worktrees: readonly { repo: string; baseRef: string | null }[],
+): TesterTarget[] {
+  const baseRefByRepo = new Map(worktrees.map((w) => [w.repo, w.baseRef]));
+  return targets.map((t) => ({
+    repo: t.repo,
+    worktreePath: t.path,
+    baseRef: baseRefByRepo.get(t.repo) ?? null,
+    service:
+      manifest === undefined
+        ? undefined
+        : { start: serviceStartFor(manifest, t.names) },
+  }));
+}
+
+/** The first manifest-declared service start among a target's repository names. */
+function serviceStartFor(manifest: Manifest, names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const start = manifest.repositories[name]?.service?.start;
+    if (start !== undefined) return start;
+  }
+  return undefined;
 }

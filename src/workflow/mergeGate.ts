@@ -3,16 +3,21 @@ import type { ProjectScope } from '../store/tickets.js';
 import { getTicket, listTickets } from '../store/tickets.js';
 import { listCurrentPrsByTicket } from '../store/prs.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
+import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
+import { setStage } from '../store/stages.js';
+import { nowIso } from '../model/time.js';
 import { transition } from './machine.js';
 
 /**
- * The gate between "the PRs are open" and "the work has landed" (§11).
+ * The gate between "the PRs are open" and "the work has landed" (§11) — an
+ * entry condition on `done`, not a stage a ticket sits in.
  *
- * `ship` used to pass straight to `done`, so a ticket read Done — and pushed the
- * provider's done status — the moment its PRs existed. Nothing about that claim
- * was true yet: the branch was unmerged, the base kept moving under it, and a
- * conflict that appeared afterwards showed up beside a green ticket nobody was
- * going to look at again.
+ * `ship` used to pass straight to a standalone `merge` stage and from there to
+ * `done`, so a ticket read Done — and pushed the provider's done status — only
+ * once a human clicked past `merge`. That extra node bought nothing a plain
+ * gate couldn't: it was a stage nothing ever RAN in, just a parking spot. Now
+ * ship's own `passed` verdict is what tries to reach `done`, and this module
+ * decides whether that attempt actually lands there or stays parked at `ship`.
  *
  * Everything here is a READ over state karst already keeps current — `prs.status`
  * (re-probed by `prSync`) and `merge_checks` (re-probed by `mergeSync`) — plus at
@@ -28,9 +33,7 @@ import { transition } from './machine.js';
  * `nothing-to-merge` is a genuine pass, not an empty case: a ticket whose work
  * produced no diff in any repo (`ship` skips the push and opens no PR when there
  * are no changes from the base) has delivered everything it had, and holding it
- * short of done forever would be a lie in the other direction. It is reachable
- * ONLY through that path — a ship that could not open a PR it needed throws and
- * parks at `ship` without ever entering `merge`.
+ * short of done forever would be a lie in the other direction.
  *
  * `conflicted` is separated from `awaiting` because the user's next move differs:
  * one is "click Merge", the other is "resolve this first". Both park the ticket
@@ -49,6 +52,11 @@ export type MergeGateState =
  * with no gh and no git. The two inputs are both current state by construction —
  * a stale `open` for a PR merged upstream is exactly what `prSync` exists to
  * correct — so this never has to date-check anything itself.
+ *
+ * Any PR status other than a literal `'merged'` counts as unmerged, including
+ * `'unknown'` — the reading a degraded probe (a failed `gh pr view`, a missing
+ * PR row) leaves behind. An unanswered lookup must never be read as a landed
+ * PR, or a ticket could reach `done` while gh simply failed to say.
  */
 export function mergeGateState(store: Store, ticketId: number): MergeGateState {
   const prs = listCurrentPrsByTicket(store, ticketId);
@@ -62,7 +70,19 @@ export function mergeGateState(store: Store, ticketId: number): MergeGateState {
   // `listMergeChecksByTicket` already drops the repos whose PR has landed, so a
   // conflict verdict frozen at merge time can never be read back here as a
   // reason to hold a merged ticket open.
-  const conflicted = listMergeChecksByTicket(store, ticketId)
+  //
+  // A failed read (e.g. a degraded `merge_checks` table) must not sink the
+  // landing decision — `recordMergeChecks` already tolerates the same failure
+  // per repo when WRITING these rows, and this READ is no more entitled to
+  // fail the gate. Falling back to "nothing conflicted is known" degrades to
+  // `awaiting`, the same as a ticket that was never checked.
+  let checks: ReturnType<typeof listMergeChecksByTicket> = [];
+  try {
+    checks = listMergeChecksByTicket(store, ticketId);
+  } catch {
+    checks = [];
+  }
+  const conflicted = checks
     .filter((c) => c.state === 'conflicted')
     .map((c) => c.repo)
     // A conflict is only news about a repo that still has to land. A stale row
@@ -84,55 +104,146 @@ export function isLanded(state: MergeGateState): boolean {
   return state.kind === 'merged' || state.kind === 'nothing-to-merge';
 }
 
-export interface SettleResult {
-  /** True only when THIS call moved the ticket from `merge` to `done`. */
+/** The repos this state is still waiting on, for naming in a block reason. */
+function unmergedRepos(state: MergeGateState): readonly string[] {
+  switch (state.kind) {
+    case 'conflicted':
+      return [...state.repos, ...state.pending];
+    case 'awaiting':
+      return state.repos;
+    case 'merged':
+    case 'nothing-to-merge':
+      return [];
+  }
+}
+
+/**
+ * A block reason naming the unmerged PR(s), so the gate never fails silently —
+ * the dashboard's fault card and the rail both read `stages.blocked_reason`
+ * verbatim.
+ */
+function describeAwaitingMerge(state: MergeGateState): string {
+  const repos = unmergedRepos(state);
+  const list = repos.join(', ');
+  const conflictNote =
+    state.kind === 'conflicted'
+      ? ` (${state.repos.length === 1 ? 'a conflict' : 'conflicts'} in ${state.repos.join(', ')})`
+      : '';
+  return repos.length === 1
+    ? `blocked: the pull request for "${list}" has changes and is not merged yet${conflictNote}.`
+    : `blocked: pull requests for ${list} have changes and are not merged yet${conflictNote}.`;
+}
+
+export interface ShipGateResult {
+  /** True only when THIS call moved the ticket from `ship` to `done`. */
   advanced: boolean;
   state: MergeGateState;
 }
 
 /**
- * Advance a ticket parked at `merge` to `done` — but only once every PR it opened
- * reads merged.
- *
- * Idempotent and safe to call from anywhere, which is the point: the landing can
- * be observed from three unrelated places (the merge click, the background PR
- * sweep noticing a teammate's merge, ship itself when there was nothing to
- * merge), and none of them should have to know about the other two. A ticket that
- * is not at `merge` is left alone entirely — this must never drag a ticket
- * forward from a stage it has not reached, nor re-fire on one already done.
- *
- * `advanced` is what the host needs: pushing the provider's post-merge status
- * belongs to the transition, not to any one of the three call sites, so only the
- * call that actually moved the ticket reports it.
+ * Try to land a ticket right after ship's own work just finished (PRs opened,
+ * or nothing to ship). Called ONLY from `stages/ship.ts`, guarded by the same
+ * `atShip` read that gates ship's other tail writes — this is the one call site
+ * entitled to say "ship's job just completed", which is what makes it safe to
+ * trust `mergeGateState`'s `nothing-to-merge` reading here: anywhere else, a
+ * ticket freshly parked at `ship` pending its FIRST confirm click would also
+ * read `nothing-to-merge` (no PR exists yet) and wrongly look landed.
  */
-export function settleMergeStage(store: Store, ticketId: number): SettleResult {
+export function resolveShipLanding(store: Store, ticketId: number): ShipGateResult {
   const state = mergeGateState(store, ticketId);
-  if (getTicket(store, ticketId).stageCurrent !== 'merge') return { advanced: false, state };
+  if (isLanded(state)) {
+    // Ship's own verdict. `shipTicket`'s tail (`stages/ship.ts`) calls this
+    // straight after the PRs were opened, deliberately outside the try/catch
+    // that parks ship as `failed` on any throw from that tail — so this half
+    // stays UNGUARDED on purpose: a failure to RECORD ship's pass is real news
+    // and must propagate, the same as it did before this gate existed (a bare
+    // `transition(...)` with nothing wrapping it).
+    transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
+      clearStageBlock(store, ticketId, 'ship');
+    });
+    return { advanced: true, state };
+  }
+  try {
+    // Bookkeeping over state that already exists (the PRs are open; that
+    // irreversible part already succeeded) — never let a failure here escape
+    // and be mistaken for ship itself failing. This mirrors the pre-gate
+    // shape, where the tail was an unguarded `transition(...)` followed by a
+    // swallowed `try { settleMergeStage(...) } catch {}`.
+    //
+    // If this throws and is swallowed, the ticket is left at `ship` with NO
+    // block recorded — not "awaiting-merge", just unmarked. `settleShipGate`
+    // requires that exact block to recognize the ticket as its business, so
+    // the sweep will not pick this ticket up until it carries one. The next
+    // `shipTicket` run (a retry, or scope's own re-entry) calls
+    // `resolveShipLanding` again and re-establishes the block from scratch —
+    // this is a transient miss, not a stuck state, and re-shipping (the
+    // normal recovery path for a ship failure) heals it.
+    setStage(store, ticketId, 'ship', {
+      status: 'passed',
+      // `endedAt` alongside `status: 'passed'` — without it the row reads as
+      // still running to anything that derives a duration from
+      // `endedAt ?? startedAt` (or reads a null `endedAt` as "in flight"),
+      // even though ship's own work is done and only the landing is pending.
+      endedAt: nowIso(),
+      blockedKind: 'awaiting-merge',
+      blockedReason: describeAwaitingMerge(state),
+      blockedAt: nowIso(),
+    });
+  } catch {
+    // Swallowed deliberately — see comment above. The PRs are already open;
+    // failing ship over a block-write failure would misreport a successful
+    // ship as a failure.
+  }
+  return { advanced: false, state };
+}
+
+/**
+ * Re-settle a ticket already parked at `ship` and blocked on the merge gate —
+ * the per-repo Merge click (`mergePr.ts`) and the background PR sweep
+ * (`settleShipGates`) both call this rather than `resolveShipLanding`, because
+ * unlike ship's own runner they cannot otherwise tell a ticket that has never
+ * shipped from one still waiting on a merge — both read `stageCurrent ===
+ * 'ship'`. Only the recorded `awaiting-merge` block distinguishes the two, so a
+ * ticket parked pending its first confirm click (no block set) is left alone.
+ *
+ * Idempotent and safe to call from anywhere: the landing can be observed from
+ * three unrelated places (the merge click, the background PR sweep noticing a
+ * teammate's merge, ship itself when there was nothing to merge), and none of
+ * them should have to know about the other two.
+ */
+export function settleShipGate(store: Store, ticketId: number): ShipGateResult {
+  const ticket = getTicket(store, ticketId);
+  if (ticket.stageCurrent !== 'ship') {
+    return { advanced: false, state: mergeGateState(store, ticketId) };
+  }
+  if (stageBlock(store, ticketId, 'ship')?.kind !== 'awaiting-merge') {
+    return { advanced: false, state: mergeGateState(store, ticketId) };
+  }
+
+  const state = mergeGateState(store, ticketId);
   if (!isLanded(state)) return { advanced: false, state };
 
-  transition(store, ticketId, 'merge', { kind: 'passed' });
+  transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
+    clearStageBlock(store, ticketId, 'ship');
+  });
   return { advanced: true, state };
 }
 
 /**
- * Settle every ticket in scope that is parked at `merge`, returning the ids that
- * reached `done`.
+ * Settle every ticket in scope that is parked at `ship`, blocked on the merge
+ * gate, returning the ids that reached `done`.
  *
  * A scan rather than a callback threaded through `syncPrStatuses`: the sweep
- * already re-probes each PR, and a ticket can also land through a merge nobody in
- * this window performed. Scanning the (small) set of tickets sitting at `merge`
- * answers all of those with one rule, and re-running it costs a read per parked
- * ticket.
- *
- * One ticket's failure never sinks the rest — the same discipline the PR and
- * merge sweeps follow.
+ * already re-probes each PR, and a ticket can also land through a merge nobody
+ * in this window performed. One ticket's failure never sinks the rest — the
+ * same discipline the PR and merge sweeps follow.
  */
-export function settleMergeGates(store: Store, scope: ProjectScope = {}): number[] {
+export function settleShipGates(store: Store, scope: ProjectScope = {}): number[] {
   const advanced: number[] = [];
   for (const ticket of listTickets(store, scope)) {
-    if (ticket.stageCurrent !== 'merge') continue;
+    if (ticket.stageCurrent !== 'ship') continue;
     try {
-      if (settleMergeStage(store, ticket.id).advanced) advanced.push(ticket.id);
+      if (settleShipGate(store, ticket.id).advanced) advanced.push(ticket.id);
     } catch {
       continue;
     }
