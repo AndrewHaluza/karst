@@ -465,21 +465,25 @@ export function migrate(db: Database): void {
     }
   }
 
-  if (current < 21) {
-    // v21 records a server's working directory, so a live pid can be tied back
-    // to the tree it serves. Without it, removing a worktree left its dev server
-    // running forever: reparented to init, holding ~1 GB and its port, serving a
-    // directory that no longer exists (869ed2n50).
-    //
-    // Not backfilled, and deliberately not guessed: `repo` is a repository NAME
-    // while worktrees are keyed by PATH, and several repository entries may
-    // share one worktree — the mapping is not derivable from the registry. A
-    // NULL cwd reads as "unknown" everywhere it is consumed, so a legacy row is
-    // never reaped on a guess.
-    const serverCols = tableColumns(db, 'servers');
-    if (serverCols.size > 0 && !serverCols.has('cwd')) {
-      db.exec('ALTER TABLE servers ADD COLUMN cwd TEXT');
-    }
+  // The servers.cwd step cannot be version-gated, and repairing the CURRENT
+  // shape outside the gate is deliberate — the same reason the attachment-table
+  // repair above runs ungated. v21 was RENUMBERED before release: it first
+  // shipped as the gate_runs invocation-identity columns in a build whose
+  // SCHEMA_VERSION was 22, and only afterwards became this step (SCHEMA_VERSION
+  // 23, gate_runs moved to v22). A registry stamped by the older build reports
+  // user_version = 22 — not < 21 — so the gated ALTER would be skipped forever
+  // and `servers` would stay without `cwd` while the DB claims to be current;
+  // every path that reads it (the archive's pre-removal server scan first among
+  // them) then dies with "no such column: cwd" (869efu319).
+  //
+  // Not backfilled, and deliberately not guessed: `repo` is a repository NAME
+  // while worktrees are keyed by PATH, and several repository entries may share
+  // one worktree — the mapping is not derivable from the registry. A NULL cwd
+  // reads as "unknown" everywhere it is consumed, so a legacy row is never
+  // reaped on a guess.
+  const serverCols = tableColumns(db, 'servers');
+  if (serverCols.size > 0 && !serverCols.has('cwd')) {
+    db.exec('ALTER TABLE servers ADD COLUMN cwd TEXT');
   }
 
   if (current < 22) {

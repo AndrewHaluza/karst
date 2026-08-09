@@ -72,7 +72,13 @@ import {
   usesDescription,
   type ArtifactTemplateContext,
 } from '../artifactConventions.js';
-import { buildPrDescriptionPrompt, sanitizePrDescription } from '../prDescription.js';
+import {
+  buildPrDescriptionPrompt,
+  renderPrDescription,
+  sanitizePrDescription,
+  type PrDiffContext,
+} from '../prDescription.js';
+import { collectPrDiffContext } from '../prDiffContext.js';
 import { resolveRepoScope, resolveTicketType } from '../conventionContext.js';
 
 /**
@@ -89,6 +95,8 @@ export interface ShipOpts {
   ticketId: number;
   /** Current manifest, read when ship starts rather than captured at ticket creation. */
   manifest?: Manifest;
+  /** Retained for API compatibility; the description model comes from the process assignment. */
+  model?: string;
   /** Direct injection retained for host-agnostic callers and focused tests. */
   conventions?: ArtifactConventions;
   /**
@@ -97,9 +105,9 @@ export interface ShipOpts {
    * host. `generateDescription` uses THIS bundle's adapter and snapshots its
    * assignment into the process run. NULL = configured ABSENCE
    * (`processes.prDescription.enabled: false`): the AI step is skipped, the
-   * sanitized deterministic title fallback is used, and NO AI process run is
-   * recorded. `undefined` = a legacy caller — the positional `adapter`
-   * parameter still drives the step as before, without a snapshot.
+   * deterministic branch-facts body is rendered locally instead, and NO AI
+   * process run is recorded. `undefined` = a legacy caller — the positional
+   * `adapter` parameter still drives the step as before, without a snapshot.
    */
   prDescriptionProcess?: DriveProcessBundle | null;
 }
@@ -1137,6 +1145,27 @@ export async function shipTicket(
        * one. The model call runs under its own durable describe step and
        * `pr-description` process run (see `generateDescription`).
        */
+      // The deterministic fallback body, rendered locally from bounded branch
+      // git facts (commit bullets + diffstat) — a ship with no AI process
+      // still carries what changed rather than just the title. A failed read
+      // degrades to a title-only body and never fails ship.
+      const deterministicDescription = async (): Promise<string> => {
+        let diffContext: PrDiffContext = {};
+        if (base) {
+          try {
+            diffContext = await collectPrDiffContext(git, wt.path, base);
+          } catch {
+            diffContext = {};
+          }
+        }
+        return renderPrDescription({
+          title: prTitle,
+          repo: wt.repo,
+          branch: wt.branch ?? undefined,
+          baseRef: base,
+          ...diffContext,
+        });
+      };
       const runDescriptionStep = async (process: DriveProcessBundle | null | undefined): Promise<string> => {
         if (process) {
           // Task 3: the configured process bundle — its adapter AND its
@@ -1158,9 +1187,9 @@ export async function shipTicket(
         }
         if (process === null) {
           // Configured ABSENCE (enabled: false): no model call, no process run —
-          // the sanitized deterministic fallback (the title) is used instead,
+          // the deterministic branch-facts body is rendered locally instead,
           // and no passed AI process is recorded for work nobody did.
-          return sanitizePrDescription(prTitle, prTitle);
+          return deterministicDescription();
         }
         // Legacy caller: no configured bundle, the positional adapter runs the
         // step as before (no identity snapshot — pre-Task-3 behavior).
@@ -1177,7 +1206,7 @@ export async function shipTicket(
             onInsideProgress,
           );
         }
-        return sanitizePrDescription(prTitle, prTitle);
+        return deterministicDescription();
       };
       const buildBody = async (): Promise<string> => {
         if (descriptionTemplate) {

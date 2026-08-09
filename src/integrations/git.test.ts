@@ -14,6 +14,7 @@ import {
   pushBranch,
   remoteRefSha,
   runGit,
+  runGitEnv,
   workingTreeSummary,
   defaultGitRunner,
   runGitBytes,
@@ -413,6 +414,66 @@ describe('ship quarantine commit primitives', () => {
 
       const own = await runGit(['log', '-1', '--format=%s'], dir);
       expect(own.stdout.trim()).toBe('chore: ship the work');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('prepares and lands the commit from a LINKED worktree, alternating the common object db', async () => {
+    const dir = await freshRepo('linked-wt');
+    try {
+      await writeAndCommit(dir, 'a.txt', 'a', 'base');
+      const preHead = (await headCommit(defaultGitRunner, dir))!;
+
+      // Cut a linked worktree the way karst does. Its git dir is an admin dir
+      // WITHOUT an objects dir — the regression this test pins: quarantine
+      // preparation must alternate the COMMON object db, never a per-worktree
+      // one that does not exist (the failing ship read-tree on 869efpayd).
+      const wt = join(dir, 'wt');
+      const add = await runGit(['worktree', 'add', '-b', 'karst/wt/linked', wt, preHead], dir);
+      expect(add.exitCode).toBe(0);
+      const adminDir = (await runGit(['rev-parse', '--absolute-git-dir'], wt)).stdout.trim();
+      expect(existsSync(join(adminDir, 'objects'))).toBe(false);
+
+      writeFileSync(join(wt, 'a.txt'), 'b');
+      writeFileSync(join(wt, 'b.txt'), 'new');
+      const fingerprint = (await workingTreeSummary(defaultGitRunner, wt)).fingerprint;
+      const preIndexTree = (await runGit(['write-tree'], wt)).stdout.trim();
+
+      const prepared = await prepareCommitInQuarantine(defaultGitRunner, wt, KEY, {
+        preHead,
+        message: 'chore: ship the work',
+        author: { name: 'Author', email: 'author@example.com', at: '2026-08-08T10:00:00+02:00' },
+        committer: {
+          name: 'Committer',
+          email: 'committer@example.com',
+          at: '2026-08-08T11:00:00+02:00',
+        },
+      });
+      expect(prepared.expectedHead).toMatch(/^[0-9a-f]{40}$/);
+
+      // The quarantined tree materializes the base tree PLUS the staged
+      // content — an empty quarantine object dir proves the base was read
+      // through the alternate.
+      const tree = await runGit(['ls-tree', '-r', '--name-only', prepared.intendedTree], dir);
+      expect(tree.stdout.trim().split('\n').sort()).toEqual(['a.txt', 'b.txt']);
+      expect(await headCommit(defaultGitRunner, wt)).toBe(preHead);
+
+      await promoteQuarantineTwice(wt);
+      // Promoted objects must be reachable from the MAIN repo (the common
+      // object db) — a per-worktree copy would be invisible here.
+      expect((await runGit(['cat-file', '-e', prepared.expectedHead], dir)).exitCode).toBe(0);
+
+      const cas = await compareAndSwapHeadAndIndex(defaultGitRunner, wt, {
+        preHead,
+        expectedHead: prepared.expectedHead,
+        intendedTree: prepared.intendedTree,
+        preIndexTree,
+        expectedFingerprint: fingerprint,
+        quarantineKey: KEY,
+      });
+      expect(cas).toEqual({ ok: true });
+      expect(await headCommit(defaultGitRunner, wt)).toBe(prepared.expectedHead);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
