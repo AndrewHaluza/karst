@@ -135,6 +135,17 @@ describe('browse-repo-path', () => {
   it('parses open-manifest', () => {
     expect(parseSettingsMessage({ type: 'open-manifest' })).toEqual({ type: 'open-manifest' });
   });
+
+  it('parses validate-process-assignments with a manifest', () => {
+    expect(
+      parseSettingsMessage({ type: 'validate-process-assignments', manifest: { host: 'x' } }),
+    ).toEqual({ type: 'validate-process-assignments', manifest: { host: 'x' } });
+  });
+
+  it('rejects validate-process-assignments without a manifest', () => {
+    expect(parseSettingsMessage({ type: 'validate-process-assignments' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'validate-process-assignments', manifest: null })).toBeNull();
+  });
 });
 
 describe('routeSettingsAction', () => {
@@ -144,6 +155,7 @@ describe('routeSettingsAction', () => {
       openManifest: [],
       save: [],
       validate: [],
+      validateProcessAssignments: [],
       requestState: [],
       installApproach: [],
       uninstallApproach: [],
@@ -162,6 +174,7 @@ describe('routeSettingsAction', () => {
       calls,
       save: (m, section) => { calls['save']!.push({ manifest: m, section }); },
       validate: (m) => { calls['validate']!.push(m); },
+      validateProcessAssignments: (m) => { calls['validateProcessAssignments']!.push(m); },
       requestState: () => { calls['requestState']!.push(true); },
       installApproach: (id) => { calls['installApproach']!.push(id); },
       uninstallApproach: (id) => { calls['uninstallApproach']!.push(id); },
@@ -190,6 +203,7 @@ describe('routeSettingsAction', () => {
     const a = spies();
     routeSettingsAction({ type: 'save', manifest: draft }, a);
     routeSettingsAction({ type: 'validate', manifest: draft }, a);
+    routeSettingsAction({ type: 'validate-process-assignments', manifest: draft }, a);
     routeSettingsAction({ type: 'request-state' }, a);
     routeSettingsAction({ type: 'install-approach', id: 'my-id' }, a);
     routeSettingsAction({ type: 'uninstall-approach', id: 'my-id' }, a);
@@ -205,6 +219,7 @@ describe('routeSettingsAction', () => {
     routeSettingsAction({ type: 'open-manifest' }, a);
     expect(a.calls.save).toEqual([{ manifest: draft, section: undefined }]);
     expect(a.calls.validate).toEqual([draft]);
+    expect(a.calls.validateProcessAssignments).toEqual([draft]);
     expect(a.calls.requestState).toEqual([true]);
     expect(a.calls.installApproach).toEqual(['my-id']);
     expect(a.calls.uninstallApproach).toEqual(['my-id']);

@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { injectDesignSystem, DS_CSS_MARKER, DS_JS_MARKER } from '../model/designSystem.js';
 import { injectCsp, newNonce } from '../model/csp.js';
+import {
+  injectAgentIdentity,
+  AGENT_CSS_MARKER,
+  AGENT_JS_MARKER,
+} from '../model/agentIdentity.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -110,5 +115,42 @@ describe('injection is inert without markers', () => {
     const out = injectDesignSystem(`<style>${DS_CSS_MARKER}</style>`);
     expect(out).toContain(':root{');
     expect(out).not.toContain('$&');
+  });
+});
+
+describe('agent identity injection (B1)', () => {
+  /**
+   * `injectAgentIdentity` is a no-op on a marker-less document — exactly like
+   * `injectDesignSystem` — so a webview that CALLS the injected agent API
+   * (`agentIconHtml`, `agentBadgeHtml`, the label/icon constants) without
+   * carrying both markers would throw `ReferenceError` in production: the
+   * provider-brand tokens simply would not be present. Discovered, never
+   * enumerated: a webview added later that consumes the API without the
+   * markers fails here, and no screen's name is hardcoded.
+   */
+  it('requires both agent markers in every webview that uses the agent API', () => {
+    const users = WEBVIEWS.filter((name) =>
+      /agentBadgeHtml\(|agentIconHtml\(|AGENT_PROVIDER_LABELS|AGENT_ICONS/.test(read(name)),
+    );
+    expect(users.length, 'no webview uses the agent API — the guard would be dead').toBeGreaterThan(0);
+    for (const name of users) {
+      const html = read(name);
+      expect(html, `${name} uses the agent API without ${AGENT_CSS_MARKER}`).toContain(AGENT_CSS_MARKER);
+      expect(html, `${name} uses the agent API without ${AGENT_JS_MARKER}`).toContain(AGENT_JS_MARKER);
+    }
+  });
+
+  it('substitutes both agent markers wherever a webview carries them', () => {
+    // A marker the host never replaces would ship to the browser as a literal
+    // comment, and the API would be missing — the same silent no-op. The
+    // hydration must be complete for every webview that opted in.
+    const carriers = WEBVIEWS.filter((name) => read(name).includes(AGENT_CSS_MARKER));
+    expect(carriers.length).toBeGreaterThan(0);
+    for (const name of carriers) {
+      const out = injectAgentIdentity(read(name));
+      expect(out, `${name} keeps the CSS marker after injection`).not.toContain(AGENT_CSS_MARKER);
+      expect(out, `${name} keeps the JS marker after injection`).not.toContain(AGENT_JS_MARKER);
+      expect(out, `${name} is missing the injected agent runtime`).toContain('function agentBadgeHtml(');
+    }
   });
 });

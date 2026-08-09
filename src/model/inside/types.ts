@@ -1,5 +1,5 @@
 import type { StageKey } from '../types.js';
-import type { StepperCell } from '../stepper.js';
+import { displayStatus, type StepperCell } from '../stepper.js';
 
 /**
  * How an operation row reads.
@@ -30,23 +30,6 @@ export interface StageOp {
 
 /** The state dot beside the "Inside <stage>" header. */
 export type InsideDot = 'done' | 'run' | 'wait' | 'fail' | 'idle' | 'pend';
-
-/** Everything the activity strip renders for ONE stage. A snapshot, no functions. */
-export interface StageInside {
-  stageKey: StageKey;
-  /** Display title — `Implementation`, `UAT`. */
-  title: string;
-  dot: InsideDot;
-  /** `12:23:06 · 51.7s · attempt 1`, or `has not run yet`. */
-  clock: string;
-  /**
-   * Observed rows. EMPTY means nothing ran — the view shows `blurb` instead.
-   * Empty rows would imply karst tried something and got nothing back.
-   */
-  ops: StageOp[];
-  /** The static "what happens here" copy. Always present. */
-  blurb: string;
-}
 
 /** Display titles for the strip header. */
 export const STAGE_TITLES: Readonly<Record<StageKey, string>> = {
@@ -95,6 +78,22 @@ export function formatDuration(
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/**
+ * The same span `formatDuration` rounds, stated exactly. Rendered ONLY as a
+ * control's `title`: the row keeps the readable form, and a reader who needs
+ * the millisecond truth can hover for it. Empty for an absent or unparseable
+ * pair, exactly like `formatDuration` — an absent fact must read as absent.
+ */
+export function formatExactDuration(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+): string {
+  if (!startedAt || !endedAt) return '';
+  const ms = Date.parse(endedAt) - Date.parse(startedAt);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  return `${(ms / 1000).toFixed(3)}s`;
+}
+
 /** Time of day, in the reader's own locale. Empty for an unparseable stamp. */
 export function formatTime(at: string | null | undefined): string {
   if (!at) return '';
@@ -123,13 +122,20 @@ export function formatClock(cell: StepperCell, now: string): string {
   return `${formatTime(cell.startedAt)}${took ? ` · ${took}` : ''}${attempt}`;
 }
 
-/** Map a stage's status onto the header dot. */
+/**
+ * Map a stage's status onto the header dot. Read through `displayStatus`: a
+ * parked stage keeps its stored `running` while blocked, and the header must
+ * not spin a `run` arc beside its own block banner — it reads `wait` (the
+ * amber two-bars glyph), the same reading the process rows give it.
+ */
 export function dotFor(cell: StepperCell): InsideDot {
-  switch (cell.status) {
+  switch (displayStatus(cell)) {
     case 'passed':
       return 'done';
     case 'running':
       return 'run';
+    case 'blocked':
+      return 'wait';
     case 'failed':
       return 'fail';
     case 'skipped':
@@ -137,23 +143,6 @@ export function dotFor(cell: StepperCell): InsideDot {
     default:
       return 'pend';
   }
-}
-
-/** Assemble one stage's strip, defaulting the parts every stage shares. */
-export function inside(
-  cell: StepperCell,
-  now: string,
-  ops: StageOp[],
-  dot?: InsideDot,
-): StageInside {
-  return {
-    stageKey: cell.stageKey,
-    title: STAGE_TITLES[cell.stageKey],
-    dot: dot ?? dotFor(cell),
-    clock: formatClock(cell, now),
-    ops,
-    blurb: STAGE_BLURBS[cell.stageKey],
-  };
 }
 
 /**
@@ -201,11 +190,14 @@ export type InsideActionKind =
  * `actionId` is an opaque snapshot-scoped capability: never a path, URL, repo,
  * SHA, or PR number — the host resolves it through a ticket-scoped allowlist
  * and the webview posts only the id back. `kind` is a presentation hint only;
- * the host does not trust it on dispatch.
+ * the host does not trust it on dispatch. `label` is the host-computed control
+ * copy when it names a count ("Show 4 more" — handoff §10); absent → the
+ * webview's static kind map supplies the label.
  */
 export interface TypedInsideAction {
   actionId: string;
   kind: InsideActionKind;
+  label?: string;
 }
 
 /**
@@ -221,22 +213,29 @@ export type InsideEvidenceTarget =
       evidence: { source: 'review-finding' | 'uat-finding'; id: number };
     }
   | { kind: 'open-commit'; shipCommitId: number }
-  | { kind: 'open-full-evidence'; processRunId: number }
+  | { kind: 'open-full-evidence'; processRunId: number; label?: string }
   | {
       kind: 'open-bounded-evidence';
       title: string;
       rows: readonly EvidenceRow[];
+      label?: string;
     };
 
-/** Preformatted token counts — a view never formats a number. */
-export interface TokenUsageView {
-  /** Preformatted total — `12.4k`. */
-  total: string;
-  /** Preformatted exact total — `12,435` — for a title attribute. */
-  exact?: string;
-  /** True only when the counts are an estimate, never a measurement. */
-  estimated: boolean;
-}
+/**
+ * The inside process's token claim, as ONE of three states (decision 8).
+ * A view never formats a number — the host ships the preformatted strings.
+ *
+ * - `measured` — a recorded total exists for a provider that reports usage.
+ * - `estimated` — only estimates exist (or a mix); carries the `estimated`
+ *   marker so the count is never read as a measurement.
+ * - `unavailable` — the provider reports no per-session usage (Claude,
+ *   Antigravity). NOT zero and NOT "0 tokens": it renders as absent with a
+ *   title explaining the core reports no per-session usage.
+ */
+export type TokenUsageView =
+  | { state: 'measured'; total: string; exact?: string }
+  | { state: 'estimated'; total: string; exact?: string }
+  | { state: 'unavailable'; title: string };
 
 /** One line inside a process's evidence block. */
 export interface EvidenceRow {
@@ -246,12 +245,154 @@ export interface EvidenceRow {
   duration?: string;
   action?: TypedInsideAction;
   /**
+   * Timeline-only structural role: WHAT this row is. `phase` = a reported
+   * phase mark, `identity` = an execution identity segment (the run start, a
+   * provider switch, a resume), `event` = a generic timeline event. The
+   * webview draws the timeline node (check / hollow node / branch) from it
+   * and NEVER infers it from `label` prose — `role` is the closed shape,
+   * `label` is prose. `connector` stays the sole RELATIONSHIP marker below;
+   * `role` says what the row is, `connector` says it continues the SAME
+   * execution. Optional because non-timeline evidence rows carry no role;
+   * absent → the timeline renders the row as a generic `event`.
+   */
+  role?: 'phase' | 'identity' | 'event';
+  /**
+   * Timeline-only identity key for `role: 'identity'` rows: the provider
+   * whose core mark the injected identity renderer (`agentIconHtml`) draws
+   * beside the row's own identity prose. Absent → no icon. The webview never
+   * parses the provider out of `detail` — a key that was not shipped does
+   * not exist.
+   */
+  provider?: string;
+  /**
+   * Timeline-only per-row token claim (`role: 'identity'` rows): the same
+   * `TokenUsageView` the process rows carry, rendered as the bordered mono
+   * pill. Absent → no pill; `unavailable` renders as absence-with-title,
+   * NEVER "0 tokens" (decision 8).
+   */
+  tokens?: TokenUsageView;
+  /**
    * Timeline-only relationship marker: this row continues the SAME execution
    * through a provider switch or a session resume. Structural and closed —
    * the webview draws it as the connector glyph, it never parses `label` to
    * guess that a row is a switch.
    */
   connector?: 'switch' | 'resume';
+  /**
+   * The repository this row's evidence was recorded against — `gate_runs.repo`,
+   * verbatim. Absent for a row that names no repository (a pre-v21 gate row,
+   * the `changes` evidence row, a non-gate body): the renderer drops the column
+   * rather than drawing an empty one, because a blank cell reads as a repo with
+   * no name instead of a row that names none.
+   */
+  repo?: string;
+  /**
+   * The exact form of `duration`, host-formatted. Rendered only as the
+   * duration's `title`. Absent → the readable duration carries no tooltip.
+   */
+  durationExact?: string;
+  /**
+   * When this row's recorded step STARTED, as a clock time in the reader's
+   * locale — `formatTime` of the same recorded timestamp `duration` is
+   * measured from. Set by the ship evidence rows, whose steps each record
+   * their own start. A row whose start was never recorded (a forecast gate, a
+   * merge row read from CURRENT PR state rather than a recorded step) carries
+   * none; absence is stated by omission, never by a placeholder.
+   */
+  time?: string;
+}
+
+/**
+ * One commit karst recorded for a repository, as displayed. `sha` is the
+ * host-shortened object id and `message` is the commit subject — untrusted
+ * text the webview escapes and never parses. `action` opens the commit
+ * through the opaque `open-commit` capability; absent when the caller
+ * attached none.
+ */
+export interface CommitEntryView {
+  sha: string;
+  message: string;
+  action?: TypedInsideAction;
+}
+
+/**
+ * How a commit row's provenance pill reads. CLOSED, and it is the class the
+ * webview styles from — never derived from `origin` prose.
+ *
+ * `ship` = the ship created these commits; `existing` = every recorded commit
+ * was already there when the saga started; `none` = karst recorded no commit
+ * for this repository, which is absence, NOT an empty delivery.
+ */
+export type CommitOriginKind = 'ship' | 'existing' | 'none';
+
+/** One repository's commit block in the commits evidence body. */
+export interface CommitRepoView {
+  /** The repository, as displayed. */
+  repo: string;
+  /** The host-formatted count line — "2 created · 1 before". */
+  summary: string;
+  /** The provenance word shown in the pill. */
+  origin: string;
+  originKind: CommitOriginKind;
+  /** The recorded commits the pill speaks for. Empty → no list is drawn. */
+  commits: readonly CommitEntryView[];
+}
+
+/** How one step of a PR's recorded path reads. CLOSED — the styling key. */
+export type PrStepState = 'done' | 'current' | 'fail' | 'note';
+
+/** One recorded step in a repository's pull-request path. */
+export interface PrStepView {
+  label: string;
+  state: PrStepState;
+}
+
+/**
+ * One repository's row in the PR evidence body: the PR object karst recorded
+ * (its number and its CURRENT state), the recorded step path, and one
+ * sentence naming why the row reads as it does.
+ *
+ * Every field is absence-safe: a repository whose PR number was never
+ * recorded carries `number: ''` and an `emptyLabel`, never a fabricated
+ * number; a PR whose status karst has not probed carries `prState: ''`, which
+ * renders as no pill rather than a guessed `open`.
+ */
+export interface PrBranchView {
+  repo: string;
+  /** The host-formatted number — `#412` — or '' when none was recorded. */
+  number: string;
+  /** The recorded `prs.status`, or '' when unknown. The pill's class. */
+  prState: string;
+  /** The absence copy shown in the PR object's place. Absent → none needed. */
+  emptyLabel?: string;
+  steps: readonly PrStepView[];
+  /** The host-worded explanation of this row. */
+  note: string;
+  /** Whether this row is the one currently acting (running or failed). */
+  current: boolean;
+}
+
+/** One `amount + label` pair in the receipt's AI-usage breakdown. */
+export interface ReceiptBreakdownItem {
+  amount: string;
+  label: string;
+}
+
+/** One block of the three-block delivery receipt grid. */
+export interface ReceiptBlockView {
+  label: string;
+  value: string;
+  /** Host-formatted supporting lines. Empty → no detail block. */
+  details: readonly string[];
+  /** AI-usage only; absent elsewhere. */
+  breakdown?: readonly ReceiptBreakdownItem[];
+}
+
+/** The receipt's hero line. `time` is '' when no completion stamp was recorded. */
+export interface DoneHeroView {
+  title: string;
+  summary: string;
+  time: string;
 }
 
 /**
@@ -259,6 +400,14 @@ export interface EvidenceRow {
  * union: a process's evidence kind is chosen from this list at reduce time
  * (unknown process ids get the generic `rows` member), so the webview's
  * renderer switch never meets an unhandled kind.
+ *
+ * The prototype-shaped members (`commits`, `prs`, `receipt`) carry their rich
+ * bodies as OPTIONAL fields beside the `rows` every member has had since the
+ * first port. That is deliberate: a snapshot produced by an older build — or
+ * by a caller that fed only rows — still renders through today's generic row
+ * path, so adding the bodies can never blank an existing surface. `overflow`
+ * is the bounded remainder for the rich bodies, carrying the same host-owned
+ * "+N more" continuation the row path puts in its last row.
  */
 export type ProcessEvidenceView =
   | { kind: 'rows'; rows: readonly EvidenceRow[] }
@@ -271,10 +420,28 @@ export type ProcessEvidenceView =
     }
   | { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number }
   | { kind: 'timeline'; rows: readonly EvidenceRow[] }
-  | { kind: 'commits'; rows: readonly EvidenceRow[]; total?: number }
-  | { kind: 'prs'; rows: readonly EvidenceRow[]; open: number; merged: number }
+  | {
+      kind: 'commits';
+      rows: readonly EvidenceRow[];
+      total?: number;
+      repos?: readonly CommitRepoView[];
+      overflow?: EvidenceRow;
+    }
+  | {
+      kind: 'prs';
+      rows: readonly EvidenceRow[];
+      open: number;
+      merged: number;
+      branches?: readonly PrBranchView[];
+      overflow?: EvidenceRow;
+    }
   | { kind: 'recovery'; rows: readonly EvidenceRow[] }
-  | { kind: 'receipt'; rows: readonly EvidenceRow[] };
+  | {
+      kind: 'receipt';
+      rows: readonly EvidenceRow[];
+      hero?: DoneHeroView;
+      blocks?: readonly ReceiptBlockView[];
+    };
 
 /** The closed kind vocabulary, in one place — mirrors the union above. */
 export const EVIDENCE_KINDS: readonly ProcessEvidenceView['kind'][] = [
@@ -294,23 +461,83 @@ export interface InsideProcessView {
   kind: string;
   label: string;
   status: InsideStatus;
+  /**
+   * Visible status copy — "Completed", "Running" — so the status colour/glyph
+   * is never the only carrier. Derived host-side from the SAME status reading
+   * the row carries; the webview renders it verbatim and never re-derives it
+   * from the glyph. Absent → the webview falls back to its closed status→word
+   * map ("running", "passed"…), a static control-copy word for the same
+   * status key — never a fabricated BUSINESS fact. The absence semantics stay
+   * "no host-authored copy", which is what a process that has not adopted the
+   * contract yet reads as.
+   */
+  statusLabel?: string;
+  /**
+   * Host-formatted, non-interactive facts shown below the expanded process —
+   * the recorded session id, switch count, token split, and the rule copy.
+   * Every item is a finished string; the webview renders and concatenates
+   * nothing. Absent → no footer strip at all.
+   */
+  footer?: readonly string[];
   detail?: string;
+  /**
+   * The kind-specific aggregate copy for the process row — "4 passed · 1
+   * failed", "2 blocking", "3 commits". Computed host-side by the reducer
+   * from the SAME counts the evidence carries; the webview renders it
+   * verbatim and concatenates nothing (UI-R31). Absent → no aggregate.
+   */
+  aggregate?: string;
+  /** A bare count, for a process whose identity IS a number (scope's hot set). */
   count?: string;
   duration?: string;
-  ai?: boolean;
+  /**
+   * When this process STARTED, as a clock time in the reader's locale —
+   * `formatTime` of the same recorded timestamp `duration` is measured from.
+   * A process whose start karst never recorded (Services, which runs nothing)
+   * carries none; absence is stated by omission, never by a placeholder.
+   */
+  time?: string;
+  /** The exact form of `duration`. Rendered only as the duration's `title`. */
+  durationExact?: string;
   /** The execution karst actually ran, when it ran one. */
   execution?: AgentExecutionView;
   /** What the settings said WOULD run, for a process that has not run. */
   configuredExecution?: AgentExecutionView;
+  /**
+   * The §11 absence copy for a process that RAN without a recorded identity
+   * ("No historical execution identity recorded") — shown in the identity
+   * chip's place, never an invented identity. Absent → the chip renders
+   * whatever identity exists or nothing.
+   */
+  identityNote?: string;
   tokens?: TokenUsageView;
   evidence?: ProcessEvidenceView;
   action?: TypedInsideAction;
 }
 
 /**
- * The full presentation model for ONE inside stage. The inside redesign's
- * successor to `StageInside`: the flat operation rows become ordered
- * processes, each carrying its own evidence and controls.
+ * The stage's CURRENT operation as the header states it.
+ *
+ * Declared here rather than imported from `./progress.js` because `progress.ts`
+ * already imports this module — the reverse import would close a cycle. It is
+ * structurally identical to `LiveOperationView` on purpose: the header renders
+ * the ephemeral progress event and this snapshot-derived fallback through one
+ * code path, so a reopened panel is never blank while a stage is working.
+ *
+ * Every field is derived from a process row already on screen. This states
+ * nothing the ledger below it does not.
+ */
+export interface InsideLiveView {
+  status: 'run' | 'wait' | 'fail';
+  label?: string;
+  detail?: string;
+  duration?: string;
+}
+
+/**
+ * The full presentation model for ONE inside stage: the flat operation rows of
+ * the retired legacy strip become ordered processes, each carrying its own
+ * evidence and controls.
  */
 export interface InsideStageView {
   stageKey: InsideStageKey;
@@ -319,6 +546,11 @@ export interface InsideStageView {
   dot: InsideDot;
   /** `12:23:06 · 51.7s · attempt 1`, or `has not run yet`. */
   clock: string;
+  /**
+   * The current operation, derived from this stage's own processes. Absent when
+   * no process is running or waiting — a settled stage has no live line.
+   */
+  live?: InsideLiveView;
   /** Ordered processes. EMPTY means nothing ran — the view shows `blurb` instead. */
   processes: InsideProcessView[];
   /** The static "what happens here" copy. Always present. */

@@ -339,8 +339,9 @@ export function listImplementationTimeline(
 }
 
 /**
- * One `token_usage` row attributed to a segment (Task 5 ingests these; nothing
- * writes them yet — interactive sessions are never synthesized a spend).
+ * One `token_usage` row attributed to a segment. Written by the interactive
+ * usage seam (`store/interactiveUsageSamples.ts`, `estimated = 0` — a measured
+ * delta, never a synthesized spend) when the provider's bridge can emit one.
  */
 export interface SegmentTokenRow {
   inputTokens: number;
@@ -399,4 +400,69 @@ export function summarizeSegmentTokens(
     estimatedCalls,
     erroredCalls,
   };
+}
+
+/** One segment's measured totals — the summarizer's output, per segment. */
+export interface SegmentTokenTotals extends SegmentTokenSummary {
+  /** The segment these totals belong to. */
+  implementationSegmentId: number;
+}
+
+interface SegmentTotalsRow {
+  implementation_segment_id: number;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  total_tokens: number;
+  errored_calls: number;
+}
+
+/**
+ * One measured total per segment of a run, straight from the ledger.
+ *
+ * This is the SQL feeding path for `summarizeSegmentTokens`'s contract: a
+ * single GROUP BY over `implementation_segment_id` answers the same five token
+ * sums the reducer would, plus the group's call and error counts (a grouped
+ * row cannot carry per-row `outcome`, so those come from COUNT/CASE in the
+ * same query). `estimated = 0` is a WHERE clause, not a SUM condition — an
+ * estimate is not measured spend, and `estimatedCalls` is 0 by construction
+ * because no estimated row can be in a group. A segment with no measured rows
+ * has no group and appears nowhere.
+ */
+export function readSegmentTokenTotals(
+  store: Store,
+  implementationRunId: number,
+): SegmentTokenTotals[] {
+  const rows = store.db
+    .prepare(
+      `SELECT implementation_segment_id,
+              COUNT(*) AS calls,
+              SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens,
+              SUM(cache_read_tokens) AS cache_read_tokens,
+              SUM(cache_write_tokens) AS cache_write_tokens,
+              SUM(total_tokens) AS total_tokens,
+              SUM(CASE WHEN outcome = 'error' THEN 1 ELSE 0 END) AS errored_calls
+         FROM token_usage
+        WHERE estimated = 0
+          AND implementation_segment_id IN (
+                SELECT id FROM implementation_segments WHERE implementation_run_id = ?
+              )
+        GROUP BY implementation_segment_id
+        ORDER BY implementation_segment_id`,
+    )
+    .all(implementationRunId) as SegmentTotalsRow[];
+  return rows.map((row) => ({
+    implementationSegmentId: row.implementation_segment_id,
+    calls: row.calls,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    cacheReadTokens: row.cache_read_tokens,
+    cacheWriteTokens: row.cache_write_tokens,
+    totalTokens: row.total_tokens,
+    estimatedCalls: 0,
+    erroredCalls: row.errored_calls,
+  }));
 }

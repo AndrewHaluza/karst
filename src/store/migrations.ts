@@ -1016,7 +1016,6 @@ export function migrate(db: Database): void {
         status TEXT NOT NULL,
         detail TEXT NOT NULL,
         pr_number INTEGER,
-        pr_status TEXT,
         existed_before_ship INTEGER,
         process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
         started_at TEXT NOT NULL,

@@ -10,13 +10,13 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
-import type { InsidePreviewHost } from './ui/dashboard/insidePreview.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
@@ -167,7 +167,6 @@ import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
-import { setPreviewContextThenContinue } from './extension/previewContext.js';
 import {
   createReportIssueHandler,
   DiagnosticDocumentProvider,
@@ -211,7 +210,7 @@ import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
 import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
-import { shipClearedEvent, type InsideProgressEvent } from './model/inside/progress.js';
+import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
 import { getPrById } from './store/prs.js';
 import { getShipCommitById } from './store/shipRuns.js';
@@ -264,6 +263,7 @@ import { injectPalette } from './model/palette.js';
 import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
+import { injectAgentIdentity } from './model/agentIdentity.js';
 import {
   binaryExists,
   checkDependencyFaults,
@@ -1812,6 +1812,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The inside-action host: vscode bindings for the containment-checked
     // dispatches (the panel already proved ownership + containment).
     makeInsideActionHost(localStore),
+    // Live manifest getter, so the inside views resolve the REAL service names
+    // and process assignments (panel.ts is manifest-free by contract).
+    () => currentManifest(),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -2041,8 +2044,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // panel is the surface this codebase already has for presenting a
           // ticket's full change set to a human without doing that, and
           // reaching a specific file's real diff from it is one click away.
-          // `reviewInside`/the persisted 'changes' evidence are worded to
-          // match this exactly — "changes panel opened", never "diff
+          // the persisted 'changes' evidence is worded to match this exactly
+          // — "changes panel opened", never "diff
           // opened". The panel aggregates every worktree for a ticket, so
           // revealing it by ticket id covers every affected target review
           // calls this for; `cwd` names nothing further to open.
@@ -2337,6 +2340,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void runPrSync();
   const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });
+
+  // The `karst` CLI commits to the registry from its own `node` process; this
+  // host's connection never sees those writes, so an open dashboard would keep
+  // rendering the last snapshot it built. `PRAGMA data_version` changes only
+  // for OTHER connections' commits — the watcher refreshes every open panel
+  // when the CLI lands a marker, and stays silent for the host's own writes,
+  // which already push state. Observer only: it must never trigger the stage
+  // driver, or a change notification could start the same run in two windows
+  // at once (the DB is shared by every window).
+  context.subscriptions.push(
+    watchExternalChanges(localStore, () => {
+      // Window-level first, and unconditionally: the sidebar reflects registry
+      // state whether or not any dashboard happens to be open, and refreshing
+      // it once per open panel was N calls for one change.
+      provider.refresh();
+      for (const ticketId of dashboard.openTicketIds()) {
+        dashboard.pushState(ticketId);
+      }
+    }),
+  );
 
   // Startup dependency preflight (§ todo-5): karst shells out to tools it doesn't
   // bundle. The registry is the whole list — never hand-maintain one here, or the
@@ -3057,74 +3080,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // Development-only Inside preview (Finding 1 / Task 9): the checked-in
-  // fixture matrix + preview panel for the Extension Development Host. The
-  // command is registered ONLY here, behind the mode guard — Production and
-  // Test never register it, so an unregistered/non-development path cannot
-  // open a panel — and the fixture/preview modules are pulled in LAZILY by
-  // this branch, so the production dashboard/state dependency graph never
-  // imports them (pinned by insidePreview.test.ts's import walk).
-  //
-  // The command-palette entry is gated on a karst-OWNED context key
-  // (`karst.insidePreviewAvailable`), not VS Code's built-in mode expression:
-  // activation is the one writer, and it writes the key BEFORE the guarded
-  // registration below reads the mode, so a Production or Test activation
-  // sets it to false and the palette can never offer an entry for a command
-  // this window did not register (pinned by extensionActivation.test.ts).
-  await setPreviewContextThenContinue({
-    setContext: () =>
-      vscode.commands.executeCommand(
-        'setContext',
-        'karst.insidePreviewAvailable',
-        context.extensionMode === vscode.ExtensionMode.Development,
-      ),
-    logError,
-    continueActivation: () => {
-      if (context.extensionMode === vscode.ExtensionMode.Development) {
-        context.subscriptions.push(
-          vscode.commands.registerCommand('karst.dev.openInsidePreview', () => {
-            const previewHost: InsidePreviewHost = {
-              createPanel: (title, _html) => {
-                const panel = vscode.window.createWebviewPanel(
-                  'karst.insidePreview',
-                  title,
-                  { viewColumn: vscode.ViewColumn.Active },
-                  { enableScripts: true, retainContextWhenHidden: true },
-                );
-                // The preview renders the SAME injected dashboard asset production
-                // renders — the html argument is the interface's test seam, the
-                // asset is bound here. The tab is branded like every other panel.
-                panel.webview.html = injectCsp(dashboardWebviewHtml(), newNonce());
-                panel.iconPath = brandIconUri(brandIcon);
-                return {
-                  postMessage: (message) => void panel.webview.postMessage(message),
-                  onDidReceiveMessage: () => undefined,
-                  onDidDispose: () => undefined,
-                };
-              },
-            };
-            void Promise.all([
-              import('./ui/dashboard/insidePreview.js'),
-              import('./ui/dashboard/insideFixtures.js'),
-            ])
-              .then(([preview, fixtures]) =>
-                preview.openInsidePreview(previewHost, fixtures.insidePreviewFixtures()),
-              )
-              .catch((error) => logError('inside preview failed to load', error));
-          }),
-          // The palette key is owned by this host. Clear it when the development
-          // host goes away so a reload into a Production host never inherits a
-          // stale `true` from the window this host was running in.
-          {
-            dispose: () => {
-              void vscode.commands.executeCommand('setContext', 'karst.insidePreviewAvailable', false);
-            },
-          },
-        );
-      }
-    },
-  });
-
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-
   // project terminals into the new manager, then recover only owned sessions
@@ -3465,15 +3420,19 @@ function buildCliPhasePrefix(
 
 /**
  * The injected dashboard webview asset, built once per call: design system,
- * status palette, and provider identity markers are all substituted host-side
- * (CSP forbids a shared stylesheet/script). Shared by the production dashboard
- * panels and the development-only Inside preview, so the preview renders the
- * exact asset production does (Finding 1).
+ * status palette, provider identity, and agent-core identity markers are all
+ * substituted host-side (CSP forbids a shared stylesheet/script). Shared by the
+ * production dashboard panels and the development-only Inside preview, so the
+ * preview renders the exact asset production does (Finding 1). The agent
+ * identity injection is applied outermost, in the same order the settings and
+ * ticket form hosts use it.
  */
 function dashboardWebviewHtml(): string {
-  return injectProviderIdentity(
-    injectPalette(
-      injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+  return injectAgentIdentity(
+    injectProviderIdentity(
+      injectPalette(
+        injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+      ),
     ),
   );
 }
@@ -3977,7 +3936,10 @@ function makeDashboardActions(
         undefined,
         undefined,
         undefined,
-        undefined,
+        (step) => {
+          const event = shipStepEvent(ticketId, step);
+          if (event) onInsideProgress(event);
+        },
         onInsideProgress,
       )
         .then(async () => {

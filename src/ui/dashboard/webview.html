@@ -7,6 +7,7 @@
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_AGENT_CSS*/
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -328,6 +329,11 @@
     color:var(--k-attention);animation:seg-breathe var(--k-dur-flash-done) ease-in-out infinite}
   @keyframes seg-breathe{0%,100%{background:color-mix(in srgb,var(--k-attention) 30%,transparent)}
     50%{background:color-mix(in srgb,var(--k-attention) 16%,transparent)}}
+  /* Blocked is parked, not running: same amber attention wash as needs-you
+     (the banner below it says the same thing), but no breathe — it is a wait,
+     not a demand the user answer right now. */
+  .track .seg.blocked{background:color-mix(in srgb,var(--k-attention) 30%,transparent);
+    color:var(--k-attention)}
 
   /* min-content, not 0: at 0 the current segment absorbs every overflow by
      shrinking, so its own action button is clipped by the chevron AND the lane
@@ -350,9 +356,10 @@
      not be able to push the button it belongs to out of the clip. */
   .track .seg.cur .mt{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 
-  /* The needs-you control. NOT `.act` — that is the activity strip's class. It is
-     NAVIGATIONAL: it scrolls the control that owns the action into view and
-     focuses it, so the rail never becomes a second actor for an irreversible step.
+  /* The needs-you control. NOT `.act` — that was the retired activity strip's
+     class (the inside ledger now). It is NAVIGATIONAL: it scrolls the control
+     that owns the action into view and focuses it, so the rail never becomes a
+     second actor for an irreversible step.
      merge is per-repo and its confirmation modal lives in the host, so a
      rail-level Merge button could neither pick a repo nor carry the confirmation. */
   .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
@@ -458,106 +465,480 @@
     border:calc(var(--k-border-w) * 2) solid currentColor;border-top-color:transparent;
     animation:spin var(--k-dur-spin) linear infinite}
   .track .seg .spin{width:var(--k-space-6);height:var(--k-space-6)}
-  .oglyph .spin{width:var(--k-space-4);height:var(--k-space-4);margin:0 auto;
-    border-width:calc(var(--k-border-w) * 1.5);color:var(--k-running)}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){
     .spin,.track .seg.needs{animation:none}
+    /* The disclosure marker's rotation is motion; the open state itself is
+       still visible in the marker's resting orientation. (UI-R30) */
+    .pchev{transition:none}
   }
 
-  /* ── activity strip: what happens inside the SELECTED stage ───────────── */
-  .act{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
-  .act .ahead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border)}
-  .act .aname{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
-  .act .adot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-running);flex:none}
-  .act .adot.wait{background:var(--k-attention)} .act .adot.idle{background:var(--k-pending)}
-  .act .adot.fail{background:var(--k-failed)} .act .adot.done{background:var(--k-passed)}
-  .act .adot.pend{background:transparent;border:calc(var(--k-border-w) * 2) solid var(--k-pending);width:var(--k-space-4);height:var(--k-space-4)}
-  .act .aclock{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
-  /* Viewing a stage that is not the current one — say so, and offer the way
-     back. Without this the strip silently contradicts the Now line. */
-  .act.viewing{border-color:var(--k-series-2)}
-  .act .vbar{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-xs);
-    color:var(--k-text-dim);background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border)}
-  .act .vbar .sp{margin-left:auto}
-  .act .blurb{padding:var(--k-space-5) var(--k-space-7);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .act .ops{padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
-  .op{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
-  .op:hover{background:var(--k-surface-hover)}
-  .op .oglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint)}
-  .op.pass .oglyph{color:var(--k-passed)} .op.run .oglyph{color:var(--k-running)}
-  .op.fail .oglyph{color:var(--k-failed)} .op.wait .oglyph{color:var(--k-attention)}
-  /* 82px has no scale match — the name column's minimum is set by the longest
-     op label karst emits ("Implementation"), not a spacing value. */
-  .op .oname{font-size:var(--k-text-md);min-width:82px}
-  .op .ocmd{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;overflow:hidden;
-    white-space:nowrap;text-overflow:ellipsis}
-  .op .odur{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
-  .op.pending{opacity:.5}
-  /* A gate the repo cannot answer, or a phase karst cannot observe, is not a
-     failure — say so plainly instead of dressing it as a status. */
-  .op.note .ocmd{font-style:italic;opacity:.75}
-  /* A withdrawn question, not an unanswerable one: dimmed like `pending` but
-     glyphed distinctly, so it never reads as a gate still to come. */
-  .op.skip .oglyph{color:var(--k-text-faint)}
-  .op.skip{opacity:.7}
-  .op.skip .ocmd{font-style:italic}
+  /*KARST_INSIDE_PROTO_START*/
+  /* ── the Inside block: the A37 prototype, ported verbatim ───────────────
+     This block is the delivery surface from
+     `karst-inside-a37-centered-implementation-timeline.html`. It is the ONE
+     part of the dashboard that does not consume the design system's
+     component rules: the injected DS sheet's own `.k-*` and generic element
+     rules were reshaping the ported grammar (row heights, chip padding,
+     glyph boxes) into something that was neither the prototype nor the DS,
+     which is what "close, but not the prototype" kept meaning.
 
-  /* ── inside ledger: process rows with evidence (the inside redesign) ────
-     One generic row per process. Everything on the row — status, label,
-     detail, counts, identity, tokens, action id — arrives pre-built in the
-     snapshot; the webview never derives a verdict or a label from prose. The
-     disclosure is a real button with aria-expanded (UI-R09), never a clickable
-     div. */
-  .act .procs{padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
-  .proc{border-radius:var(--k-radius-md)}
-  .proc:hover{background:var(--k-surface-hover)}
-  .proc .prow{display:flex;flex-wrap:wrap;align-items:center;column-gap:var(--k-space-5);row-gap:var(--k-space-2);padding:var(--k-space-3) var(--k-space-4)}
-  .proc .pglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
-  .proc.pass .pglyph{color:var(--k-passed)} .proc.run .pglyph{color:var(--k-running)}
-  .proc.fail .pglyph{color:var(--k-failed)} .proc.wait .pglyph{color:var(--k-attention)}
-  .proc .pname{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
-  /* The recorded execution identity — `execution` when the process ran,
-     `configuredExecution` when it has not. One compact chip, never both: they
-     make two different claims and must not read as one. */
-  .proc .pchip{display:inline-flex;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
-    font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
-  .proc .pchip::before{content:'';width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);background:var(--k-text-faint)}
-  .proc .ptok{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  .proc .pdetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
-    overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .proc .pright{margin-left:auto;display:flex;align-items:center;gap:var(--k-space-4);flex:none}
-  .proc .pmeta{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);white-space:nowrap}
-  .proc.pending{opacity:.5}
-  .proc.note .pdetail{font-style:italic;opacity:.75}
-  .proc.skip .pdetail{font-style:italic;opacity:.7}
-  /* Built on `.k-iconbtn` (UI-R07) so the shared focus-visible ring applies;
-     only size/padding are local, exactly like sidebar's chevron. */
-  .proc .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);display:inline-flex;align-items:center;justify-content:center;
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:transparent;color:var(--k-text-dim);
-    font-size:var(--k-text-md);line-height:1;cursor:pointer}
-  .proc .chev:hover{background:var(--k-surface-hover);color:var(--k-text)}
-  .proc .pev{border-top:var(--k-border-w) solid var(--k-border);margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-3) 0}
-  .erow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
-  .erow:hover{background:var(--k-surface-hover)}
-  .erow .eglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
-  .erow.pass .eglyph{color:var(--k-passed)} .erow.fail .eglyph{color:var(--k-failed)}
-  .erow.run .eglyph{color:var(--k-running)} .erow.wait .eglyph{color:var(--k-attention)}
-  /* The timeline's relationship arrow: the same execution continuing through
-     a provider switch or resume. Aligned with the status glyph column above,
-     so the segments read as one spine without becoming a diagram. */
-  .erow .econn{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-sm);color:var(--k-text-dim);flex:none}
-  .erow .elabel{font-size:var(--k-text-sm);color:var(--k-text)}
-  .erow .edetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
-    overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .erow .edur{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint)}
-  .erow .eact{margin-left:auto;flex:none}
+     Two rules keep this exemption honest:
+       1. Everything is scoped under `#inside`. Nothing here can reach the
+          rail, the panels, the toolbar, or another webview.
+       2. No raw colour literal. The prototype's palette is re-expressed as
+          `--p-*` custom properties on `#inside`, each pointing at the SAME
+          `--k-*` token the rest of the UI uses, so the block still themes
+          with VS Code (light themes included) and the conformance tests
+          keep their meaning. Tints are `color-mix` over those tokens, never
+          the prototype's dark-only hexes.
+     Geometry (grid templates, heights, the glyph shapes, the timeline rail)
+     is the prototype's, unchanged — that is the part being ported. */
+  #inside{
+    /* palette — prototype role → karst token */
+    --p-bg:var(--k-bg);
+    --p-surface:var(--k-surface);
+    --p-surface2:var(--k-surface-hover);
+    --p-hover:var(--k-surface-hover);
+    --p-border:var(--k-border);
+    --p-border2:var(--k-border-strong);
+    --p-text:var(--k-text);
+    --p-strong:var(--k-text);
+    --p-muted:var(--k-text-dim);
+    --p-muted2:var(--k-text-faint);
+    --p-accent:var(--k-link);
+    --p-pending:var(--k-text-faint);
+    --p-running:var(--k-running);
+    --p-attention:var(--k-attention);
+    --p-passed:var(--k-passed);
+    --p-failed:var(--k-failed);
+    --p-skip:var(--k-series-2);
+    /* tints — the prototype's filled states, mixed over the theme's own bg */
+    --p-tint-run:color-mix(in srgb, var(--p-running) 12%, var(--p-bg));
+    --p-tint-fail:color-mix(in srgb, var(--p-failed) 10%, var(--p-bg));
+    --p-tint-wait:color-mix(in srgb, var(--p-attention) 10%, var(--p-bg));
+    --p-tint-done:color-mix(in srgb, var(--p-passed) 10%, var(--p-bg));
+    --p-edge-run:color-mix(in srgb, var(--p-running) 45%, var(--p-border));
+    --p-edge-wait:color-mix(in srgb, var(--p-attention) 45%, var(--p-border));
+    --p-edge-done:color-mix(in srgb, var(--p-passed) 45%, var(--p-border));
+    /* spacing / radius / type — the prototype's own scale */
+    --p-r1:var(--k-radius-xs);--p-r2:var(--k-radius-sm);--p-r3:var(--k-radius-lg);
+    --p-s1:var(--k-space-2);--p-s2:var(--k-space-3);--p-s3:var(--k-space-4);
+    --p-s4:var(--k-space-5);--p-s5:var(--k-space-6);--p-s6:var(--k-space-7);
+    --p-xs:var(--k-text-2xs);--p-sm:var(--k-text-xs);--p-md:var(--k-text-md);
+    --p-mono:var(--k-font-mono);
+    container-type:inline-size;
+  }
+
+  /* Inside header = current operation, never a second live row */
+  #inside .inside{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);
+    border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r3);background:var(--p-bg)}
+  #inside .inside.viewing{border-color:var(--k-series-2)}
+  #inside .vbar{display:flex;align-items:center;gap:var(--p-s3);padding:var(--p-s2) var(--p-s4);
+    border-bottom:var(--k-border-w) solid var(--p-border);color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .vbar .sp{margin-left:auto}
+  #inside .inside-head{min-height:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+    align-items:center;gap:var(--p-s2);padding:0 var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .inside-title{font-size:var(--p-sm);font-weight:var(--k-weight-semibold);color:var(--p-strong);white-space:nowrap}
+  #inside .inside-live{min-width:0;overflow:hidden;white-space:nowrap;color:var(--p-muted);
+    font-size:var(--p-sm);display:flex;align-items:center;gap:var(--p-s2);line-height:18px}
+  #inside .inside-live.run{color:var(--p-running)}
+  #inside .inside-live.wait{color:var(--p-attention)}
+  #inside .inside-live.fail{color:var(--p-failed)}
+  #inside .inside-live strong{color:var(--p-strong);font-weight:var(--k-weight-semibold);line-height:18px;flex:none}
+  #inside .live-copy{display:inline-flex;align-items:center;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;line-height:18px;column-gap:0}
+  #inside .sep{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-4);
+    margin-inline:var(--k-border-w);padding:0;color:var(--p-muted2);line-height:18px}
+  #inside .inside-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    line-height:18px;white-space:nowrap}
+  #inside .blurb{padding:var(--p-s3) var(--p-s4);color:var(--p-muted);font-size:var(--p-sm)}
+
+  /* Agent identity primitive */
+  #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;
+    color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle}
+  #inside .agent-id .agent-sep{color:var(--p-muted2);line-height:14px}
+  #inside .agent-icon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
+  #inside .agent-icon svg{width:13px;height:13px;display:block;stroke:currentColor;fill:none;
+    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  #inside .agent-core,#inside .agent-model{display:inline-flex;align-items:center;height:14px;line-height:14px;white-space:nowrap}
+  #inside .agent-core{color:var(--p-running)}
+  #inside .agent-model{color:var(--p-muted)}
+  #inside .agent-name{display:inline-flex;align-items:center;height:14px;line-height:14px;color:var(--p-text);white-space:nowrap}
+  #inside .ai-mark{display:inline-flex;align-items:center;justify-content:center;height:18px;
+    border:var(--k-border-w) solid var(--p-edge-run);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
+    color:var(--p-running);font-family:var(--p-mono);font-size:9px;line-height:16px;letter-spacing:.03em;vertical-align:middle}
+  #inside .identity-note{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+
+  /* Token claim */
+  #inside .token-stat{display:inline-flex;align-items:center;gap:3px;border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--k-radius-pill);height:18px;padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+  #inside .token-stat.live{border-color:var(--p-edge-run);color:var(--p-running)}
+  #inside .token-stat .sigma{color:var(--p-muted2)}
+
+  /* Process ledger */
+  #inside .ledger{padding-bottom:var(--p-s2)}
+  #inside .op{border-top:var(--k-border-w) solid var(--p-border)}
+  #inside .op:first-child{border-top:0}
+  #inside .op summary,#inside .op-static{list-style:none;display:grid;
+    grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto 16px;
+    align-items:center;gap:var(--p-s2);min-height:31px;padding:0 var(--p-s4);border-radius:var(--p-r1)}
+  #inside .op summary{cursor:pointer}
+  #inside .op summary::-webkit-details-marker{display:none}
+  #inside .op summary:hover{background:var(--p-hover)}
+  #inside .op[open] summary{background:var(--p-surface2)}
+  #inside .op summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  #inside .op-static{color:var(--p-muted2)}
+  #inside .op.live summary{background:var(--p-tint-run)}
+  #inside .op.failed-source summary{background:var(--p-tint-fail)}
+  #inside .op.waiting-source summary{background:var(--p-tint-wait)}
+
+  /* The glyph: the prototype's own drawn states — never a text character. */
+  #inside .glyph{position:relative;width:16px;height:16px;display:inline-grid;place-items:center;flex:none;
+    border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-circle);color:var(--p-pending);line-height:1}
+  #inside .glyph.pass{color:var(--p-passed)}
+  #inside .glyph.fail{color:var(--p-failed)}
+  #inside .glyph.pending,#inside .glyph.note{color:var(--p-pending)}
+  #inside .glyph.skip{color:var(--p-skip)}
+  #inside .glyph.wait{color:var(--p-attention)}
+  #inside .glyph.run{color:var(--p-running)}
+  #inside .glyph.pass:before{content:"";width:6px;height:3px;border-left:1.5px solid currentColor;
+    border-bottom:1.5px solid currentColor;transform:translateY(-1px) rotate(-45deg)}
+  #inside .glyph.fail:before,#inside .glyph.fail:after{content:"";position:absolute;width:7px;height:1.5px;
+    border-radius:var(--k-border-w);background:currentColor;left:50%;top:50%;transform-origin:center}
+  #inside .glyph.fail:before{transform:translate(-50%,-50%) rotate(45deg)}
+  #inside .glyph.fail:after{transform:translate(-50%,-50%) rotate(-45deg)}
+  #inside .glyph.pending:before,#inside .glyph.note:before{content:"";width:3px;height:3px;
+    border-radius:var(--k-radius-circle);background:currentColor}
+  #inside .glyph.run:before{content:"";width:8px;height:8px;border:1.5px solid currentColor;
+    border-right-color:transparent;border-radius:var(--k-radius-circle);animation:spin var(--k-dur-spin) linear infinite}
+  #inside .glyph.wait:before,#inside .glyph.wait:after{content:"";position:absolute;width:1.5px;height:6px;
+    top:4px;border-radius:var(--k-border-w);background:currentColor}
+  #inside .glyph.wait:before{left:5px}
+  #inside .glyph.wait:after{right:5px}
+  #inside .glyph.skip:before{content:"";width:7px;height:1px;background:currentColor;transform:rotate(-45deg)}
+
+  #inside .op-name{display:flex;align-items:center;gap:var(--p-s2);min-height:18px;line-height:18px;
+    font-size:var(--p-sm);font-weight:var(--k-weight-medium);color:var(--p-text);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .op-detail{min-width:0;min-height:18px;line-height:18px;color:var(--p-muted);font-size:var(--p-sm);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .op-detail.run{color:var(--p-running)}
+  #inside .op-detail.wait{color:var(--p-attention)}
+  #inside .op-detail.fail{color:var(--p-failed)}
+  #inside .op-detail.note,#inside .op-detail.skip{font-style:italic}
+  #inside .op-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);min-width:0;
+    min-height:18px;line-height:18px;white-space:nowrap;padding-right:var(--p-s1)}
+  #inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:16px}
+  #inside .duration{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
+  #inside .op-time{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
+  #inside .chev{width:16px;height:16px;display:grid;place-items:center;justify-self:center;align-self:center;color:var(--p-muted2)}
+  #inside .chev:before{content:"";width:5px;height:5px;border-right:var(--k-border-w) solid currentColor;
+    border-bottom:var(--k-border-w) solid currentColor;transform:rotate(-45deg);
+    transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  #inside .op[open] .chev:before{transform:rotate(45deg)}
+  #inside .op-body{margin:0 0 var(--p-s2) 36px;border-left:var(--k-border-w) solid var(--p-border);
+    padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
+
+  /* Generic evidence rows */
+  #inside .evidence-row{display:grid;grid-template-columns:minmax(74px,100px) minmax(0,1fr) auto;
+    gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
+  #inside .ev-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .ev-detail{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:var(--p-sm);line-height:18px}
+  #inside .ev-state,#inside .gate-state{min-height:18px;display:inline-flex;align-items:center;
+    justify-content:flex-end;line-height:18px;text-transform:lowercase;white-space:nowrap;
+    font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2)}
+  #inside .ev-state.pass,#inside .gate-state.pass{color:var(--p-passed)}
+  #inside .ev-state.run,#inside .gate-state.run{color:var(--p-running)}
+  #inside .ev-state.wait,#inside .gate-state.wait{color:var(--p-attention)}
+  #inside .ev-state.fail,#inside .gate-state.fail{color:var(--p-failed)}
+  #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
+  #inside .ev-state,#inside .gate-state{gap:var(--p-s2)}
+  #inside .ev-dur{color:var(--p-muted2)}
+  #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
+
+  /* Gates */
+  #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
+    overflow:hidden;background:var(--p-surface)}
+  #inside .gate-row{display:grid;grid-template-columns:minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;
+    gap:var(--p-s2);align-items:center;min-height:28px;padding:0 var(--p-s2);
+    border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .gate-row:last-child{border-bottom:0}
+  /* A gates body whose rows name no repository (pre-v21 rows) drops the column
+     rather than drawing an empty one — a blank cell reads as a repo with no
+     name instead of a row that names none. */
+  #inside .gates.no-repo .gate-row{grid-template-columns:minmax(110px,150px) minmax(0,1fr) auto}
+  #inside .gate-row.active{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
+  #inside .gate-repo,#inside .gate-name{font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .gate-repo{color:var(--p-text)}
+  #inside .gate-name{color:var(--p-muted)}
+  #inside .gate-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+
+  /* Findings */
+  #inside .findings{display:grid;gap:var(--p-s1)}
+  #inside .finding{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:var(--p-s2);
+    align-items:center;min-height:27px;padding:0 var(--p-s2)}
+  #inside .sev{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-attention)}
+  #inside .finding-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--p-sm);line-height:18px}
+  #inside .finding-loc{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+
+  /* Bounded evidence: the prototype's overflow note carries the control. */
+  #inside .overflow-note{min-height:26px;display:flex;align-items:center;gap:var(--p-s2);padding:0 var(--p-s2);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    border-top:var(--k-border-w) solid var(--p-border)}
+
+  /* Session card: phases belong to the session, not beside it */
+  #inside .session-card{margin:0 0 var(--p-s2);border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--p-r2);background:var(--p-surface);overflow:hidden}
+  #inside .session-head{display:grid;grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto;
+    gap:var(--p-s1);align-items:center;min-height:34px;padding:0 var(--p-s1);background:var(--p-surface)}
+  #inside .session-head.live{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
+  #inside .session-label{display:flex;align-items:center;gap:var(--p-s1);color:var(--p-text);
+    font-size:var(--p-sm);font-weight:var(--k-weight-semibold)}
+  #inside .session-current{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .session-current.run{color:var(--p-running)}
+  #inside .session-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s1);
+    min-width:0;min-height:18px;line-height:18px}
+
+  /* One continuous chronological session timeline */
+  #inside .session-segments{--timeline-left:var(--p-s3);--timeline-col:20px;position:relative;
+    padding:var(--p-s1) 0 var(--p-s2)}
+  #inside .timeline-row{display:grid;
+    grid-template-columns:var(--timeline-col) minmax(110px,160px) minmax(0,1fr) auto;
+    gap:var(--p-s1);align-items:center;min-height:29px;padding:0 var(--p-s2) 0 var(--timeline-left);
+    position:relative;z-index:1}
+  /* ONE source of truth for the timeline x-position: node and edge are both
+     centered at 50% of this same 20px cell. */
+  #inside .timeline-slot{position:relative;align-self:stretch;display:grid;place-items:center;
+    width:var(--timeline-col);min-width:var(--timeline-col);justify-self:stretch;z-index:2}
+  #inside .timeline-slot:before,#inside .timeline-slot:after{content:"";position:absolute;left:50%;
+    width:var(--k-border-w);transform:translateX(-50%);background:var(--p-border);z-index:0;pointer-events:none}
+  #inside .timeline-slot:before{top:0;height:calc(50% - var(--node-radius, 7px))}
+  #inside .timeline-slot:after{top:calc(50% + var(--node-radius, 7px));bottom:0}
+  #inside .timeline-row:first-child .timeline-slot:before,
+  #inside .timeline-row:last-child .timeline-slot:after{display:none}
+  #inside .timeline-start{color:var(--p-muted);--node-radius:4px}
+  #inside .timeline-start-label{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .timeline-node{display:grid;place-items:center;justify-self:center;position:relative;z-index:3;background:var(--p-bg)}
+  #inside .timeline-node.start{width:7px;height:7px;border:var(--k-border-w) solid var(--p-muted);
+    border-radius:var(--k-radius-circle);background:var(--p-surface2)}
+  #inside .timeline-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s1);
+    min-width:0;white-space:nowrap}
+  #inside .segment-window,#inside .switch-time,#inside .phase-time{color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .phase-row{color:var(--p-muted);--node-radius:7px}
+  #inside .phase-row.current{background:linear-gradient(90deg,transparent 0 40px,var(--p-tint-run) 40px 100%)}
+  #inside .phase-status{width:14px;height:14px;transform:none;background:var(--p-bg);position:relative;z-index:3}
+  #inside .phase-status.glyph.run:before{width:7px;height:7px}
+  #inside .phase-status.glyph.pass:before{width:5px;height:3px}
+  #inside .phase-name{color:var(--p-text);font-size:var(--p-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .phase-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .phase-detail.run{color:var(--p-running)}
+  #inside .phase-detail.fail{color:var(--p-failed)}
+  /* A switch is chronology without a status node: the edge passes straight
+     through the rail cell and a short branch points at the annotation. */
+  #inside .switch-event{--node-radius:0px;color:var(--p-muted2);
+    background:linear-gradient(90deg,transparent 0 40px,var(--p-surface) 40px 100%)}
+  #inside .switch-slot .switch-branch{position:absolute;left:50%;top:50%;width:9px;height:var(--k-border-w);
+    background:var(--p-border);transform:translateY(-50%);z-index:1}
+  #inside .switch-label{display:flex;align-items:center;gap:var(--p-s1);min-width:0;color:var(--p-muted);
+    font-size:var(--p-sm);white-space:nowrap}
+  #inside .switch-arrow{display:inline-flex;align-items:center;justify-content:center;width:14px;height:16px;
+    margin-left:-10px;margin-right:2px;color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-sm);
+    line-height:16px;flex:none}
+  #inside .switch-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .session-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--p-s2);min-height:27px;
+    padding:var(--p-s1) var(--p-s3);border-top:var(--k-border-w) solid var(--p-border);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
+  #inside .session-foot .session-rule{margin-left:auto}
+
+  /* Recovery: a bounded fail → Fix loop, and the round history behind it. */
+  #inside .recovery-pill{display:inline-flex;align-items:center;justify-content:center;height:18px;
+    border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
+    color:var(--p-muted);font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+  #inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
+  #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--p-r1);overflow:hidden;background:var(--p-surface)}
+  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:var(--p-s2);
+    align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .recovery-round:last-child{border-bottom:0}
+  #inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
+  #inside .recovery-cause{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-text);font-size:var(--p-sm)}
+  #inside .recovery-result{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .recovery-result.run{color:var(--p-running)}
+  #inside .recovery-result.fail{color:var(--p-failed)}
+  #inside .recovery-result.pass{color:var(--p-passed)}
+
+  /* Done: the compact delivery receipt */
+  #inside .done-receipt{padding:0 0 var(--p-s2)}
+  #inside .done-hero{display:flex;align-items:center;gap:var(--p-s2);min-height:38px;margin-bottom:var(--p-s1);
+    padding:0 var(--p-s2);border:var(--k-border-w) solid var(--p-edge-done);border-radius:var(--p-r2);
+    background:var(--p-tint-done)}
+  #inside .done-hero-main{color:var(--p-strong);font-size:var(--p-sm);font-weight:var(--k-weight-semibold)}
+  #inside .done-hero-sub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .done-hero-time{margin-left:auto;color:var(--p-muted2);font-family:var(--p-mono);
+    font-size:var(--p-xs);white-space:nowrap}
+  #inside .done-line{display:grid;grid-template-columns:minmax(88px,120px) minmax(0,1fr) auto;gap:var(--p-s2);
+    align-items:center;min-height:24px;padding:0 var(--p-s2)}
+  #inside .done-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .done-copy{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .done-state{color:var(--p-passed);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .done-check{flex:none}
+  #inside .receipt-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+    border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r2);overflow:hidden;background:var(--p-surface)}
+  #inside .receipt-block{min-width:0;padding:var(--p-s2) var(--p-s3);
+    border-right:var(--k-border-w) solid var(--p-border)}
+  #inside .receipt-block:last-child{border-right:0}
+  #inside .receipt-label{display:flex;align-items:center;gap:var(--p-s1);margin-bottom:var(--p-s1);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    text-transform:uppercase;letter-spacing:.04em}
+  #inside .receipt-value{color:var(--p-strong);font-size:var(--p-sm);
+    font-weight:var(--k-weight-semibold);line-height:1.35}
+  #inside .receipt-detail{margin-top:var(--k-space-1);color:var(--p-muted);font-size:var(--p-sm);line-height:1.35}
+  #inside .ai-usage-breakdown{display:flex;flex-wrap:wrap;gap:var(--p-s1) var(--p-s2);margin-top:var(--p-s1)}
+  #inside .ai-usage-item{color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .ai-usage-item strong{color:var(--p-text);font-weight:var(--k-weight-medium)}
+
+  /* Ship · Commit: one block per repository, its provenance pill, its commits */
+  #inside .commit-grid{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
+    overflow:hidden;background:var(--p-surface)}
+  #inside .commit-repo{border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .commit-repo:last-child{border-bottom:0}
+  #inside .commit-repo-head{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto;
+    gap:var(--p-s2);align-items:center;min-height:29px;padding:0 var(--p-s2)}
+  #inside .commit-repo-name{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .commit-repo-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .commit-origin{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+  #inside .commit-origin.ship{border-color:var(--p-edge-run);color:var(--p-running)}
+  #inside .commit-origin.existing{border-color:var(--p-border2);color:var(--p-muted2)}
+  #inside .commit-list{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s2) + 82px)}
+  #inside .commit-item{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:var(--p-s1);
+    min-height:23px;align-items:center}
+  #inside .commit-sha{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .commit-message{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+
+  /* Ship · Pull request: the recorded path per repository */
+  #inside .pr-branches{display:grid;gap:var(--k-space-1)}
+  #inside .pr-branch{display:flex;align-items:center;gap:var(--p-s1);min-height:29px;
+    padding:0 var(--p-s2);border-radius:var(--p-r1)}
+  #inside .pr-branch.current{background:var(--p-tint-run)}
+  #inside .pr-repo{width:44px;flex:none;color:var(--p-strong);font-family:var(--p-mono);
+    font-size:var(--p-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .pr-path{min-width:0;display:flex;align-items:center;gap:var(--p-s1);
+    overflow:hidden;font-size:var(--p-sm)}
+  #inside .pr-object{display:inline-flex;align-items:center;gap:var(--p-s1);min-height:18px;
+    line-height:18px;white-space:nowrap}
+  #inside .pr-link{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    font-weight:var(--k-weight-semibold)}
+  #inside .pr-status{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--p-border2);
+    border-radius:var(--k-radius-pill);height:18px;padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:9px;line-height:16px;text-transform:lowercase;white-space:nowrap}
+  #inside .pr-status.open{color:var(--p-running);border-color:var(--p-edge-run)}
+  #inside .pr-status.draft{color:var(--p-skip);border-color:var(--p-border2)}
+  #inside .pr-status.merged{color:var(--p-passed);border-color:var(--p-edge-done)}
+  #inside .pr-status.closed{color:var(--p-failed);border-color:var(--p-failed)}
+  #inside .pr-empty{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .pr-step{white-space:nowrap;color:var(--p-muted)}
+  #inside .pr-step.current{color:var(--p-running);font-weight:var(--k-weight-medium)}
+  #inside .pr-step.fail{color:var(--p-failed)}
+  #inside .pr-step.note{color:var(--p-muted2);font-style:italic}
+  #inside .pr-arrow{color:var(--p-muted2);flex:none}
+  #inside .pr-branch-note{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s2) + 48px);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px}
+
+  /* The prototype's compact width, expressed as the block's own container
+     query so it follows the panel rather than the window (handoff §10). */
+  @container (max-width: 430px){
+    #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
+    #inside .inside-head{grid-template-columns:auto minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
+    #inside .inside-meta{grid-column:2}
+    #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto 16px;
+      padding-left:var(--p-s2);padding-right:var(--p-s2)}
+    #inside .duration,#inside .op-time{display:none}
+    #inside .op-tail .agent-model{display:none}
+    #inside .op-body{margin-left:20px}
+    #inside .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
+    #inside .gate-repo{display:none}
+    #inside .gates.no-repo .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
+    #inside .gate-state{grid-column:3}
+    #inside .evidence-row{grid-template-columns:70px minmax(0,1fr)}
+    #inside .ev-state{grid-column:2}
+    #inside .finding{grid-template-columns:36px minmax(0,1fr)}
+    #inside .finding-loc{grid-column:2}
+    #inside .done-line{grid-template-columns:76px minmax(0,1fr)}
+    #inside .done-state{grid-column:2}
+    /* The receipt grid stacks rather than crushing three columns; the commit
+       list and the PR note lose their hanging indent so nothing truncates. */
+    #inside .receipt-grid{grid-template-columns:minmax(0,1fr)}
+    #inside .receipt-block{border-right:0;border-bottom:var(--k-border-w) solid var(--p-border)}
+    #inside .receipt-block:last-child{border-bottom:0}
+    #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto}
+    #inside .commit-repo-name{grid-column:1}
+    #inside .commit-repo-summary{grid-column:1/-1}
+    #inside .commit-list,#inside .pr-branch-note{padding-left:var(--p-s2)}
+    #inside .commit-item{grid-template-columns:52px minmax(0,1fr)}
+    #inside .pr-branch{flex-wrap:wrap}
+    #inside .session-head{grid-template-columns:20px minmax(72px,90px) minmax(0,1fr)}
+    #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr);
+      padding-left:var(--timeline-left)}
+    #inside .phase-time,#inside .timeline-tail{display:none}
+    #inside .session-foot{flex-wrap:wrap}
+    #inside .session-foot .session-rule{margin-left:0;width:100%}
+    #inside .recovery-round{grid-template-columns:48px minmax(0,1fr)}
+    #inside .recovery-result{grid-column:2}
+    /* handoff §10: a truncated path hides where the fix goes, so the unbounded
+       cells WRAP here instead of ellipsising — and `overflow-wrap:anywhere`,
+       because `white-space:normal` alone cannot break a long branch or SHA. */
+    #inside .finding-title,#inside .ev-detail,#inside .done-copy,#inside .op-detail{
+      white-space:normal;overflow:visible;overflow-wrap:anywhere}
+  }
+  /* ≤360 / ≤300 — the floor: chrome thins, nothing is hidden. The status and
+     the name never drop (handoff §10). */
+  @container (max-width: 360px){
+    #inside .op summary,#inside .op-static{gap:var(--k-border-w);padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+    #inside .evidence-row,#inside .gate-row{gap:var(--p-s1)}
+  }
+  @container (max-width: 300px){
+    #inside .inside{margin-left:var(--k-space-1);margin-right:var(--k-space-1)}
+    #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
+    #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+    #inside .commit-repo-head,#inside .commit-list,#inside .pr-branch,#inside .pr-branch-note,
+    #inside .receipt-block{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+    #inside .pr-path{flex-wrap:wrap}
+  }
+  @media (prefers-reduced-motion: reduce){
+    #inside .glyph.run:before{animation:none}
+    #inside .chev:before{transition:none}
+  }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
-  .act .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
-    font-family:var(--k-font-mono);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .act .alive .spin{width:var(--k-text-xs);height:var(--k-text-xs);flex:none;color:var(--k-running)}
+  #inside .alive{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis}
+  #inside .alive .adetail,#inside .alive .adur{color:var(--p-muted2);margin-left:var(--p-s1);
+    font-family:var(--p-mono);font-size:var(--p-xs)}
+  /*KARST_INSIDE_PROTO_END*/
 
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
@@ -808,38 +1189,6 @@
   .gaterow.off .gname{text-decoration:line-through;color:var(--k-text-faint)}
   .gaterow .gname{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1}
   .gaterow .gstate{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-
-  /* ── development-only Inside preview toolbar (Finding 1 / Task 9) ─────────
-     The preview panel renders THIS SAME asset; the toolbar is inert and hidden
-     in the production dashboard (the preview-fixtures message is the only
-     thing that reveals it). The controls sit OUTSIDE the delivered Inside DOM
-     (#inside) and are pure view state: selecting a fixture dispatches
-     {type:'state'} through the SAME message listener a real snapshot arrives
-     on, and the width buttons only toggle a body data attribute — neither
-     posts to the host (the design system's immediate exemption for view-state
-     controls, DESIGN-SYSTEM.md §5.3). */
-  .pvtoolbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
-    margin:var(--k-space-7) var(--k-space-3) 0;padding:var(--k-space-4) var(--k-space-6);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
-    background:var(--k-surface)}
-  .pvtoolbar .pvlabel{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pvtoolbar select{flex:none}
-  .pvtoolbar .pvwidth{display:inline-flex;align-items:center;gap:var(--k-space-1);
-    margin-left:auto;flex-wrap:wrap}
-  /* The pressed width button re-themes like the bind toggle: a mode the panel
-     reports is a filled state, not a hover shade (same rationale as
-     .bindtoggle[aria-pressed="true"]). */
-  .pvtoolbar .k-btn[aria-pressed="true"]{color:var(--k-action-fg);
-    background:var(--k-action-bg);border-color:transparent}
-  /* Width frame: dev-only. The preview constrains the Inside component's own
-     width (300/360/430) to exercise the narrow renderers; `normal` matches
-     nothing, so the default page width stands. Raw px with no scale match —
-     the same UI-R04 exemption class as a @container breakpoint (a component
-     dimension with no token) — and gated on .preview-mode so production
-     renders are never touched. */
-  body.preview-mode[data-pv-w="300"] .stepper{width:300px}
-  body.preview-mode[data-pv-w="360"] .stepper{width:360px}
-  body.preview-mode[data-pv-w="430"] .stepper{width:430px}
 </style>
 
 <!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
@@ -913,29 +1262,6 @@
   <button id="editBtn" type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="edit-ticket" title="Edit this ticket's title, description, and scope">Edit</button>
 </div>
 
-<!-- Development-only Inside preview toolbar (Finding 1 / Task 9). Hidden and
-     inert in the production dashboard — only the preview panel's
-     preview-fixtures message reveals it. The controls are view state and live
-     OUTSIDE the delivered Inside DOM; the fixture's snapshot arrives through
-     the same {type:'state'} message a real dashboard push uses. -->
-<div class="pvtoolbar hidden" id="previewToolbar">
-  <label class="pvlabel" for="pvScenario">Stage / scenario</label>
-  <select id="pvScenario" class="k-input"></select>
-  <label class="pvlabel" for="pvRepos">Repositories</label>
-  <select id="pvRepos" class="k-input"></select>
-  <span class="pvwidth" role="group" aria-label="Preview width">
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="300" aria-pressed="false" title="Preview the Inside panel at 300px wide">300</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="360" aria-pressed="false" title="Preview the Inside panel at 360px wide">360</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="430" aria-pressed="false" title="Preview the Inside panel at 430px wide">430</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="normal" aria-pressed="true" title="Preview at the panel's natural width">normal</button>
-  </span>
-  <span class="pvwidth" role="group" aria-label="Preview process lifecycle">
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="active" title="Send a preview active inside-progress event">Start live operation</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="completed" title="Send a preview completed inside-progress event">Complete</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="cleared" title="Send a preview cleared inside-progress event">Clear</button>
-  </span>
-</div>
-
 <div class="stepper">
   <!-- The main rail + the fix return channel + impl's approach chip. -->
   <div class="railwrap" id="rail"></div>
@@ -977,6 +1303,13 @@
   // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
   /*KARST_PROVIDER_JS*/
 
+  // Shared agent-core identity (icon + name) — single source in
+  // src/model/agentIdentity.ts, injected here at load. Defines
+  // AGENT_PROVIDER_LABELS, agentBadgeHtml, agentIconHtml. The inside ledger's
+  // identity chip consumes agentIconHtml (B1), so the markers are load-bearing:
+  // without them the chip would throw ReferenceError on the first process row.
+  /*KARST_AGENT_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
@@ -989,17 +1322,21 @@
   // segment's own rule sets no colour (so the stage palette can), which leaves an
   // untravelled segment wearing its stage hue at full strength unless something
   // says otherwise.
-  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped' };
+  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped', blocked: 'blocked' };
   // Running renders a spinner ELEMENT, not a character — see the .spin rule for
-  // why every glyph candidate misread on a clickable node.
+  // why every glyph candidate misread on a clickable node. A blocked stage is
+  // NOT running: it carries the same pause a parked confirm stage does.
   const SPINNER = '<span class="spin" aria-hidden="true"></span>';
-  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–' };
+  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–', blocked: '❚❚' };
   // A parked confirm stage carries a pause; a conflicted merge carries a warning.
   // Two glyphs, ONE state — merge has no failed edge, so a conflict is a wording
   // difference and must never render as something a retry could clear.
   const NEEDS_GLYPH = '❚❚';
   const CONFLICT_GLYPH = '⚠';
-  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·', skip: '⊘' };
+  // NOTE: the Inside block does NOT use a glyph character map — the ported
+  // prototype draws each state with CSS on `.glyph` (a ring, a check, a cross,
+  // a spinning arc), which is why its running state no longer renders the
+  // rail's spinner element inside a row of text.
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
   const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
@@ -1025,10 +1362,6 @@
   // unrelated refresh. The follow-up message replaces it wholesale — including
   // with an empty list when resolution fails — so it cannot go stale unnoticed.
   let gateOptions = { uat: [], review: [] };
-  // The development-only Inside preview's fixture list, each entry carrying its
-  // HOST-BUILT dashboard snapshot (Finding 1). Empty in the production
-  // dashboard — the preview-fixtures message is the only thing that fills it.
-  let previewFixtures = [];
   // `shipRequestId` / `mergeRequests` / `prRefreshId` below are the runtime's
   // pending bookkeeping (karstBeginPending/karstSettle) for the ship/merge/
   // refresh-prs controls. They are tracked SEPARATELY from the view state
@@ -1062,8 +1395,13 @@
   // state, exactly like `openMergeRepos`: render() replaces #inside wholesale
   // on every state push, so a disclosure open only in the DOM would snap shut
   // on the very next one. Never in DashboardState, never round-tripped
-  // through the host; only the `data-chev` click handler mutates it.
+  // through the host; only the native `toggle` listener mutates it (B3), and
+  // render() itself must never reset it.
   let openProcesses = new Set();
+  // Which disclosures the user has explicitly COLLAPSED, keyed `stage:id`
+  // (Task 3, Step 5). openProcesses holds open keys only, so absence cannot
+  // tell "never opened" from "closed" — this set can. Only `toggle` mutates.
+  let closedProcesses = new Set();
   // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
   // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
   // in which a button with no busy state looks inert and gets pressed again.
@@ -1121,7 +1459,11 @@
     const segs = rail.main.map((s) => {
       const cell = s.cell;
       const k = cell.stageKey;
-      const status = cell.status;
+      // The HOST resolves how the cell reads (displayStatus, model/stepper.ts):
+      // a parked stage keeps its stored `running` but must not draw a spinner.
+      // Fall back to the stored status for a snapshot restored from an older
+      // build that predates the field.
+      const status = s.status || cell.status;
       const needs = s.needsUser === true;
       // A conflict is a WORDING difference, not a new state: merge has no failed
       // edge, so it must never render as something a retry could clear. The host
@@ -1264,87 +1606,6 @@
     if (over()) track.classList.add('bare');
   }
 
-  // ── development-only Inside preview (Finding 1 / Task 9) ────────────────
-  // The preview panel renders this SAME asset; the preview-fixtures message
-  // (sent only by the preview host) fills and reveals the toolbar. The
-  // fixtures arrive with their host-built dashboard snapshots already
-  // attached; selecting one dispatches {type:'state'} through the SAME window
-  // message listener a real snapshot arrives on, so the preview exercises the
-  // production render path byte for byte. Everything here is view state —
-  // nothing posts to the host (the design system's immediate exemption for
-  // view-state controls, DESIGN-SYSTEM.md §5.3).
-  function selectPreviewFixture() {
-    const fixture = previewFixtures.find((f) =>
-      f.repositoryCount === Number(el('pvRepos').value)
-      && f.scenario === el('pvScenario').value);
-    if (!fixture) return;
-    window.dispatchEvent(new MessageEvent('message', { data: { type: 'state', state: fixture.state } }));
-  }
-
-  // Populate the toolbar from the fixture list. The selects list the distinct
-  // scenarios and repo counts the matrix actually carries; every option maps
-  // back to exactly one fixture via selectPreviewFixture().
-  function renderPreviewToolbar(fixtures) {
-    previewFixtures = fixtures || [];
-    const scenarios = [];
-    const repoCounts = [];
-    for (const f of previewFixtures) {
-      if (!scenarios.includes(f.scenario)) scenarios.push(f.scenario);
-      if (!repoCounts.includes(f.repositoryCount)) repoCounts.push(f.repositoryCount);
-    }
-    repoCounts.sort((a, b) => a - b);
-    el('pvScenario').innerHTML = scenarios
-      .map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-    el('pvRepos').innerHTML = repoCounts
-      .map((n) => `<option value="${n}">${n} repositories</option>`).join('');
-    el('previewToolbar').classList.remove('hidden');
-    document.body.classList.add('preview-mode');
-    document.body.dataset.pvW = 'normal';
-    selectPreviewFixture();
-  }
-
-  // Preview-only lifecycle controls deliberately dispatch the exact generic
-  // inside-progress envelope the production host uses. They are local to this
-  // toolbar (which production never reveals), so no fixture action can mutate
-  // a ticket; the three buttons let Dev Host verification visibly step through
-  // active → completed → cleared instead of merely asserting the renderer's
-  // event branch in a test.
-  function previewProgress(kind) {
-    if (!lastState) return;
-    const stage = lastState.presentedStage || lastState.stageCurrent || 'scope';
-    const processId = 'preview-live-operation';
-    const event = kind === 'active'
-      ? { kind: 'active', ticketId: lastState.ticketId, stage, processId,
-          live: { status: 'run', label: 'Preview live operation' } }
-      : kind === 'completed'
-        ? { kind: 'completed', ticketId: lastState.ticketId, stage,
-            process: { id: processId, kind: 'preview', label: 'Preview live operation', status: 'pass' } }
-        : { kind: 'cleared', ticketId: lastState.ticketId, stage, processId };
-    window.dispatchEvent(new MessageEvent('message', { data: { type: 'inside-progress', event } }));
-  }
-
-  // The two fixture selects are attached ONCE at load (the toolbar markup is
-  // static); renderPreviewToolbar only swaps the options beneath them.
-  el('pvScenario').addEventListener('change', selectPreviewFixture);
-  el('pvRepos').addEventListener('change', selectPreviewFixture);
-
-  // The width buttons toggle a body data attribute; the CSS constrains the
-  // Inside component under .preview-mode only. Purely local, like the selects.
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-pv-w]');
-    if (!btn) return;
-    for (const b of el('previewToolbar').querySelectorAll('[data-pv-w]')) {
-      b.setAttribute('aria-pressed', String(b === btn));
-    }
-    document.body.dataset.pvW = btn.dataset.pvW;
-  });
-
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-pv-progress]');
-    if (!btn) return;
-    previewProgress(btn.dataset.pvProgress);
-  });
-
   // The needs-you button is NAVIGATIONAL. It scrolls the control that owns the
   // action into view and focuses it; it posts no host message and duplicates no
   // actor. merge is per-repo and its confirmation modal lives in the host
@@ -1362,13 +1623,14 @@
     if (target && typeof target.focus === 'function') target.focus();
   }
 
-  // ── the inside ledger (the inside redesign) ─────────────────────────────
+  // ── the Inside block: the A37 prototype's renderer ──────────────────────
   // The host ships ONE snapshot per stage (`InsideStageView`): ordered process
   // rows, each carrying pre-built status/detail/counts/identity/evidence and
-  // an opaque action id. The webview renders rows and evidence rows
-  // verbatim — it never parses prose, never formats a number, never derives a
-  // verdict. Only the kind→label copy for the closed action vocabulary lives
-  // here, exactly like NOW_TITLE: a presentation hint, not business logic.
+  // an opaque action id. The webview renders rows verbatim — it never parses
+  // prose, never formats a number, never derives a verdict. What changed with
+  // the port is only the GRAMMAR it renders into: the prototype's op ledger
+  // (`.op` summary grid + `.op-body`), its drawn glyphs, its session card and
+  // its per-kind evidence bodies.
 
   // kind → label, from the closed InsideActionKind vocabulary. Static control
   // copy (UI-R20), like NOW_TITLE — the host never ships these strings.
@@ -1393,64 +1655,310 @@
 
   function insideActionBtnHtml(a) {
     if (!a || !INSIDE_ACTION_LABEL[a.kind]) return '';
+    // The host may ship a count-bearing label ("Show 4 more" — handoff §10);
+    // the static map is the fallback, never a webview-computed count.
+    const label = a.label || INSIDE_ACTION_LABEL[a.kind];
     return `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="inside-action"`
       + ` data-action-id="${esc(a.actionId)}" title="${esc(INSIDE_ACTION_TITLE[a.kind])}">`
-      + `${esc(INSIDE_ACTION_LABEL[a.kind])}</button>`;
+      + `${esc(label)}</button>`;
   }
 
-  // The recorded execution identity. `execution` = what RAN; `configured`
-  // = what settings said WOULD run. One chip, whichever exists; the title
-  // says which claim it is, so a pending process never reads as evidence.
-  function identityChipHtml(p) {
-    const e = p.execution || p.configuredExecution;
-    if (!e) return '';
-    const core = e.providerLabel || e.provider;
-    const model = e.modelLabel || e.model;
-    if (!core) return '';
-    const label = [e.agentName, core, model && model !== core ? model : ''].filter(Boolean).join(' · ');
-    const tip = p.execution ? 'Executed with this identity' : 'Configured to run — has not executed yet';
-    return `<span class="pchip" title="${esc(tip)}">${esc(label)}</span>`;
+  // The status WORD — the visible state, so status never rides colour alone
+  // (UI-R06). The host ships the key; the word is closed control copy.
+  const INSIDE_STATUS_LABEL = {
+    pending: 'pending', run: 'running', wait: 'waiting',
+    pass: 'passed', fail: 'failed', note: 'note', skip: 'skipped',
+  };
+  function statusWord(status) {
+    return INSIDE_STATUS_LABEL[status] || status || '';
   }
 
-  function tokensHtml(t) {
+  // ── the prototype's shared primitives ──────────────────────────────────
+  // The identity run: [agent name ·] core mark + core · model. Every part is
+  // host-shipped (`AgentExecutionView`); the mark comes from the injected
+  // line-icon renderer, so a provider with no mark degrades to text alone.
+  function agentIdHtml(x) {
+    if (!x) return '';
+    const name = x.agentName
+      ? `<span class="agent-name">${esc(x.agentName)}</span><span class="agent-sep">·</span>` : '';
+    const icon = x.provider ? agentLineIconHtml(x.provider) : '';
+    const core = x.providerLabel ? `<span class="agent-core">${esc(x.providerLabel)}</span>` : '';
+    const model = x.modelLabel
+      ? `<span class="agent-sep">·</span><span class="agent-model">${esc(x.modelLabel)}</span>` : '';
+    return `<span class="agent-id">${name}${icon}${core}${model}</span>`;
+  }
+
+  // The identity a row is entitled to show, in the §11 order: what RAN, else
+  // what settings SAY will run, else the host's absence copy. Never invented.
+  function identityHtml(p) {
+    if (p.execution) return agentIdHtml(p.execution);
+    if (p.configuredExecution) return agentIdHtml(p.configuredExecution);
+    if (p.identityNote) return `<span class="identity-note">${esc(p.identityNote)}</span>`;
+    return '';
+  }
+
+  // The token claim as the prototype's Σ pill. `unavailable` is NOT zero: it
+  // renders as a titled absence marker, never "0 tokens" (decision 8).
+  function tokenStatHtml(t, live) {
     if (!t) return '';
+    if (t.state === 'unavailable') {
+      return `<span class="token-stat" title="${esc(t.title)}">usage unavailable</span>`;
+    }
     const tip = t.exact ? ` title="${esc(t.exact)}"` : '';
-    return `<span class="ptok"${tip}>${esc(t.total)} tokens</span>`;
+    return `<span class="token-stat${live ? ' live' : ''}"${tip}><span class="sigma">Σ</span>${esc(t.total)} tok</span>`;
   }
 
-  function evidenceRowHtml(r) {
-    const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
-    // The timeline's relationship marker: this row continues the SAME
-    // execution through a provider switch or a resume. Structural (the host
-    // sets `connector`), never guessed from the label. Static tooltip copy
-    // from the closed vocabulary, like the action titles above.
-    const conn = r.connector === 'switch' || r.connector === 'resume'
-      ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
+  // ── per-kind evidence bodies ───────────────────────────────────────────
+  // The closed ProcessEvidenceView union is dispatched here, one body per
+  // kind, each in the prototype's own container so the kind-specific CSS
+  // hangs off one selector.
+  // An evidence row's status is the GLYPH, not a word: the word repeated what
+  // the row's own detail already said ("selected … passed") on every row of
+  // every expanded body. The word survives as the glyph's accessible name, so
+  // nothing that cannot see colour loses the status. A recorded duration is a
+  // fact of its own and still renders beside it.
+  function evStateHtml(r, cls) {
+    if (!r.status) return `<span class="${cls}"></span>`;
+    const dur = r.duration
+      ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>`
       : '';
-    const act = r.action ? insideActionBtnHtml(r.action) : '';
-    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
-      + `<span class="elabel">${esc(r.label)}</span>`
-      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
-      + (r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '')
-      + (act ? `<span class="eact">${act}</span>` : '')
-      + `</div>`;
+    return `<span class="${cls} ${esc(r.status)}">${dur}`
+      + `<span class="glyph ${esc(r.status)}" aria-label="${esc(statusWord(r.status))}"></span></span>`;
+  }
+  function evActionHtml(r) {
+    return r.action ? `<span class="ev-tail">${insideActionBtnHtml(r.action)}</span>` : '';
   }
 
+  function evidenceRowsHtml(ev) {
+    return ev.rows.map((r) => `<div class="evidence-row">`
+      + `<span class="ev-key">${esc(r.label)}</span>`
+      + `<span class="ev-detail">${esc(r.detail || '')}</span>`
+      + (r.action ? evActionHtml(r) : evStateHtml(r, 'ev-state'))
+      + `</div>`).join('');
+  }
+  // The recorded repository is its own column. A body whose rows name none
+  // (pre-v21 gate rows) drops the column instead of drawing it empty — an
+  // empty cell would read as a repo with no name.
+  function evidenceGatesHtml(ev) {
+    const hasRepo = ev.rows.some((r) => !!r.repo);
+    return `<div class="gates${hasRepo ? '' : ' no-repo'}">${ev.rows.map((r) => `<div class="gate-row${r.status === 'run' ? ' active' : ''}">`
+      + (hasRepo ? `<span class="gate-repo">${esc(r.repo || '')}</span>` : '')
+      + `<span class="gate-name">${esc(r.label)}</span>`
+      + `<span class="gate-detail">${esc(r.detail || '')}</span>`
+      + evStateHtml(r, 'gate-state')
+      + `</div>`).join('')}</div>`;
+  }
+  function evidenceFindingsHtml(ev) {
+    return `<div class="findings">${ev.rows.map((r) => `<div class="finding">`
+      + `<span class="sev">${esc(r.label)}</span>`
+      + `<span class="finding-title">${esc(r.detail || '')}</span>`
+      + (r.action ? evActionHtml(r) : `<span class="finding-loc">${esc(r.duration || '')}</span>`)
+      + `</div>`).join('')}</div>`;
+  }
+  // The bounded remainder of a RICH body. The host owns both the count copy
+  // and the continuation's label — the webview counts nothing (UI-R31).
+  function evidenceOverflowHtml(o) {
+    if (!o) return '';
+    return `<div class="overflow-note"><span>${esc(o.detail || o.label || '')}</span>`
+      + (o.action ? insideActionBtnHtml(o.action) : '') + `</div>`;
+  }
+
+  // Ship · Commit: one block per repository — its provenance pill and the
+  // commits that pill speaks for. A snapshot with no `repos` (an older host)
+  // still renders through the generic row path.
+  function evidenceCommitsHtml(ev) {
+    if (!ev.repos || !ev.repos.length) return evidenceRowsHtml(ev);
+    const grid = ev.repos.map((r) => {
+      const list = r.commits && r.commits.length
+        ? `<div class="commit-list">${r.commits.map((c) => `<div class="commit-item">`
+          + `<span class="commit-sha">${esc(c.sha)}</span>`
+          + `<span class="commit-message">${esc(c.message)}</span>`
+          + (c.action ? evActionHtml(c) : '')
+          + `</div>`).join('')}</div>`
+        : '';
+      return `<div class="commit-repo"><div class="commit-repo-head">`
+        + `<span class="commit-repo-name">${esc(r.repo)}</span>`
+        + `<span class="commit-repo-summary">${esc(r.summary)}</span>`
+        + `<span class="commit-origin ${esc(r.originKind)}">${esc(r.origin)}</span>`
+        + `</div>${list}</div>`;
+    }).join('');
+    return `<div class="commit-grid">${grid}</div>${evidenceOverflowHtml(ev.overflow)}`;
+  }
+
+  // Ship · Pull request: the PR object karst recorded, the recorded step path,
+  // and the host's own sentence saying why the row reads as it does. A branch
+  // with no recorded number renders the host's absence copy, never a number.
+  function evidencePrsHtml(ev) {
+    if (!ev.branches || !ev.branches.length) return evidenceRowsHtml(ev);
+    const arrow = '<span class="pr-arrow" aria-hidden="true">→</span>';
+    const rows = ev.branches.map((b) => {
+      const object = b.number
+        ? `<span class="pr-object"><span class="pr-link">${esc(b.number)}</span>`
+          + (b.prState ? `<span class="pr-status ${esc(b.prState)}">${esc(b.prState)}</span>` : '')
+          + `</span>`
+        : `<span class="pr-empty">${esc(b.emptyLabel || '')}</span>`;
+      const steps = (b.steps || []).map(
+        (s) => `<span class="pr-step ${esc(s.state)}">${esc(s.label)}</span>`,
+      ).join(arrow);
+      return `<div><div class="pr-branch${b.current ? ' current' : ''}">`
+        + `<span class="pr-repo">${esc(b.repo)}</span>`
+        + `<div class="pr-path">${object}${steps ? arrow + steps : ''}</div></div>`
+        + `<div class="pr-branch-note">${esc(b.note || '')}</div></div>`;
+    }).join('');
+    return `<div class="pr-branches">${rows}</div>${evidenceOverflowHtml(ev.overflow)}`;
+  }
+
+  // Done: the hero line, the three-block receipt grid, then the delivery
+  // lines. Hero and blocks are optional — a receipt that carries only rows
+  // (an older snapshot) renders exactly what it always did.
+  function evidenceReceiptHtml(ev) {
+    const lines = ev.rows.map((r) => `<div class="done-line">`
+      + `<span class="done-key">${esc(r.label)}</span>`
+      + `<span class="done-copy">${esc(r.detail || '')}</span>`
+      + (r.action ? evActionHtml(r) : `<span class="done-state">${esc(r.duration || statusWord(r.status))}</span>`)
+      + `</div>`).join('');
+    if (!ev.hero && !(ev.blocks && ev.blocks.length)) return lines;
+    const hero = ev.hero
+      ? `<div class="done-hero"><span class="done-check glyph pass" aria-label="delivered"></span>`
+        + `<span class="done-hero-main">${esc(ev.hero.title)}</span>`
+        + `<span class="done-hero-sub">${esc(ev.hero.summary)}</span>`
+        + (ev.hero.time ? `<span class="done-hero-time">${esc(ev.hero.time)}</span>` : '')
+        + `</div>`
+      : '';
+    const blocks = ev.blocks && ev.blocks.length
+      ? `<div class="receipt-grid">${ev.blocks.map((b) => `<div class="receipt-block">`
+        + `<div class="receipt-label">${esc(b.label)}</div>`
+        + `<div class="receipt-value">${esc(b.value)}</div>`
+        + (b.details && b.details.length
+          ? `<div class="receipt-detail">${b.details.map((d) => esc(d)).join('<br>')}</div>` : '')
+        + (b.breakdown && b.breakdown.length
+          ? `<div class="ai-usage-breakdown">${b.breakdown.map((i) => `<span class="ai-usage-item">`
+            + `<strong>${esc(i.amount)}</strong> ${esc(i.label)}</span>`).join('')}</div>` : '')
+        + `</div>`).join('')}</div>`
+      : '';
+    return `<div class="done-receipt">${hero}${blocks}<div class="done-lines">${lines}</div></div>`;
+  }
+  function evidenceRecoveryHtml(ev) {
+    return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
+      + `<span class="recovery-num">${esc(r.label)}</span>`
+      + `<span class="recovery-cause">${esc(r.detail || '')}</span>`
+      + `<span class="recovery-result ${esc(r.status || '')}">`
+      + (r.duration ? `<span class="ev-dur">${esc(r.duration)}</span>` : '')
+      + `<span class="glyph ${esc(r.status || 'note')}" aria-label="${esc(statusWord(r.status || 'note'))}"></span>`
+      + `</span>`
+      + `</div>`).join('')}</div>`;
+  }
+
+  // The session timeline: ONE continuous rail, three row shapes. The shape
+  // comes from `role`/`connector` — closed structural fields — NEVER from
+  // parsing the label, which is prose.
+  function timelineRowHtml(r) {
+    const tail = `<span class="timeline-tail">${tokenStatHtml(r.tokens, r.status === 'run')}`
+      + (r.duration ? `<span class="segment-window">${esc(r.duration)}</span>` : '')
+      + (r.action ? insideActionBtnHtml(r.action) : '')
+      + `</span>`;
+    const identity = r.provider || r.detail
+      ? `<span class="agent-id">${r.provider ? agentLineIconHtml(r.provider) : ''}`
+        + `<span class="agent-core">${esc(r.detail || '')}</span></span>`
+      : '<span></span>';
+    if (r.connector === 'switch' || r.connector === 'resume') {
+      const word = r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here';
+      return `<div class="timeline-row switch-event">`
+        + `<span class="timeline-slot switch-slot" aria-hidden="true"><span class="switch-branch"></span></span>`
+        + `<span class="switch-label" title="${word}"><span class="switch-arrow" aria-hidden="true">↳</span>`
+        + `<span>${esc(r.label)}</span></span>`
+        + `<span class="switch-value">${identity}</span>${tail}</div>`;
+    }
+    if (r.role === 'identity') {
+      return `<div class="timeline-row timeline-start">`
+        + `<span class="timeline-slot"><span class="timeline-node start" aria-hidden="true"></span></span>`
+        + `<span class="timeline-start-label">${esc(r.label)}</span>`
+        + `<span class="switch-value">${identity}</span>${tail}</div>`;
+    }
+    const status = r.status || 'pending';
+    return `<div class="timeline-row phase-row${status === 'run' ? ' current' : ''}">`
+      + `<span class="timeline-slot phase-rail"><span class="glyph phase-status ${esc(status)}"`
+      + ` aria-label="${esc(statusWord(status))}"></span></span>`
+      + `<span class="phase-name">${esc(r.label)}</span>`
+      + `<span class="phase-detail ${esc(status)}">${esc(r.detail || '')}</span>`
+      + `<span class="phase-time">${esc(r.duration || '')}</span></div>`;
+  }
+  function evidenceTimelineHtml(ev) {
+    return `<div class="session-segments">${ev.rows.map(timelineRowHtml).join('')}</div>`;
+  }
+
+  // Kind → body. An unknown kind (a future host, an older snapshot) falls back
+  // to the generic rows body — forward compatibility, never a throw.
+  const EVIDENCE_RENDERERS = {
+    rows: evidenceRowsHtml,
+    gates: evidenceGatesHtml,
+    findings: evidenceFindingsHtml,
+    timeline: evidenceTimelineHtml,
+    commits: evidenceCommitsHtml,
+    prs: evidencePrsHtml,
+    recovery: evidenceRecoveryHtml,
+    receipt: evidenceReceiptHtml,
+  };
+  function evidenceBodyHtml(ev) {
+    return (EVIDENCE_RENDERERS[ev.kind] || evidenceRowsHtml)(ev);
+  }
+
+  // Does this evidence render anything? The generic `rows` array is only one
+  // of its shapes — a `prs`/`commits`/`receipt` evidence renders from
+  // `branches`/`repos`/`blocks`/`hero`, and testing `rows` alone made such a
+  // row static: content behind a disclosure with no way to open it.
+  function hasEvidenceBody(ev) {
+    if (!ev) return false;
+    return !!((ev.rows && ev.rows.length) || (ev.branches && ev.branches.length)
+      || (ev.repos && ev.repos.length) || (ev.blocks && ev.blocks.length) || ev.hero);
+  }
+
+  // ── the process row ────────────────────────────────────────────────────
+  // A process with evidence (or footer facts) is a native <details>: keyboard
+  // operability comes from the element, never a handler (UI-R09). One with
+  // nothing behind it is the prototype's `.op-static` — a row that states its
+  // fact and offers no disclosure it cannot honour.
   function processRowHtml(p, key, open) {
-    const glyph = OP_GLYPH[p.status] || '·';
-    const meta = [p.count, p.duration].filter(Boolean)
-      .map((m) => `<span class="pmeta">${esc(m)}</span>`).join('');
-    const act = p.action ? insideActionBtnHtml(p.action) : '';
-    const hasEv = p.evidence && p.evidence.rows.length;
-    const chev = hasEv
-      ? `<button type="button" class="k-iconbtn chev" data-chev="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}"`
-        + ` aria-label="Show ${esc(p.label)} details" title="Show ${esc(p.label)} details">${open ? '–' : '+'}</button>`
+    const ai = p.execution || p.configuredExecution ? '<span class="ai-mark">AI</span>' : '';
+    // No status WORD in the tail: the prototype's row carries its state on the
+    // glyph (which keeps the word as its accessible name) and in the detail's
+    // colour class. A second textual "Completed" beside the duration was ours,
+    // not the design's, and it crowded the tail out of the narrow widths.
+    const tail = `<span class="op-tail">${identityHtml(p)}`
+      + tokenStatHtml(p.tokens, p.status === 'run')
+      + (p.aggregate ? `<span class="count">${esc(p.aggregate)}</span>` : '')
+      + (p.count ? `<span class="count">${esc(p.count)}</span>` : '')
+      + (p.time ? `<span class="op-time">${esc(p.time)}</span>` : '')
+      + (p.duration ? `<span class="duration"${p.durationExact ? ` title="${esc(p.durationExact)}"` : ''}>${esc(p.duration)}</span>` : '')
+      + (p.action ? insideActionBtnHtml(p.action) : '')
+      + `</span>`;
+    const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
+    const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(p.statusLabel || statusWord(p.status))}"></span>`;
+    const detail = `<span class="op-detail ${esc(p.status)}">${esc(p.detail || '')}</span>`;
+    // A body exists if ANY of the evidence's shapes carries something. The
+    // generic `rows` array is only one of them: a `prs`/`commits`/`receipt`
+    // evidence renders from `branches`/`repos`/`blocks`, and testing `rows`
+    // alone made such a row static — a disclosure with content behind it and
+    // no way to open it.
+    const hasEv = hasEvidenceBody(p.evidence);
+    const hasFooter = !!(p.footer && p.footer.length);
+    if (!hasEv && !hasFooter) {
+      return `<div class="op"><div class="op-static" data-proc-id="${esc(key)}">`
+        + `${glyph}${name}${detail}${tail}<span></span></div></div>`;
+    }
+    const footer = hasFooter
+      ? `<div class="session-foot">${p.footer.map((f, i) => `<span${i === p.footer.length - 1 ? ' class="session-rule"' : ''}>${esc(f)}</span>`).join('')}</div>`
       : '';
-    const ev = hasEv && open ? `<div class="pev pev-${esc(p.evidence.kind)}">${p.evidence.rows.map(evidenceRowHtml).join('')}</div>` : '';
-    return `<div class="proc ${esc(p.status)}"><div class="prow"><span class="pglyph">${glyph}</span>`
-      + `<span class="pname">${esc(p.label)}</span>${identityChipHtml(p)}${tokensHtml(p.tokens)}`
-      + `<span class="pdetail">${esc(p.detail || '')}</span>`
-      + `<span class="pright">${meta}${act}</span>${chev}</div>${ev}</div>`;
+    // The body is ALWAYS in the markup. <details> is what shows and hides it,
+    // and rendering it only when already open meant the very first click
+    // expanded an empty disclosure — the row opened, the chevron rotated, and
+    // no evidence appeared until some later state push re-rendered it.
+    const body = `<div class="op-body">${hasEv ? evidenceBodyHtml(p.evidence) : ''}${footer}</div>`;
+    const cls = `op ${esc(p.status)}${p.status === 'run' ? ' live' : ''}`
+      + `${p.status === 'fail' ? ' failed-source' : p.status === 'wait' ? ' waiting-source' : ''}`;
+    return `<details class="${cls}" data-proc-id="${esc(key)}"${open ? ' open' : ''}>`
+      + `<summary>${glyph}${name}${detail}${tail}<span class="chev" aria-hidden="true"></span></summary>`
+      + `${body}</details>`;
   }
 
   // Live overlays, in order of precedence: a `completed` process row replaces
@@ -1462,7 +1970,29 @@
     if (!live || !live.completed) return view.processes;
     const id = live.completed.id;
     if (!view.processes.some((p) => p.id === id)) return view.processes.concat(live.completed);
-    return view.processes.map((p) => (p.id === id ? live.completed : p));
+    // A live event is a STATUS update, not a snapshot. It carries no evidence,
+    // so overwriting the row wholesale deleted evidence already on screen. Keep
+    // every field the event does not speak to; the next snapshot is
+    // authoritative and retires the overlay entirely.
+    return view.processes.map((p) => (p.id === id ? { ...p, ...live.completed, evidence: live.completed.evidence ?? p.evidence } : p));
+  }
+
+  // Which process kinds render OPEN on the FIRST render: the session's own
+  // timeline is the approval screenshot's starting state — no click needed.
+  // Gates/findings/PRs/receipts stay closed until asked for.
+  const DEFAULT_OPEN_PROCESS_KINDS = new Set(['session']);
+
+  // A disclosure's open state for this render: the user's persisted sets win
+  // once touched (`openProcesses` = opened, `closedProcesses` = collapsed — a
+  // key in neither was never touched), else the default-open kinds above.
+  function processOpen(p, key) {
+    if (openProcesses.has(key)) return true;
+    if (closedProcesses.has(key)) return false;
+    const hasBody = hasEvidenceBody(p.evidence) || !!(p.footer && p.footer.length);
+    // A RUNNING process opens itself: its body is the only place the work
+    // becomes visible (gate rows land one at a time as each finishes), and a
+    // collapsed row made a live stage look like nothing was happening.
+    return hasBody && (DEFAULT_OPEN_PROCESS_KINDS.has(p.kind) || p.status === 'run');
   }
 
   function renderInside(state, sel) {
@@ -1480,24 +2010,38 @@
         + ` title="Return the strip to the stage the ticket is actually on">Back to ${esc(back)}</button></span></div>`
       : '';
 
-    // One current operation in the header while it runs — spinner + host label,
-    // never a verdict (progress.ts: a live operation is run/wait/fail only).
+    // The header IS the current operation. The ephemeral progress event wins
+    // while one is in flight; the snapshot's own derived line is the fallback,
+    // so a panel opened after those events (or reopened) still says what the
+    // stage is doing. A live op is run/wait/fail only — never a verdict.
     const live = liveOps[view.stageKey];
-    const alive = live && live.active
-      ? `<span class="alive"><span class="spin" aria-hidden="true"></span>${esc(live.active.label || 'Running')}</span>`
+    const lop = (live && live.active) || view.live || null;
+    const lstatus = lop ? (lop.status || 'run') : '';
+    // No status WORD beside the glyph: the spinning arc already says "running"
+    // and the amber bars say "waiting", exactly as the process rows below
+    // decided (`processRowHtml` — "a second textual 'Completed' beside the
+    // duration was ours, not the design's"). The word survives as the glyph's
+    // accessible name, so nothing that cannot see the animation loses it.
+    const alive = lop
+      ? `<span class="glyph ${esc(lstatus)}" aria-label="${esc(statusWord(lstatus))}"></span>`
+        + `<strong>${esc(lop.label || '')}</strong>`
+        + (lop.detail ? `<span class="sep">·</span><span class="live-copy">${esc(lop.detail)}</span>` : '')
+        + (lop.duration ? `<span class="sep">·</span><span class="duration">${esc(lop.duration)}</span>` : '')
       : '';
 
     const procs = overlayProcesses(view);
     const body = procs.length
-      ? `<div class="procs">${procs.map((p) => processRowHtml(p, view.stageKey, openProcesses.has(`${view.stageKey}:${p.id}`))).join('')}</div>`
+      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`))).join('')}</div>`
       : `<div class="blurb">${esc(view.blurb)}</div>`;
 
-    el('inside').innerHTML = `<div class="act ${viewing ? 'viewing' : ''}">${vbar}`
-      + `<div class="ahead"><span class="adot ${esc(view.dot)}"></span>`
-      + `<span class="aname">Inside ${esc(view.title.toLowerCase())}</span>${alive}`
-      + `<span class="aclock">${esc(view.clock)}</span></div>${body}</div>`;
+    // The prototype's block: viewing bar, then the three-cell header (stage
+    // title · live operation · meta), then the ledger.
+    el('inside').innerHTML = `<section class="inside${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
+      + `<div class="inside-head"${view.title ? ` title="${esc(view.title)}"` : ''}>`
+      + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
+      + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
+      + `<span class="inside-meta">${esc(view.clock)}</span></div>${body}</section>`;
   }
-
   // The fault card: the reason a red node is red, the log behind it, and when it
   // ran. Shown only for a failed stage — everything else stays quiet.
   function renderFault(stepper) {
@@ -1528,14 +2072,11 @@
     const blocked = cell && cell.blocked;
     box.classList.toggle('hidden', !blocked);
     if (!blocked) { box.innerHTML = ''; return; }
-    // `awaiting-merge` is not a fault: ship's own work is done and the PRs are
-    // open, and this reads as a normal wait for one of them to land, not a
-    // stage karst failed to run. It also gets no Resume button — every OTHER
-    // BlockerKind means "karst could not ask the question, retry it", but
-    // `stageResume.ts`'s `resumeBlockedStage` REFUSES to clear this one (only
-    // the merge gate observing the actual landing is entitled to), so a
-    // Resume button here would be a dead affordance that always no-ops.
-    if (blocked.kind === 'awaiting-merge') {
+    // `awaiting-merge` is the only block a retry cannot clear, and it is not a
+    // fault at all: ship's own work is done and the PRs are open, so this reads
+    // as a normal wait for one of them to land. The flag is the host's verdict
+    // (`blockedDetail`, model/stepper.ts), never a reason-string match here.
+    if (blocked.resumable === false) {
       box.innerHTML = `<div class="ftitle">Waiting to merge</div>`
         + `<div class="freason">${esc(blocked.reason)}</div>`;
       return;
@@ -1967,7 +2508,7 @@
     lastState = state;
     // Selection defaults to the current stage; with none (nothing has run) it
     // falls back to scope — the one the user is about to start.
-    const sel = selectedStage || state.stageCurrent || 'scope';
+    const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
     el('title').textContent = state.title || '(untitled)';
     renderKeyPill(state);
     // Follow-up only makes sense once the work shipped — same gate the
@@ -2246,22 +2787,24 @@
     if (btn.hasAttribute('data-copy')) flashCopied(btn);
   });
 
-  // The inside ledger's disclosure toggles. NOT `[data-act]`: expanding a row
-  // is view state, not an action — nothing posts, and the open set must
-  // survive the next full re-render, which is why it lives here beside
-  // `openProcesses` rather than on the row itself.
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-chev]');
-    if (!btn) return;
-    e.preventDefault();
-    const key = btn.dataset.chev;
-    if (!key) return;
+  // The inside ledger's disclosure state. A process row IS a native
+  // <details>/<summary> (B3); persisting the `toggle` — keyed by the row's
+  // OWN data-proc-id, the composite `${stageKey}:${p.id}` the renderer looks
+  // up (Task 0.1) — restores exactly the rows the user had open next render.
+  // Explicit COLLAPSES also land in `closedProcesses` (Task 3, Step 5) so a
+  // default-open row the user closed stays closed. Capture phase, like .mgd.
+  document.addEventListener('toggle', (e) => {
+    const node = e.target && e.target.closest && e.target.closest('.inside-process');
+    if (!node || !node.dataset.procId) return;
     const next = new Set(openProcesses);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
+    if (node.open) next.add(node.dataset.procId);
+    else next.delete(node.dataset.procId);
     openProcesses = next;
-    if (lastState) render(lastState);
-  });
+    const closed = new Set(closedProcesses);
+    if (node.open) closed.delete(node.dataset.procId);
+    else closed.add(node.dataset.procId);
+    closedProcesses = closed;
+  }, true);
 
   // Settle every outstanding merge request against the fresh PR list. `merged`
   // is the one outcome the webview can actually verify — the host reports
@@ -2341,14 +2884,6 @@
     if (msg.type === 'gate-options') {
       gateOptions = msg.options || { uat: [], review: [] };
       renderGates();
-      return;
-    }
-    // Development-only Inside preview (Finding 1): the fixture list + the
-    // host-built snapshot per fixture. Only the preview panel ever sends it,
-    // and only it reveals the toolbar — the production dashboard never
-    // receives this message, so the toolbar stays hidden there.
-    if (msg.type === 'preview-fixtures') {
-      renderPreviewToolbar(msg.fixtures);
       return;
     }
     // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13).

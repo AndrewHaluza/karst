@@ -1601,7 +1601,6 @@ describe('openStore', () => {
       'status',
       'detail',
       'pr_number',
-      'pr_status',
       'existed_before_ship',
       'process_run_id',
       'started_at',

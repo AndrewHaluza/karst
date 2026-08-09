@@ -10,8 +10,10 @@ import {
   completeImplementationRun,
   interruptImplementationRun,
   listImplementationTimeline,
+  readSegmentTokenTotals,
   summarizeSegmentTokens,
 } from './implementationRuns.js';
+import { recordTokenUsage } from './tokenUsage.js';
 import {
   recordSessionLaunchIntent,
   confirmSessionLaunchIntent,
@@ -333,5 +335,89 @@ describe('implementation runs and segments', () => {
       estimatedCalls: 1,
       erroredCalls: 1,
     });
+  });
+
+  it('reads one measured total per segment, dropping estimated rows', () => {
+    recordSessionLaunchIntent(store, {
+      ticketId, launchId: 'l1', purpose: 'implementation', provider: 'claude', model: 'opus',
+      reason: 'initial', sessionOrigin: 'new', at: '2026-08-01T10:00:00.000Z',
+    });
+    confirmSessionLaunchIntent(store, 'l1', {
+      ticketId, provider: 'claude', providerSessionId: 'claude-session-1',
+      at: '2026-08-01T10:01:00.000Z',
+    });
+    recordSessionLaunchIntent(store, {
+      ticketId, launchId: 'l2', purpose: 'implementation', provider: 'codex', model: 'sol',
+      reason: 'switch', sessionOrigin: 'new', at: '2026-08-01T10:05:00.000Z',
+    });
+    confirmSessionLaunchIntent(store, 'l2', {
+      ticketId, provider: 'codex', providerSessionId: 'codex-session-2',
+      at: '2026-08-01T10:06:00.000Z',
+    });
+    const timeline = listImplementationTimeline(store, ticketId)!;
+    const [segA, segB] = timeline.segments;
+
+    recordTokenUsage(store, {
+      projectId: null, ticketId, processRunId: timeline.run.processRunId,
+      callSite: 'impl-run', provider: 'claude', outcome: 'ok',
+      recordedAt: '2026-08-01T10:02:00.000Z', implementationSegmentId: segA!.id,
+      usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0,
+               totalTokens: 150, model: 'opus', estimated: false },
+    });
+    // An estimated row is NOT measured spend: dropped from the total entirely.
+    recordTokenUsage(store, {
+      projectId: null, ticketId, processRunId: timeline.run.processRunId,
+      callSite: 'impl-run', provider: 'claude', outcome: 'ok',
+      recordedAt: '2026-08-01T10:03:00.000Z', implementationSegmentId: segA!.id,
+      usage: { inputTokens: 9000, outputTokens: 999, cacheReadTokens: 0, cacheWriteTokens: 0,
+               totalTokens: 9999, model: 'opus', estimated: true },
+    });
+    recordTokenUsage(store, {
+      projectId: null, ticketId, processRunId: timeline.run.processRunId,
+      callSite: 'impl-run', provider: 'codex', outcome: 'error',
+      recordedAt: '2026-08-01T10:07:00.000Z', implementationSegmentId: segB!.id,
+      usage: { inputTokens: 200, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+               totalTokens: 200, model: 'sol', estimated: false },
+    });
+    recordTokenUsage(store, {
+      projectId: null, ticketId, processRunId: timeline.run.processRunId,
+      callSite: 'impl-run', provider: 'codex', outcome: 'ok',
+      recordedAt: '2026-08-01T10:08:00.000Z', implementationSegmentId: segB!.id,
+      usage: { inputTokens: 60, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+               totalTokens: 60, model: 'sol', estimated: false },
+    });
+
+    expect(readSegmentTokenTotals(store, timeline.run.id)).toEqual([
+      {
+        implementationSegmentId: segA!.id,
+        calls: 1,
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 150,
+        estimatedCalls: 0,
+        erroredCalls: 0,
+      },
+      {
+        implementationSegmentId: segB!.id,
+        calls: 2,
+        inputTokens: 260,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 260,
+        estimatedCalls: 0,
+        erroredCalls: 1,
+      },
+    ]);
+  });
+
+  it('reads no totals for a run with no measured segment rows', () => {
+    const run = openImplementationRun(store, {
+      ticketId, attempt: 0, provider: 'claude', model: 'opus',
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    expect(readSegmentTokenTotals(store, run.id)).toEqual([]);
   });
 });

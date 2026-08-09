@@ -64,6 +64,24 @@ function rowToPhaseMark(r: PhaseMarkRow): PhaseMark {
 }
 
 /**
+ * The ticket's currently-open implementation run, when it has one — the run a
+ * mark reported while a run was live is attributed to. Resolved INSIDE the
+ * writer, like `attempt` and `markedAt`: the phase CLI's parse path is the
+ * security boundary, so the attribution is a server-side fact a mark can never
+ * forge from argv.
+ */
+function openRunIdFor(store: Store, ticketId: number): number | null {
+  const row = store.db
+    .prepare(
+      `SELECT id FROM implementation_runs
+        WHERE ticket_id = ? AND ended_at IS NULL
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId) as { id: number } | undefined;
+  return row === undefined ? null : row.id;
+}
+
+/**
  * Append one reported phase. Append-only, and deliberately never deduplicates:
  * an approach may legitimately loop (research → plan → research), and collapsing
  * that at write time would destroy the evidence the loop happened. Whether the
@@ -73,11 +91,17 @@ function rowToPhaseMark(r: PhaseMarkRow): PhaseMark {
  * reason: rejecting it here would silently discard the most interesting signal
  * available — that the agent went off-script.
  *
+ * A mark whose caller names no run is attributed to the ticket's currently-open
+ * `implementation_runs` row; NULL when there is none — a mark made outside a
+ * run is a real state, not an error. An EXPLICIT run id always wins, so a
+ * caller that recorded the run itself (the session lifecycle) keeps its link.
+ *
  * Opens no transaction of its own, and uses only the driver-agnostic
  * `prepare(sql).run(...)` surface, because the marker CLI reaches this through
  * `node:sqlite` (`openWritableStore`) rather than the extension's better-sqlite3.
  */
 export function recordPhaseMark(store: Store, mark: PhaseMarkInput): void {
+  const implementationRunId = mark.implementationRunId ?? openRunIdFor(store, mark.ticketId);
   store.db
     .prepare(
       `INSERT INTO phase_marks
@@ -91,7 +115,7 @@ export function recordPhaseMark(store: Store, mark: PhaseMarkInput): void {
       mark.attempt,
       mark.phaseName,
       mark.markedAt,
-      mark.implementationRunId ?? null,
+      implementationRunId ?? null,
       mark.implementationSegmentId ?? null,
     );
 }

@@ -144,6 +144,28 @@ const AGENT_ICONS: Record<AgentProvider, string> = {
   opencode: OPENCODE_SVG,
 };
 
+/**
+ * The A37 prototype's LINE-ART core marks — a second icon set, not a
+ * replacement. The brand marks above are filled, multi-path logos sized for a
+ * badge; the Inside block draws its identities at 13px inside a mono type run,
+ * where a filled logo reads as a blob. The prototype answers that with one
+ * stroked glyph per core, and that is what the Inside block ships.
+ *
+ * Both sets are keyed by the SAME `AgentProvider`, so a provider is never
+ * present in one and missing from the other.
+ */
+const LINE_ICONS: Record<AgentProvider, string> = {
+  claude:
+    '<svg viewBox="0 0 16 16"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/>' +
+    '<path d="M3.4 3.4l2.1 2.1M10.5 10.5l2.1 2.1M12.6 3.4l-2.1 2.1M5.5 10.5l-2.1 2.1"/></svg>',
+  codex: '<svg viewBox="0 0 16 16"><path d="M5.5 3.5L2 8l3.5 4.5M10.5 3.5L14 8l-3.5 4.5"/><path d="M9.2 2.5L6.8 13.5"/></svg>',
+  antigravity:
+    '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="1.8"/>' +
+    '<path d="M2.2 8c1.5-2.6 4-4.2 5.8-4.2S12.3 5.4 13.8 8 11.8 12.2 8 12.2 3.7 10.6 2.2 8Z"/>' +
+    '<path d="M4.2 3.2c2.8.2 5.7 1.9 7.6 4.8M11.8 12.8c-2.8-.2-5.7-1.9-7.6-4.8"/></svg>',
+  opencode: '<svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M4.5 6l2 2-2 2M8.5 10h3"/></svg>',
+};
+
 /** Placeholder swapped for the agent badge CSS; sits inside each webview's `<style>`. */
 export const AGENT_CSS_MARKER = '/*KARST_AGENT_CSS*/';
 
@@ -169,6 +191,7 @@ export function agentIdentityJs(): string {
   return (
     `const AGENT_PROVIDER_LABELS = ${JSON.stringify(AGENT_PROVIDER_LABELS)};\n` +
     `const AGENT_ICONS = ${JSON.stringify(AGENT_ICONS)};\n` +
+    `const AGENT_LINE_ICONS = ${JSON.stringify(LINE_ICONS)};\n` +
     // Falls back to the raw id (title-cased) for a provider with no known icon/label,
     // so a future provider degrades gracefully instead of rendering blank.
     'function agentBadgeHtml(provider) {\n' +
@@ -184,6 +207,11 @@ export function agentIdentityJs(): string {
     'function agentIconHtml(provider) {\n' +
     '  const icon = AGENT_ICONS[provider] || "";\n' +
     '  return icon ? \'<span class="agenticon" aria-hidden="true">\' + icon + \'</span>\' : "";\n' +
+    '}\n' +
+    // The prototype's stroked mark, for the Inside block's 13px identity runs.
+    'function agentLineIconHtml(provider) {\n' +
+    '  const icon = AGENT_LINE_ICONS[provider] || "";\n' +
+    '  return icon ? \'<span class="agent-icon" aria-hidden="true">\' + icon + \'</span>\' : "";\n' +
     '}'
   );
 }

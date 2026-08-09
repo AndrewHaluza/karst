@@ -129,6 +129,35 @@ describe('reported phase marks', () => {
     expect(m.implementationSegmentId).toBeNull();
   });
 
+  it('attributes a mark to the ticket’s open implementation run, resolved in the writer', () => {
+    // Nothing names the run at the call site: the writer stamps the ticket's
+    // currently-open implementation_runs row, like `attempt` and `markedAt` —
+    // server-side facts a mark can never forge from argv.
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const run = openImplementationRun(store, {
+      ticketId: t.id, attempt: 0, provider: 'claude', model: 'opus',
+      startedAt: '2026-07-20T12:00:00.000Z',
+    });
+    mark(t.id, 'research', '2026-07-20T12:00:00.000Z');
+    expect(listPhaseMarks(store, t.id)[0]!.implementationRunId).toBe(run.id);
+  });
+
+  it('keeps a mark made outside any open run unattributed, not an error', () => {
+    // A mark fired with no open run is a real state: NULL is the truthful
+    // answer, and the timeline filter must keep it out of every run's view.
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    openImplementationRun(store, {
+      ticketId: t.id, attempt: 0, provider: 'claude', model: 'opus',
+      startedAt: '2026-07-20T12:00:00.000Z',
+    });
+    store.db.prepare('UPDATE implementation_runs SET ended_at = ? WHERE ticket_id = ?').run(
+      '2026-07-20T12:30:00.000Z',
+      t.id,
+    );
+    mark(t.id, 'research', '2026-07-20T12:40:00.000Z');
+    expect(listPhaseMarks(store, t.id)[0]!.implementationRunId).toBeNull();
+  });
+
   it('round-trips segment linkage when the caller names a run and segment', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     // Real FK targets: the linkage is enforced, never guessed.

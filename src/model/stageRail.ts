@@ -6,8 +6,8 @@ import {
   type GateStageKey,
 } from '../workflow/fixAttempts.js';
 import type { RailNeeds } from './railNeeds.js';
-import type { StepperCell } from './stepper.js';
-import type { StageKey } from './types.js';
+import { displayStatus, type StepperCell } from './stepper.js';
+import type { StageKey, StageStatus } from './types.js';
 
 export type { RailNeeds };
 
@@ -46,6 +46,12 @@ export interface RetryMeter {
 export interface RailSegment {
   /** The stage's own row (status, reason, times, attempt). */
   cell: StepperCell;
+  /**
+   * How the segment READS — `displayStatus`. `parkGateStage` leaves the status
+   * the runner set, so a parked stage keeps reading `running`; the track must
+   * not draw a spinner on it (the webview may not derive this itself, UI-R31).
+   */
+  status: StageStatus | 'blocked';
   /** This is the stage the ticket sits at. Exactly one, or none. */
   current: boolean;
   /** The ticket is blocked on the user, HERE. Only ever the current segment. */
@@ -161,12 +167,14 @@ export function buildStageRail(
 
   return {
     main: MAIN_LINE.map((k): RailSegment => {
+      const cell = cellFor(stepper, k);
       const current = opts.current === k;
       // Needs-you belongs to the stage the ticket IS at. Painting it anywhere
       // else would claim a second place the user is wanted.
       const needsUser = current && opts.needsUser;
       return {
-        cell: cellFor(stepper, k),
+        cell,
+        status: displayStatus(cell),
         current,
         needsUser,
         needs: needsUser ? opts.needs : null,

@@ -9,12 +9,11 @@ import {
 } from '../../store/dashboard.js';
 import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
-import { buildStepper, type StepperCell } from '../../model/stepper.js';
+import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
 import { buildNowLine, type NowLine } from '../../model/nowLine.js';
 import { sessionAction } from '../../agent/sessionAction.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
-import { buildStageInside, type StageInside } from '../../model/inside/index.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
@@ -41,7 +40,10 @@ import { listProcessRuns } from '../../store/processRuns.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { listShipEvidence } from '../../store/shipRuns.js';
-import { listImplementationTimeline } from '../../store/implementationRuns.js';
+import {
+  listImplementationTimeline,
+  readSegmentTokenTotals,
+} from '../../store/implementationRuns.js';
 import {
   summarizeRecordedTokenUsage,
   summarizeRecordedTokenUsageForProcess,
@@ -50,6 +52,7 @@ import {
 import type { InsideActionRegistry } from './insideActions.js';
 import type {
   InsideEvidenceTarget,
+  InsideLiveView,
   InsideProcessView,
   InsideStageKey,
   InsideStageView,
@@ -70,7 +73,7 @@ import { shipProcesses } from '../../model/inside/ship.js';
 import { doneReceipt, type DoneReceiptView } from '../../model/inside/done.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
 
-export type { PathContext, StepperCell, NowLine, StageRail, StageInside, PrPanelRow, MergeCheckPanelRow };
+export type { PathContext, StepperCell, NowLine, StageRail, PrPanelRow, MergeCheckPanelRow };
 
 export interface DashboardAgentContext {
   defaultModel?: string | null;
@@ -140,12 +143,6 @@ export interface DashboardState {
    * fix loop's meter. `stepper` above stays the flat canonical projection.
    */
   rail: StageRail;
-  /**
-   * What happens inside each stage — observed operations for a stage that ran or
-   * is running, a static blurb for one that has not. All seven are precomputed
-   * so clicking a stage re-points the panel without a round trip to the host.
-   */
-  inside: Record<StageKey, StageInside>;
   /**
    * The six-stage inside presentation (the inside redesign): one process-led
    * view per INSIDE stage, built by the pure reducers. `fix` is not a stage
@@ -232,6 +229,15 @@ export function buildDashboardState(
    * Absent → rows carry no actions and no registry exists for the snapshot.
    */
   registry?: InsideActionRegistry | null,
+  /**
+   * The gate names per stage resolved by `ui/dashboard/gateOptions.ts`, shown
+   * as pending rows before the stage runs. Absent → no forecast, and the row
+   * states that the gates resolve when the stage runs.
+   */
+  resolvedGates?: {
+    uat: readonly { name: string; disabled: boolean }[];
+    review: readonly { name: string; disabled: boolean }[];
+  },
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const rounds = listRecoveryRounds(store, ticketId);
@@ -297,15 +303,25 @@ export function buildDashboardState(
   const now = nowIso();
 
   // The snapshot-scoped action seam: the registry lives here in the host; only
-  // the opaque {actionId, kind} pairs ride the view.
-  const attach = (target: InsideEvidenceTarget): TypedInsideAction | undefined =>
-    registry ? registry.register({ ...target, ticketId: ticket.id }) : undefined;
+  // the opaque {actionId, kind} pairs ride the view. The continuation label
+  // ("Show 4 more", handoff §10) is presentation copy the registry does not
+  // model, so it is carried alongside the minted action here.
+  const attach = (target: InsideEvidenceTarget): TypedInsideAction | undefined => {
+    const action = registry?.register({ ...target, ticketId: ticket.id });
+    if (!action) return undefined;
+    const label = 'label' in target ? (target as { label?: string }).label : undefined;
+    return label ? { ...action, label } : action;
+  };
 
   // Recorded token summaries per process and per role — a process whose calls
-  // were all estimates reads as absent, never as a measured free call.
+  // were all estimates reads as absent, never as a measured free call. The
+  // estimate COUNT rides beside the measured total as a separate fact (a core
+  // that fell back to estimates stays visible, never folded into the total).
   const tokensFor = (processId: string): SessionTokensInput | null => {
     const summary = summarizeRecordedTokenUsageForProcess(store, ticketId, processId);
-    return summary.total > 0 ? { total: summary.total, estimatedCalls: 0 } : null;
+    return summary.total > 0
+      ? { total: summary.total, estimatedCalls: summary.estimatedCalls }
+      : null;
   };
   const recordedTotal = summarizeRecordedTokenUsage(store, ticketId);
   const roleTokens = summarizeRecordedTokenUsageByRole(store, ticketId);
@@ -346,6 +362,16 @@ export function buildDashboardState(
           tokensFor('session'),
           now,
           attach,
+          // Per-segment measured spend, straight from the ledger's own
+          // `implementation_segment_id` GROUP BY — the switch row's Σ pill
+          // states what the segment it moved TO went on to cost. A run that
+          // never opened has no segments and therefore no totals.
+          timeline
+            ? readSegmentTokenTotals(store, timeline.run.id).map((t) => ({
+                implementationSegmentId: t.implementationSegmentId,
+                total: t.totalTokens,
+              }))
+            : [],
         ),
       ],
       now,
@@ -365,6 +391,7 @@ export function buildDashboardState(
         configured: assignmentFor('tester'),
         tokens: tokensFor('tester'),
         attach,
+        resolvedGates: resolvedGates?.uat ?? [],
       }),
       now,
     ),
@@ -383,6 +410,7 @@ export function buildDashboardState(
         configured: assignmentFor('review'),
         tokens: tokensFor('review'),
         attach,
+        resolvedGates: resolvedGates?.review ?? [],
       }),
       now,
     ),
@@ -403,6 +431,9 @@ export function buildDashboardState(
         rounds,
         tokens: recordedTotal.total > 0 ? recordedTotal : null,
         roles: roleTokens,
+        // The done stage's own stamp — the hero's completion time. An
+        // unstamped cell yields no time rather than a fabricated one.
+        completedAt: cellOf('done').endedAt ?? cellOf('done').startedAt ?? null,
         now,
         attach,
       }),
@@ -456,27 +487,29 @@ export function buildDashboardState(
         : null,
       capFor: fixCapFor,
     }),
-    inside: buildStageInside({
-      stepper,
-      gateRuns,
-      findings,
-      worktrees,
-      prs,
-      mergeChecks,
-      session: {
-        sessionId: ticket.sessionId,
-        agentState: ticket.agentState,
-        model: ticket.model,
-      },
-      selectedRepos: ticket.selectedRepos,
-      phases,
-      marks,
-      fixAttempts,
-      now,
-    }),
     insideViews,
     presentedStage,
     approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
+  };
+}
+
+/**
+ * The stage's CURRENT operation, derived from its own process rows: the first
+ * running process, else the first waiting one. Nothing here is new information
+ * — every field comes from a row already in the ledger below — which is what
+ * makes it safe as the header's fallback when no ephemeral progress event has
+ * arrived (a reopened panel, a window that missed the events). A settled stage
+ * has no live line at all.
+ */
+function liveFor(processes: readonly InsideProcessView[]): InsideLiveView | undefined {
+  const active =
+    processes.find((p) => p.status === 'run') ?? processes.find((p) => p.status === 'wait');
+  if (!active) return undefined;
+  return {
+    status: active.status === 'run' ? 'run' : 'wait',
+    label: active.label,
+    ...(active.detail ? { detail: active.detail } : {}),
+    ...(active.duration ? { duration: active.duration } : {}),
   };
 }
 
@@ -487,11 +520,19 @@ function stageView(
   processes: readonly InsideProcessView[],
   now: string,
 ): InsideStageView {
+  const live = liveFor(processes);
   return {
     stageKey: key,
     title: STAGE_TITLES[key as StageKey],
     dot: dotFor(cell),
-    clock: formatClock(cell, now),
+    // A blocked stage is not doing anything: its elapsed span ends when the
+    // park wrote the block (`blocked.at`), never at `now` — otherwise the
+    // clock keeps growing beside the banner saying the stage is blocked.
+    clock:
+      cell.blocked && displayStatus(cell) === 'blocked'
+        ? formatClock(cell, cell.blocked.at)
+        : formatClock(cell, now),
+    ...(live ? { live } : {}),
     processes: [...processes],
     blurb: STAGE_BLURBS[key as StageKey],
   };

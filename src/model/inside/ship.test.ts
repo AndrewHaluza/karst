@@ -4,7 +4,7 @@ import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { shipProcesses, type ShipProcessesInput } from './ship.js';
-import type { InsideEvidenceTarget, ShipPrView } from './types.js';
+import { formatTime, type InsideEvidenceTarget, type ShipPrView } from './types.js';
 import type { EvidenceRow, InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -32,7 +32,6 @@ function step(stepName: ShipStep, over: Partial<ShipRepoStepEvidence> = {}): Shi
     status: 'passed',
     detail: '',
     prNumber: null,
-    prStatus: null,
     existedBeforeShip: null,
     processRunId: null,
     operationIntentId: null,
@@ -112,6 +111,47 @@ describe('shipProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 
+  it('states when each recorded ship step started', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: {
+                commit: step('commit', {
+                  startedAt: '2026-07-20T12:00:00.000Z',
+                  endedAt: '2026-07-20T12:00:30.000Z',
+                }),
+                push: step('push', {
+                  startedAt: '2026-07-20T12:00:30.000Z',
+                  endedAt: '2026-07-20T12:01:00.000Z',
+                }),
+                pr: step('pr', {
+                  startedAt: '2026-07-20T12:01:00.000Z',
+                  endedAt: '2026-07-20T12:01:10.000Z',
+                  number: 5,
+                }),
+              },
+            }),
+          },
+        }),
+        prs: [pr('/web', { number: 5, status: 'open' })],
+      }),
+    );
+    const commit = rowsOf(views[0]!)[0]!;
+    const push = rowsOf(views[1]!)[0]!;
+    const prRow = rowsOf(views[2]!)[0]!;
+    expect(commit.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+    expect(commit.durationExact).toBe('30.000s');
+    expect(push.time).toBe(formatTime('2026-07-20T12:00:30.000Z'));
+    expect(push.durationExact).toBe('30.000s');
+    expect(prRow.time).toBe(formatTime('2026-07-20T12:01:00.000Z'));
+    expect(prRow.durationExact).toBe('10.000s');
+    // The merge process reads current PR state, never a recorded step — it
+    // has no start to state.
+    expect(rowsOf(views[3]!)[0]!.time).toBeUndefined();
+  });
+
   it('distinguishes ship-created commits from pre-existing ones per repo', () => {
     const views = shipProcesses(
       shipInput({
@@ -152,8 +192,117 @@ describe('shipProcesses', () => {
     expect(rowsOf(views[0]!)[0]!.detail).toContain('nothing to commit');
   });
 
-  it('aggregates at 20 repos: bounded rows and the remainder named', () => {
+  it('ships the created-commit total as the commit process-row aggregate (B4)', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              commits: [shipCommit('created-by-ship'), shipCommit('created-by-ship'), shipCommit('before-ship')],
+            }),
+            '/api': repoEvidence('/api', {
+              commits: [shipCommit('created-by-ship', { repo: '/api' })],
+            }),
+          },
+        }),
+      }),
+    );
+    // Host-computed (B4): the webview concatenates nothing; total is the
+    // created-by-ship count, pre-existing commits are not delivery.
+    expect(views[0]!.aggregate).toBe('3 commits');
+  });
+
+  it('omits the commit aggregate when nothing was created by ship (B4)', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web', { commits: [shipCommit('before-ship')] }) },
+        }),
+      }),
+    );
+    expect(views[0]!.aggregate).toBeUndefined();
+  });
+
+  it('aggregates current PR open/merged counts on the pr process row (B4)', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [
+          pr('/web', { number: 1, status: 'open' }),
+          pr('/api', { number: 2, status: 'merged', mergedAt: NOW }),
+          pr('/worker', { number: 3, status: 'open' }),
+        ],
+      }),
+    );
+    const prProcess = views[2]!;
+    expect(prProcess.aggregate).toBe('1 merged · 2 open');
+  });
+
+  it('omits the pr aggregate when no current PR exists (B4)', () => {
+    const views = shipProcesses(shipInput({ prs: [] }));
+    expect(views[2]!.aggregate).toBeUndefined();
+  });
+
+  it('states a conflicted merge in the handoff §11 copy on the process row (B9)', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [pr('/web', { number: 4, status: 'open' })],
+        mergeChecks: [check('/web', { state: 'conflicted', files: ['a.ts'], reason: 'both sides edit' })],
+      }),
+    );
+    const merge = views[3]!;
+    expect(merge.status).toBe('wait'); // a conflict is a wait, never a fail
+    expect(merge.detail).toBe(
+      'Ship is waiting: resolve the merge conflict before the ticket can be done.',
+    );
+    // The per-repo row keeps its factual reading; the sentence is the summary.
+    expect(rowsOf(merge)[0]!.detail).toContain('conflicted');
+  });
+
+  it('reads a note pr step as the no-changes copy (B9)', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { status: 'note', detail: 'no PR needed — no changes from develop' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    const row = rowsOf(views[2]!)[0]!;
+    expect(row.status).toBe('note'); // no changes is not a failure
+    expect(row.detail).toBe(
+      'No PR was created because this repository had no changes',
+    );
+  });
+
+  it('names the bounded continuation with the exact reveal count (B9)', () => {
+    // handoff §10: a continuation says exactly what it reveals. The REDUCER
+    // computes the label on the target; the host's attach closure carries it
+    // into the shipped action (state.ts, pinned by its own suite).
     const repos: Record<string, ShipRepoEvidence> = {};
+    for (let i = 0; i < 10; i += 1) {
+      repos[`/repo-${i}`] = repoEvidence(`/repo-${i}`, {
+        steps: { push: step('push', { repo: `/repo-${i}` }) },
+      });
+    }
+    let label: string | undefined;
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({ repos }),
+        attach: (target) => {
+          if (target.kind === 'open-bounded-evidence') label = target.label;
+          return { actionId: 'snapshot-1:action-0', kind: target.kind };
+        },
+      }),
+    );
+    const rows = rowsOf(views[1]!); // push — bounded at 6
+    expect(rows.at(-1)!.action).toMatchObject({ kind: 'open-bounded-evidence' });
+    expect(label).toBe('Show 4 more');
+  });
+
+  it('aggregates at 20 repos: bounded rows and the remainder named', () => {    const repos: Record<string, ShipRepoEvidence> = {};
     for (let i = 0; i < 20; i += 1) {
       repos[`/repo-${i}`] = repoEvidence(`/repo-${i}`, {
         steps: { push: step('push', { repo: `/repo-${i}` }) },
@@ -458,11 +607,260 @@ describe('shipProcesses', () => {
         });
       }
       const boundedTargets = targets.filter((target) => target.kind === 'open-bounded-evidence');
-      expect(boundedTargets).toHaveLength(4);
+      // Four processes each bound their flat rows, and the two rich bodies
+      // (the commit grid, the PR branches) bound their blocks over the SAME
+      // recorded rows — six continuations, every one opening all `count` rows.
+      expect(boundedTargets).toHaveLength(6);
       for (const target of boundedTargets) {
         expect(target.kind).toBe('open-bounded-evidence');
         if (target.kind === 'open-bounded-evidence') expect(target.rows).toHaveLength(count);
       }
     },
   );
+});
+
+// ── the prototype's commit grid and PR branches (rich evidence bodies) ─────
+// Both bodies are OPTIONAL fields beside the rows every ship process has
+// always carried. Every cell must come from a recorded fact: a repository
+// with no recorded commit says so, and a PR whose number was never recorded
+// is `no PR`, never a fabricated number.
+describe('ship commit evidence: the per-repository commit grid', () => {
+  it('names ship-created commits with their shortened sha, message and origin', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { repo: '/web' }) },
+              commits: [
+                shipCommit('created-by-ship', { sha: '0123456789abcdef', message: 'feat: land it' }),
+                shipCommit('before-ship', { sha: 'ffffffffffff', message: 'earlier' }),
+              ],
+            }),
+          },
+        }),
+      }),
+    );
+    const ev = views[0]!.evidence!;
+    if (ev.kind !== 'commits') throw new Error('expected commits evidence');
+    expect(ev.repos).toEqual([
+      {
+        repo: '/web',
+        summary: '1 created · 1 before',
+        origin: 'created by ship',
+        originKind: 'ship',
+        commits: [{ sha: '0123456', message: 'feat: land it' }],
+      },
+    ]);
+  });
+
+  it('reads a repository with only pre-existing commits as existing, not as a delivery', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { repo: '/web' }) },
+              commits: [shipCommit('before-ship', { sha: 'aaaaaaaaaa', message: 'earlier' })],
+            }),
+          },
+        }),
+      }),
+    );
+    const ev = views[0]!.evidence!;
+    if (ev.kind !== 'commits') throw new Error('expected commits evidence');
+    expect(ev.repos?.[0]).toMatchObject({
+      origin: 'already committed',
+      originKind: 'existing',
+      summary: '0 created · 1 before',
+      commits: [{ sha: 'aaaaaaa', message: 'earlier' }],
+    });
+  });
+
+  it('states absence for a repository karst recorded no commit for', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web', { steps: { commit: step('commit', { repo: '/web' }) } }) },
+        }),
+      }),
+    );
+    const ev = views[0]!.evidence!;
+    if (ev.kind !== 'commits') throw new Error('expected commits evidence');
+    expect(ev.repos?.[0]).toMatchObject({
+      origin: 'no commits recorded',
+      originKind: 'none',
+      commits: [],
+    });
+  });
+
+  it('attaches the opaque open-commit capability to every listed commit', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { repo: '/web' }) },
+              commits: [
+                shipCommit('created-by-ship', { id: 77, sha: 'abcdef0123', message: 'one' }),
+                shipCommit('created-by-ship', { id: 78, sha: '9876543210', message: 'two' }),
+              ],
+            }),
+          },
+        }),
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: `snapshot-1:a${targets.length}`, kind: target.kind };
+        },
+      }),
+    );
+    const ev = views[0]!.evidence!;
+    if (ev.kind !== 'commits') throw new Error('expected commits evidence');
+    expect(ev.repos?.[0]?.commits.map((c) => c.action?.kind)).toEqual(['open-commit', 'open-commit']);
+    expect(targets.filter((t) => t.kind === 'open-commit')).toEqual([
+      { kind: 'open-commit', shipCommitId: 77 },
+      { kind: 'open-commit', shipCommitId: 78 },
+    ]);
+  });
+
+  it('bounds the repository blocks and carries the continuation on the overflow', () => {
+    const repos: ShipEvidence['repos'] = {};
+    for (let i = 0; i < 9; i += 1) {
+      repos[`/r${i}`] = repoEvidence(`/r${i}`, { steps: { commit: step('commit', { repo: `/r${i}` }) } });
+    }
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({ repos }),
+        attach: (target) => ({ actionId: 'snapshot-1:a1', kind: target.kind }),
+      }),
+    );
+    const ev = views[0]!.evidence!;
+    if (ev.kind !== 'commits') throw new Error('expected commits evidence');
+    expect(ev.repos).toHaveLength(6);
+    expect(ev.overflow).toMatchObject({
+      label: 'more',
+      detail: '+3 more',
+      action: { kind: 'open-bounded-evidence' },
+    });
+  });
+});
+
+describe('ship pr evidence: the per-repository branch path', () => {
+  it('names a created PR, its recorded state and the path that produced it', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: {
+                describe: step('describe', { repo: '/web' }),
+                pr: step('pr', { repo: '/web', number: 412, existedBeforeShip: false }),
+              },
+            }),
+          },
+        }),
+        prs: [pr('/web', { number: 412, status: 'open' })],
+      }),
+    );
+    const ev = views[2]!.evidence!;
+    if (ev.kind !== 'prs') throw new Error('expected prs evidence');
+    expect(ev.branches?.[0]).toEqual({
+      repo: '/web',
+      number: '#412',
+      prState: 'open',
+      steps: [
+        { label: 'description generated', state: 'done' },
+        { label: 'PR opened', state: 'done' },
+      ],
+      note: 'PR #412 was created in this ship run.',
+      current: false,
+    });
+  });
+
+  it('reads an adopted PR as a keep, never as a create', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { repo: '/web', number: 9, existedBeforeShip: true }) },
+            }),
+          },
+        }),
+        prs: [pr('/web', { number: 9, status: 'merged' })],
+      }),
+    );
+    const ev = views[2]!.evidence!;
+    if (ev.kind !== 'prs') throw new Error('expected prs evidence');
+    expect(ev.branches?.[0]).toMatchObject({
+      number: '#9',
+      prState: 'merged',
+      steps: [{ label: 'PR adopted', state: 'done' }],
+      note: 'No create step because #9 already existed.',
+    });
+  });
+
+  it('shows no PR object and no fabricated number when none was recorded', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { repo: '/web', status: 'note', detail: 'no changes' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    const ev = views[2]!.evidence!;
+    if (ev.kind !== 'prs') throw new Error('expected prs evidence');
+    expect(ev.branches?.[0]).toMatchObject({
+      number: '',
+      prState: '',
+      emptyLabel: 'no PR',
+      steps: [{ label: 'no PR needed', state: 'note' }],
+      note: 'No PR was created because this repository had no changes.',
+      current: false,
+    });
+  });
+
+  it('marks a failed pr step current and names the failure without inventing a number', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { repo: '/web', status: 'failed', detail: 'gh exited 1' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    const ev = views[2]!.evidence!;
+    if (ev.kind !== 'prs') throw new Error('expected prs evidence');
+    expect(ev.branches?.[0]).toMatchObject({
+      number: '',
+      steps: [{ label: 'PR failed', state: 'fail' }],
+      note: 'The pull-request step failed: gh exited 1',
+      current: true,
+    });
+  });
+
+  it('bounds the branch rows and carries the continuation on the overflow', () => {
+    const repos: ShipEvidence['repos'] = {};
+    for (let i = 0; i < 8; i += 1) {
+      repos[`/r${i}`] = repoEvidence(`/r${i}`, { steps: { pr: step('pr', { repo: `/r${i}`, number: i }) } });
+    }
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({ repos }),
+        attach: (target) => ({ actionId: 'snapshot-1:a1', kind: target.kind }),
+      }),
+    );
+    const ev = views[2]!.evidence!;
+    if (ev.kind !== 'prs') throw new Error('expected prs evidence');
+    expect(ev.branches).toHaveLength(6);
+    expect(ev.overflow).toMatchObject({ detail: '+2 more', action: { kind: 'open-bounded-evidence' } });
+  });
 });

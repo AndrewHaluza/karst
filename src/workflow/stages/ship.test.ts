@@ -1805,7 +1805,7 @@ setTimeout(() => {
         kind: 'completed',
         ticketId: id,
         stage: 'ship',
-        process: { id: 'ship', kind: 'ship', label: 'Ship', status: 'pass' },
+        process: { id: 'pr', kind: 'ship', label: 'Ship', status: 'pass' },
       });
     });
 
@@ -1836,7 +1836,7 @@ setTimeout(() => {
         kind: 'completed',
         ticketId: id,
         stage: 'ship',
-        process: { id: 'ship', kind: 'ship', label: 'Ship', status: 'fail' },
+        process: { id: 'pr', kind: 'ship', label: 'Ship', status: 'fail' },
       });
     });
   });
