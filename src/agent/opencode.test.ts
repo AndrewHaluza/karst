@@ -444,7 +444,7 @@ describe('OpencodeAdapter headless execution', () => {
     const result = await new OpencodeAdapter(spawn).runHeadless({
       cwd: '/wt', prompt: '- inspect', permissionMode: 'bypassPermissions', model: 'openrouter/~openai/gpt-mini-latest',
     });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt');
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt');
     expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
   });
 
@@ -457,7 +457,7 @@ describe('OpencodeAdapter headless execution', () => {
   it('runs a resumed headless run via --session', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt', prompt: 'continue', resume: 'ses_abc' });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--session', 'ses_abc', '--', 'continue'], '/wt');
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--session', 'ses_abc', '--', 'continue'], '/wt');
   });
 
   it('reports bounded diagnostics + usage on a nonzero exit', async () => {

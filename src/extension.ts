@@ -93,6 +93,7 @@ import {
 } from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
+import type { ModelCatalog } from './agent/modelCatalog.js';
 import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
 import {
   catalogDiagnosticSeverity,
@@ -3962,9 +3963,6 @@ function makeDashboardActions(
     // Human confirms ship: open the PR(s) for every hot repo, then let the
     // caller (dashboard) refresh so `done` (or a fresh PR list) shows up.
     shipTicket: () => {
-      // Before the model call, not after: `runShipTicket` asks a model to write
-      // the PR description first, so an unguarded click burns a call per repo and
-      // then dies at `gh pr create`.
       if (!guardCapability('ship')) return;
       void runShipTicket(
         store,
