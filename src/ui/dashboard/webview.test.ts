@@ -1165,12 +1165,16 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('Configured to run — has not executed yet');
   });
 
-  it('discloses process evidence with a real button and aria-expanded', () => {
-    // UI-R09: the disclosure is a semantic button carrying the open state; the
-    // open set is local view state that survives the next full re-render.
-    expect(HTML).toMatch(/data-chev="\$\{esc\(key\)\}"/);
-    expect(HTML).toMatch(/aria-expanded="\$\{open \? 'true' : 'false'\}"/);
+  it('discloses process evidence with a native details/summary (B3)', () => {
+    // UI-R09: the disclosure IS the element — keyboard operability comes from
+    // <details>/<summary>, not from a click handler. The open state rides the
+    // row's OWN data-proc-id (the composite `${stageKey}:${p.id}` the renderer
+    // looks up, Task 0.1), persisted through the native `toggle` listener.
+    expect(HTML).toMatch(/<details class="proc \$\{esc\(p\.status\)\}" data-proc-id="\$\{esc\(key\)\}"/);
+    expect(HTML).toMatch(/<summary><span class="prow">/);
     expect(HTML).toMatch(/openProcesses = next;/);
+    expect(HTML).not.toMatch(/data-chev/);
+    expect(HTML).not.toMatch(/aria-expanded/);
   });
 
   it('posts inside actions with only the opaque actionId', () => {
@@ -1264,12 +1268,13 @@ describe('dashboard webview.html', () => {
     expect(pdetail).not.toContain('overflow-x');
   });
 
-  it('carries a focus ring on the evidence chevron via the shared primitive', () => {
-    // The chevron rides on `.k-iconbtn`, so the design system's ONE
-    // :focus-visible rule (designComponents.ts FOUNDATION) applies — a
-    // keyboard user always sees where they are (UI-R09).
-    expect(HTML).toMatch(/class="k-iconbtn chev"/);
-    expect(HTML).toMatch(/data-chev="/);
+  it('gives the process summary its own focus ring and a rotating marker (B3)', () => {
+    // <summary> is neither a <button> nor an <a>/<input>, so the primitives'
+    // generic :focus-visible rule never reaches it (UI-R23 — same as .mgd and
+    // .pcms). The marker is decorative; the rotation states the open state.
+    expect(HTML).toMatch(/\.proc summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
+    expect(HTML).toMatch(/class="pchev"/);
+    expect(HTML).toMatch(/\.proc\[open\] \.pchev\{transform:rotate\(90deg\)\}/);
   });
 
   it('places status and name before every piece of metadata on a process row', () => {
@@ -1287,7 +1292,7 @@ describe('dashboard webview.html', () => {
       rendered.indexOf('tokensHtml(p.tokens)'),
       rendered.indexOf('<span class="pdetail">'),
       rendered.indexOf('<span class="pright">'),
-      rendered.indexOf('${chev}'),
+      rendered.indexOf('${marker}'),
     ];
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
@@ -1297,7 +1302,7 @@ describe('dashboard webview.html', () => {
     // process's `.prow` — so it can never drift onto another process.
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
     expect(row).toMatch(/const meta = \[p\.count, p\.duration\]/);
-    expect(row).toMatch(/class="pright">\$\{meta\}\$\{act\}<\/span>\$\{chev\}/);
+    expect(row).toMatch(/class="pright">\$\{meta\}\$\{act\}<\/span>\$\{marker\}/);
   });
 
   it('escapes every untrusted fixture string at the row templates (UI-R32)', () => {
@@ -1379,19 +1384,17 @@ function previewScriptSource(): string {
 }
 
 /**
- * Read the disclosure key a process row's chevron actually RENDERED, by
- * locating the row (data-proc-id) and taking the button's own data-chev — the
- * value the click handler will store verbatim. Never fabricates the dataset.
+ * Read the disclosure key a process row actually RENDERED, by locating the
+ * row (data-proc-id) and taking the row's OWN data-proc-id — the composite
+ * key the toggle listener stores verbatim. Never fabricates the dataset.
  */
 function clickChevron(html: string, stageKey: string, processId: string): string {
-  const m = html.match(new RegExp(`data-chev="([^"]*)"[^>]*aria-label="Show [^"]*"`, 'g')) || [];
-  // Find the chevron that belongs to this process row by locating the row first.
+  // Find the row by its own identity, then read the attribute on the row.
   const rowAt = html.indexOf(`data-proc-id="${stageKey}:${processId}"`);
   if (rowAt < 0) throw new Error(`no process row for ${stageKey}:${processId}`);
-  const chevAt = html.indexOf('data-chev="', rowAt);
-  if (chevAt < 0) throw new Error(`no chevron for ${stageKey}:${processId}`);
-  const chev = html.slice(chevAt + 'data-chev="'.length, html.indexOf('"', chevAt + 'data-chev="'.length));
-  return chev;
+  const procAt = html.indexOf('data-proc-id="', rowAt);
+  const procId = html.slice(procAt + 'data-proc-id="'.length, html.indexOf('"', procAt + 'data-proc-id="'.length));
+  return procId;
 }
 
 /** Render the Inside block for one stage through the render fixture envelope. */
@@ -1639,14 +1642,17 @@ function bootPreviewHarness(): PreviewHarness {
     },
     clickChevron: (key) => {
       const [stageKey, processId] = key.split(':');
-      const chev = clickChevron(elements.inside!.innerHTML, stageKey!, processId!);
-      fireDocumentClick({
-        target: {
-          closest: (sel: string) =>
-            sel === '[data-chev]' ? { dataset: { chev } } : null,
-        },
-        preventDefault: () => {},
-      });
+      const procId = clickChevron(elements.inside!.innerHTML, stageKey!, processId!);
+      // A native <details> disclosure: the browser flipped `open` and fired the
+      // `toggle` event, which the capture-phase listener persists by procId.
+      for (const handler of docListeners.get('toggle') ?? []) {
+        handler({
+          target: {
+            closest: (sel: string) =>
+              sel === '.proc' ? { dataset: { procId }, open: true } : null,
+          },
+        });
+      }
     },
     htmlOf: (id) => elements[id]!.innerHTML,
     textOf: (id) => elements[id]!.textContent,
@@ -1660,10 +1666,31 @@ function bootPreviewHarness(): PreviewHarness {
 
 describe('inside render round trip (executed in a VM)', () => {
   it('emits a disclosure key that matches the open-state key the renderer looks up', () => {
-    // The renderer asks openProcesses for `${stageKey}:${p.id}`; the button must
-    // carry exactly that, or the chevron is inert and no evidence is reachable.
+    // The renderer asks openProcesses for `${stageKey}:${p.id}`; the row must
+    // carry exactly that on its own data-proc-id, or the toggle is inert and
+    // no evidence is reachable (the F1 regression).
     const html = renderInsideFor('uat');       // use the suite's existing helper
     expect(clickChevron(html, 'uat', 'gates')).toBe('uat:gates');
+  });
+
+  it('restores a disclosed process row across a full re-render (B3)', () => {
+    // The F1 fix must not regress: the open-state key the toggle listener
+    // stores (the row's own data-proc-id) is the exact key the renderer
+    // consults, so a disclosure survives the next wholesale re-render.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates"');
+    expect(h.htmlOf('inside')).not.toContain('data-proc-id="uat:gates" open');
+    h.clickChevron('uat:gates');
+    // The browser flips `open` on the details element itself; the open set is
+    // what carries the state across renders — proven by the next re-render.
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+    // And the composite key is per-row: toggling the tester never opens gates.
+    h.clickChevron('uat:tester');
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:tester" open');
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
   });
 
   /**
@@ -1676,6 +1703,9 @@ describe('inside render round trip (executed in a VM)', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: renderStateFor(stage) });
     h.clickChevron(`${stage}:${processId}`);
+    // A native <details> keeps its own DOM `open`; persistence is proven by
+    // the NEXT render, which must restore the disclosure from the open set.
+    h.receive({ type: 'state', state: renderStateFor(stage) });
     return h.htmlOf('inside');
   }
 
@@ -1759,6 +1789,7 @@ describe('inside render round trip (executed in a VM)', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, scope } } });
     h.clickChevron('scope:worktrees');
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, scope } } });
     const html = h.htmlOf('inside');
     expect(html).toContain('class="pev pev-rows"');
     expect(html).toContain('<span class="elabel">future</span>');

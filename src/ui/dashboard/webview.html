@@ -464,6 +464,9 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){
     .spin,.track .seg.needs{animation:none}
+    /* The disclosure marker's rotation is motion; the open state itself is
+       still visible in the marker's resting orientation. (UI-R30) */
+    .pchev{transition:none}
   }
 
   /* ── activity strip: what happens inside the SELECTED stage ───────────── */
@@ -508,8 +511,8 @@
      One generic row per process. Everything on the row — status, label,
      detail, counts, identity, tokens, action id — arrives pre-built in the
      snapshot; the webview never derives a verdict or a label from prose. The
-     disclosure is a real button with aria-expanded (UI-R09), never a clickable
-     div. */
+     disclosure is a native <details>/<summary> (B3, UI-R09), never a
+     clickable div. */
   .act .procs{padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
   .proc{border-radius:var(--k-radius-md)}
   .proc:hover{background:var(--k-surface-hover)}
@@ -537,12 +540,18 @@
   .proc.pending{opacity:.5}
   .proc.note .pdetail{font-style:italic;opacity:.75}
   .proc.skip .pdetail{font-style:italic;opacity:.7}
-  /* Built on `.k-iconbtn` (UI-R07) so the shared focus-visible ring applies;
-     only size/padding are local, exactly like sidebar's chevron. */
-  .proc .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);display:inline-flex;align-items:center;justify-content:center;
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:transparent;color:var(--k-text-dim);
-    font-size:var(--k-text-md);line-height:1;cursor:pointer}
-  .proc .chev:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The disclosure is a native <details>/<summary> (B3, UI-R09): the process
+     row IS the summary, so keyboard operability comes from the element, never
+     from a click handler. The marker is decorative (aria-hidden) and its
+     rotation states the open state; the summary's own text is the accessible
+     name. `list-style` + the webkit marker rule silence the default triangle
+     so the marker below is the only affordance. */
+  .proc summary{list-style:none;cursor:pointer}
+  .proc summary::-webkit-details-marker{display:none}
+  .proc summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .proc .pchev{flex:none;color:var(--k-text-faint);font-size:var(--k-text-md);line-height:1;
+    transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  .proc[open] .pchev{transform:rotate(90deg)}
   .proc .pev{border-top:var(--k-border-w) solid var(--k-border);margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-3) 0}
   .erow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
   .erow:hover{background:var(--k-surface-hover)}
@@ -1041,7 +1050,8 @@
   // state, exactly like `openMergeRepos`: render() replaces #inside wholesale
   // on every state push, so a disclosure open only in the DOM would snap shut
   // on the very next one. Never in DashboardState, never round-tripped
-  // through the host; only the `data-chev` click handler mutates it.
+  // through the host; only the native `toggle` listener mutates it (B3), and
+  // render() itself must never reset it.
   let openProcesses = new Set();
   // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
   // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
@@ -1453,15 +1463,19 @@
       .map((m) => `<span class="pmeta">${esc(m)}</span>`).join('');
     const act = p.action ? insideActionBtnHtml(p.action) : '';
     const hasEv = p.evidence && p.evidence.rows.length;
-    const chev = hasEv
-      ? `<button type="button" class="k-iconbtn chev" data-chev="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}"`
-        + ` aria-label="Show ${esc(p.label)} details" title="Show ${esc(p.label)} details">${open ? '–' : '+'}</button>`
-      : '';
+    // A real <details>/<summary> (B3, decision 7): the row IS the summary, so
+    // keyboard operability comes from the element, not a handler (UI-R09).
+    // The composite `${key}` (stage:process, Task 0.1) rides the row's own
+    // data-proc-id; the capture-phase `toggle` listener persists the open set
+    // keyed by exactly that, so a disclosure survives the next re-render. The
+    // marker is decorative; the summary text is the accessible name.
+    const marker = hasEv ? '<span class="pchev" aria-hidden="true">›</span>' : '';
     const ev = hasEv && open ? evidenceBlockHtml(p.evidence) : '';
-    return `<div class="proc ${esc(p.status)}" data-proc-id="${esc(key)}"><div class="prow"><span class="pglyph">${glyph}</span>`
+    return `<details class="proc ${esc(p.status)}" data-proc-id="${esc(key)}"${hasEv && open ? ' open' : ''}>`
+      + `<summary><span class="prow"><span class="pglyph">${glyph}</span>`
       + `<span class="pname">${esc(p.label)}</span>${identityChipHtml(p)}${tokensHtml(p.tokens)}`
       + `<span class="pdetail">${esc(p.detail || '')}</span>`
-      + `<span class="pright">${meta}${act}</span>${chev}</div>${ev}</div>`;
+      + `<span class="pright">${meta}${act}</span>${marker}</span></summary>${ev}</details>`;
   }
 
   // Live overlays, in order of precedence: a `completed` process row replaces
@@ -2269,22 +2283,21 @@
     if (btn.hasAttribute('data-copy')) flashCopied(btn);
   });
 
-  // The inside ledger's disclosure toggles. NOT `[data-act]`: expanding a row
-  // is view state, not an action — nothing posts, and the open set must
-  // survive the next full re-render, which is why it lives here beside
-  // `openProcesses` rather than on the row itself.
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-chev]');
-    if (!btn) return;
-    e.preventDefault();
-    const key = btn.dataset.chev;
-    if (!key) return;
+  // The inside ledger's disclosure state. A process row IS a native
+  // <details>/<summary> (B3), so the browser discloses it and the `toggle`
+  // event reports the change; persisting here — keyed by the row's OWN
+  // data-proc-id, the composite `${stageKey}:${p.id}` the renderer looks up
+  // (Task 0.1) — is what lets the next full re-render restore exactly the rows
+  // the user had open. Capture phase: `toggle` does not bubble in every
+  // engine, the same reason the .mgd listener below uses it.
+  document.addEventListener('toggle', (e) => {
+    const node = e.target && e.target.closest && e.target.closest('.proc');
+    if (!node || !node.dataset.procId) return;
     const next = new Set(openProcesses);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
+    if (node.open) next.add(node.dataset.procId);
+    else next.delete(node.dataset.procId);
     openProcesses = next;
-    if (lastState) render(lastState);
-  });
+  }, true);
 
   // Settle every outstanding merge request against the fresh PR list. `merged`
   // is the one outcome the webview can actually verify — the host reports
