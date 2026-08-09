@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
+import { injectAgentIdentity } from '../../model/agentIdentity.js';
 import { renderStateFor } from './renderFixtures.js';
 import type { DashboardState } from './state.js';
 import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
@@ -103,11 +104,16 @@ describe('dashboard webview.html', () => {
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
     // markers are load-bearing at runtime (renderKeyPill calls providerIconHtml,
-    // which only exists because the JS marker was substituted).
+    // which only exists because the JS marker was substituted). The agent
+    // markers are equally load-bearing since B1: identityChipHtml calls
+    // agentIconHtml, so a marker-less dashboard would throw ReferenceError on
+    // the first process row that carries an execution identity.
     for (const marker of [
       '<!--KARST_CSP-->',
       '/*KARST_PROVIDER_CSS*/',
       '/*KARST_PROVIDER_JS*/',
+      '/*KARST_AGENT_CSS*/',
+      '/*KARST_AGENT_JS*/',
       '/*KARST_PALETTE*/',
     ]) {
       expect(HTML, `missing marker: ${marker}`).toContain(marker);
@@ -1351,7 +1357,7 @@ describe('dashboard webview.html', () => {
 // (docs/superpowers/verification/) is their only executor.
 
 /** The dashboard webview hydrated exactly as the host renders it. */
-const HYDRATED = injectProviderIdentity(injectPalette(injectDesignSystem(HTML)));
+const HYDRATED = injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(HTML))));
 
 function previewScriptSource(): string {
   const open = HYDRATED.indexOf('<script>');

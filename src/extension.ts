@@ -261,6 +261,7 @@ import { injectPalette } from './model/palette.js';
 import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
+import { injectAgentIdentity } from './model/agentIdentity.js';
 import {
   binaryExists,
   checkDependencyFaults,
@@ -3397,15 +3398,19 @@ function buildCliPhasePrefix(
 
 /**
  * The injected dashboard webview asset, built once per call: design system,
- * status palette, and provider identity markers are all substituted host-side
- * (CSP forbids a shared stylesheet/script). Shared by the production dashboard
- * panels and the development-only Inside preview, so the preview renders the
- * exact asset production does (Finding 1).
+ * status palette, provider identity, and agent-core identity markers are all
+ * substituted host-side (CSP forbids a shared stylesheet/script). Shared by the
+ * production dashboard panels and the development-only Inside preview, so the
+ * preview renders the exact asset production does (Finding 1). The agent
+ * identity injection is applied outermost, in the same order the settings and
+ * ticket form hosts use it.
  */
 function dashboardWebviewHtml(): string {
-  return injectProviderIdentity(
-    injectPalette(
-      injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+  return injectAgentIdentity(
+    injectProviderIdentity(
+      injectPalette(
+        injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+      ),
     ),
   );
 }

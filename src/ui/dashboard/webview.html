@@ -7,6 +7,7 @@
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_AGENT_CSS*/
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -524,6 +525,10 @@
     border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
     font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
   .proc .pchip::before{content:'';width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);background:var(--k-text-faint)}
+  /* The agent-core mark replaces the quiet dot: two identity marks in one chip
+     would compete, and the icon IS the identity (handoff §5). The injected
+     .agenticon rules own the icon's box; this only stops the dot. */
+  .proc .pchip.with-icon::before{display:none}
   .proc .ptok{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
   .proc .pdetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
     overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -924,6 +929,13 @@
   // shared script). Defines PROVIDER_LABELS, CLICKUP_SVG, providerBadgeHtml.
   /*KARST_PROVIDER_JS*/
 
+  // Shared agent-core identity (icon + name) — single source in
+  // src/model/agentIdentity.ts, injected here at load. Defines
+  // AGENT_PROVIDER_LABELS, agentBadgeHtml, agentIconHtml. The inside ledger's
+  // identity chip consumes agentIconHtml (B1), so the markers are load-bearing:
+  // without them the chip would throw ReferenceError on the first process row.
+  /*KARST_AGENT_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
@@ -1263,6 +1275,8 @@
   // The recorded execution identity. `execution` = what RAN; `configured`
   // = what settings said WOULD run. One chip, whichever exists; the title
   // says which claim it is, so a pending process never reads as evidence.
+  // The agent-core mark rides the injected identity API (B1) so the cluster
+  // reads "[core icon] Agent · Codex · sol" per handoff §5.
   function identityChipHtml(p) {
     const e = p.execution || p.configuredExecution;
     if (!e) return '';
@@ -1271,7 +1285,8 @@
     if (!core) return '';
     const label = [e.agentName, core, model && model !== core ? model : ''].filter(Boolean).join(' · ');
     const tip = p.execution ? 'Executed with this identity' : 'Configured to run — has not executed yet';
-    return `<span class="pchip" title="${esc(tip)}">${esc(label)}</span>`;
+    const icon = agentIconHtml(e.provider);
+    return `<span class="pchip${icon ? ' with-icon' : ''}" title="${esc(tip)}">${icon}${esc(label)}</span>`;
   }
 
   function tokensHtml(t) {
