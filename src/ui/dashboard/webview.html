@@ -1447,7 +1447,7 @@
         + ` aria-label="Show ${esc(p.label)} details" title="Show ${esc(p.label)} details">${open ? '–' : '+'}</button>`
       : '';
     const ev = hasEv && open ? `<div class="pev pev-${esc(p.evidence.kind)}">${p.evidence.rows.map(evidenceRowHtml).join('')}</div>` : '';
-    return `<div class="proc ${esc(p.status)}"><div class="prow"><span class="pglyph">${glyph}</span>`
+    return `<div class="proc ${esc(p.status)}" data-proc-id="${esc(key)}"><div class="prow"><span class="pglyph">${glyph}</span>`
       + `<span class="pname">${esc(p.label)}</span>${identityChipHtml(p)}${tokensHtml(p.tokens)}`
       + `<span class="pdetail">${esc(p.detail || '')}</span>`
       + `<span class="pright">${meta}${act}</span>${chev}</div>${ev}</div>`;
@@ -1489,7 +1489,7 @@
 
     const procs = overlayProcesses(view);
     const body = procs.length
-      ? `<div class="procs">${procs.map((p) => processRowHtml(p, view.stageKey, openProcesses.has(`${view.stageKey}:${p.id}`))).join('')}</div>`
+      ? `<div class="procs">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, openProcesses.has(`${view.stageKey}:${p.id}`))).join('')}</div>`
       : `<div class="blurb">${esc(view.blurb)}</div>`;
 
     el('inside').innerHTML = `<div class="act ${viewing ? 'viewing' : ''}">${vbar}`

@@ -1451,6 +1451,33 @@ function previewScriptSource(): string {
   return HYDRATED.slice(open + '<script>'.length, close);
 }
 
+/**
+ * Read the disclosure key a process row's chevron actually RENDERED, by
+ * locating the row (data-proc-id) and taking the button's own data-chev — the
+ * value the click handler will store verbatim. Never fabricates the dataset.
+ */
+function clickChevron(html: string, stageKey: string, processId: string): string {
+  const m = html.match(new RegExp(`data-chev="([^"]*)"[^>]*aria-label="Show [^"]*"`, 'g')) || [];
+  // Find the chevron that belongs to this process row by locating the row first.
+  const rowAt = html.indexOf(`data-proc-id="${stageKey}:${processId}"`);
+  if (rowAt < 0) throw new Error(`no process row for ${stageKey}:${processId}`);
+  const chevAt = html.indexOf('data-chev="', rowAt);
+  if (chevAt < 0) throw new Error(`no chevron for ${stageKey}:${processId}`);
+  const chev = html.slice(chevAt + 'data-chev="'.length, html.indexOf('"', chevAt + 'data-chev="'.length));
+  return chev;
+}
+
+/** Render the Inside block for one stage through the preview fixture matrix. */
+function renderInsideFor(stage: string): string {
+  const h = bootPreviewHarness();
+  const fixtures = insidePreviewFixtures();
+  h.receive({ type: 'preview-fixtures', fixtures: fixtures.map(previewPayloadFor) });
+  const fixture = fixtures.find((f) => f.stage === stage);
+  if (!fixture) throw new Error(`no fixture for ${stage}`);
+  h.selectFixture(fixture.repositoryCount, fixture.scenario);
+  return h.htmlOf('inside');
+}
+
 /** A minimal element double for whatever the script touches through `el()`. */
 function previewElement(id: string) {
   const attrs: Record<string, string> = {};
@@ -1689,10 +1716,12 @@ function bootPreviewHarness(): PreviewHarness {
       });
     },
     clickChevron: (key) => {
+      const [stageKey, processId] = key.split(':');
+      const chev = clickChevron(elements.inside!.innerHTML, stageKey!, processId!);
       fireDocumentClick({
         target: {
           closest: (sel: string) =>
-            sel === '[data-chev]' ? { dataset: { chev: key } } : null,
+            sel === '[data-chev]' ? { dataset: { chev } } : null,
         },
         preventDefault: () => {},
       });
@@ -1822,6 +1851,13 @@ describe('inside preview fixture round trip (executed in a VM)', () => {
     for (const [scenario, seen] of counts) {
       expect(seen.size, `scenario ${scenario} renders a roster that varies with repo count`).toBe(1);
     }
+  });
+
+  it('emits a disclosure key that matches the open-state key the renderer looks up', () => {
+    // The renderer asks openProcesses for `${stageKey}:${p.id}`; the button must
+    // carry exactly that, or the chevron is inert and no evidence is reachable.
+    const html = renderInsideFor('uat');       // use the suite's existing helper
+    expect(clickChevron(html, 'uat', 'gates')).toBe('uat:gates');
   });
 
   it('lets the development preview exercise active, completed, and cleared generic inside-progress events', () => {
