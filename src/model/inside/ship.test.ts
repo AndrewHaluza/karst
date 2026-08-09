@@ -4,7 +4,7 @@ import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { shipProcesses, type ShipProcessesInput } from './ship.js';
-import type { ShipPrView } from './types.js';
+import type { InsideEvidenceTarget, ShipPrView } from './types.js';
 import type { EvidenceRow, InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -418,4 +418,51 @@ describe('shipProcesses', () => {
       expect(rowsOf(merge)[0]).toMatchObject({ status: 'pass', label: 'merged' });
     });
   });
+
+  it.each([10, 15, 20])(
+    'bounds every repository process and exposes all %i rows through a typed continuation',
+    (count) => {
+      const repos: Record<string, ShipRepoEvidence> = {};
+      const prs: ShipPrView[] = [];
+      for (let i = 0; i < count; i += 1) {
+        const repo = `/repo-${String(i + 1).padStart(2, '0')}`;
+        repos[repo] = repoEvidence(repo, {
+          steps: {
+            commit: step('commit', { repo }),
+            push: step('push', { repo }),
+            pr: step('pr', { repo, number: 100 + i }),
+          },
+          commits: [shipCommit('created-by-ship', { repo, sha: `sha-${i}` })],
+        });
+        prs.push(pr(repo, { number: 100 + i, status: 'open' }));
+      }
+      const targets: InsideEvidenceTarget[] = [];
+      const views = shipProcesses(
+        shipInput({
+          evidence: evidence({ repos }),
+          prs,
+          attach: (target) => {
+            targets.push(target);
+            return { actionId: `snapshot-1:action-${targets.length}`, kind: target.kind };
+          },
+        }),
+      );
+
+      for (const process of views) {
+        const rows = rowsOf(process);
+        expect(rows).toHaveLength(7);
+        expect(rows.at(-1)).toMatchObject({
+          label: 'more',
+          detail: `+${count - 6} more`,
+          action: { kind: 'open-bounded-evidence' },
+        });
+      }
+      const boundedTargets = targets.filter((target) => target.kind === 'open-bounded-evidence');
+      expect(boundedTargets).toHaveLength(4);
+      for (const target of boundedTargets) {
+        expect(target.kind).toBe('open-bounded-evidence');
+        if (target.kind === 'open-bounded-evidence') expect(target.rows).toHaveLength(count);
+      }
+    },
+  );
 });

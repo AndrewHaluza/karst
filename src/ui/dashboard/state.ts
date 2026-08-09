@@ -404,6 +404,7 @@ export function buildDashboardState(
         tokens: recordedTotal.total > 0 ? recordedTotal : null,
         roles: roleTokens,
         now,
+        attach,
       }),
       now,
     ),

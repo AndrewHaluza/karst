@@ -4,9 +4,10 @@ import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { ShipEvidence } from '../../store/shipRuns.js';
 import type { RecordedRoleUsage, RecordedUsageSummary } from '../../store/tokenUsage.js';
 import { formatTokens } from '../tokenFormat.js';
+import { boundedEvidenceRows } from './bounds.js';
 import { latestBatch } from './gates.js';
-import { currentPerRepo, isMerged } from './ship.js';
-import type { EvidenceRow, ShipPrView } from './types.js';
+import { currentPerRepo, isMerged, REPOSITORY_EVIDENCE_LIMIT } from './ship.js';
+import type { EvidenceRow, InsideEvidenceTarget, ShipPrView, TypedInsideAction } from './types.js';
 
 /**
  * The done stage's delivery receipt (Task 12): a DISCRIMINATED UNION — before
@@ -71,6 +72,7 @@ export interface DoneReceiptInput {
   /** The recorded spend per role, for the breakdown rows. */
   roles: readonly RecordedRoleUsage[];
   now: string;
+  attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
 }
 
 export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
@@ -89,12 +91,25 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
   );
   const validated = finalGateWording(input.gateRuns);
 
-  const rows: EvidenceRow[] = [
-    ...merged.map((pr): EvidenceRow => ({
+  const mergedRows = merged.map((pr): EvidenceRow => ({
       status: 'pass',
       label: 'merged',
       detail: pr.number ? `${pr.repoDisplay || pr.repo} #${pr.number}` : pr.repoDisplay || pr.repo,
-    })),
+  }));
+  const repositoryRows = boundedEvidenceRows(
+    mergedRows,
+    REPOSITORY_EVIDENCE_LIMIT,
+    input.attach
+      ? (allRows) => input.attach?.({
+          kind: 'open-bounded-evidence',
+          title: 'Done · Delivery receipt',
+          rows: allRows,
+        })
+      : undefined,
+  );
+
+  const rows: EvidenceRow[] = [
+    ...repositoryRows,
     { status: 'note', label: 'commits', detail: `${commits} created by ship` },
     { status: 'note', label: 'validated', detail: validated },
     ...(input.rounds.length > 0

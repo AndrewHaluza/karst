@@ -5,7 +5,7 @@ import type {
 } from '../../store/shipRuns.js';
 import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
-import { bounded } from './bounds.js';
+import { boundedEvidenceRows } from './bounds.js';
 import {
   formatDuration,
   type EvidenceRow,
@@ -34,7 +34,7 @@ import {
  */
 
 /** Cap on per-repo rows before the remainder row takes over. */
-const REPO_ROWS_LIMIT = 6;
+export const REPOSITORY_EVIDENCE_LIMIT = 6;
 
 export interface ShipProcessesInput {
   cell: StepperCell;
@@ -98,13 +98,18 @@ function stepStatus(step: ShipRepoStepEvidence | undefined): InsideStatus {
 export const isMerged = (pr: ShipPrView): boolean => pr.status === 'merged';
 
 /** Bound per-repo rows and name the remainder. */
-function boundedRepoRows(rows: readonly EvidenceRow[]): EvidenceRow[] {
-  const boundedRows = bounded(rows, REPO_ROWS_LIMIT);
-  const out = [...boundedRows.shown];
-  if (boundedRows.remaining > 0) {
-    out.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
-  }
-  return out;
+function boundedRepoRows(
+  input: ShipProcessesInput,
+  title: string,
+  rows: readonly EvidenceRow[],
+): EvidenceRow[] {
+  return boundedEvidenceRows(
+    rows,
+    REPOSITORY_EVIDENCE_LIMIT,
+    input.attach
+      ? (allRows) => input.attach?.({ kind: 'open-bounded-evidence', title, rows: allRows })
+      : undefined,
+  );
 }
 
 /**
@@ -146,7 +151,7 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
       };
     },
   );
-  const rows = boundedRepoRows(recorded);
+  const rows = boundedRepoRows(input, 'Ship · Commit', recorded);
   return {
     id: 'commit',
     kind: 'commit',
@@ -189,7 +194,7 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
       };
     },
   );
-  const rows = boundedRepoRows(recorded);
+  const rows = boundedRepoRows(input, 'Ship · Push', recorded);
   return {
     id: 'push',
     kind: 'push',
@@ -222,7 +227,7 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
       };
     },
   );
-  const rows = boundedRepoRows(recorded);
+  const rows = boundedRepoRows(input, 'Ship · Pull request', recorded);
   const current = currentPerRepo(input.prs);
   const merged = current.filter(isMerged).length;
   const open = current.length - merged;
@@ -246,7 +251,7 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
 function mergeProcess(input: ShipProcessesInput): InsideProcessView {
   const current = currentPerRepo(input.prs);
   const checksByRepo = new Map(input.mergeChecks.map((c) => [c.repo, c]));
-  const rows = current.map((pr): EvidenceRow => {
+  const recorded = current.map((pr): EvidenceRow => {
     const label = pr.repoDisplay || pr.repo;
     const name = pr.number ? `${label} #${pr.number}` : label;
     if (isMerged(pr)) {
@@ -261,13 +266,14 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
     }
     return { status: 'wait', label: 'open', detail: `${name} · not merged yet` };
   });
-  const allMerged = rows.length > 0 && rows.every((r) => r.status === 'pass');
+  const allMerged = recorded.length > 0 && recorded.every((r) => r.status === 'pass');
+  const rows = boundedRepoRows(input, 'Ship · Merge', recorded);
   return {
     id: 'merge',
     kind: 'merge',
     label: 'Merge',
-    status: rows.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input),
-    ...(rows.length === 0 && input.cell.startedAt
+    status: recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input),
+    ...(recorded.length === 0 && input.cell.startedAt
       ? { detail: 'nothing to merge — no pull request opened' }
       : rows.length === 0
         ? { detail: noEvidenceDetail(input) }

@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { ShipCommit, ShipEvidence, ShipRepoEvidence, ShipRepoStepEvidence, ShipRun, ShipStep } from '../../store/shipRuns.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { RecordedRoleUsage, RecordedUsageSummary } from '../../store/tokenUsage.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
-import type { ShipPrView } from './types.js';
+import type { InsideEvidenceTarget, ShipPrView } from './types.js';
 import { doneReceipt, type DoneReceiptInput, type DoneReceiptView } from './done.js';
 import type { EvidenceRow } from './types.js';
 
@@ -264,5 +264,61 @@ describe('doneReceipt', () => {
       expect(view.delivered).toEqual({ repos: 1, prs: 1, commits: 0 });
       expect(rowsOf(view).filter((r) => r.label === 'merged')).toHaveLength(1);
     });
+  });
+
+  it.each([10, 15, 20])(
+    'bounds %i merged repository rows and exposes the complete receipt slice through continuation',
+    (count) => {
+      const targets: InsideEvidenceTarget[] = [];
+      const view = doneReceipt(
+        receiptInput({
+          prs: Array.from({ length: count }, (_, i) =>
+            pr(`/repo-${String(i + 1).padStart(2, '0')}`, {
+              number: 100 + i,
+              status: 'merged',
+            }),
+          ),
+          roles: [{ role: 'implementation', input: 90, output: 10, total: 100 }],
+          tokens: { input: 90, output: 10, total: 100 },
+          attach: (target) => {
+            targets.push(target);
+            return { actionId: 'snapshot-1:action-0', kind: target.kind };
+          },
+        }),
+      ) as Extract<DoneReceiptView, { status: 'complete' }>;
+      const rows = rowsOf(view);
+      const repositoryRows = rows.filter((row) => row.label === 'merged' || row.label === 'more');
+
+      expect(view.delivered).toEqual({ repos: count, prs: count, commits: 0 });
+      expect(repositoryRows).toHaveLength(7);
+      expect(repositoryRows.at(-1)).toMatchObject({
+        label: 'more',
+        detail: `+${count - 6} more`,
+        action: { kind: 'open-bounded-evidence' },
+      });
+      expect(rows.find((row) => row.label === 'commits')).toBeDefined();
+      expect(rows.find((row) => row.label === 'validated')).toBeDefined();
+      expect(rows.find((row) => row.label === 'implementation')).toBeDefined();
+      expect(targets).toHaveLength(1);
+      if (targets[0]?.kind === 'open-bounded-evidence') {
+        expect(targets[0].rows).toHaveLength(count);
+      }
+    },
+  );
+
+  it('does not mint a receipt continuation for six repositories', () => {
+    const attach = vi.fn();
+    const view = doneReceipt(
+      receiptInput({
+        prs: Array.from({ length: 6 }, (_, i) =>
+          pr(`/repo-${i + 1}`, { number: 100 + i, status: 'merged' }),
+        ),
+        attach,
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+
+    expect(rowsOf(view).filter((row) => row.label === 'merged')).toHaveLength(6);
+    expect(rowsOf(view).find((row) => row.label === 'more')).toBeUndefined();
+    expect(attach).not.toHaveBeenCalled();
   });
 });

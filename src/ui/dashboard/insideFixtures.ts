@@ -6,6 +6,8 @@ import type {
   TypedInsideAction,
 } from '../../model/inside/types.js';
 import { STAGE_BLURBS } from '../../model/inside/types.js';
+import { boundedEvidenceRows } from '../../model/inside/bounds.js';
+import { REPOSITORY_EVIDENCE_LIMIT } from '../../model/inside/ship.js';
 
 /**
  * Task 9 / Finding 1: the checked-in fixture matrix for the development-only
@@ -101,11 +103,7 @@ const FINDINGS_LIMIT = 6;
 
 /** Bound rows the way the production reducers do, appending the "+N more" marker. */
 function boundedRows(rows: readonly EvidenceRow[], limit: number): EvidenceRow[] {
-  const shown = rows.slice(0, limit);
-  const remaining = rows.length - limit;
-  return remaining > 0
-    ? [...shown, { status: 'note', label: 'more', detail: `+${remaining} more` }]
-    : [...shown];
+  return boundedEvidenceRows(rows, limit, () => fixtureAction('open-bounded-evidence', rows.length));
 }
 
 /** The first `n` repo names, in matrix order. */
@@ -232,8 +230,11 @@ function implView(_n: PreviewRepoCount): InsideStageView {
 /** The done stage: the delivery receipt with every current PR merged. */
 function doneView(n: PreviewRepoCount): InsideStageView {
   const rows: EvidenceRow[] = [
-    ...repoNames(n).map(
-      (r, i): EvidenceRow => ({ status: 'pass', label: 'merged', detail: `${r} #${110 + i}` }),
+    ...boundedRows(
+      repoNames(n).map(
+        (r, i): EvidenceRow => ({ status: 'pass', label: 'merged', detail: `${r} #${110 + i}` }),
+      ),
+      REPOSITORY_EVIDENCE_LIMIT,
     ),
     { status: 'note', label: 'commits', detail: '31 created by ship' },
     { status: 'note', label: 'validated', detail: '14 gates passed on the final run' },
@@ -395,7 +396,7 @@ function shipView(n: PreviewRepoCount): InsideStageView {
         kind: 'merge',
         label: 'Merge',
         status: 'wait',
-        evidence: { kind: 'rows', rows: mergeRows },
+        evidence: { kind: 'rows', rows: boundedRows(mergeRows, REPOSITORY_EVIDENCE_LIMIT) },
       },
     ],
     blurb: STAGE_BLURBS.ship,

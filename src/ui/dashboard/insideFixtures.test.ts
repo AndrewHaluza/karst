@@ -39,6 +39,7 @@ const CLOSED_ACTION_KINDS = [
   'open-stage-log',
   'resume-stage',
   'open-full-evidence',
+  'open-bounded-evidence',
 ] as const;
 
 function rowsOf(fixture: InsidePreviewFixture, processId: string) {
@@ -139,9 +140,41 @@ describe('inside preview fixtures', () => {
       status: 'note',
       label: 'more',
       detail: '+14 more',
+      action: {
+        actionId: expect.stringMatching(/^fixture:/),
+        kind: 'open-bounded-evidence',
+      },
     });
     const ship5 = fixtures.find((x) => x.repositoryCount === 5 && x.scenario === 'waiting')!;
     expect(rowsOf(ship5, 'commit').at(-1)?.label).not.toBe('more');
+
+    for (const n of [10, 15, 20] as const) {
+      const ship = fixtures.find((x) => x.repositoryCount === n && x.scenario === 'waiting')!;
+      for (const processId of ['commit', 'push', 'pr', 'merge']) {
+        const rows = rowsOf(ship, processId);
+        expect(rows).toHaveLength(7);
+        expect(rows.at(-1)).toMatchObject({
+          label: 'more',
+          detail: `+${n - 6} more`,
+          action: { kind: 'open-bounded-evidence' },
+        });
+      }
+    }
+
+    for (const n of [10, 15, 20] as const) {
+      const done = fixtures.find((x) => x.repositoryCount === n && x.scenario === 'passed')!;
+      const rows = rowsOf(done, 'delivery-receipt');
+      expect(rows.filter((row) => row.label === 'merged')).toHaveLength(6);
+      expect(rows).toHaveLength(10);
+      expect(rows[6]).toMatchObject({
+        label: 'more',
+        detail: `+${n - 6} more`,
+        action: { kind: 'open-bounded-evidence' },
+      });
+      expect(rows.find((row) => row.label === 'commits')).toBeDefined();
+      expect(rows.find((row) => row.label === 'validated')).toBeDefined();
+      expect(rows.find((row) => row.label === 'recovery')).toBeDefined();
+    }
 
     // uat gates carry 2n rows, bounded at 8.
     const uat20 = fixtures.find((x) => x.repositoryCount === 20 && x.scenario === 'exhausted')!;
@@ -150,6 +183,10 @@ describe('inside preview fixtures', () => {
       status: 'note',
       label: 'more',
       detail: '+32 more',
+      action: {
+        actionId: expect.stringMatching(/^fixture:/),
+        kind: 'open-bounded-evidence',
+      },
     });
   });
 
