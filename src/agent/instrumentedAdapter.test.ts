@@ -64,12 +64,30 @@ describe('instrumentAdapter', () => {
     expect(s.entries[0]).toEqual({
       projectId: 7,
       ticketId: 42,
+      processRunId: null,
       callSite: 'pr-description',
       provider: 'claude',
       outcome: 'ok',
       recordedAt: '2026-08-01T00:00:00.000Z',
       usage: CLAUDE_ENVELOPE_USAGE,
     });
+  });
+
+  it('threads the process run id through to the recorded entry', async () => {
+    const s = sink();
+    const adapter = instrumentAdapter(fakeAdapter(), {
+      sink: s,
+      provider: 'claude',
+    });
+
+    await adapter.runHeadless({
+      prompt: 'hi',
+      cwd: '.',
+      tracking: { callSite: 'fix-resume', ticketId: 9, processRunId: 12 },
+    });
+
+    expect(s.entries).toHaveLength(1);
+    expect(s.entries[0]).toMatchObject({ ticketId: 9, processRunId: 12 });
   });
 
   it('files a call that declared no site under the undeclared site, never dropping it', async () => {

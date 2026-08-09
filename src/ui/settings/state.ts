@@ -5,6 +5,10 @@ import {
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
 import { compatibilityModelCatalog } from '../../agent/models.js';
+import {
+  buildProcessAssignmentViews,
+  type SettingsProcessAssignmentView,
+} from './processAssignmentViews.js';
 
 /**
  * A row for the Agents tab: one selectable single-subagent (local file or
@@ -49,6 +53,14 @@ export interface SettingsState {
   approachCommands: Record<string, string[]>;
   models: ModelCatalog;
   modelCompatibility: ModelCatalog;
+  /**
+   * Per-row views for the Agents tab's inside-process assignments (handoff
+   * §7): role labels, descriptions, the four validation states and their
+   * inline messages, the Default hints. Computed host-side from the manifest,
+   * the agent pool and the model catalogs — the webview renders these
+   * verbatim and derives nothing.
+   */
+  processAssignments: SettingsProcessAssignmentView[];
   /** Absolute path of the manifest this window reads. Displayed, never edited. */
   manifestPath: string;
   /**
@@ -57,6 +69,8 @@ export interface SettingsState {
    * which changes if the repo moves, so it is the case worth showing.
    */
   projectSlug: { value: string; derived: boolean };
+  /** Extension version from package.json — displayed, never edited. */
+  version: string;
 }
 
 /** Build the initial settings state from a manifest (valid or last-known). */
@@ -71,6 +85,7 @@ export function buildSettingsState(
   models: ModelCatalog = bundledModelCatalog(),
   manifestPath = '',
   projectSlug: { value: string; derived: boolean } = { value: '', derived: true },
+  version = '',
 ): SettingsState {
   return {
     manifest,
@@ -82,7 +97,13 @@ export function buildSettingsState(
     approachCommands,
     models,
     modelCompatibility: compatibilityModelCatalog(models),
+    processAssignments: buildProcessAssignmentViews(
+      manifest,
+      agents.map((a) => a.name),
+      models,
+    ),
     manifestPath,
     projectSlug,
+    version,
   };
 }

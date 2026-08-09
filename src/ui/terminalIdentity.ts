@@ -1,4 +1,8 @@
-import { KARST_LAUNCH_ENV, ticketIdFromTerminalEnv } from './session.js';
+import {
+  KARST_LAUNCH_ENV,
+  ticketIdFromTerminalEnv,
+  type SessionIdentity,
+} from './session.js';
 
 /**
  * Which ticket a terminal belongs to, ACROSS a window reload.
@@ -30,12 +34,15 @@ export interface SessionTerminalRecord {
   readonly launchId?: string;
   /** The pty process id, i.e. what `Terminal.processId` resolves to. */
   readonly pid: number;
+  /** The exact provider/model snapshot supplied to the terminal launch. */
+  readonly identity?: SessionIdentity;
 }
 
 /** What a terminal proves about itself — the ticket and its hook generation. */
 export interface TerminalIdentity {
   readonly ticketId: number;
   readonly launchId?: string;
+  readonly identity?: SessionIdentity;
 }
 
 /** Everything observable about a terminal that can name its ticket. */
@@ -43,6 +50,18 @@ export interface TerminalProbe {
   readonly env?: Readonly<Record<string, string | undefined>> | undefined;
   readonly pid?: number | undefined;
 }
+
+/** Durable launch evidence sufficient to recover a terminal's execution core. */
+export interface DurableSessionIdentity {
+  readonly ticketId: number;
+  readonly provider: string;
+  readonly model: string | null;
+  readonly agentName?: string | null;
+}
+
+export type DurableSessionIdentityLookup = (
+  launchId: string,
+) => DurableSessionIdentity | undefined;
 
 /**
  * Records kept per window. A window holds one terminal per ticket, so this only
@@ -58,8 +77,16 @@ function launchIdFrom(
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
 }
 
-function identity(ticketId: number, launchId?: string): TerminalIdentity {
-  return { ticketId, ...(launchId ? { launchId } : {}) };
+function identity(
+  ticketId: number,
+  launchId?: string,
+  sessionIdentity?: SessionIdentity,
+): TerminalIdentity {
+  return {
+    ticketId,
+    ...(launchId ? { launchId } : {}),
+    ...(sessionIdentity ? { identity: sessionIdentity } : {}),
+  };
 }
 
 /**
@@ -70,12 +97,48 @@ function identity(ticketId: number, launchId?: string): TerminalIdentity {
 export function identifyTerminal(
   probe: TerminalProbe,
   records: readonly SessionTerminalRecord[],
+  lookupIdentity?: DurableSessionIdentityLookup,
 ): TerminalIdentity | undefined {
   const fromEnv = ticketIdFromTerminalEnv(probe.env);
-  if (fromEnv !== undefined) return identity(fromEnv, launchIdFrom(probe.env));
+  const record = probe.pid === undefined ? undefined : records.find((r) => r.pid === probe.pid);
+  if (fromEnv !== undefined) {
+    const launchId = launchIdFrom(probe.env);
+    return identity(
+      fromEnv,
+      launchId,
+      record?.ticketId === fromEnv && record.identity
+        ? record.identity
+        : durableIdentity(fromEnv, launchId, lookupIdentity),
+    );
+  }
   if (probe.pid === undefined) return undefined;
-  const record = records.find((r) => r.pid === probe.pid);
-  return record ? identity(record.ticketId, record.launchId) : undefined;
+  return record
+    ? identity(
+        record.ticketId,
+        record.launchId,
+        record.identity ?? durableIdentity(record.ticketId, record.launchId, lookupIdentity),
+      )
+    : undefined;
+}
+
+function durableIdentity(
+  ticketId: number,
+  launchId: string | undefined,
+  lookup: DurableSessionIdentityLookup | undefined,
+): SessionIdentity | undefined {
+  if (launchId === undefined || lookup === undefined) return undefined;
+  let found: DurableSessionIdentity | undefined;
+  try {
+    found = lookup(launchId);
+  } catch {
+    return undefined;
+  }
+  if (found === undefined || found.ticketId !== ticketId) return undefined;
+  return {
+    provider: found.provider,
+    model: found.model,
+    ...(found.agentName !== undefined ? { agentName: found.agentName } : {}),
+  };
 }
 
 /**
@@ -129,14 +192,31 @@ export function parseSessionTerminalRecords(raw: unknown): SessionTerminalRecord
   const out: SessionTerminalRecord[] = [];
   for (const entry of raw) {
     if (typeof entry !== 'object' || entry === null) continue;
-    const { ticketId, pid, launchId } = entry as Record<string, unknown>;
+    const { ticketId, pid, launchId, identity: rawIdentity } = entry as Record<string, unknown>;
     if (!isPositiveInt(ticketId) || !isPositiveInt(pid)) continue;
     if (launchId !== undefined && typeof launchId !== 'string') continue;
+    const sessionIdentity = parseSessionIdentity(rawIdentity);
     out.push({
       ticketId,
       pid,
       ...(typeof launchId === 'string' && launchId.length > 0 ? { launchId } : {}),
+      ...(sessionIdentity ? { identity: sessionIdentity } : {}),
     });
   }
   return out;
+}
+
+function parseSessionIdentity(raw: unknown): SessionIdentity | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { provider, model, agentName } = raw as Record<string, unknown>;
+  if (typeof provider !== 'string' || provider.length === 0) return undefined;
+  if (model !== null && typeof model !== 'string') return undefined;
+  if (agentName !== undefined && agentName !== null && typeof agentName !== 'string') {
+    return undefined;
+  }
+  return {
+    provider,
+    model,
+    ...(agentName !== undefined ? { agentName: agentName as string | null } : {}),
+  };
 }

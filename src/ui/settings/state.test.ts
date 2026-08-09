@@ -121,6 +121,29 @@ describe('buildSettingsState', () => {
     expect(s.modelCompatibility.claude.map((model) => model.id)).toContain('claude-opus-4-8');
   });
 
+  it('computes per-row process assignment views for the Agents tab (handoff §7)', () => {
+    const s = buildSettingsState(
+      { ...M, processes: { uatTester: { agent: 'ghost' } } },
+      null,
+      [],
+      false,
+      undefined,
+      [{ name: 'reviewer', source: 'file', enabled: true, body: null }],
+    );
+    expect(s.processAssignments.map((v) => v.key)).toEqual([
+      'uatTester',
+      'uatFix',
+      'review',
+      'reviewFix',
+      'prDescription',
+    ]);
+    const uat = s.processAssignments.find((v) => v.key === 'uatTester');
+    expect(uat?.state).toBe('unknown-profile');
+    expect(uat?.stateMessage).toContain('ghost');
+    expect(uat?.profileOptions).toEqual(['reviewer']);
+    expect(uat?.roleLabel).toBe('UAT Tester');
+  });
+
   it('carries the manifest path and the resolved project slug', () => {
     const state = buildSettingsState(
       M,
@@ -142,5 +165,14 @@ describe('buildSettingsState', () => {
     const state = buildSettingsState(M);
     expect(state.manifestPath).toBe('');
     expect(state.projectSlug).toEqual({ value: '', derived: true });
+  });
+
+  it('carries the extension version', () => {
+    const state = buildSettingsState(M, null, [], false, [], [], {}, bundledModelCatalog(), '', { value: '', derived: true }, '1.0.0');
+    expect(state.version).toBe('1.0.0');
+  });
+
+  it('defaults version to empty string when not provided', () => {
+    expect(buildSettingsState(M).version).toBe('');
   });
 });

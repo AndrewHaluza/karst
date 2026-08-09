@@ -1,7 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
-import { recordTokenUsage, queryTokenUsageStats, EMPTY_USAGE_TOTALS } from './tokenUsage.js';
+import {
+  recordTokenUsage,
+  queryTokenUsageStats,
+  listTokenUsage,
+  summarizeRecordedTokenUsage,
+  summarizeRecordedTokenUsageForProcess,
+  summarizeRecordedTokenUsageByRole,
+  EMPTY_USAGE_TOTALS,
+} from './tokenUsage.js';
 import { parseUsageQuery, type UsageQuery } from './tokenUsageQuery.js';
+import { openProcessRun } from './processRuns.js';
 
 function query(overrides: Partial<UsageQuery> = {}): UsageQuery {
   const parsed = parseUsageQuery(overrides);
@@ -19,6 +28,7 @@ function ticket(id: number, key: string, title: string, projectId = 1): void {
 
 interface Seed {
   ticketId?: number | null;
+  processRunId?: number | null;
   callSite?: string;
   model?: string | null;
   provider?: string;
@@ -39,6 +49,7 @@ function seed(s: Seed = {}): void {
   recordTokenUsage(store, {
     projectId: 1,
     ticketId: s.ticketId === undefined ? 1 : s.ticketId,
+    processRunId: s.processRunId === undefined ? null : s.processRunId,
     callSite: s.callSite ?? 'ticket-analysis',
     provider: s.provider ?? 'claude',
     outcome: s.outcome ?? 'ok',
@@ -81,6 +92,21 @@ describe('recordTokenUsage', () => {
     for (const forbidden of ['prompt', 'completion', 'text', 'body', 'raw', 'result']) {
       expect(columns, `token_usage must not carry ${forbidden}`).not.toContain(forbidden);
     }
+  });
+
+  it('carries the v29 interactive sample linkage, NULL for ordinary ledger writes', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ input: 10 });
+    const row = store.db.prepare('SELECT interactive_usage_sample_id FROM token_usage').get() as {
+      interactive_usage_sample_id: number | null;
+    };
+    expect(row.interactive_usage_sample_id).toBeNull();
+    const index = store.db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+      )
+      .get('idx_token_usage_interactive_sample');
+    expect(index).toEqual({ name: 'idx_token_usage_interactive_sample' });
   });
 
   it('records a call made before the ticket exists, unattributed', () => {
@@ -310,5 +336,123 @@ describe('queryTokenUsageStats', () => {
       .map((r) => (r as { detail: string }).detail)
       .join(' ');
     expect(plan).toMatch(/USING INDEX idx_token_usage/);
+  });
+});
+
+/**
+ * v27 process-run attribution (§ task 3): a call made by an inside process
+ * (gates, commit, delivery-receipt…) is linked to its process_runs row, so the
+ * inside view can show one process's spend. Legacy rows — and rows whose caller
+ * named no process — carry NULL and stay visible to every normal query.
+ */
+describe('process-run attribution', () => {
+  function run(): { id: number } {
+    return openProcessRun(store, {
+      ticketId: 1,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-07-15T00:00:00.000Z',
+    });
+  }
+
+  it('links a call to the process run that made it, and lists by that run', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    seed({ input: 120, output: 30, processRunId: r.id });
+    seed({ input: 5, output: 5 });
+
+    const linked = listTokenUsage(store, { ticketId: 1, processRunId: r.id });
+    expect(linked).toHaveLength(1);
+    expect(linked[0]!.processRunId).toBe(r.id);
+    expect(linked[0]!.inputTokens).toBe(120);
+    expect(linked[0]!.outputTokens).toBe(30);
+    // The run's own row carries the ticket, so the linkage is navigable.
+    expect(listTokenUsage(store, { processRunId: r.id })[0]!.ticketId).toBe(1);
+  });
+
+  it('summarizes only RECORDED usage — estimated rows are excluded', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    seed({ input: 120, output: 30, processRunId: r.id });
+    seed({ input: 999, output: 999, estimated: true, processRunId: r.id });
+
+    expect(summarizeRecordedTokenUsage(store, 1)).toEqual({ input: 120, output: 30, total: 150 });
+  });
+
+  it('counts a process\'s estimated calls separately from its measured total', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    seed({ input: 120, output: 30, processRunId: r.id });
+    seed({ input: 500, output: 500, estimated: true, processRunId: r.id });
+
+    // A measured total and an estimate count are different facts: the count
+    // rides beside the total, and the estimate's tokens never enter it.
+    expect(summarizeRecordedTokenUsageForProcess(store, 1, 'review')).toEqual({
+      total: 150,
+      estimatedCalls: 1,
+    });
+  });
+
+  it('keeps legacy null-linked rows in normal ticket-level queries', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ input: 40, output: 10 });
+
+    const stats = queryTokenUsageStats(store, query({ projectId: 1, ticketId: 1 }));
+    expect(stats.totals.totalTokens).toBe(50);
+
+    const rows = listTokenUsage(store, { ticketId: 1 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.processRunId).toBeNull();
+    expect(rows[0]!.ticketId).toBe(1);
+  });
+});
+
+describe('summarizeRecordedTokenUsageByRole', () => {
+  function run(processId: string, stageKey: string): { id: number } {
+    return openProcessRun(store, {
+      ticketId: 1,
+      stageKey: stageKey as never,
+      processId,
+      attempt: 0,
+      startedAt: '2026-07-15T00:00:00.000Z',
+    });
+  }
+
+  it('groups recorded spend by inside role in a fixed order', () => {
+    ticket(1, 'K-1', 'One');
+    const session = run('session', 'impl');
+    const tester = run('tester', 'uat');
+    const review = run('review', 'review');
+    const fix = run('fix', 'fix');
+    const prDesc = run('pr-description', 'ship');
+    seed({ input: 100, output: 20, processRunId: session.id });
+    seed({ input: 10, output: 5, processRunId: tester.id });
+    seed({ input: 10, output: 5, processRunId: review.id });
+    seed({ input: 2, output: 1, processRunId: fix.id });
+    seed({ input: 5, output: 5, processRunId: prDesc.id });
+
+    expect(summarizeRecordedTokenUsageByRole(store, 1)).toEqual([
+      { role: 'implementation', input: 100, output: 20, total: 120 },
+      { role: 'quality', input: 22, output: 11, total: 33 },
+      { role: 'ship', input: 5, output: 5, total: 10 },
+    ]);
+  });
+
+  it('excludes estimated rows and unattributed legacy rows', () => {
+    ticket(1, 'K-1', 'One');
+    const session = run('session', 'impl');
+    seed({ input: 100, output: 20, processRunId: session.id });
+    seed({ input: 999, output: 999, estimated: true, processRunId: session.id });
+    seed({ input: 40, output: 10 });
+
+    expect(summarizeRecordedTokenUsageByRole(store, 1)).toEqual([
+      { role: 'implementation', input: 100, output: 20, total: 120 },
+    ]);
+  });
+
+  it('omits roles with no recorded spend', () => {
+    ticket(1, 'K-1', 'One');
+    expect(summarizeRecordedTokenUsageByRole(store, 1)).toEqual([]);
   });
 });

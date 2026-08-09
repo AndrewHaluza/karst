@@ -119,7 +119,13 @@ const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
 export class AntigravityAdapter implements AgentAdapter {
   // agy supports `--conversation`, but Karst has no Antigravity hook/channel
   // that can capture an interactive conversation id yet.
-  readonly capabilities: AgentCapabilities = { lifecycleEvents: false, resume: false };
+  // No lifecycle channel at all — and therefore no usage channel. Truthful
+  // absence, never a measured zero.
+  readonly capabilities: AgentCapabilities = {
+    lifecycleEvents: false,
+    resume: false,
+    interactiveUsage: false,
+  };
   readonly requiredBinary = AGY_BIN;
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}

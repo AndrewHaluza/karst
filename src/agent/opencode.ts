@@ -224,6 +224,15 @@ export function parseOpencodeJsonlUsage(stdout: string): TokenUsage | null {
  * payload `{ hook_event_name, cwd, session_id, message? }` to the loopback
  * endpoint — the opencode-native equivalent of Codex's `bridge.cjs`.
  *
+ * Task 5: `session.idle` is the token-bearing completion event — its properties
+ * carry the session snapshot whose `tokens` (`{ input, output, reasoning,
+ * cache: { read, write } }`) are CUMULATIVE for the session, the same shape the
+ * headless `step_finish` parser reads. When they are present and numeric, the
+ * bridge posts a closed `UsageUpdate` beside the lifecycle event, keyed by the
+ * plugin event's stable id. Cache reads and cache writes stay SEPARATE counters
+ * — they are never folded into a single cached-input value. Token-less or
+ * malformed events post no UsageUpdate at all.
+ *
  * Safety mirrors `CODEX_HOOK_BRIDGE`: the endpoint is baked in at generation
  * time from a loopback-validated URL, the serialized payload is size-bounded
  * (a local sender can't grow host memory), and every failure is swallowed so a
@@ -290,15 +299,41 @@ function extractErrorMessage(input) {
   return '';
 }
 
-function post(hookEventName, input, directory, worktree, message) {
+// A count is a finite, non-negative number; anything else is not a count.
+function usageCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
+// The session snapshot's cumulative tokens, read as opencode reports them:
+// tokens.input/tokens.output plus nested tokens.cache.read/tokens.cache.write.
+function extractUsage(input) {
+  const session = asRecord(input && input.session);
+  const tokens =
+    asRecord(session && session.tokens) || asRecord(input && input.tokens);
+  if (!tokens) return null;
+  const cache = asRecord(tokens.cache);
+  const inputTokens = usageCount(tokens.input);
+  const outputTokens = usageCount(tokens.output);
+  if (inputTokens === null || outputTokens === null) return null;
+  const cacheRead = usageCount(cache && cache.read);
+  const cacheWrite = usageCount(cache && cache.write);
+  const total = usageCount(tokens.total);
+  const usage = { input: inputTokens, output: outputTokens };
+  if (cacheRead !== null) usage.cache_read = cacheRead;
+  if (cacheWrite !== null) usage.cache_write = cacheWrite;
+  if (total !== null) usage.total = total;
+  return usage;
+}
+
+function send(payload, done) {
   try {
-    const sessionId = extractSessionId(input);
-    const cwd = extractCwd(input, directory, worktree);
-    if (!sessionId && !cwd) return;
-    const payload = { hook_event_name: hookEventName, cwd, session_id: sessionId };
-    if (message) payload.message = message;
     const body = JSON.stringify(payload);
-    if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) return;
+    if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) {
+      if (done) done();
+      return;
+    }
     const target = new URL(endpointUrl);
     const req = request({
       hostname: target.hostname,
@@ -312,10 +347,46 @@ function post(hookEventName, input, directory, worktree, message) {
       timeout: 2000,
     });
     // Fail open: a stale endpoint (IDE lifecycle race) must never block the agent.
-    req.on('error', () => {});
+    req.on('error', () => { if (done) done(); });
     req.on('timeout', () => req.destroy());
     req.end(body);
-  } catch {}
+    if (done) {
+      req.on('response', (res) => {
+        res.resume();
+        res.on('end', done);
+      });
+    }
+  } catch {
+    if (done) done();
+  }
+}
+
+function post(hookEventName, input, directory, worktree, message, done) {
+  const sessionId = extractSessionId(input);
+  const cwd = extractCwd(input, directory, worktree);
+  if (!sessionId && !cwd) {
+    if (done) done();
+    return;
+  }
+  const payload = { hook_event_name: hookEventName, cwd, session_id: sessionId };
+  if (message) payload.message = message;
+  send(payload, done);
+}
+
+function postUsage(eventId, input, directory, worktree, done) {
+  const sessionId = extractSessionId(input);
+  const cwd = extractCwd(input, directory, worktree);
+  const usage = extractUsage(input);
+  if (!sessionId || !cwd || !usage || !eventId) {
+    if (done) done();
+    return;
+  }
+  send({
+    hook_event_name: 'UsageUpdate',
+    cwd,
+    session_id: sessionId,
+    usage: { event_id: eventId, ...usage },
+  }, done);
 }
 
 export const KarstBridge = async ({ directory, worktree }) => {
@@ -324,7 +395,10 @@ export const KarstBridge = async ({ directory, worktree }) => {
       const type = event && event.type;
       const input = event && event.properties;
       if (type === 'session.idle') {
-        post('session.idle', input, directory, worktree);
+        // The usage update is sequenced AFTER the lifecycle post settles so the
+        // endpoint sees one session event then its tokens — never reordered.
+        post('session.idle', input, directory, worktree, undefined, () =>
+          postUsage(event && event.id, input, directory, worktree));
       } else if (type === 'session.error') {
         post('session.error', input, directory, worktree, extractErrorMessage(input));
       } else if (type === 'permission.asked' || type === 'permission.v2.asked') {
@@ -382,6 +456,7 @@ export class OpencodeAdapter implements AgentAdapter {
   readonly capabilities: AgentCapabilities = {
     lifecycleEvents: true,
     resume: false,
+    interactiveUsage: true,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -557,7 +632,11 @@ export class OpencodeAdapter implements AgentAdapter {
   }
 
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
-    const args = ['run', '--format', 'json'];
+    const args = ['run', '--format', 'json', '--pure'];
+    // `--pure` suppresses config/global plugins, the same isolation
+    // `buildInteractiveCommand` gives the interactive session: every headless
+    // run (review findings lane, classify, fix-resume) must not inherit plugins
+    // that add context, latency, or other projects' hook channels (869ef1e6x).
     if (opts.permissionMode === 'bypassPermissions') args.push('--auto');
     if (opts.model) args.push('--model', opts.model);
     if (opts.resume) args.push('--session', opts.resume);

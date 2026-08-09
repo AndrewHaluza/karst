@@ -168,6 +168,10 @@ const BUTTON = `
 .k-btn--row{justify-content:flex-start;width:100%;text-align:left}
 .k-btn--row.is-success{background:var(--k-surface-selected)}
 .k-btn--row.is-success::before{content:none}
+/* Rows are full-width list items — the button scale effect (designed for
+   compact controls) shifts the entire row on click. Suppress it. Must keep
+   the :not(:disabled) to match the generic rule's specificity or it loses. */
+.k-btn--row:active:not(:disabled){transform:none}
 `.trim();
 
 // ── Icon button ──────────────────────────────────────────────────────────────

@@ -89,6 +89,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     post: (m) => posted.push(m),
     manifestPath: '/tmp/karst.yml',
     projectSlug: { value: 'proj', derived: false },
+    version: '1.0.0',
   });
   return { actions, posted, order };
 }
@@ -121,13 +122,41 @@ describe('settings actions — validate', () => {
     actions.validate(VALID);
     expect(posted).toContainEqual({ type: 'validation', ok: true, error: null });
   });
-
   it('posts ok:false + message for an invalid draft', () => {
     const { actions, posted } = harness();
     actions.validate({ ...VALID, portRange: [9000, 1000] });
     const v = posted.find((m) => m.type === 'validation');
     expect(v).toMatchObject({ type: 'validation', ok: false });
     expect((v as any).error).toMatch(/portRange/);
+  });
+});
+
+describe('settings actions — validateProcessAssignments', () => {
+  it('posts host-computed per-row views for the draft, using the live agent pool', () => {
+    const { actions, posted } = harness({
+      listAgentRows: () => [
+        { name: 'review-author', source: 'file' as const, enabled: true, body: null },
+      ],
+    });
+    actions.validateProcessAssignments({
+      ...VALID,
+      processes: { review: { agent: 'ghost' } },
+    });
+    const reply = posted.find((m) => m.type === 'process-assignment-views');
+    expect(reply).toBeDefined();
+    const rows = (
+      reply as { rows: { key: string; state: string; profileOptions: readonly string[] }[] }
+    ).rows;
+    expect(rows.map((r) => r.key)).toEqual([
+      'uatTester',
+      'uatFix',
+      'review',
+      'reviewFix',
+      'prDescription',
+    ]);
+    const review = rows.find((r) => r.key === 'review');
+    expect(review?.state).toBe('unknown-profile');
+    expect(review?.profileOptions).toEqual(['review-author']);
   });
 });
 

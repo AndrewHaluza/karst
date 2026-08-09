@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
-import { setStage } from './stages.js';
 
 const EXPECTED_TABLES = [
   'projects',
@@ -24,6 +23,17 @@ const EXPECTED_TABLES = [
   'token_usage',
   'review_findings',
   'stage_runs',
+  'process_runs',
+  'implementation_runs',
+  'session_launch_intents',
+  'implementation_segments',
+  'interactive_usage_samples',
+  'recovery_rounds',
+  'uat_findings',
+  'ship_runs',
+  'ship_repo_steps',
+  'ship_operation_intents',
+  'ship_commits',
 ] as const;
 
 function tableNames(store: Store): string[] {
@@ -41,7 +51,7 @@ describe('openStore', () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  it('creates all 16 registry tables', () => {
+  it('creates all 20 registry tables', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
     const names = tableNames(store);
@@ -128,7 +138,7 @@ describe('openStore', () => {
   it('reports the current schema user_version', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
-    expect(store.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('tickets carries the v4 agent column', () => {
@@ -265,7 +275,7 @@ describe('openStore', () => {
       key: 'OLD-16',
       title: 'v16 row',
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('repairs an at-version attachment table and deduplicates before adding uniqueness', () => {
@@ -344,7 +354,7 @@ describe('openStore', () => {
       merged_at: null,
       comments: null,
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v14 DB to v15, adding tickets.type without touching rows', () => {
@@ -367,7 +377,7 @@ describe('openStore', () => {
     // Nothing is backfilled: a pre-v15 ticket has no conventional type to derive,
     // so it stays NULL and renders as the manifest default.
     expect(row).toEqual({ key: 'K-1', title: 'keep me', type: null });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a legacy v13 DB to v14, adding the parent_ticket_id column', () => {
@@ -394,7 +404,7 @@ describe('openStore', () => {
       .get('OLD-13') as { title: string; parent_ticket_id: number | null } | undefined;
     expect(row?.title).toBe('v13 row'); // data survived
     expect(row?.parent_ticket_id).toBeNull(); // nothing to backfill: not a follow-up
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('tickets carries the v13 session_provider column', () => {
@@ -438,7 +448,7 @@ describe('openStore', () => {
     expect(row?.title).toBe('v12 row'); // data survived
     expect(row?.session_id).toBe('sess-from-v12');
     expect(row?.session_provider).toBeNull();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a legacy v11 DB to v12, adding the agent_provider column', () => {
@@ -464,7 +474,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-11') as { title: string } | undefined;
     expect(row?.title).toBe('v11 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a legacy v4 DB to v5, adding the model column', () => {
@@ -490,7 +500,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-4') as { title: string } | undefined;
     expect(row?.title).toBe('v4 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v5 DB to v6, adding projects + project_id and leaving rows unassigned', () => {
@@ -521,7 +531,7 @@ describe('openStore', () => {
       .get('OLD-5') as { title: string; project_id: number | null } | undefined;
     expect(row?.title).toBe('v5 row');
     expect(row?.project_id).toBeNull();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v6 DB to v7, adding gate_runs without touching stages', () => {
@@ -552,7 +562,7 @@ describe('openStore', () => {
     // them would be the inference the no-inference guarantee forbids.
     const runs = migrated.db.prepare('SELECT * FROM gate_runs').all();
     expect(runs).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v7 DB to v8, adding phase_marks without touching stages', () => {
@@ -583,7 +593,7 @@ describe('openStore', () => {
     // inventing marks would be exactly the inference karst forbids.
     const marks = migrated.db.prepare('SELECT * FROM phase_marks').all();
     expect(marks).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v8 DB to v9, adding merge_checks without touching prs', () => {
@@ -615,7 +625,7 @@ describe('openStore', () => {
     // merge check until its next ship — never a manufactured "clean".
     const checks = migrated.db.prepare('SELECT * FROM merge_checks').all();
     expect(checks).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   // v10 is the first NON-additive step: a column rename. The values never
@@ -672,7 +682,7 @@ describe('openStore', () => {
       migrated.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
     ).toEqual({ repo: 'api' });
 
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   // The rename step is guarded on the CURRENT columns, so re-running it (a fresh
@@ -691,7 +701,7 @@ describe('openStore', () => {
     expect(
       reopened.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
     ).toEqual({ repo: 'api' });
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v10 DB to v11, adding worktree_archives', () => {
@@ -724,7 +734,7 @@ describe('openStore', () => {
     // worktree is actually archived; there is nothing to derive here.
     const archives = migrated.db.prepare('SELECT * FROM worktree_archives').all();
     expect(archives).toEqual([]);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v18 DB to v19, adding token_usage and its aggregation indexes', () => {
@@ -761,56 +771,74 @@ describe('openStore', () => {
     expect(
       migrated.db.prepare('SELECT key FROM tickets WHERE id = ?').get(1),
     ).toEqual({ key: 'K-1' });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
-  it('migrates a v19 DB to v20, seeding the merge stage row every ticket now needs', () => {
+  // v25 retires the standalone `merge` stage: a ticket a prior build parked
+  // there has nowhere valid left to sit, so it moves back to `ship`, blocked
+  // exactly like a fresh unlanded ship would be. The block is a placeholder —
+  // `settleShipGates`' next sweep tick re-checks the real landing state and
+  // clears it immediately if the PRs had actually already merged.
+  it('migrates a v24 DB to v25, moving a ticket parked at merge back to ship, blocked', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
     const legacy = new Database(path);
-    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT)');
+    legacy.exec(
+      'CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT)',
+    );
     legacy.exec(
       `CREATE TABLE stages (
          ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL, status TEXT NOT NULL,
          attempt INTEGER NOT NULL DEFAULT 0, verdict TEXT, artifact_path TEXT,
-         started_at TEXT, ended_at TEXT, PRIMARY KEY (ticket_id, stage_key))`,
+         started_at TEXT, ended_at TEXT,
+         blocked_kind TEXT, blocked_reason TEXT, blocked_at TEXT,
+         PRIMARY KEY (ticket_id, stage_key))`,
     );
     const ticket = legacy.prepare(
       'INSERT INTO tickets (id, key, title, stage_current) VALUES (?, ?, ?, ?)',
     );
-    ticket.run(1, 'K-1', 'shipped long ago', 'done');
-    ticket.run(2, 'K-2', 'mid flight', 'impl');
+    ticket.run(1, 'K-1', 'parked at merge', 'merge');
+    ticket.run(2, 'K-2', 'mid flight, untouched', 'impl');
     const stage = legacy.prepare(
       'INSERT INTO stages (ticket_id, stage_key, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?)',
     );
     stage.run(1, 'ship', 'passed', '2026-07-01T10:00:00Z', '2026-07-01T10:05:00Z');
-    stage.run(1, 'done', 'passed', '2026-07-01T10:05:00Z', '2026-07-01T10:05:00Z');
+    stage.run(1, 'merge', 'pending', null, null);
     stage.run(2, 'impl', 'running', '2026-07-02T10:00:00Z', null);
-    legacy.pragma('user_version = 19');
+    legacy.pragma('user_version = 24');
     legacy.close();
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
 
-    // Every ticket gains the row, or `setStage` (an UPDATE, by single-writer
-    // design) would silently write nothing and `transition` would throw the
-    // first time the ticket ships.
-    const rows = migrated.db
-      .prepare("SELECT ticket_id, status, started_at FROM stages WHERE stage_key = 'merge' ORDER BY ticket_id")
-      .all();
-    expect(rows).toEqual([
-      { ticket_id: 1, status: 'pending', started_at: null },
-      { ticket_id: 2, status: 'pending', started_at: null },
-    ]);
-
-    // A NULL `started_at` is "never entered" — what `deriveStageCurrent` skips —
-    // so a ticket already at `done` is not walked back to an unmerged state
-    // nothing in the registry has evidence for.
     expect(
       migrated.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(1),
-    ).toEqual({ stage_current: 'done' });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    ).toEqual({ stage_current: 'ship' });
+    // Untouched: only a ticket that was actually AT `merge` moves.
+    expect(
+      migrated.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(2),
+    ).toEqual({ stage_current: 'impl' });
+
+    const shipRow = migrated.db
+      .prepare(
+        'SELECT status, blocked_kind, blocked_at FROM stages WHERE ticket_id = 1 AND stage_key = ?',
+      )
+      .get('ship') as { status: string; blocked_kind: string | null; blocked_at: string | null };
+    expect(shipRow.status).toBe('passed');
+    expect(shipRow.blocked_kind).toBe('awaiting-merge');
+    // Every other writer stamps ISO-8601 UTC via model/time.ts's nowIso(); a
+    // bare `datetime('now')` would emit SQLite's local-time
+    // `YYYY-MM-DD HH:MM:SS` instead, and karst compares stage timestamps as
+    // STRINGS — a mixed format sorts wrong.
+    expect(shipRow.blocked_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+    // The orphaned `merge` stage row is left in place — harmless, unreferenced
+    // once STAGE_KEYS no longer includes `merge`.
+    expect(
+      migrated.db.prepare("SELECT status FROM stages WHERE ticket_id = 1 AND stage_key = 'merge'").get(),
+    ).toEqual({ status: 'pending' });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v20 DB to v21, adding servers.cwd without inventing a value for it', () => {
@@ -850,7 +878,56 @@ describe('openStore', () => {
     ).toEqual({ pid: 4242, status: 'running', cwd: null });
     // The FINAL version, not 21: `openStore` runs every pending step, so a
     // legacy DB lands at SCHEMA_VERSION whichever step this case exercises.
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
+  });
+
+  // v21 was RENUMBERED before release: it first shipped as the gate_runs
+  // invocation-identity columns in a build whose SCHEMA_VERSION was 22, and only
+  // afterwards became the servers.cwd step (SCHEMA_VERSION 23, gate_runs moved to
+  // v22). A registry stamped by the older build reports user_version = 22 — not
+  // < 21 — so the version-gated servers.cwd ALTER would be skipped forever and
+  // the column would stay missing while the DB claims to be current; the archive
+  // path's `SELECT … cwd FROM servers` then dies with "no such column: cwd"
+  // (869efu319). The repair must therefore run OUTSIDE the version gate, like
+  // the attachment-table repair above it.
+  it('repairs a pre-renumbering DB (user_version 22) that never gained servers.cwd', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      `CREATE TABLE servers (
+         id INTEGER PRIMARY KEY, ticket_id INTEGER, repo TEXT NOT NULL, host TEXT,
+         port INTEGER, pid INTEGER, status TEXT NOT NULL, log_path TEXT,
+         started_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    );
+    legacy
+      .prepare(
+        "INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path) VALUES (1,'api','h',3000,4242,'running','/l')",
+      )
+      .run();
+    // Exactly what the pre-renumbering build stamped: its own SCHEMA_VERSION was
+    // 22, and its v21 (the gate_runs columns) had already run — only servers.cwd
+    // is missing.
+    legacy.pragma('user_version = 22');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('servers')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('cwd')).toBe(true);
+    // NULL, not a guess — identical to the honest v20→v21 upgrade: the legacy
+    // row's process directory is not derivable, and every consumer reads NULL as
+    // "unknown", leaving the process alone.
+    expect(
+      migrated.db.prepare('SELECT pid, status, cwd FROM servers WHERE ticket_id = 1').get(),
+    ).toEqual({ pid: 4242, status: 'running', cwd: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   // Nothing reads `servers` by position — every query in the codebase names its
@@ -925,7 +1002,7 @@ describe('openStore', () => {
     });
     // The FINAL version, not 22: `openStore` runs every pending step, so a
     // legacy DB lands at SCHEMA_VERSION whichever step this case exercises.
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
 
     // Idempotence: reopening an already-migrated DB must not error or re-alter.
     migrated.close();
@@ -939,7 +1016,7 @@ describe('openStore', () => {
     expect(reopenedCols.has('repo')).toBe(true);
     expect(reopenedCols.has('command')).toBe(true);
     expect(reopenedCols.has('args')).toBe(true);
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v22 DB to v23, adding review_findings without touching other tables', () => {
@@ -990,14 +1067,14 @@ describe('openStore', () => {
     expect(migrated.db.prepare('SELECT key FROM tickets WHERE id = ?').get(1)).toEqual({
       key: 'K-1',
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
 
     // Idempotence: reopening an already-migrated DB must not error or re-create.
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
     expect(tableNames(reopened)).toContain('review_findings');
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v23 database to v24 without losing gate rows', () => {
@@ -1027,7 +1104,7 @@ describe('openStore', () => {
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
     const ticketCols = new Set(
       (migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
         (c) => c.name,
@@ -1046,26 +1123,6 @@ describe('openStore', () => {
     };
     expect(row.gate_name).toBe('test');
     expect(row.skipped).toBeNull(); // never backfilled
-  });
-
-  it('re-seeding the merge stage is a no-op on a DB that already has it', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const path = join(dir, 'karst.db');
-    const first = openStore(path);
-    const id = createTicket(first, { key: 'K-1', title: 'one' }).id;
-    setStage(first, id, 'merge', { status: 'passed' });
-    first.close();
-
-    // The guard is NOT EXISTS, so the seed must not overwrite a row the ticket
-    // has already moved through.
-    const reopened = openStore(path);
-    cleanups.push(() => reopened.close());
-    expect(
-      reopened.db
-        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'merge'")
-        .all(id),
-    ).toEqual([{ status: 'passed' }]);
   });
 
   it('migrates a legacy v15 DB by adding the stage blocked columns', () => {
@@ -1134,7 +1191,7 @@ describe('openStore', () => {
       blocked_reason: null,
       blocked_at: null,
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
     migrated.close();
 
     // Idempotence: reopening an already-migrated DB must not error, re-alter
@@ -1149,7 +1206,7 @@ describe('openStore', () => {
     expect(reopenedCols.has('blocked_kind')).toBe(true);
     expect(reopenedCols.has('blocked_reason')).toBe(true);
     expect(reopenedCols.has('blocked_at')).toBe(true);
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
     const reopenedRow = reopened.db
       .prepare(
         'SELECT status, attempt, verdict FROM stages WHERE ticket_id = ? AND stage_key = ?',
@@ -1191,7 +1248,7 @@ describe('openStore', () => {
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-2') as { title: string } | undefined;
     expect(row?.title).toBe('v2 row'); // data survived
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(25);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
   it('migrates a v1 DB to v2, adding columns and preserving rows', () => {
@@ -1239,5 +1296,444 @@ describe('openStore', () => {
       .prepare('SELECT key FROM tickets WHERE key = ?')
       .get('PROJ-1') as { key: string } | undefined;
     expect(row?.key).toBe('PROJ-1'); // data survived, no re-init wiped it
+  });
+
+  it('carries the v26 process_runs table and its ticket index on a fresh DB', () => {
+    const store = openStore(':memory:');
+    cleanups.push(() => store.close());
+    expect(tableNames(store)).toContain('process_runs');
+
+    const cols = new Set(
+      (store.db.prepare("PRAGMA table_info('process_runs')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    for (const col of [
+      'id',
+      'ticket_id',
+      'stage_key',
+      'process_id',
+      'attempt',
+      'stage_run_id',
+      'agent_name',
+      'provider',
+      'model',
+      'pid',
+      'status',
+      'result_kind',
+      'artifact_path',
+      'started_at',
+      'ended_at',
+    ]) {
+      expect(cols.has(col), `missing process_runs column: ${col}`).toBe(true);
+    }
+    const index = store.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get('idx_process_runs_ticket');
+    expect(index).toEqual({ name: 'idx_process_runs_ticket' });
+  });
+
+  it('migrates a v25 DB to v26, adding process_runs without touching rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      'CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT)',
+    );
+    legacy.exec(
+      `CREATE TABLE stage_runs (
+         id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL,
+         attempt INTEGER NOT NULL, run_at TEXT NOT NULL, status TEXT NOT NULL,
+         outcome TEXT, manifest_hash TEXT, pid INTEGER, started_at TEXT NOT NULL,
+         ended_at TEXT)`,
+    );
+    legacy
+      .prepare('INSERT INTO tickets (id, key, title, stage_current) VALUES (?, ?, ?, ?)')
+      .run(1, 'K-1', 'pre-v26 row', 'review');
+    legacy
+      .prepare(
+        `INSERT INTO stage_runs
+           (ticket_id, stage_key, attempt, run_at, status, pid, started_at)
+         VALUES (?, 'review', 1, '2026-08-01T00:00:00.000Z', 'running', 4242,
+                 '2026-08-01T00:00:00.000Z')`,
+      )
+      .run(1);
+    legacy.pragma('user_version = 25');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(tableNames(migrated)).toContain('process_runs');
+    const index = migrated.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get('idx_process_runs_ticket');
+    expect(index).toEqual({ name: 'idx_process_runs_ticket' });
+
+    // Nothing is backfilled: no prior karst recorded which process ran, with
+    // which identity or pid — a synthesized row would assert exactly the facts
+    // this table exists to stop being guessed at.
+    expect(migrated.db.prepare('SELECT * FROM process_runs').all()).toEqual([]);
+    // Additive only — the pre-existing rows are untouched.
+    expect(
+      migrated.db.prepare('SELECT key, stage_current FROM tickets WHERE id = ?').get(1),
+    ).toEqual({ key: 'K-1', stage_current: 'review' });
+    expect(
+      migrated.db.prepare('SELECT status, pid FROM stage_runs WHERE ticket_id = ?').get(1),
+    ).toEqual({ status: 'running', pid: 4242 });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
+
+    // Idempotence: reopening an already-migrated DB must not error or re-create.
+    migrated.close();
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(tableNames(reopened)).toContain('process_runs');
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
+  });
+
+  it('migrates a v27 DB to v28, adding the implementation tables and evidence linkage', () => {
+    const columns = (store: Store, table: string): string[] =>
+      store.db
+        .prepare(`PRAGMA table_info('${table}')`)
+        .all()
+        .map((r) => (r as { name: string }).name);
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT);
+      CREATE TABLE phase_marks (
+        id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL,
+        attempt INTEGER NOT NULL, phase_name TEXT NOT NULL, marked_at TEXT NOT NULL);
+      CREATE TABLE token_usage (
+        id INTEGER PRIMARY KEY, project_id INTEGER, ticket_id INTEGER,
+        process_run_id INTEGER, call_site TEXT NOT NULL, provider TEXT, model TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0, estimated INTEGER NOT NULL DEFAULT 0,
+        outcome TEXT NOT NULL, recorded_at TEXT NOT NULL);
+      CREATE TABLE process_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+        stage_key TEXT NOT NULL, process_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+        stage_run_id INTEGER, agent_name TEXT, provider TEXT, model TEXT, pid INTEGER,
+        status TEXT NOT NULL, result_kind TEXT, artifact_path TEXT,
+        started_at TEXT NOT NULL, ended_at TEXT);
+    `);
+    legacy
+      .prepare(
+        `INSERT INTO phase_marks (ticket_id, stage_key, attempt, phase_name, marked_at)
+         VALUES (1, 'impl', 0, 'research', '2026-08-01T00:00:00.000Z')`,
+      )
+      .run();
+    legacy
+      .prepare(
+        `INSERT INTO token_usage
+           (project_id, ticket_id, call_site, input_tokens, output_tokens,
+            total_tokens, outcome, recorded_at)
+         VALUES (NULL, 1, 'unknown', 10, 5, 15, 'ok', '2026-08-01T00:00:00.000Z')`,
+      )
+      .run();
+    legacy.pragma('user_version = 27');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    for (const table of ['implementation_runs', 'session_launch_intents', 'implementation_segments']) {
+      expect(tableNames(migrated)).toContain(table);
+    }
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
+
+    const markCols = columns(migrated, 'phase_marks');
+    expect(markCols).toContain('implementation_run_id');
+    expect(markCols).toContain('implementation_segment_id');
+    const tokenCols = columns(migrated, 'token_usage');
+    expect(tokenCols).toContain('implementation_segment_id');
+    const index = migrated.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get('idx_token_usage_segment');
+    expect(index).toEqual({ name: 'idx_token_usage_segment' });
+
+    // Nothing is backfilled: the pre-v28 evidence rows keep NULL linkage.
+    const legacyMark = migrated.db
+      .prepare('SELECT implementation_run_id, implementation_segment_id FROM phase_marks')
+      .get();
+    expect(legacyMark).toEqual({
+      implementation_run_id: null,
+      implementation_segment_id: null,
+    });
+    const legacyToken = migrated.db
+      .prepare('SELECT implementation_segment_id FROM token_usage')
+      .get();
+    expect(legacyToken).toEqual({ implementation_segment_id: null });
+
+    migrated.close();
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
+  });
+
+  it('migrates a v28 DB to v29, adding the interactive usage samples table and its linkage', () => {
+    const columns = (store: Store, table: string): string[] =>
+      store.db
+        .prepare(`PRAGMA table_info('${table}')`)
+        .all()
+        .map((r) => (r as { name: string }).name);
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT);
+      CREATE TABLE token_usage (
+        id INTEGER PRIMARY KEY, project_id INTEGER, ticket_id INTEGER,
+        process_run_id INTEGER, call_site TEXT NOT NULL, provider TEXT, model TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0, estimated INTEGER NOT NULL DEFAULT 0,
+        outcome TEXT NOT NULL, recorded_at TEXT NOT NULL,
+        implementation_segment_id INTEGER);
+      CREATE TABLE process_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+        stage_key TEXT NOT NULL, process_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+        stage_run_id INTEGER, agent_name TEXT, provider TEXT, model TEXT, pid INTEGER,
+        status TEXT NOT NULL, result_kind TEXT, artifact_path TEXT,
+        started_at TEXT NOT NULL, ended_at TEXT);
+      CREATE TABLE implementation_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+        process_run_id INTEGER NOT NULL, attempt INTEGER NOT NULL,
+        status TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT);
+      CREATE TABLE implementation_segments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, implementation_run_id INTEGER NOT NULL,
+        provider TEXT NOT NULL, model TEXT, provider_session_id TEXT, reason TEXT,
+        status TEXT NOT NULL, launch_intent_id INTEGER NOT NULL,
+        started_at TEXT, ended_at TEXT);
+      CREATE TABLE session_launch_intents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+        launch_id TEXT NOT NULL, purpose TEXT NOT NULL,
+        implementation_run_id INTEGER, process_run_id INTEGER,
+        provider TEXT NOT NULL, model TEXT, reason TEXT NOT NULL,
+        session_origin TEXT NOT NULL, provider_session_id TEXT,
+        status TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT);
+      INSERT INTO tickets (id, key, title) VALUES (1, 'K-1', 'One');
+      INSERT INTO token_usage
+        (project_id, ticket_id, call_site, input_tokens, output_tokens,
+         total_tokens, outcome, recorded_at)
+        VALUES (NULL, 1, 'unknown', 10, 5, 15, 'ok', '2026-08-01T00:00:00.000Z');
+    `);
+    legacy.pragma('user_version = 28');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(tableNames(migrated)).toContain('interactive_usage_samples');
+    const sampleColumns = columns(migrated, 'interactive_usage_samples');
+    for (const col of [
+      'process_run_id',
+      'implementation_segment_id',
+      'source_event_id',
+      'provider',
+      'provider_session_id',
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'counter_epoch',
+      'baseline_only',
+      'observed_at',
+    ]) {
+      expect(sampleColumns, col).toContain(col);
+    }
+    const tokenCols = columns(migrated, 'token_usage');
+    expect(tokenCols).toContain('interactive_usage_sample_id');
+    for (const index of [
+      'idx_interactive_usage_event',
+      'idx_interactive_usage_segment',
+      'idx_interactive_usage_process',
+      'idx_interactive_usage_provider_session',
+      'idx_token_usage_interactive_sample',
+    ]) {
+      const found = migrated.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get(index);
+      expect(found, index).toEqual({ name: index });
+    }
+    // Nothing is backfilled: pre-v29 ledger rows keep NULL sample linkage.
+    expect(
+      migrated.db.prepare('SELECT interactive_usage_sample_id FROM token_usage').get(),
+    ).toEqual({ interactive_usage_sample_id: null });
+    expect(
+      migrated.db.prepare('SELECT * FROM interactive_usage_samples').all(),
+    ).toEqual([]);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
+
+    migrated.close();
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
+  });
+
+  it('carries the v32 ship saga tables and their indexes on a fresh DB', () => {
+    const columns = (store: Store, table: string): string[] =>
+      store.db
+        .prepare(`PRAGMA table_info('${table}')`)
+        .all()
+        .map((r) => (r as { name: string }).name);
+    const store = openStore(':memory:');
+    cleanups.push(() => store.close());
+
+    expect(tableNames(store)).toContain('ship_runs');
+    expect(tableNames(store)).toContain('ship_repo_steps');
+    expect(tableNames(store)).toContain('ship_operation_intents');
+    expect(tableNames(store)).toContain('ship_commits');
+
+    const runCols = columns(store, 'ship_runs');
+    for (const col of ['id', 'ticket_id', 'attempt', 'status', 'started_at', 'ended_at']) {
+      expect(runCols, col).toContain(col);
+    }
+    const stepCols = columns(store, 'ship_repo_steps');
+    for (const col of [
+      'id',
+      'ship_run_id',
+      'repo',
+      'step',
+      'status',
+      'detail',
+      'pr_number',
+      'existed_before_ship',
+      'process_run_id',
+      'started_at',
+      'ended_at',
+      'operation_intent_id',
+    ]) {
+      expect(stepCols, col).toContain(col);
+    }
+    const intentCols = columns(store, 'ship_operation_intents');
+    for (const col of [
+      'id',
+      'ship_run_id',
+      'repo',
+      'step',
+      'operation_key',
+      'pre_state_json',
+      'intent_json',
+      'status',
+      'created_at',
+      'prepared_at',
+      'applied_at',
+      'resolved_at',
+    ]) {
+      expect(intentCols, col).toContain(col);
+    }
+    const commitCols = columns(store, 'ship_commits');
+    for (const col of ['id', 'ship_run_id', 'repo', 'sha', 'message', 'origin']) {
+      expect(commitCols, col).toContain(col);
+    }
+
+    for (const index of [
+      'idx_ship_run_ticket',
+      'idx_ship_step_run',
+      'idx_ship_commit_run',
+    ]) {
+      const found = store.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get(index);
+      expect(found, index).toEqual({ name: index });
+    }
+  });
+
+  it('migrates a v31 DB to v32, adding the ship saga tables without touching rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT);
+      INSERT INTO tickets (id, key, title) VALUES (1, 'K-1', 'pre-v32 row');
+    `);
+    legacy.pragma('user_version = 31');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    for (const table of ['ship_runs', 'ship_repo_steps', 'ship_operation_intents', 'ship_commits']) {
+      expect(tableNames(migrated), table).toContain(table);
+    }
+    const stepCols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('ship_repo_steps')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(stepCols.has('operation_intent_id')).toBe(true);
+    for (const index of ['idx_ship_run_ticket', 'idx_ship_step_run', 'idx_ship_commit_run']) {
+      const found = migrated.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get(index);
+      expect(found, index).toEqual({ name: index });
+    }
+
+    // Nothing is backfilled: no prior karst recorded a ship run, a repo step,
+    // an operation intent, or a commit — history starts at the upgrade.
+    for (const table of ['ship_runs', 'ship_repo_steps', 'ship_operation_intents', 'ship_commits']) {
+      expect(migrated.db.prepare(`SELECT * FROM ${table}`).all()).toEqual([]);
+    }
+    expect(
+      migrated.db.prepare('SELECT key, stage_current FROM tickets WHERE id = ?').get(1),
+    ).toEqual({ key: 'K-1', stage_current: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
+
+    // Idempotence: reopening an already-migrated DB must not error or re-create.
+    migrated.close();
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(tableNames(reopened)).toContain('ship_commits');
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
+  });
+
+  it('migrates a v32 DB to v33, adding the intent agent_name column without touching rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, stage_current TEXT);
+      INSERT INTO tickets (id, key, title) VALUES (1, 'K-1', 'pre-v33 row');
+      CREATE TABLE session_launch_intents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+        launch_id TEXT NOT NULL, purpose TEXT NOT NULL,
+        implementation_run_id INTEGER, process_run_id INTEGER, recovery_round_id INTEGER,
+        provider TEXT NOT NULL, model TEXT, reason TEXT NOT NULL,
+        session_origin TEXT NOT NULL, provider_session_id TEXT,
+        status TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT);
+      INSERT INTO session_launch_intents
+        (ticket_id, launch_id, purpose, provider, model, reason, session_origin, status, created_at)
+        VALUES (1, 'l-1', 'fix', 'claude', 'sol', 'initial', 'new', 'pending', '2026-08-01T00:00:00.000Z');
+    `);
+    legacy.pragma('user_version = 32');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const intentCols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('session_launch_intents')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(intentCols.has('agent_name')).toBe(true);
+    // Nothing is backfilled: a pre-v33 fix launch names no agent — the unknown
+    // stays NULL, and the pre-v33 row is otherwise untouched.
+    expect(
+      migrated.db
+        .prepare('SELECT launch_id, purpose, provider, model, agent_name, status FROM session_launch_intents')
+        .get(),
+    ).toEqual({ launch_id: 'l-1', purpose: 'fix', provider: 'claude', model: 'sol', agent_name: null, status: 'pending' });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
+
+    // Idempotence: reopening an already-migrated DB must not error or re-create.
+    migrated.close();
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(33);
   });
 });

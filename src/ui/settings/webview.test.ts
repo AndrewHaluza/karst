@@ -23,6 +23,7 @@ import {
   review as buildReview,
 } from '../../manifest/fixtures.js';
 import { gateSummary as hostGateSummary } from './gateDraft.js';
+import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -132,6 +133,11 @@ describe('settings model picker', () => {
       dirty: true,
       nextModels,
       nextCompatibility: nextModels,
+      // The refresh re-requests host-computed process views only on the Agents
+      // tab — this sandbox is on General, so the post must not fire.
+      currentSection: 'general',
+      saveCandidate: () => ({}),
+      post: () => {},
       renderModelPicker: () => { renderCount += 1; },
       vscode: {
         getState: () => currentState,
@@ -704,6 +710,7 @@ describe('settings tab-scoped save', () => {
       ['ticketing', { ticketing: { provider: 'clickup', advanceOnShip: true } }],
       ['approaches', { approaches: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }] }],
       ['agents', { agents: 'nope' as never }],
+      ['agents', { processes: { wibble: {} } as never }],
     ];
     for (const [expected, patch] of broken) {
       let message = '';
@@ -1191,6 +1198,7 @@ describe('project facts (manifest path & resolved project id)', () => {
     expect(section).toContain('id="factManifestPath"');
     expect(section).toContain('id="factProjectSlug"');
     expect(section).toContain('id="factSlugDerived"');
+    expect(section).toContain('id="factVersion"');
     expect(section).toContain('id="openManifestBtn"');
   });
 
@@ -1207,6 +1215,7 @@ describe('project facts (manifest path & resolved project id)', () => {
     const source = `
       let manifestPath = '';
       let projectSlug = { value: '', derived: true };
+      let extensionVersion = '1.0.0';
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
@@ -1215,27 +1224,32 @@ describe('project facts (manifest path & resolved project id)', () => {
       ${functionSource('renderProjectFacts')}
       manifestPath = '/work/proj/.karst/karst.yml';
       projectSlug = { value: 'my-proj', derived: true };
+      extensionVersion = '1.0.0';
       renderProjectFacts();
       ({
         path: elements.factManifestPath.textContent,
         slug: elements.factProjectSlug.textContent,
         derivedHidden: elements.factSlugDerived.hidden,
+        version: elements.factVersion.textContent,
       });
     `;
     const result = runInNewContext(source, {}) as {
       path: string;
       slug: string;
       derivedHidden: boolean;
+      version: string;
     };
     expect(result.path).toBe('/work/proj/.karst/karst.yml');
     expect(result.slug).toBe('my-proj');
     expect(result.derivedHidden).toBe(false);
+    expect(result.version).toBe('1.0.0');
   });
 
   it('renderProjectFacts hides the derived chip when the id is explicit', () => {
     const source = `
       let manifestPath = 'x';
       let projectSlug = { value: '', derived: true };
+      let extensionVersion = '';
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
@@ -1254,6 +1268,7 @@ describe('project facts (manifest path & resolved project id)', () => {
     const source = `
       let manifestPath = '';
       let projectSlug = { value: '', derived: true };
+      let extensionVersion = '';
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
@@ -1930,5 +1945,364 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
       .replace(functionSource('updateReview'), '');
     expect(withoutUpdaters).not.toMatch(/draft\.uat\s*=/);
     expect(withoutUpdaters).not.toMatch(/draft\.review\s*=/);
+  });
+});
+
+/**
+ * Task 7: the five inside-process assignment rows on the Agents tab. ONE
+ * renderer (renderProcessAssignmentRow) parameterized by the PROCESS_KEYS
+ * vocabulary (mirrored from validate/processAssignments.ts, UI-R34), with the
+ * provider/model choices read from the HOST-SUPPLIED catalog (modelCatalog)
+ * exactly like the General tab's model picker — never HTML literals. Every
+ * string the row renders — role label, description, the four validation
+ * states, the Default hints — arrives in a host-computed view
+ * (processAssignmentViews.ts, handoff §7): the webview derives nothing.
+ */
+describe('settings agents tab — process assignments', () => {
+  it('mirrors the host PROCESS_KEYS vocabulary exactly', () => {
+    expect(HTML).toContain(
+      `const PROCESS_KEYS = [${PROCESS_KEYS.map((k) => `'${k}'`).join(', ')}];`,
+    );
+  });
+
+  it('renders five process assignment rows with profile/core/model/name controls and an enabled switch', () => {
+    expect(HTML).toContain('id="processAssignments"');
+    // The render walks the PROCESS_KEYS vocabulary (pinned above) and the row
+    // template stamps every control with the key it edits.
+    expect(HTML).toContain('PROCESS_KEYS\n      .map((key) => renderProcessAssignmentRow(key,');
+    expect(HTML).toContain('data-proc-key="${key}"');
+    expect(HTML).toContain('data-proc-field="agent"');
+    expect(HTML).toContain('data-proc-field="provider"');
+    expect(HTML).toContain('data-proc-field="model"');
+    expect(HTML).toContain('data-proc-field="agentName"');
+    expect(HTML).toContain('data-proc-enabled="${key}"');
+    expect(HTML).toContain('role="switch"');
+    // The handoff §7 labels ("Agent profile", "Agent core", "Model") are the
+    // primary labels; the raw manifest terms are never user-facing copy.
+    expect(HTML).not.toContain('PROCESS_ROLE_LABELS');
+    expect(HTML).not.toContain('agent provider');
+  });
+
+  it('has no hard-coded model or provider literal list for the rows', () => {
+    // The rows must read provider options from the injected agent identity and
+    // model options from the host catalog — the same mirrors the General tab
+    // uses — so a catalog refresh flows straight through.
+    expect(HTML).not.toContain('const PROCESS_MODELS');
+    expect(HTML).not.toContain('const PROCESS_PROVIDERS');
+  });
+
+  it('fixes the inline flex:1 1 220px UI-R04 violations', () => {
+    expect(HTML).not.toContain('flex:1 1 220px');
+  });
+
+  const CATALOG = {
+    claude: [{ id: 'claude-only', label: 'Claude Only', providers: ['claude'] }],
+    codex: [{ id: 'codex-current', label: 'Codex Current', providers: ['codex'] }],
+    antigravity: [{ id: 'agy-current', label: 'Antigravity Current', providers: ['antigravity'] }],
+    opencode: [],
+  };
+
+  /** A host-computed row view (§ processAssignmentViews.ts) for the harness. */
+  function view(
+    key: string,
+    roleLabel: string,
+    patch: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      key,
+      roleLabel,
+      description: '',
+      state: 'valid',
+      stateTone: 'note',
+      stateMessage: '',
+      invalidField: null,
+      profileOptions: [],
+      effectiveProvider: 'claude',
+      profileHint: '',
+      coreHint: '',
+      modelHint: '',
+      ...patch,
+    };
+  }
+
+  function loadProcessRowRenderer(): (
+    key: string,
+    cfg: Record<string, unknown>,
+    rowView: Record<string, unknown>,
+  ) => string {
+    const source = `
+      const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
+      const AGENT_PROVIDER_LABELS = {
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+      };
+      ${functionSource('renderModelOptions')}
+      ${functionSource('renderProcessAssignmentRow')}
+      renderProcessAssignmentRow
+    `;
+    return runInNewContext(source, {
+      modelCatalog: CATALOG,
+      esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+    }) as (
+      key: string,
+      cfg: Record<string, unknown>,
+      rowView: Record<string, unknown>,
+    ) => string;
+  }
+
+  it('uses the host view for the role label and the per-row description', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', {}, view('uatTester', 'UAT Tester', {
+      description: 'Runs after required UAT gates pass',
+    }));
+    expect(html).toContain('UAT Tester');
+    expect(html).toContain('Runs after required UAT gates pass');
+    expect(html).not.toContain('UAT test');
+  });
+
+  it('offers the host-supplied agent pool in the Agent profile select', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', { agent: 'review-author' }, view('uatTester', 'UAT Tester', {
+      profileOptions: ['uat-author', 'review-author'],
+    }));
+    expect(html).toContain('<option value="">Role default</option>');
+    expect(html).toContain('<option value="uat-author">uat-author</option>');
+    expect(html).toContain('<option value="review-author" selected>review-author</option>');
+  });
+
+  it('keeps a saved profile visible when it left the pool, marked by the state message', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', { agent: 'ghost' }, view('uatTester', 'UAT Tester', {
+      state: 'unknown-profile',
+      stateTone: 'error',
+      stateMessage: 'Agent profile "ghost" does not exist. Pick a profile from the list or leave the role default.',
+      invalidField: 'agent',
+      profileOptions: ['uat-author'],
+    }));
+    expect(html).toContain('<option value="ghost" selected>ghost</option>');
+  });
+
+  it('fills each model select from the host catalog for the row core', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', { provider: 'codex', model: '' }, view('uatTester', 'UAT Tester', {
+      effectiveProvider: 'codex',
+    }));
+
+    expect(html).toContain('data-proc-key="uatTester"');
+    expect(html).toContain('Codex Current');
+    expect(html).not.toContain('Claude Only');
+    expect(html).toContain('data-proc-field="provider"');
+    expect(html).toContain('data-proc-field="model"');
+  });
+
+  it('keeps a saved model visible when absent from the catalog', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('review', { provider: 'codex', model: 'preview-x' }, view('review', 'Review', {
+      effectiveProvider: 'codex',
+    }));
+    expect(html).toContain('Saved model: preview-x');
+  });
+
+  it('keys the model select off the view core when the row declares none', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', {}, view('uatTester', 'UAT Tester', {
+      effectiveProvider: 'claude',
+    }));
+    expect(html).toContain('Claude Only');
+  });
+
+  it('renders the Default hints from the host view', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', {}, view('uatTester', 'UAT Tester', {
+      profileHint: 'Default: UAT Agent',
+      coreHint: 'Default: Claude Code',
+      modelHint: 'Default: Sonnet 4.6',
+    }));
+    expect(html).toContain('Default: UAT Agent');
+    expect(html).toContain('Default: Claude Code');
+    expect(html).toContain('Default: Sonnet 4.6');
+  });
+
+  it('renders the four validation states from the host view', () => {
+    const render = loadProcessRowRenderer();
+
+    // Unknown profile: inline error naming the missing profile, aria-invalid
+    // on the profile select, the message wired by aria-describedby (UI-R25).
+    const unknownProfile = render('uatTester', { agent: 'ghost' }, view('uatTester', 'UAT Tester', {
+      state: 'unknown-profile',
+      stateTone: 'error',
+      stateMessage: 'Agent profile "ghost" does not exist. Pick a profile from the list or leave the role default.',
+      invalidField: 'agent',
+      profileOptions: ['uat-author'],
+    }));
+    expect(unknownProfile).toContain('Agent profile &quot;ghost&quot; does not exist');
+    expect(unknownProfile).toContain('data-proc-field="agent"');
+    expect(unknownProfile).toContain('aria-invalid="true"');
+    expect(unknownProfile).toContain('aria-describedby="proc-uatTester-msg"');
+    expect(unknownProfile).toContain('id="proc-uatTester-msg"');
+    expect(unknownProfile).toContain('class="proc-msg is-error"');
+
+    // Unknown provider: inline error and NO model picker claim — the model
+    // select is disabled and carries no saved-model row.
+    const unknownProvider = render('review', { provider: 'copilot', model: 'x' }, view('review', 'Review', {
+      state: 'unknown-provider',
+      stateTone: 'error',
+      stateMessage: 'Agent core "copilot" is not supported. Pick one of the listed cores.',
+      invalidField: 'provider',
+      effectiveProvider: null,
+    }));
+    expect(unknownProvider).toContain('Agent core &quot;copilot&quot; is not supported');
+    expect(unknownProvider).toContain('data-proc-field="model"');
+    expect(unknownProvider).toContain(' disabled');
+    expect(unknownProvider).not.toContain('Saved model:');
+
+    // Model incompatible with provider: inline error; the saved value is
+    // never silently substituted.
+    const incompatible = render('review', { provider: 'codex', model: 'claude-opus-4-8' }, view('review', 'Review', {
+      state: 'incompatible-model',
+      stateTone: 'error',
+      stateMessage: 'Model "claude-opus-4-8" is not compatible with Codex. Pick a model for Codex.',
+      invalidField: 'model',
+      effectiveProvider: 'codex',
+    }));
+    expect(incompatible).toContain('Model &quot;claude-opus-4-8&quot; is not compatible with Codex');
+    expect(incompatible).toContain('aria-invalid="true"');
+    expect(incompatible).toContain('Saved model: claude-opus-4-8');
+
+    // Catalog unavailable: a NOTE (never an error) beside the kept saved id.
+    const catalogDown = render('prDescription', { provider: 'opencode', model: 'custom-x' }, view('prDescription', 'PR description', {
+      state: 'catalog-unavailable',
+      stateTone: 'note',
+      stateMessage: 'No model list is available for OpenCode; the saved model is kept.',
+      invalidField: null,
+      effectiveProvider: 'opencode',
+    }));
+    expect(catalogDown).toContain('No model list is available for OpenCode');
+    expect(catalogDown).toContain('class="proc-msg is-note"');
+    expect(catalogDown).toContain('Saved model: custom-x');
+  });
+
+  it('renders the disabled explanation from the host view', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', { provider: 'codex', enabled: false }, view('uatTester', 'UAT Tester', {
+      state: 'disabled',
+      stateTone: 'note',
+      stateMessage: 'Disabled — UAT Tester is skipped. Selections are kept.',
+      invalidField: null,
+      effectiveProvider: 'codex',
+    }));
+    expect(html).toContain('Disabled — UAT Tester is skipped. Selections are kept.');
+    expect(html).toContain('aria-checked="false"');
+  });
+
+  it('adopts host views on every state push and re-renders rows from the reply', () => {
+    expect(HTML).toContain('processAssignmentViews = indexProcessViews(msg.state.processAssignments || [])');
+    expect(HTML).toContain("case 'process-assignment-views':");
+    expect(HTML).toContain('post({ type: \'validate-process-assignments\'');
+  });
+
+  it('indexes host process-assignment views by process key', () => {
+    const index = loadFunction('indexProcessViews', {});
+    expect(index([{ key: 'review' }, { key: 'uatTester' }])).toEqual({
+      review: { key: 'review' },
+      uatTester: { key: 'uatTester' },
+    });
+    expect(index([])).toEqual({});
+  });
+
+  it('requests host-computed process views when validating on the Agents tab', () => {
+    const posted: unknown[] = [];
+    const sandbox = {
+      validateTimer: null,
+      currentSection: 'agents',
+      saveCandidate: (s: string) => ({ s }),
+      post: (m: unknown) => { posted.push(m); },
+      setTimeout: (fn: () => void) => { fn(); return 1; },
+      clearTimeout: () => {},
+    };
+    const source = `${functionSource('scheduleValidate')} scheduleValidate();`;
+    runInNewContext(source, sandbox);
+    expect(posted).toContainEqual({ type: 'validate', manifest: { s: 'agents' } });
+    expect(posted).toContainEqual({
+      type: 'validate-process-assignments',
+      manifest: { s: 'agents' },
+    });
+  });
+
+  it('does not request process views from any other tab', () => {
+    const posted: unknown[] = [];
+    const source = `${functionSource('scheduleValidate')} scheduleValidate();`;
+    runInNewContext(source, {
+      validateTimer: null,
+      currentSection: 'general',
+      saveCandidate: (s: string) => ({ s }),
+      post: (m: unknown) => { posted.push(m); },
+      setTimeout: (fn: () => void) => { fn(); return 1; },
+      clearTimeout: () => {},
+    });
+    expect(posted.filter((m) => (m as { type?: string }).type === 'validate-process-assignments')).toEqual([]);
+  });
+
+  it('writes edits by spreading the existing processes block, never rebuilding it', () => {
+    expect(HTML).toMatch(/draft\.processes\s*=\s*\{\s*\.\.\.\(draft\.processes \|\| \{\}\)\s*,\s*\[key\]: entry\s*\};/);
+  });
+
+  it('routes process edits through the delegated click/change listeners', () => {
+    expect(HTML).toContain('t.dataset.procKey');
+    expect(HTML).toContain('t.dataset.procField');
+    expect(HTML).toContain("updateProcessAssignment(t.dataset.procKey, {");
+  });
+
+  it('preserves a hand-authored agent reference through an agents-tab save', () => {
+    // The `agent` field is NOT rendered by the tab (only enabled/agentName/
+    // provider/model are) — it is authored in karst.yml by hand. The updater
+    // must spread the entry so a Save never erases it, exactly like the
+    // Quality tab's spread-not-rebuild rule.
+    const onDisk: Manifest = {
+      ...buildManifest(
+        { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
+        { approaches: [], agents: { 'uat-author': { role: 'uat' } }, ticketing: { provider: 'manual' } },
+      ),
+      processes: {
+        uatTester: {
+          agent: 'uat-author',
+          agentName: 'My UAT',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+        },
+      },
+    };
+    const sandbox: Record<string, unknown> = {
+      draft: JSON.parse(JSON.stringify(onDisk)),
+      markDirty: () => {},
+      renderProcessAssignments: () => {},
+    };
+    const source = `
+      ${functionSource('updateProcessAssignment')}
+      updateProcessAssignment('uatTester', { agentName: 'Renamed' });
+    `;
+    runInNewContext(source, sandbox);
+    const merged = mergeSection(onDisk, sandbox.draft as Manifest, 'agents');
+
+    expect(merged.processes?.uatTester).toEqual({
+      agent: 'uat-author',
+      agentName: 'Renamed',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+  });
+
+  it('clearing every field of a row removes the entry rather than saving an empty mapping', () => {
+    const sandbox: Record<string, unknown> = {
+      draft: { processes: { review: { agentName: 'X', provider: 'codex' } } },
+      markDirty: () => {},
+      renderProcessAssignments: () => {},
+    };
+    const source = `
+      ${functionSource('updateProcessAssignment')}
+      updateProcessAssignment('review', { agentName: '', provider: '' });
+    `;
+    runInNewContext(source, sandbox);
+    expect(sandbox.draft).toEqual({ processes: undefined });
   });
 });

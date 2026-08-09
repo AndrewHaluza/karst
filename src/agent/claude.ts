@@ -93,7 +93,15 @@ const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
  * Keeps every Claude-specific flag here so nothing leaks past `AgentAdapter`.
  */
 export class ClaudeAdapter implements AgentAdapter {
-  readonly capabilities: AgentCapabilities = { lifecycleEvents: true, resume: true };
+  // No interactive usage: Claude's documented hook payloads (Stop:
+  // session_id/stop_hook_active/last_assistant_message; SessionEnd: reason
+  // only) carry no authoritative token counters and no stable usage-event id,
+  // so the bridge is lifecycle-only (settings.ts registers no UsageUpdate).
+  readonly capabilities: AgentCapabilities = {
+    lifecycleEvents: true,
+    resume: true,
+    interactiveUsage: false,
+  };
   readonly requiredBinary = CLAUDE_BIN;
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -279,6 +287,11 @@ export class ClaudeAdapter implements AgentAdapter {
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
     const args = ['-p', opts.prompt, '--output-format', 'json'];
     if (opts.resume) args.push('--resume', opts.resume);
+    // A resolved launch model must pin the run: without `--model` the CLI falls
+    // back to its own default (settings.json `"model"`, or the alias), which was
+    // measured at opus pricing on a PR-description call (869ef1e6x). The ticket's
+    // resolved model is a deliberate, visible choice; the CLI default is not.
+    if (opts.model) args.push('--model', opts.model);
     if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));

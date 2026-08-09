@@ -16,7 +16,6 @@ export const STAGE_TITLE: Readonly<Record<StageKey, string>> = {
   review: 'Review',
   fix: 'Fix',
   ship: 'Ship',
-  merge: 'Merge',
   done: 'Done',
 };
 
@@ -28,7 +27,6 @@ const STAGE_ACTIVITY: Readonly<Record<StageKey, string>> = {
   review: 'Reviewing',
   fix: 'Fixing',
   ship: 'Shipping',
-  merge: 'Merging',
   done: 'Done',
 };
 

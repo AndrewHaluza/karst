@@ -252,6 +252,37 @@ describe('loadManifest', () => {
       cleanup();
     }
   });
+
+  // Task 8: `uat.testerVerifier` is a host-authored GateDef (never AI output)
+  // and must survive load with its shape intact.
+  it('loads an optional uat.testerVerifier gate', () => {
+    const yaml = `${VALID}
+uat:
+  testerVerifier:
+    name: verify-uat
+    kind: command
+    command: ./scripts/verify-uat.sh
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).uat?.testerVerifier).toEqual({
+        name: 'verify-uat',
+        kind: 'command',
+        command: './scripts/verify-uat.sh',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('leaves uat.testerVerifier absent for a manifest without a uat block', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).uat).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('repositories without a service', () => {
@@ -1683,6 +1714,98 @@ describe('placeholder transforms in manifest templates', () => {
       expect(() => loadManifest(path)).toThrow(
         /conventions\.commitMessage has an invalid "truncate" argument in "\{title\|truncate:0\}"/,
       );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('process assignments', () => {
+  const WITH_PROCESSES = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  api:
+    repoPath: ../api
+agents:
+  uat-author: { role: uat }
+processes:
+  uatTester:
+    agent: uat-author
+    agentName: My UAT Agent
+    provider: codex
+    model: gpt-5.6-sol
+    enabled: false
+  review:
+    provider: antigravity
+`;
+
+  it('loads a processes block into the typed model', () => {
+    const { path, cleanup } = fixture(WITH_PROCESSES);
+    try {
+      expect(loadManifest(path).processes).toEqual({
+        uatTester: {
+          agent: 'uat-author',
+          agentName: 'My UAT Agent',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+          enabled: false,
+        },
+        review: { provider: 'antigravity', enabled: true },
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('leaves processes undefined when the block is absent', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).processes).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown process key, naming it and the closed vocabulary', () => {
+    const yaml = WITH_PROCESSES.replace(
+      '  review:\n    provider: antigravity',
+      '  wibble:\n    provider: codex',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/processes "wibble" is not a known inside process/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an undeclared agent reference, naming the agent', () => {
+    const yaml = WITH_PROCESSES.replace('agent: uat-author', 'agent: no-such-agent');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/no-such-agent/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown provider, naming the field', () => {
+    const yaml = WITH_PROCESSES.replace('provider: codex', 'provider: copilot');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/processes\.uatTester\.provider/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a malformed assignment, naming the field', () => {
+    const yaml = WITH_PROCESSES.replace('    enabled: false', '    enabled: "yes"');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/processes\.uatTester\.enabled must be a boolean/);
     } finally {
       cleanup();
     }

@@ -159,6 +159,10 @@ for name in "${selected[@]}"; do
 done
 
 if [ "$installed_any" = true ]; then
+  VERSION=$(node -e "console.log(require('./package.json').version)")
+  echo ""
+  echo "Installed karst v${VERSION}"
+  echo "Check version in Settings > General > Version"
   echo "Done. Reload window in each installed IDE (Cmd+Shift+P -> Reload Window)."
 else
   echo "Nothing installed."

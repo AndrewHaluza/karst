@@ -3,9 +3,17 @@ import { MAIN_LINE, STAGE_GRAPH } from '../workflow/graph.js';
 import { FIX_ATTEMPT_CAP } from '../workflow/fixAttempts.js';
 import { buildStepper, type StepperStageRow } from './stepper.js';
 import { buildStageRail, type BuildRailOptions } from './stageRail.js';
-import type { StageKey, StageStatus } from './types.js';
+import type { BlockerKind, StageKey, StageStatus } from './types.js';
 
-type Row = { stageKey: StageKey; status: StageStatus; attempt?: number; endedAt?: string };
+type Row = {
+  stageKey: StageKey;
+  status: StageStatus;
+  attempt?: number;
+  endedAt?: string;
+  blockedKind?: BlockerKind | null;
+  blockedReason?: string | null;
+  blockedAt?: string | null;
+};
 
 function rail(rows: Row[], opts: Partial<BuildRailOptions> = {}) {
   const stages: StepperStageRow[] = rows.map((r) => ({ ...r }));
@@ -126,11 +134,59 @@ describe('buildStageRail', () => {
       action: 'Confirm ship',
     });
     expect(r.main.filter((s) => s.needsUser)).toHaveLength(1);
-    expect(seg(r, 'merge').needs).toBeNull();
+    expect(seg(r, 'done').needs).toBeNull();
   });
 
   it('never marks needs-you without a current segment to carry it', () => {
     const r = rail([], { current: null, needsUser: true, needs: { detail: 'x', action: 'y' } });
     expect(r.main.some((s) => s.needsUser)).toBe(false);
+  });
+
+  it('reads a parked running stage as blocked on its segment', () => {
+    // `parkGateStage` leaves the runner's `running` status in place, so the
+    // segment resolves the cell through displayStatus — the track must not
+    // draw a spinner beside the block banner.
+    const r = rail([
+      {
+        stageKey: 'uat',
+        status: 'running',
+        blockedKind: 'nothing-to-run',
+        blockedReason: 'no target resolved',
+        blockedAt: AT,
+      },
+    ]);
+    expect(seg(r, 'uat').status).toBe('blocked');
+    expect(seg(r, 'uat').cell.status).toBe('running');
+  });
+
+  it('keeps a passed stage with an awaiting-merge block passed', () => {
+    // Ship waiting to land is genuinely passed — the block is a wait, not a
+    // claim that the stage is still doing something.
+    const r = rail([
+      {
+        stageKey: 'ship',
+        status: 'passed',
+        blockedKind: 'awaiting-merge',
+        blockedReason: 'PRs open',
+        blockedAt: AT,
+      },
+    ]);
+    expect(seg(r, 'ship').status).toBe('passed');
+  });
+
+  it('resolves every segment, blocked or not', () => {
+    const r = rail([
+      { stageKey: 'scope', status: 'passed' },
+      { stageKey: 'impl', status: 'running' },
+      { stageKey: 'uat', status: 'running', blockedKind: 'nothing-to-run', blockedAt: AT },
+    ]);
+    expect(r.main.map((s) => [s.cell.stageKey, s.status])).toEqual([
+      ['scope', 'passed'],
+      ['impl', 'running'],
+      ['uat', 'blocked'],
+      ['review', 'pending'],
+      ['ship', 'pending'],
+      ['done', 'pending'],
+    ]);
   });
 });

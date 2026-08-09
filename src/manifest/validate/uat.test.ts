@@ -77,6 +77,30 @@ describe('validateUat', () => {
       { web: { env: { VITE_MODE: 'uat' } } },
     );
   });
+
+  it('parses an optional testerVerifier gate (Task 8)', () => {
+    expect(
+      validateUat({
+        testerVerifier: { name: 'verify', kind: 'command', command: 'npx', args: ['playwright', 'test'] },
+      })?.testerVerifier,
+    ).toEqual({ name: 'verify', kind: 'command', command: 'npx', args: ['playwright', 'test'] });
+    expect(validateUat({ testerVerifier: { name: 'verify', kind: 'script', script: 'verify:uat' } })?.testerVerifier)
+      .toEqual({ name: 'verify', kind: 'script', script: 'verify:uat' });
+  });
+
+  it('leaves testerVerifier absent when the block omits it', () => {
+    expect(validateUat({})?.testerVerifier).toBeUndefined();
+  });
+
+  it('refuses a testerVerifier that is not a valid gate', () => {
+    expect(() => validateUat({ testerVerifier: 'verify' })).toThrow(/uat\.testerVerifier\[0\] must be a mapping/);
+    expect(() => validateUat({ testerVerifier: { kind: 'command' } })).toThrow(
+      /uat\.testerVerifier\[0\]\.name must be a non-empty string/,
+    );
+    expect(() => validateUat({ testerVerifier: { name: 'x', kind: 'shell' } })).toThrow(
+      /uat\.testerVerifier "x"\.kind must be one of: script, command/,
+    );
+  });
 });
 
 describe('uatEnvWarnings', () => {

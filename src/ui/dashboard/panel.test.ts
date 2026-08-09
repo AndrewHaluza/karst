@@ -1,10 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket } from '../../store/tickets.js';
+import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
+import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
-import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
+
+const PANEL_SOURCE = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'panel.ts'),
+  'utf8',
+);
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -195,26 +203,120 @@ describe('DashboardManager', () => {
     expect(stopServer).toHaveBeenCalledWith(9);
   });
 
-  it('posts a ship-progress event to the open panel (transient, not a state push)', () => {
+  it('posts a generic inside-progress event to the open panel (transient, not a state push)', () => {
+    // Finding 12: live Ship rides the SAME generic inside-progress union as
+    // gates and Fix — the manager has no ship-specific progress channel at all.
     const t = createTicket(store, { key: 'A', title: 'a' });
     const { host, panels } = fakeHost();
     const mgr = new DashboardManager(store, host, () => ({}) as never);
-    const event: ShipStepEvent = { repo: '/repo/a', step: 'push', status: 'run' };
 
     mgr.openDashboard(t.id);
     panels[0]!.posted.length = 0; // drop the open-time state push
-    mgr.postShipProgress(t.id, event);
+    mgr.postInsideProgress(t.id, {
+      kind: 'active',
+      ticketId: t.id,
+      stage: 'ship',
+      processId: 'ship',
+      live: { status: 'run', label: 'Shipping' },
+    });
 
-    expect(panels[0]!.posted).toEqual([{ type: 'ship-progress', event }]);
+    expect(panels[0]!.posted).toEqual([
+      {
+        type: 'inside-progress',
+        event: {
+          kind: 'active',
+          ticketId: t.id,
+          stage: 'ship',
+          processId: 'ship',
+          live: { status: 'run', label: 'Shipping' },
+        },
+      },
+    ]);
   });
 
-  it('postShipProgress on an unopened ticket is a no-op', () => {
+  it('postInsideProgress on an unopened ticket is a no-op', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     const { host } = fakeHost();
     const mgr = new DashboardManager(store, host, () => ({}) as never);
     expect(() =>
-      mgr.postShipProgress(t.id, { repo: '/repo/a', step: 'push', status: 'run' }),
+      mgr.postInsideProgress(t.id, {
+        kind: 'cleared',
+        ticketId: t.id,
+        stage: 'ship',
+        processId: 'ship',
+      }),
     ).not.toThrow();
+  });
+
+  it('supplies real service names and process assignments to the inside views', () => {
+    // Manifest with one runnable repo scoped to the ticket, and processes.uatTester
+    // configured — the explicit model keeps `configured.model` a real string.
+    const t = createTicket(store, { key: 'T', title: 't' });
+    updateTicketFields(store, t.id, { selectedRepos: ['svc-a'] });
+    const m = manifest(
+      { 'svc-a': runnableRepo() },
+      { processes: processes({ uatTester: { provider: 'codex', model: 'gpt-5' } }) },
+    );
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(
+      store,
+      host,
+      () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      () => m,
+    );
+
+    mgr.openDashboard(t.id);
+
+    const state = (panels[0]!.posted.find((msg: any) => msg.type === 'state') as any).state;
+    const uat = state.insideViews.uat;
+    const tester = uat.processes.find((p: any) => p.id === 'tester');
+    expect(tester?.configuredExecution).toMatchObject({ provider: 'codex', model: expect.any(String) });
+    const services = uat.processes.find((p: any) => p.id === 'services');
+    expect(services?.detail).not.toBe('');
+  });
+
+  it('reports a rejected inside action as a failure, not a success', () => {
+    const t = createTicket(store, { key: 'F4', title: 'inside outcome' });
+    const { host, panels } = fakeHost();
+    let mgr!: DashboardManager;
+    mgr = new DashboardManager(
+      store,
+      host,
+      () => ({ insideAction: (actionId: string) => mgr.dispatchInsideAction(t.id, actionId) }) as never,
+    );
+    mgr.openDashboard(t.id);
+    panels[0]!.posted.length = 0; // drop the open-time state push
+    panels[0]!.emit({ type: 'inside-action', actionId: 'stale-action-id', requestId: 'r1' });
+    const posted = panels[0]!.posted.find((m: any) => m.type === 'action-result');
+    expect(posted).toMatchObject({ type: 'action-result', ok: false });
+  });
+
+  it('drops a malformed inside-progress event at the panel boundary', () => {
+    // The webview is a trust boundary in both directions: an event the
+    // renderer cannot handle (a live status outside run/wait/fail) never ships.
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+    mgr.openDashboard(t.id);
+    panels[0]!.posted.length = 0;
+    mgr.postInsideProgress(t.id, {
+      kind: 'active',
+      ticketId: t.id,
+      stage: 'ship',
+      processId: 'ship',
+      live: { status: 'pass', label: 'Shipping' },
+    } as never);
+
+    expect(panels[0]!.posted.some((m: any) => m.type === 'inside-progress')).toBe(false);
+  });
+
+  it('no longer exposes the legacy ship-progress plumbing', () => {
+    // The per-repo/per-step channel and its panel method are gone (Finding 12);
+    // ship progress flows exclusively through postInsideProgress.
+    expect(PANEL_SOURCE).not.toMatch(/ship-progress|postShipProgress/);
   });
 
   it('disposing a panel drops it from the map so reopen creates a new one', () => {

@@ -1,19 +1,32 @@
 import type { Store } from '../../store/db.js';
-import type { AgentProvider } from '../../manifest/types.js';
+import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
-import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
+import { existsSync, realpathSync } from 'node:fs';
+import type { InsideProgressEvent } from '../../model/inside/progress.js';
+import type { SessionConfiguredInput } from '../../model/inside/agent.js';
+import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { resolveProcessAssignment } from '../../agent/processAssignment.js';
+import { resolveProvider } from '../../agent/provider.js';
+import { resolveModelForProvider } from '../../agent/models.js';
+import { isRunnable } from '../../manifest/runnable.js';
+import {
+  InsideActionRegistry,
+  dispatchInsideAction,
+  type InsideActionHost,
+} from './insideActions.js';
 import {
   buildDashboardState,
   type DashboardAgentContext,
   type DashboardState,
   type PathContext,
 } from './state.js';
-import { parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
+import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
+import type { InsideActionResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
-import type { GateOptionsLoader } from './gateOptions.js';
+import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
@@ -81,6 +94,21 @@ export interface DashboardBinding {
 /** Resolve the daemon actions for a ticket (lets the host bind live services). */
 export type ActionsFactory = (ticketId: number) => DashboardActions;
 
+/** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
+function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
+  return sameOptions(a.uat, b.uat) && sameOptions(a.review, b.review);
+}
+
+function sameOptions(
+  a: readonly { name: string; disabled: boolean }[],
+  b: readonly { name: string; disabled: boolean }[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((x, i) => x.name === b[i]!.name && x.disabled === b[i]!.disabled)
+  );
+}
+
 /**
  * One dashboard panel per ticket id (§14). `openDashboard` reveals an existing
  * panel rather than spawning a duplicate; disposal drops the panel so a later
@@ -92,6 +120,15 @@ export class DashboardManager {
   private readonly statsControllers = new Map<number, AbortController>();
   private readonly gateRequests = new Map<number, number>();
   private readonly gateControllers = new Map<number, AbortController>();
+  /**
+   * The last resolved gate options per ticket, so `pushState` can render the
+   * would-run gate names as pending rows before the stage runs. Dies with the
+   * panel; a stale entry for a closed panel is a leak.
+   */
+  private readonly gateOptionsCache = new Map<number, GateOptions>();
+  /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
+  private readonly registries = new Map<number, InsideActionRegistry>();
+  private readonly generations = new Map<number, number>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -153,6 +190,19 @@ export class DashboardManager {
      * empty, which is exactly the pre-feature panel.
      */
     private readonly loadGateOptions?: GateOptionsLoader,
+    /**
+     * The host implementations of the inside actions (open a file, open a PR
+     * URL, resume a stage…), bound in the extension host. Absent → actions
+     * resolve to unknown/rejected but never dispatch — a no-op host.
+     */
+    private readonly insideHost?: InsideActionHost,
+    /**
+     * Live manifest getter, so the inside views resolve the REAL service names
+     * and process assignments instead of empty lists. The manager is
+     * manifest-free by contract; every manifest fact arrives through injected
+     * accessors like this one.
+     */
+    private readonly manifest?: () => Manifest | undefined,
   ) {}
 
   /**
@@ -185,7 +235,28 @@ export class DashboardManager {
       // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
       // no terminal outcome to report, and reporting one anyway would ack a
       // message the host never acted on.
-      if (!parseWebviewMessage(raw)) return;
+      const parsed = parseWebviewMessage(raw);
+      if (!parsed) return;
+      if (parsed.type === 'inside-action') {
+        // An inside dispatch's outcome is known synchronously; the generic
+        // seam's unconditional ack would report a rejected or stale dispatch
+        // as success (UI-R13). Post the returned result for this request.
+        const result = routeAction(raw, actions);
+        if (isInsideActionResult(result)) {
+          if (requestId) {
+            panel.postMessage({
+              type: 'action-result',
+              requestId,
+              ok: result.ok,
+              ...(result.message ? { message: result.message } : {}),
+            });
+          }
+          return;
+        }
+        // A void/promise-returning factory keeps its exact old semantics.
+        void reportAction(requestId, (message) => panel.postMessage(message), () => result);
+        return;
+      }
       void reportAction(requestId, (message) => panel.postMessage(message), () => {
         try {
           const result = routeAction(raw, actions);
@@ -195,7 +266,9 @@ export class DashboardManager {
               throw err;
             });
           }
-          return result;
+          // An InsideActionResult cannot reach this seam: `inside-action` is
+          // handled above, and no other case produces one.
+          return result as void | Promise<void>;
         } catch (err) {
           this.logError('karst: dashboard action failed', err);
           throw err;
@@ -212,6 +285,12 @@ export class DashboardManager {
       this.statsControllers.delete(ticketId);
       this.gateRequests.delete(ticketId);
       this.gateControllers.delete(ticketId);
+      this.gateOptionsCache.delete(ticketId);
+      // The panel's action capabilities die with it: a disposed panel's ids
+      // must never dispatch against a later snapshot.
+      this.registries.get(ticketId)?.dispose();
+      this.registries.delete(ticketId);
+      this.generations.delete(ticketId);
     });
 
     this.refreshIcon(ticketId, panel);
@@ -237,6 +316,14 @@ export class DashboardManager {
   pushState(ticketId: number): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
+    // A fresh action registry PER SNAPSHOT: every state push is authoritative,
+    // so the ids it mints are the only live capabilities. The registry itself
+    // (with its host-only targets) never leaves this manager.
+    const generation = (this.generations.get(ticketId) ?? 0) + 1;
+    this.generations.set(ticketId, generation);
+    const registry = new InsideActionRegistry(generation, ticketId);
+    this.registries.get(ticketId)?.dispose();
+    this.registries.set(ticketId, registry);
     const state = buildDashboardState(
       this.store,
       ticketId,
@@ -247,11 +334,58 @@ export class DashboardManager {
       this.defaultProvider?.(),
       this.agentContext?.(),
       this.fixCapFor,
+      (id) => this.serviceNamesFor(id),
+      (processId) => this.assignmentFor(ticketId, processId),
+      registry,
+      this.gateOptionsCache.get(ticketId),
     );
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
     this.refreshIcon(ticketId, panel);
     this.pushGateOptions(ticketId, panel);
+  }
+
+  /**
+   * The runnable services in the ticket's scope, by repository NAME. Non-runnable
+   * repositories are absent by construction (isRunnable is the only gate) — a
+   * repo with no `service:` block has no process to name.
+   */
+  private serviceNamesFor(ticketId: number): string[] {
+    const manifest = this.manifest?.();
+    if (!manifest) return [];
+    const scoped = new Set(getTicket(this.store, ticketId)?.selectedRepos ?? []);
+    return Object.entries(manifest.repositories)
+      .filter(([name, repo]) => scoped.has(name) && isRunnable(repo))
+      .map(([name]) => name);
+  }
+
+  /**
+   * The provider/model karst is CONFIGURED to run for one inside process —
+   * shown before any recorded segment exists. Never the recorded identity: a
+   * process_runs snapshot is what actually ran and outranks this everywhere it
+   * exists (model/inside/agent.ts).
+   */
+  private assignmentFor(
+    ticketId: number,
+    processId: 'session' | 'tester' | 'review',
+  ): SessionConfiguredInput | null {
+    const manifest = this.manifest?.();
+    if (!manifest) return null;
+    const ticket = getTicket(this.store, ticketId);
+    if (processId === 'session') {
+      // The implementation session has no process role: it is the ticket's own
+      // agent, resolved by the launch precedence rule.
+      const provider = resolveProvider(ticket?.agentProvider ?? undefined, manifest.agentProvider);
+      return { provider, model: resolveModelForProvider(provider, ticket?.model ?? null, manifest.defaultModel) ?? null };
+    }
+    const role = processId === 'tester' ? 'uat-tester' : 'review';
+    const snapshot = resolveProcessAssignment(manifest, role, {
+      provider: ticket?.agentProvider ?? undefined,
+      model: ticket?.model ?? undefined,
+    });
+    // NULL is configured ABSENCE (`enabled: false`), not "unknown" — the caller
+    // renders it as a disabled process, never as a missing lookup.
+    return snapshot ? { provider: snapshot.provider, model: snapshot.model ?? null } : null;
   }
 
   /**
@@ -302,7 +436,14 @@ export class DashboardManager {
         if (this.panels.get(ticketId) !== panel) return;
         if (this.gateRequests.get(ticketId) !== request) return;
         this.gateControllers.delete(ticketId);
+        // Remember the resolved names so `pushState` can render them as
+        // pending gate rows. Only a CHANGE re-pushes the snapshot: the
+        // resolution itself came from a `pushState`, and an unconditional
+        // re-push would feed `pushGateOptions` from `pushState` forever.
+        const previous = this.gateOptionsCache.get(ticketId);
+        this.gateOptionsCache.set(ticketId, options);
         panel.postMessage({ type: 'gate-options', options });
+        if (!previous || !sameGateOptions(previous, options)) this.pushState(ticketId);
       },
       (error) => {
         if (this.panels.get(ticketId) !== panel) return;
@@ -314,17 +455,48 @@ export class DashboardManager {
   }
 
   /**
-   * Push a transient ship-progress event to a ticket panel; no-op if not open.
-   *
-   * Separate from `pushState` on purpose: the ship stage's live per-step state
-   * is not in the store — `buildDashboardState` cannot re-derive it — so it
-   * rides its own ephemeral message that the webview overlays on the Inside
-   * block while a ship is in flight, then discards on the next real state push.
+   * Push a transient inside-progress event to a ticket panel; no-op if not open.
+   * Validated at this boundary (`parseInsideProgress`) — the webview is a trust
+   * boundary in both directions, and a malformed event must never ship. Live
+   * Ship rides this same generic union (Finding 12); there is no ship-specific
+   * progress channel.
    */
-  postShipProgress(ticketId: number, event: ShipStepEvent): void {
+  postInsideProgress(ticketId: number, event: InsideProgressEvent): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
-    panel.postMessage({ type: 'ship-progress', event });
+    const validated = parseInsideProgress(event);
+    if (validated === null) return;
+    panel.postMessage({ type: 'inside-progress', event: validated });
+  }
+
+  /**
+   * Dispatch one opaque inside action id against the ticket's CURRENT action
+   * registry. Rejects (logged) when the target fails its checks; unknown ids
+   * are silently dropped — a stale or foreign id is not a fault to surface.
+   * Returns the terminal outcome so the message pump can report the REAL
+   * result to the webview (UI-R13): a rejected or stale dispatch is never
+   * acknowledged as success.
+   */
+  dispatchInsideAction(ticketId: number, actionId: string): InsideActionResult {
+    const registry = this.registries.get(ticketId);
+    if (!registry) return { ok: false, message: 'This action is no longer available.' };
+    const outcome = dispatchInsideAction(this.store, registry, actionId, {
+      host: this.insideHost ?? NOOP_INSIDE_HOST,
+      worktreeForRepo: (repo) =>
+        listWorktreesByTicket(this.store, ticketId).find((w) => w.repo === repo)?.path,
+      fs: { existsSync, realpathSync },
+    });
+    if (outcome.outcome === 'rejected') {
+      this.logError(`karst: inside action rejected: ${outcome.reason}`, undefined);
+      // The reason is host diagnostic prose and may name a path — never send it
+      // to the webview. The user-facing message is a fixed string.
+      return { ok: false, message: 'This action could not be run.' };
+    }
+    if (outcome.outcome === 'unknown') {
+      // A stale or foreign capability is not a success.
+      return { ok: false, message: 'This action is no longer available.' };
+    }
+    return { ok: true };
   }
 
   /**
@@ -346,4 +518,26 @@ export class DashboardManager {
   isOpen(ticketId: number): boolean {
     return this.panels.has(ticketId);
   }
+
+  /** The tickets with a currently open panel, for the external-change watcher. */
+  openTicketIds(): number[] {
+    return [...this.panels.keys()];
+  }
 }
+
+/** Narrow a routed action's return to the synchronous inside outcome, if that is what it is. */
+function isInsideActionResult(
+  v: InsideActionResult | void | Promise<void>,
+): v is InsideActionResult {
+  return typeof v === 'object' && v !== null && typeof (v as { ok?: unknown }).ok === 'boolean';
+}
+
+/** An absent host resolves nothing: every dispatch is unknown/rejected, never acted on. */
+const NOOP_INSIDE_HOST: InsideActionHost = {
+  openFile: () => undefined,
+  openPr: () => undefined,
+  openCommit: () => undefined,
+  resumeStage: () => undefined,
+  openFullEvidence: () => undefined,
+  openBoundedEvidence: () => undefined,
+};

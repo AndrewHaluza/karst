@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { routeAction, parseWebviewMessage, type DashboardActions } from './messages.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { routeAction, parseWebviewMessage, parseInsideProgress, type DashboardActions } from './messages.js';
+
+const MESSAGES_SOURCE = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'messages.ts'),
+  'utf8',
+);
 
 function actions(): DashboardActions {
   return {
@@ -29,6 +37,7 @@ function actions(): DashboardActions {
     switchAgent: vi.fn(),
     resumeStage: vi.fn(),
     setDisabledGate: vi.fn(),
+    insideAction: vi.fn(),
   };
 }
 
@@ -341,5 +350,127 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'set-disabled-gates', stage: 'review', name: 'lint', disabled: false }, a);
     expect(a.setDisabledGate).toHaveBeenCalledWith('review', 'lint', false);
+  });
+});
+
+describe('inside-action', () => {
+  it('parses the closed message: type + actionId only', () => {
+    expect(parseWebviewMessage({ type: 'inside-action', actionId: 'snapshot-7:action-3' })).toEqual({
+      type: 'inside-action',
+      actionId: 'snapshot-7:action-3',
+    });
+  });
+
+  it('rejects every legacy target-bearing payload — the id is the only capability', () => {
+    expect(
+      parseWebviewMessage({
+        type: 'inside-action',
+        actionId: 'forged',
+        path: '/private/etc/passwd',
+      }),
+    ).toBeNull();
+    expect(
+      parseWebviewMessage({ type: 'inside-action', actionId: 'x', repo: '/web', number: 40 }),
+    ).toBeNull();
+    expect(parseWebviewMessage({ type: 'inside-action', actionId: 'x', sha: 'abc' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'inside-action', actionId: 'x', kind: 'open-file' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'inside-action', actionId: 'x', stage: 'uat' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'inside-action', actionId: 'x', processId: 'gates' })).toBeNull();
+  });
+
+  it('accepts a well-formed requestId alongside the id (the panel correlates on it)', () => {
+    expect(
+      parseWebviewMessage({ type: 'inside-action', actionId: 'snapshot-7:action-3', requestId: 'k1-abc' }),
+    ).toEqual({ type: 'inside-action', actionId: 'snapshot-7:action-3' });
+  });
+
+  it('rejects malformed and oversized action ids', () => {
+    expect(parseWebviewMessage({ type: 'inside-action', actionId: '' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'inside-action', actionId: 42 })).toBeNull();
+    expect(parseWebviewMessage({ type: 'inside-action' })).toBeNull();
+    expect(
+      parseWebviewMessage({ type: 'inside-action', actionId: 'x'.repeat(97) }),
+    ).toBeNull();
+    expect(
+      parseWebviewMessage({ type: 'inside-action', actionId: 'snapshot-1:action-0\nPATH' }),
+    ).toBeNull();
+  });
+
+  it('routes the parsed id verbatim to the action', () => {
+    const a = actions();
+    routeAction({ type: 'inside-action', actionId: 'snapshot-7:action-3' }, a);
+    expect(a.insideAction).toHaveBeenCalledWith('snapshot-7:action-3');
+  });
+
+  it('does not route a malformed message', () => {
+    const a = actions();
+    routeAction({ type: 'inside-action', actionId: 'forged', path: '/etc/passwd' }, a);
+    expect(a.insideAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseInsideProgress', () => {
+  it('accepts a closed active event', () => {
+    expect(
+      parseInsideProgress({
+        kind: 'active',
+        ticketId: 1,
+        stage: 'uat',
+        processId: 'gates',
+        live: { status: 'run', label: 'test (web)' },
+      }),
+    ).toEqual({
+      kind: 'active',
+      ticketId: 1,
+      stage: 'uat',
+      processId: 'gates',
+      live: { status: 'run', label: 'test (web)' },
+    });
+  });
+
+  it('rejects unknown discriminants and statuses', () => {
+    expect(parseInsideProgress({ kind: 'started', ticketId: 1, stage: 'uat' })).toBeNull();
+    expect(
+      parseInsideProgress({ kind: 'active', ticketId: 1, stage: 'fix', processId: 'gates', live: { status: 'run' } }),
+    ).toBeNull();
+    expect(
+      parseInsideProgress({ kind: 'active', ticketId: 1, stage: 'uat', processId: 'gates', live: { status: 'pass' } }),
+    ).toBeNull();
+  });
+
+  it('rejects unbounded prose on the live header', () => {
+    expect(
+      parseInsideProgress({
+        kind: 'active',
+        ticketId: 1,
+        stage: 'uat',
+        processId: 'gates',
+        live: { status: 'run', detail: 'x'.repeat(500) },
+      }),
+    ).toBeNull();
+  });
+
+  it('accepts completed and cleared events with closed process shapes', () => {
+    expect(
+      parseInsideProgress({
+        kind: 'completed',
+        ticketId: 1,
+        stage: 'uat',
+        process: { id: 'gates', kind: 'gates', label: 'Gates', status: 'pass' },
+      }),
+    ).toMatchObject({ kind: 'completed', process: { id: 'gates', status: 'pass' } });
+    expect(
+      parseInsideProgress({ kind: 'cleared', ticketId: 1, stage: 'uat', processId: 'gates' }),
+    ).toEqual({ kind: 'cleared', ticketId: 1, stage: 'uat', processId: 'gates' });
+  });
+});
+
+describe('legacy ship-progress retirement (Finding 12)', () => {
+  it('no longer carries the legacy ship-progress host message or its step type', () => {
+    // Ship progress flows exclusively through the generic inside-progress
+    // union (progress.ts): the per-repo/per-step `ship-progress` member and
+    // its ShipStepEvent import must be gone from the messages boundary.
+    expect(MESSAGES_SOURCE).not.toMatch(/ship-progress/);
+    expect(MESSAGES_SOURCE).not.toMatch(/ShipStepEvent/);
   });
 });

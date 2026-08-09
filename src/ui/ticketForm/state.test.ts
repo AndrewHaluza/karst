@@ -325,7 +325,7 @@ describe('buildTicketFormState — edit mode', () => {
     setStage(store, t.id, 'impl', { status: 'running' });
     const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.stepper.map((c) => c.stageKey)).toEqual([
-      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'merge', 'done',
+      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'done',
     ]);
     expect(s.stepper[0]!.status).toBe('passed');
     expect(s.stepper[1]!.status).toBe('running');

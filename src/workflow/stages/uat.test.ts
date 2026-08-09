@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,18 +8,30 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
+import { listProcessRuns } from '../../store/processRuns.js';
+import { listUatFindings } from '../../store/uatFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
+import type { Manifest } from '../../manifest/types.js';
+import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { runUat, resolveTargetGates, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 import type { ScriptProbe } from '../gates/probe.js';
+import type { ProcessOutcome } from '../gates/run.js';
+import type { TesterGateRunner } from '../uat/testerVerifier.js';
+import type { AgentAdapter } from '../../agent/adapter.js';
+import {
+  listRecoveryRounds,
+  recoveryDecision,
+  completeFixExecution,
+} from '../../store/recoveryRounds.js';
 
 const now = () => '2026-07-30T10:00:00.000Z';
 
 function deps(over: Partial<UatDeps> = {}): UatDeps {
   return {
     now,
-    planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }] }),
+    planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }], unmapped: [] }),
     probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
     runGates: async (gates) => ({
       kind: 'ran',
@@ -85,6 +97,113 @@ describe('runUat', () => {
     expect(uatStage(store, id).attempt).toBe(1);
   });
 
+  it('commits a recovery round atomically with the failed verdict, snapshotting the causal evidence and cap', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({
+            name: g.name,
+            exitCode: g.name === 'e2e' ? 1 : 0,
+            output: 'boom',
+            startedAt: now(),
+            endedAt: now(),
+          })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    // The round names the stage run the failure belongs to, the deterministic
+    // gate source (no AI process run), the causal detail, and the DEFAULT cap.
+    expect(rounds[0]).toMatchObject({
+      ticketId: id,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'gates failed: e2e (/wt/web)',
+      round: 1,
+      maxRounds: 3,
+      status: 'pending',
+      fixProcessRunId: null,
+    });
+    expect(rounds[0]!.sourceStageRunId).toBe(listStageRuns(store, id)[0]!.id);
+  });
+
+  it('snapshots the manifest cap into the round — a later manifest edit cannot widen it', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { uat: uatConfig({ maxFixAttempts: 1 }) }) },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(listRecoveryRounds(store, id)[0]!.maxRounds).toBe(1);
+    // The knob is raised AFTER the failure committed.
+    const m = manifest({}, { uat: uatConfig({ maxFixAttempts: 5 }) });
+    expect(recoveryDecision(store, id, 'uat')!.maxRounds).toBe(1);
+    void m;
+  });
+
+  it('a revalidation pass completes the uat-origin round through the real runner', async () => {
+    // Failure 1 commits round 1; the fix marker passes it to revalidating.
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(completeFixExecution(store, id, now())).toBe(true);
+    transition(store, id, 'fix', { kind: 'passed' }); // -> uat, the only legal edge
+
+    const res = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    const round = listRecoveryRounds(store, id)[0]!;
+    expect(round.status).toBe('passed');
+    expect(round.uatRevalidationStageRunId).toBe(listStageRuns(store, id)[1]!.id);
+  });
+
+  it('a revalidation failure fails round 1 and opens round 2 for the new cause', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    completeFixExecution(store, id, now());
+    transition(store, id, 'fix', { kind: 'passed' });
+
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom again', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    const [round1, round2] = listRecoveryRounds(store, id);
+    expect(round1).toMatchObject({ round: 1, status: 'failed' });
+    expect(round1!.uatRevalidationStageRunId).toBe(listStageRuns(store, id)[1]!.id);
+    expect(round2).toMatchObject({ round: 2, status: 'pending' });
+  });
+
   it('nothing to run -> blocks, does not transition, consumes no attempt', async () => {
     const res = await runUat(
       store,
@@ -143,7 +262,9 @@ describe('runUat', () => {
   // affected) and a genuine `{kind:'targets', targets: []}` (karst asked and the
   // answer is "nothing is affected") must stay distinguishable at this seam —
   // collapsing them is exactly the vacuous-green bug this task closes: an
-  // environmental failure must never read as "nothing to test".
+  // environmental failure must never read as "nothing to test". The empty
+  // list's own fate is a pass with a note (every worktree mapped, none
+  // changed), asserted separately below.
   it('keeps an unavailable selection and a genuine empty target list apart', async () => {
     const unavailable = await runUat(
       store,
@@ -161,12 +282,18 @@ describe('runUat', () => {
     const id2 = createTicketFlow(store, { key: 'T-2', title: 't2' }).id;
     transition(store, id2, 'scope', { kind: 'passed' });
     transition(store, id2, 'impl', { kind: 'passed' });
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+      )
+      .run(id2);
     const empty = await runUat(
       store,
       { ticketId: id2, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
     );
-    expect(empty).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(empty).not.toMatchObject({ kind: 'blocked' });
+    expect(empty).toMatchObject({ kind: 'advanced', next: 'review' });
     expect(empty).not.toMatchObject({ blocker: 'capability-missing' });
   });
 
@@ -267,6 +394,7 @@ describe('runUat', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         runGates: async (gates, cwd) => {
           ran.push(cwd);
@@ -330,6 +458,7 @@ describe('runUat', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         probe: (cwd) =>
           cwd === '/wt/web'
@@ -364,10 +493,11 @@ describe('runUat', () => {
     expect(uatStage(store, id).artifactPath).not.toBeNull();
   });
 
-  // A worktree whose repoPath is absent from the manifest is dropped by
-  // `planUatTargets`, so "affected but unmapped" would otherwise be
-  // indistinguishable from "nothing to test" — a silent absence.
-  it('no target at all -> blocks with a reason naming the ticket worktrees', async () => {
+  // A worktree whose repoPath is absent from the manifest cannot be asked
+  // anything, and a retry cannot change that — the block names the worktrees
+  // and the user must edit karst.yml or re-scope the ticket. Distinct from the
+  // mapped-but-unchanged case below: that one PASSES.
+  it('blocks and names the unmapped worktrees when a repository is missing from the manifest', async () => {
     store.db
       .prepare(
         "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/unmapped', '/wt/unmapped', 'b', 'develop', 'inherited')",
@@ -376,22 +506,48 @@ describe('runUat', () => {
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: ['/unmapped'] }) }),
     );
-    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'unmapped-repository' });
     expect(res).toMatchObject({ reason: expect.stringContaining('/unmapped') });
     expect(getTicket(store, id).stageCurrent).toBe('uat');
     expect(uatStage(store, id).attempt).toBe(0);
   });
 
-  it('says so plainly when the ticket has no worktree at all', async () => {
+  it('passes with a note when every repository mapped and none has changes', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).toContain(
+      'no repository has changes from its base, so UAT had nothing to check',
+    );
+  });
+
+  // Zero worktrees is a third case, and it is neither of the two above: the
+  // question was never asked of any repository, so it can only park.
+  it('parks when the ticket has no registered worktree at all', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
-    expect(res).toMatchObject({ reason: expect.stringContaining('no worktree') });
+    expect(res).toMatchObject({
+      reason: 'no worktree is registered for this ticket, so there is no repository to run UAT against',
+    });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('nothing-to-run');
   });
 
   // Two `repositories:` entries sharing a repoPath collapse to ONE target, so a
@@ -417,7 +573,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }], unmapped: [] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -452,7 +608,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }], unmapped: [] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -492,6 +648,7 @@ describe('runUat', () => {
         planTargets: async () => ({
           kind: 'targets',
           targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        unmapped: [],
         }),
       }),
     );
@@ -514,6 +671,7 @@ describe('runUat', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         runGates: async (gates, _cwd, opts) => {
           seen.push(opts?.signal);
@@ -564,6 +722,9 @@ describe('runUat', () => {
     // The verdict itself never committed, so the run is still open — which is
     // what the next run (or the activation sweep) reads as a destroyed run.
     expect(listStageRuns(store, id).map((r) => r.status)).toEqual(['running']);
+    // An execution crash opens NO recovery round: only a COMMITTED failed
+    // verdict may trigger recovery, and none committed here.
+    expect(listRecoveryRounds(store, id)).toEqual([]);
   });
 
   it('does not run a gate the ticket disabled', async () => {
@@ -717,7 +878,7 @@ describe('runUat', () => {
         runGates: async (gates, _cwd, opts) => {
           // Simulate each gate completing and invoke the callback.
           for (const g of gates) {
-            opts?.onGateComplete?.(g.name);
+            opts?.onGateComplete?.(g.name, 0);
           }
           return {
             kind: 'ran',
@@ -769,5 +930,309 @@ describe('resolveTargetGates', () => {
     const res = resolveTargetGates(probe, undefined, ['web', 'admin'], ['test']);
     if (res.kind !== 'gates') throw new Error('unreachable');
     expect(res.skipped.map((g) => g.name)).toEqual(['test']);
+  });
+});
+
+/**
+ * The UAT Tester process + optional deterministic verifier (Task 8). Gates
+ * keep deterministic exit-code semantics; the AI Tester runs ONLY after the
+ * required gates pass and records advisory observations; the configured
+ * `uat.testerVerifier` is the sole Tester-specific verdict, and its completed
+ * nonzero exit is the only Tester shape that may open a recovery round.
+ */
+describe('runUat — Tester and verifier (Task 8)', () => {
+  let store: Store;
+  let id: number;
+  let artifactDir: string;
+
+  function testerAgent(raw: string): AgentAdapter {
+    return {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used by the tester');
+      },
+      runHeadless: async () => ({ sessionId: '', verdict: null, raw }),
+    };
+  }
+
+  const verifierRun = (outcome: ProcessOutcome) =>
+    (async () => outcome) as TesterGateRunner;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-uat-tester-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  const testerDeps = (over: Partial<UatDeps> = {}): UatDeps =>
+    deps({
+      tester: {
+        assignment: { agentName: 'UAT Agent', provider: 'claude' },
+        adapter: testerAgent('[]'),
+      },
+      ...over,
+    });
+
+  it('runs the Tester after the gates pass; its findings stay advisory and never spend a round', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter: testerAgent(
+            JSON.stringify([{ severity: 'critical', title: 'data loss', detail: '' }]),
+          ),
+        },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    // The blocking-severity observation is EVIDENCE, never a verdict: UAT
+    // passed on its gates, and no recovery round opened for it.
+    expect(listUatFindings(store, id)).toHaveLength(1);
+    expect(listUatFindings(store, id)[0]!.severity).toBe('critical');
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(listProcessRuns(store, id)[0]).toMatchObject({ processId: 'tester', resultKind: 'observed' });
+  });
+
+  it('does not reuse review AI-result reduction as authority: no blocking-review-findings round ever opens from uat', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter: testerAgent(
+            JSON.stringify([{ severity: 'critical', title: 'data loss', detail: '' }]),
+          ),
+        },
+      }),
+    );
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    // The Tester's observations are recorded under the UAT process, never
+    // funneled through review's findings lane.
+    expect(listUatFindings(store, id)).toHaveLength(1);
+  });
+
+  it('does not run the Tester when the gates failed — no AI spend on a failed run', async () => {
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        tester: { assignment: { provider: 'claude' }, adapter: { ...testerAgent('[]'), runHeadless } },
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(runHeadless).not.toHaveBeenCalled();
+    expect(listProcessRuns(store, id)).toEqual([]);
+  });
+
+  // Finding 2: a disabled `processes.uatTester` resolves to NULL — configured
+  // absence. The stage then has no Tester at all: no adapter call, no process
+  // run, and UAT's ordinary deterministic gates decide alone (a real pass,
+  // never a fabricated one).
+  it('a disabled Tester assignment reads as configured absence — no AI call, no process run, gates decide alone', async () => {
+    const disabled: Manifest = { ...manifest({}), processes: { uatTester: { enabled: false } } };
+    const assignment = resolveProcessAssignment(disabled, 'uat-tester');
+    expect(assignment).toBeNull();
+    // The disabled resolution injects ABSENCE — exactly what the host seam
+    // collapses a null resolution into: no process bundle reaches the stage.
+    const tester = assignment === null ? undefined : { assignment, adapter: testerAgent('[]') };
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ tester }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listProcessRuns(store, id)).toEqual([]);
+    expect(listUatFindings(store, id)).toEqual([]);
+    expect(listGateRuns(store, id).length).toBeGreaterThan(0);
+  });
+
+  it('a Stop during the Tester stops the whole run without a verdict', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, signal: controller.signal },
+      testerDeps(),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+  });
+
+  it('a verifier exit 0 completes the Tester and the run passes on its gates', async () => {
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      testerDeps({ runVerifier: verifierRun({ kind: 'completed', exitCode: 0, output: '' }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({ resultKind: 'observed', status: 'passed' });
+  });
+
+  it('a completed nonzero verifier exit fails UAT and opens a Tester-attributed recovery round', async () => {
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      testerDeps({ runVerifier: verifierRun({ kind: 'completed', exitCode: 1, output: 'nope' }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    // The deterministic failure is attributed to the Tester PROCESS, carrying
+    // its process run id — never to a gate that did not fail.
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceStage: 'uat',
+      sourceProcessId: 'tester',
+      triggerKind: 'tester-verifier-failure',
+      triggerDetail: 'uat tester verifier failed: exit code 1',
+      round: 1,
+      maxRounds: 3,
+      status: 'pending',
+    });
+    expect(rounds[0]!.sourceProcessRunId).toBe(listProcessRuns(store, id)[0]!.id);
+    // The Tester run records the disproven observation.
+    expect(listProcessRuns(store, id)[0]).toMatchObject({ resultKind: 'verification-failed' });
+    // The deterministic failure is the stage's verdict, named on the stage row.
+    expect(uatStage(store, id).verdict).toContain('uat tester verifier failed: exit code 1');
+  });
+
+  it('verifier execution failure parks without a verdict, an attempt, or a recovery round', async () => {
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      testerDeps({ runVerifier: verifierRun({ kind: 'spawnFailed', message: 'ENOENT', output: '' }) }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    if (res.kind !== 'blocked') throw new Error('unreachable');
+    // The park names the verifier gate AND the reason it could not run.
+    expect(res.reason).toContain('verify');
+    expect(res.reason).toContain('ENOENT');
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+  });
+
+  it('verifier interruption stops the run, never a verdict', async () => {
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      testerDeps({ runVerifier: verifierRun({ kind: 'aborted', output: '' }) }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+  });
+
+  it('parks when a verifier is configured but no host gate runner is wired', async () => {
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      testerDeps(),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+  });
+
+  it('threads the opened Tester process id into token attribution at the stage seam', async () => {
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const seen: (unknown)[] = [];
+    const spied = async (headlessOpts: { tracking?: unknown }) => {
+      seen.push(headlessOpts.tracking);
+      return { sessionId: '', verdict: null, raw: '[]' };
+    };
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        tester: { assignment: { provider: 'claude' }, adapter: { ...testerAgent('[]'), runHeadless: spied } },
+      }),
+    );
+    const run = listProcessRuns(store, id)[0]!;
+    expect(seen).toEqual([{ callSite: 'uat-tester', ticketId: id, processRunId: run.id }]);
+  });
+
+  // Finding 13 follow-up: the execution-wide cap must never skip a repository.
+  // Repo A fills the budget with 100 lows; repo B's later `critical` still gets
+  // its adapter call and survives the single severity-ranked slice.
+  it('asks EVERY repository Tester before capping: a later critical survives a full cap of lows', async () => {
+    const adapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used by the tester');
+      },
+      runHeadless: async (headlessOpts) => ({
+        sessionId: '',
+        verdict: null,
+        raw:
+          headlessOpts.cwd === '/wt/web'
+            ? JSON.stringify(
+                Array.from({ length: 100 }, (_, i) => ({ severity: 'low' as const, title: `low${i}`, detail: '' })),
+              )
+            : JSON.stringify([{ severity: 'critical' as const, title: 'data loss', detail: '' }]),
+      }),
+    };
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      testerDeps({
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        unmapped: [],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    const rows = listUatFindings(store, id);
+    expect(rows).toHaveLength(100);
+    expect(rows[0]).toMatchObject({ severity: 'critical', repo: '/api' });
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildStepper } from './stepper.js';
+import { buildStepper, displayStatus, type StepperStageRow } from './stepper.js';
+import type { BlockerKind } from './types.js';
 import { MAX_DIAGNOSTIC_CHARS } from './diagnosticText.js';
 
 describe('buildStepper', () => {
@@ -9,7 +10,7 @@ describe('buildStepper', () => {
       { stageKey: 'scope', status: 'passed' },
     ]);
     expect(cells.map((c) => c.stageKey)).toEqual([
-      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'merge', 'done',
+      'scope', 'impl', 'uat', 'review', 'fix', 'ship', 'done',
     ]);
     expect(cells[0]).toEqual({ stageKey: 'scope', status: 'passed' });
     expect(cells[1]).toEqual({ stageKey: 'impl', status: 'running' });
@@ -22,7 +23,7 @@ describe('buildStepper', () => {
 
   it('returns all pending for an empty ticket', () => {
     const cells = buildStepper([]);
-    expect(cells).toHaveLength(8);
+    expect(cells).toHaveLength(7);
     expect(cells.every((c) => c.status === 'pending')).toBe(true);
   });
 
@@ -91,6 +92,7 @@ describe('buildStepper', () => {
       kind: 'nothing-to-run',
       reason: 'no target resolved',
       at: '2026-07-16T10:00:00.000Z',
+      resumable: true,
     });
   });
 
@@ -137,5 +139,56 @@ describe('buildStepper', () => {
     expect(reason).not.toContain('\n');
     expect(reason.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS + 1);
     expect(reason.endsWith('…')).toBe(true);
+  });
+
+  it('marks only awaiting-merge non-resumable', () => {
+    // A retry clears every other kind once its cause is addressed; only a
+    // landing clears awaiting-merge, and karst never lands a PR itself.
+    const cellFor = (kind: BlockerKind) =>
+      buildStepper([
+        {
+          stageKey: 'uat',
+          status: 'running',
+          blockedKind: kind,
+          blockedReason: 'r',
+          blockedAt: '2026-07-16T10:00:00.000Z',
+        } as StepperStageRow,
+      ]).find((c) => c.stageKey === 'uat')!;
+    expect(cellFor('unmapped-repository').blocked!.resumable).toBe(true);
+    expect(cellFor('nothing-to-run').blocked!.resumable).toBe(true);
+    expect(cellFor('awaiting-merge').blocked!.resumable).toBe(false);
+  });
+});
+
+describe('displayStatus', () => {
+  const blocked = {
+    kind: 'nothing-to-run' as const,
+    reason: 'no target resolved',
+    at: '2026-07-16T10:00:00.000Z',
+    resumable: true,
+  };
+
+  it('reads a running stage with a block as blocked', () => {
+    expect(displayStatus({ stageKey: 'uat', status: 'running', blocked })).toBe('blocked');
+  });
+
+  it('leaves a running stage without a block running', () => {
+    expect(displayStatus({ stageKey: 'uat', status: 'running' })).toBe('running');
+  });
+
+  it('keeps a passed stage with an awaiting-merge block passed', () => {
+    // Ship waiting to land is genuinely passed — the block is a wait, not a
+    // claim that the stage is still doing something.
+    expect(
+      displayStatus({
+        stageKey: 'ship',
+        status: 'passed',
+        blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: '2026-07-16T10:00:00.000Z', resumable: false },
+      }),
+    ).toBe('passed');
+  });
+
+  it('leaves a pending stage with a block pending', () => {
+    expect(displayStatus({ stageKey: 'uat', status: 'pending', blocked })).toBe('pending');
   });
 });

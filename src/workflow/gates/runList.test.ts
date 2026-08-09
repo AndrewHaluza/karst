@@ -156,3 +156,40 @@ describe('runGateList', () => {
     expect(completed).toEqual([]);
   });
 });
+
+describe('onGateStart', () => {
+  it('fires before each gate begins, with the gate name', async () => {
+    const started: string[] = [];
+    await runGateList(
+      [
+        { name: 'a', command: 'true', args: [], script: 'test', required: true },
+        { name: 'b', command: 'true', args: [], script: 'test', required: true },
+      ],
+      '/wt',
+      { onGateStart: (name) => started.push(name) },
+    );
+    expect(started).toEqual(['a', 'b']);
+  });
+
+  it('does not fire for gates that were not reached (abort before start)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const started: string[] = [];
+    await runGateList(
+      [{ name: 'a', command: 'true', args: [], script: 'test', required: true }],
+      '/wt',
+      { signal: controller.signal, onGateStart: (name) => started.push(name) },
+    );
+    expect(started).toEqual([]);
+  });
+
+  it('pairs with onGateComplete carrying the recorded exit code', async () => {
+    const seen: Array<[string, number | null]> = [];
+    await runGateList(
+      [{ name: 'a', command: 'node', args: ['-e', 'process.exit(0)'], script: 'test', required: true }],
+      process.cwd(),
+      { onGateComplete: (name, exitCode) => seen.push([name, exitCode]) },
+    );
+    expect(seen).toEqual([['a', 0]]);
+  });
+});
