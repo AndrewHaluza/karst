@@ -257,13 +257,8 @@ export async function runReview(
   }
   const targets: ReviewGateTarget[] = planned.targets;
 
-  // R1 — no target resolved. Two situations that must not read as one. If any
-  // worktree matched no manifest entry, karst could not ask that repository
-  // anything and only a human editing karst.yml (or re-scoping the ticket) can
-  // change the answer — that parks. If every worktree mapped and none has
-  // changes, review asked and the answer is "nothing to check": that is a
-  // deliverable the stage already has, so it passes with a note instead of
-  // parking forever behind a Resume that reproduces the same block.
+  // R1 — no target resolved. THREE situations that must not read as one, in
+  // the order they are ruled out below.
   if (targets.length === 0) {
     // Zero worktrees is not "nothing changed": nothing was ASKED. The ticket
     // has no repository to run review against at all, and passing here would
@@ -275,6 +270,12 @@ export async function runReview(
         'no worktree is registered for this ticket, so there is no repository to run review against';
       return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
     }
+    // A worktree that matched no manifest entry: karst could not ask that
+    // repository anything, and only a human editing karst.yml (or re-scoping
+    // the ticket) can change the answer — that parks. Below it, every worktree
+    // mapped and none has changes: review asked and the answer is "nothing to
+    // check", a deliverable the stage already has, so it passes with a note
+    // rather than parking forever.
     if (planned.unmapped.length > 0) {
       const reason =
         `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
