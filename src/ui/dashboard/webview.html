@@ -1035,7 +1035,7 @@
   // difference and must never render as something a retry could clear.
   const NEEDS_GLYPH = '❚❚';
   const CONFLICT_GLYPH = '⚠';
-  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: '↳', pending: '·', skip: '⊘' };
+  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: 'ℹ', pending: '·', skip: '⊘' };
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
   const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };

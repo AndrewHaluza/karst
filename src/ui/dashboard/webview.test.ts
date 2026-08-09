@@ -1087,6 +1087,22 @@ describe('dashboard webview.html', () => {
     }
   });
 
+  it('gives note a glyph distinct from every other status and the connector (B8)', () => {
+    // N5: `note` used to BE '↳', the same glyph the timeline's causal
+    // connector renders for a switch/resume — in a timeline or recovery block
+    // an informational row and a relationship marker were indistinguishable.
+    // Two meanings must never share one glyph.
+    const map = /const OP_GLYPH = \{([^}]*)\}/.exec(HTML)?.[1] ?? '';
+    const values = [...map.matchAll(/: '([^']+)'/g)].map((m) => m[1]);
+    expect(values, 'two statuses share one glyph').toHaveLength(new Set(values).size);
+    // The info-source mark is not used anywhere else in this webview, and its
+    // meaning — "karst states a fact" — is the note status's own.
+    expect(map).toContain("note: 'ℹ'");
+    expect(values, 'note still collides with the causal connector').not.toContain('↳');
+    // The connector keeps its glyph; only note moved.
+    expect(HTML).toMatch(/econn"[^>]*>↳<\/span>/);
+  });
+
   it('renders a Gates panel with a per-gate toggle button', () => {
     expect(HTML).toContain('id="gates"');
     expect(HTML).toContain('data-act="set-disabled-gates"');
