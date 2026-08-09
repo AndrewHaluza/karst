@@ -8,7 +8,11 @@ import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
 import type { StageKey } from '../../model/types.js';
-import type { InsideEvidenceTarget, TypedInsideAction } from '../../model/inside/types.js';
+import type {
+  EvidenceRow,
+  InsideEvidenceTarget,
+  TypedInsideAction,
+} from '../../model/inside/types.js';
 
 export type { InsideEvidenceTarget };
 
@@ -43,7 +47,13 @@ export type InsideActionTarget =
   | { kind: 'open-commit'; ticketId: number; shipCommitId: number }
   | { kind: 'open-stage-log'; ticketId: number; stageKey: StageKey }
   | { kind: 'resume-stage'; ticketId: number; stageKey: StageKey }
-  | { kind: 'open-full-evidence'; ticketId: number; processRunId: number };
+  | { kind: 'open-full-evidence'; ticketId: number; processRunId: number }
+  | {
+      kind: 'open-bounded-evidence';
+      ticketId: number;
+      title: string;
+      rows: readonly EvidenceRow[];
+    };
 
 /** Longest accepted action id. Ids are `snapshot-<n>:action-<n>`; this is slack. */
 export const MAX_ACTION_ID_CHARS = 96;
@@ -102,6 +112,11 @@ export interface InsideActionHost {
   openCommit(ticketId: number, shipCommitId: number): void | Promise<void>;
   resumeStage(ticketId: number, stageKey: StageKey): void | Promise<void>;
   openFullEvidence(ticketId: number, processRunId: number): void | Promise<void>;
+  openBoundedEvidence(
+    ticketId: number,
+    title: string,
+    rows: readonly EvidenceRow[],
+  ): void | Promise<void>;
 }
 
 export type InsideDispatchOutcome =
@@ -241,6 +256,10 @@ export function dispatchInsideAction(
       const row = owned(getProcessRunById(store, target.processRunId), target.ticketId);
       if (row === null) return { outcome: 'rejected', reason: 'process run not found for this ticket' };
       void deps.host.openFullEvidence(target.ticketId, target.processRunId);
+      return { outcome: 'dispatched' };
+    }
+    case 'open-bounded-evidence': {
+      void deps.host.openBoundedEvidence(target.ticketId, target.title, target.rows);
       return { outcome: 'dispatched' };
     }
   }

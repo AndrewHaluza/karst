@@ -1,34 +1,35 @@
-import { describe, it, expect } from 'vitest';
-import { bounded } from './bounds.js';
+import { describe, expect, it, vi } from 'vitest';
+import type { EvidenceRow, TypedInsideAction } from './types.js';
+import { boundedEvidenceRows } from './bounds.js';
 
-describe('bounded', () => {
-  it('shows everything when the list fits the limit, with nothing remaining', () => {
-    expect(bounded([1, 2, 3], 5)).toEqual({ shown: [1, 2, 3], remaining: 0 });
+const rows = (count: number): EvidenceRow[] =>
+  Array.from({ length: count }, (_, i) => ({ status: 'pass', label: `repo-${i + 1}` }));
+
+describe('boundedEvidenceRows', () => {
+  it('returns every row and does not mint a continuation at or below the limit', () => {
+    const continuation = vi.fn<(_: readonly EvidenceRow[]) => TypedInsideAction>();
+    expect(boundedEvidenceRows(rows(6), 6, continuation)).toEqual(rows(6));
+    expect(continuation).not.toHaveBeenCalled();
   });
 
-  it('shows the first `limit` items and reports the exact remainder', () => {
-    expect(bounded(['a', 'b', 'c', 'd', 'e'], 3)).toEqual({
-      shown: ['a', 'b', 'c'],
-      remaining: 2,
+  it('returns six rows plus one actionable remainder and hands all rows to the host seam', () => {
+    const action: TypedInsideAction = {
+      actionId: 'snapshot-7:action-0',
+      kind: 'open-bounded-evidence',
+    };
+    const continuation = vi.fn(() => action);
+    const all = rows(20);
+    const view = boundedEvidenceRows(all, 6, continuation);
+
+    expect(view).toHaveLength(7);
+    expect(view.slice(0, 6)).toEqual(all.slice(0, 6));
+    expect(view[6]).toEqual({
+      status: 'note',
+      label: 'more',
+      detail: '+14 more',
+      action,
     });
-  });
-
-  it('slices at the limit — total minus shown is the remainder', () => {
-    const items = [1, 2, 3, 4];
-    const { shown, remaining } = bounded(items, 2);
-    expect(shown).toEqual([1, 2]);
-    expect(shown.length + remaining).toBe(items.length);
-  });
-
-  it('returns an empty shown list at a limit of zero, keeping every item in the remainder', () => {
-    expect(bounded([1, 2, 3], 0)).toEqual({ shown: [], remaining: 3 });
-  });
-
-  it('never reports a negative remainder when the limit exceeds the list', () => {
-    expect(bounded([1], 10).remaining).toBe(0);
-  });
-
-  it('is a no-op on an empty list', () => {
-    expect(bounded([], 4)).toEqual({ shown: [], remaining: 0 });
+    expect(continuation).toHaveBeenCalledOnce();
+    expect(continuation).toHaveBeenCalledWith(all);
   });
 });

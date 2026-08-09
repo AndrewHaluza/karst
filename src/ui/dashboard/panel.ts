@@ -407,4 +407,5 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   openCommit: () => undefined,
   resumeStage: () => undefined,
   openFullEvidence: () => undefined,
+  openBoundedEvidence: () => undefined,
 };

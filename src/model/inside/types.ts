@@ -192,7 +192,8 @@ export type InsideActionKind =
   | 'open-file'
   | 'open-stage-log'
   | 'resume-stage'
-  | 'open-full-evidence';
+  | 'open-full-evidence'
+  | 'open-bounded-evidence';
 
 /**
  * A navigation/continuation control on a process row.
@@ -220,7 +221,12 @@ export type InsideEvidenceTarget =
       evidence: { source: 'review-finding' | 'uat-finding'; id: number };
     }
   | { kind: 'open-commit'; shipCommitId: number }
-  | { kind: 'open-full-evidence'; processRunId: number };
+  | { kind: 'open-full-evidence'; processRunId: number }
+  | {
+      kind: 'open-bounded-evidence';
+      title: string;
+      rows: readonly EvidenceRow[];
+    };
 
 /** Preformatted token counts — a view never formats a number. */
 export interface TokenUsageView {

@@ -106,6 +106,8 @@ function host(calls: string[]): InsideActionHost {
     openCommit: (ticketId, shipCommitId) => void calls.push(`commit:${ticketId}:${shipCommitId}`),
     resumeStage: (ticketId, stageKey) => void calls.push(`resume:${ticketId}:${stageKey}`),
     openFullEvidence: (ticketId, processRunId) => void calls.push(`evidence:${ticketId}:${processRunId}`),
+    openBoundedEvidence: (ticketId, title, rows) =>
+      void calls.push(`bounded:${ticketId}:${title}:${rows.map((row) => row.label).join(',')}`),
   };
 }
 
@@ -427,6 +429,25 @@ describe('dispatchInsideAction', () => {
     });
   });
 
+  it('dispatches host-owned bounded evidence without accepting row data from the client', () => {
+    const r = registry(7);
+    r.register({
+      kind: 'open-bounded-evidence',
+      ticketId: 1,
+      title: 'Ship · Commit',
+      rows: [
+        { status: 'pass', label: '/web', detail: '2 created' },
+        { status: 'pass', label: '/api', detail: '1 created' },
+      ],
+    });
+    const calls: string[] = [];
+
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['bounded:1:Ship · Commit:/web,/api']);
+  });
+
   it('a client-supplied kind, repo, path, number or sha never affects dispatch', () => {
     // The registry stores the target; the action id alone is resolved. A
     // message that FORGED these fields carries none of them — the parse
@@ -442,4 +463,3 @@ describe('dispatchInsideAction', () => {
     expect(calls).toEqual(['file:/wt/web/src/foo.ts']);
   });
 });
-

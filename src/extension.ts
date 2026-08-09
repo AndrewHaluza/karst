@@ -3813,6 +3813,16 @@ function makeInsideActionHost(store: Store): InsideActionHost {
     openFullEvidence: (ticketId, processRunId) => {
       void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket #${ticketId}`);
     },
+    openBoundedEvidence: (_ticketId, title, rows) => {
+      void vscode.window.showQuickPick(
+        rows.map((row) => ({
+          label: row.label,
+          ...(row.detail ? { description: row.detail } : {}),
+          ...(row.duration ? { detail: row.duration } : {}),
+        })),
+        { title, placeHolder: 'Recorded repository evidence' },
+      );
+    },
   };
 }
 
