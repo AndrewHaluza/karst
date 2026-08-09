@@ -13,6 +13,7 @@ import {
 } from './insideFixtures.js';
 import { previewPayloadFor, previewStateFor } from './insidePreview.js';
 import type { DashboardState } from './state.js';
+import type { InsideProcessView, InsideStageView } from '../../model/inside/types.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -1485,6 +1486,53 @@ function renderWith(state: DashboardState): string {
   return h.htmlOf('inside');
 }
 
+/** A minimal stage view carrying one process with 3 evidence rows. */
+function viewWithEvidence(stageKey: string, id: string): InsideStageView {
+  return {
+    stageKey: stageKey as InsideStageView['stageKey'],
+    title: 'UAT',
+    dot: 'run',
+    clock: '',
+    blurb: '',
+    processes: [
+      {
+        id,
+        kind: 'gates',
+        label: 'Gates',
+        status: 'pass',
+        evidence: {
+          kind: 'gates',
+          rows: [
+            { status: 'pass', label: 'a' },
+            { status: 'pass', label: 'b' },
+            { status: 'pass', label: 'c' },
+          ],
+          passed: 3,
+          failed: 0,
+          skipped: 0,
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Execute the webview's OWN overlayProcesses against one live-ops entry, so
+ * the test asserts the shipped merge rule, never a copy of it.
+ */
+function overlayProcesses_forTest(
+  view: InsideStageView,
+  live: { completed: { id: string; status: string; label: string } },
+): InsideProcessView[] {
+  const src = /function overlayProcesses[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+  if (!src) throw new Error('overlayProcesses not found in the webview script');
+  const run = new Function('liveOps', 'view', `${src}\n;return overlayProcesses(view);`) as (
+    liveOps: unknown,
+    view: unknown,
+  ) => InsideProcessView[];
+  return run({ [view.stageKey]: live }, view);
+}
+
 /** A minimal element double for whatever the script touches through `el()`. */
 function previewElement(id: string) {
   const attrs: Record<string, string> = {};
@@ -1865,6 +1913,12 @@ describe('inside preview fixture round trip (executed in a VM)', () => {
     // carry exactly that, or the chevron is inert and no evidence is reachable.
     const html = renderInsideFor('uat');       // use the suite's existing helper
     expect(clickChevron(html, 'uat', 'gates')).toBe('uat:gates');
+  });
+
+  it('keeps snapshot evidence when a live completed event has none', () => {
+    const view = viewWithEvidence('uat', 'gates');       // 3 evidence rows
+    const merged = overlayProcesses_forTest(view, { completed: { id: 'gates', status: 'pass', label: 'Gates' } });
+    expect(merged.find((p) => p.id === 'gates')?.evidence?.rows).toHaveLength(3);
   });
 
   it('falls back to the host-computed presented stage when the ticket is in fix', () => {

@@ -1462,7 +1462,11 @@
     if (!live || !live.completed) return view.processes;
     const id = live.completed.id;
     if (!view.processes.some((p) => p.id === id)) return view.processes.concat(live.completed);
-    return view.processes.map((p) => (p.id === id ? live.completed : p));
+    // A live event is a STATUS update, not a snapshot. It carries no evidence,
+    // so overwriting the row wholesale deleted evidence already on screen. Keep
+    // every field the event does not speak to; the next snapshot is
+    // authoritative and retires the overlay entirely.
+    return view.processes.map((p) => (p.id === id ? { ...p, ...live.completed, evidence: live.completed.evidence ?? p.evidence } : p));
   }
 
   function renderInside(state, sel) {
