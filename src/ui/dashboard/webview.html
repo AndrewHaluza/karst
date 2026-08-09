@@ -546,7 +546,6 @@
   #inside .inside-live.wait{color:var(--p-attention)}
   #inside .inside-live.fail{color:var(--p-failed)}
   #inside .inside-live strong{color:var(--p-strong);font-weight:var(--k-weight-semibold);line-height:18px;flex:none}
-  #inside .live-state{display:inline-flex;align-items:center;height:18px;line-height:18px;flex:none}
   #inside .live-copy{display:inline-flex;align-items:center;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap;line-height:18px;column-gap:0}
   #inside .sep{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-4);
@@ -584,7 +583,7 @@
   #inside .op:first-child{border-top:0}
   #inside .op summary,#inside .op-static{list-style:none;display:grid;
     grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto 16px;
-    align-items:center;gap:var(--p-s1);min-height:31px;padding:0 var(--p-s1);border-radius:var(--p-r1)}
+    align-items:center;gap:var(--p-s2);min-height:31px;padding:0 var(--p-s4);border-radius:var(--p-r1)}
   #inside .op summary{cursor:pointer}
   #inside .op summary::-webkit-details-marker{display:none}
   #inside .op summary:hover{background:var(--p-hover)}
@@ -630,18 +629,20 @@
   #inside .op-detail.fail{color:var(--p-failed)}
   #inside .op-detail.note,#inside .op-detail.skip{font-style:italic}
   #inside .op-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);min-width:0;
-    min-height:18px;line-height:18px;white-space:nowrap}
+    min-height:18px;line-height:18px;white-space:nowrap;padding-right:var(--p-s1)}
   #inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
     border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
     font-family:var(--p-mono);font-size:var(--p-xs);line-height:16px}
   #inside .duration{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
+  #inside .op-time{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
     font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
   #inside .chev{width:16px;height:16px;display:grid;place-items:center;justify-self:center;align-self:center;color:var(--p-muted2)}
   #inside .chev:before{content:"";width:5px;height:5px;border-right:var(--k-border-w) solid currentColor;
     border-bottom:var(--k-border-w) solid currentColor;transform:rotate(-45deg);
     transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   #inside .op[open] .chev:before{transform:rotate(45deg)}
-  #inside .op-body{margin:0 0 var(--p-s2) 28px;border-left:var(--k-border-w) solid var(--p-border);
+  #inside .op-body{margin:0 0 var(--p-s2) 36px;border-left:var(--k-border-w) solid var(--p-border);
     padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
 
   /* Generic evidence rows */
@@ -659,17 +660,21 @@
   #inside .ev-state.wait,#inside .gate-state.wait{color:var(--p-attention)}
   #inside .ev-state.fail,#inside .gate-state.fail{color:var(--p-failed)}
   #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
-  #inside .ev-state{gap:var(--p-s2)}
+  #inside .ev-state,#inside .gate-state{gap:var(--p-s2)}
   #inside .ev-dur{color:var(--p-muted2)}
   #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
 
   /* Gates */
   #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
     overflow:hidden;background:var(--p-surface)}
-  #inside .gate-row{display:grid;grid-template-columns:minmax(74px,90px) minmax(84px,110px) minmax(0,1fr) auto;
+  #inside .gate-row{display:grid;grid-template-columns:minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;
     gap:var(--p-s2);align-items:center;min-height:28px;padding:0 var(--p-s2);
     border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .gate-row:last-child{border-bottom:0}
+  /* A gates body whose rows name no repository (pre-v21 rows) drops the column
+     rather than drawing an empty one — a blank cell reads as a repo with no
+     name instead of a row that names none. */
+  #inside .gates.no-repo .gate-row{grid-template-columns:minmax(110px,150px) minmax(0,1fr) auto}
   #inside .gate-row.active{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
   #inside .gate-repo,#inside .gate-name{font-family:var(--p-mono);font-size:var(--p-xs);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -723,9 +728,9 @@
   #inside .timeline-row:first-child .timeline-slot:before,
   #inside .timeline-row:last-child .timeline-slot:after{display:none}
   #inside .timeline-start{color:var(--p-muted);--node-radius:4px}
-  #inside .timeline-start-label{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .timeline-start-label{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .timeline-node{display:grid;place-items:center;justify-self:center;position:relative;z-index:3;background:var(--p-bg)}
-  #inside .timeline-node.start{width:7px;height:7px;border:var(--k-border-w) solid var(--p-muted2);
+  #inside .timeline-node.start{width:7px;height:7px;border:var(--k-border-w) solid var(--p-muted);
     border-radius:var(--k-radius-circle);background:var(--p-surface2)}
   #inside .timeline-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s1);
     min-width:0;white-space:nowrap}
@@ -760,18 +765,19 @@
 
   /* Recovery: a bounded fail → Fix loop, and the round history behind it. */
   #inside .recovery-pill{display:inline-flex;align-items:center;justify-content:center;height:18px;
-    border:var(--k-border-w) solid var(--p-edge-wait);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
-    color:var(--p-attention);font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+    border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
+    color:var(--p-muted);font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
   #inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
-  #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-edge-wait);
-    border-radius:var(--p-r1);overflow:hidden;background:var(--p-tint-wait)}
+  #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--p-r1);overflow:hidden;background:var(--p-surface)}
   #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:var(--p-s2);
     align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .recovery-round:last-child{border-bottom:0}
   #inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
   #inside .recovery-cause{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:var(--p-text);font-size:var(--p-sm)}
-  #inside .recovery-result{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .recovery-result{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .recovery-result.run{color:var(--p-running)}
   #inside .recovery-result.fail{color:var(--p-failed)}
   #inside .recovery-result.pass{color:var(--p-passed)}
@@ -868,11 +874,14 @@
     #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
     #inside .inside-head{grid-template-columns:auto minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
     #inside .inside-meta{grid-column:2}
-    #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto 16px}
-    #inside .duration{display:none}
+    #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto 16px;
+      padding-left:var(--p-s2);padding-right:var(--p-s2)}
+    #inside .duration,#inside .op-time{display:none}
     #inside .op-tail .agent-model{display:none}
     #inside .op-body{margin-left:20px}
     #inside .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
+    #inside .gate-repo{display:none}
+    #inside .gates.no-repo .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
     #inside .gate-state{grid-column:3}
     #inside .evidence-row{grid-template-columns:70px minmax(0,1fr)}
     #inside .ev-state{grid-column:2}
@@ -1710,7 +1719,9 @@
   // fact of its own and still renders beside it.
   function evStateHtml(r, cls) {
     if (!r.status) return `<span class="${cls}"></span>`;
-    const dur = r.duration ? `<span class="ev-dur">${esc(r.duration)}</span>` : '';
+    const dur = r.duration
+      ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>`
+      : '';
     return `<span class="${cls} ${esc(r.status)}">${dur}`
       + `<span class="glyph ${esc(r.status)}" aria-label="${esc(statusWord(r.status))}"></span></span>`;
   }
@@ -1725,8 +1736,13 @@
       + (r.action ? evActionHtml(r) : evStateHtml(r, 'ev-state'))
       + `</div>`).join('');
   }
+  // The recorded repository is its own column. A body whose rows name none
+  // (pre-v21 gate rows) drops the column instead of drawing it empty — an
+  // empty cell would read as a repo with no name.
   function evidenceGatesHtml(ev) {
-    return `<div class="gates">${ev.rows.map((r) => `<div class="gate-row${r.status === 'run' ? ' active' : ''}">`
+    const hasRepo = ev.rows.some((r) => !!r.repo);
+    return `<div class="gates${hasRepo ? '' : ' no-repo'}">${ev.rows.map((r) => `<div class="gate-row${r.status === 'run' ? ' active' : ''}">`
+      + (hasRepo ? `<span class="gate-repo">${esc(r.repo || '')}</span>` : '')
       + `<span class="gate-name">${esc(r.label)}</span>`
       + `<span class="gate-detail">${esc(r.detail || '')}</span>`
       + evStateHtml(r, 'gate-state')
@@ -1826,7 +1842,10 @@
     return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
       + `<span class="recovery-num">${esc(r.label)}</span>`
       + `<span class="recovery-cause">${esc(r.detail || '')}</span>`
-      + `<span class="recovery-result ${esc(r.status || '')}">${esc(r.duration || statusWord(r.status))}</span>`
+      + `<span class="recovery-result ${esc(r.status || '')}">`
+      + (r.duration ? `<span class="ev-dur">${esc(r.duration)}</span>` : '')
+      + `<span class="glyph ${esc(r.status || 'note')}" aria-label="${esc(statusWord(r.status || 'note'))}"></span>`
+      + `</span>`
       + `</div>`).join('')}</div>`;
   }
 
@@ -1909,7 +1928,8 @@
       + tokenStatHtml(p.tokens, p.status === 'run')
       + (p.aggregate ? `<span class="count">${esc(p.aggregate)}</span>` : '')
       + (p.count ? `<span class="count">${esc(p.count)}</span>` : '')
-      + (p.duration ? `<span class="duration">${esc(p.duration)}</span>` : '')
+      + (p.time ? `<span class="op-time">${esc(p.time)}</span>` : '')
+      + (p.duration ? `<span class="duration"${p.durationExact ? ` title="${esc(p.durationExact)}"` : ''}>${esc(p.duration)}</span>` : '')
       + (p.action ? insideActionBtnHtml(p.action) : '')
       + `</span>`;
     const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
@@ -1990,16 +2010,23 @@
         + ` title="Return the strip to the stage the ticket is actually on">Back to ${esc(back)}</button></span></div>`
       : '';
 
-    // The header IS the current operation — never a second live row. A live op
-    // is run/wait/fail only (progress.ts), never a verdict.
+    // The header IS the current operation. The ephemeral progress event wins
+    // while one is in flight; the snapshot's own derived line is the fallback,
+    // so a panel opened after those events (or reopened) still says what the
+    // stage is doing. A live op is run/wait/fail only — never a verdict.
     const live = liveOps[view.stageKey];
-    const lstatus = live && live.active ? (live.active.status || 'run') : '';
-    const alive = live && live.active
+    const lop = (live && live.active) || view.live || null;
+    const lstatus = lop ? (lop.status || 'run') : '';
+    // No status WORD beside the glyph: the spinning arc already says "running"
+    // and the amber bars say "waiting", exactly as the process rows below
+    // decided (`processRowHtml` — "a second textual 'Completed' beside the
+    // duration was ours, not the design's"). The word survives as the glyph's
+    // accessible name, so nothing that cannot see the animation loses it.
+    const alive = lop
       ? `<span class="glyph ${esc(lstatus)}" aria-label="${esc(statusWord(lstatus))}"></span>`
-        + `<span class="live-state">${esc(statusWord(lstatus))}</span><span class="sep">·</span>`
-        + `<strong>${esc(live.active.label || '')}</strong>`
-        + (live.active.detail ? `<span class="sep">·</span><span class="live-copy">${esc(live.active.detail)}</span>` : '')
-        + (live.active.duration ? `<span class="sep">·</span><span class="duration">${esc(live.active.duration)}</span>` : '')
+        + `<strong>${esc(lop.label || '')}</strong>`
+        + (lop.detail ? `<span class="sep">·</span><span class="live-copy">${esc(lop.detail)}</span>` : '')
+        + (lop.duration ? `<span class="sep">·</span><span class="duration">${esc(lop.duration)}</span>` : '')
       : '';
 
     const procs = overlayProcesses(view);

@@ -1201,7 +1201,7 @@ describe('dashboard webview.html', () => {
     // row via overlayProcesses — the ledger (state.insideViews) stays the
     // base, and no per-repository step is derived in the webview.
     expect(HTML).toMatch(/const view = \(state\.insideViews \|\| \{\}\)\[sel\]/);
-    expect(HTML).toMatch(/const alive = live && live\.active/);
+    expect(HTML).toMatch(/const lop = \(live && live\.active\) \|\| view\.live \|\| null;/);
     expect(HTML).toMatch(/const procs = overlayProcesses\(view\)/);
     expect(HTML).toMatch(/function overlayProcesses/);
     expect(HTML).not.toMatch(/renderInsideFlat/);
@@ -1282,8 +1282,8 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ active: e\.live/);
     expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ completed: e\.process \}/);
     expect(HTML).toMatch(/function overlayProcesses/);
-    expect(HTML).toMatch(/live && live\.active/);
-    expect(HTML).toMatch(/live\.active\.status \|\| 'run'/);
+    expect(HTML).toMatch(/\(live && live\.active\) \|\| view\.live/);
+    expect(HTML).toMatch(/lop \? \(lop\.status \|\| 'run'\)/);
   });
 
   it('retires a live overlay only when the snapshot contains its process', () => {
@@ -1324,8 +1324,10 @@ describe('dashboard webview.html', () => {
   it('gives each evidence kind the prototype container its CSS hangs off (Task 5)', () => {
     // Each body emits the prototype's own container, so the kind-specific
     // geometry (the gates table's four columns, the findings severity column,
-    // the timeline's rail) has exactly one selector to hang off.
-    expect(HTML).toMatch(/function evidenceGatesHtml[\s\S]*?class="gates"/);
+    // the timeline's rail) has exactly one selector to hang off. The gates
+    // container's class is DYNAMIC — `no-repo` drops the repo column when no
+    // row names one — and both shapes still hang off `.gates`.
+    expect(HTML).toMatch(/function evidenceGatesHtml[\s\S]*?class="gates\$\{hasRepo/);
     expect(HTML).toMatch(/function evidenceFindingsHtml[\s\S]*?class="findings"/);
     expect(HTML).toMatch(/function evidenceTimelineHtml[\s\S]*?class="session-segments"/);
     expect(HTML).toMatch(/function evidenceRecoveryHtml[\s\S]*?class="recovery-history"/);
@@ -1455,7 +1457,10 @@ describe('dashboard webview.html', () => {
       /#inside \.op summary,#inside \.op-static\{[\s\S]*?grid-template-columns:20px minmax\(78px,110px\) minmax\(0,1fr\) auto 16px/,
     );
     expect(containerBlock('430px')).toMatch(
-      /#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\) minmax\(0,1fr\) auto 16px\}/,
+      // Matched up to the track list's own terminator, so the rule may carry
+      // further declarations (the compact width also tightens its padding)
+      // without this assertion pinning the rule's whole text.
+      /#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\) minmax\(0,1fr\) auto 16px[;}]/,
     );
   });
 
@@ -1556,7 +1561,8 @@ describe('dashboard webview.html', () => {
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
     expect(row).toMatch(/const tail = `<span class="op-tail">\$\{identityHtml\(p\)\}/);
     expect(row).toMatch(/p\.aggregate \? `<span class="count">\$\{esc\(p\.aggregate\)\}/);
-    expect(row).toMatch(/p\.duration \? `<span class="duration">\$\{esc\(p\.duration\)\}/);
+    expect(row).toMatch(/p\.time \? `<span class="op-time">\$\{esc\(p\.time\)\}/);
+    expect(row).toMatch(/p\.duration \? `<span class="duration"\$\{p\.durationExact/);
   });
 
   it('escapes every untrusted fixture string at the row templates (UI-R32)', () => {
@@ -2320,9 +2326,10 @@ describe('inside render round trip (executed in a VM)', () => {
   it('renders gates evidence with a per-row status glyph (B2)', () => {
     // handoff §6's gate template: "lint  exit 0  ✓". The status word repeated
     // what the row already said, so it is the glyph's accessible name now —
-    // still never colour alone (UI-R06).
+    // still never colour alone (UI-R06). The fixture rows carry no recorded
+    // repository, so the body drops the repo column (`no-repo`).
     const html = openEvidence('uat', 'gates');
-    expect(html).toContain('class="gates"');
+    expect(html).toContain('class="gates no-repo"');
     expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
     expect(html).toContain('<span class="gate-name">lint</span>');
   });
@@ -2519,7 +2526,7 @@ describe('inside render round trip (executed in a VM)', () => {
     // fallback for `rows` and for any snapshot that ships no rich fields.
     const CONTAINER: Readonly<Record<(typeof EVIDENCE_KINDS)[number], string>> = {
       rows: 'class="evidence-row"',
-      gates: 'class="gates"',
+      gates: 'class="gates no-repo"',
       findings: 'class="findings"',
       timeline: 'class="session-segments"',
       commits: 'class="commit-grid"',
@@ -2726,8 +2733,11 @@ describe('inside render round trip (executed in a VM)', () => {
     // The live header draws the ported prototype's WAIT glyph — two bars, a
     // different SHAPE from the running arc, so a stalled operation can never
     // read as progress.
+    // The word rides the glyph's accessible name and is NOT repeated as text
+    // beside it — the shape already carries the state, the same trade the
+    // process rows make.
     expect(html).toContain('<span class="glyph wait" aria-label="waiting"></span>');
-    expect(html).toContain('<span class="live-state">waiting</span>');
+    expect(html).not.toContain('class="live-state"');
     expect(html).not.toContain('class="glyph run"');
   });
 
@@ -2780,5 +2790,168 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('<div class="blurb">');
     expect(html).toContain(scope.blurb);
     expect(html).not.toContain('data-proc-id=');
+  });
+
+  it('renders the recorded repository as its own gates column', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = uat.processes.map((p) =>
+      p.id === 'gates'
+        ? {
+            ...p,
+            evidence: {
+              kind: 'gates',
+              rows: [
+                { status: 'pass', label: 'test (web)', detail: 'exit 0', repo: '/web' },
+                { status: 'fail', label: 'lint (api)', detail: 'exit 1', repo: '/api' },
+              ],
+              passed: 1,
+              failed: 1,
+              skipped: 0,
+            },
+          }
+        : p,
+    );
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:gates');
+    const html = h.htmlOf('inside');
+    expect(html).toContain('<div class="gates">');
+    expect(html).toContain('<span class="gate-repo">/web</span>');
+    expect(html).toContain('<span class="gate-repo">/api</span>');
+    expect(html).not.toContain('class="gates no-repo"');
+  });
+
+  it('drops the repo column for a gates body whose rows name none', () => {
+    // A pre-v21 batch recorded no repository; drawing an empty 90px column
+    // would read as a repo with no name.
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = uat.processes.map((p) =>
+      p.id === 'gates'
+        ? {
+            ...p,
+            evidence: {
+              kind: 'gates',
+              rows: [{ status: 'pass', label: 'test (web)', detail: 'exit 0' }],
+              passed: 1,
+              failed: 0,
+              skipped: 0,
+            },
+          }
+        : p,
+    );
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:gates');
+    const html = h.htmlOf('inside');
+    expect(html).toContain('class="gates no-repo"');
+    expect(html).not.toContain('class="gate-repo"');
+  });
+
+  it('renders a recovery round status as a glyph, never a word', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [
+      ...uat.processes,
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'run',
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            { status: 'run', label: 'round 1', detail: 'Fix started after UAT test failure · round 1 of 2' },
+            { status: 'pass', label: 'round 2', detail: 'Fix started after UAT test failure · round 2 of 2' },
+          ],
+        },
+      },
+    ];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:fix');
+    const html = h.htmlOf('inside');
+    // The status WORD is gone from the rendered row; it survives only as the
+    // glyph's accessible name — the same trade `evStateHtml` documents.
+    expect(html).not.toContain('<span class="recovery-result run">running</span>');
+    expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
+    expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
+  });
+
+  it('titles a duration with its exact span', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = uat.processes.map((p) =>
+      p.id === 'gates'
+        ? {
+            ...p,
+            duration: '5.2s',
+            durationExact: '5.234s',
+            evidence: {
+              kind: 'gates',
+              rows: [
+                {
+                  status: 'pass',
+                  label: 'test (web)',
+                  detail: 'exit 0',
+                  duration: '5.2s',
+                  durationExact: '5.234s',
+                },
+              ],
+              passed: 1,
+              failed: 0,
+              skipped: 0,
+            },
+          }
+        : p,
+    );
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:gates');
+    const html = h.htmlOf('inside');
+    // The process tail AND the row's ev-state cell both title their duration.
+    expect(html).toContain('<span class="duration" title="5.234s">5.2s</span>');
+    expect(html).toContain('<span class="ev-dur" title="5.234s">5.2s</span>');
+  });
+
+  it('renders a process start time beside its duration', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = uat.processes.map((p) =>
+      p.id === 'gates'
+        ? { ...p, time: '12:00:00', duration: '5.2s', durationExact: '5.234s' }
+        : p,
+    );
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
+    expect(html).toContain('<span class="op-time">12:00:00</span>');
+    expect(html).toContain('<span class="duration" title="5.234s">5.2s</span>');
+    // Time renders BEFORE the duration in the tail.
+    expect(html.indexOf('<span class="op-time">')).toBeGreaterThan(-1);
+    expect(html.indexOf('<span class="op-time">')).toBeLessThan(
+      html.indexOf('<span class="duration"'),
+    );
+  });
+
+  it('falls back to the snapshot live line when no progress event has arrived', () => {
+    // A reopened panel has no liveOps overlay; the stage's own derived live
+    // line must fill the header.
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat, live: { status: 'run' as const, label: 'Tester' } };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
+    expect(html).toContain('<span class="inside-live run">');
+    expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
+    expect(html).toContain('<strong>Tester</strong>');
+  });
+
+  it('keeps the recovery round word on the glyph only, never rendered text (source)', () => {
+    const fn = /function evidenceRecoveryHtml[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    expect(fn).toBeTruthy();
+    // The word is used exactly once, and that one use is the glyph's
+    // accessible name — pinned by ROLE rather than by the expression's text,
+    // so the status fallback can match the class's without this failing.
+    expect(fn!.match(/statusWord\(/g)).toHaveLength(1);
+    expect(fn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
+    expect(fn!).not.toContain('esc(r.duration || statusWord(r.status))');
   });
 });

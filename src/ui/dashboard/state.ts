@@ -52,6 +52,7 @@ import {
 import type { InsideActionRegistry } from './insideActions.js';
 import type {
   InsideEvidenceTarget,
+  InsideLiveView,
   InsideProcessView,
   InsideStageKey,
   InsideStageView,
@@ -492,6 +493,26 @@ export function buildDashboardState(
   };
 }
 
+/**
+ * The stage's CURRENT operation, derived from its own process rows: the first
+ * running process, else the first waiting one. Nothing here is new information
+ * — every field comes from a row already in the ledger below — which is what
+ * makes it safe as the header's fallback when no ephemeral progress event has
+ * arrived (a reopened panel, a window that missed the events). A settled stage
+ * has no live line at all.
+ */
+function liveFor(processes: readonly InsideProcessView[]): InsideLiveView | undefined {
+  const active =
+    processes.find((p) => p.status === 'run') ?? processes.find((p) => p.status === 'wait');
+  if (!active) return undefined;
+  return {
+    status: active.status === 'run' ? 'run' : 'wait',
+    label: active.label,
+    ...(active.detail ? { detail: active.detail } : {}),
+    ...(active.duration ? { duration: active.duration } : {}),
+  };
+}
+
 /** One inside stage's presentation shell around its ordered processes. */
 function stageView(
   key: InsideStageKey,
@@ -499,6 +520,7 @@ function stageView(
   processes: readonly InsideProcessView[],
   now: string,
 ): InsideStageView {
+  const live = liveFor(processes);
   return {
     stageKey: key,
     title: STAGE_TITLES[key as StageKey],
@@ -510,6 +532,7 @@ function stageView(
       cell.blocked && displayStatus(cell) === 'blocked'
         ? formatClock(cell, cell.blocked.at)
         : formatClock(cell, now),
+    ...(live ? { live } : {}),
     processes: [...processes],
     blurb: STAGE_BLURBS[key as StageKey],
   };

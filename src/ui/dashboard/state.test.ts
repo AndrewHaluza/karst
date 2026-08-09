@@ -571,4 +571,17 @@ describe('insideViews (the six-stage inside presentation)', () => {
     const continuation = receipt.evidence?.rows.find((r) => r.action)?.action;
     expect(continuation).toMatchObject({ kind: 'open-bounded-evidence', label: 'Show 2 more' });
   });
+
+  it('states the running process as the stage live line', () => {
+    const ticketId = ticketAt('impl');
+    setStage(store, ticketId, 'impl', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const impl = buildDashboardState(store, ticketId).insideViews.impl;
+    expect(impl.live).toMatchObject({ status: 'run', label: 'Session' });
+  });
+
+  it('omits the live line for a stage with nothing running or waiting', () => {
+    const ticketId = ticketAt('impl');
+    setStage(store, ticketId, 'impl', { status: 'passed' });
+    expect(buildDashboardState(store, ticketId).insideViews.impl.live).toBeUndefined();
+  });
 });
