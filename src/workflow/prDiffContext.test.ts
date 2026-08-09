@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { GitRunner } from '../integrations/git.js';
-import { collectPrDiffContext, PR_DIFF_MAX_CHARS } from './prDiffContext.js';
+import {
+  collectPrDiffContext,
+  PR_LOG_MAX_CHARS,
+  PR_STAT_MAX_CHARS,
+} from './prDiffContext.js';
 
 function fakeGit(answers: Record<string, { stdout?: string; exitCode?: number }>): {
   git: GitRunner;
@@ -23,11 +27,10 @@ function fakeGit(answers: Record<string, { stdout?: string; exitCode?: number }>
 }
 
 describe('collectPrDiffContext', () => {
-  it('collects the branch commits, diffstat, and full diff against origin/<base>', async () => {
+  it('collects only commits unique to HEAD and the pull-request diffstat', async () => {
     const { git, calls } = fakeGit({
       log: { stdout: '* abc1234 fix: ship faster\n' },
       'diff --stat': { stdout: ' src/a.ts | 3 ++\n 1 file changed\n' },
-      'diff --no-ext-diff': { stdout: '+export const fast = true;\n' },
     });
 
     const ctx = await collectPrDiffContext(git, '/wt', 'develop');
@@ -35,49 +38,43 @@ describe('collectPrDiffContext', () => {
     expect(ctx).toEqual({
       commits: '* abc1234 fix: ship faster',
       diffStat: ' src/a.ts | 3 ++\n 1 file changed',
-      diff: '+export const fast = true;',
-      diffTruncated: undefined,
     });
     expect(calls.map((c) => c.slice(0, 4))).toEqual([
-      ['log', '--oneline', 'origin/develop...HEAD'],
+      ['log', '--oneline', 'origin/develop..HEAD'],
       ['diff', '--stat', 'origin/develop...HEAD'],
-      ['diff', '--no-ext-diff', '--unified=3', 'origin/develop...HEAD'],
     ]);
   });
 
-  it('truncates an oversized diff and says so', async () => {
+  it('marks every truncated metadata section instead of presenting it as complete', async () => {
     const { git } = fakeGit({
-      log: { stdout: '* a one\n' },
-      'diff --stat': { stdout: ' src/a.ts | 5 ++\n' },
-      'diff --no-ext-diff': { stdout: '+'.repeat(PR_DIFF_MAX_CHARS + 5000) },
+      log: { stdout: 'a'.repeat(PR_LOG_MAX_CHARS + 1) },
+      'diff --stat': { stdout: 's'.repeat(PR_STAT_MAX_CHARS + 1) },
     });
 
     const ctx = await collectPrDiffContext(git, '/wt', 'develop');
 
-    expect(ctx.diff!.length).toBe(PR_DIFF_MAX_CHARS);
-    expect(ctx.diffTruncated).toBe(true);
-    expect(ctx.diff!.endsWith('+'.repeat(PR_DIFF_MAX_CHARS))).toBe(true);
+    expect(ctx.commits).toHaveLength(PR_LOG_MAX_CHARS);
+    expect(ctx.commitsTruncated).toBe(true);
+    expect(ctx.diffStat).toHaveLength(PR_STAT_MAX_CHARS);
+    expect(ctx.diffStatTruncated).toBe(true);
   });
 
   it('degrades per-piece when a git read fails — a broken diff read never throws', async () => {
     const { git } = fakeGit({
       log: { stdout: '* a one\n' },
-      'diff --stat': { stdout: ' src/a.ts | 5 ++\n' },
-      'diff --no-ext-diff': { exitCode: 128 },
+      'diff --stat': { exitCode: 128 },
     });
 
     const ctx = await collectPrDiffContext(git, '/wt', 'develop');
 
     expect(ctx.commits).toBe('* a one');
-    expect(ctx.diffStat).toBe(' src/a.ts | 5 ++');
-    expect(ctx.diff).toBeUndefined();
+    expect(ctx.diffStat).toBeUndefined();
   });
 
   it('returns an empty context when nothing can be read', async () => {
     const { git } = fakeGit({
       log: { exitCode: 128 },
       'diff --stat': { exitCode: 128 },
-      'diff --no-ext-diff': { exitCode: 128 },
     });
 
     expect(await collectPrDiffContext(git, '/wt', 'develop')).toEqual({});

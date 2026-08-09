@@ -38,8 +38,7 @@ import {
   type ArtifactTemplateContext,
 } from '../artifactConventions.js';
 import {
-  buildPrDescriptionPrompt,
-  sanitizePrDescription,
+  renderPrDescription,
   type PrDescriptionContext,
   type PrDiffContext,
 } from '../prDescription.js';
@@ -48,9 +47,9 @@ import { resolveRepoScope, resolveTicketType } from '../conventionContext.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
- * ordering (cross-repo merge ordering is out of scope) — each with an
- * agent-generated description (cheap model, via the adapter), writes the PR rows
- * to `prs`, then advances the stage to done.
+ * ordering (cross-repo merge ordering is out of scope) — each with a description
+ * rendered from branch-local git facts, writes the PR rows to `prs`, then
+ * advances the stage to done.
  *
  * [L4] ship (PRs) and done (ticket status) have independent failure modes and
  * live in separate files; they share no state beyond the ticket id.
@@ -60,12 +59,7 @@ export interface ShipOpts {
   ticketId: number;
   /** Current manifest, read when ship starts rather than captured at ticket creation. */
   manifest?: Manifest;
-  /**
-   * The ticket's resolved launch model (provider-compatible), pinned on the
-   * description call so it never falls back to the CLI's own default — which
-   * has no reason to be cheap (869ef1e6x: opus/sonnet defaulting on a
-   * description call). Absent → the CLI picks, as before.
-   */
+  /** Retained for API compatibility; deterministic PR descriptions use no model. */
   model?: string;
   /** Direct injection retained for host-agnostic callers and focused tests. */
   conventions?: ArtifactConventions;
@@ -79,37 +73,6 @@ export interface ShippedPr {
 
 export interface ShipResult {
   prs: ShippedPr[];
-}
-
-/**
- * Ask the agent (cheap model) for a PR description; falls back to the title.
- *
- * The answer is sanitized, not trusted: an agent asked a chat-shaped question
- * answers with chat-shaped scaffolding (a "no PR open yet … copy-paste ready"
- * status line, a preamble, the whole body inside a code fence), and this text
- * goes straight into public GitHub metadata. `prDescription.ts` owns both halves
- * — the prompt that asks for a clean body and the filter that enforces it.
- *
- * The prompt carries the collected diff material (`ctx`), never a bare title:
- * a model handed nothing but a title once went exploring for the changes and
- * described a sibling project on the machine instead (869ef1e6x). `model` is
- * the ticket's resolved model, so the CLI default (opus/sonnet/whatever the
- * config says today) never answers for a description call.
- */
-async function describePr(
-  adapter: AgentAdapter,
-  cwd: string,
-  ticketId: number,
-  model: string | undefined,
-  ctx: PrDescriptionContext,
-): Promise<string> {
-  const r = await adapter.runHeadless({
-    prompt: buildPrDescriptionPrompt(ctx),
-    cwd,
-    model,
-    tracking: { callSite: 'pr-description', ticketId },
-  });
-  return sanitizePrDescription(r.raw, ctx.title);
 }
 
 /**
@@ -254,7 +217,7 @@ export async function shipTicket(
   store: Store,
   opts: ShipOpts,
   gh: GhRunner = defaultGhRunnerAsync,
-  adapter?: AgentAdapter,
+  _adapter?: AgentAdapter,
   git: GitRunner = defaultGitRunner,
   onProgress: ShipProgress = () => {},
 ): Promise<ShipResult> {
@@ -300,9 +263,7 @@ export async function shipTicket(
         // rather than leaving commit/push looking like they are still "to
         // come" (the old free-text channel simply skipped this repo entirely).
         const descriptionTemplate = conventions?.pullRequestDescription;
-        const wouldDescribe = Boolean(
-          adapter && (!descriptionTemplate || usesDescription(descriptionTemplate)),
-        );
+        const wouldDescribe = !descriptionTemplate || usesDescription(descriptionTemplate);
         const skipped: ShipStep[] = wouldDescribe
           ? ['commit', 'push', 'describe', 'pr']
           : ['commit', 'push', 'pr'];
@@ -319,9 +280,9 @@ export async function shipTicket(
       // Push FIRST. `gh pr create` refuses a branch that exists only on this
       // machine ("you must first push the current branch to a remote"), and every
       // ticket works on a fresh worktree branch — so the branch is always
-      // local-only until now. Before the model call, too: a push that cannot
-      // succeed makes the PR impossible, and paying for a description first buys
-      // prose for a PR that will never exist.
+      // local-only until now. Before description rendering, too: a push that
+      // cannot succeed makes the PR impossible, so there is no reason to gather
+      // metadata for prose that will never be published.
       // Commit before push: a stage marker means the agent thinks it is done, not
       // that it committed. Work left in the worktree would push an empty branch and
       // `gh pr create` would fail with "No commits between main and karst/…".
@@ -362,14 +323,12 @@ export async function shipTicket(
           status: 'note',
           detail: `no push needed — no changes from ${base}`,
         });
-        if (adapter) {
-          onProgress({
-            repo: wt.repo,
-            step: 'describe',
-            status: 'note',
-            detail: `no description needed — no changes from ${base}`,
-          });
-        }
+        onProgress({
+          repo: wt.repo,
+          step: 'describe',
+          status: 'note',
+          detail: `no description needed — no changes from ${base}`,
+        });
         onProgress({
           repo: wt.repo,
           step: 'pr',
@@ -396,17 +355,12 @@ export async function shipTicket(
       onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
       const existing = await findOpenPr(gh, wt.path);
       const descriptionTemplate = conventions?.pullRequestDescription;
-      const wouldDescribe = Boolean(
-        adapter && (!descriptionTemplate || usesDescription(descriptionTemplate)),
-      );
+      const wouldDescribe = !descriptionTemplate || usesDescription(descriptionTemplate);
 
-      // The branch material the description is written from — gathered ONCE,
-      // bounded, before the model call. A model handed nothing but a title went
-      // exploring for the changes and described a sibling project (869ef1e6x);
-      // everything it needs is now in the prompt, so the run needs no tools and
-      // no exploration loop. A failed read degrades to a title-only prompt —
-      // observability must never fail a ship, and the diff is gone from the
-      // prompt, not from the PR.
+      // The branch material the description is written from — gathered once and
+      // bounded. Rendering is local and deterministic: no tool-capable agent can
+      // inspect a sibling project, and PR descriptions consume zero AI tokens.
+      // A failed read degrades to a title-only body and never fails ship.
       let diffContext: PrDiffContext = {};
       if (wouldDescribe && base) {
         try {
@@ -418,10 +372,11 @@ export async function shipTicket(
 
       /**
        * The PR body, rendered exactly the same way whether it is about to open a
+      /**
+       * The PR body, rendered exactly the same way whether it is about to open a
        * PR or to backfill one that was adopted — one description, one shape, so an
        * adopted PR cannot end up with prose in a different format from a created
-       * one. Emits the describe run/pass pair around the model call only, since
-       * that is the part that takes time.
+       * one.
        */
       const buildBody = async (): Promise<string> => {
         const promptCtx: PrDescriptionContext = {
@@ -431,26 +386,20 @@ export async function shipTicket(
           baseRef: base,
           ...diffContext,
         };
+        let description = prTitle;
+        if (wouldDescribe) {
+          onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
+          description = renderPrDescription(promptCtx);
+          onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
+        }
         if (descriptionTemplate) {
-          let description = prTitle;
-          if (wouldDescribe) {
-            onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-            description = await describePr(adapter!, wt.path, opts.ticketId, opts.model, promptCtx);
-            onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
-          }
           return renderArtifactTemplate(
             'pullRequestDescription',
             descriptionTemplate,
             { ...templateContext, description },
           );
         }
-        if (adapter) {
-          onProgress({ repo: wt.repo, step: 'describe', status: 'run' });
-          const generated = await describePr(adapter, wt.path, opts.ticketId, opts.model, promptCtx);
-          onProgress({ repo: wt.repo, step: 'describe', status: 'pass' });
-          return generated;
-        }
-        return prTitle;
+        return description;
       };
 
       let opened: OpenedPr;
@@ -477,7 +426,7 @@ export async function shipTicket(
           // The body just generated never reached GitHub. Re-probe by ref (the
           // branch lookup is the thing that just proved unreliable) and apply the
           // same rule as any adopted PR: fill an empty description, never
-          // overwrite a written one. No second model call — the prose exists.
+          // overwrite a written one. The already-rendered prose is reused.
           noteReusedPr(wt.repo, onProgress);
           const current = await fetchPrBody(gh, created.url, wt.path);
           await backfillDescription(

@@ -13,7 +13,6 @@ import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { manifest, repo } from '../../manifest/fixtures.js';
-import { buildPrDescriptionPrompt } from '../prDescription.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string, path: string): void {
   store.db
@@ -346,6 +345,7 @@ setTimeout(() => {
         'git diff',
         'git push',
         'gh pr view',
+        'git diff',
         'gh pr create',
         'gh pr view',
         'git fetch',
@@ -438,13 +438,13 @@ setTimeout(() => {
     expect(listPrsByTicket(store, id)).toHaveLength(2);
   });
 
-  it('each PR carries an agent-generated description', async () => {
+  it('each PR carries a deterministic description without calling the agent', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const gh: GhRunner = async (args) => {
       if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
-      // body flag value is the generated prose
+      // With no collected metadata the safe deterministic fallback is the title.
       const bodyIdx = args.indexOf('--body');
-      expect(args[bodyIdx + 1]).toContain('Generated PR body');
+      expect(args[bodyIdx + 1]).toBe('add search');
       return { stdout: 'https://github.com/o/r/pull/9', exitCode: 0 };
     };
     const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
@@ -520,11 +520,11 @@ setTimeout(() => {
         '--title',
         '[PROJ-1] add search (frontend)',
         '--body',
-        '# add search\n\nGenerated summary.\n\nTicket 1',
+        '# add search\n\n[PROJ-1] add search (frontend)\n\nTicket 1',
         '--base',
         'develop',
       ]]);
-      expect(headless).toBe(1);
+      expect(headless).toBe(0);
     });
 
     it('renders {type} from the ticket and {scope} from the repository', async () => {
@@ -612,64 +612,57 @@ setTimeout(() => {
       );
 
       expect(gitCalls).toContainEqual(['commit', '-m', 'add search']);
-      expect(prompts).toEqual([buildPrDescriptionPrompt({ title: '[PROJ-1] add search', repo: 'frontend', branch: 'karst/x', baseRef: 'develop' })]);
+      expect(prompts).toEqual([]);
       expect(creates[0]).toEqual([
         'pr',
         'create',
         '--title',
         '[PROJ-1] add search',
         '--body',
-        'Legacy generated body.',
+        '[PROJ-1] add search',
         '--base',
         'develop',
       ]);
     });
 
-    it('feeds the model the branch diff so it never has to discover it', async () => {
+    it('renders branch-only facts locally and never calls the tool-capable adapter', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
-      const { gh } = recordingGh();
-      let seen: { prompt?: string; model?: string } = {};
+      const { gh, creates } = recordingGh();
+      let headless = 0;
       const adapter: AgentAdapter = {
         ...fakeAdapter(),
-        runHeadless: async (opts) => {
-          seen = opts;
-          return { sessionId: 's', verdict: null, raw: 'Generated body.' };
+        runHeadless: async () => {
+          headless++;
+          throw new Error('PR descriptions must not launch an agent');
         },
       };
       const git: GitRunner = async (args) => {
         if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
-        if (args[0] === 'log') return { stdout: '* abc1234 add search\n', stderr: '', exitCode: 0 };
+        if (args[0] === 'log') {
+          expect(args).toEqual(['log', '--oneline', 'origin/develop..HEAD']);
+          return { stdout: '* abc1234 add search\n', stderr: '', exitCode: 0 };
+        }
         if (args[0] === 'diff' && args[1] === '--stat') {
           return { stdout: ' src/a.ts | 3 ++\n', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'diff' && args[1] === '--no-ext-diff') {
-          return { stdout: '+export const x = 1;\n', stderr: '', exitCode: 0 };
         }
         return { stdout: '', stderr: '', exitCode: 0 };
       };
 
       await shipTicket(store, { ticketId: id, model: 'cheap-model' }, gh, adapter, git);
 
-      expect(seen.model).toBe('cheap-model');
-      const prompt = seen.prompt ?? '';
-      expect(prompt).toContain('Repository: frontend');
-      expect(prompt).toContain('Branch: karst/x');
-      expect(prompt).toContain('develop');
-      expect(prompt).toContain('abc1234 add search');
-      expect(prompt).toContain('src/a.ts | 3 ++');
-      expect(prompt).toContain('+export const x = 1;');
+      expect(headless).toBe(0);
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toContain('## Summary');
+      expect(body).toContain('- add search');
+      expect(body).toContain('src/a.ts | 3 ++');
     });
 
     it('still describes when the diff cannot be read — a failed read never fails ship', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const { gh } = recordingGh();
-      let seen: { prompt?: string } = {};
       const adapter: AgentAdapter = {
         ...fakeAdapter(),
-        runHeadless: async (opts) => {
-          seen = opts;
-          return { sessionId: 's', verdict: null, raw: 'Generated body.' };
-        },
+        runHeadless: async () => { throw new Error('must not run'); },
       };
       const git: GitRunner = async (args) => {
         if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
@@ -683,10 +676,6 @@ setTimeout(() => {
         shipTicket(store, { ticketId: id }, gh, adapter, git),
       ).resolves.toBeDefined();
 
-      const prompt = seen.prompt ?? '';
-      expect(prompt).toContain('Repository: frontend');
-      expect(prompt).not.toContain('Changed files:');
-      expect(prompt).not.toContain('Diff (');
     });
 
     it('uses a deterministic configured body without calling the adapter', async () => {
@@ -795,11 +784,8 @@ setTimeout(() => {
     });
   });
 
-  // The reported bug: the PR body carried the session's own chatter ("No PR open
-  // yet for this branch. Description below (copy-paste ready).") and the whole
-  // description sat inside a code fence, so GitHub rendered one monospace block
-  // with no markdown at all. The agent's answer is now sanitized before it
-  // reaches `--body`; these feed a representative session answer end to end.
+  // PR bodies no longer consume an agent answer, so chat scaffolding and tool
+  // exploration cannot reach GitHub metadata at all.
   describe('PR body hygiene', () => {
     /** What an agent answering a chat-shaped question actually hands back. */
     const SESSION_ANSWER = [
@@ -840,22 +826,14 @@ setTimeout(() => {
       return { gh, creates };
     }
 
-    it('strips session chatter and the whole-body fence from the created PR body', async () => {
+    it('ignores agent chatter and renders only repository-local facts', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const { gh, creates } = recordingGh();
 
       await shipTicket(store, { ticketId: id }, gh, chattyAdapter(), fakeGit().git);
 
       const body = bodyOf(creates);
-      expect(body).not.toMatch(/copy-paste ready/i);
-      expect(body).not.toMatch(/no pr open yet/i);
-      expect(body).not.toMatch(/let me know/i);
-      // No wrapper fence: the body starts with the description itself.
-      expect(body.startsWith('```')).toBe(false);
-      expect(body.startsWith('## Summary')).toBe(true);
-      // The real code block survives, language tag intact.
-      expect(body).toContain('```bash\nnpm test\n```');
-      expect(body).toContain('`describePr`');
+      expect(body).toBe('add search');
     });
 
     it('sanitizes the description before it is interpolated into a body template', async () => {
@@ -874,9 +852,7 @@ setTimeout(() => {
       );
 
       const body = bodyOf(creates);
-      expect(body).not.toMatch(/copy-paste ready/i);
-      expect(body).not.toMatch(/no pr open yet/i);
-      expect(body.startsWith('## Summary')).toBe(true);
+      expect(body.startsWith('add search')).toBe(true);
       expect(body).toContain('Ticket PROJ-1');
     });
   });
@@ -1003,7 +979,7 @@ setTimeout(() => {
         );
 
         const edit = args.find((a) => a[1] === 'edit');
-        expect(edit).toEqual(['pr', 'edit', URL, '--body', '## Summary\nGenerated PR body.']);
+        expect(edit).toEqual(['pr', 'edit', URL, '--body', '## Summary\nadd search']);
         expect(events).toContainEqual({
           repo: '/repo/frontend',
           step: 'describe',
@@ -1132,10 +1108,9 @@ setTimeout(() => {
           'edit',
           URL,
           '--body',
-          'Generated PR body.',
+          'add search',
         ]);
-        // The description was paid for once, before the create — never again.
-        expect(headless).toBe(1);
+        expect(headless).toBe(0);
       });
 
       it('keeps a description the reused PR already has', async () => {
@@ -1418,7 +1393,7 @@ setTimeout(() => {
       expect(events.some((e) => e.repo === '/repo/backend' && e.step === 'push')).toBe(true);
     });
 
-    it('does not emit a describe event when there is no adapter', async () => {
+    it('emits describe progress even when no adapter exists', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       const events: ShipStepEvent[] = [];
       await shipTicket(
@@ -1430,7 +1405,7 @@ setTimeout(() => {
         (e) => events.push(e),
       );
 
-      expect(events.some((e) => e.step === 'describe')).toBe(false);
+      expect(events.some((e) => e.step === 'describe' && e.status === 'pass')).toBe(true);
       expect(events.some((e) => e.step === 'pr' && e.status === 'pass')).toBe(true);
     });
 

@@ -4,15 +4,11 @@ import type { PrDiffContext } from './prDescription.js';
 /**
  * The branch material a PR description is written from — collected with the
  * SAME injected GitRunner ship already uses, so it is testable without a real
- * repo and adds no new seam. The point of the caps: a description call must
- * stay bounded even for a huge branch. A PR description that costs 400K tokens
- * because the model went exploring for the diff is the bug this module exists
- * to prevent (869ef1e6x) — the diff is gathered here, once, bounded, and handed
- * to the model so it never has to look.
+ * repo and adds no new seam. The caps keep public metadata bounded even for a
+ * huge branch. Ship renders these facts locally; it never hands a tool-capable
+ * agent a repository path or asks one to discover the changes (869ef1e6x).
  */
 
-/** Cap on the unified diff handed to the model. */
-export const PR_DIFF_MAX_CHARS = 30_000;
 /** Cap on the `--stat` output. */
 export const PR_STAT_MAX_CHARS = 10_000;
 /** Cap on the one-line commit log. */
@@ -20,8 +16,7 @@ export const PR_LOG_MAX_CHARS = 4_000;
 
 function bounded(stdout: string, max: number): { value?: string; truncated?: boolean } {
   // Trailing-whitespace trim only: `git diff --stat` lines lead with a space,
-  // and unified-diff context lines start with a space that IS the marker —
-  // a leading trim would silently corrupt the material handed to the model.
+  // and a leading trim would silently reshape the public metadata.
   const text = stdout.replace(/\s+$/u, '');
   if (text === '') return {};
   if (text.length <= max) return { value: text };
@@ -40,25 +35,29 @@ async function read(
 }
 
 /**
- * Read the branch's commits, diffstat, and unified diff against
- * `origin/<base>...HEAD` — the same range `gh pr create` will show. Every piece
- * degrades independently to absent: a failed read must never fail ship, and the
- * prompt simply skips the section (the title still describes the PR).
+ * Read the branch's own commits and PR diffstat. Commits use two-dot range so
+ * commits unique to a diverged base can never appear in the description; the
+ * diffstat uses the PR's merge-base comparison. Every piece degrades
+ * independently to absent: a failed read must never fail ship, and the renderer
+ * simply skips the section (the title still describes the PR).
  */
 export async function collectPrDiffContext(
   git: GitRunner,
   cwd: string,
   baseRef: string,
 ): Promise<PrDiffContext> {
-  const range = `origin/${baseRef}...HEAD`;
-  const [log, stat, diff] = await Promise.all([
-    read(git, ['log', '--oneline', range], cwd, PR_LOG_MAX_CHARS),
-    read(git, ['diff', '--stat', range], cwd, PR_STAT_MAX_CHARS),
-    read(git, ['diff', '--no-ext-diff', '--unified=3', range], cwd, PR_DIFF_MAX_CHARS),
+  const logRange = `origin/${baseRef}..HEAD`;
+  const diffRange = `origin/${baseRef}...HEAD`;
+  const [log, stat] = await Promise.all([
+    read(git, ['log', '--oneline', logRange], cwd, PR_LOG_MAX_CHARS),
+    read(git, ['diff', '--stat', diffRange], cwd, PR_STAT_MAX_CHARS),
   ]);
   return {
-    ...(log.value !== undefined ? { commits: log.value } : {}),
-    ...(stat.value !== undefined ? { diffStat: stat.value } : {}),
-    ...(diff.value !== undefined ? { diff: diff.value, ...(diff.truncated ? { diffTruncated: true } : {}) } : {}),
+    ...(log.value !== undefined
+      ? { commits: log.value, ...(log.truncated ? { commitsTruncated: true } : {}) }
+      : {}),
+    ...(stat.value !== undefined
+      ? { diffStat: stat.value, ...(stat.truncated ? { diffStatTruncated: true } : {}) }
+      : {}),
   };
 }
