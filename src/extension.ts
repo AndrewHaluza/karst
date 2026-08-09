@@ -2350,8 +2350,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // at once (the DB is shared by every window).
   context.subscriptions.push(
     watchExternalChanges(localStore, () => {
+      // Window-level first, and unconditionally: the sidebar reflects registry
+      // state whether or not any dashboard happens to be open, and refreshing
+      // it once per open panel was N calls for one change.
+      provider.refresh();
       for (const ticketId of dashboard.openTicketIds()) {
-        provider.refresh();
         dashboard.pushState(ticketId);
       }
     }),
