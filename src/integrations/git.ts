@@ -5,11 +5,12 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 import { canonicalPath, isPathUnder } from '../runtime/pathScope.js';
@@ -354,6 +355,28 @@ export const INDEX_LOCK_NAME = 'karst-index-lock';
 
 const QUARANTINE_KEY_PATTERN = /^[A-Za-z0-9._-]+$/;
 
+/**
+ * The main object database path. In a LINKED worktree (every worktree karst
+ * cuts), the per-worktree git dir is an admin dir that has NO `objects` — the
+ * object db lives in the COMMON dir, named by the admin dir's `commondir` file
+ * (relative, exactly as git reads it). A regular repo has no commondir file:
+ * its git dir IS the common dir. Quarantine reads must alternate the common
+ * object db — a per-worktree `join(gitDir, 'objects')` alternates a directory
+ * that does not exist, so the base tree can never be unpacked (the failing
+ * ship read-tree on 869efpayd).
+ */
+async function mainObjectsPath(
+  git: GitRunner,
+  cwd: string,
+): Promise<string> {
+  const gitDir = (await run(git, ['rev-parse', '--absolute-git-dir'], cwd, 'rev-parse')).trim();
+  const commondirFile = join(gitDir, 'commondir');
+  const commonDir = existsSync(commondirFile)
+    ? resolve(gitDir, readFileSync(commondirFile, 'utf8').trim())
+    : gitDir;
+  return join(commonDir, 'objects');
+}
+
 /** Exact Git author/committer identity incl. the offset-bearing timestamp. */
 export interface PersistedCommitIdentity {
   name: string;
@@ -434,11 +457,10 @@ export async function prepareCommitInQuarantine(
   const index = join(q, 'index');
   const objects = join(q, 'objects');
   mkdirSync(objects, { recursive: true });
-  const gitDir = (await run(git, ['rev-parse', '--absolute-git-dir'], cwd, 'rev-parse')).trim();
   const env: NodeJS.ProcessEnv = {
     GIT_INDEX_FILE: index,
     GIT_OBJECT_DIRECTORY: objects,
-    GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDir, 'objects'),
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: await mainObjectsPath(git, cwd),
   };
 
   const readTree = await runGitEnv(['read-tree', input.preHead], cwd, env);
@@ -484,8 +506,7 @@ export async function promoteQuarantinedObjects(
   const q = await quarantinePath(git, cwd, quarantineKey);
   const objects = join(q, 'objects');
   if (!existsSync(objects)) return false;
-  const gitDir = (await run(git, ['rev-parse', '--absolute-git-dir'], cwd, 'rev-parse')).trim();
-  const mainObjects = join(gitDir, 'objects');
+  const mainObjects = await mainObjectsPath(git, cwd);
 
   let promoted = false;
   const copyDir = (from: string, to: string): void => {

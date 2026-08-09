@@ -131,6 +131,7 @@ import {
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
+import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
 import { getDisabledGates, setDisabledGates } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
@@ -2238,6 +2239,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
   }
+
+  // Write the current endpoint URL so revived Codex sessions discover the live
+  // port instead of POSTing to a stale one left over from before the reload.
+  writeCurrentEndpoint(settingsDir, endpoint.url);
 
   // Activation sweep: resume any ticket already parked at a gate. Recovers a ticket
   // stranded when the trigger that would normally kick the driver never arrived
