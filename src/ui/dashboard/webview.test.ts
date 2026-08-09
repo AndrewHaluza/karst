@@ -15,6 +15,25 @@ import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../m
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
+/** One brace-balanced `@container (max-width: <w>)` block from the source. */
+function containerBlock(w: string): string {
+  const at = HTML.indexOf(`@container (max-width: ${w}){`);
+  expect(at, `missing @container (max-width: ${w})`).toBeGreaterThan(-1);
+  let depth = 0;
+  let end = at;
+  for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+    if (HTML[i] === '{') depth += 1;
+    else if (HTML[i] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+  return HTML.slice(at, end);
+}
+
 /**
  * Text-level guards on the dashboard webview.
  *
@@ -456,8 +475,10 @@ describe('dashboard webview.html', () => {
   });
 
   it('scopes every track selector, so it cannot collide with the strip', () => {
-    // The dashboard already owns `.act` (the activity strip) and `.ph*`; an
-    // unscoped `.seg`/`.fixm` would silently restyle them.
+    // The dashboard owns `.ph*` (panel headers) and the inside ledger owns the
+    // `.p*` row classes (the activity strip `.act` was retired with the
+    // legacy inside block, Task 3); an unscoped `.seg`/`.fixm` would silently
+    // restyle them.
     expect(HTML).not.toMatch(/^\s*\.seg\{/m);
     expect(HTML).not.toMatch(/^\s*\.fixm\{/m);
     expect(HTML).toMatch(/\.track \.seg\{/);
@@ -1426,6 +1447,83 @@ describe('dashboard webview.html', () => {
     }
   });
 
+  it('keeps marker and process name first in the summary grid at every width (Task 6)', () => {
+    // The prototype's four-column grid: glyph + name lead the areas at normal
+    // width, and every breakpoint RE-AREAS without demoting the name — a rule
+    // that moved the name off the first row would break the eye's read order
+    // that the round trip also pins in DOM order.
+    expect(HTML).toMatch(
+      /\.process-summary\{display:grid[^}]*grid-template-areas:"glyph name ident status chev"/,
+    );
+    expect(containerBlock('430px')).toMatch(/grid-template-areas:"glyph name status chev"/);
+    expect(containerBlock('360px')).toMatch(/grid-template-areas:"glyph name chev"/);
+  });
+
+  it('collapses the status metadata below the process label at ≤360 (Task 6)', () => {
+    // At ≤430 the status rides the second column beside the name; at ≤360 the
+    // metadata (aggregate/status word/action) takes its OWN row under the
+    // label — the row reads the name first, then how the process is doing
+    // (handoff §10). The disclosure stays the last cell of every row and the
+    // action rides the status row's flex-end, so nothing is dropped.
+    const narrow = containerBlock('360px');
+    expect(narrow).toMatch(
+      /\.inside-ledger \.process-summary\{[^}]*grid-template-columns:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\) minmax\(0,1fr\) auto/,
+    );
+    expect(narrow).toMatch(
+      /grid-template-areas:"glyph name chev" "glyph status chev" "glyph detail chev" "glyph ident chev"/,
+    );
+    expect(narrow).toMatch(/\.inside-ledger \.pright\{[^}]*justify-content:flex-end/);
+  });
+
+  it('never hides the name, status, identity, disclosure, or action at any narrow width (Task 6)', () => {
+    // handoff §10: "Do not hide the only status or action." Enforced for ALL
+    // three breakpoints and for the identity cluster and timeline node too — a
+    // narrow rule may RE-AREA a cell, never display:none it.
+    for (const w of ['430px', '360px', '300px'] as const) {
+      const block = containerBlock(w);
+      for (const [sel, what] of [
+        ['.pname', 'the process name'],
+        ['.pstatus', 'the status word'],
+        ['.pident', 'the identity/token cluster'],
+        ['.pright', 'the status/action cluster'],
+        ['.eact', 'a row action'],
+        ['.pchev', 'the disclosure marker'],
+        ['.tnode', 'the timeline node cell'],
+      ] as const) {
+        const hiding = new RegExp(`${sel.replace('.', '\\.')}[^{]*\\{[^}]*display:none`).exec(block);
+        expect(hiding, `≤${w} hides ${what}`).toBeNull();
+      }
+    }
+  });
+
+  it('keeps the Inside root itself free of horizontal scrolling (Task 6)', () => {
+    // The breakpoint blocks already never scroll (B7); the ROOT must not
+    // carry an overflow-x either — a stray scroller on #inside would scroll
+    // the whole ledger instead of degrading it.
+    const root = /#inside\{[^}]*\}/.exec(HTML)?.[0] ?? '';
+    expect(root, '#inside container declaration lost').toContain('container-type:inline-size');
+    expect(root).not.toContain('overflow-x');
+  });
+
+  it('wraps unbounded paths and branches mid-token, but never the compact cells (Task 6)', () => {
+    // white-space:normal alone still cannot break an UNBROKEN token (a long
+    // branch name or SHA) — overflow-wrap:anywhere is what actually wraps it.
+    // The unbounded kinds (findings/commits/PRs) get it; the compact
+    // status/timestamp/duration cells stay one line and carry no wrap claim.
+    expect(HTML).toMatch(/\.pev-findings \.edetail\{[^}]*overflow-wrap:anywhere/);
+    expect(HTML).toMatch(/\.pev-commits \.edetail\{[^}]*overflow-wrap:anywhere/);
+    expect(HTML).toMatch(/\.pev-prs \.edetail\{[^}]*overflow-wrap:anywhere/);
+    for (const [sel, label] of [
+      ['.pev .estatus', 'the status word'],
+      ['.timeline-time', 'the timestamp'],
+      ['.erow .edur', 'the duration'],
+    ] as const) {
+      const rule = new RegExp(`${sel.replace('.', '\\.')}\\{([^}]*)\\}`).exec(HTML)?.[1] ?? '';
+      expect(rule, `${label} cell lost its nowrap`).toContain('white-space:nowrap');
+      expect(rule, `${label} cell must never claim a wrap point`).not.toContain('overflow-wrap');
+    }
+  });
+
   it('gives the process summary its own focus ring and a rotating marker (B3)', () => {
     // <summary> is neither a <button> nor an <a>/<input>, so the primitives'
     // generic :focus-visible rule never reaches it (UI-R23 — same as .mgd and
@@ -1524,6 +1622,19 @@ describe('dashboard webview.html', () => {
     expect(rm).toContain('.spin');
     expect(rm).toContain('animation:none');
     expect(rm).not.toContain('display:none');
+    // The rule names the spinner class directly, so EVERY .spin element — the
+    // rail segment, the Now line's ship ring, and the inside header's `.alive`
+    // ring — stops turning together and stays visible (UI-R30).
+    expect(rm).toMatch(/\.spin[^{]*\{[^}]*animation:none/);
+    // …and no scoped .spin rule may re-declare the animation afterwards: the
+    // reduced-motion block is a (0,1,0) rule, so a later scoped rule such as
+    // `.inside-head .alive .spin` (0,3,1) would win by specificity and spin
+    // again under reduced motion.
+    for (const scoped of ['.inside-head .alive .spin', '.now .spin', '.track .seg .spin']) {
+      expect(HTML, `${scoped} re-declares an animation`).not.toMatch(
+        new RegExp(`${scoped.replace('.', '\\.')}\\{[^}]*animation`),
+      );
+    }
   });
 
   /**
@@ -2406,5 +2517,57 @@ describe('inside render round trip (executed in a VM)', () => {
     const html = h.htmlOf('inside');
     expect(html).not.toContain('class="spin"');
     expect(html).toContain('⏸');       // OP_GLYPH.wait
+  });
+
+  it('renders a running process row and live header regardless of animation (Task 6)', () => {
+    // The running state is MARKUP, not animation: the status WORD ("running")
+    // renders from the closed map when the host ships no label, and the live
+    // header's spinner element is in the DOM whether or not it turns —
+    // reduced-motion stops the ring (the source guard above), never the row.
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [{ id: 'tester', kind: 'tester', label: 'Tester', status: 'run' }];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.receive({
+      type: 'inside-progress',
+      event: {
+        kind: 'active',
+        stage: 'uat',
+        processId: 'tester',
+        live: { label: 'Running the gate suite', status: 'run' },
+      },
+    });
+    const html = h.htmlOf('inside');
+    expect(html).toContain('<span class="pstatus run">running</span>');
+    expect(html).toContain('<span class="alive run">');
+    expect(html).toContain('<span class="spin" aria-hidden="true"></span>');
+  });
+
+  it('renders the viewing bar with a way back when a non-current stage is shown (Task 6)', () => {
+    // The vbar ("Viewing X — not the current stage.") had no render test: it
+    // is the only thing that explains why the ledger contradicts the Now
+    // line, so its markup must actually appear. Rendered from a state whose
+    // stageCurrent differs from the presented stage.
+    const state = { ...renderStateFor('impl'), stageCurrent: 'ship' };
+    const html = renderWith(state);
+    expect(html).toContain('Viewing Implementation — not the current stage.');
+    expect(html).toMatch(
+      /data-back[^>]*title="Return the strip to the stage the ticket is actually on"[^>]*>Back to Ship<\/button>/,
+    );
+    // The current stage renders no bar at all.
+    expect(renderWith(renderStateFor('impl'))).not.toContain('class="vbar"');
+  });
+
+  it('renders the blurb empty state when a stage has no processes (Task 6)', () => {
+    // A stage that never ran renders its static "what happens here" copy — an
+    // empty processes array must not render an empty ledger. No render test
+    // existed for the blurb before this one.
+    const state = renderStateFor('scope');
+    const scope = { ...state.insideViews.scope, processes: [] };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, scope } });
+    expect(html).toContain('<div class="blurb">');
+    expect(html).toContain(scope.blurb);
+    expect(html).not.toContain('data-proc-id=');
   });
 });

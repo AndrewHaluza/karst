@@ -301,8 +301,11 @@ export interface InsideProcessView {
    * Visible status copy — "Completed", "Running" — so the status colour/glyph
    * is never the only carrier. Derived host-side from the SAME status reading
    * the row carries; the webview renders it verbatim and never re-derives it
-   * from the glyph. Absent → no label (a process that has not adopted the
-   * contract yet must not fabricate one).
+   * from the glyph. Absent → the webview falls back to its closed status→word
+   * map ("running", "passed"…), a static control-copy word for the same
+   * status key — never a fabricated BUSINESS fact. The absence semantics stay
+   * "no host-authored copy", which is what a process that has not adopted the
+   * contract yet reads as.
    */
   statusLabel?: string;
   /**

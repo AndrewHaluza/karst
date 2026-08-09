@@ -556,7 +556,7 @@
   .erow .elabel{font-size:var(--k-text-sm);color:var(--k-text)}
   .erow .edetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
     overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .erow .edur{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint)}
+  .erow .edur{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);white-space:nowrap}
   .erow .eact{margin-left:auto;flex:none}
   /* ── per-kind evidence layouts (B2): one rule per closed kind (UI-R10) ──
      The kind class rides the evidence block (`pev-<kind>`, emitted by the
@@ -566,17 +566,19 @@
      deleted, never kept (Task 5). */
   /* Findings: the file/finding context is the row's whole point — it WRAPS at
      every width instead of ellipsising to nothing (a truncated path hides
-     where the fix goes, handoff §10); the blocking severity rides the fail
-     word above. */
-  .pev-findings .edetail{white-space:normal;overflow:visible}
+     where the fix goes, handoff §10); overflow-wrap:anywhere is what actually
+     breaks an UNBROKEN token (a path with no spaces), which white-space:normal
+     alone cannot do. The blocking severity rides the fail word above. */
+  .pev-findings .edetail{white-space:normal;overflow:visible;overflow-wrap:anywhere}
   /* Commits: the repository and SHA are selectable copy — explicitly text,
      even where a container rule could set user-select:none — and the detail
-     wraps so a long SHA stays readable. */
-  .pev-commits .edetail{user-select:text;-webkit-user-select:text;white-space:normal;overflow:visible}
-  /* PRs: repo/PR/merge facts wrap and align on the shared grid; a waiting or
-     conflicted PR reads with the attention WORD (the .erow.wait .estatus rule
-     below) — conflict is WAITING, never failure (handoff §5). */
-  .pev-prs .edetail{white-space:normal;overflow:visible}
+     wraps (anywhere, so a bare SHA breaks) so a long SHA stays readable. */
+  .pev-commits .edetail{user-select:text;-webkit-user-select:text;white-space:normal;overflow:visible;overflow-wrap:anywhere}
+  /* PRs: repo/PR/merge facts wrap (a long branch name breaks anywhere) and
+     align on the shared grid; a waiting or conflicted PR reads with the
+     attention WORD (the .erow.wait .estatus rule below) — conflict is WAITING,
+     never failure (handoff §5). */
+  .pev-prs .edetail{white-space:normal;overflow:visible;overflow-wrap:anywhere}
   /* The status word — the visible state, never colour alone (UI-R06). The
      row's own status class is already on the row, so the word inherits the
      ramp through the scoped rules below. */
@@ -651,10 +653,16 @@
     .inside-ledger .session-timeline .timeline-row{flex-wrap:nowrap}
   }
 
-  /* ≤360 — the block's chrome thins: the side margins and the row gaps
-     tighten so the two-line row still fits its action button. */
+  /* ≤360 — the status metadata collapses BELOW the process label: the summary
+     grid drops to three columns and re-areas so the meta/status-word/action
+     line sits on its OWN row under the name (handoff §10 — the row reads the
+     name first, then how the process is doing). The disclosure stays the last
+     cell of every row and the action rides the status row's flex-end, so
+     nothing is hidden — only its place moves. */
   @container (max-width: 360px){
     .inside-ledger{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
+    .inside-ledger .process-summary{grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(0,1fr) auto;
+      grid-template-areas:"glyph name chev" "glyph status chev" "glyph detail chev" "glyph ident chev"}
     .inside-ledger .pright{flex-wrap:wrap;justify-content:flex-end}
     .inside-ledger .erow{column-gap:var(--k-space-2)}
     .inside-ledger .timeline-row{column-gap:var(--k-space-2)}
@@ -1468,9 +1476,14 @@
         ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
         : '');
     const dur = r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '';
-    // In status mode the duration rides the status WORD ("pass · 4.2s"); in
-    // plain mode it trails the detail as it always did.
-    const stat = mode === 'status' ? word + dur : dur;
+    // In status mode the duration rides the status WORD ("pass · 4.2s",
+    // handoff §6's "lint  pass · 4.2s"); in plain mode it trails the DETAIL
+    // as it always did ("web · pushed · 1.2s") — the shared-row refactor
+    // (Task 5) had briefly emitted it before the detail; the old order is
+    // restored here.
+    const stat = mode === 'status' ? word + dur : '';
+    const detail = r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '';
+    const trail = mode === 'status' ? detail : detail + dur;
     // A receipt row is a delivered fact: only the passive bounded continuation
     // is a control there — never resume/restart/ship actions.
     const act = r.action && (mode !== 'receipt' || r.action.kind === 'open-bounded-evidence')
@@ -1478,7 +1491,7 @@
     return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
       + `<span class="elabel">${esc(r.label)}</span>`
       + stat
-      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
+      + trail
       + (act ? `<span class="eact">${act}</span>` : '')
       + `</div>`;
   }
