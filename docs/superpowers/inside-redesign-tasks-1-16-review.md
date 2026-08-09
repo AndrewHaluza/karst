@@ -1,8 +1,8 @@
 # Inside Redesign — Tasks 1–16 Implementation Review
 
-Date: 2026-08-08  
-Plan: `docs/superpowers/plans/2026-08-08-inside-redesign.md`  
-Reviewed range: `9f5bfdb..a6dca4b` and the current integrated worktree  
+Date: 2026-08-08
+Plan: `docs/superpowers/plans/2026-08-08-inside-redesign.md`
+Reviewed range: `9f5bfdb..a6dca4b` and the current integrated worktree
 Verdict: **Needs revision — Task 16 incomplete**
 
 ## Executive Summary
