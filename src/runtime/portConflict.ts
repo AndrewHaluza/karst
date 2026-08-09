@@ -105,43 +105,49 @@ async function discoverListenerPids(
     }
     return [...new Set(pids)];
   }
-  const families = [...new Set(targets.map(({ family }) => family))];
-  const outputs = await Promise.all(
-    families.map(async (family) => ({
-      family,
-      stdout: await commandOutput('lsof', [
-        '-nP',
-        '-a',
-        `-i${family}TCP:${port}`,
-        '-sTCP:LISTEN',
-        '-Fpn',
-      ]),
-    })),
-  );
+  const stdout = await commandOutput('lsof', [
+    '-nP',
+    '-a',
+    `-iTCP:${port}`,
+    '-sTCP:LISTEN',
+    '-Fpn',
+  ]);
+  if (stdout === null) return [];
   const pids: number[] = [];
-  for (const { family, stdout } of outputs) {
-    if (stdout === null) continue;
-    let pid: number | null = null;
-    for (const line of stdout.split('\n')) {
-      if (line.startsWith('p')) {
-        const parsed = Number(line.slice(1));
-        pid = Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-        continue;
-      }
-      if (!line.startsWith('n') || pid === null) continue;
-      const suffix = `:${port}`;
-      const name = line.slice(1);
-      if (!name.endsWith(suffix)) continue;
-      const localHost = name.slice(0, -suffix.length).replace(/^\[|\]$/g, '');
-      if (
-        localHost === '*' ||
-        targets.some((target) => target.family === family && target.address === localHost)
-      ) {
-        pids.push(pid);
-      }
+  let pid: number | null = null;
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('p')) {
+      const parsed = Number(line.slice(1));
+      pid = Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+      continue;
+    }
+    if (!line.startsWith('n') || pid === null) continue;
+    const suffix = `:${port}`;
+    const name = line.slice(1);
+    if (!name.endsWith(suffix)) continue;
+    const localHost = name.slice(0, -suffix.length).replace(/^\[|\]$/g, '');
+    if (
+      wildcardListener(localHost) ||
+      targets.some((target) => target.address === localHost)
+    ) {
+      pids.push(pid);
     }
   }
   return [...new Set(pids)];
+}
+
+/**
+ * A listener is a conflict for ANY target address when it is a wildcard bind.
+ * On Linux a default Node `listen(port)` binds `::` dual-stack, which blocks a
+ * later IPv4 bind on the same port; `lsof -iTCP:port` (no family filter, unlike
+ * the `-i4TCP`/`-i6TCP` split that missed the Linux dual-stack socket) reports
+ * it as `*:port`/`[::]:port`, and matching it is exactly the reclaim this
+ * module exists for. A specific v6 address (`::1`, an interface) does NOT
+ * block an IPv4 bind and stays unmatched, so a v6-only listener is still never
+ * killed for an IPv4 service.
+ */
+function wildcardListener(localHost: string): boolean {
+  return localHost === '*' || localHost === '0.0.0.0' || localHost === '::';
 }
 
 export function listenerPids(
@@ -167,6 +173,13 @@ export interface ReclaimDecision {
   kill: boolean;
   /** The `servers` row to retire alongside the kill (an attributable karst server). */
   rowId?: number;
+  /**
+   * True when the listener is a karst BASELINE server (`servers.ticket_id IS
+   * NULL`) — the shared singleton `reapStaleServers` also refuses to reap. A
+   * baseline collision is a manifest problem, not a dev-server conflict: it is
+   * never karst's to kill, in either rule.
+   */
+  baseline?: boolean;
 }
 
 /**
@@ -193,9 +206,20 @@ export function decideReclaim(
   facts: ProcessFacts,
 ): ReclaimDecision {
   const row = store.db
-    .prepare("SELECT id, pid, cwd, started_at FROM servers WHERE pid = ? AND status = 'running'")
-    .get(pid) as { id: number; pid: number; cwd: string | null; started_at: string | null } | undefined;
+    .prepare(
+      "SELECT id, pid, cwd, started_at, ticket_id FROM servers WHERE pid = ? AND status = 'running'",
+    )
+    .get(pid) as
+    | { id: number; pid: number; cwd: string | null; started_at: string | null; ticket_id: number | null }
+    | undefined;
 
+  if (row?.ticket_id === null) {
+    // A baseline is a shared singleton keyed to the repository checkout, not a
+    // dev server a ticket conflicted with: killing it costs every ticket that
+    // depends on it, which is why the global reap excludes these rows too.
+    // Refuse in BOTH rules — a baseline must not die by the cwd rule either.
+    return { kill: false, baseline: true };
+  }
   if (
     row &&
     attributeServer({ pid: row.pid, cwd: row.cwd, startedAt: row.started_at }, facts) ===
@@ -204,7 +228,13 @@ export function decideReclaim(
     return { kill: true, rowId: row.id };
   }
   const live = facts.liveCwd(pid);
-  if (live && isPathUnder(live.path, repoPath)) return { kill: true };
+  if (live && isPathUnder(live.path, repoPath)) {
+    // The row's pid is the listener's, but the row did not attribute it (a
+    // reissued pid, a stale recorded cwd) — the row cannot be about the
+    // process the OS reports here, so it is retired with the kill either way.
+    // Retiring it beats leaving a phantom `running` row over a dead pid.
+    return row ? { kill: true, rowId: row.id } : { kill: true };
+  }
   return { kill: false };
 }
 
@@ -229,8 +259,11 @@ export interface ReclaimOutcome {
   killedPids: number[];
   /** `servers` row ids to retire (killed processes karst had recorded). */
   stoppedRows: number[];
-  /** Listeners that must keep the port blocked (`pid: null` = unidentified listener). */
-  survivors: { pid: number | null }[];
+  /**
+   * Listeners that must keep the port blocked (`pid: null` = unidentified
+   * listener; `baseline: true` = a karst baseline server, never reclaimed).
+   */
+  survivors: { pid: number | null; baseline?: boolean }[];
   /**
    * True only when a bounded re-probe found the port free AFTER the kill pass.
    * The re-probe arbitrates what the kill pass cannot answer synchronously: a
@@ -284,7 +317,7 @@ export async function reclaimPort(
   for (const pid of pids) {
     const decision = decideReclaim(store, pid, repoPath, await snapshotProcessFacts(facts, pid));
     if (!decision.kill) {
-      outcome.survivors.push({ pid });
+      outcome.survivors.push({ pid, ...(decision.baseline ? { baseline: true } : {}) });
       continue;
     }
     const killed = killTree(pid);

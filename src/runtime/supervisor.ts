@@ -89,16 +89,27 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     const reclaimed = await reclaimPort(store, opts.host, opts.port, opts.repoPath);
     for (const id of reclaimed.stoppedRows) markServerStopped(store, id);
     if (!reclaimed.portFree) {
-      const who = reclaimed.survivors
-        .map((s) => (s.pid === null ? 'a process karst cannot identify' : `pid ${s.pid}`))
+      const survivors = reclaimed.survivors
+        .map((s) =>
+          s.baseline
+            ? `a baseline server karst runs for this repository${s.pid === null ? '' : ` (pid ${s.pid})`}`
+            : s.pid === null
+              ? 'a process karst cannot identify'
+              : `pid ${s.pid} (not a dev server of this repository)`,
+        )
         .join(', ');
-      const holder = who ? `${opts.host}:${opts.port} is in use by ${who} — ` : '';
-      throw new Error(
-        `could not start '${opts.service}': ${holder}` +
-          `not a dev server of this repository and not a server karst started, so karst will ` +
-          `not stop it. Stop the process on that port, or give '${opts.service}' a different ` +
-          `port in karst.yml.`,
-      );
+      const stillBlocked = reclaimed.killedPids
+        .map((pid) => `pid ${pid} (killed, but the port is still occupied)`)
+        .join(', ');
+      const blocker = [survivors, stillBlocked].filter((s) => s.length > 0).join('; ');
+      const holder = blocker ? `${opts.host}:${opts.port} is in use by ${blocker} — ` : '';
+      const advice =
+        reclaimed.survivors.length === 0
+          ? `The process was killed but its socket has not released — retry in a moment, ` +
+            `or give '${opts.service}' a different port in karst.yml.`
+          : `karst will not stop that process automatically. Stop the process on that port, ` +
+            `or give '${opts.service}' a different port in karst.yml.`;
+      throw new Error(`could not start '${opts.service}': ${holder}${advice}`);
     }
   }
 

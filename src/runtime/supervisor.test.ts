@@ -473,7 +473,7 @@ describe('server supervisor', () => {
           healthUrl: `http://127.0.0.1:${port}/health`,
           logPath: join(dir, 'svc.log'),
         }),
-      ).rejects.toThrow(/in use/);
+      ).rejects.toThrow(/is in use by pid \d+ \(not a dev server of this repository\)/);
 
       await new Promise((r) => setTimeout(r, 200));
       expect(alive(squatter.pid!)).toBe(true); // untouched
