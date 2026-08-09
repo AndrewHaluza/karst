@@ -631,12 +631,6 @@
     font-family:var(--p-mono);font-size:var(--p-xs);line-height:16px}
   #inside .duration{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
     font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
-  #inside .op-state{display:inline-flex;align-items:center;height:18px;color:var(--p-muted);
-    font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;text-transform:lowercase;white-space:nowrap}
-  #inside .op-state.pass{color:var(--p-passed)}
-  #inside .op-state.fail{color:var(--p-failed)}
-  #inside .op-state.run{color:var(--p-running)}
-  #inside .op-state.wait{color:var(--p-attention)}
   #inside .chev{width:16px;height:16px;display:grid;place-items:center;justify-self:center;align-self:center;color:var(--p-muted2)}
   #inside .chev:before{content:"";width:5px;height:5px;border-right:var(--k-border-w) solid currentColor;
     border-bottom:var(--k-border-w) solid currentColor;transform:rotate(-45deg);
@@ -660,6 +654,8 @@
   #inside .ev-state.wait,#inside .gate-state.wait{color:var(--p-attention)}
   #inside .ev-state.fail,#inside .gate-state.fail{color:var(--p-failed)}
   #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
+  #inside .ev-state{gap:var(--p-s2)}
+  #inside .ev-dur{color:var(--p-muted2)}
   #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
 
   /* Gates */
@@ -1697,10 +1693,16 @@
   // The closed ProcessEvidenceView union is dispatched here, one body per
   // kind, each in the prototype's own container so the kind-specific CSS
   // hangs off one selector.
+  // An evidence row's status is the GLYPH, not a word: the word repeated what
+  // the row's own detail already said ("selected … passed") on every row of
+  // every expanded body. The word survives as the glyph's accessible name, so
+  // nothing that cannot see colour loses the status. A recorded duration is a
+  // fact of its own and still renders beside it.
   function evStateHtml(r, cls) {
     if (!r.status) return `<span class="${cls}"></span>`;
-    const dur = r.duration ? ` · ${r.duration}` : '';
-    return `<span class="${cls} ${esc(r.status)}">${esc(statusWord(r.status))}${esc(dur)}</span>`;
+    const dur = r.duration ? `<span class="ev-dur">${esc(r.duration)}</span>` : '';
+    return `<span class="${cls} ${esc(r.status)}">${dur}`
+      + `<span class="glyph ${esc(r.status)}" aria-label="${esc(statusWord(r.status))}"></span></span>`;
   }
   function evActionHtml(r) {
     return r.action ? `<span class="ev-tail">${insideActionBtnHtml(r.action)}</span>` : '';
@@ -1872,6 +1874,16 @@
     return (EVIDENCE_RENDERERS[ev.kind] || evidenceRowsHtml)(ev);
   }
 
+  // Does this evidence render anything? The generic `rows` array is only one
+  // of its shapes — a `prs`/`commits`/`receipt` evidence renders from
+  // `branches`/`repos`/`blocks`/`hero`, and testing `rows` alone made such a
+  // row static: content behind a disclosure with no way to open it.
+  function hasEvidenceBody(ev) {
+    if (!ev) return false;
+    return !!((ev.rows && ev.rows.length) || (ev.branches && ev.branches.length)
+      || (ev.repos && ev.repos.length) || (ev.blocks && ev.blocks.length) || ev.hero);
+  }
+
   // ── the process row ────────────────────────────────────────────────────
   // A process with evidence (or footer facts) is a native <details>: keyboard
   // operability comes from the element, never a handler (UI-R09). One with
@@ -1879,20 +1891,26 @@
   // fact and offers no disclosure it cannot honour.
   function processRowHtml(p, key, open) {
     const ai = p.execution || p.configuredExecution ? '<span class="ai-mark">AI</span>' : '';
-    const state = `<span class="op-state ${esc(p.status)}">`
-      + `${esc(p.statusLabel || statusWord(p.status))}</span>`;
+    // No status WORD in the tail: the prototype's row carries its state on the
+    // glyph (which keeps the word as its accessible name) and in the detail's
+    // colour class. A second textual "Completed" beside the duration was ours,
+    // not the design's, and it crowded the tail out of the narrow widths.
     const tail = `<span class="op-tail">${identityHtml(p)}`
       + tokenStatHtml(p.tokens, p.status === 'run')
       + (p.aggregate ? `<span class="count">${esc(p.aggregate)}</span>` : '')
       + (p.count ? `<span class="count">${esc(p.count)}</span>` : '')
-      + state
       + (p.duration ? `<span class="duration">${esc(p.duration)}</span>` : '')
       + (p.action ? insideActionBtnHtml(p.action) : '')
       + `</span>`;
     const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
-    const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(statusWord(p.status))}"></span>`;
+    const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(p.statusLabel || statusWord(p.status))}"></span>`;
     const detail = `<span class="op-detail ${esc(p.status)}">${esc(p.detail || '')}</span>`;
-    const hasEv = !!(p.evidence && p.evidence.rows && p.evidence.rows.length);
+    // A body exists if ANY of the evidence's shapes carries something. The
+    // generic `rows` array is only one of them: a `prs`/`commits`/`receipt`
+    // evidence renders from `branches`/`repos`/`blocks`, and testing `rows`
+    // alone made such a row static — a disclosure with content behind it and
+    // no way to open it.
+    const hasEv = hasEvidenceBody(p.evidence);
     const hasFooter = !!(p.footer && p.footer.length);
     if (!hasEv && !hasFooter) {
       return `<div class="op"><div class="op-static" data-proc-id="${esc(key)}">`
@@ -1901,9 +1919,11 @@
     const footer = hasFooter
       ? `<div class="session-foot">${p.footer.map((f, i) => `<span${i === p.footer.length - 1 ? ' class="session-rule"' : ''}>${esc(f)}</span>`).join('')}</div>`
       : '';
-    const body = open
-      ? `<div class="op-body">${hasEv ? evidenceBodyHtml(p.evidence) : ''}${footer}</div>`
-      : '';
+    // The body is ALWAYS in the markup. <details> is what shows and hides it,
+    // and rendering it only when already open meant the very first click
+    // expanded an empty disclosure — the row opened, the chevron rotated, and
+    // no evidence appeared until some later state push re-rendered it.
+    const body = `<div class="op-body">${hasEv ? evidenceBodyHtml(p.evidence) : ''}${footer}</div>`;
     const cls = `op ${esc(p.status)}${p.status === 'run' ? ' live' : ''}`
       + `${p.status === 'fail' ? ' failed-source' : p.status === 'wait' ? ' waiting-source' : ''}`;
     return `<details class="${cls}" data-proc-id="${esc(key)}"${open ? ' open' : ''}>`
@@ -1938,8 +1958,11 @@
   function processOpen(p, key) {
     if (openProcesses.has(key)) return true;
     if (closedProcesses.has(key)) return false;
-    const hasBody = !!((p.evidence && p.evidence.rows && p.evidence.rows.length) || (p.footer && p.footer.length));
-    return hasBody && DEFAULT_OPEN_PROCESS_KINDS.has(p.kind);
+    const hasBody = hasEvidenceBody(p.evidence) || !!(p.footer && p.footer.length);
+    // A RUNNING process opens itself: its body is the only place the work
+    // becomes visible (gate rows land one at a time as each finishes), and a
+    // collapsed row made a live stage look like nothing was happening.
+    return hasBody && (DEFAULT_OPEN_PROCESS_KINDS.has(p.kind) || p.status === 'run');
   }
 
   function renderInside(state, sel) {

@@ -1470,7 +1470,7 @@ describe('dashboard webview.html', () => {
       const block = containerBlock(w);
       for (const [sel, what] of [
         ['.op-name', 'the process name'],
-        ['.op-state', 'the status word'],
+        ['.glyph', 'the status glyph'],
         ['.agent-id', 'the identity run'],
         ['#inside .op-tail', 'the status/action cluster'],
         ['.ev-state', 'a row status'],
@@ -1505,7 +1505,6 @@ describe('dashboard webview.html', () => {
       /#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{[\s\S]*?overflow-wrap:anywhere/,
     );
     for (const [sel, label] of [
-      ['#inside .op-state', 'the status word'],
       ['#inside .phase-time', 'the timestamp'],
       ['#inside .duration', 'the duration'],
     ] as const) {
@@ -2078,12 +2077,14 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html.indexOf('class="session-foot"')).toBeGreaterThan(html.indexOf('class="session-segments"'));
   });
 
-  it('renders the process status word as visible text, never colour alone (Task 3)', () => {
-    // The host-shipped `statusLabel` ("Completed") is the process row's own
-    // visible state — a real word in the markup, so the status survives any
-    // theme that ignores colour, exactly like the evidence rows' status words.
+  it('carries the process status as the glyph name, never as tail text (Task 3)', () => {
+    // The prototype's row has NO status word in its tail — the state is the
+    // glyph, whose `aria-label` is the host-shipped `statusLabel`, so the word
+    // still exists for anything that cannot see colour. A second textual
+    // "Completed" beside the duration was ours, not the design's.
     const html = renderPrototypeImpl();
-    expect(html).toContain('<span class="op-state pass">Completed</span>');
+    expect(html).toContain('<span class="glyph pass" aria-label="Completed"></span>');
+    expect(html).not.toContain('op-state');
   });
 
   it('opens the completed session disclosure on first render (Task 3)', () => {
@@ -2104,8 +2105,9 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(h.htmlOf('inside')).toContain('data-proc-id="impl:session" open');
     h.clickChevron('impl:session');
     h.receive({ type: 'state', state: renderStateFor('impl') });
+    // The body stays in the markup — <details> is what hides it, and rendering
+    // it only when open is what made the first chevron click expand nothing.
     expect(h.htmlOf('inside')).not.toContain('data-proc-id="impl:session" open');
-    expect(h.htmlOf('inside')).not.toContain('class="session-segments"');
   });
 
   it('default-opens only session evidence, never gates, findings, PRs, or receipts (Task 3)', () => {
@@ -2216,15 +2218,17 @@ describe('inside render round trip (executed in a VM)', () => {
     const html = openEvidence('scope', 'worktrees');
     expect(html).toContain('class="evidence-row"');
     expect(html).toMatch(/<span class="ev-key">worktree<\/span>/);
-    expect(html).toMatch(/<span class="ev-state [a-z]+">(?:pending|passed)<\/span>/);
+    // The row's status is the glyph, whose accessible name is the word.
+    expect(html).toMatch(/<span class="ev-state [a-z]+">(?:<span class="ev-dur">[^<]*<\/span>)?<span class="glyph [a-z]+" aria-label="(?:pending|passed)"><\/span><\/span>/);
   });
 
-  it('renders gates evidence with a per-row status word (B2)', () => {
-    // handoff §6's gate template: "lint  pass · 4.2s" — the word is the
-    // visible status, never colour alone (UI-R06).
+  it('renders gates evidence with a per-row status glyph (B2)', () => {
+    // handoff §6's gate template: "lint  exit 0  ✓". The status word repeated
+    // what the row already said, so it is the glyph's accessible name now —
+    // still never colour alone (UI-R06).
     const html = openEvidence('uat', 'gates');
     expect(html).toContain('class="gates"');
-    expect(html).toContain('<span class="gate-state pass">passed');
+    expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
     expect(html).toContain('<span class="gate-name">lint</span>');
   });
 
@@ -2434,11 +2438,11 @@ describe('inside render round trip (executed in a VM)', () => {
     }
   });
 
-  it('shows a visible status word on every status-bearing kind (Task 5)', () => {
-    // gates/findings/commits/prs render the closed status WORD (UI-R06 — the
-    // word is the row's claim, never colour alone). Findings' blocking
-    // severities read as failed, the advisory medium reads as note.
-    expect(openEvidence('uat', 'gates')).toContain('<span class="gate-state pass">passed');
+  it('names the status on every status-bearing kind, never colour alone (Task 5)', () => {
+    // gates carry the closed status word as their glyph's accessible name;
+    // findings/commits/prs render host-supplied words. Either way the claim
+    // survives a theme that ignores colour (UI-R06).
+    expect(openEvidence('uat', 'gates')).toContain('<span class="glyph pass" aria-label="passed"></span>');
     const findings = openEvidence('review', 'review');
     expect(findings).toContain('<span class="sev">critical</span>');
     expect(findings).toContain('<span class="sev">medium</span>');
@@ -2522,7 +2526,7 @@ describe('inside render round trip (executed in a VM)', () => {
     // row — never a fail glyph and never a fail word.
     const merge = openEvidence('ship', 'merge');
     expect(merge).toContain('<span class="ev-key">conflict</span>');
-    expect(merge).toContain('<span class="ev-state wait">waiting');
+    expect(merge).toContain('<span class="glyph wait" aria-label="waiting"></span>');
     expect(merge).not.toMatch(/ev-state fail/);
     // The merge PROCESS row reads waiting too — its glyph is the wait shape.
     expect(merge).toMatch(/<details class="op wait waiting-source"/);
@@ -2561,7 +2565,11 @@ describe('inside render round trip (executed in a VM)', () => {
     h.receive({ type: 'state', state });
     h.clickChevron('uat:gates');
     h.receive({ type: 'state', state });
-    expect(h.htmlOf('inside')).not.toContain('data-act="inside-action"');
+    const gates = h.htmlOf('inside');
+    const from = gates.indexOf('data-proc-id="uat:gates"');
+    const gatesBody = gates.slice(from, gates.indexOf('</details>', from));
+    expect(gatesBody).toContain('+32 more');
+    expect(gatesBody).not.toContain('data-act="inside-action"');
   });
 
   it('renders the host-computed aggregate on the process row (B4)', () => {
@@ -2648,7 +2656,6 @@ describe('inside render round trip (executed in a VM)', () => {
       },
     });
     const html = h.htmlOf('inside');
-    expect(html).toContain('<span class="op-state run">running</span>');
     expect(html).toContain('<span class="inside-live run">');
     expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
   });

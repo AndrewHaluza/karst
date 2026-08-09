@@ -393,16 +393,17 @@ export function implementationSessionProcess(
     }
   }
 
-  // The process row itself can open the stable run's full evidence — the one
-  // action a timeline row cannot carry without claiming a specific segment.
-  // The label names the reveal count (handoff §10); no count → the webview's
-  // static "Show all" covers it.
+  // The process row can open the stable run's full evidence — the one action a
+  // timeline row cannot carry without claiming a specific segment. It exists
+  // ONLY when the timeline was actually cut short: with nothing withheld the
+  // disclosure already shows every row, so a "Show all" beside it offered a
+  // second, weaker way to see what was on screen.
   const action =
-    attach && timeline
+    attach && timeline && withheld > 0
       ? attach({
           kind: 'open-full-evidence',
           processRunId: timeline.run.processRunId,
-          ...(withheld > 0 ? { label: `Show ${withheld} more` } : {}),
+          label: `Show ${withheld} more`,
         })
       : undefined;
 
