@@ -26,7 +26,7 @@ import {
 import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
 import type { InsideActionResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
-import type { GateOptionsLoader } from './gateOptions.js';
+import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 
 /**
@@ -94,6 +94,21 @@ export interface DashboardBinding {
 /** Resolve the daemon actions for a ticket (lets the host bind live services). */
 export type ActionsFactory = (ticketId: number) => DashboardActions;
 
+/** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
+function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
+  return sameOptions(a.uat, b.uat) && sameOptions(a.review, b.review);
+}
+
+function sameOptions(
+  a: readonly { name: string; disabled: boolean }[],
+  b: readonly { name: string; disabled: boolean }[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((x, i) => x.name === b[i]!.name && x.disabled === b[i]!.disabled)
+  );
+}
+
 /**
  * One dashboard panel per ticket id (§14). `openDashboard` reveals an existing
  * panel rather than spawning a duplicate; disposal drops the panel so a later
@@ -105,6 +120,12 @@ export class DashboardManager {
   private readonly statsControllers = new Map<number, AbortController>();
   private readonly gateRequests = new Map<number, number>();
   private readonly gateControllers = new Map<number, AbortController>();
+  /**
+   * The last resolved gate options per ticket, so `pushState` can render the
+   * would-run gate names as pending rows before the stage runs. Dies with the
+   * panel; a stale entry for a closed panel is a leak.
+   */
+  private readonly gateOptionsCache = new Map<number, GateOptions>();
   /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
   private readonly registries = new Map<number, InsideActionRegistry>();
   private readonly generations = new Map<number, number>();
@@ -264,6 +285,7 @@ export class DashboardManager {
       this.statsControllers.delete(ticketId);
       this.gateRequests.delete(ticketId);
       this.gateControllers.delete(ticketId);
+      this.gateOptionsCache.delete(ticketId);
       // The panel's action capabilities die with it: a disposed panel's ids
       // must never dispatch against a later snapshot.
       this.registries.get(ticketId)?.dispose();
@@ -315,6 +337,7 @@ export class DashboardManager {
       (id) => this.serviceNamesFor(id),
       (processId) => this.assignmentFor(ticketId, processId),
       registry,
+      this.gateOptionsCache.get(ticketId),
     );
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
@@ -413,7 +436,14 @@ export class DashboardManager {
         if (this.panels.get(ticketId) !== panel) return;
         if (this.gateRequests.get(ticketId) !== request) return;
         this.gateControllers.delete(ticketId);
+        // Remember the resolved names so `pushState` can render them as
+        // pending gate rows. Only a CHANGE re-pushes the snapshot: the
+        // resolution itself came from a `pushState`, and an unconditional
+        // re-push would feed `pushGateOptions` from `pushState` forever.
+        const previous = this.gateOptionsCache.get(ticketId);
+        this.gateOptionsCache.set(ticketId, options);
         panel.postMessage({ type: 'gate-options', options });
+        if (!previous || !sameGateOptions(previous, options)) this.pushState(ticketId);
       },
       (error) => {
         if (this.panels.get(ticketId) !== panel) return;

@@ -228,6 +228,15 @@ export function buildDashboardState(
    * Absent → rows carry no actions and no registry exists for the snapshot.
    */
   registry?: InsideActionRegistry | null,
+  /**
+   * The gate names per stage resolved by `ui/dashboard/gateOptions.ts`, shown
+   * as pending rows before the stage runs. Absent → no forecast, and the row
+   * states that the gates resolve when the stage runs.
+   */
+  resolvedGates?: {
+    uat: readonly { name: string; disabled: boolean }[];
+    review: readonly { name: string; disabled: boolean }[];
+  },
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const rounds = listRecoveryRounds(store, ticketId);
@@ -381,6 +390,7 @@ export function buildDashboardState(
         configured: assignmentFor('tester'),
         tokens: tokensFor('tester'),
         attach,
+        resolvedGates: resolvedGates?.uat ?? [],
       }),
       now,
     ),
@@ -399,6 +409,7 @@ export function buildDashboardState(
         configured: assignmentFor('review'),
         tokens: tokensFor('review'),
         attach,
+        resolvedGates: resolvedGates?.review ?? [],
       }),
       now,
     ),

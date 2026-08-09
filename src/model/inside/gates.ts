@@ -179,6 +179,13 @@ export interface QualityProcessesInput {
    * caller attaches none. Absent → rows carry no actions.
    */
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
+  /**
+   * The gate names this stage WOULD run, resolved host-side
+   * (`ui/dashboard/gateOptions.ts`) before anything has run. Optional: a panel
+   * that has not resolved them yet passes nothing, and the row falls back to
+   * stating that they resolve when the stage runs.
+   */
+  resolvedGates?: readonly { name: string; disabled: boolean }[];
 }
 
 /** The latest invocation of a process, by its explicit run id. */
@@ -267,6 +274,7 @@ function gatesProcess(
   runs: readonly GateRun[],
   stageKey: StageKey,
   now: string,
+  resolved: readonly { name: string; disabled: boolean }[] = [],
 ): InsideProcessView {
   const batch = latestBatch(runs, stageKey).filter((r) => r.gateName !== CHANGES_GATE);
   let passed = 0;
@@ -279,19 +287,32 @@ function gatesProcess(
     else failed += 1;
   }
 
+  const finished = cell.status === 'passed' || cell.status === 'failed';
+  // Before anything ran, the resolved names (`gateOptions.ts`) are the gates
+  // that WOULD run — a forecast, ROWS ONLY: it never touches the counts or
+  // the aggregate, because a gate that has not run has no outcome. Recorded
+  // rows always win over the forecast (a record is a fact; a resolution is a
+  // prediction), and a running stage shows no forecast either — its first
+  // real row lands as the first gate finishes.
+  const forecast =
+    batch.length === 0 && !finished && cell.status !== 'running' && resolved.length > 0;
   const boundedRows = bounded(
-    batch.map((r): EvidenceRow => {
-      const op = gateOp(r);
-      return { status: op.status, label: op.name, detail: op.detail, duration: op.duration };
-    }),
+    forecast
+      ? resolved.map((g): EvidenceRow => ({
+          status: g.disabled ? 'skip' : 'pending',
+          label: g.name,
+          detail: g.disabled ? 'disabled for this ticket' : 'will run when the stage runs',
+        }))
+      : batch.map((r): EvidenceRow => {
+          const op = gateOp(r);
+          return { status: op.status, label: op.name, detail: op.detail, duration: op.duration };
+        }),
     GATES_EVIDENCE_LIMIT,
   );
   const rows = [...boundedRows.shown];
   if (boundedRows.remaining > 0) {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
-
-  const finished = cell.status === 'passed' || cell.status === 'failed';
   // The kind-specific aggregate (B5): the WHOLE batch counted, per handoff §6
   // ("4 passed · 1 failed"). The same counts the evidence carries, worded
   // host-side; a batch with no counted outcome is absence, never "0 passed".
@@ -323,7 +344,13 @@ function gatesProcess(
       batch.length === 0
         ? finished
           ? 'note'
-          : 'pending'
+          : // A running stage with nothing recorded YET is running, not
+            // pending: the first gate's row lands only when that gate finishes,
+            // so `pending` here left the row inert for the whole first gate —
+            // exactly the window the user is watching.
+            cell.status === 'running'
+            ? 'run'
+            : 'pending'
         : failed > 0
           ? 'fail'
           : cell.status === 'running'
@@ -338,9 +365,13 @@ function gatesProcess(
         }
       : batch.length === 0
         ? {
-            detail: finished
-              ? 'no gates recorded for this stage'
-              : 'resolved per repository when the stage runs',
+              detail: finished
+                ? 'no gates recorded for this stage'
+                : cell.status === 'running'
+                  ? 'running the first gate — each result lands here as it finishes'
+                  : forecast
+                    ? 'not run yet — these gates would run'
+                    : 'resolved per repository when the stage runs',
           }
         : {}),
     ...(aggregate ? { aggregate } : {}),
@@ -493,7 +524,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
 /** The uat stage's processes: gates, services, tester — plus a causal fix. */
 export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const processes = [
-    gatesProcess(input.cell, input.gateRuns, 'uat', input.now),
+    gatesProcess(input.cell, input.gateRuns, 'uat', input.now, input.resolvedGates ?? []),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
   ];
@@ -504,7 +535,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
 /** The review stage's processes: gates, services, review — plus a causal fix. */
 export function reviewProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const processes = [
-    gatesProcess(input.cell, input.gateRuns, 'review', input.now),
+    gatesProcess(input.cell, input.gateRuns, 'review', input.now, input.resolvedGates ?? []),
     servicesProcess(input.cell, input.services),
     reviewProcess(input),
   ];

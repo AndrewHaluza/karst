@@ -478,6 +478,30 @@ describe('insideViews (the six-stage inside presentation)', () => {
     expect(views.review.processes.map((p) => p.id)).toEqual(['gates', 'services', 'review']);
   });
 
+  it('renders the resolved gate names as pending rows before the uat stage runs', () => {
+    // The wiring the reducer test cannot prove: the panel's cached resolution
+    // must reach the uat view's gates process through buildDashboardState.
+    const ticketId = ticketAt('uat');
+    const state = buildDashboardState(
+      store,
+      ticketId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { uat: [{ name: 'test', disabled: false }], review: [] },
+    );
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    const rows = (gates.evidence as { kind: 'gates'; rows: readonly { label: string }[] }).rows;
+    expect(rows).toEqual([expect.objectContaining({ label: 'test' })]);
+  });
+
   it('renders ship and done from the same current PR read', () => {
     const ticketId = ticketAt('ship');
     store.db

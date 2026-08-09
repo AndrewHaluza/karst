@@ -203,6 +203,77 @@ describe('uatProcesses', () => {
     expect(views[0]!.aggregate).toBeUndefined();
   });
 
+  it('lists the resolved gate names as pending rows before the stage runs', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'pending'),
+        resolvedGates: [{ name: 'lint', disabled: false }],
+      }),
+    );
+    const gates = views[0]!;
+    expect(rowsOf(gates)).toEqual([
+      { status: 'pending', label: 'lint', detail: 'will run when the stage runs' },
+    ]);
+    expect(gates.detail).toBe('not run yet — these gates would run');
+  });
+
+  it('marks a user-disabled gate as skipped, never as pending', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'pending'),
+        resolvedGates: [{ name: 'typecheck', disabled: true }],
+      }),
+    );
+    expect(rowsOf(views[0]!)).toEqual([
+      { status: 'skip', label: 'typecheck', detail: 'disabled for this ticket' },
+    ]);
+  });
+
+  it('never lets a forecast outrank a recorded run', () => {
+    // A recorded row is a fact; a resolved name is a prediction. Both supplied
+    // → the recorded batch wins and the forecast appears nowhere.
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'pending'),
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW })],
+        resolvedGates: [
+          { name: 'lint', disabled: false },
+          { name: 'test', disabled: false },
+        ],
+      }),
+    );
+    const gates = views[0]!;
+    expect(rowsOf(gates).map((r) => r.label)).toEqual(['test (web)']);
+    expect(rowsOf(gates).map((r) => r.status)).toEqual(['pass']);
+  });
+
+  it('counts no outcome for a gate that has not run', () => {
+    // A gate that has not run has no verdict: counting a forecast would make
+    // the aggregate lie.
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'pending'),
+        resolvedGates: [
+          { name: 'lint', disabled: false },
+          { name: 'test', disabled: false },
+          { name: 'e2e', disabled: false },
+        ],
+      }),
+    );
+    const gates = views[0]!;
+    const evidence = gates.evidence as {
+      kind: 'gates';
+      rows: readonly EvidenceRow[];
+      passed: number;
+      failed: number;
+      skipped: number;
+    };
+    expect(evidence.passed).toBe(0);
+    expect(evidence.failed).toBe(0);
+    expect(evidence.skipped).toBe(0);
+    expect(gates.aggregate).toBeUndefined();
+  });
+
   it('measures the gates process duration across the whole batch (B5)', () => {
     const views = uatProcesses(
       qualityInput({
