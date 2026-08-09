@@ -454,8 +454,18 @@ describe('ship quarantine commit primitives', () => {
 
       // The quarantined tree materializes the base tree PLUS the staged
       // content — an empty quarantine object dir proves the base was read
-      // through the alternate.
-      const tree = await runGit(['ls-tree', '-r', '--name-only', prepared.intendedTree], dir);
+      // through the alternate. The probe must run with the quarantine env:
+      // `write-tree` wrote the new tree into `GIT_OBJECT_DIRECTORY`, so the
+      // main repo cannot resolve it without the env, and a bare `ls-tree`
+      // here read the object as missing (empty stdout, not the tree).
+      const tree = await runGitEnv(
+        ['ls-tree', '-r', '--name-only', prepared.intendedTree],
+        wt,
+        {
+          GIT_OBJECT_DIRECTORY: join(adminDir, 'karst-quarantine', KEY, 'objects'),
+          GIT_ALTERNATE_OBJECT_DIRECTORIES: join(dir, '.git', 'objects'),
+        },
+      );
       expect(tree.stdout.trim().split('\n').sort()).toEqual(['a.txt', 'b.txt']);
       expect(await headCommit(defaultGitRunner, wt)).toBe(preHead);
 
