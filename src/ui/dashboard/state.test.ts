@@ -6,6 +6,8 @@ import { recordGateRun } from '../../store/gateRuns.js';
 import { recordFindings } from '../../store/reviewFindings.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
+import { recordTokenUsage } from '../../store/tokenUsage.js';
+import { openProcessRun } from '../../store/processRuns.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { buildDashboardState } from './state.js';
@@ -39,6 +41,32 @@ describe('buildDashboardState', () => {
     expect(state.servers[0]!.port).toBe(5173);
     expect(state.worktrees).toEqual([]);
     expect(state.prs).toEqual([]);
+  });
+
+  it('passes the real estimated call count into the session process token view', () => {
+    const t = createTicket(store, { key: 'TK-1', title: 'tokens' });
+    const run = openProcessRun(store, {
+      ticketId: t.id, stageKey: 'impl', processId: 'session', attempt: 0,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    recordTokenUsage(store, {
+      projectId: null, ticketId: t.id, processRunId: run.id, callSite: 'impl-run',
+      provider: 'codex', outcome: 'ok', recordedAt: '2026-08-01T10:01:00.000Z',
+      usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0,
+               totalTokens: 150, model: 'gpt-5.6-sol', estimated: false },
+    });
+    recordTokenUsage(store, {
+      projectId: null, ticketId: t.id, processRunId: run.id, callSite: 'impl-run',
+      provider: 'codex', outcome: 'ok', recordedAt: '2026-08-01T10:02:00.000Z',
+      usage: { inputTokens: 999, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+               totalTokens: 999, model: 'gpt-5.6-sol', estimated: true },
+    });
+
+    // The count is a real fact from the ledger, never the hardcoded 0: the
+    // mixed measured + estimated process reads as estimated.
+    const state = buildDashboardState(store, t.id);
+    const session = state.insideViews.impl.processes.find((p) => p.id === 'session')!;
+    expect(session.tokens).toMatchObject({ estimated: true });
   });
 
   it('shows the resolved agent core/model and enables switching only for a live impl session', () => {

@@ -302,10 +302,14 @@ export function buildDashboardState(
     registry ? registry.register({ ...target, ticketId: ticket.id }) : undefined;
 
   // Recorded token summaries per process and per role — a process whose calls
-  // were all estimates reads as absent, never as a measured free call.
+  // were all estimates reads as absent, never as a measured free call. The
+  // estimate COUNT rides beside the measured total as a separate fact (a core
+  // that fell back to estimates stays visible, never folded into the total).
   const tokensFor = (processId: string): SessionTokensInput | null => {
     const summary = summarizeRecordedTokenUsageForProcess(store, ticketId, processId);
-    return summary.total > 0 ? { total: summary.total, estimatedCalls: 0 } : null;
+    return summary.total > 0
+      ? { total: summary.total, estimatedCalls: summary.estimatedCalls }
+      : null;
   };
   const recordedTotal = summarizeRecordedTokenUsage(store, ticketId);
   const roleTokens = summarizeRecordedTokenUsageByRole(store, ticketId);
