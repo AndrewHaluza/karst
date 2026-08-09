@@ -9,6 +9,8 @@ import { boundedEvidenceRows } from './bounds.js';
 import { bounded } from './bounds.js';
 import {
   formatDuration,
+  formatExactDuration,
+  formatTime,
   type CommitEntryView,
   type CommitRepoView,
   type EvidenceRow,
@@ -226,7 +228,13 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
         label: repo,
         detail,
         ...(action ? { action } : {}),
-        ...(step?.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
+        ...(step?.startedAt
+          ? {
+              duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
+              durationExact: formatExactDuration(step.startedAt, step.endedAt ?? input.now),
+              time: formatTime(step.startedAt),
+            }
+          : {}),
       };
     },
   );
@@ -281,7 +289,13 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
         status: stepStatus(step),
         label: repo,
         detail: step?.detail || 'no push recorded',
-        ...(step?.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
+        ...(step?.startedAt
+          ? {
+              duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
+              durationExact: formatExactDuration(step.startedAt, step.endedAt ?? input.now),
+              time: formatTime(step.startedAt),
+            }
+          : {}),
       };
     },
   );
@@ -398,7 +412,13 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
         status: stepStatus(step),
         label: repo,
         detail: `${kind}${number}`,
-        ...(step.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
+        ...(step.startedAt
+          ? {
+              duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
+              durationExact: formatExactDuration(step.startedAt, step.endedAt ?? input.now),
+              time: formatTime(step.startedAt),
+            }
+          : {}),
       };
     },
   );

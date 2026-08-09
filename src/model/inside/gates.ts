@@ -12,6 +12,8 @@ import { insertCausalFix, recoveryProcess } from './recovery.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './types.js';
 import {
   formatDuration,
+  formatExactDuration,
+  formatTime,
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
@@ -66,13 +68,15 @@ export function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateR
  * question to ask; a null exit with `skipped` true means the gate was there and
  * the user switched it off for this ticket. Neither of the last two is a pass.
  */
-function gateOp(run: GateRun): StageOp {
+function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: string } {
   if (run.skipped) {
     return {
       status: 'skip',
       name: run.gateName,
       detail: 'Skipped — disabled by user',
       duration: '',
+      repo: run.repo,
+      durationExact: '',
     };
   }
   return {
@@ -83,6 +87,8 @@ function gateOp(run: GateRun): StageOp {
     // but this summary line stays terse on purpose.
     detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}`,
     duration: formatDuration(run.startedAt, run.endedAt),
+    repo: run.repo,
+    durationExact: formatExactDuration(run.startedAt, run.endedAt),
   };
 }
 
@@ -240,8 +246,14 @@ function aiProcessBase(
       : cell.status === 'pending'
         ? 'pending'
         : 'note',
-    ...(run?.startedAt ? { duration: formatDuration(run.startedAt, run.endedAt ?? now) } : {}),
-    ...(run?.provider ? { execution: executionView(run.provider, run.model) } : {}),
+    ...(run?.startedAt
+      ? {
+          duration: formatDuration(run.startedAt, run.endedAt ?? now),
+          durationExact: formatExactDuration(run.startedAt, run.endedAt ?? now),
+          time: formatTime(run.startedAt),
+        }
+      : {}),
+    ...(run?.provider ? { execution: executionView(run.provider, run.model, run.agentName) } : {}),
     // A run that recorded no provider is identity ABSENCE, never "unknown
     // identity" and never the configured default (handoff §11: "No historical
     // execution identity recorded" — what RAN decides, and here it says
@@ -313,7 +325,14 @@ function gatesProcess(
         }))
       : batch.map((r): EvidenceRow => {
           const op = gateOp(r);
-          return { status: op.status, label: op.name, detail: op.detail, duration: op.duration };
+          return {
+            status: op.status,
+            label: op.name,
+            detail: op.detail,
+            duration: op.duration,
+            ...(op.repo ? { repo: op.repo } : {}),
+            ...(op.durationExact ? { durationExact: op.durationExact } : {}),
+          };
         }),
     GATES_EVIDENCE_LIMIT,
   );
@@ -321,13 +340,16 @@ function gatesProcess(
   if (boundedRows.remaining > 0) {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
-  // The kind-specific aggregate (B5): the WHOLE batch counted, per handoff §6
-  // ("4 passed · 1 failed"). The same counts the evidence carries, worded
-  // host-side; a batch with no counted outcome is absence, never "0 passed".
+  // The kind-specific aggregate (B5): the WHOLE batch counted, per handoff §6,
+  // led by `n/m` — how many of the recorded gates produced a VERDICT. A skipped
+  // gate, or one whose script the repo does not define, is in `m` and not in
+  // `n`: it was recorded and it answered nothing. A batch with no recorded row
+  // is absence, never "0/0".
   const aggregate =
-    passed + failed + skipped === 0
+    batch.length === 0
       ? undefined
       : [
+          `${passed + failed}/${batch.length}`,
           passed > 0 ? `${passed} passed` : '',
           failed > 0 ? `${failed} failed` : '',
           skipped > 0 ? `${skipped} skipped` : '',
@@ -387,7 +409,13 @@ function gatesProcess(
           }
         : {}),
     ...(aggregate ? { aggregate } : {}),
-    ...(firstStart ? { duration: formatDuration(firstStart, lastEnd) } : {}),
+    ...(firstStart
+      ? {
+          duration: formatDuration(firstStart, lastEnd),
+          durationExact: formatExactDuration(firstStart, lastEnd),
+          time: formatTime(firstStart),
+        }
+      : {}),
     evidence: { kind: 'gates', rows, passed, failed, skipped },
   };
 }
@@ -541,7 +569,10 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
     testerProcess(input),
   ];
   const stageRounds = input.rounds.filter((r) => r.sourceStage === 'uat');
-  return insertCausalFix(processes, recoveryProcess(stageRounds, input.processRuns, input.now));
+  return insertCausalFix(
+    processes,
+    recoveryProcess(stageRounds, input.processRuns, input.now, input.configured),
+  );
 }
 
 /** The review stage's processes: gates, services, review — plus a causal fix. */
@@ -552,5 +583,8 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
     reviewProcess(input),
   ];
   const stageRounds = input.rounds.filter((r) => r.sourceStage === 'review');
-  return insertCausalFix(processes, recoveryProcess(stageRounds, input.processRuns, input.now));
+  return insertCausalFix(
+    processes,
+    recoveryProcess(stageRounds, input.processRuns, input.now, input.configured),
+  );
 }

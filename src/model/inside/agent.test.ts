@@ -8,6 +8,7 @@ import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import {
+  executionView,
   implementationSessionProcess,
   reportedPhases,
   SESSION_STATUS_LABELS,
@@ -139,6 +140,23 @@ describe('implementationSessionProcess', () => {
     expect(first).toMatchObject({ label: 'started', status: 'note' });
     expect(first.detail).toBe(formatTime(runAt('12:00')));
     expect(first.duration).not.toBe('');
+  });
+
+  it('states when the session started', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'passed', {
+        startedAt: runAt('12:00'),
+        endedAt: runAt('12:03'),
+      }),
+      tl([segment({ id: 1 })], { status: 'passed', endedAt: runAt('12:03') }),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.time).toBe(formatTime(runAt('12:00')));
+    expect(process.duration).toBe('3m 0s');
+    expect(process.durationExact).toBe('180.000s');
   });
 
   it('reports a provider switch as its own row naming the provider and model', () => {
@@ -950,5 +968,20 @@ describe('implementationSessionProcess segment tokens', () => {
       [],
     );
     expect(rows(process).find((r) => r.connector === 'switch')!.tokens).toBeUndefined();
+  });
+});
+
+describe('executionView', () => {
+  it('carries the recorded agent name into the execution view', () => {
+    const view = executionView('codex', 'sol', 'UAT Agent');
+    expect(view.agentName).toBe('UAT Agent');
+    expect(view.provider).toBe('codex');
+    expect(view.model).toBe('sol');
+  });
+
+  it('omits agentName when none was recorded — never a derived one', () => {
+    expect(executionView('codex', 'sol').agentName).toBeUndefined();
+    expect(executionView('codex', 'sol', null).agentName).toBeUndefined();
+    expect(executionView('codex', 'sol', '').agentName).toBeUndefined();
   });
 });

@@ -8,6 +8,7 @@ import { AGENT_PROVIDER_LABELS } from '../agentIdentity.js';
 import { formatExactTokens, formatTokens } from '../tokenFormat.js';
 import {
   formatDuration,
+  formatExactDuration,
   formatTime,
   type AgentExecutionView,
   type EvidenceRow,
@@ -96,9 +97,19 @@ export function labelForModel(provider: string, model: string | null): string {
   return catalog?.find((option) => option.id === model)?.label ?? model;
 }
 
-/** One recorded provider session as the display model. */
-export function executionView(provider: string, model: string | null): AgentExecutionView {
+/**
+ * One recorded provider session as the display model. `agentName` is the
+ * IDENTITY SNAPSHOT the run recorded (`process_runs.agent_name`), passed
+ * through when there is one — never derived from the provider, which is a
+ * different fact.
+ */
+export function executionView(
+  provider: string,
+  model: string | null,
+  agentName?: string | null,
+): AgentExecutionView {
   return {
+    ...(agentName ? { agentName } : {}),
     provider,
     providerLabel: labelForProvider(provider),
     model,
@@ -453,7 +464,13 @@ export function implementationSessionProcess(
     statusLabel: SESSION_STATUS_LABELS[status],
     ...(footer.length > 0 ? { footer } : {}),
     ...(action ? { action } : {}),
-    ...(cell.startedAt ? { duration: formatDuration(cell.startedAt, cell.endedAt ?? now) } : {}),
+    ...(cell.startedAt
+      ? {
+          duration: formatDuration(cell.startedAt, cell.endedAt ?? now),
+          durationExact: formatExactDuration(cell.startedAt, cell.endedAt ?? now),
+          time: formatTime(cell.startedAt),
+        }
+      : {}),
     ...(execution ? { execution: executionView(execution.provider, execution.model) } : {}),
     ...(configured && !execution
       ? { configuredExecution: executionView(configured.provider, configured.model) }

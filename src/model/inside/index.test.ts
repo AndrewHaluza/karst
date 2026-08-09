@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { type StageStatus } from '../types.js';
 import type { StepperCell } from '../stepper.js';
 import { scopeProcesses, uatProcesses, reviewProcesses, shipProcesses, doneReceipt, implementationSessionProcess, type DoneReceiptView } from './index.js';
-import type { EvidenceRow } from './types.js';
+import { formatTime, type EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -102,6 +102,25 @@ describe('scopeProcesses', () => {
     expect(worktrees.status).toBe('pending');
     const evidence = worktrees.evidence as { kind: 'rows'; rows: readonly EvidenceRow[] };
     expect(evidence.rows).toEqual([]);
+  });
+
+  it('states when the scope hot set started', () => {
+    const processes = scopeProcesses(
+      scopeCell('passed', {
+        startedAt: '2026-07-20T12:00:00.000Z',
+        endedAt: '2026-07-20T12:02:00.000Z',
+      }),
+      ['api', 'web'],
+      [worktree('api', 'karst/t-1')],
+      NOW,
+    );
+    const hotSet = processes[0]!;
+    expect(hotSet.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+    expect(hotSet.duration).toBe('2m 0s');
+    expect(hotSet.durationExact).toBe('120.000s');
+    // The worktrees row records no start of its own — it must not carry one.
+    expect(processes[1]!.time).toBeUndefined();
+    expect(processes[1]!.durationExact).toBeUndefined();
   });
 
   it('notes honestly when scope ran but created no worktrees', () => {

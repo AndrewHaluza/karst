@@ -2,6 +2,8 @@ import type { WorktreeView } from '../../store/dashboard.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import {
   formatDuration,
+  formatExactDuration,
+  formatTime,
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
@@ -81,7 +83,13 @@ export function scopeProcesses(
       count === 1
         ? `1 service ${ran ? 'validated' : 'to validate'} against the manifest`
         : `${count} services ${ran ? 'validated' : 'to validate'} against the manifest`,
-    ...(cell.startedAt ? { duration: formatDuration(cell.startedAt, cell.endedAt ?? now) } : {}),
+    ...(cell.startedAt
+      ? {
+          duration: formatDuration(cell.startedAt, cell.endedAt ?? now),
+          durationExact: formatExactDuration(cell.startedAt, cell.endedAt ?? now),
+          time: formatTime(cell.startedAt),
+        }
+      : {}),
     // The hot set's evidence is WHICH services it names. Without it the row
     // stated a count and offered no way to read the list behind it — the one
     // process on the stage whose whole content is an enumeration.

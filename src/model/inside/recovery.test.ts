@@ -173,6 +173,38 @@ describe('recoveryProcess', () => {
     expect(view.process.execution).toMatchObject({ provider: 'codex', model: 'sol' });
   });
 
+  it('shows the fix execution identity the round recorded', () => {
+    const run = fixRun({ id: 7 });
+    const view = recoveryProcess([round({ fixProcessRunId: 7 })], [run], NOW)!;
+    expect(view.process.execution).toMatchObject({
+      provider: 'codex',
+      model: 'sol',
+      agentName: 'UAT Fix Agent',
+    });
+    expect(view.process.configuredExecution).toBeUndefined();
+    expect(view.process.identityNote).toBeUndefined();
+  });
+
+  it('falls back to the configured identity when no fix run was recorded', () => {
+    const view = recoveryProcess([round()], [], NOW, { provider: 'claude', model: 'opus' })!;
+    expect(view.process.configuredExecution).toMatchObject({ provider: 'claude', model: 'opus' });
+    expect(view.process.execution).toBeUndefined();
+    expect(view.process.identityNote).toBeUndefined();
+  });
+
+  it('states identity absence for a fix run that recorded no provider', () => {
+    const run = fixRun({ id: 7, provider: null, model: null, agentName: null });
+    const view = recoveryProcess(
+      [round({ fixProcessRunId: 7 })],
+      [run],
+      NOW,
+      { provider: 'claude', model: 'opus' },
+    )!;
+    expect(view.process.identityNote).toBe('No historical execution identity recorded');
+    expect(view.process.execution).toBeUndefined();
+    expect(view.process.configuredExecution).toBeUndefined();
+  });
+
   it('bounds the round history and names the remainder', () => {
     const many = Array.from({ length: 10 }, (_, i) => round({ id: i + 1, round: i + 1 }));
     const rows = evidenceRows(recoveryProcess(many, [], NOW)!);

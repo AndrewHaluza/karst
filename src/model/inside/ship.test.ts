@@ -4,7 +4,7 @@ import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { shipProcesses, type ShipProcessesInput } from './ship.js';
-import type { InsideEvidenceTarget, ShipPrView } from './types.js';
+import { formatTime, type InsideEvidenceTarget, type ShipPrView } from './types.js';
 import type { EvidenceRow, InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -109,6 +109,47 @@ describe('shipProcesses', () => {
   it('emits commit, push, pr, merge in registry order', () => {
     const views = shipProcesses(shipInput());
     expect(views.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
+  });
+
+  it('states when each recorded ship step started', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: {
+                commit: step('commit', {
+                  startedAt: '2026-07-20T12:00:00.000Z',
+                  endedAt: '2026-07-20T12:00:30.000Z',
+                }),
+                push: step('push', {
+                  startedAt: '2026-07-20T12:00:30.000Z',
+                  endedAt: '2026-07-20T12:01:00.000Z',
+                }),
+                pr: step('pr', {
+                  startedAt: '2026-07-20T12:01:00.000Z',
+                  endedAt: '2026-07-20T12:01:10.000Z',
+                  number: 5,
+                }),
+              },
+            }),
+          },
+        }),
+        prs: [pr('/web', { number: 5, status: 'open' })],
+      }),
+    );
+    const commit = rowsOf(views[0]!)[0]!;
+    const push = rowsOf(views[1]!)[0]!;
+    const prRow = rowsOf(views[2]!)[0]!;
+    expect(commit.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+    expect(commit.durationExact).toBe('30.000s');
+    expect(push.time).toBe(formatTime('2026-07-20T12:00:30.000Z'));
+    expect(push.durationExact).toBe('30.000s');
+    expect(prRow.time).toBe(formatTime('2026-07-20T12:01:00.000Z'));
+    expect(prRow.durationExact).toBe('10.000s');
+    // The merge process reads current PR state, never a recorded step — it
+    // has no start to state.
+    expect(rowsOf(views[3]!)[0]!.time).toBeUndefined();
   });
 
   it('distinguishes ship-created commits from pre-existing ones per repo', () => {

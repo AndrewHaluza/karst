@@ -78,6 +78,22 @@ export function formatDuration(
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/**
+ * The same span `formatDuration` rounds, stated exactly. Rendered ONLY as a
+ * control's `title`: the row keeps the readable form, and a reader who needs
+ * the millisecond truth can hover for it. Empty for an absent or unparseable
+ * pair, exactly like `formatDuration` — an absent fact must read as absent.
+ */
+export function formatExactDuration(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+): string {
+  if (!startedAt || !endedAt) return '';
+  const ms = Date.parse(endedAt) - Date.parse(startedAt);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  return `${(ms / 1000).toFixed(3)}s`;
+}
+
 /** Time of day, in the reader's own locale. Empty for an unparseable stamp. */
 export function formatTime(at: string | null | undefined): string {
   if (!at) return '';
@@ -262,6 +278,28 @@ export interface EvidenceRow {
    * guess that a row is a switch.
    */
   connector?: 'switch' | 'resume';
+  /**
+   * The repository this row's evidence was recorded against — `gate_runs.repo`,
+   * verbatim. Absent for a row that names no repository (a pre-v21 gate row,
+   * the `changes` evidence row, a non-gate body): the renderer drops the column
+   * rather than drawing an empty one, because a blank cell reads as a repo with
+   * no name instead of a row that names none.
+   */
+  repo?: string;
+  /**
+   * The exact form of `duration`, host-formatted. Rendered only as the
+   * duration's `title`. Absent → the readable duration carries no tooltip.
+   */
+  durationExact?: string;
+  /**
+   * When this row's recorded step STARTED, as a clock time in the reader's
+   * locale — `formatTime` of the same recorded timestamp `duration` is
+   * measured from. Set by the ship evidence rows, whose steps each record
+   * their own start. A row whose start was never recorded (a forecast gate, a
+   * merge row read from CURRENT PR state rather than a recorded step) carries
+   * none; absence is stated by omission, never by a placeholder.
+   */
+  time?: string;
 }
 
 /**
@@ -452,6 +490,15 @@ export interface InsideProcessView {
   /** A bare count, for a process whose identity IS a number (scope's hot set). */
   count?: string;
   duration?: string;
+  /**
+   * When this process STARTED, as a clock time in the reader's locale —
+   * `formatTime` of the same recorded timestamp `duration` is measured from.
+   * A process whose start karst never recorded (Services, which runs nothing)
+   * carries none; absence is stated by omission, never by a placeholder.
+   */
+  time?: string;
+  /** The exact form of `duration`. Rendered only as the duration's `title`. */
+  durationExact?: string;
   /** The execution karst actually ran, when it ran one. */
   execution?: AgentExecutionView;
   /** What the settings said WOULD run, for a process that has not run. */
@@ -469,6 +516,25 @@ export interface InsideProcessView {
 }
 
 /**
+ * The stage's CURRENT operation as the header states it.
+ *
+ * Declared here rather than imported from `./progress.js` because `progress.ts`
+ * already imports this module — the reverse import would close a cycle. It is
+ * structurally identical to `LiveOperationView` on purpose: the header renders
+ * the ephemeral progress event and this snapshot-derived fallback through one
+ * code path, so a reopened panel is never blank while a stage is working.
+ *
+ * Every field is derived from a process row already on screen. This states
+ * nothing the ledger below it does not.
+ */
+export interface InsideLiveView {
+  status: 'run' | 'wait' | 'fail';
+  label?: string;
+  detail?: string;
+  duration?: string;
+}
+
+/**
  * The full presentation model for ONE inside stage: the flat operation rows of
  * the retired legacy strip become ordered processes, each carrying its own
  * evidence and controls.
@@ -480,6 +546,11 @@ export interface InsideStageView {
   dot: InsideDot;
   /** `12:23:06 · 51.7s · attempt 1`, or `has not run yet`. */
   clock: string;
+  /**
+   * The current operation, derived from this stage's own processes. Absent when
+   * no process is running or waiting — a settled stage has no live line.
+   */
+  live?: InsideLiveView;
   /** Ordered processes. EMPTY means nothing ran — the view shows `blurb` instead. */
   processes: InsideProcessView[];
   /** The static "what happens here" copy. Always present. */

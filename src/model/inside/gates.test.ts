@@ -8,7 +8,7 @@ import type { Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { reviewProcesses, uatProcesses, type QualityProcessesInput } from './gates.js';
-import type { EvidenceRow, InsideProcessView } from './types.js';
+import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -190,17 +190,18 @@ describe('uatProcesses', () => {
         ],
       }),
     );
-    expect(views[0]!.aggregate).toBe('1 passed · 1 failed · 1 skipped');
+    expect(views[0]!.aggregate).toBe('2/3 · 1 passed · 1 failed · 1 skipped');
   });
 
-  it('omits the gates aggregate when the batch has no counted outcome (B5)', () => {
-    // An all-note batch ("nothing to run") is absence, never "0 passed".
+  it('leads a recorded-but-unanswered batch as n/m, never absence', () => {
+    // An all-note batch ("nothing to run") was RECORDED and answered nothing:
+    // "0/1" states that. Absence is reserved for no recorded row at all.
     const views = uatProcesses(
       qualityInput({
         gateRuns: [run('uat', 'lint (web)', null, { runAt: NOW })],
       }),
     );
-    expect(views[0]!.aggregate).toBeUndefined();
+    expect(views[0]!.aggregate).toBe('0/1');
   });
 
   it('lists the resolved gate names as pending rows before the stage runs', () => {
@@ -325,6 +326,83 @@ describe('uatProcesses', () => {
     );
     // Earliest start → latest end: 12:00:00 → 12:00:40.
     expect(views[0]!.duration).toBe('40.0s');
+  });
+
+  it('leads the gates aggregate with the verdict count over the batch size', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'failed'),
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: NOW }),
+          run('uat', 'e2e (web)', 0, { runAt: NOW }),
+          run('uat', 'lint (web)', 2, { runAt: NOW }),
+        ],
+      }),
+    );
+    expect(views[0]!.aggregate).toBe('3/3 · 2 passed · 1 failed');
+  });
+
+  it('counts a skipped gate in the batch total but not in the verdict count', () => {
+    const views = uatProcesses(
+      qualityInput({
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: NOW }),
+          run('uat', 'lint (web)', null, { runAt: NOW, skipped: true }),
+        ],
+      }),
+    );
+    expect(views[0]!.aggregate).toBe('1/2 · 1 passed · 1 skipped');
+  });
+
+  it('omits the aggregate entirely when the batch recorded no row', () => {
+    const views = uatProcesses(qualityInput({ cell: cell('uat', 'pending') }));
+    expect(views[0]!.aggregate).toBeUndefined();
+  });
+
+  it('carries each gate row the repository it was recorded against', () => {
+    const views = uatProcesses(
+      qualityInput({
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: NOW, repo: '/web' }),
+          run('uat', 'e2e (api)', 0, { runAt: NOW, repo: '/api' }),
+        ],
+      }),
+    );
+    expect(rowsOf(views[0]!).map((r) => r.repo)).toEqual(['/web', '/api']);
+  });
+
+  it('omits repo on a gate row recorded before the repo column existed', () => {
+    const views = uatProcesses(
+      qualityInput({
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW, repo: null })],
+      }),
+    );
+    const rows = rowsOf(views[0]!);
+    expect(rows[0]!.repo).toBeUndefined();
+  });
+
+  it('states when the gates process started and its exact span', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'passed', { startedAt: '2026-07-20T12:00:00.000Z', endedAt: NOW }),
+        gateRuns: [
+          run('uat', 'test (web)', 0, {
+            runAt: NOW,
+            startedAt: '2026-07-20T12:00:00.000Z',
+            endedAt: '2026-07-20T12:00:10.000Z',
+          }),
+          run('uat', 'e2e (web)', 0, {
+            runAt: NOW,
+            startedAt: '2026-07-20T12:00:05.000Z',
+            endedAt: '2026-07-20T12:00:40.000Z',
+          }),
+        ],
+      }),
+    );
+    const gates = views[0]!;
+    expect(gates.duration).toBe('40.0s');
+    expect(gates.durationExact).toBe('40.000s');
+    expect(gates.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
   });
 
   it('counts gate outcomes and keeps skip and note distinct from pass and fail', () => {

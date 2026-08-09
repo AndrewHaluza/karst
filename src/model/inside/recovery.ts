@@ -1,10 +1,12 @@
 import type { ProcessRun } from '../../store/processRuns.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
-import { executionView } from './agent.js';
+import { executionView, type SessionConfiguredInput } from './agent.js';
 import { bounded } from './bounds.js';
 import {
   formatDuration,
+  formatExactDuration,
+  formatTime,
   STAGE_TITLES,
   type EvidenceRow,
   type InsideProcessView,
@@ -100,6 +102,7 @@ export function recoveryProcess(
   rounds: readonly RecoveryRound[],
   processRuns: readonly ProcessRun[],
   now: string,
+  configured?: SessionConfiguredInput | null,
 ): RecoveryProcessView | null {
   if (rounds.length === 0) return null;
   const latest = rounds[rounds.length - 1]!;
@@ -142,10 +145,29 @@ export function recoveryProcess(
       status: roundStatus(latest),
       ...(detail ? { detail } : {}),
       ...(fixRun?.startedAt
-        ? { duration: formatDuration(fixRun.startedAt, fixRun.endedAt ?? now) }
+        ? {
+            duration: formatDuration(fixRun.startedAt, fixRun.endedAt ?? now),
+            durationExact: formatExactDuration(fixRun.startedAt, fixRun.endedAt ?? now),
+            time: formatTime(fixRun.startedAt),
+          }
         : {}),
+      // The §11 identity order, the same one every other AI process uses: what
+      // RAN, else what settings SAY will run, else the absence copy. Fix is an
+      // AI process — it resumes the captured session — and showing no identity
+      // at all made it the one AI row on the stage with no `AI` mark.
       ...(fixRun?.provider
-        ? { execution: executionView(fixRun.provider, fixRun.model) }
+        ? { execution: executionView(fixRun.provider, fixRun.model, fixRun.agentName) }
+        : {}),
+      // The configured fallback applies ONLY when no run was recorded at all.
+      // A run that recorded no provider is identity ABSENCE, never the
+      // configured default: what RAN decides, and here it said nothing — so
+      // that case takes `identityNote` below instead. This mirrors
+      // `aiProcessBase` in `gates.ts` exactly.
+      ...(!fixRun && configured
+        ? { configuredExecution: executionView(configured.provider, configured.model) }
+        : {}),
+      ...(fixRun && !fixRun.provider
+        ? { identityNote: 'No historical execution identity recorded' }
         : {}),
       evidence: { kind: 'recovery', rows },
     },
