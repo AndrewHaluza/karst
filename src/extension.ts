@@ -16,7 +16,6 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
-import type { InsidePreviewHost } from './ui/dashboard/insidePreview.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
@@ -166,7 +165,6 @@ import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable, serviceOf } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
-import { setPreviewContextThenContinue } from './extension/previewContext.js';
 import {
   createReportIssueHandler,
   DiagnosticDocumentProvider,
@@ -3058,74 +3056,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       gettingStarted.open();
     }),
   );
-
-  // Development-only Inside preview (Finding 1 / Task 9): the checked-in
-  // fixture matrix + preview panel for the Extension Development Host. The
-  // command is registered ONLY here, behind the mode guard — Production and
-  // Test never register it, so an unregistered/non-development path cannot
-  // open a panel — and the fixture/preview modules are pulled in LAZILY by
-  // this branch, so the production dashboard/state dependency graph never
-  // imports them (pinned by insidePreview.test.ts's import walk).
-  //
-  // The command-palette entry is gated on a karst-OWNED context key
-  // (`karst.insidePreviewAvailable`), not VS Code's built-in mode expression:
-  // activation is the one writer, and it writes the key BEFORE the guarded
-  // registration below reads the mode, so a Production or Test activation
-  // sets it to false and the palette can never offer an entry for a command
-  // this window did not register (pinned by extensionActivation.test.ts).
-  await setPreviewContextThenContinue({
-    setContext: () =>
-      vscode.commands.executeCommand(
-        'setContext',
-        'karst.insidePreviewAvailable',
-        context.extensionMode === vscode.ExtensionMode.Development,
-      ),
-    logError,
-    continueActivation: () => {
-      if (context.extensionMode === vscode.ExtensionMode.Development) {
-        context.subscriptions.push(
-          vscode.commands.registerCommand('karst.dev.openInsidePreview', () => {
-            const previewHost: InsidePreviewHost = {
-              createPanel: (title, _html) => {
-                const panel = vscode.window.createWebviewPanel(
-                  'karst.insidePreview',
-                  title,
-                  { viewColumn: vscode.ViewColumn.Active },
-                  { enableScripts: true, retainContextWhenHidden: true },
-                );
-                // The preview renders the SAME injected dashboard asset production
-                // renders — the html argument is the interface's test seam, the
-                // asset is bound here. The tab is branded like every other panel.
-                panel.webview.html = injectCsp(dashboardWebviewHtml(), newNonce());
-                panel.iconPath = brandIconUri(brandIcon);
-                return {
-                  postMessage: (message) => void panel.webview.postMessage(message),
-                  onDidReceiveMessage: () => undefined,
-                  onDidDispose: () => undefined,
-                };
-              },
-            };
-            void Promise.all([
-              import('./ui/dashboard/insidePreview.js'),
-              import('./ui/dashboard/insideFixtures.js'),
-            ])
-              .then(([preview, fixtures]) =>
-                preview.openInsidePreview(previewHost, fixtures.insidePreviewFixtures()),
-              )
-              .catch((error) => logError('inside preview failed to load', error));
-          }),
-          // The palette key is owned by this host. Clear it when the development
-          // host goes away so a reload into a Production host never inherits a
-          // stale `true` from the window this host was running in.
-          {
-            dispose: () => {
-              void vscode.commands.executeCommand('setContext', 'karst.insidePreviewAvailable', false);
-            },
-          },
-        );
-      }
-    },
-  });
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-

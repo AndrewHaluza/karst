@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
-  insidePreviewFixtures,
-  PREVIEW_REPO_COUNTS,
-  PREVIEW_SCENARIOS,
-  type InsidePreviewFixture,
-} from './insideFixtures.js';
+  renderFixtures,
+  RENDER_REPO_COUNTS,
+  RENDER_SCENARIOS,
+  type InsideRenderFixture,
+} from './renderFixtures.js';
 import { EVIDENCE_KINDS } from '../../model/inside/types.js';
 
 /**
- * Task 9 / Finding 1: the checked-in fixture matrix is the data contract of the
- * development-only Inside preview. These tests pin the deterministic identity
- * of every fixture, the per-stage process-count invariant, the exact bounded
- * remainder rows (the "+N more" markers must match the production reducers'
- * own bounds), the coverage of every evidence kind and scenario, and the
- * presence of long untrusted labels/paths the renderer must escape.
+ * The checked-in render fixture matrix is the data contract of the dashboard
+ * webview's render tests. These tests pin the deterministic identity of every
+ * fixture, the per-stage process-count invariant, the exact bounded remainder
+ * rows (the "+N more" markers must match the production reducers' own bounds),
+ * the coverage of every evidence kind and scenario, and the presence of long
+ * untrusted labels/paths the renderer must escape.
  *
  * The matrix is built ONLY from production shapes (InsideStageView,
  * InsideProcessView, evidence, token, execution, typed-action): no SQLite
@@ -22,7 +22,7 @@ import { EVIDENCE_KINDS } from '../../model/inside/types.js';
  * resolve).
  */
 
-const STAGE_FOR_SCENARIO: Readonly<Record<InsidePreviewFixture['scenario'], string>> = {
+const STAGE_FOR_SCENARIO: Readonly<Record<InsideRenderFixture['scenario'], string>> = {
   pending: 'scope',
   running: 'impl',
   passed: 'done',
@@ -42,30 +42,29 @@ const CLOSED_ACTION_KINDS = [
   'open-bounded-evidence',
 ] as const;
 
-function rowsOf(fixture: InsidePreviewFixture, processId: string) {
+function rowsOf(fixture: InsideRenderFixture, processId: string) {
   const process = fixture.view.processes.find((p) => p.id === processId);
   if (!process || !process.evidence) throw new Error(`no evidence for ${processId}`);
   return process.evidence.rows;
 }
 
-describe('inside preview fixtures', () => {
-  const fixtures = insidePreviewFixtures();
+describe('render fixtures', () => {
+  const fixtures = renderFixtures();
 
-  it('is deterministic: stable ids, unique, in repo-then-scenario order', () => {
-    expect(fixtures.map((f) => f.id)).toEqual(
-      PREVIEW_REPO_COUNTS.flatMap((n) =>
-        PREVIEW_SCENARIOS.map((s) => `inside-preview-${n}-${s}`),
-      ),
+  it('is deterministic: unique, in repo-then-scenario order', () => {
+    const identities = fixtures.map((f) => `${f.repositoryCount}:${f.scenario}`);
+    expect(identities).toEqual(
+      RENDER_REPO_COUNTS.flatMap((n) => RENDER_SCENARIOS.map((s) => `${n}:${s}`)),
     );
-    expect(new Set(fixtures.map((f) => f.id)).size).toBe(fixtures.length);
+    expect(new Set(identities).size).toBe(fixtures.length);
     // Two calls produce byte-identical data — no clock, no randomness.
-    expect(JSON.stringify(fixtures)).toBe(JSON.stringify(insidePreviewFixtures()));
+    expect(JSON.stringify(fixtures)).toBe(JSON.stringify(renderFixtures()));
   });
 
   it('covers every repository count and every scenario exactly once each', () => {
-    expect(fixtures).toHaveLength(PREVIEW_REPO_COUNTS.length * PREVIEW_SCENARIOS.length);
-    for (const n of PREVIEW_REPO_COUNTS) {
-      for (const s of PREVIEW_SCENARIOS) {
+    expect(fixtures).toHaveLength(RENDER_REPO_COUNTS.length * RENDER_SCENARIOS.length);
+    for (const n of RENDER_REPO_COUNTS) {
+      for (const s of RENDER_SCENARIOS) {
         expect(
           fixtures.some((f) => f.repositoryCount === n && f.scenario === s),
           `missing fixture: ${n} repos / ${s}`,
@@ -76,7 +75,9 @@ describe('inside preview fixtures', () => {
 
   it('maps every scenario to its canonical stage', () => {
     for (const f of fixtures) {
-      expect(f.stage, `${f.id} stage`).toBe(STAGE_FOR_SCENARIO[f.scenario]);
+      expect(f.stage, `${f.repositoryCount} repos / ${f.scenario} stage`).toBe(
+        STAGE_FOR_SCENARIO[f.scenario],
+      );
     }
   });
 
@@ -105,8 +106,8 @@ describe('inside preview fixtures', () => {
 
   it('states the exact bounded remainder rows at every repository count', () => {
     // The "+N more" marker must match the production reducers' own bounds
-    // (worktrees 8, gates 8, ship per-repo processes 6), so a reviewer of the
-    // preview sees exactly what a real 20-repo ticket renders.
+    // (worktrees 8, gates 8, ship per-repo processes 6), so a render test sees
+    // exactly what a real 20-repo ticket renders.
     const worktreesRemainder = (n: number): string | undefined => {
       const f = fixtures.find((x) => x.repositoryCount === n && x.scenario === 'pending')!;
       const rows = rowsOf(f, 'worktrees');
@@ -210,7 +211,7 @@ describe('inside preview fixtures', () => {
     for (const kind of EVIDENCE_KINDS) {
       expect(kinds.has(kind), `missing evidence kind: ${kind}`).toBe(true);
     }
-    expect(new Set(fixtures.map((f) => f.scenario))).toEqual(new Set(PREVIEW_SCENARIOS));
+    expect(new Set(fixtures.map((f) => f.scenario))).toEqual(new Set(RENDER_SCENARIOS));
     // Both live and error states are represented (Finding 1).
     expect(fixtures.some((f) => f.scenario === 'running')).toBe(true);
     expect(fixtures.some((f) => f.scenario === 'failed')).toBe(true);
@@ -238,7 +239,7 @@ describe('inside preview fixtures', () => {
     }
   });
 
-  it('uses only closed action kinds and inert fixture-scoped ids', () => {
+  it('uses only closed action kinds and inert ids', () => {
     const kinds = new Set<string>();
     for (const f of fixtures) {
       for (const p of f.view.processes) {

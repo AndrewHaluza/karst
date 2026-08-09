@@ -6,14 +6,9 @@ import { runInNewContext } from 'node:vm';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
-import {
-  insidePreviewFixtures,
-  PREVIEW_REPO_COUNTS,
-  PREVIEW_SCENARIOS,
-} from './insideFixtures.js';
-import { previewPayloadFor, previewStateFor } from './insidePreview.js';
+import { renderStateFor } from './renderFixtures.js';
 import type { DashboardState } from './state.js';
-import type { InsideProcessView, InsideStageView } from '../../model/inside/types.js';
+import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -836,9 +831,6 @@ describe('dashboard webview.html', () => {
     // instead of holding a floor, so there is no minimum width to declare. `46px`
     // replaces it — the lane's own height, the one piece of the track's geometry
     // the space scale has no step for.
-    // `300px`/`360px`/`430px` are the development-only Inside preview frame
-    // widths (Finding 1): component dimensions with no scale match, gated on
-    // `.preview-mode` — the same exemption class as the `400px` breakpoint.
     // The four `1px` are ONE value in one place: the `@supports` probe that
     // guards the track's chevron focus ring (`calc(1px * hypot(1px,1px) / 1px)`).
     // A feature query cannot be written in tokens — a `var()` inside the
@@ -846,7 +838,6 @@ describe('dashboard webview.html', () => {
     // question being asked — so the probe is literal by construction. It is a
     // type test, not geometry: nothing is drawn at 1px because of it.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
-      '300px', '360px', '430px',
       '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -1263,86 +1254,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/data-chev="/);
   });
 
-  // ── development-only Inside preview (Finding 1 / Task 9) ────────────────
-  /**
-   * The preview panel renders THIS SAME asset: the toolbar is inert and hidden
-   * in the production dashboard (the `preview-fixtures` message is the only
-   * thing that reveals it), and the selected fixture enters through the same
-   * `{type:'state'}` message listener a real snapshot arrives on — never a
-   * second renderer. Step 8 of the remediation plan: for every fixture/width,
-   * no whole-component horizontal scrolling, status/name precede metadata,
-   * metadata stays attached to its process, evidence disclosures/actions stay
-   * keyboard semantic, all untrusted text is escaped, the timeline rail
-   * geometry stays centered, and reduced motion disables animation without
-   * hiding the spinner ring.
-   */
-  it('ships the preview toolbar hidden, revealed only by the preview-fixtures message', () => {
-    expect(HTML).toContain('<div class="pvtoolbar hidden" id="previewToolbar">');
-    expect(HTML).toMatch(/msg\.type === 'preview-fixtures'/);
-    expect(HTML).toMatch(/classList\.remove\('hidden'\)/);
-    expect(HTML).toMatch(/classList\.add\('preview-mode'\)/);
-  });
-
-  it('routes every selected fixture through the same state message path as a real snapshot', () => {
-    // The toolbar dispatches `{type:'state', state}` on the window message
-    // listener — the identical branch the host's real `pushState` lands on —
-    // so the preview exercises the production render protocol byte for byte
-    // (Finding 1). There is no preview-specific render function.
-    expect(HTML).toMatch(
-      /dispatchEvent\(new MessageEvent\('message', \{[\s\S]{0,60}type: 'state', state: fixture\.state \} \}\)/,
-    );
-    expect(HTML).not.toMatch(/function renderInsidePreview/);
-  });
-
-  it('offers stage/scenario, repo count, and the four preview widths', () => {
-    expect(HTML).toContain('id="pvScenario"');
-    expect(HTML).toContain('id="pvRepos"');
-    for (const w of ['300', '360', '430', 'normal']) {
-      expect(HTML, `missing preview width ${w}`).toContain(`data-pv-w="${w}"`);
-    }
-  });
-
-  it('builds the preview width buttons as real buttons with a pressed state (UI-R09)', () => {
-    // The width group is a labeled group of toggle buttons: a semantic
-    // <button> per width, aria-pressed carrying the active one — never a
-    // clickable span or div.
-    expect(HTML).toMatch(/role="group" aria-label="Preview width"/);
-    expect(HTML).toMatch(/class="k-btn k-btn--ghost k-btn--sm" data-pv-w="300"[^>]*aria-pressed/);
-    expect(HTML).toMatch(/data-pv-w="normal"[^>]*aria-pressed="true"/);
-    expect(HTML).not.toMatch(/<span[^>]*data-pv-w=/);
-  });
-
-  it('labels the preview selects with real label-for controls (UI-R25)', () => {
-    expect(HTML).toContain('<label class="pvlabel" for="pvScenario">');
-    expect(HTML).toContain('<label class="pvlabel" for="pvRepos">');
-    expect(HTML).toContain('id="pvScenario"');
-    expect(HTML).toContain('id="pvRepos"');
-  });
-
-  it('constrains the preview width only under .preview-mode, never production', () => {
-    // The width frame is development-only: every rule is gated on
-    // `.preview-mode` (the class only the preview panel sets), so a production
-    // dashboard render can never be narrowed by these selectors.
-    for (const w of ['300', '360', '430']) {
-      expect(HTML, `missing width rule ${w}`).toContain(
-        `body.preview-mode[data-pv-w="${w}"] .stepper{width:${w}px}`,
-      );
-    }
-    expect(HTML).not.toMatch(/^\s*\.stepper\{[^}]*width:/m);
-    // The raw px are the same UI-R04 exemption class as a breakpoint: a
-    // component dimension with no scale match, commented in the file.
-    expect(HTML).toMatch(/Width frame: dev-only/);
-  });
-
-  it('wraps the preview toolbar and width group at narrow widths', () => {
-    // The toolbar is a component like any other: at 300px it wraps instead of
-    // scrolling the page horizontally (Step 8 — no whole-component horizontal
-    // scrolling applies to the dev controls too).
-    expect(HTML).toMatch(/\.pvtoolbar\{[^}]*flex-wrap:wrap/);
-    expect(HTML).toMatch(/\.pvtoolbar \.pvwidth\{[^}]*flex-wrap:wrap/);
-    expect(HTML).not.toMatch(/\.pvtoolbar[^{]*\{[^}]*overflow-x/);
-  });
-
   it('places status and name before every piece of metadata on a process row', () => {
     // Step 8: inside the RENDERED row template, status glyph → name → identity
     // → tokens → detail → metadata → action → disclosure, in that order, so
@@ -1426,22 +1337,18 @@ describe('dashboard webview.html', () => {
   });
 });
 
-// ── Task 6 (residual): executable fixture/render round trip ─────────────────
+// ── Executable render round trip ────────────────────────────────────────────
 //
 // The tests above are SOURCE guards: they pin the rules that stop a defect,
-// but they cannot tell you a fixture snapshot RENDERS. These execute the
-// dashboard's real inline script (design system + provider identity hydrated
-// exactly as dashboardWebviewHtml() does) in a `node:vm` context with DOM
-// doubles, feed it the `preview-fixtures` message, select every
-// (repo count × scenario) fixture at every preview width, and assert what the
-// selected `{type:'state'}` snapshot actually rendered: hostile fixture
-// strings escaped, semantic disclosure controls, typed actions, and the
-// fixture's own stable process roster. Nothing here claims pixels: layout,
-// overflow, focus and reduced-motion behavior stay source guards above and
-// the Dev Host matrix (docs/superpowers/verification/) is their only executor.
-
-/** The four preview width classes the toolbar offers (Finding 1 / Task 9). */
-const PREVIEW_WIDTHS = ['300', '360', '430', 'normal'] as const;
+// but they cannot tell you a snapshot RENDERS. These execute the dashboard's
+// real inline script (design system + provider identity hydrated exactly as
+// dashboardWebviewHtml() does) in a `node:vm` context with DOM doubles, feed
+// it the `{type:'state'}` message a real dashboard push ships, and assert
+// what the snapshot actually rendered: the disclosure key the renderer looks
+// up, evidence that survives a live overlay, and the presented-stage
+// projection. Nothing here claims pixels: layout, overflow, focus and
+// reduced-motion behavior stay source guards above and the Dev Host matrix
+// (docs/superpowers/verification/) is their only executor.
 
 /** The dashboard webview hydrated exactly as the host renders it. */
 const HYDRATED = injectProviderIdentity(injectPalette(injectDesignSystem(HTML)));
@@ -1469,14 +1376,10 @@ function clickChevron(html: string, stageKey: string, processId: string): string
   return chev;
 }
 
-/** Render the Inside block for one stage through the preview fixture matrix. */
-function renderInsideFor(stage: string): string {
+/** Render the Inside block for one stage through the render fixture envelope. */
+function renderInsideFor(stage: InsideStageKey): string {
   const h = bootPreviewHarness();
-  const fixtures = insidePreviewFixtures();
-  h.receive({ type: 'preview-fixtures', fixtures: fixtures.map(previewPayloadFor) });
-  const fixture = fixtures.find((f) => f.stage === stage);
-  if (!fixture) throw new Error(`no fixture for ${stage}`);
-  h.selectFixture(fixture.repositoryCount, fixture.scenario);
+  h.receive({ type: 'state', state: renderStateFor(stage) });
   return h.htmlOf('inside');
 }
 
@@ -1595,37 +1498,9 @@ function previewElement(id: string) {
 
 type PreviewElement = ReturnType<typeof previewElement>;
 
-/** One toolbar width button — the node the width click handler mutates. */
-function widthButton(width: string) {
-  const attrs: Record<string, string> = {};
-  return {
-    dataset: { pvW: width },
-    attrs,
-    setAttribute: (name: string, value: string) => {
-      attrs[name] = value;
-    },
-  };
-}
-
-/** The MessageEvent constructor the script's toolbar selection instantiates. */
-class SandboxMessageEvent {
-  readonly type: string;
-  readonly data: unknown;
-  constructor(type: string, init?: { data?: unknown }) {
-    this.type = type;
-    this.data = init ? init.data : undefined;
-  }
-}
-
 interface PreviewHarness {
   /** Deliver a host message through the script's `window.addEventListener('message')`. */
   receive(message: unknown): void;
-  /** Set both toolbar selects and fire the change listener, exactly like a user picking a fixture. */
-  selectFixture(repos: number, scenario: string): void;
-  /** Click the toolbar width button, exactly like a user choosing a preview width. */
-  clickWidth(width: string): void;
-  /** Exercise the preview-only generic progress lifecycle control. */
-  clickProgress(kind: 'active' | 'completed' | 'cleared'): void;
   /** Click one evidence disclosure chevron, exactly like a user expanding/collapsing a process. */
   clickChevron(key: string): void;
   htmlOf(id: string): string;
@@ -1641,9 +1516,6 @@ interface PreviewHarness {
 function bootPreviewHarness(): PreviewHarness {
   const elements: Record<string, PreviewElement> = {};
   for (const id of [
-    'pvScenario',
-    'pvRepos',
-    'previewToolbar',
     'servers',
     'inside',
     'rail',
@@ -1668,11 +1540,6 @@ function bootPreviewHarness(): PreviewHarness {
   ]) {
     elements[id] = previewElement(id);
   }
-  const widthButtons = PREVIEW_WIDTHS.map((w) => widthButton(w));
-  elements.previewToolbar = {
-    ...elements.previewToolbar!,
-    querySelectorAll: (sel: string) => (sel === '[data-pv-w]' ? widthButtons : []),
-  };
 
   const bodyClasses: string[] = [];
   const bodyDataset: Record<string, string> = {};
@@ -1740,7 +1607,6 @@ function bootPreviewHarness(): PreviewHarness {
     }),
     document: documentDouble,
     window: windowDouble,
-    MessageEvent: SandboxMessageEvent,
     setTimeout: () => 1,
     clearTimeout: () => {},
   });
@@ -1752,24 +1618,6 @@ function bootPreviewHarness(): PreviewHarness {
   return {
     receive: (message) => {
       windowDouble.dispatchEvent({ type: 'message', data: message });
-    },
-    selectFixture: (repos, scenario) => {
-      elements.pvRepos!.value = String(repos);
-      elements.pvScenario!.value = scenario;
-      elements.pvScenario!.fire('change');
-    },
-    clickWidth: (width) => {
-      const btn = widthButtons.find((b) => b.dataset.pvW === width)!;
-      fireDocumentClick({
-        target: { closest: (sel: string) => (sel === '[data-pv-w]' ? btn : null) },
-        preventDefault: () => {},
-      });
-    },
-    clickProgress: (kind) => {
-      fireDocumentClick({
-        target: { closest: (sel: string) => (sel === '[data-pv-progress]' ? { dataset: { pvProgress: kind } } : null) },
-        preventDefault: () => {},
-      });
     },
     clickChevron: (key) => {
       const [stageKey, processId] = key.split(':');
@@ -1792,123 +1640,7 @@ function bootPreviewHarness(): PreviewHarness {
   };
 }
 
-describe('inside preview fixture round trip (executed in a VM)', () => {
-  const fixtures = insidePreviewFixtures().map(previewPayloadFor);
-
-  it('reveals the toolbar and lists the full scenario and repo vocabularies', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'preview-fixtures', fixtures });
-
-    expect(h.classesOf('previewToolbar')).not.toContain('hidden');
-    expect(h.bodyClasses).toContain('preview-mode');
-    expect(h.bodyDataset.pvW).toBe('normal');
-    const scenarios = h.htmlOf('pvScenario');
-    for (const s of PREVIEW_SCENARIOS) {
-      expect(scenarios).toContain(`<option value="${s}">${s}</option>`);
-    }
-    const repos = h.htmlOf('pvRepos');
-    for (const n of PREVIEW_REPO_COUNTS) {
-      expect(repos).toContain(`<option value="${n}">${n} repositories</option>`);
-    }
-  });
-
-  it('round-trips every fixture at every preview width through the same state message a push uses', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'preview-fixtures', fixtures });
-
-    // Evidence disclosures are view state that survives re-renders
-    // (openProcesses), so the test mirrors the open set to reset it before
-    // each fixture and get a deterministic closed state back.
-    const openKeys = new Set<string>();
-
-    for (const width of PREVIEW_WIDTHS) {
-      h.clickWidth(width);
-      expect(h.bodyDataset.pvW).toBe(width);
-      for (const f of fixtures) {
-        h.selectFixture(f.repositoryCount, f.scenario);
-
-        // The selection dispatched exactly the fixture's `{type:'state'}`
-        // snapshot — the identical message a real pushState ships.
-        const dispatched = h.lastDispatched();
-        expect(dispatched?.type, `no snapshot dispatched for ${f.id} at ${width}`).toBe('state');
-        expect(dispatched!.state!.title).toBe(f.label);
-        expect(dispatched!.state!.stageCurrent).toBe(f.stage);
-
-        const view = f.state.insideViews[f.stage];
-        const keys = view.processes
-          .filter((p) => (p.evidence?.rows.length ?? 0) > 0)
-          .map((p) => `${f.stage}:${p.id}`);
-
-        // Collapse anything a previous fixture left open.
-        for (const key of keys) {
-          if (openKeys.has(key)) {
-            h.clickChevron(key);
-            openKeys.delete(key);
-          }
-        }
-
-        // The CLOSED render: no raw hostile markup anywhere, and every
-        // disclosure is a semantic button carrying its open state.
-        let html = h.htmlOf('inside');
-        expect(html).not.toContain('<script>');
-        expect(html).not.toContain('</script>');
-        expect(html).toContain('data-chev="');
-        expect(html).toContain('aria-expanded="false"');
-
-        // Open every evidence disclosure, like a user reading the rows.
-        for (const key of keys) {
-          h.clickChevron(key);
-          openKeys.add(key);
-        }
-        html = h.htmlOf('inside');
-
-        // The renderer escaped every hostile fixture string: the raw markup
-        // never survives, and the escaped forms are what replaced it.
-        if (f.scenario === 'failed') {
-          expect(html).toContain('&lt;script&gt;');
-          expect(html).toContain('&amp; untrusted');
-          expect(html).toContain('&quot;quoted&quot;');
-        }
-        expect(html).not.toContain('<script>');
-        expect(html).not.toContain('</script>');
-        if (keys.length > 0) expect(html).toContain('aria-expanded="true"');
-
-        // Typed actions ride the closed inside-action wire with only the
-        // opaque fixture id — asserted present exactly when the fixture has one.
-        const hasAction = view.processes.some(
-          (p) => p.action || (p.evidence?.rows ?? []).some((r) => r.action),
-        );
-        if (hasAction) {
-          expect(html).toContain('data-act="inside-action"');
-          expect(html).toContain('data-action-id="fixture:');
-        } else {
-          expect(html).not.toContain('data-act="inside-action"');
-        }
-
-        // Stable process counts: the rendered roster is the snapshot's own.
-        const rows = (html.match(/class="proc /g) ?? []).length;
-        expect(rows).toBe(view.processes.length);
-      }
-    }
-  });
-
-  it('renders a stable process roster per scenario across every repo count', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'preview-fixtures', fixtures });
-
-    const counts = new Map<string, Set<number>>();
-    for (const f of fixtures) {
-      h.selectFixture(f.repositoryCount, f.scenario);
-      const rows = (h.htmlOf('inside').match(/class="proc /g) ?? []).length;
-      const seen = counts.get(f.scenario) ?? new Set<number>();
-      seen.add(rows);
-      counts.set(f.scenario, seen);
-    }
-    for (const [scenario, seen] of counts) {
-      expect(seen.size, `scenario ${scenario} renders a roster that varies with repo count`).toBe(1);
-    }
-  });
-
+describe('inside render round trip (executed in a VM)', () => {
   it('emits a disclosure key that matches the open-state key the renderer looks up', () => {
     // The renderer asks openProcesses for `${stageKey}:${p.id}`; the button must
     // carry exactly that, or the chevron is inert and no evidence is reachable.
@@ -1923,18 +1655,14 @@ describe('inside preview fixture round trip (executed in a VM)', () => {
   });
 
   it('falls back to the host-computed presented stage when the ticket is in fix', () => {
-    const fixture = insidePreviewFixtures().find((f) => f.stage === 'uat');
-    if (!fixture) throw new Error('no uat fixture');
-    const state = { ...previewStateFor(fixture), stageCurrent: 'fix' };
+    const state = { ...renderStateFor('uat'), stageCurrent: 'fix' };
     const html = renderWith(state);          // suite's existing render helper
     expect(html).toContain('Inside uat');    // not empty
   });
 
   it('renders a waiting live operation without a running spinner', () => {
-    const fixture = insidePreviewFixtures().find((f) => f.stage === 'uat');
-    if (!fixture) throw new Error('no uat fixture');
     const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: previewStateFor(fixture) });
+    h.receive({ type: 'state', state: renderStateFor('uat') });
     h.receive({
       type: 'inside-progress',
       event: {
@@ -1947,22 +1675,5 @@ describe('inside preview fixture round trip (executed in a VM)', () => {
     const html = h.htmlOf('inside');
     expect(html).not.toContain('class="spin"');
     expect(html).toContain('⏸');       // OP_GLYPH.wait
-  });
-
-  it('lets the development preview exercise active, completed, and cleared generic inside-progress events', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'preview-fixtures', fixtures });
-    const fixture = fixtures[0]!;
-    h.selectFixture(fixture.repositoryCount, fixture.scenario);
-
-    h.clickProgress('active');
-    expect(h.htmlOf('inside')).toContain('Preview live operation');
-
-    h.clickProgress('completed');
-    expect(h.htmlOf('inside')).toContain('Preview live operation');
-    expect(h.htmlOf('inside')).toContain('proc pass');
-
-    h.clickProgress('cleared');
-    expect(h.htmlOf('inside')).not.toContain('Preview live operation');
   });
 });

@@ -1,17 +1,23 @@
+import type { DashboardState } from './state.js';
 import type {
   EvidenceRow,
   InsideStageKey,
   InsideStageView,
+  InsideDot,
+  StageInside,
   TokenUsageView,
   TypedInsideAction,
 } from '../../model/inside/types.js';
-import { STAGE_BLURBS } from '../../model/inside/types.js';
+import { STAGE_BLURBS, STAGE_TITLES } from '../../model/inside/types.js';
 import { boundedEvidenceRows } from '../../model/inside/bounds.js';
 import { REPOSITORY_EVIDENCE_LIMIT } from '../../model/inside/ship.js';
+import type { StageKey } from '../../model/types.js';
+import { STAGE_KEYS } from '../../model/types.js';
 
 /**
- * Task 9 / Finding 1: the checked-in fixture matrix for the development-only
- * Inside preview.
+ * The checked-in render fixture matrix for the dashboard webview's render
+ * tests (the reworked successors of the removed development harness's
+ * fixtures — same data, no harness).
  *
  * A deterministic `InsideStageView` per (repository count × scenario) pair —
  * 2/5/10/15/20 repositories, each in one of six scenarios (pending, running,
@@ -26,22 +32,22 @@ import { REPOSITORY_EVIDENCE_LIMIT } from '../../model/inside/ship.js';
  * Only evidence ROWS scale with the repository count. The process roster of a
  * stage is constant — the six-stage contract (`INSIDE_PROCESSES`) — and the
  * bounded remainder rows ("+N more") reproduce the production reducers' own
- * bounds (worktrees 8, gates 8, ship per-repo processes 6), so a reviewer sees
- * exactly what a real ticket of that size renders.
+ * bounds (worktrees 8, gates 8, ship per-repo processes 6), so a render test
+ * sees exactly what a real ticket of that size renders.
  *
  * The matrix deliberately carries long, hostile, untrusted labels and paths
- * (`<script>`, `&`, `"`) so the preview exercises the renderer's escaping.
+ * (`<script>`, `&`, `"`) so the render tests exercise the renderer's escaping.
  */
 
 /** The repository counts the matrix covers. */
-export type PreviewRepoCount = 2 | 5 | 10 | 15 | 20;
+export type RenderRepoCount = 2 | 5 | 10 | 15 | 20;
 
 /** The six lifecycle scenarios every repo count is rendered in. */
-export type PreviewScenario = 'pending' | 'running' | 'passed' | 'failed' | 'waiting' | 'exhausted';
+export type RenderScenario = 'pending' | 'running' | 'passed' | 'failed' | 'waiting' | 'exhausted';
 
 /** Ordered vocabularies — deterministic iteration is part of the contract. */
-export const PREVIEW_REPO_COUNTS: readonly PreviewRepoCount[] = [2, 5, 10, 15, 20];
-export const PREVIEW_SCENARIOS: readonly PreviewScenario[] = [
+export const RENDER_REPO_COUNTS: readonly RenderRepoCount[] = [2, 5, 10, 15, 20];
+export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   'pending',
   'running',
   'passed',
@@ -50,13 +56,11 @@ export const PREVIEW_SCENARIOS: readonly PreviewScenario[] = [
   'exhausted',
 ];
 
-/** One checked-in fixture: a full stage view plus its identity. */
-export interface InsidePreviewFixture {
-  id: string;
-  label: string;
-  repositoryCount: PreviewRepoCount;
+/** One checked-in fixture: a full stage view plus its matrix identity. */
+export interface InsideRenderFixture {
+  repositoryCount: RenderRepoCount;
   stage: InsideStageKey;
-  scenario: PreviewScenario;
+  scenario: RenderScenario;
   view: InsideStageView;
 }
 
@@ -85,7 +89,7 @@ const REPO_NAMES = [
 ] as const;
 
 /** The scenario each fixture stage renders on — one canonical stage per scenario. */
-const STAGE_FOR_SCENARIO: Readonly<Record<PreviewScenario, InsideStageKey>> = {
+const STAGE_FOR_SCENARIO: Readonly<Record<RenderScenario, InsideStageKey>> = {
   pending: 'scope',
   running: 'impl',
   passed: 'done',
@@ -115,7 +119,7 @@ function boundedRows(
 }
 
 /** The first `n` repo names, in matrix order. */
-function repoNames(n: PreviewRepoCount): readonly string[] {
+function repoNames(n: RenderRepoCount): readonly string[] {
   return REPO_NAMES.slice(0, n);
 }
 
@@ -160,7 +164,7 @@ const HOSTILE_TITLE =
   `Unescaped & untrusted <script>alert('xss')</script> title "quoted"`;
 
 /** The scope stage: the hot set + one worktree row per repo, all pending. */
-function scopeView(n: PreviewRepoCount): InsideStageView {
+function scopeView(n: RenderRepoCount): InsideStageView {
   const rows = boundedRows(
     repoNames(n).map(
       (r): EvidenceRow => ({ status: 'pending', label: 'worktree', detail: r }),
@@ -194,7 +198,7 @@ function scopeView(n: PreviewRepoCount): InsideStageView {
 }
 
 /** The impl stage: the live session timeline (the "live" state). */
-function implView(_n: PreviewRepoCount): InsideStageView {
+function implView(_n: RenderRepoCount): InsideStageView {
   const rows: EvidenceRow[] = [
     { status: 'note', label: 'started', detail: '09:12:33', duration: '4m 12s' },
     {
@@ -236,7 +240,7 @@ function implView(_n: PreviewRepoCount): InsideStageView {
 }
 
 /** The done stage: the delivery receipt with every current PR merged. */
-function doneView(n: PreviewRepoCount): InsideStageView {
+function doneView(n: RenderRepoCount): InsideStageView {
   const rows: EvidenceRow[] = [
     ...boundedRows(
       repoNames(n).map(
@@ -270,7 +274,7 @@ function doneView(n: PreviewRepoCount): InsideStageView {
 }
 
 /** The review stage: gates failed, blocking findings (the "error" state). */
-function reviewView(n: PreviewRepoCount): InsideStageView {
+function reviewView(n: RenderRepoCount): InsideStageView {
   const gateRows: EvidenceRow[] = [
     ...repoNames(n).flatMap(
       (r, i): EvidenceRow[] => [
@@ -347,7 +351,7 @@ function reviewView(n: PreviewRepoCount): InsideStageView {
 }
 
 /** The ship stage: everything landed except the merge — waiting on PRs. */
-function shipView(n: PreviewRepoCount): InsideStageView {
+function shipView(n: RenderRepoCount): InsideStageView {
   const commitRows = repoNames(n).map(
     (r): EvidenceRow => ({ status: 'pass', label: r, detail: '2 created · 1 before' }),
   );
@@ -413,7 +417,7 @@ function shipView(n: PreviewRepoCount): InsideStageView {
 }
 
 /** The uat stage: gates passed, tester failed, fix rounds exhausted. */
-function uatView(n: PreviewRepoCount): InsideStageView {
+function uatView(n: RenderRepoCount): InsideStageView {
   const gateRows = repoNames(n).flatMap(
     (r): EvidenceRow[] => [
       { status: 'pass', label: 'lint', detail: 'exit 0' },
@@ -498,7 +502,7 @@ function uatView(n: PreviewRepoCount): InsideStageView {
 }
 
 /** One stage view per (repo count, scenario) pair, in matrix order. */
-function buildView(stage: InsideStageKey, n: PreviewRepoCount): InsideStageView {
+function buildView(stage: InsideStageKey, n: RenderRepoCount): InsideStageView {
   switch (stage) {
     case 'scope':
       return scopeView(n);
@@ -520,13 +524,11 @@ function buildView(stage: InsideStageKey, n: PreviewRepoCount): InsideStageView 
  * by repo count then scenario. Pure data — callable any number of times with
  * identical results.
  */
-export function insidePreviewFixtures(): readonly InsidePreviewFixture[] {
-  return PREVIEW_REPO_COUNTS.flatMap((n) =>
-    PREVIEW_SCENARIOS.map((scenario) => {
+export function renderFixtures(): readonly InsideRenderFixture[] {
+  return RENDER_REPO_COUNTS.flatMap((n) =>
+    RENDER_SCENARIOS.map((scenario) => {
       const stage = STAGE_FOR_SCENARIO[scenario];
       return {
-        id: `inside-preview-${n}-${scenario}`,
-        label: `${n} repos · ${stage} · ${scenario}`,
         repositoryCount: n,
         stage,
         scenario,
@@ -534,4 +536,96 @@ export function insidePreviewFixtures(): readonly InsidePreviewFixture[] {
       };
     }),
   );
+}
+
+/** The six inside stage keys, in presentation order. */
+const INSIDE_STAGE_KEYS: readonly InsideStageKey[] = [
+  'scope',
+  'impl',
+  'uat',
+  'review',
+  'ship',
+  'done',
+];
+
+/** The default matrix row for one stage — the first (smallest) repo count. */
+function defaultViewFor(stage: InsideStageKey): InsideStageView {
+  const fixture = renderFixtures().find((f) => f.stage === stage);
+  if (!fixture) throw new Error(`no render fixture for stage ${stage}`);
+  return fixture.view;
+}
+
+/** An empty, renderable view for a stage the matrix does not cover. */
+function emptyStageView(key: InsideStageKey): InsideStageView {
+  return {
+    stageKey: key,
+    title: STAGE_TITLES[key],
+    dot: 'pend' as InsideDot,
+    clock: 'has not run yet',
+    processes: [],
+    blurb: STAGE_BLURBS[key],
+  };
+}
+
+/** An empty legacy-strip shell for every runtime stage the webview may render. */
+function emptyStageInside(): Record<StageKey, StageInside> {
+  const out = {} as Record<StageKey, StageInside>;
+  for (const key of STAGE_KEYS) {
+    out[key] = {
+      stageKey: key,
+      title: STAGE_TITLES[key],
+      dot: 'pend' as InsideDot,
+      clock: '',
+      ops: [],
+      blurb: STAGE_BLURBS[key],
+    };
+  }
+  return out;
+}
+
+/**
+ * Wrap one stage's default matrix view in the dashboard snapshot envelope the
+ * webview's render functions consume. Everything outside `insideViews` is
+ * neutral: an empty rail, no stepper, no servers, no worktrees, no PRs — the
+ * render tests exercise the Inside component and nothing else. `ticketId` 0 is
+ * a placeholder: the envelope never queries the store, and the webview only
+ * posts ids back for actions the fixtures cannot dispatch (`fixture:` ids
+ * resolve nowhere).
+ */
+export function renderStateFor(stage: InsideStageKey): DashboardState {
+  const insideViews = {} as Record<InsideStageKey, InsideStageView>;
+  for (const key of INSIDE_STAGE_KEYS) {
+    insideViews[key] = key === stage ? defaultViewFor(stage) : emptyStageView(key);
+  }
+  return {
+    ticketId: 0,
+    key: null,
+    title: null,
+    stageCurrent: stage,
+    agentState: null,
+    agentSession: {
+      provider: 'claude',
+      providerLabel: 'Claude Code',
+      modelId: null,
+      modelLabel: 'Agent default',
+      canSwitch: false,
+    },
+    stepper: [],
+    currentStage: null,
+    now: { text: 'Render fixture' },
+    servers: [],
+    hasRunnableRepos: false,
+    worktrees: [],
+    prs: [],
+    mergeChecks: [],
+    provider: null,
+    sourceRef: null,
+    ticketUrl: null,
+    brief: null,
+    rail: { main: [] },
+    inside: emptyStageInside(),
+    insideViews,
+    presentedStage: stage,
+    approach: null,
+  };
 }

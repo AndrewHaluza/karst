@@ -810,38 +810,6 @@
   .gaterow.off .gname{text-decoration:line-through;color:var(--k-text-faint)}
   .gaterow .gname{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1}
   .gaterow .gstate{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-
-  /* ── development-only Inside preview toolbar (Finding 1 / Task 9) ─────────
-     The preview panel renders THIS SAME asset; the toolbar is inert and hidden
-     in the production dashboard (the preview-fixtures message is the only
-     thing that reveals it). The controls sit OUTSIDE the delivered Inside DOM
-     (#inside) and are pure view state: selecting a fixture dispatches
-     {type:'state'} through the SAME message listener a real snapshot arrives
-     on, and the width buttons only toggle a body data attribute — neither
-     posts to the host (the design system's immediate exemption for view-state
-     controls, DESIGN-SYSTEM.md §5.3). */
-  .pvtoolbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
-    margin:var(--k-space-7) var(--k-space-3) 0;padding:var(--k-space-4) var(--k-space-6);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
-    background:var(--k-surface)}
-  .pvtoolbar .pvlabel{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pvtoolbar select{flex:none}
-  .pvtoolbar .pvwidth{display:inline-flex;align-items:center;gap:var(--k-space-1);
-    margin-left:auto;flex-wrap:wrap}
-  /* The pressed width button re-themes like the bind toggle: a mode the panel
-     reports is a filled state, not a hover shade (same rationale as
-     .bindtoggle[aria-pressed="true"]). */
-  .pvtoolbar .k-btn[aria-pressed="true"]{color:var(--k-action-fg);
-    background:var(--k-action-bg);border-color:transparent}
-  /* Width frame: dev-only. The preview constrains the Inside component's own
-     width (300/360/430) to exercise the narrow renderers; `normal` matches
-     nothing, so the default page width stands. Raw px with no scale match —
-     the same UI-R04 exemption class as a @container breakpoint (a component
-     dimension with no token) — and gated on .preview-mode so production
-     renders are never touched. */
-  body.preview-mode[data-pv-w="300"] .stepper{width:300px}
-  body.preview-mode[data-pv-w="360"] .stepper{width:360px}
-  body.preview-mode[data-pv-w="430"] .stepper{width:430px}
 </style>
 
 <!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
@@ -913,29 +881,6 @@
     title="Bind is off — this dashboard and the agent terminal move independently"><span class="dot" aria-hidden="true"></span>Bind terminal</button>
   <button id="followUpBtn" type="button" class="hidden k-btn k-btn--secondary k-btn--sm" data-act="create-follow-up-ticket" title="Create a new ticket linked to this one, pre-filled with its repos/approach/agent">Create follow-up</button>
   <button id="editBtn" type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="edit-ticket" title="Edit this ticket's title, description, and scope">Edit</button>
-</div>
-
-<!-- Development-only Inside preview toolbar (Finding 1 / Task 9). Hidden and
-     inert in the production dashboard — only the preview panel's
-     preview-fixtures message reveals it. The controls are view state and live
-     OUTSIDE the delivered Inside DOM; the fixture's snapshot arrives through
-     the same {type:'state'} message a real dashboard push uses. -->
-<div class="pvtoolbar hidden" id="previewToolbar">
-  <label class="pvlabel" for="pvScenario">Stage / scenario</label>
-  <select id="pvScenario" class="k-input"></select>
-  <label class="pvlabel" for="pvRepos">Repositories</label>
-  <select id="pvRepos" class="k-input"></select>
-  <span class="pvwidth" role="group" aria-label="Preview width">
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="300" aria-pressed="false" title="Preview the Inside panel at 300px wide">300</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="360" aria-pressed="false" title="Preview the Inside panel at 360px wide">360</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="430" aria-pressed="false" title="Preview the Inside panel at 430px wide">430</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-w="normal" aria-pressed="true" title="Preview at the panel's natural width">normal</button>
-  </span>
-  <span class="pvwidth" role="group" aria-label="Preview process lifecycle">
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="active" title="Send a preview active inside-progress event">Start live operation</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="completed" title="Send a preview completed inside-progress event">Complete</button>
-    <button type="button" class="k-btn k-btn--ghost k-btn--sm" data-pv-progress="cleared" title="Send a preview cleared inside-progress event">Clear</button>
-  </span>
 </div>
 
 <div class="stepper">
@@ -1027,10 +972,6 @@
   // unrelated refresh. The follow-up message replaces it wholesale — including
   // with an empty list when resolution fails — so it cannot go stale unnoticed.
   let gateOptions = { uat: [], review: [] };
-  // The development-only Inside preview's fixture list, each entry carrying its
-  // HOST-BUILT dashboard snapshot (Finding 1). Empty in the production
-  // dashboard — the preview-fixtures message is the only thing that fills it.
-  let previewFixtures = [];
   // `shipRequestId` / `mergeRequests` / `prRefreshId` below are the runtime's
   // pending bookkeeping (karstBeginPending/karstSettle) for the ship/merge/
   // refresh-prs controls. They are tracked SEPARATELY from the view state
@@ -1265,87 +1206,6 @@
     track.classList.add('tight');
     if (over()) track.classList.add('bare');
   }
-
-  // ── development-only Inside preview (Finding 1 / Task 9) ────────────────
-  // The preview panel renders this SAME asset; the preview-fixtures message
-  // (sent only by the preview host) fills and reveals the toolbar. The
-  // fixtures arrive with their host-built dashboard snapshots already
-  // attached; selecting one dispatches {type:'state'} through the SAME window
-  // message listener a real snapshot arrives on, so the preview exercises the
-  // production render path byte for byte. Everything here is view state —
-  // nothing posts to the host (the design system's immediate exemption for
-  // view-state controls, DESIGN-SYSTEM.md §5.3).
-  function selectPreviewFixture() {
-    const fixture = previewFixtures.find((f) =>
-      f.repositoryCount === Number(el('pvRepos').value)
-      && f.scenario === el('pvScenario').value);
-    if (!fixture) return;
-    window.dispatchEvent(new MessageEvent('message', { data: { type: 'state', state: fixture.state } }));
-  }
-
-  // Populate the toolbar from the fixture list. The selects list the distinct
-  // scenarios and repo counts the matrix actually carries; every option maps
-  // back to exactly one fixture via selectPreviewFixture().
-  function renderPreviewToolbar(fixtures) {
-    previewFixtures = fixtures || [];
-    const scenarios = [];
-    const repoCounts = [];
-    for (const f of previewFixtures) {
-      if (!scenarios.includes(f.scenario)) scenarios.push(f.scenario);
-      if (!repoCounts.includes(f.repositoryCount)) repoCounts.push(f.repositoryCount);
-    }
-    repoCounts.sort((a, b) => a - b);
-    el('pvScenario').innerHTML = scenarios
-      .map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-    el('pvRepos').innerHTML = repoCounts
-      .map((n) => `<option value="${n}">${n} repositories</option>`).join('');
-    el('previewToolbar').classList.remove('hidden');
-    document.body.classList.add('preview-mode');
-    document.body.dataset.pvW = 'normal';
-    selectPreviewFixture();
-  }
-
-  // Preview-only lifecycle controls deliberately dispatch the exact generic
-  // inside-progress envelope the production host uses. They are local to this
-  // toolbar (which production never reveals), so no fixture action can mutate
-  // a ticket; the three buttons let Dev Host verification visibly step through
-  // active → completed → cleared instead of merely asserting the renderer's
-  // event branch in a test.
-  function previewProgress(kind) {
-    if (!lastState) return;
-    const stage = lastState.presentedStage || lastState.stageCurrent || 'scope';
-    const processId = 'preview-live-operation';
-    const event = kind === 'active'
-      ? { kind: 'active', ticketId: lastState.ticketId, stage, processId,
-          live: { status: 'run', label: 'Preview live operation' } }
-      : kind === 'completed'
-        ? { kind: 'completed', ticketId: lastState.ticketId, stage,
-            process: { id: processId, kind: 'preview', label: 'Preview live operation', status: 'pass' } }
-        : { kind: 'cleared', ticketId: lastState.ticketId, stage, processId };
-    window.dispatchEvent(new MessageEvent('message', { data: { type: 'inside-progress', event } }));
-  }
-
-  // The two fixture selects are attached ONCE at load (the toolbar markup is
-  // static); renderPreviewToolbar only swaps the options beneath them.
-  el('pvScenario').addEventListener('change', selectPreviewFixture);
-  el('pvRepos').addEventListener('change', selectPreviewFixture);
-
-  // The width buttons toggle a body data attribute; the CSS constrains the
-  // Inside component under .preview-mode only. Purely local, like the selects.
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-pv-w]');
-    if (!btn) return;
-    for (const b of el('previewToolbar').querySelectorAll('[data-pv-w]')) {
-      b.setAttribute('aria-pressed', String(b === btn));
-    }
-    document.body.dataset.pvW = btn.dataset.pvW;
-  });
-
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-pv-progress]');
-    if (!btn) return;
-    previewProgress(btn.dataset.pvProgress);
-  });
 
   // The needs-you button is NAVIGATIONAL. It scrolls the control that owns the
   // action into view and focuses it; it posts no host message and duplicates no
@@ -2355,14 +2215,6 @@
     if (msg.type === 'gate-options') {
       gateOptions = msg.options || { uat: [], review: [] };
       renderGates();
-      return;
-    }
-    // Development-only Inside preview (Finding 1): the fixture list + the
-    // host-built snapshot per fixture. Only the preview panel ever sends it,
-    // and only it reveals the toolbar — the production dashboard never
-    // receives this message, so the toolbar stays hidden there.
-    if (msg.type === 'preview-fixtures') {
-      renderPreviewToolbar(msg.fixtures);
       return;
     }
     // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13).
