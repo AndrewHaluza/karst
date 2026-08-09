@@ -573,6 +573,7 @@ describe('spinTicket integration', () => {
 
       const feServer = result.servers.find((s) => s.service === 'frontend')!;
       expect(feServer.status).toBe('running');
+      expect(result.reclaimedPids).toContain(squatter.pid!); // the reap is REPORTED
       expect(feServer.port).toBe(fePort); // reclaimed the SAME port, not reallocated
       const health = await fetch(`http://127.0.0.1:${fePort}/health`);
       expect(health.status).toBe(200);

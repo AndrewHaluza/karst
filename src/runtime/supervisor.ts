@@ -47,6 +47,14 @@ export interface StartHotOpts {
   healthTimeoutMs?: number;
   /** Abort the health-gated start early (spin cancellation). */
   signal?: AbortSignal;
+  /**
+   * Fired once per process karst killed to free the port — a conflicting dev
+   * server of this repository, or a karst-recorded server of another ticket.
+   * The spin flow uses it to REPORT the reap: a killed dev server is the
+   * user's own process, and an unreported reap is how a "why did my dev
+   * server die?" mystery starts (the archive paths raise the same warning).
+   */
+  onReclaim?: (pid: number) => void;
 }
 
 /**
@@ -88,6 +96,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   if (await isPortOpen(opts.host, opts.port)) {
     const reclaimed = await reclaimPort(store, opts.host, opts.port, opts.repoPath);
     for (const id of reclaimed.stoppedRows) markServerStopped(store, id);
+    for (const pid of reclaimed.killedPids) opts.onReclaim?.(pid);
     if (!reclaimed.portFree) {
       const survivors = reclaimed.survivors
         .map((s) =>

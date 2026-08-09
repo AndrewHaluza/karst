@@ -420,6 +420,7 @@ describe('server supervisor', () => {
     try {
       await waitUntilListening(port);
 
+      const reaped: number[] = [];
       const rec = await startHot(store, {
         ticketId: 1,
         service: 'backend',
@@ -432,9 +433,11 @@ describe('server supervisor', () => {
         port,
         healthUrl: `http://127.0.0.1:${port}/health`,
         logPath: join(dir, 'svc.log'),
+        onReclaim: (pid) => reaped.push(pid),
       });
 
       expect(rec.status).toBe('running');
+      expect(reaped).toEqual([squatter.pid!]); // the reap is REPORTED to the caller
       const health = await fetch(`http://127.0.0.1:${port}/health`);
       expect(health.status).toBe(200);
       // the squatter was reaped, not left to fight for the port

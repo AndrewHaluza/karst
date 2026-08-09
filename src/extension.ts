@@ -2787,6 +2787,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage(
           `Spun ${label} — ${result.servers.length} server(s) running.`,
         );
+        // A conflicting dev server that had to be killed is the user's own
+        // process — an unreported reap is how a "why did my dev server die?"
+        // mystery starts (the archive paths raise the same warning).
+        if (result.reclaimedPids.length > 0) {
+          void vscode.window.showWarningMessage(
+            `Spin for ${label} stopped ${result.reclaimedPids.length} conflicting dev server(s) ` +
+              `(pid ${result.reclaimedPids.join(', ')}) to free the allocated port(s).`,
+          );
+        }
       } catch (err) {
         provider.refresh(); // partial state is real; surface it
         if (err instanceof SpinCancelledError) {
