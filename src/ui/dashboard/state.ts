@@ -14,7 +14,6 @@ import { buildNowLine, type NowLine } from '../../model/nowLine.js';
 import { sessionAction } from '../../agent/sessionAction.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
-import { buildStageInside, type StageInside } from '../../model/inside/index.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
@@ -70,7 +69,7 @@ import { shipProcesses } from '../../model/inside/ship.js';
 import { doneReceipt, type DoneReceiptView } from '../../model/inside/done.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
 
-export type { PathContext, StepperCell, NowLine, StageRail, StageInside, PrPanelRow, MergeCheckPanelRow };
+export type { PathContext, StepperCell, NowLine, StageRail, PrPanelRow, MergeCheckPanelRow };
 
 export interface DashboardAgentContext {
   defaultModel?: string | null;
@@ -140,12 +139,6 @@ export interface DashboardState {
    * fix loop's meter. `stepper` above stays the flat canonical projection.
    */
   rail: StageRail;
-  /**
-   * What happens inside each stage — observed operations for a stage that ran or
-   * is running, a static blurb for one that has not. All seven are precomputed
-   * so clicking a stage re-points the panel without a round trip to the host.
-   */
-  inside: Record<StageKey, StageInside>;
   /**
    * The six-stage inside presentation (the inside redesign): one process-led
    * view per INSIDE stage, built by the pure reducers. `fix` is not a stage
@@ -465,24 +458,6 @@ export function buildDashboardState(
           })
         : null,
       capFor: fixCapFor,
-    }),
-    inside: buildStageInside({
-      stepper,
-      gateRuns,
-      findings,
-      worktrees,
-      prs,
-      mergeChecks,
-      session: {
-        sessionId: ticket.sessionId,
-        agentState: ticket.agentState,
-        model: ticket.model,
-      },
-      selectedRepos: ticket.selectedRepos,
-      phases,
-      marks,
-      fixAttempts,
-      now,
     }),
     insideViews,
     presentedStage,

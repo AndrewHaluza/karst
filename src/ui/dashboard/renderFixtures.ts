@@ -4,15 +4,12 @@ import type {
   InsideStageKey,
   InsideStageView,
   InsideDot,
-  StageInside,
   TokenUsageView,
   TypedInsideAction,
 } from '../../model/inside/types.js';
 import { STAGE_BLURBS, STAGE_TITLES } from '../../model/inside/types.js';
 import { boundedEvidenceRows } from '../../model/inside/bounds.js';
 import { REPOSITORY_EVIDENCE_LIMIT } from '../../model/inside/ship.js';
-import type { StageKey } from '../../model/types.js';
-import { STAGE_KEYS } from '../../model/types.js';
 
 /**
  * The checked-in render fixture matrix for the dashboard webview's render
@@ -567,22 +564,6 @@ function emptyStageView(key: InsideStageKey): InsideStageView {
   };
 }
 
-/** An empty legacy-strip shell for every runtime stage the webview may render. */
-function emptyStageInside(): Record<StageKey, StageInside> {
-  const out = {} as Record<StageKey, StageInside>;
-  for (const key of STAGE_KEYS) {
-    out[key] = {
-      stageKey: key,
-      title: STAGE_TITLES[key],
-      dot: 'pend' as InsideDot,
-      clock: '',
-      ops: [],
-      blurb: STAGE_BLURBS[key],
-    };
-  }
-  return out;
-}
-
 /**
  * Wrap one stage's default matrix view in the dashboard snapshot envelope the
  * webview's render functions consume. Everything outside `insideViews` is
@@ -623,7 +604,6 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     ticketUrl: null,
     brief: null,
     rail: { main: [] },
-    inside: emptyStageInside(),
     insideViews,
     presentedStage: stage,
     approach: null,

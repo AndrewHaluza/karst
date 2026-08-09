@@ -31,23 +31,6 @@ export interface StageOp {
 /** The state dot beside the "Inside <stage>" header. */
 export type InsideDot = 'done' | 'run' | 'wait' | 'fail' | 'idle' | 'pend';
 
-/** Everything the activity strip renders for ONE stage. A snapshot, no functions. */
-export interface StageInside {
-  stageKey: StageKey;
-  /** Display title — `Implementation`, `UAT`. */
-  title: string;
-  dot: InsideDot;
-  /** `12:23:06 · 51.7s · attempt 1`, or `has not run yet`. */
-  clock: string;
-  /**
-   * Observed rows. EMPTY means nothing ran — the view shows `blurb` instead.
-   * Empty rows would imply karst tried something and got nothing back.
-   */
-  ops: StageOp[];
-  /** The static "what happens here" copy. Always present. */
-  blurb: string;
-}
-
 /** Display titles for the strip header. */
 export const STAGE_TITLES: Readonly<Record<StageKey, string>> = {
   scope: 'Scope',
@@ -137,23 +120,6 @@ export function dotFor(cell: StepperCell): InsideDot {
     default:
       return 'pend';
   }
-}
-
-/** Assemble one stage's strip, defaulting the parts every stage shares. */
-export function inside(
-  cell: StepperCell,
-  now: string,
-  ops: StageOp[],
-  dot?: InsideDot,
-): StageInside {
-  return {
-    stageKey: cell.stageKey,
-    title: STAGE_TITLES[cell.stageKey],
-    dot: dot ?? dotFor(cell),
-    clock: formatClock(cell, now),
-    ops,
-    blurb: STAGE_BLURBS[cell.stageKey],
-  };
 }
 
 /**
@@ -333,9 +299,9 @@ export interface InsideProcessView {
 }
 
 /**
- * The full presentation model for ONE inside stage. The inside redesign's
- * successor to `StageInside`: the flat operation rows become ordered
- * processes, each carrying its own evidence and controls.
+ * The full presentation model for ONE inside stage: the flat operation rows of
+ * the retired legacy strip become ordered processes, each carrying its own
+ * evidence and controls.
  */
 export interface InsideStageView {
   stageKey: InsideStageKey;

@@ -3,12 +3,10 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
-import { recordFindings } from '../../store/reviewFindings.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { openProcessRun } from '../../store/processRuns.js';
-import { STAGE_KEYS } from '../../model/types.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
@@ -365,66 +363,6 @@ describe('buildDashboardState', () => {
       phases: ['research', 'plan', 'implement'],
       reported: ['research'],
     });
-  });
-
-  it('precomputes a strip for every stage, so any stage can be selected', () => {
-    const t = createTicket(store, { key: 'R-2', title: 't' });
-    const state = buildDashboardState(store, t.id);
-    for (const key of STAGE_KEYS) {
-      expect(state.inside[key]?.stageKey, `missing strip: ${key}`).toBe(key);
-    }
-  });
-
-  it('carries recorded gate evidence into the review strip', () => {
-    const t = createTicket(store, { key: 'R-3', title: 't' });
-    setStage(store, t.id, 'review', { status: 'failed', verdict: 'gates failed: lint' });
-    recordGateRun(store, {
-      ticketId: t.id,
-      stageKey: 'review',
-      attempt: 0,
-      runAt: '2026-07-20T12:00:00.000Z',
-      gates: [
-        { gateName: 'lint', exitCode: 1 },
-        { gateName: 'typecheck', exitCode: 0 },
-        { gateName: 'test', exitCode: null },
-      ],
-    });
-
-    const ops = buildDashboardState(store, t.id).inside.review.ops;
-    expect(ops.find((o) => o.name === 'lint')?.status).toBe('fail');
-    expect(ops.find((o) => o.name === 'typecheck')?.status).toBe('pass');
-    // The repo defines no test script — not a pass karst can claim.
-    expect(ops.find((o) => o.name === 'test')?.status).toBe('note');
-  });
-
-  // I2: before this, a recorded finding was read only by the fix brief and
-  // `karst context` — never rendered anywhere a human looks. A user whose
-  // ticket just failed review on findings must be able to see what they were.
-  it('carries recorded review findings into the review strip', () => {
-    const t = createTicket(store, { key: 'R-4', title: 't' });
-    setStage(store, t.id, 'review', { status: 'failed', verdict: 'review findings: 1 high' });
-    recordFindings(store, {
-      ticketId: t.id,
-      attempt: 0,
-      runAt: '2026-07-20T12:00:00.000Z',
-      findings: [
-        {
-          severity: 'high',
-          repo: '/web',
-          file: 'src/foo.ts',
-          line: 12,
-          title: 'missing null check',
-          detail: 'foo can be undefined here',
-          source: 'agent',
-        },
-      ],
-    });
-
-    const ops = buildDashboardState(store, t.id).inside.review.ops;
-    const findingOp = ops.find((o) => o.name === 'high');
-    expect(findingOp?.status).toBe('fail');
-    expect(findingOp?.detail).toContain('missing null check');
-    expect(findingOp?.detail).toContain('src/foo.ts:12');
   });
 
   function seedWorktree(ticketId: number, repo: string): void {
