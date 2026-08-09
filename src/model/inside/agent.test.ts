@@ -484,6 +484,61 @@ describe('implementationSessionProcess', () => {
     expect(timeline.at(-1)!.detail).toContain('6');
   });
 
+  it('closes the timeline with the recorded implementation marker', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'passed'),
+      tl([segment({ id: 1 })], { endedAt: runAt('13:00') }),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    expect(timeline.at(-1)).toMatchObject({ label: 'done', status: 'pass', role: 'phase' });
+    expect(timeline.at(-1)!.detail).toBe(
+      `implementation marked done · ${formatTime(runAt('13:00'))}`,
+    );
+  });
+
+  it('leaves a running session open-ended', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })], { endedAt: null }),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(rows(process).map((r) => r.label)).toEqual(['started']);
+  });
+
+  it('keeps a phase mark a note, never a verdict', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'passed'),
+      tl([segment({ id: 1 })], { endedAt: runAt('13:00') }),
+      [mark('research', runAt('12:10'), { implementationRunId: 1 })],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    expect(timeline.find((r) => r.label === 'research')!.status).toBe('note');
+    expect(timeline.at(-1)).toMatchObject({ label: 'done', status: 'pass' });
+  });
+
+  it('reads a passed impl cell as pass on the session process row (Task 6.2)', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'passed'),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.status).toBe('pass');
+    expect(process.statusLabel).toBe('Completed');
+  });
+
   describe('timeline row roles (Task 4)', () => {
     // `role` is the structural WHAT of a timeline row — the webview draws the
     // node (phase check / quiet hollow start / switch branch) from it and

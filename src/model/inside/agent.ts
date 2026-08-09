@@ -225,6 +225,22 @@ function timelineEvents(
     });
   }
 
+  // The terminal row exists ONLY when the end is recorded: the impl marker is
+  // an explicit act (`completeImplementationRun` stamps `ended_at` AND passes
+  // the run), so `pass` is the recorded verdict — never an inference. A
+  // running session has no end and is not given one.
+  if (run.endedAt) {
+    events.push({
+      at: run.endedAt,
+      row: {
+        status: 'pass',
+        label: 'done',
+        detail: `implementation marked done · ${formatTime(run.endedAt)}`,
+        role: 'phase',
+      },
+    });
+  }
+
   // Stable sort: ties keep insertion order (start, then segments, then marks
   // by id — the record of what karst was told).
   events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
