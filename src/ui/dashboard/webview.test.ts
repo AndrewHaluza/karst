@@ -7,8 +7,10 @@ import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
-import { implementationPrototypeFixture, renderStateFor } from './renderFixtures.js';
+import { implementationPrototypeFixture, renderFixtures, renderStateFor } from './renderFixtures.js';
+import type { RenderRepoCount } from './renderFixtures.js';
 import type { DashboardState } from './state.js';
+import { EVIDENCE_KINDS } from '../../model/inside/types.js';
 import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
@@ -1258,18 +1260,52 @@ describe('dashboard webview.html', () => {
   it('keys the evidence block by its closed kind for specialized CSS', () => {
     // B2 replaced the single generic renderer with one per kind: each renderer
     // emits its OWN literal `pev-<kind>` container (UI-R10), dispatched from a
-    // closed map so an unknown kind falls back to the generic renderer.
+    // closed map so an unknown kind falls back to the generic renderer. Every
+    // per-kind CSS rule must materially affect layout or semantics — an empty
+    // `.pev-<kind> .erow{}` selector is dead (Task 5) and deleted, not kept.
     expect(HTML).toContain('const EVIDENCE_RENDERERS');
-    for (const kind of ['rows', 'gates', 'findings', 'timeline', 'commits', 'prs', 'recovery', 'receipt']) {
+    for (const kind of EVIDENCE_KINDS) {
       const fn = `evidence${kind.charAt(0).toUpperCase()}${kind.slice(1)}Html`;
       expect(HTML, `missing renderer for ${kind}`).toContain(`function ${fn}`);
       expect(HTML, `renderer for ${kind} emits no pev class`).toMatch(
         new RegExp(`function ${fn}[\\s\\S]*?class="pev pev-${kind}"`),
       );
-      expect(HTML, `no CSS rule for .pev-${kind}`).toMatch(
-        new RegExp(`\\.pev-${kind} \\.erow\\{`),
-      );
     }
+    expect(HTML, 'an empty per-kind .erow rule survived').not.toMatch(/\.pev-[a-z]+ \.erow\{\s*\}/);
+  });
+
+  it('renders every non-timeline evidence row through one shared helper with a closed mode (Task 5)', () => {
+    // Step 3: the four near-duplicate row renderers collapse into ONE helper —
+    // the kind renderers call it with an explicit layout mode, so a future kind
+    // change lands in one place. The timeline keeps its own row renderer (a
+    // different DOM: <li> nodes on a spine).
+    expect(HTML).toMatch(/function evidenceRowHtml\(r, mode\)/);
+    for (const mode of ['plain', 'status', 'receipt']) {
+      expect(HTML, `no ${mode} mode call`).toMatch(new RegExp(`evidenceRowHtml\\(r, '${mode}'\\)`));
+    }
+  });
+
+  it('gives findings, commits and PRs their prototype wrap/selectability variants (Task 5)', () => {
+    // Findings and PR facts WRAP at every width instead of ellipsising — a
+    // truncated path hides where the fix goes (handoff §10: "Allow PR
+    // title/branch content to wrap"). Commits additionally make the repo/SHA
+    // selectable copy even where a container rule could set user-select:none.
+    expect(HTML).toMatch(/\.pev-findings \.edetail\{[^}]*white-space:normal[^}]*overflow:visible/);
+    expect(HTML).toMatch(/\.pev-commits \.edetail\{[^}]*user-select:text/);
+    expect(HTML).toMatch(/\.pev-commits \.edetail\{[^}]*white-space:normal/);
+    expect(HTML).toMatch(/\.pev-prs \.edetail\{[^}]*white-space:normal[^}]*overflow:visible/);
+    // The waiting/conflict attention WORD — wait rows read with the attention
+    // color, never the fail ramp (handoff §5: "Conflict is waiting, not failure").
+    expect(HTML).toMatch(/\.erow\.wait \.estatus\{[^}]*--k-attention/);
+    // The receipt stays a compact one-line list, not a wrap-pressure grid.
+    expect(HTML).toMatch(/\.pev-receipt \.erow\{[^}]*flex-wrap:nowrap/);
+  });
+
+  it('closes the receipt renderer to executable controls (Task 5)', () => {
+    // Done is a receipt, not an execution stage (handoff §6 done): the only
+    // action a receipt row may render is the host-supplied bounded
+    // continuation ("Show N more") — never a resume/retry/ship control.
+    expect(HTML).toMatch(/r\.action\.kind === 'open-bounded-evidence'/);
   });
 
   it('draws the timeline connector from the structural field, never the label', () => {
@@ -2055,6 +2091,30 @@ describe('inside render round trip (executed in a VM)', () => {
     return h.htmlOf('inside');
   }
 
+  /** The same envelope as `renderStateFor`, at a specific matrix repo count. */
+  function renderStateForCount(stage: InsideStageKey, n: RenderRepoCount): DashboardState {
+    const base = renderStateFor(stage);
+    const fixture = renderFixtures().find((f) => f.stage === stage && f.repositoryCount === n);
+    if (!fixture) throw new Error(`no render fixture for ${stage} @ ${n} repos`);
+    return { ...base, insideViews: { ...base.insideViews, [stage]: fixture.view } };
+  }
+
+  /** Open one process row's disclosure at a specific matrix repo count. */
+  function openEvidenceCount(
+    stage: InsideStageKey,
+    processId: string,
+    n: RenderRepoCount,
+  ): string {
+    const state = renderStateForCount(stage, n);
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    if (!h.htmlOf('inside').includes(`data-proc-id="${stage}:${processId}" open`)) {
+      h.clickChevron(`${stage}:${processId}`);
+    }
+    h.receive({ type: 'state', state });
+    return h.htmlOf('inside');
+  }
+
   it('renders rows evidence through the generic renderer (B2)', () => {
     const html = openEvidence('scope', 'worktrees');
     expect(html).toContain('class="pev pev-rows"');
@@ -2142,6 +2202,150 @@ describe('inside render round trip (executed in a VM)', () => {
     const html = h.htmlOf('inside');
     expect(html).toContain('class="pev pev-rows"');
     expect(html).toContain('<span class="elabel">future</span>');
+  });
+
+  // ── the matrix evidence contract (Task 5) ────────────────────────────────
+  // Every EVIDENCE_KINDS member renders through its own `pev-<kind>`
+  // container with visible status text, its factual detail, and its actions in
+  // the trailing cluster — one shared row helper behind all of it.
+
+  /** Which fixture process answers for each evidence kind. */
+  const EVIDENCE_AT: Readonly<Record<(typeof EVIDENCE_KINDS)[number], readonly [InsideStageKey, string]>> = {
+    rows: ['scope', 'worktrees'],
+    gates: ['uat', 'gates'],
+    findings: ['review', 'review'],
+    timeline: ['impl', 'session'],
+    commits: ['ship', 'commit'],
+    prs: ['ship', 'pr'],
+    recovery: ['uat', 'fix'],
+    receipt: ['done', 'delivery-receipt'],
+  };
+
+  it('renders every evidence kind through its distinct pev container (Task 5)', () => {
+    for (const kind of EVIDENCE_KINDS) {
+      const [stage, processId] = EVIDENCE_AT[kind];
+      expect(openEvidence(stage, processId), `kind ${kind}`).toContain(`class="pev pev-${kind}"`);
+    }
+  });
+
+  it('shows a visible status word on every status-bearing kind (Task 5)', () => {
+    // gates/findings/commits/prs render the closed status WORD (UI-R06 — the
+    // word is the row's claim, never colour alone). Findings' blocking
+    // severities read as failed, the advisory medium reads as note.
+    expect(openEvidence('uat', 'gates')).toContain('<span class="estatus pass">passed</span>');
+    const findings = openEvidence('review', 'review');
+    expect(findings).toContain('<span class="estatus fail">failed</span>');
+    expect(findings).toContain('<span class="estatus note">note</span>');
+    expect(openEvidence('ship', 'commit')).toContain('<span class="estatus pass">passed</span>');
+    expect(openEvidence('ship', 'pr')).toContain('<span class="estatus pass">passed</span>');
+  });
+
+  it('keeps the plain kinds to glyph-as-status, never a fabricated word (Task 5)', () => {
+    // rows, recovery and receipt carry no status WORD: their visible state is
+    // the glyph (rows, recovery) or their nature as delivered facts (receipt).
+    const rows = openEvidence('scope', 'worktrees');
+    expect(rows).not.toContain('estatus');
+    expect(rows).toMatch(/<span class="eglyph">[^<]*<\/span>/);
+    expect(openEvidence('uat', 'fix')).not.toContain('estatus');
+    const receipt = openEvidence('done', 'delivery-receipt');
+    expect(receipt).not.toContain('estatus');
+    expect(receipt).not.toContain('eglyph');
+  });
+
+  it('renders each kind’s factual detail verbatim (Task 5)', () => {
+    expect(openEvidence('uat', 'gates')).toContain('<span class="edetail">exit 0</span>');
+    expect(openEvidence('review', 'review')).toContain('SQL injection in query builder');
+    expect(openEvidence('ship', 'commit')).toContain('<span class="edetail">2 created · 1 before</span>');
+    expect(openEvidence('ship', 'pr')).toContain('created #120');
+    expect(openEvidence('uat', 'fix')).toContain('gate test failed');
+    expect(openEvidence('done', 'delivery-receipt')).toContain('31 created by ship');
+    expect(openEvidence('scope', 'worktrees')).toContain('<span class="elabel">worktree</span>');
+  });
+
+  it('places row actions in the trailing action cluster (Task 5)', () => {
+    // Findings carry the open-file action the reducer ships: the button is the
+    // LAST cell of its row, inside `.eact`, posting only the opaque id.
+    const findings = openEvidence('review', 'review');
+    expect(findings).toMatch(
+      /<span class="eact"><button[^>]*data-act="inside-action"[^>]*>Open file<\/button><\/span>/,
+    );
+    expect(findings).toContain('data-action-id="fixture:open-file:1"');
+    // Tester observations (uat, kind rows) keep their open-file actions too.
+    const uat = openEvidence('uat', 'tester');
+    expect(uat).toMatch(/<span class="eact"><button[^>]*>Open file<\/button><\/span>/);
+  });
+
+  it('orders UAT Gates → causal Fix → Services → Tester (Task 5)', () => {
+    // The plan's acceptance: the Fix process sits immediately after its
+    // trigger — the gates process whose failure opened the recovery round —
+    // never at the bottom as an unrelated retry meter (handoff §5.5).
+    const html = renderInsideFor('uat');
+    const pos = (id: string): number => html.indexOf(`data-proc-id="uat:${id}"`);
+    expect(pos('gates')).toBeGreaterThan(-1);
+    expect(pos('fix')).toBeGreaterThan(pos('gates'));
+    expect(pos('services')).toBeGreaterThan(pos('fix'));
+    expect(pos('tester')).toBeGreaterThan(pos('services'));
+  });
+
+  it('orders Review Gates → Services → Review (Task 5)', () => {
+    // Review's matrix scenario records no recovery round, so no Fix row
+    // appears — the fix-after-trigger rule applies where a Fix exists (uat).
+    const html = renderInsideFor('review');
+    const pos = (id: string): number => html.indexOf(`data-proc-id="review:${id}"`);
+    expect(pos('gates')).toBeGreaterThan(-1);
+    expect(pos('services')).toBeGreaterThan(pos('gates'));
+    expect(pos('review')).toBeGreaterThan(pos('services'));
+  });
+
+  it('keeps Ship Commit → Push → PR → Merge with conflicts waiting, never failed (Task 5)', () => {
+    const html = renderInsideFor('ship');
+    const pos = (id: string): number => html.indexOf(`data-proc-id="ship:${id}"`);
+    expect(pos('commit')).toBeGreaterThan(-1);
+    expect(pos('push')).toBeGreaterThan(pos('commit'));
+    expect(pos('pr')).toBeGreaterThan(pos('push'));
+    expect(pos('merge')).toBeGreaterThan(pos('pr'));
+    // The conflicted merge row reads WAITING — the ⏸ glyph on an `.erow.wait`
+    // row — never a fail glyph and never a fail word.
+    const merge = openEvidence('ship', 'merge');
+    expect(merge).toMatch(/<div class="erow wait">/);
+    expect(merge).toContain('<span class="elabel">conflict</span>');
+    expect(merge).toContain('⏸');
+    expect(merge).not.toContain('✕');
+    expect(merge).not.toMatch(/estatus fail/);
+  });
+
+  it('renders Done as a receipt with no executable controls (Task 5)', () => {
+    // The receipt is delivered facts, not an execution surface (handoff §6
+    // done): at the default repo count it renders no control at all — no
+    // glyph column, no status words, no buttons.
+    const receipt = openEvidence('done', 'delivery-receipt');
+    const block = receipt.slice(receipt.indexOf('class="pev pev-receipt"'));
+    expect(block).not.toContain('eglyph');
+    expect(block).not.toContain('estatus');
+    expect(block).not.toContain('<button');
+  });
+
+  it('renders host-supplied Show-N-more continuations on bounded rows (Task 5)', () => {
+    // handoff §10: a bounded continuation says exactly what it reveals — the
+    // host ships the count-bearing label and the webview renders it verbatim
+    // inside the row's action cluster. Ship's per-repo processes and the done
+    // receipt carry one; the plain uat gates bound stays passive.
+    const commits = openEvidenceCount('ship', 'commit', 20);
+    expect(commits).toContain('Show 14 more');
+    expect(commits).toMatch(
+      /<span class="eact"><button[^>]*data-act="inside-action"[^>]*>Show 14 more<\/button><\/span>/,
+    );
+    const receipt = openEvidenceCount('done', 'delivery-receipt', 20);
+    const block = receipt.slice(receipt.indexOf('class="pev pev-receipt"'));
+    expect(block).toContain('Show 14 more');
+    expect(block).toContain('data-action-id="fixture:open-bounded-evidence:20"');
+    // A gate bound the reducer did not make actionable renders no control.
+    const state = renderStateForCount('uat', 20);
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    h.clickChevron('uat:gates');
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).not.toContain('data-act="inside-action"');
   });
 
   it('renders the host-computed aggregate on the process row (B4)', () => {

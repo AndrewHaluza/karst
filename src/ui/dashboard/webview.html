@@ -561,13 +561,22 @@
   /* ── per-kind evidence layouts (B2): one rule per closed kind (UI-R10) ──
      The kind class rides the evidence block (`pev-<kind>`, emitted by the
      per-kind renderer in the script), so a kind-specific treatment hangs off
-     one selector. All values are tokens (UI-R04/R05). */
-  .pev-rows .erow{}
-  .pev-gates .erow{}
-  .pev-findings .erow{}
-  .pev-commits .erow{}
-  .pev-prs .erow{}
-  .pev-recovery .erow{}
+     one selector. All values are tokens (UI-R04/R05). Every retained rule
+     materially changes its kind's layout or semantics — a dead empty rule is
+     deleted, never kept (Task 5). */
+  /* Findings: the file/finding context is the row's whole point — it WRAPS at
+     every width instead of ellipsising to nothing (a truncated path hides
+     where the fix goes, handoff §10); the blocking severity rides the fail
+     word above. */
+  .pev-findings .edetail{white-space:normal;overflow:visible}
+  /* Commits: the repository and SHA are selectable copy — explicitly text,
+     even where a container rule could set user-select:none — and the detail
+     wraps so a long SHA stays readable. */
+  .pev-commits .edetail{user-select:text;-webkit-user-select:text;white-space:normal;overflow:visible}
+  /* PRs: repo/PR/merge facts wrap and align on the shared grid; a waiting or
+     conflicted PR reads with the attention WORD (the .erow.wait .estatus rule
+     below) — conflict is WAITING, never failure (handoff §5). */
+  .pev-prs .edetail{white-space:normal;overflow:visible}
   /* The status word — the visible state, never colour alone (UI-R06). The
      row's own status class is already on the row, so the word inherits the
      ramp through the scoped rules below. */
@@ -582,7 +591,6 @@
      never from label prose. Identity rows carry their own provider key and
      token claim, so the injected core icon and the bordered pill render
      beside the row they belong to; both absent → neither renders. */
-  .pev-timeline .erow{}
   .session-timeline{list-style:none;margin:var(--k-space-1) 0 0;padding:0}
   .timeline-row{position:relative;display:flex;align-items:baseline;column-gap:var(--k-space-3);padding:var(--k-space-2) var(--k-space-4)}
   /* The continuous hairline spine in the node column — one segment per row
@@ -1437,36 +1445,40 @@
     return `<span class="estatus ${esc(status)}">${esc(INSIDE_STATUS_LABEL[status] || status)}</span>`;
   }
 
-  function evidenceRowHtml(r) {
-    const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
-    // The timeline's relationship marker: this row continues the SAME
-    // execution through a provider switch or a resume. Structural (the host
-    // sets `connector`), never guessed from the label. Static tooltip copy
-    // from the closed vocabulary, like the action titles above.
-    const conn = r.connector === 'switch' || r.connector === 'resume'
-      ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
-      : '';
-    const act = r.action ? insideActionBtnHtml(r.action) : '';
+  // ONE shared evidence row helper (Task 5): every non-timeline kind renders
+  // through it with an explicit closed layout mode. `plain` = glyph + label +
+  // detail + action, the glyph as the status (generic rows, recovery — no
+  // word); `status` = + the visible status WORD beside the label (gates,
+  // findings, commits, prs — handoff §6's "lint  pass · 4.2s" template), with
+  // the duration riding the word cluster; `receipt` = delivered facts with no
+  // glyph column and no status word (handoff §6 done) — and the ONLY control
+  // that may render there is the host-supplied bounded continuation ("Show N
+  // more", handoff §10), never an executable one.
+  function evidenceRowHtml(r, mode) {
+    const word = mode === 'status' && r.status ? statusWordHtml(r.status) : '';
+    // The receipt is a list, not a status readout: no glyph column.
+    const glyph = mode === 'receipt' ? '' : (r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '');
+    // The relationship marker: this row continues the SAME execution through
+    // a provider switch or a resume. Structural (the host sets `connector`),
+    // never guessed from the label. Static tooltip copy from the closed
+    // vocabulary, like the action titles above. Receipt rows never carry one.
+    const conn = mode === 'receipt'
+      ? ''
+      : (r.connector === 'switch' || r.connector === 'resume'
+        ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
+        : '');
+    const dur = r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '';
+    // In status mode the duration rides the status WORD ("pass · 4.2s"); in
+    // plain mode it trails the detail as it always did.
+    const stat = mode === 'status' ? word + dur : dur;
+    // A receipt row is a delivered fact: only the passive bounded continuation
+    // is a control there — never resume/restart/ship actions.
+    const act = r.action && (mode !== 'receipt' || r.action.kind === 'open-bounded-evidence')
+      ? insideActionBtnHtml(r.action) : '';
     return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
       + `<span class="elabel">${esc(r.label)}</span>`
+      + stat
       + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
-      + (r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '')
-      + (act ? `<span class="eact">${act}</span>` : '')
-      + `</div>`;
-  }
-
-  // Gates/findings/commits/prs rows carry a status WORD beside the glyph —
-  // handoff §6's gate template ("lint  pass · 4.2s") and ship template
-  // ("Commit  passed · created by Karst"). One shared row shape; the kind
-  // class on the container is what differs.
-  function statusRowHtml(r) {
-    const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
-    const act = r.action ? insideActionBtnHtml(r.action) : '';
-    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}`
-      + `<span class="elabel">${esc(r.label)}</span>`
-      + (r.status ? statusWordHtml(r.status) : '')
-      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
-      + (r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '')
       + (act ? `<span class="eact">${act}</span>` : '')
       + `</div>`;
   }
@@ -1511,41 +1523,29 @@
     return `<span class="timeline-tok"${tip}>${esc(t.total)} tokens</span>`;
   }
 
-  // The receipt is a list of delivered facts, not a status readout — the
-  // process row's own status is the verdict, so per-row glyphs would double
-  // it (handoff §6 done).
-  function receiptRowHtml(r) {
-    const act = r.action ? insideActionBtnHtml(r.action) : '';
-    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">`
-      + `<span class="elabel">${esc(r.label)}</span>`
-      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
-      + (act ? `<span class="eact">${act}</span>` : '')
-      + `</div>`;
-  }
-
   function evidenceRowsHtml(ev) {
-    return `<div class="pev pev-rows">${ev.rows.map(evidenceRowHtml).join('')}</div>`;
+    return `<div class="pev pev-rows">${ev.rows.map((r) => evidenceRowHtml(r, 'plain')).join('')}</div>`;
   }
   function evidenceGatesHtml(ev) {
-    return `<div class="pev pev-gates">${ev.rows.map(statusRowHtml).join('')}</div>`;
+    return `<div class="pev pev-gates">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
   }
   function evidenceFindingsHtml(ev) {
-    return `<div class="pev pev-findings">${ev.rows.map(statusRowHtml).join('')}</div>`;
+    return `<div class="pev pev-findings">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
   }
   function evidenceTimelineHtml(ev) {
     return `<div class="pev pev-timeline"><ol class="session-timeline">${ev.rows.map(timelineRowHtml).join('')}</ol></div>`;
   }
   function evidenceCommitsHtml(ev) {
-    return `<div class="pev pev-commits">${ev.rows.map(statusRowHtml).join('')}</div>`;
+    return `<div class="pev pev-commits">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
   }
   function evidencePrsHtml(ev) {
-    return `<div class="pev pev-prs">${ev.rows.map(statusRowHtml).join('')}</div>`;
+    return `<div class="pev pev-prs">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
   }
   function evidenceRecoveryHtml(ev) {
-    return `<div class="pev pev-recovery">${ev.rows.map(evidenceRowHtml).join('')}</div>`;
+    return `<div class="pev pev-recovery">${ev.rows.map((r) => evidenceRowHtml(r, 'plain')).join('')}</div>`;
   }
   function evidenceReceiptHtml(ev) {
-    return `<div class="pev pev-receipt">${ev.rows.map(receiptRowHtml).join('')}</div>`;
+    return `<div class="pev pev-receipt">${ev.rows.map((r) => evidenceRowHtml(r, 'receipt')).join('')}</div>`;
   }
 
   // Kind → renderer. An unknown kind (a future host, an older snapshot) falls

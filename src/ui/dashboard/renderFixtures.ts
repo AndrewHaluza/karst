@@ -111,7 +111,16 @@ function boundedRows(
   return boundedEvidenceRows(
     rows,
     limit,
-    actionable ? () => fixtureAction('open-bounded-evidence', rows.length) : undefined,
+    actionable
+      ? (allRows) =>
+          fixtureAction(
+            'open-bounded-evidence',
+            allRows.length,
+            // The continuation says exactly what it reveals (handoff §10) — the
+            // same count-bearing label the production reducers ship.
+            `Show ${Math.max(0, allRows.length - limit)} more`,
+          )
+      : undefined,
   );
 }
 
@@ -152,8 +161,12 @@ const LONG_PATH =
   'src/services/fulfillment/orchestrator/checkout-engine/src/main/java/com/platform/fulfillment/checkout/CheckoutFulfillmentOrchestratorServiceImplFactoryProviderConfigurationBuilder.java';
 
 /** An inert, un-resolvable capability — see the module doc. */
-function fixtureAction(kind: TypedInsideAction['kind'], n: number): TypedInsideAction {
-  return { actionId: `fixture:${kind}:${n}`, kind };
+function fixtureAction(
+  kind: TypedInsideAction['kind'],
+  n: number,
+  label?: string,
+): TypedInsideAction {
+  return { actionId: `fixture:${kind}:${n}`, kind, ...(label ? { label } : {}) };
 }
 
 /** One hostile finding title — must survive the matrix so escaping has teeth. */
@@ -347,7 +360,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
   };
 }
 
-/** The ship stage: everything landed except the merge — waiting on PRs. */
+/** The ship stage: everything landed except the merge — waiting, one conflicted. */
 function shipView(n: RenderRepoCount): InsideStageView {
   const commitRows = repoNames(n).map(
     (r): EvidenceRow => ({ status: 'pass', label: r, detail: '2 created · 1 before' }),
@@ -358,12 +371,14 @@ function shipView(n: RenderRepoCount): InsideStageView {
   const prRows = repoNames(n).map(
     (r, i): EvidenceRow => ({ status: 'pass', label: r, detail: `created #${120 + i}` }),
   );
+  // A conflict is WAITING, never failed (handoff §5: "Conflict is waiting, not
+  // failure") — the first repo's branch stopped merging cleanly, everything
+  // else simply has not landed yet.
   const mergeRows = repoNames(n).map(
-    (r, i): EvidenceRow => ({
-      status: 'wait',
-      label: 'open',
-      detail: `${r} #${120 + i} · not merged yet`,
-    }),
+    (r, i): EvidenceRow =>
+      i === 0
+        ? { status: 'wait', label: 'conflict', detail: `${r} #${120 + i} · resolve the merge conflict` }
+        : { status: 'wait', label: 'open', detail: `${r} #${120 + i} · not merged yet` },
   );
   return {
     stageKey: 'ship',
@@ -413,7 +428,7 @@ function shipView(n: RenderRepoCount): InsideStageView {
   };
 }
 
-/** The uat stage: gates passed, tester failed, fix rounds exhausted. */
+/** The uat stage: gates revalidated, the causal Fix exhausted, services, tester. */
 function uatView(n: RenderRepoCount): InsideStageView {
   const gateRows = repoNames(n).flatMap(
     (r): EvidenceRow[] => [
@@ -454,6 +469,31 @@ function uatView(n: RenderRepoCount): InsideStageView {
           skipped: 0,
         },
       },
+      // The causal Fix sits IMMEDIATELY after its trigger — the gates process
+      // whose failure opened every recovery round — per the plan's acceptance
+      // "Gates → causal Fix → Services → Tester" and the reducer's own
+      // `insertCausalFix` placement.
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'fail',
+        detail: 'no fix attempts left',
+        duration: '2m 31s',
+        execution: { ...CLAUDE_EXECUTION },
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            { status: 'pass', label: 'round 1', detail: 'gate test failed — max 3' },
+            { status: 'fail', label: 'round 2', detail: 'gate test failed again — max 3' },
+            {
+              status: 'fail',
+              label: 'round 3',
+              detail: 'gate test failed again — max 3 — no fix attempts left',
+            },
+          ],
+        },
+      },
       {
         id: 'services',
         kind: 'services',
@@ -471,27 +511,6 @@ function uatView(n: RenderRepoCount): InsideStageView {
         execution: { ...CODEX_EXECUTION },
         tokens: { ...ESTIMATED_TOKENS },
         evidence: { kind: 'rows', rows: observations },
-      },
-      {
-        id: 'fix',
-        kind: 'fix',
-        label: 'Fix',
-        status: 'fail',
-        detail: 'no fix attempts left',
-        duration: '2m 31s',
-        execution: { ...CLAUDE_EXECUTION },
-        evidence: {
-          kind: 'recovery',
-          rows: [
-            { status: 'pass', label: 'round 1', detail: 'gate test failed — max 3' },
-            { status: 'fail', label: 'round 2', detail: 'observation did not hold — max 3' },
-            {
-              status: 'fail',
-              label: 'round 3',
-              detail: 'observation did not hold — max 3 — no fix attempts left',
-            },
-          ],
-        },
       },
     ],
     blurb: STAGE_BLURBS.uat,

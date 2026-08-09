@@ -145,6 +145,8 @@ describe('render fixtures', () => {
       action: {
         actionId: expect.stringMatching(/^fixture:/),
         kind: 'open-bounded-evidence',
+        // The count-bearing continuation label the host ships (handoff §10).
+        label: 'Show 14 more',
       },
     });
     const ship5 = fixtures.find((x) => x.repositoryCount === 5 && x.scenario === 'waiting')!;
@@ -296,5 +298,52 @@ describe('render fixtures', () => {
         { label: 'Done' },
       ],
     });
+  });
+
+  it('places the causal Fix directly after its UAT trigger (Task 5)', () => {
+    // The plan's acceptance: Gates → causal Fix → Services → Tester. The fix
+    // is inserted immediately after the process whose evidence opened the
+    // recovery round — here the gates, whose failure every round records —
+    // never at the bottom as an unrelated retry meter (handoff §5.5).
+    const uat = fixtures.find((f) => f.scenario === 'exhausted' && f.repositoryCount === 2)!;
+    expect(uat.view.processes.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'tester']);
+    const rounds = rowsOf(uat, 'fix').filter((r) => r.label !== 'more');
+    expect(rounds.map((r) => r.detail)).toEqual([
+      'gate test failed — max 3',
+      'gate test failed again — max 3',
+      'gate test failed again — max 3 — no fix attempts left',
+    ]);
+  });
+
+  it('keeps Review Gates → Services → Review and Ship Commit → Push → PR → Merge (Task 5)', () => {
+    // Review has no recovery round in this matrix, so no Fix row appears —
+    // the acceptance's fix-after-trigger rule applies where a Fix exists (uat).
+    const review = fixtures.find((f) => f.scenario === 'failed' && f.repositoryCount === 2)!;
+    expect(review.view.processes.map((p) => p.id)).toEqual(['gates', 'services', 'review']);
+    const ship = fixtures.find((f) => f.scenario === 'waiting' && f.repositoryCount === 2)!;
+    expect(ship.view.processes.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
+  });
+
+  it('renders merge conflicts as waiting, never failed (Task 5)', () => {
+    // A conflicted branch is a WAIT that names what the user must do — it
+    // must never read as a failure of the ship's own work (handoff §5).
+    for (const f of fixtures.filter((x) => x.scenario === 'waiting')) {
+      const merge = rowsOf(f, 'merge').filter((r) => r.label !== 'more');
+      expect(merge.some((r) => r.label === 'conflict'), `${f.repositoryCount} repos`).toBe(true);
+      for (const r of merge) expect(r.status).toBe('wait');
+      expect(merge.some((r) => r.status === 'fail')).toBe(false);
+    }
+  });
+
+  it('keeps the delivery receipt free of executable controls (Task 5)', () => {
+    // The receipt is delivered facts (handoff §6 done): the ONLY action any
+    // receipt row may carry is the passive bounded continuation — never a
+    // resume/restart/ship control.
+    for (const f of fixtures.filter((x) => x.scenario === 'passed')) {
+      for (const r of rowsOf(f, 'delivery-receipt')) {
+        if (!r.action) continue;
+        expect(r.action.kind).toBe('open-bounded-evidence');
+      }
+    }
   });
 });
