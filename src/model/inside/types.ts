@@ -1,5 +1,5 @@
 import type { StageKey } from '../types.js';
-import type { StepperCell } from '../stepper.js';
+import { displayStatus, type StepperCell } from '../stepper.js';
 
 /**
  * How an operation row reads.
@@ -106,13 +106,20 @@ export function formatClock(cell: StepperCell, now: string): string {
   return `${formatTime(cell.startedAt)}${took ? ` · ${took}` : ''}${attempt}`;
 }
 
-/** Map a stage's status onto the header dot. */
+/**
+ * Map a stage's status onto the header dot. Read through `displayStatus`: a
+ * parked stage keeps its stored `running` while blocked, and the header must
+ * not spin a `run` arc beside its own block banner — it reads `wait` (the
+ * amber two-bars glyph), the same reading the process rows give it.
+ */
 export function dotFor(cell: StepperCell): InsideDot {
-  switch (cell.status) {
+  switch (displayStatus(cell)) {
     case 'passed':
       return 'done';
     case 'running':
       return 'run';
+    case 'blocked':
+      return 'wait';
     case 'failed':
       return 'fail';
     case 'skipped':

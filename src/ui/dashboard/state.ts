@@ -9,7 +9,7 @@ import {
 } from '../../store/dashboard.js';
 import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
-import { buildStepper, type StepperCell } from '../../model/stepper.js';
+import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
 import { buildNowLine, type NowLine } from '../../model/nowLine.js';
 import { sessionAction } from '../../agent/sessionAction.js';
 import { resolveProvider } from '../../agent/registry.js';
@@ -503,7 +503,13 @@ function stageView(
     stageKey: key,
     title: STAGE_TITLES[key as StageKey],
     dot: dotFor(cell),
-    clock: formatClock(cell, now),
+    // A blocked stage is not doing anything: its elapsed span ends when the
+    // park wrote the block (`blocked.at`), never at `now` — otherwise the
+    // clock keeps growing beside the banner saying the stage is blocked.
+    clock:
+      cell.blocked && displayStatus(cell) === 'blocked'
+        ? formatClock(cell, cell.blocked.at)
+        : formatClock(cell, now),
     processes: [...processes],
     blurb: STAGE_BLURBS[key as StageKey],
   };

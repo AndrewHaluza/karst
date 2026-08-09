@@ -1,5 +1,5 @@
 import type { WorktreeView } from '../../store/dashboard.js';
-import type { StepperCell } from '../stepper.js';
+import { displayStatus, type StepperCell } from '../stepper.js';
 import {
   formatDuration,
   type EvidenceRow,
@@ -33,15 +33,22 @@ export type { DoneReceiptInput, DoneReceiptView } from './done.js';
 /** The number of per-worktree detail rows one scope process row shows. */
 const WORKTREE_DETAIL_LIMIT = 8;
 
-/** Map a stage's status onto the process vocabulary. */
+/**
+ * Map a stage's status onto the process vocabulary. Read through `displayStatus`:
+ * a parked stage keeps its stored `running` while blocked, and must never draw
+ * a spinner — it reads `wait` (the amber two-bars glyph), like every other
+ * "karst is waiting" row.
+ */
 function stageProcessStatus(cell: StepperCell): InsideStatus {
-  switch (cell.status) {
+  switch (displayStatus(cell)) {
     case 'passed':
       return 'pass';
     case 'failed':
       return 'fail';
     case 'running':
       return 'run';
+    case 'blocked':
+      return 'wait';
     case 'skipped':
       return 'skip';
     default:

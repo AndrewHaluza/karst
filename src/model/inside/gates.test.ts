@@ -217,6 +217,37 @@ describe('uatProcesses', () => {
     expect(gates.detail).toBe('not run yet — these gates would run');
   });
 
+  it('reads a blocked stage as waiting, never running, with no first-gate promise', () => {
+    // `parkGateStage` leaves the runner's `running` status in place; an
+    // empty-batch blocked stage must not draw a spinner or promise the first
+    // gate's row — it waits on the block, and the banner above says why.
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running', {
+          blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW },
+        }),
+      }),
+    );
+    const gates = views[0]!;
+    expect(gates.status).toBe('wait');
+    expect(gates.detail).toBe('blocked — the gates did not run');
+  });
+
+  it('keeps a passed stage with a block reading its recorded batch', () => {
+    // A passed stage with a block (e.g. ship's awaiting-merge) stays passed —
+    // `displayStatus` only reads `blocked` while the stored status is running.
+    // With a recorded batch, the row states the batch's verdict, never `wait`.
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'passed', {
+          blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: NOW },
+        }),
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW })],
+      }),
+    );
+    expect(views[0]!.status).toBe('pass');
+  });
+
   it('marks a user-disabled gate as skipped, never as pending', () => {
     const views = uatProcesses(
       qualityInput({

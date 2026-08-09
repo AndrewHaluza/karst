@@ -84,6 +84,17 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
 }
 
 /**
+ * How a cell READS. A stage with a block is not running: park writes the block
+ * and leaves the status the runner set, so a parked stage keeps saying
+ * `running` — a spinner and a growing clock beside a banner saying it is
+ * blocked. The stored status stays the record of what the runner was doing;
+ * this is what every surface renders.
+ */
+export function displayStatus(cell: StepperCell): StageStatus | 'blocked' {
+  return cell.blocked && cell.status === 'running' ? 'blocked' : cell.status;
+}
+
+/**
  * Project a ticket's stage rows onto the canonical, stable stepper order
  * (`STAGE_KEYS`, not stage-row insertion order). A stage with no row yet reads
  * as `pending` — the pre-run default — so the stepper is complete on every

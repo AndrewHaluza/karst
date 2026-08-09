@@ -7,6 +7,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { openProcessRun } from '../../store/processRuns.js';
+import { parkGateStage } from '../../store/stageBlocks.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
@@ -190,6 +191,27 @@ describe('buildDashboardState', () => {
       reason: 'no target resolved',
       at: '2026-07-16T10:00:00.000Z',
     });
+  });
+
+  it('ends a blocked stage’s elapsed clock at the block, never at now', () => {
+    // `parkGateStage` leaves the runner's `running` status in place; the strip
+    // header must not keep counting against a stage that stopped the moment it
+    // parked. The block carries its own timestamp — that is the end.
+    const t = createTicket(store, { key: 'PROJ-BLK', title: 'parked clock' });
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      kind: 'nothing-to-run',
+      reason: 'no target resolved',
+      runAt: '2026-08-09T10:33:42.000Z',
+      gates: [],
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.uat.clock).toContain('· 33m 42s elapsed');
+    expect(state.insideViews.uat.clock).not.toContain('h elapsed');
   });
 
   // The reviewer's Important finding (task 8, fix round 1): `reason`/`blocked`

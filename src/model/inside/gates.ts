@@ -4,7 +4,7 @@ import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { Finding } from '../../store/reviewFindings.js';
 import type { UatFinding } from '../../store/uatFindings.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
-import type { StepperCell } from '../stepper.js';
+import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
 import { bounded } from './bounds.js';
@@ -287,15 +287,23 @@ function gatesProcess(
     else failed += 1;
   }
 
-  const finished = cell.status === 'passed' || cell.status === 'failed';
+  // Read through `displayStatus`: `parkGateStage` leaves the status the runner
+  // set, so a parked stage keeps reading `running` while blocked — it is not
+  // running, and the row must not draw a spinner or promise the first gate's
+  // row beside its own block banner.
+  const shown = displayStatus(cell);
+  const finished = shown === 'passed' || shown === 'failed';
+  const running = shown === 'running';
+  const blocked = shown === 'blocked';
   // Before anything ran, the resolved names (`gateOptions.ts`) are the gates
   // that WOULD run — a forecast, ROWS ONLY: it never touches the counts or
   // the aggregate, because a gate that has not run has no outcome. Recorded
   // rows always win over the forecast (a record is a fact; a resolution is a
   // prediction), and a running stage shows no forecast either — its first
-  // real row lands as the first gate finishes.
+  // real row lands as the first gate finishes. A blocked stage shows none
+  // either: nothing is about to run.
   const forecast =
-    batch.length === 0 && !finished && cell.status !== 'running' && resolved.length > 0;
+    batch.length === 0 && !finished && !running && !blocked && resolved.length > 0;
   const boundedRows = bounded(
     forecast
       ? resolved.map((g): EvidenceRow => ({
@@ -344,16 +352,18 @@ function gatesProcess(
       batch.length === 0
         ? finished
           ? 'note'
-          : // A running stage with nothing recorded YET is running, not
-            // pending: the first gate's row lands only when that gate finishes,
-            // so `pending` here left the row inert for the whole first gate —
-            // exactly the window the user is watching.
-            cell.status === 'running'
-            ? 'run'
-            : 'pending'
+          : blocked
+            ? 'wait'
+            : // A running stage with nothing recorded YET is running, not
+              // pending: the first gate's row lands only when that gate finishes,
+              // so `pending` here left the row inert for the whole first gate —
+              // exactly the window the user is watching.
+              running
+              ? 'run'
+              : 'pending'
         : failed > 0
           ? 'fail'
-          : cell.status === 'running'
+          : running
             ? 'run'
             : 'pass',
     // handoff §11 failure copy: the collapsed row says what failed, why, and
@@ -367,11 +377,13 @@ function gatesProcess(
         ? {
               detail: finished
                 ? 'no gates recorded for this stage'
-                : cell.status === 'running'
-                  ? 'running the first gate — each result lands here as it finishes'
-                  : forecast
-                    ? 'not run yet — these gates would run'
-                    : 'resolved per repository when the stage runs',
+                : blocked
+                  ? 'blocked — the gates did not run'
+                  : running
+                    ? 'running the first gate — each result lands here as it finishes'
+                    : forecast
+                      ? 'not run yet — these gates would run'
+                      : 'resolved per repository when the stage runs',
           }
         : {}),
     ...(aggregate ? { aggregate } : {}),

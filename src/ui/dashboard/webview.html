@@ -329,6 +329,11 @@
     color:var(--k-attention);animation:seg-breathe var(--k-dur-flash-done) ease-in-out infinite}
   @keyframes seg-breathe{0%,100%{background:color-mix(in srgb,var(--k-attention) 30%,transparent)}
     50%{background:color-mix(in srgb,var(--k-attention) 16%,transparent)}}
+  /* Blocked is parked, not running: same amber attention wash as needs-you
+     (the banner below it says the same thing), but no breathe — it is a wait,
+     not a demand the user answer right now. */
+  .track .seg.blocked{background:color-mix(in srgb,var(--k-attention) 30%,transparent);
+    color:var(--k-attention)}
 
   /* min-content, not 0: at 0 the current segment absorbs every overflow by
      shrinking, so its own action button is clipped by the chevron AND the lane
@@ -1308,11 +1313,12 @@
   // segment's own rule sets no colour (so the stage palette can), which leaves an
   // untravelled segment wearing its stage hue at full strength unless something
   // says otherwise.
-  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped' };
+  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped', blocked: 'blocked' };
   // Running renders a spinner ELEMENT, not a character — see the .spin rule for
-  // why every glyph candidate misread on a clickable node.
+  // why every glyph candidate misread on a clickable node. A blocked stage is
+  // NOT running: it carries the same pause a parked confirm stage does.
   const SPINNER = '<span class="spin" aria-hidden="true"></span>';
-  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–' };
+  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–', blocked: '❚❚' };
   // A parked confirm stage carries a pause; a conflicted merge carries a warning.
   // Two glyphs, ONE state — merge has no failed edge, so a conflict is a wording
   // difference and must never render as something a retry could clear.
@@ -1444,7 +1450,11 @@
     const segs = rail.main.map((s) => {
       const cell = s.cell;
       const k = cell.stageKey;
-      const status = cell.status;
+      // The HOST resolves how the cell reads (displayStatus, model/stepper.ts):
+      // a parked stage keeps its stored `running` but must not draw a spinner.
+      // Fall back to the stored status for a snapshot restored from an older
+      // build that predates the field.
+      const status = s.status || cell.status;
       const needs = s.needsUser === true;
       // A conflict is a WORDING difference, not a new state: merge has no failed
       // edge, so it must never render as something a retry could clear. The host

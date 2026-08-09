@@ -10,6 +10,11 @@ import { injectAgentIdentity } from '../../model/agentIdentity.js';
 import { implementationPrototypeFixture, renderFixtures, renderStateFor } from './renderFixtures.js';
 import type { RenderRepoCount } from './renderFixtures.js';
 import type { DashboardState } from './state.js';
+import { buildDashboardState } from './state.js';
+import { openStore } from '../../store/db.js';
+import { createTicket } from '../../store/tickets.js';
+import { setStage } from '../../store/stages.js';
+import { parkGateStage } from '../../store/stageBlocks.js';
 import { EVIDENCE_KINDS } from '../../model/inside/types.js';
 import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 
@@ -2018,6 +2023,40 @@ describe('inside render round trip (executed in a VM)', () => {
     h.receive({ type: 'state', state: renderStateFor('uat') });
     expect(h.htmlOf('inside')).toContain('data-proc-id="uat:tester" open');
     expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+  });
+
+  it('never renders a spinner on a stage that is blocked', () => {
+    // The real host path (store → buildDashboardState → render): a uat stage
+    // parked by `parkGateStage`, which writes the block columns and leaves the
+    // runner's `running` status in place. Every surface — the rail segment,
+    // the strip header's clock, the gates row — used to keep reading `running`
+    // beside the banner saying the stage is blocked.
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'BLK-1', title: 'blocked at uat' });
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      kind: 'nothing-to-run',
+      reason: 'no worktree resolved to a manifest repository',
+      runAt: '2026-08-09T10:33:42.000Z',
+      gates: [],
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(store, t.id);
+    store.close();
+
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    const html = h.htmlOf('inside');
+    // The gates row is not running and does not promise the first gate's row.
+    expect(html).not.toContain('running the first gate');
+    expect(html).not.toMatch(/class="op run"/);
+    expect(html).not.toMatch(/class="glyph run"/);
+    // The strip header's clock stops at the block's own timestamp, never at now.
+    expect(html).toContain('· 33m 42s elapsed');
+    // The stage strip's segment for the blocked stage carries no spinner.
+    expect(h.htmlOf('rail')).not.toContain('<span class="spin"');
   });
 
   // ── the approved prototype ledger (Task 3) ──────────────────────────────

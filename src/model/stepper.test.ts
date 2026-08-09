@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildStepper } from './stepper.js';
+import { buildStepper, displayStatus } from './stepper.js';
 import { MAX_DIAGNOSTIC_CHARS } from './diagnosticText.js';
 
 describe('buildStepper', () => {
@@ -137,5 +137,37 @@ describe('buildStepper', () => {
     expect(reason).not.toContain('\n');
     expect(reason.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS + 1);
     expect(reason.endsWith('…')).toBe(true);
+  });
+});
+
+describe('displayStatus', () => {
+  const blocked = {
+    kind: 'nothing-to-run' as const,
+    reason: 'no target resolved',
+    at: '2026-07-16T10:00:00.000Z',
+  };
+
+  it('reads a running stage with a block as blocked', () => {
+    expect(displayStatus({ stageKey: 'uat', status: 'running', blocked })).toBe('blocked');
+  });
+
+  it('leaves a running stage without a block running', () => {
+    expect(displayStatus({ stageKey: 'uat', status: 'running' })).toBe('running');
+  });
+
+  it('keeps a passed stage with an awaiting-merge block passed', () => {
+    // Ship waiting to land is genuinely passed — the block is a wait, not a
+    // claim that the stage is still doing something.
+    expect(
+      displayStatus({
+        stageKey: 'ship',
+        status: 'passed',
+        blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: '2026-07-16T10:00:00.000Z' },
+      }),
+    ).toBe('passed');
+  });
+
+  it('leaves a pending stage with a block pending', () => {
+    expect(displayStatus({ stageKey: 'uat', status: 'pending', blocked })).toBe('pending');
   });
 });
