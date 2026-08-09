@@ -131,6 +131,7 @@ interface SessionBinding {
   purpose: 'implementation' | 'fix';
   sessionOrigin: 'new' | 'resume' | 'unknown';
   provider: string;
+  model: string | null;
   processRunId: number | null;
   implementationSegmentId: number | null;
 }
@@ -192,7 +193,8 @@ function resolveSessionBinding(
 ): SessionBinding | null {
   const fixRound = store.db
     .prepare(
-      `SELECT r.fix_process_run_id AS fix_process_run_id, pr.provider AS provider
+      `SELECT r.fix_process_run_id AS fix_process_run_id, pr.provider AS provider,
+              pr.model AS model
          FROM recovery_rounds r
          JOIN process_runs pr
            ON pr.id = r.fix_process_run_id
@@ -201,7 +203,9 @@ function resolveSessionBinding(
         WHERE r.ticket_id = ? AND r.status = 'fixing' AND r.fix_process_run_id IS NOT NULL
         ORDER BY r.id DESC LIMIT 1`,
     )
-    .get(ticketId) as { fix_process_run_id: number; provider: string | null } | undefined;
+    .get(ticketId) as
+    | { fix_process_run_id: number; provider: string | null; model: string | null }
+    | undefined;
   if (fixRound !== undefined && fixRound.provider === provider) {
     const live = store.db
       .prepare('SELECT session_id, session_provider FROM tickets WHERE id = ?')
@@ -217,6 +221,7 @@ function resolveSessionBinding(
         purpose: 'fix',
         sessionOrigin: sessionOriginFor(store, ticketId, provider, providerSessionId),
         provider,
+        model: fixRound.model,
         processRunId: fixRound.fix_process_run_id,
         implementationSegmentId: null,
       };
@@ -248,7 +253,7 @@ function resolveSessionBinding(
   if (intent.purpose === 'implementation' && intent.implementation_run_id !== null) {
     const segment = store.db
       .prepare(
-        `SELECT s.id AS id, pr.id AS process_run_id
+        `SELECT s.id AS id, s.model AS model, pr.id AS process_run_id
            FROM implementation_runs ir
           JOIN process_runs pr
             ON pr.id = ir.process_run_id
@@ -268,12 +273,13 @@ function resolveSessionBinding(
         providerSessionId,
         intent.implementation_run_id,
         ticketId,
-      ) as { id: number; process_run_id: number } | undefined;
+      ) as { id: number; model: string | null; process_run_id: number } | undefined;
     if (segment === undefined) return null;
     return {
       purpose: 'implementation',
       sessionOrigin: intent.session_origin as SessionBinding['sessionOrigin'],
       provider: intent.provider,
+      model: segment.model,
       processRunId: segment.process_run_id,
       implementationSegmentId: segment.id,
     };
@@ -281,7 +287,7 @@ function resolveSessionBinding(
   if (intent.recovery_round_id !== null) {
     const fixRun = store.db
       .prepare(
-        `SELECT r.fix_process_run_id AS fix_process_run_id
+        `SELECT r.fix_process_run_id AS fix_process_run_id, pr.model AS model
            FROM recovery_rounds r
            JOIN process_runs pr
              ON pr.id = r.fix_process_run_id
@@ -291,13 +297,14 @@ function resolveSessionBinding(
           WHERE r.id = ? AND r.ticket_id = ? AND r.status = 'fixing'`,
       )
       .get(intent.provider, intent.recovery_round_id, intent.ticket_id) as
-      | { fix_process_run_id: number | null }
+      | { fix_process_run_id: number | null; model: string | null }
       | undefined;
     if (fixRun !== undefined && fixRun.fix_process_run_id !== null) {
       return {
         purpose: 'fix',
         sessionOrigin: intent.session_origin as SessionBinding['sessionOrigin'],
         provider: intent.provider,
+        model: fixRun.model,
         processRunId: fixRun.fix_process_run_id,
         implementationSegmentId: null,
       };
@@ -454,7 +461,7 @@ export function appendInteractiveUsageSample(
             interactive_usage_sample_id, call_site, provider, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
             total_tokens, estimated, outcome, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 'ok', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', ?)`,
       )
       .run(
         projectId?.project_id ?? null,
@@ -464,6 +471,7 @@ export function appendInteractiveUsageSample(
         sampleId,
         callSite,
         binding.provider,
+        binding.model,
         delta.input,
         delta.output,
         delta.cacheRead,

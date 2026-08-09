@@ -21,7 +21,8 @@ import {
   interruptFixExecution,
   listRecoveryRounds,
 } from './recoveryRounds.js';
-import { listTokenUsage } from './tokenUsage.js';
+import { listTokenUsage, queryTokenUsageStats } from './tokenUsage.js';
+import { parseUsageQuery } from './tokenUsageQuery.js';
 import {
   appendInteractiveUsageSample,
   lastInteractiveUsageSample,
@@ -73,13 +74,14 @@ function launch(
   purpose: 'implementation' | 'fix',
   sessionOrigin: 'new' | 'resume' | 'unknown' = 'new',
   reason: 'initial' | 'resume' | 'switch' = 'initial',
+  model: string | null = 'sol',
 ): void {
   recordSessionLaunchIntent(store, {
     ticketId,
     launchId,
     purpose,
     provider: PROVIDER,
-    model: 'sol',
+    model,
     reason,
     sessionOrigin,
     at: T0,
@@ -146,6 +148,7 @@ describe('appendInteractiveUsageSample — first observation', () => {
       processRunId,
       callSite: 'implementation',
       provider: PROVIDER,
+      model: 'sol',
       inputTokens: 1_450,
       outputTokens: 320,
       cacheReadTokens: 180,
@@ -382,6 +385,7 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
     const entry = ledger()[1]!;
     expect(entry).toMatchObject({
       provider: 'claude',
+      model: 'claude-sonnet-5',
       processRunId: canonical.process_run_id,
       callSite: 'implementation',
       inputTokens: 300,
@@ -389,6 +393,79 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
     });
     const switched = lastInteractiveUsageSample(store, 'claude', 'claude-session')!;
     expect(switched.implementationSegmentId).not.toBeNull();
+  });
+
+  it('attributes a cross-provider Fix sample to the Fix process model and groups it by that model', () => {
+    launch('l-impl', 'implementation');
+    confirm('l-impl', 'codex-session');
+    completeImplementationRun(store, ticketId, '2026-08-01T12:00:00.000Z');
+
+    const round = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'blocking-review-findings',
+      triggerDetail: '1 blocking finding',
+      maxRounds: 3,
+      startedAt: '2026-08-01T12:00:30.000Z',
+    });
+    recordFixLaunchIntent(store, {
+      ticketId,
+      launchId: 'l-fix-claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      reason: 'initial',
+      sessionOrigin: 'new',
+      recoveryRoundId: round.id,
+      at: '2026-08-01T12:01:00.000Z',
+    });
+    expect(confirmFixLaunch(store, 'l-fix-claude', {
+      ticketId,
+      provider: 'claude',
+      providerSessionId: 'claude-session',
+      at: '2026-08-01T12:01:01.000Z',
+    })).toBe('confirmed');
+
+    expect(appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({
+        provider: 'claude',
+        providerSessionId: 'claude-session',
+        eventId: 'fix-claude-1',
+        input: 300,
+        output: 40,
+      }),
+    }).kind).toBe('recorded');
+
+    expect(ledger().at(-1)).toMatchObject({
+      callSite: 'fix-resume',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    const parsed = parseUsageQuery({ projectId: 1, ticketId });
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(queryTokenUsageStats(store, parsed.query).byModel.map((row) => row.key)).toContain(
+      'claude-sonnet-5',
+    );
+  });
+
+  it('preserves an intentionally unnamed default model as NULL and the empty aggregate key', () => {
+    launch('l-default', 'implementation', 'new', 'initial', null);
+    confirm('l-default', SESSION);
+
+    expect(appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'default-1', input: 80, output: 20 }),
+    }).kind).toBe('recorded');
+    expect(ledger()[0]).toMatchObject({ provider: PROVIDER, model: null, totalTokens: 100 });
+
+    const parsed = parseUsageQuery({ projectId: 1, ticketId });
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(queryTokenUsageStats(store, parsed.query).byModel).toMatchObject([
+      { key: '', totalTokens: 100, calls: 1 },
+    ]);
   });
 
   it('rejects a late sample from provider A after provider B closed A’s segment', () => {
