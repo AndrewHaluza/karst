@@ -843,7 +843,12 @@ describe('dashboard webview.html', () => {
     // condition makes it parse as valid on every browser, which is exactly the
     // question being asked — so the probe is literal by construction. It is a
     // type test, not geometry: nothing is drawn at 1px because of it.
+    // The three `300px`/`360px`/`430px` are the B7 inside-block breakpoints —
+    // handoff §10's widths. An @container condition cannot read a custom
+    // property, so they are literal by construction, the same exemption class
+    // as the servers panel's 400px rule below.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
+      '300px', '360px', '430px',
       '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -1268,6 +1273,78 @@ describe('dashboard webview.html', () => {
     expect(pdetail).not.toContain('overflow-x');
   });
 
+  it('makes the inside block its own query container (B7)', () => {
+    // The responsive rules are CONTAINER queries on #inside itself, so they
+    // follow the panel's real width (the old preview's width frame targeted
+    // .stepper, a sibling, and never resized the block it existed to test).
+    expect(HTML).toMatch(/#inside\{[^}]*container-type:inline-size/);
+  });
+
+  it('covers the handoff breakpoints 300/360/430 with .act/.proc/.erow rules (B7)', () => {
+    const blockFor = (w: string): string => {
+      const at = HTML.indexOf(`@container (max-width: ${w}){`);
+      expect(at, `missing @container (max-width: ${w})`).toBeGreaterThan(-1);
+      let depth = 0;
+      let end = at;
+      for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+        if (HTML[i] === '{') depth += 1;
+        else if (HTML[i] === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            end = i + 1;
+            break;
+          }
+        }
+      }
+      return HTML.slice(at, end);
+    };
+    // ≤430: identity + token metadata move to a second line as ONE cluster
+    // (handoff §10), and both the process detail and the evidence detail wrap
+    // instead of ellipsising to nothing (the §3.9 finding).
+    const wide = blockFor('430px');
+    expect(wide).toMatch(/\.act \.proc \.pident\{[^}]*flex-basis:100%/);
+    expect(wide).toMatch(/\.act \.proc \.pdetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
+    expect(wide).toMatch(/\.act \.erow \.edetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
+    // The timeline keeps node/edge alignment (§10): its spine and time column
+    // re-lock onto one line where the generic evidence detail now wraps.
+    expect(wide).toMatch(/\.act \.pev-timeline \.erow \.edetail\{[^}]*white-space:nowrap/);
+    // ≤360: the block's chrome thins — margins and gaps tighten.
+    expect(blockFor('360px')).toMatch(/\.act\{[^}]*margin/);
+    expect(blockFor('360px')).toMatch(/\.act \.proc \.pright\{/);
+    expect(blockFor('360px')).toMatch(/\.act \.erow\{/);
+    // ≤300: the floor — only row chrome thins; the status and the name are
+    // never dropped (handoff §10: "Do not hide the only status or action").
+    const floor = blockFor('300px');
+    expect(floor).toMatch(/\.act \.proc \.prow\{/);
+    expect(floor).toMatch(/\.act \.proc \.pev\{/);
+    expect(floor).toMatch(/\.act \.erow\{/);
+    expect(floor).not.toMatch(/display:none/);
+  });
+
+  it('never introduces whole-component horizontal scrolling at the breakpoints (B7)', () => {
+    // handoff §10: "Do not introduce whole-component horizontal scrolling."
+    for (const w of ['300px', '360px', '430px']) {
+      const at = HTML.indexOf(`@container (max-width: ${w}){`);
+      expect(at, `missing @container (max-width: ${w})`).toBeGreaterThan(-1);
+      let depth = 0;
+      let end = at;
+      for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+        if (HTML[i] === '{') depth += 1;
+        else if (HTML[i] === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            end = i + 1;
+            break;
+          }
+        }
+      }
+      const block = HTML.slice(at, end);
+      expect(block, `@container (max-width: ${w}) scrolls horizontally`).not.toMatch(
+        /overflow-x:\s*(?:scroll|auto)/,
+      );
+    }
+  });
+
   it('gives the process summary its own focus ring and a rotating marker (B3)', () => {
     // <summary> is neither a <button> nor an <a>/<input>, so the primitives'
     // generic :focus-visible rule never reaches it (UI-R23 — same as .mgd and
@@ -1279,7 +1356,7 @@ describe('dashboard webview.html', () => {
 
   it('places status and name before every piece of metadata on a process row', () => {
     // Step 8: inside the RENDERED row template, status glyph → name → identity
-    // → tokens → detail → metadata → action → disclosure, in that order, so
+    // cluster → detail → metadata → action → disclosure, in that order, so
     // the eye reads the claim before the facts about it and the metadata can
     // never outrank the name. (The disclosure button's markup is BUILT earlier
     // in the function — its position in the rendered template is what counts.)
@@ -1288,8 +1365,7 @@ describe('dashboard webview.html', () => {
     const positions = [
       rendered.indexOf('<span class="pglyph">'),
       rendered.indexOf('<span class="pname">'),
-      rendered.indexOf('identityChipHtml(p)'),
-      rendered.indexOf('tokensHtml(p.tokens)'),
+      rendered.indexOf('${ident}'),
       rendered.indexOf('<span class="pdetail">'),
       rendered.indexOf('<span class="pright">'),
       rendered.indexOf('${marker}'),

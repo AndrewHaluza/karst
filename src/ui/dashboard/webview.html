@@ -532,6 +532,9 @@
      would compete, and the icon IS the identity (handoff §5). The injected
      .agenticon rules own the icon's box; this only stops the dot. */
   .proc .pchip.with-icon::before{display:none}
+  /* Identity + tokens, one cluster (B7): the container query moves the pair
+     to a second line TOGETHER at narrow widths. */
+  .proc .pident{display:inline-flex;align-items:center;gap:var(--k-space-2)}
   .proc .ptok{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
   .proc .pdetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
     overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -591,6 +594,47 @@
   /* The receipt is a list, not a status readout: no glyph column, one line
      per delivered fact (handoff §6 done). */
   .pev-receipt .erow{flex-wrap:nowrap;gap:var(--k-space-2)}
+
+  /* ── the inside block's responsive rules (B7) ─────────────────────────
+     handoff §10: readable at 300/360/430 and normal widths. The status and
+     the name never drop; the identity+token cluster moves to a second line;
+     the factual detail WRAPS instead of ellipsising to nothing; and nothing
+     scrolls horizontally. CONTAINER queries on #inside itself, so they follow
+     the panel's real width — the removed preview's width frame targeted
+     .stepper, a sibling, and never resized this block. The breakpoint px
+     cannot be a token: an @container condition cannot read a custom property
+     (the same documented UI-R04 exemption as the .svpanel 400px rule). */
+  #inside{container-type:inline-size}
+
+  /* ≤430 — two-line row. Line 1 keeps glyph, name, metadata, disclosure; the
+     identity+token cluster takes line 2 as one unit (flex-basis:100% on the
+     wrapper, DOM order unchanged); the detail takes its own line and wraps.
+     Evidence detail wraps too ("allow PR title/branch content to wrap", §10).
+     The timeline re-locks: its spine and time column stay on one line so node
+     and edge alignment survive every width (§10). */
+  @container (max-width: 430px){
+    .act .proc .pident{flex-basis:100%}
+    .act .proc .pdetail{flex-basis:100%;white-space:normal;overflow:visible}
+    .act .erow .edetail{flex-basis:100%;white-space:normal;overflow:visible}
+    .act .pev-timeline .erow .edetail{flex-basis:auto;white-space:nowrap;overflow:hidden}
+  }
+
+  /* ≤360 — the block's chrome thins: the side margins and the row gaps
+     tighten so the two-line row still fits its action button. */
+  @container (max-width: 360px){
+    .act{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
+    .act .proc .pright{flex-wrap:wrap;justify-content:flex-end}
+    .act .erow{column-gap:var(--k-space-2)}
+  }
+
+  /* ≤300 — the floor. Only row chrome thins (padding, evidence margins); the
+     status glyph and the name are never dropped, and the disclosure keeps its
+     marker (handoff §10: "Do not hide the only status or action"). */
+  @container (max-width: 300px){
+    .act .proc .prow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
+    .act .proc .pev{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
+    .act .erow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
+  }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
   .act .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
@@ -1465,6 +1509,12 @@
       .map((m) => `<span class="pmeta">${esc(m)}</span>`).join('');
     const act = p.action ? insideActionBtnHtml(p.action) : '';
     const hasEv = p.evidence && p.evidence.rows.length;
+    // Identity + tokens are ONE cluster (B7): at narrow widths the container
+    // query moves the pair to a second line together (flex-basis:100%),
+    // instead of each wrapping independently and staggering the row.
+    const chip = identityChipHtml(p);
+    const tok = tokensHtml(p.tokens);
+    const ident = chip || tok ? `<span class="pident">${chip}${tok}</span>` : '';
     // A real <details>/<summary> (B3, decision 7): the row IS the summary, so
     // keyboard operability comes from the element, not a handler (UI-R09).
     // The composite `${key}` (stage:process, Task 0.1) rides the row's own
@@ -1475,7 +1525,7 @@
     const ev = hasEv && open ? evidenceBlockHtml(p.evidence) : '';
     return `<details class="proc ${esc(p.status)}" data-proc-id="${esc(key)}"${hasEv && open ? ' open' : ''}>`
       + `<summary><span class="prow"><span class="pglyph">${glyph}</span>`
-      + `<span class="pname">${esc(p.label)}</span>${identityChipHtml(p)}${tokensHtml(p.tokens)}`
+      + `<span class="pname">${esc(p.label)}</span>${ident}`
       + `<span class="pdetail">${esc(p.detail || '')}</span>`
       + `<span class="pright">${meta}${act}</span>${marker}</span></summary>${ev}</details>`;
   }
