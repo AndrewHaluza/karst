@@ -1086,21 +1086,22 @@ describe('dashboard webview.html', () => {
     // it's a normal wait for a PR to land, and (per stageResume.ts) a Resume
     // click there would be refused anyway: only the merge gate observing the
     // actual landing may clear that block, so a Resume button would be a dead
-    // affordance for this kind specifically.
+    // affordance for this kind specifically. The RESUMABILITY verdict is the
+    // host's `resumable` flag, never a reason-string match in the webview.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
       HTML.indexOf('// The fault card scans the FLAT stepper'),
     );
-    expect(renderBlockedBody).toMatch(/blocked\.kind === 'awaiting-merge'/);
-    // The awaiting-merge branch is the code between its own `if` and the next
+    expect(renderBlockedBody).toMatch(/blocked\.resumable === false/);
+    // The non-resumable branch is the code between its own `if` and the next
     // statement that builds the generic title — it must return before ever
     // reaching the Resume-button markup.
-    const awaitingMergeBranch = renderBlockedBody.slice(
-      renderBlockedBody.indexOf("blocked.kind === 'awaiting-merge'"),
+    const nonResumableBranch = renderBlockedBody.slice(
+      renderBlockedBody.indexOf('blocked.resumable === false'),
       renderBlockedBody.indexOf('const title = `${STAGE_TITLE'),
     );
-    expect(awaitingMergeBranch).toContain('Waiting to merge');
-    expect(awaitingMergeBranch).not.toMatch(/data-act="stage-resume"/);
+    expect(nonResumableBranch).toContain('Waiting to merge');
+    expect(nonResumableBranch).not.toMatch(/data-act="stage-resume"/);
   });
 
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
@@ -2057,6 +2058,34 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('· 33m 42s elapsed');
     // The stage strip's segment for the blocked stage carries no spinner.
     expect(h.htmlOf('rail')).not.toContain('<span class="spin"');
+  });
+
+  it('renders a non-resumable block as a banner with no Resume button', () => {
+    // An `unmapped-repository` block cannot be cleared by retrying — only
+    // editing karst.yml or re-scoping the ticket can — so the banner shows
+    // the reason and no dead button. The resumability verdict is the host's
+    // `resumable` flag on the cell's `blocked`, never a reason-string match.
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'UNM-1', title: 'unmapped at uat' });
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      kind: 'unmapped-repository',
+      reason: 'these worktrees match no repository in karst.yml: /unmapped',
+      runAt: '2026-08-09T10:33:42.000Z',
+      gates: [],
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(store, t.id);
+    store.close();
+
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    const banner = h.htmlOf('blocked');
+    expect(banner).toContain('UAT cannot run here');
+    expect(banner).toContain('these worktrees match no repository in karst.yml: /unmapped');
+    expect(banner).not.toContain('data-act="stage-resume"');
   });
 
   // ── the approved prototype ledger (Task 3) ──────────────────────────────

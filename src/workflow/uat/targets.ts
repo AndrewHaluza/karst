@@ -20,7 +20,7 @@ export type UatTarget = GateTarget;
  * a different question for UAT than it is for review.
  */
 export type UatTargetSelection =
-  | { kind: 'targets'; targets: UatTarget[] }
+  | { kind: 'targets'; targets: UatTarget[]; unmapped: readonly string[] }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
 /**
@@ -49,5 +49,9 @@ export async function planUatTargets(
 ): Promise<UatTargetSelection> {
   const selection = await selectReviewTargets(manifest, worktrees, git);
   if (selection.kind === 'unavailable') return selection;
-  return { kind: 'targets', targets: dedupeTargetsByRepoPath(selection.targets) };
+  return {
+    kind: 'targets',
+    targets: dedupeTargetsByRepoPath(selection.targets),
+    unmapped: selection.unmapped,
+  };
 }

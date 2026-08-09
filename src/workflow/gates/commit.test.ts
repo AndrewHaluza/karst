@@ -272,7 +272,7 @@ describe('commitGateOutcome — recovery trigger', () => {
     await expect(
       runUat(store, { ticketId: id, cwd: '/wt', artifactDir }, {
         now,
-        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt', names: ['web'] }] }),
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt', names: ['web'] }], unmapped: [] }),
         probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }),
         runGates: async (gates) => ({
           kind: 'ran',

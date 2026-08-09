@@ -28,7 +28,18 @@ export interface StepperCell {
    * (never null) exactly like every other detail field here: a stage that has
    * never been blocked has nothing to say about it.
    */
-  blocked?: { kind: BlockerKind; reason: string; at: string };
+  blocked?: {
+    kind: BlockerKind;
+    reason: string;
+    at: string;
+    /**
+     * Whether re-running the stage could plausibly clear this block. `false`
+     * for a block only a human can clear (`awaiting-merge`: a PR must land;
+     * `unmapped-repository`: karst.yml must be fixed) — a Resume button that
+     * always no-ops is a dead affordance, so the dashboard renders none.
+     */
+    resumable: boolean;
+  };
 }
 
 /**
@@ -79,6 +90,12 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
       kind: row.blockedKind,
       reason: collapseDiagnostic(row.blockedReason ?? ''),
       at: row.blockedAt ?? '',
+      // A block only a human can clear (`awaiting-merge`, `unmapped-repository`)
+      // is not resumable: retrying reproduces the same park, so the dashboard
+      // must not offer a button that always no-ops. Every other BlockerKind
+      // means "karst could not ask, retry the question".
+      resumable:
+        row.blockedKind !== 'awaiting-merge' && row.blockedKind !== 'unmapped-repository',
     },
   };
 }

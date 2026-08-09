@@ -224,7 +224,7 @@ describe('uatProcesses', () => {
     const views = uatProcesses(
       qualityInput({
         cell: cell('uat', 'running', {
-          blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW },
+          blocked: { kind: 'nothing-to-run', reason: 'no target resolved', at: NOW, resumable: true },
         }),
       }),
     );
@@ -240,7 +240,7 @@ describe('uatProcesses', () => {
     const views = uatProcesses(
       qualityInput({
         cell: cell('uat', 'passed', {
-          blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: NOW },
+          blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: NOW, resumable: false },
         }),
         gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW })],
       }),

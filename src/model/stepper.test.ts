@@ -91,6 +91,7 @@ describe('buildStepper', () => {
       kind: 'nothing-to-run',
       reason: 'no target resolved',
       at: '2026-07-16T10:00:00.000Z',
+      resumable: true,
     });
   });
 
@@ -145,6 +146,7 @@ describe('displayStatus', () => {
     kind: 'nothing-to-run' as const,
     reason: 'no target resolved',
     at: '2026-07-16T10:00:00.000Z',
+    resumable: true,
   };
 
   it('reads a running stage with a block as blocked', () => {
@@ -162,7 +164,7 @@ describe('displayStatus', () => {
       displayStatus({
         stageKey: 'ship',
         status: 'passed',
-        blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: '2026-07-16T10:00:00.000Z' },
+        blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: '2026-07-16T10:00:00.000Z', resumable: false },
       }),
     ).toBe('passed');
   });

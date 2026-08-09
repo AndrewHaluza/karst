@@ -85,6 +85,29 @@ describe('selectReviewTargets', () => {
     expect(targets).toEqual([expect.objectContaining({ names: ['api'], repo: '/repos/api' })]);
   });
 
+  it('names the worktrees that matched no manifest entry', async () => {
+    const selection = await selectReviewTargets(
+      manifest({
+        api: runnableRepo({}, { repoPath: '/repos/api' }),
+      }),
+      [
+        { repo: '/repos/api', path: '/wt/api', baseRef: 'develop' },
+        { repo: '/repos/absent', path: '/wt/absent', baseRef: 'develop' },
+      ],
+      changed('/wt/api'),
+    );
+    expect(selection).toEqual({
+      kind: 'targets',
+      targets: [expect.objectContaining({ names: ['api'], path: '/wt/api' })],
+      unmapped: ['/repos/absent'],
+    });
+  });
+
+  it('reports no unmapped worktrees when every repository resolved', async () => {
+    const selection = await selectReviewTargets(project, worktrees, changed());
+    expect(selection).toEqual({ kind: 'targets', targets: [], unmapped: [] });
+  });
+
   it('reports a git failure as unavailable rather than throwing', async () => {
     const git: GitRunner = async (args) => ({
       stdout: '',

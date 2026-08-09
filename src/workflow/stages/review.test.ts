@@ -57,6 +57,7 @@ function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
     planTargets: async () => ({
       kind: 'targets',
       targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+    unmapped: [],
     }),
     probe: () => ({ kind: 'ok', scripts: ALL_SCRIPTS }),
     runGates: async (gates) => ({
@@ -139,6 +140,7 @@ describe('runReview', () => {
         planTargets: async () => ({
           kind: 'targets',
           targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+        unmapped: [],
         }),
         // The repository answers every default review script. If the declared
         // config were not reaching gate resolution, all four (lint, typecheck,
@@ -178,6 +180,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         // Nothing to probe for — every gate below must come from declared
         // config, or this run would block nothing-to-run instead of shipping.
@@ -218,44 +221,44 @@ describe('runReview', () => {
     expect(reviewStage(store, id).attempt).toBe(1);
   });
 
-  // R1. The old assertion here pinned the bug: a review touching zero
-  // repositories used to ship as green. "Asked nothing" must reach a human.
-  it('no target resolved -> blocks nothing-to-run, never passes', async () => {
-    const runGates = vi.fn(deps().runGates!);
-    const res = await runReview(
-      store,
-      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }), runGates, openDiff }),
-    );
-    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
-    expect(getTicket(store, id).stageCurrent).toBe('review');
-    expect(reviewStage(store, id).attempt).toBe(0);
-    expect(stageBlock(store, id, 'review')?.kind).toBe('nothing-to-run');
-    expect(runGates).not.toHaveBeenCalled();
-    expect(openDiff).not.toHaveBeenCalled();
-  });
-
-  it('names the ticket worktrees when none of them mapped to a manifest repository', async () => {
+  // R1. Two situations that used to read as one: "asked nothing" (every
+  // worktree mapped, none changed) must PASS — the stage delivered everything
+  // it had — while a worktree that matched no manifest entry must still reach
+  // a human, because only editing karst.yml or re-scoping the ticket can
+  // change that. The unavailable path (R2, below) must never read as either.
+  it('blocks and names the unmapped worktrees when a repository is missing from the manifest', async () => {
     store.db
       .prepare(
         "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/unmapped', '/wt/unmapped', 'b', 'develop', 'inherited')",
       )
       .run(id);
+    const runGates = vi.fn(deps().runGates!);
     const res = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: ['/unmapped'] }), runGates, openDiff }),
     );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'unmapped-repository' });
     expect(res).toMatchObject({ reason: expect.stringContaining('/unmapped') });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(stageBlock(store, id, 'review')?.kind).toBe('unmapped-repository');
+    expect(runGates).not.toHaveBeenCalled();
+    expect(openDiff).not.toHaveBeenCalled();
   });
 
-  it('says so plainly when the ticket has no worktree at all', async () => {
+  it('passes with a note when every repository mapped and none has changes', async () => {
     const res = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
     );
-    expect(res).toMatchObject({ reason: expect.stringContaining('no worktree') });
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+    expect(stageBlock(store, id, 'review')).toBeNull();
+    expect(readFileSync(reviewStage(store, id).artifactPath!, 'utf8')).toContain(
+      'no repository has changes from its base, so review had nothing to check',
+    );
   });
 
   // R2. Environmental — karst could not even determine which repositories are
@@ -277,7 +280,8 @@ describe('runReview', () => {
 
   // An `unavailable` selection and a genuine empty target list must stay
   // distinguishable: collapsing them reads an environmental failure as
-  // "nothing to review".
+  // "nothing to review". The empty list's own fate is a pass with a note
+  // (every worktree mapped, none changed), asserted separately above.
   it('keeps an unavailable selection and a genuine empty target list apart', async () => {
     const unavailable = await runReview(
       store,
@@ -297,9 +301,10 @@ describe('runReview', () => {
     const empty = await runReview(
       store,
       { ticketId: id2, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
     );
-    expect(empty).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(empty).not.toMatchObject({ kind: 'blocked' });
+    expect(empty).toMatchObject({ kind: 'advanced', next: 'ship' });
     expect(empty).not.toMatchObject({ blocker: 'capability-missing' });
   });
 
@@ -326,6 +331,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         probe: (cwd) =>
           cwd === '/wt/web'
@@ -372,6 +378,7 @@ describe('runReview', () => {
             { repo: '/svc', path: '/wt/svc', names: ['svc'] },
             { repo: '/web', path: '/wt/web', names: ['web'] },
           ],
+        unmapped: [],
         }),
         probe: (cwd) =>
           cwd === '/wt/web' ? { kind: 'ok', scripts: ALL_SCRIPTS } : { kind: 'absent' },
@@ -403,6 +410,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/svc', path: '/wt/svc', names: ['svc'] },
           ],
+        unmapped: [],
         }),
         probe: probeOf,
       }),
@@ -423,6 +431,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/svc', path: '/wt/svc', names: ['svc'] },
           ],
+        unmapped: [],
         }),
         probe: (cwd) =>
           cwd === '/wt/web'
@@ -602,6 +611,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         runGates: async (gates, cwd) => {
           ran.push(cwd);
@@ -629,6 +639,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         runGates: async (gates, _cwd, opts) => {
           seen.push(opts?.signal);
@@ -672,6 +683,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         openDiff,
       }),
@@ -701,6 +713,7 @@ describe('runReview', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         openDiff,
       }),
@@ -1087,6 +1100,7 @@ describe('review findings lane (Lane B)', () => {
         planTargets: async () => ({
           kind: 'targets',
           targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+        unmapped: [],
         }),
       }),
     );
@@ -1494,6 +1508,7 @@ describe('runReview — findings process run (Task 8)', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
       }),
     );
@@ -1579,7 +1594,7 @@ describe('runUat and runReview record identities R7 can actually compare (differ
   function uatDeps(over: Partial<UatDeps> = {}): UatDeps {
     return {
       now,
-      planTargets: async () => ({ kind: 'targets', targets: [target] }),
+      planTargets: async () => ({ kind: 'targets', targets: [target], unmapped: [] }),
       // UAT's own probe fallback list never includes `lint` — an explicit
       // `uat.gates: [lint]` (below) is what makes UAT run it, so the overlap
       // with review's own default probe list is deliberate config, not an
@@ -1638,7 +1653,7 @@ describe('runUat and runReview record identities R7 can actually compare (differ
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir: reviewArtifactDir, manifest: manifest({}) },
       deps({
-        planTargets: async () => ({ kind: 'targets', targets: [target] }),
+        planTargets: async () => ({ kind: 'targets', targets: [target], unmapped: [] }),
         probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
       }),
     );
@@ -1677,7 +1692,7 @@ describe('runUat and runReview record identities R7 can actually compare (differ
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir: reviewArtifactDir, manifest: manifest({}) },
       deps({
-        planTargets: async () => ({ kind: 'targets', targets: [target] }),
+        planTargets: async () => ({ kind: 'targets', targets: [target], unmapped: [] }),
         probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit' } }),
       }),
     );

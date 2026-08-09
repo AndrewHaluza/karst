@@ -23,7 +23,7 @@ export interface ReviewTarget extends ReviewWorktree {
  * the ticket's code — so a caller must route it to a park, not a pass or fail.
  */
 export type TargetSelection =
-  | { kind: 'targets'; targets: ReviewTarget[] }
+  | { kind: 'targets'; targets: ReviewTarget[]; unmapped: readonly string[] }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
 /**
@@ -71,24 +71,8 @@ export function dedupeTargetsByRepoPath(targets: readonly ReviewTarget[]): GateT
 }
 
 /**
- * Why a gate stage had nothing to run against — worded once, for both stages.
- *
- * A worktree whose repo path is absent from the manifest is dropped by the
- * planners, so "affected but unmapped" and "nothing to check" would otherwise be
- * the same silence. Naming the worktrees is what makes them different.
+ * Whether one worktree changed, or that karst could not determine it.
  */
-export function noTargetsReason(worktrees: readonly { repo: string }[], stage: string): string {
-  if (worktrees.length === 0) {
-    return `no worktree is registered for this ticket, so there is no repository to run ${stage} against`;
-  }
-  return (
-    "none of this ticket's worktrees resolved to a manifest repository with changes: " +
-    `${worktrees.map((w) => w.repo).join(', ')} — a repository karst cannot map to a manifest ` +
-    `entry is not the same as nothing for ${stage} to check`
-  );
-}
-
-/** Whether one worktree changed, or that karst could not determine it. */
 type ChangeProbe =
   | { kind: 'changed'; changed: boolean }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
@@ -146,8 +130,10 @@ export async function selectReviewTargets(
   }
 
   const changed = new Set<string>();
+  const unmapped: string[] = [];
   for (const worktree of worktrees) {
     const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
+    if (names.length === 0) unmapped.push(worktree.repo);
     const base = resolveBaselineBranchForPath(manifest, worktree.repo);
     const probe = await hasReviewChanges(git, worktree.path, base);
     if (probe.kind === 'unavailable') {
@@ -173,6 +159,7 @@ export async function selectReviewTargets(
 
   return {
     kind: 'targets',
+    unmapped,
     targets: worktrees.flatMap((worktree) => {
       const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
       return names.some((name) => affected.has(name)) ? [{ ...worktree, names }] : [];

@@ -190,6 +190,7 @@ describe('buildDashboardState', () => {
       kind: 'nothing-to-run',
       reason: 'no target resolved',
       at: '2026-07-16T10:00:00.000Z',
+      resumable: true,
     });
   });
 

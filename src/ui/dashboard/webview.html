@@ -2045,15 +2045,18 @@
     const blocked = cell && cell.blocked;
     box.classList.toggle('hidden', !blocked);
     if (!blocked) { box.innerHTML = ''; return; }
-    // `awaiting-merge` is not a fault: ship's own work is done and the PRs are
-    // open, and this reads as a normal wait for one of them to land, not a
-    // stage karst failed to run. It also gets no Resume button — every OTHER
-    // BlockerKind means "karst could not ask the question, retry it", but
-    // `stageResume.ts`'s `resumeBlockedStage` REFUSES to clear this one (only
-    // the merge gate observing the actual landing is entitled to), so a
-    // Resume button here would be a dead affordance that always no-ops.
-    if (blocked.kind === 'awaiting-merge') {
-      box.innerHTML = `<div class="ftitle">Waiting to merge</div>`
+    // A block only a human can clear gets no Resume button — the flag is the
+    // host's verdict (`blockedDetail`, model/stepper.ts), never a reason-string
+    // match here. `awaiting-merge` is not a fault at all: ship's own work is
+    // done and the PRs are open, and this reads as a normal wait for one of
+    // them to land. `unmapped-repository` is a fault a retry cannot fix: the
+    // user must edit karst.yml or re-scope the ticket. For both, a Resume
+    // button would be a dead affordance that always no-ops.
+    if (blocked.resumable === false) {
+      const title = blocked.kind === 'awaiting-merge'
+        ? 'Waiting to merge'
+        : `${STAGE_TITLE[cell.stageKey] || cell.stageKey} cannot run here`;
+      box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
         + `<div class="freason">${esc(blocked.reason)}</div>`;
       return;
     }

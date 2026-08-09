@@ -15,7 +15,6 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
-import { noTargetsReason } from '../gates/targets.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
@@ -242,7 +241,11 @@ export async function runReview(
 
   const planned = opts.manifest
     ? await planTargets(opts.manifest, worktrees, git)
-    : { kind: 'targets' as const, targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }] };
+    : {
+        kind: 'targets' as const,
+        targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }],
+        unmapped: [],
+      };
 
   // R2 at the selection seam: karst could not even determine which repositories
   // are affected (an unreachable remote, a broken git). Never a verdict about
@@ -254,12 +257,22 @@ export async function runReview(
   }
   const targets: ReviewGateTarget[] = planned.targets;
 
-  // R1 — no target resolved. A ticket at review with nothing changed is an
-  // anomaly (impl produced nothing, or the worktrees are unmapped) and must
-  // reach a human, not ship.
+  // R1 — no target resolved. Two situations that must not read as one. If any
+  // worktree matched no manifest entry, karst could not ask that repository
+  // anything and only a human editing karst.yml (or re-scoping the ticket) can
+  // change the answer — that parks. If every worktree mapped and none has
+  // changes, review asked and the answer is "nothing to check": that is a
+  // deliverable the stage already has, so it passes with a note instead of
+  // parking forever behind a Resume that reproduces the same block.
   if (targets.length === 0) {
-    const reason = noTargetsReason(worktrees, 'review');
-    return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+    if (planned.unmapped.length > 0) {
+      const reason =
+        `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
+        'add them to `repositories:` or re-scope the ticket';
+      return finish({ kind: 'blocked', blocker: 'unmapped-repository', reason }, [reason]);
+    }
+    const note = 'no repository has changes from its base, so review had nothing to check';
+    return finish({ kind: 'verdict', verdict: { kind: 'passed' } }, [note]);
   }
 
   for (const target of targets) {
