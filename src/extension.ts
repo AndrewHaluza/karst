@@ -2042,8 +2042,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // panel is the surface this codebase already has for presenting a
           // ticket's full change set to a human without doing that, and
           // reaching a specific file's real diff from it is one click away.
-          // `reviewInside`/the persisted 'changes' evidence are worded to
-          // match this exactly — "changes panel opened", never "diff
+          // the persisted 'changes' evidence is worded to match this exactly
+          // — "changes panel opened", never "diff
           // opened". The panel aggregates every worktree for a ticket, so
           // revealing it by ticket id covers every affected target review
           // calls this for; `cwd` names nothing further to open.

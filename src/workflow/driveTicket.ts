@@ -86,8 +86,8 @@ export interface DriveTicketDeps {
   ) => void;
   /**
    * Surfaces the ticket's changes for a human to review. Absent means nothing
-   * does — review then records no 'changes' evidence for that run, and
-   * `reviewInside` shows no row rather than claim one nobody performed. The
+   * does — review then records no 'changes' evidence for that run, and the
+   * inside block shows no row rather than claim one nobody performed. The
    * host wires its existing ticket-stack surface here
    * (`TicketChangesManager.open`); that panel is itself backed by the
    * `openTicketDiff`/`vscode.diff` call already in `extension.ts`, but only

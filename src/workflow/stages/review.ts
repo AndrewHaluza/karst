@@ -51,8 +51,8 @@ import type { WarnFn } from '../review/findings.js';
  * implementation reveals the ticket's Changes panel (`TicketChangesManager`,
  * itself backed by `vscode.diff` — but only once the human clicks a file row
  * inside it). This function does not itself guarantee a diff editor opened,
- * only that the review surface did — `reviewInside` and the persisted
- * 'changes' evidence describe it that way, deliberately.
+ * only that the review surface did — the persisted
+ * 'changes' evidence describes it that way, deliberately.
  */
 export type OpenDiff = (ticketId: number, cwd: string) => void;
 
@@ -371,8 +371,8 @@ export async function runReview(
       // The changes surface is evidence exactly like a gate, recorded ONLY when
       // a real `openDiff` ran — and kept out of `entries` so it can never touch
       // the verdict, which stays the deterministic-gate computation it always
-      // was. This is what lets `reviewInside` read "did the changes surface
-      // open" back out of the store after a reload. Written once, on the first
+      // was. This is what persists "did the changes surface open" as evidence
+      // that can be read back out of the store after a reload. Written once, on the first
       // target that opened one: it is one fact about the run, not one per repo.
       if (!diffOpened) evidence.append([{ gateName: 'changes', exitCode: 0 }]);
       diffOpened = true;
