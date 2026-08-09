@@ -870,8 +870,11 @@ describe('dashboard webview.html', () => {
     // handoff §10's widths. An @container condition cannot read a custom
     // property, so they are literal by construction, the same exemption class
     // as the servers panel's 400px rule below.
+    // `110px`/`160px` (and the ≤430 `104px`) are the session timeline's phase-name
+    // column — a column minimum/maximum, the same exemption class as `82px`: the
+    // detail column starts on ONE x at every width, which no space step expresses.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
-      '300px', '360px', '430px',
+      '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -1407,7 +1410,9 @@ describe('dashboard webview.html', () => {
     expect(wide).toMatch(/\.inside-ledger \.pev \.edetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
-    expect(wide).toMatch(/\.inside-ledger \.session-timeline \.timeline-row\{[^}]*flex-wrap:nowrap/);
+    expect(wide).toMatch(
+      /\.inside-ledger \.session-timeline \.timeline-row\{[\s\S]*?grid-template-columns:[^}]*minmax\(82px,104px\)/,
+    );
     // ≤360: the block's chrome thins — margins and gaps tighten.
     expect(blockFor('360px')).toMatch(/\.inside-ledger\{[^}]*margin/);
     expect(blockFor('360px')).toMatch(/\.inside-ledger \.pright\{/);
@@ -1591,7 +1596,9 @@ describe('dashboard webview.html', () => {
     // moving the node column with it; the spine must override its offset in
     // the same container block or it drifts off the node centers.
     const at300 = /@container \(max-width: 300px\)\{([\s\S]*?)\n  \}/.exec(HTML)?.[1] ?? '';
-    expect(at300).toMatch(/\.inside-ledger \.timeline-row::before\{left:calc\(var\(--k-space-2\) \+ var\(--k-space-3\)\)\}/);
+    expect(at300).toMatch(
+      /\.inside-ledger \.timeline-row::before,\.inside-ledger \.timeline-row::after\{left:calc\(var\(--k-space-2\) \+ var\(--k-space-3\)\)\}/,
+    );
   });
 
   it('nulls animation under reduced motion without hiding the spinner ring', () => {

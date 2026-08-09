@@ -57,7 +57,10 @@ const LITERAL_BUDGET: Record<string, number> = {
   // adds three justified component dimensions (300/360/430px, the same
   // exemption class as the breakpoints) — commented in webview.html and
   // pinned by the dashboard's own px allowlist test.
-  dashboard: 13,
+  // 16, not 13: the session timeline's phase-name column adds three column
+  // bounds (110/160px, and 104px at ≤430) so every detail starts on one x —
+  // a column min/max, the same exemption class as the rail's own 82px.
+  dashboard: 16,
   diffs: 1,
   ticketForm: 0,
   settings: 0,

@@ -542,7 +542,8 @@
   .process-evidence{border-top:var(--k-border-w) solid var(--k-border);margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-3) 0}
   /* The recorded session facts below the expanded process (Task 2): finished
      host strings, rendered verbatim — compact, mono, never concatenated. */
-  .process-footer{display:flex;flex-wrap:wrap;gap:var(--k-space-2) var(--k-space-5);padding:0 var(--k-space-4) var(--k-space-4);
+  .process-footer{display:flex;flex-wrap:wrap;gap:var(--k-space-2) var(--k-space-5);
+    margin:0 var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border);padding:var(--k-space-3) 0 var(--k-space-4);
     font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint)}
   .erow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
   .erow:hover{background:var(--k-surface-hover)}
@@ -594,13 +595,26 @@
      token claim, so the injected core icon and the bordered pill render
      beside the row they belong to; both absent → neither renders. */
   .session-timeline{list-style:none;margin:var(--k-space-1) 0 0;padding:0}
-  .timeline-row{position:relative;display:flex;align-items:baseline;column-gap:var(--k-space-3);padding:var(--k-space-2) var(--k-space-4)}
-  /* The continuous hairline spine in the node column — one segment per row
-     (left: 8px padding + 6px ≈ the 14px node column's center), so it stays
-     aligned at every width while the node draws over it. */
-  .timeline-row::before{content:'';position:absolute;top:0;bottom:0;left:calc(var(--k-space-4) + var(--k-space-3));width:var(--k-border-w);background:var(--k-border)}
+  /* Four columns, one grammar (the prototype's session timeline): node rail |
+     phase name | detail | right tail. The name column is FIXED so every
+     detail starts on one x — a run-on "Understand reported · 10:06" is the
+     thing the column grid exists to prevent. */
+  .timeline-row{position:relative;display:grid;
+    grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(110px,160px) minmax(0,1fr) auto;
+    align-items:center;column-gap:var(--k-space-3);min-height:var(--k-control-h-md);padding:0 var(--k-space-4)}
+  /* The continuous hairline spine in the node column — TWO segments per row
+     (left: 8px padding + 6px ≈ the 14px node column's center), broken around
+     the node's own radius so the line reads as continuous chronology rather
+     than as a bar behind an opaque circle. The first row has nothing above
+     it and the last nothing below, so those halves are dropped. */
+  .timeline-row::before,.timeline-row::after{content:'';position:absolute;left:calc(var(--k-space-4) + var(--k-space-3));width:var(--k-border-w);background:var(--k-border)}
+  .timeline-row::before{top:0;height:calc(50% - var(--k-space-4))}
+  .timeline-row::after{top:calc(50% + var(--k-space-4));bottom:0}
+  .timeline-row:first-child::before,.timeline-row:last-child::after{display:none}
   .timeline-row .tnode{position:relative;z-index:1;width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
-  .timeline-row .tmain{display:flex;align-items:baseline;column-gap:var(--k-space-3);flex:1;min-width:0}
+  /* The right tail: the row's own token claim, its timestamp and any action,
+     right-aligned as one group (the prototype's `timeline-tail`). */
+  .timeline-row .ttail{display:flex;align-items:center;justify-content:flex-end;column-gap:var(--k-space-3);min-width:0;white-space:nowrap}
   .timeline-row .tlabel{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-sm);color:var(--k-text)}
   .timeline-row .tdetail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
   /* The identity is the row's point — visually stronger than event prose
@@ -610,8 +624,12 @@
   .timeline-row .tident .agenticon{display:inline-block;vertical-align:middle;margin-right:var(--k-space-1)}
   /* The bordered mono token pill — the row's own claim, never parsed. */
   .timeline-tok{flex:none;display:inline-block;padding:0 var(--k-space-2);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  .timeline-time{margin-left:auto;flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .timeline-time{flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
   .timeline-row .tact{flex:none}
+  /* The live row and the switch rows carry a band that starts AFTER the rail,
+     so the spine is never painted over (the prototype's 40px gradient stop). */
+  .timeline-row.run{background:linear-gradient(90deg,transparent 0 calc(var(--k-space-4) + var(--k-space-6) + var(--k-space-1) + var(--k-space-3)),var(--k-surface-selected) 0 100%)}
+  .timeline-row.connector-switch,.timeline-row.connector-resume{background:linear-gradient(90deg,transparent 0 calc(var(--k-space-4) + var(--k-space-6) + var(--k-space-1) + var(--k-space-3)),var(--k-surface) 0 100%)}
   /* Phase nodes: the bordered circle holding the check — green when the row
      reads passed, faint otherwise (a mark is evidence, not a verdict). The
      circle's own surface masks the spine passing behind it. */
@@ -650,7 +668,8 @@
     /* The timeline re-locks onto one line at ≤430 (§10: keep node and edge
        aligned) while the generic evidence detail wraps; its cells shrink with
        ellipsis instead of scrolling. */
-    .inside-ledger .session-timeline .timeline-row{flex-wrap:nowrap}
+    .inside-ledger .session-timeline .timeline-row{
+      grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(82px,104px) minmax(0,1fr) auto}
   }
 
   /* ≤360 — the status metadata collapses BELOW the process label: the summary
@@ -678,7 +697,7 @@
     .inside-ledger .timeline-row{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
     /* The thinner row padding shifts the node column; the spine must follow
        it or it drifts off the node centers at the floor width. */
-    .inside-ledger .timeline-row::before{left:calc(var(--k-space-2) + var(--k-space-3))}
+    .inside-ledger .timeline-row::before,.inside-ledger .timeline-row::after{left:calc(var(--k-space-2) + var(--k-space-3))}
   }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
@@ -1520,10 +1539,12 @@
     const act = r.action ? insideActionBtnHtml(r.action) : '';
     return `<li class="timeline-row role-${esc(role)}${r.status ? ` ${esc(r.status)}` : ''}${conn ? ` connector-${esc(r.connector)}` : ''}">`
       + `<span class="tnode" aria-hidden="true"${connTitle}>${node}</span>`
-      + `<span class="tmain"><span class="tlabel">${esc(r.label)}</span>${detail}${tok}</span>`
+      + `<span class="tlabel">${esc(r.label)}</span>`
+      + (detail || '<span class="tdetail"></span>')
+      + `<span class="ttail">${tok}`
       + (r.duration ? `<span class="timeline-time">${esc(r.duration)}</span>` : '')
       + (act ? `<span class="tact">${act}</span>` : '')
-      + `</li>`;
+      + `</span></li>`;
   }
 
   // The timeline's token pill — same absence handling as the process chip
