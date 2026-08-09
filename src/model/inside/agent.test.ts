@@ -804,3 +804,79 @@ describe('implementationSessionProcess visible status and footer', () => {
     expect(process.footer).toBeUndefined();
   });
 });
+
+// ── the segment's own recorded spend on its timeline row ──────────────────
+// `token_usage.implementation_segment_id` attributes measured spend to the
+// segment it was spent in (`readSegmentTokenTotals`), so the segment a switch
+// moved TO can carry a truthful Σ pill. No total recorded → no pill; a
+// fabricated zero would read as a measured free segment.
+describe('implementationSessionProcess segment tokens', () => {
+  const runAt = (t: string) => `2026-07-20T${t}:00.000Z`;
+  const segment = (over: Partial<ImplementationSegment>): ImplementationSegment => ({
+    id: 1,
+    implementationRunId: 1,
+    provider: 'claude',
+    model: 'claude-opus-4-8',
+    providerSessionId: 'sess-1',
+    reason: null,
+    status: 'running',
+    launchIntentId: 1,
+    startedAt: runAt('12:00'),
+    endedAt: null,
+    ...over,
+  });
+  const tl = (segments: readonly ImplementationSegment[]): ImplementationTimeline => ({
+    run: {
+      id: 1,
+      ticketId: 1,
+      processRunId: 1,
+      attempt: 0,
+      status: 'running',
+      startedAt: runAt('12:00'),
+      endedAt: null,
+    },
+    segments: [...segments],
+  });
+  const rows = (process: InsideProcessView): readonly EvidenceRow[] => {
+    const evidence = process.evidence;
+    if (evidence === undefined || evidence.kind !== 'timeline') {
+      throw new Error('expected timeline evidence');
+    }
+    return evidence.rows;
+  };
+
+  it('carries the recorded total of the segment a switch moved to', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1 }),
+        segment({ id: 2, reason: 'switch', provider: 'codex', startedAt: runAt('13:00') }),
+      ]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+      undefined,
+      [{ implementationSegmentId: 2, total: 22_400 }],
+    );
+    const switchRow = rows(process).find((r) => r.connector === 'switch')!;
+    expect(switchRow.tokens).toEqual({ state: 'measured', total: '22.4k', exact: '22,400' });
+  });
+
+  it('leaves a segment with no recorded total without a pill', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([
+        segment({ id: 1 }),
+        segment({ id: 2, reason: 'switch', provider: 'codex', startedAt: runAt('13:00') }),
+      ]),
+      [],
+      undefined,
+      undefined,
+      NOW,
+      undefined,
+      [],
+    );
+    expect(rows(process).find((r) => r.connector === 'switch')!.tokens).toBeUndefined();
+  });
+});

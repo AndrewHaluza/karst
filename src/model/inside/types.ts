@@ -258,10 +258,111 @@ export interface EvidenceRow {
 }
 
 /**
+ * One commit karst recorded for a repository, as displayed. `sha` is the
+ * host-shortened object id and `message` is the commit subject — untrusted
+ * text the webview escapes and never parses. `action` opens the commit
+ * through the opaque `open-commit` capability; absent when the caller
+ * attached none.
+ */
+export interface CommitEntryView {
+  sha: string;
+  message: string;
+  action?: TypedInsideAction;
+}
+
+/**
+ * How a commit row's provenance pill reads. CLOSED, and it is the class the
+ * webview styles from — never derived from `origin` prose.
+ *
+ * `ship` = the ship created these commits; `existing` = every recorded commit
+ * was already there when the saga started; `none` = karst recorded no commit
+ * for this repository, which is absence, NOT an empty delivery.
+ */
+export type CommitOriginKind = 'ship' | 'existing' | 'none';
+
+/** One repository's commit block in the commits evidence body. */
+export interface CommitRepoView {
+  /** The repository, as displayed. */
+  repo: string;
+  /** The host-formatted count line — "2 created · 1 before". */
+  summary: string;
+  /** The provenance word shown in the pill. */
+  origin: string;
+  originKind: CommitOriginKind;
+  /** The recorded commits the pill speaks for. Empty → no list is drawn. */
+  commits: readonly CommitEntryView[];
+}
+
+/** How one step of a PR's recorded path reads. CLOSED — the styling key. */
+export type PrStepState = 'done' | 'current' | 'fail' | 'note';
+
+/** One recorded step in a repository's pull-request path. */
+export interface PrStepView {
+  label: string;
+  state: PrStepState;
+}
+
+/**
+ * One repository's row in the PR evidence body: the PR object karst recorded
+ * (its number and its CURRENT state), the recorded step path, and one
+ * sentence naming why the row reads as it does.
+ *
+ * Every field is absence-safe: a repository whose PR number was never
+ * recorded carries `number: ''` and an `emptyLabel`, never a fabricated
+ * number; a PR whose status karst has not probed carries `prState: ''`, which
+ * renders as no pill rather than a guessed `open`.
+ */
+export interface PrBranchView {
+  repo: string;
+  /** The host-formatted number — `#412` — or '' when none was recorded. */
+  number: string;
+  /** The recorded `prs.status`, or '' when unknown. The pill's class. */
+  prState: string;
+  /** The absence copy shown in the PR object's place. Absent → none needed. */
+  emptyLabel?: string;
+  steps: readonly PrStepView[];
+  /** The host-worded explanation of this row. */
+  note: string;
+  /** Whether this row is the one currently acting (running or failed). */
+  current: boolean;
+}
+
+/** One `amount + label` pair in the receipt's AI-usage breakdown. */
+export interface ReceiptBreakdownItem {
+  amount: string;
+  label: string;
+}
+
+/** One block of the three-block delivery receipt grid. */
+export interface ReceiptBlockView {
+  label: string;
+  value: string;
+  /** Host-formatted supporting lines. Empty → no detail block. */
+  details: readonly string[];
+  /** AI-usage only; absent elsewhere. */
+  breakdown?: readonly ReceiptBreakdownItem[];
+}
+
+/** The receipt's hero line. `time` is '' when no completion stamp was recorded. */
+export interface DoneHeroView {
+  title: string;
+  summary: string;
+  time: string;
+}
+
+/**
  * What happened inside one process, keyed by how it must render. A closed
  * union: a process's evidence kind is chosen from this list at reduce time
  * (unknown process ids get the generic `rows` member), so the webview's
  * renderer switch never meets an unhandled kind.
+ *
+ * The prototype-shaped members (`commits`, `prs`, `receipt`) carry their rich
+ * bodies as OPTIONAL fields beside the `rows` every member has had since the
+ * first port. That is deliberate: a snapshot produced by an older build — or
+ * by a caller that fed only rows — still renders through today's generic row
+ * path, so adding the bodies can never blank an existing surface. `overflow`
+ * is the bounded remainder for the rich bodies, carrying the same host-owned
+ * "+N more" continuation the row path puts in its last row.
  */
 export type ProcessEvidenceView =
   | { kind: 'rows'; rows: readonly EvidenceRow[] }
@@ -274,10 +375,28 @@ export type ProcessEvidenceView =
     }
   | { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number }
   | { kind: 'timeline'; rows: readonly EvidenceRow[] }
-  | { kind: 'commits'; rows: readonly EvidenceRow[]; total?: number }
-  | { kind: 'prs'; rows: readonly EvidenceRow[]; open: number; merged: number }
+  | {
+      kind: 'commits';
+      rows: readonly EvidenceRow[];
+      total?: number;
+      repos?: readonly CommitRepoView[];
+      overflow?: EvidenceRow;
+    }
+  | {
+      kind: 'prs';
+      rows: readonly EvidenceRow[];
+      open: number;
+      merged: number;
+      branches?: readonly PrBranchView[];
+      overflow?: EvidenceRow;
+    }
   | { kind: 'recovery'; rows: readonly EvidenceRow[] }
-  | { kind: 'receipt'; rows: readonly EvidenceRow[] };
+  | {
+      kind: 'receipt';
+      rows: readonly EvidenceRow[];
+      hero?: DoneHeroView;
+      blocks?: readonly ReceiptBlockView[];
+    };
 
 /** The closed kind vocabulary, in one place — mirrors the union above. */
 export const EVIDENCE_KINDS: readonly ProcessEvidenceView['kind'][] = [

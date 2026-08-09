@@ -2246,18 +2246,114 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('<span class="phase-time">4m 12s</span>');
   });
 
-  it('renders commits evidence with a status word per repo (B2)', () => {
+  it('renders commits evidence as the prototype commit grid (B2)', () => {
+    // The rich body: one block per repository, its host-formatted count line
+    // and its provenance pill, then the recorded commits by sha and subject.
     const html = openEvidence('ship', 'commit');
-    expect(html).toContain('class="evidence-row"');
-    expect(html).toContain('<span class="ev-state pass">passed');
-    expect(html).toContain('<span class="ev-key">web</span>');
+    expect(html).toContain('class="commit-grid"');
+    expect(html).toContain('<span class="commit-repo-name">web</span>');
+    expect(html).toContain('<span class="commit-repo-summary">2 created · 1 before</span>');
+    expect(html).toContain('<span class="commit-origin ship">created by ship</span>');
+    expect(html).toContain('class="commit-item"');
+    expect(html).toContain('<span class="commit-sha">a1b2c30</span>');
+    // Commit subjects are untrusted prose and are escaped at the template.
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain("<script>alert('xss')");
   });
 
-  it('renders prs evidence with a status word per repo (B2)', () => {
-    const html = openEvidence('ship', 'pr');
+  it('falls back to the generic row body when a snapshot carries no commit grid', () => {
+    // Back-compat: `repos` is optional, so a snapshot produced before the
+    // rich body existed still renders exactly what it always did.
+    const state = renderStateFor('ship');
+    const ship = { ...state.insideViews.ship };
+    ship.processes = ship.processes.map((p) =>
+      p.id === 'commit' && p.evidence?.kind === 'commits'
+        ? { ...p, evidence: { kind: 'commits' as const, rows: p.evidence.rows, total: p.evidence.total } }
+        : p,
+    );
+    const h = bootPreviewHarness();
+    const next = { ...state, insideViews: { ...state.insideViews, ship } };
+    h.receive({ type: 'state', state: next });
+    h.clickChevron('ship:commit');
+    h.receive({ type: 'state', state: next });
+    const html = h.htmlOf('inside');
     expect(html).toContain('class="evidence-row"');
-    expect(html).toContain('<span class="ev-state pass">passed');
-    expect(html).toContain('created #120');
+    expect(html).not.toContain('class="commit-grid"');
+  });
+
+  it('renders prs evidence as the prototype branch paths (B2)', () => {
+    // The rich body: the PR object karst recorded (number + state pill), the
+    // arrow-separated recorded step path, and the host's own note.
+    const html = openEvidence('ship', 'pr');
+    expect(html).toContain('class="pr-branches"');
+    expect(html).toContain('<span class="pr-repo">web</span>');
+    expect(html).toContain('class="pr-path"');
+    expect(html).toContain('<span class="pr-link">#120</span>');
+    expect(html).toContain('<span class="pr-status draft">draft</span>');
+    expect(html).toContain('<span class="pr-step done">PR opened</span>');
+    expect(html).toContain('class="pr-branch-note"');
+    expect(html).toContain('PR #120 was created in this ship run.');
+  });
+
+  it('falls back to the generic row body when a snapshot carries no branches', () => {
+    const state = renderStateFor('ship');
+    const ship = { ...state.insideViews.ship };
+    ship.processes = ship.processes.map((p) =>
+      p.id === 'pr' && p.evidence?.kind === 'prs'
+        ? {
+            ...p,
+            evidence: {
+              kind: 'prs' as const,
+              rows: p.evidence.rows,
+              open: p.evidence.open,
+              merged: p.evidence.merged,
+            },
+          }
+        : p,
+    );
+    const h = bootPreviewHarness();
+    const next = { ...state, insideViews: { ...state.insideViews, ship } };
+    h.receive({ type: 'state', state: next });
+    h.clickChevron('ship:pr');
+    h.receive({ type: 'state', state: next });
+    const html = h.htmlOf('inside');
+    expect(html).toContain('class="evidence-row"');
+    expect(html).not.toContain('class="pr-branches"');
+  });
+
+  it('renders the delivery receipt hero and its three-block grid (B2)', () => {
+    const html = openEvidence('done', 'delivery-receipt');
+    expect(html).toContain('class="done-receipt"');
+    expect(html).toContain('class="done-hero"');
+    expect(html).toContain('<span class="done-hero-main">Delivered</span>');
+    expect(html).toContain('<span class="done-hero-time">completed 09:58:44</span>');
+    expect(html).toContain('class="receipt-grid"');
+    expect(html).toContain('<div class="receipt-label">Validated</div>');
+    expect(html).toContain('<div class="receipt-value">110.9k recorded tokens</div>');
+    expect(html).toContain('class="ai-usage-breakdown"');
+    expect(html).toContain('<span class="ai-usage-item"><strong>58.3k</strong> implementation</span>');
+    // The delivery lines the receipt has always carried are still below it.
+    expect(html).toContain('class="done-lines"');
+    expect(html).toContain('<span class="done-key">commits</span>');
+  });
+
+  it('renders a receipt with no hero or blocks as the plain line list', () => {
+    const state = renderStateFor('done');
+    const done = { ...state.insideViews.done };
+    done.processes = done.processes.map((p) =>
+      p.evidence?.kind === 'receipt'
+        ? { ...p, evidence: { kind: 'receipt' as const, rows: p.evidence.rows } }
+        : p,
+    );
+    const h = bootPreviewHarness();
+    const next = { ...state, insideViews: { ...state.insideViews, done } };
+    h.receive({ type: 'state', state: next });
+    h.clickChevron('done:delivery-receipt');
+    h.receive({ type: 'state', state: next });
+    const html = h.htmlOf('inside');
+    expect(html).toContain('class="done-line"');
+    expect(html).not.toContain('class="done-hero"');
+    expect(html).not.toContain('class="receipt-grid"');
   });
 
   it('renders recovery evidence with one row per round (B2)', () => {
@@ -2319,19 +2415,18 @@ describe('inside render round trip (executed in a VM)', () => {
   };
 
   it('renders every evidence kind through its own prototype container (Task 5)', () => {
-    // Each kind lands in the container the ported prototype gives it; the
-    // kinds with no bespoke body of their own (commits, prs) share the
-    // generic evidence row rather than inventing a layout for facts the
-    // model does not carry.
+    // Each kind lands in the container the ported prototype gives it. Every
+    // kind now has a bespoke body; the generic evidence row remains the
+    // fallback for `rows` and for any snapshot that ships no rich fields.
     const CONTAINER: Readonly<Record<(typeof EVIDENCE_KINDS)[number], string>> = {
       rows: 'class="evidence-row"',
       gates: 'class="gates"',
       findings: 'class="findings"',
       timeline: 'class="session-segments"',
-      commits: 'class="evidence-row"',
-      prs: 'class="evidence-row"',
+      commits: 'class="commit-grid"',
+      prs: 'class="pr-branches"',
       recovery: 'class="recovery-history"',
-      receipt: 'class="done-line"',
+      receipt: 'class="done-receipt"',
     };
     for (const kind of EVIDENCE_KINDS) {
       const [stage, processId] = EVIDENCE_AT[kind];
@@ -2347,8 +2442,10 @@ describe('inside render round trip (executed in a VM)', () => {
     const findings = openEvidence('review', 'review');
     expect(findings).toContain('<span class="sev">critical</span>');
     expect(findings).toContain('<span class="sev">medium</span>');
-    expect(openEvidence('ship', 'commit')).toContain('<span class="ev-state pass">passed');
-    expect(openEvidence('ship', 'pr')).toContain('<span class="ev-state pass">passed');
+    // Ship's rich bodies carry their state as the recorded provenance pill and
+    // the PR state pill — both host-supplied words, never colour alone.
+    expect(openEvidence('ship', 'commit')).toContain('<span class="commit-origin ship">created by ship</span>');
+    expect(openEvidence('ship', 'pr')).toContain('<span class="pr-status open">open</span>');
   });
 
   it('keeps every rendered status word inside the closed vocabulary (Task 5)', () => {
@@ -2372,8 +2469,8 @@ describe('inside render round trip (executed in a VM)', () => {
   it('renders each kind’s factual detail verbatim (Task 5)', () => {
     expect(openEvidence('uat', 'gates')).toContain('<span class="gate-detail">exit 0</span>');
     expect(openEvidence('review', 'review')).toContain('SQL injection in query builder');
-    expect(openEvidence('ship', 'commit')).toContain('<span class="ev-detail">2 created · 1 before</span>');
-    expect(openEvidence('ship', 'pr')).toContain('created #120');
+    expect(openEvidence('ship', 'commit')).toContain('<span class="commit-repo-summary">2 created · 1 before</span>');
+    expect(openEvidence('ship', 'pr')).toContain('<span class="pr-link">#120</span>');
     expect(openEvidence('uat', 'fix')).toContain('gate test failed');
     expect(openEvidence('done', 'delivery-receipt')).toContain('31 created by ship');
     expect(openEvidence('scope', 'worktrees')).toContain('<span class="ev-key">worktree</span>');
@@ -2449,8 +2546,10 @@ describe('inside render round trip (executed in a VM)', () => {
     // receipt carry one; the plain uat gates bound stays passive.
     const commits = openEvidenceCount('ship', 'commit', 20);
     expect(commits).toContain('Show 14 more');
+    // The rich body's bound is stated on its own overflow note, which carries
+    // the host's count copy and the host's count-bearing continuation label.
     expect(commits).toMatch(
-      /<span class="ev-tail"><button[^>]*data-act="inside-action"[^>]*>Show 14 more<\/button><\/span>/,
+      /<div class="overflow-note"><span>\+14 more<\/span><button[^>]*data-act="inside-action"[^>]*>Show 14 more<\/button><\/div>/,
     );
     const receipt = openEvidenceCount('done', 'delivery-receipt', 20);
     const block = receipt.slice(receipt.indexOf('class="op-body"'));

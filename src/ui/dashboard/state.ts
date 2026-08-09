@@ -40,7 +40,10 @@ import { listProcessRuns } from '../../store/processRuns.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { listShipEvidence } from '../../store/shipRuns.js';
-import { listImplementationTimeline } from '../../store/implementationRuns.js';
+import {
+  listImplementationTimeline,
+  readSegmentTokenTotals,
+} from '../../store/implementationRuns.js';
 import {
   summarizeRecordedTokenUsage,
   summarizeRecordedTokenUsageForProcess,
@@ -349,6 +352,16 @@ export function buildDashboardState(
           tokensFor('session'),
           now,
           attach,
+          // Per-segment measured spend, straight from the ledger's own
+          // `implementation_segment_id` GROUP BY — the switch row's Σ pill
+          // states what the segment it moved TO went on to cost. A run that
+          // never opened has no segments and therefore no totals.
+          timeline
+            ? readSegmentTokenTotals(store, timeline.run.id).map((t) => ({
+                implementationSegmentId: t.implementationSegmentId,
+                total: t.totalTokens,
+              }))
+            : [],
         ),
       ],
       now,
@@ -406,6 +419,9 @@ export function buildDashboardState(
         rounds,
         tokens: recordedTotal.total > 0 ? recordedTotal : null,
         roles: roleTokens,
+        // The done stage's own stamp — the hero's completion time. An
+        // unstamped cell yields no time rather than a fabricated one.
+        completedAt: cellOf('done').endedAt ?? cellOf('done').startedAt ?? null,
         now,
         attach,
       }),

@@ -1,6 +1,10 @@
 import type { DashboardState } from './state.js';
 import type {
+  CommitRepoView,
+  DoneHeroView,
   EvidenceRow,
+  PrBranchView,
+  ReceiptBlockView,
   InsideStageKey,
   InsideStageView,
   InsideDot,
@@ -223,12 +227,20 @@ function implView(_n: RenderRepoCount): InsideStageView {
       label: 'switch',
       detail: 'Codex · Codex X',
       connector: 'switch',
+      role: 'identity',
+      provider: 'codex',
+      // The segment a switch moved TO carries its own measured spend
+      // (`readSegmentTokenTotals`) — the reducer emits it, so the matrix does.
+      tokens: { state: 'measured', total: '22.4k', exact: '22,400' },
     },
     {
       status: 'note',
       label: 'resumed',
       detail: 'Claude Code · Claude Opus 4.1',
       connector: 'resume',
+      role: 'identity',
+      provider: 'claude',
+      tokens: { state: 'measured', total: '17.3k', exact: '17,300' },
     },
     { status: 'note', label: 'research', detail: '09:41:02' },
     { status: 'note', label: 'plan', detail: '09:44:51' },
@@ -270,6 +282,36 @@ function doneView(n: RenderRepoCount): InsideStageView {
     { status: 'note', label: 'validated', detail: '14 gates passed on the final run' },
     { status: 'note', label: 'recovery', detail: '1 round fixed before delivery' },
   ];
+  // The receipt's hero and its three blocks — the same host-formatted facts
+  // `doneReceipt` emits: merged CURRENT PRs, the final gate wording, and the
+  // RECORDED spend with its per-role breakdown.
+  const hero: DoneHeroView = {
+    title: 'Delivered',
+    summary: `${n} repositories · ${n} pull requests merged`,
+    time: 'completed 09:58:44',
+  };
+  const blocks: readonly ReceiptBlockView[] = [
+    {
+      label: 'Delivered',
+      value: `${n} pull requests merged`,
+      details: [`${n} repositories`, '31 commits created by ship'],
+    },
+    {
+      label: 'Validated',
+      value: 'UAT passed · Review passed',
+      details: ['14 final gate checks passed', '1 recovery round before delivery'],
+    },
+    {
+      label: 'AI usage',
+      value: '110.9k recorded tokens',
+      details: ['87.7k input · 23.2k output'],
+      breakdown: [
+        { amount: '58.3k', label: 'implementation' },
+        { amount: '25.6k', label: 'quality' },
+        { amount: '5.6k', label: 'ship' },
+      ],
+    },
+  ];
   return {
     stageKey: 'done',
     title: 'Done',
@@ -283,7 +325,7 @@ function doneView(n: RenderRepoCount): InsideStageView {
         status: 'pass',
         detail: '38.2k tokens recorded',
         tokens: { ...ESTIMATED_TOKENS },
-        evidence: { kind: 'receipt', rows },
+        evidence: { kind: 'receipt', rows, hero, blocks },
       },
     ],
     blurb: STAGE_BLURBS.done,
@@ -378,6 +420,49 @@ function shipView(n: RenderRepoCount): InsideStageView {
   const prRows = repoNames(n).map(
     (r, i): EvidenceRow => ({ status: 'pass', label: r, detail: `created #${120 + i}` }),
   );
+  // The rich bodies the ship reducer now emits beside those rows: the commit
+  // grid and the PR branch paths, bounded to the same six-repository limit
+  // with the remainder carried on the body's own overflow row.
+  const commitRepos: CommitRepoView[] = repoNames(n).slice(0, REPO_ROWS_LIMIT).map((r, i) => ({
+    repo: r,
+    summary: '2 created · 1 before',
+    origin: 'created by ship',
+    originKind: 'ship',
+    commits: [
+      {
+        sha: `a1b2c3${i}`,
+        // Hostile, untrusted commit prose — the escaping must have teeth here
+        // exactly as it does on findings.
+        message: i === 0 ? HOSTILE_TITLE : `feat(${r}): land the change`,
+        action: fixtureAction('open-commit', i + 1),
+      },
+      { sha: `d4e5f6${i}`, message: `chore(${r}): tidy up`, action: fixtureAction('open-commit', 100 + i) },
+    ],
+  }));
+  const prBranches: PrBranchView[] = repoNames(n).slice(0, REPO_ROWS_LIMIT).map((r, i) => ({
+    repo: r,
+    number: `#${120 + i}`,
+    prState: i === 0 ? 'draft' : 'open',
+    steps: [
+      { label: 'description generated', state: 'done' },
+      { label: 'PR opened', state: 'done' },
+    ],
+    note: `PR #${120 + i} was created in this ship run.`,
+    current: false,
+  }));
+  const repoOverflow = (rows: readonly EvidenceRow[]): EvidenceRow | undefined =>
+    n <= REPO_ROWS_LIMIT
+      ? undefined
+      : {
+          status: 'note',
+          label: 'more',
+          detail: `+${n - REPO_ROWS_LIMIT} more`,
+          action: fixtureAction(
+            'open-bounded-evidence',
+            rows.length,
+            `Show ${n - REPO_ROWS_LIMIT} more`,
+          ),
+        };
   // A conflict is WAITING, never failed (handoff §5: "Conflict is waiting, not
   // failure") — the first repo's branch stopped merging cleanly, everything
   // else simply has not landed yet.
@@ -402,6 +487,8 @@ function shipView(n: RenderRepoCount): InsideStageView {
           kind: 'commits',
           rows: boundedRows(commitRows, REPO_ROWS_LIMIT, true),
           total: 2 * n,
+          repos: commitRepos,
+          ...(repoOverflow(commitRows) ? { overflow: repoOverflow(commitRows)! } : {}),
         },
       },
       {
@@ -421,6 +508,8 @@ function shipView(n: RenderRepoCount): InsideStageView {
           rows: boundedRows(prRows, REPO_ROWS_LIMIT, true),
           open: n,
           merged: 0,
+          branches: prBranches,
+          ...(repoOverflow(prRows) ? { overflow: repoOverflow(prRows)! } : {}),
         },
       },
       {

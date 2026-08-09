@@ -7,7 +7,16 @@ import { formatTokens } from '../tokenFormat.js';
 import { boundedEvidenceRows } from './bounds.js';
 import { latestBatch } from './gates.js';
 import { currentPerRepo, isMerged, REPOSITORY_EVIDENCE_LIMIT } from './ship.js';
-import type { EvidenceRow, InsideEvidenceTarget, ShipPrView, TypedInsideAction } from './types.js';
+import {
+  formatTime,
+  type DoneHeroView,
+  type EvidenceRow,
+  type InsideEvidenceTarget,
+  type ReceiptBlockView,
+  type ReceiptBreakdownItem,
+  type ShipPrView,
+  type TypedInsideAction,
+} from './types.js';
 
 /**
  * The done stage's delivery receipt (Task 12): a DISCRIMINATED UNION — before
@@ -52,7 +61,12 @@ export type DoneReceiptView =
       delivered: { repos: number; prs: number; commits: number };
       validated: string;
       tokens: { label: string } | null;
-      evidence: { kind: 'receipt'; rows: readonly EvidenceRow[] };
+      evidence: {
+        kind: 'receipt';
+        rows: readonly EvidenceRow[];
+        hero: DoneHeroView;
+        blocks: readonly ReceiptBlockView[];
+      };
     };
 
 export interface DoneReceiptInput {
@@ -71,8 +85,80 @@ export interface DoneReceiptInput {
   tokens: RecordedUsageSummary | null;
   /** The recorded spend per role, for the breakdown rows. */
   roles: readonly RecordedRoleUsage[];
+  /**
+   * When the done stage was stamped — the hero's completion time. NULL when
+   * no stamp was recorded, which renders as an EMPTY time, never as "now".
+   */
+  completedAt?: string | null;
   now: string;
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
+}
+
+/** English plural, host-side. The webview never pluralises (UI-R31). */
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** The counted gates of ONE gate stage's final batch, evidence rows excluded. */
+function finalBatch(gateRuns: readonly GateRun[], stage: 'uat' | 'review'): GateRun[] {
+  return latestBatch(gateRuns, stage).filter((r) => r.gateName !== CHANGES_GATE);
+}
+
+/**
+ * The validation block: which gate stages answered, and how the final batch
+ * of each read. A stage with no recorded batch is OMITTED — an unasked gate
+ * stage is absence, never a pass.
+ */
+function validatedBlock(input: DoneReceiptInput): ReceiptBlockView {
+  const uat = finalBatch(input.gateRuns, 'uat');
+  const review = finalBatch(input.gateRuns, 'review');
+  const verdicts = ([['UAT', uat], ['Review', review]] as const)
+    .filter(([, batch]) => batch.length > 0)
+    .map(([name, batch]) =>
+      batch.some((r) => r.exitCode !== null && r.exitCode !== 0) ? `${name} failed` : `${name} passed`,
+    );
+  const batch = [...uat, ...review];
+  const passed = batch.filter((r) => r.exitCode === 0).length;
+  const failed = batch.filter((r) => r.exitCode !== null && r.exitCode !== 0).length;
+  const details: string[] = [];
+  if (passed > 0) details.push(`${plural(passed, 'final gate check', 'final gate checks')} passed`);
+  if (failed > 0) details.push(`${plural(failed, 'final gate check', 'final gate checks')} failed`);
+  if (input.rounds.length > 0) {
+    details.push(`${plural(input.rounds.length, 'recovery round', 'recovery rounds')} before delivery`);
+  }
+  return {
+    label: 'Validated',
+    // Absence is stated, never dressed as a pass: a ticket whose gate stages
+    // recorded nothing says so.
+    value: verdicts.length > 0 ? verdicts.join(' · ') : 'No gate run recorded',
+    details,
+  };
+}
+
+/**
+ * The AI-usage block. A ticket with no MEASURED spend states the absence —
+ * a zero would read as a measured free ticket (decision 8). The input/output
+ * split renders only when both directions were recorded and non-zero, the
+ * same rule the implementation footer applies.
+ */
+function usageBlock(input: DoneReceiptInput): ReceiptBlockView {
+  if (input.tokens === null) {
+    return { label: 'AI usage', value: 'No token usage recorded yet', details: [] };
+  }
+  const details =
+    input.tokens.input > 0 && input.tokens.output > 0
+      ? [`${formatTokens(input.tokens.input)} input · ${formatTokens(input.tokens.output)} output`]
+      : [];
+  const breakdown: ReceiptBreakdownItem[] = input.roles.map((role) => ({
+    amount: formatTokens(role.total),
+    label: role.role,
+  }));
+  return {
+    label: 'AI usage',
+    value: `${formatTokens(input.tokens.total)} recorded tokens`,
+    details,
+    ...(breakdown.length > 0 ? { breakdown } : {}),
+  };
 }
 
 export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
@@ -146,6 +232,34 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
       input.tokens === null
         ? null
         : { label: `${formatTokens(input.tokens.total)} tokens recorded` },
-    evidence: { kind: 'receipt', rows },
+    evidence: {
+      kind: 'receipt',
+      rows,
+      hero: {
+        title: 'Delivered',
+        // Only what merged CURRENT PRs and ship commits actually say. The
+        // gate wording lives in its own block; repeating it here would put
+        // two claims about validation on one screen.
+        summary: `${plural(merged.length, 'repository', 'repositories')} · ${plural(
+          merged.length,
+          'pull request',
+          'pull requests',
+        )} merged`,
+        // An unrecorded completion stamp is an EMPTY time, never `now`.
+        time: input.completedAt ? `completed ${formatTime(input.completedAt)}` : '',
+      },
+      blocks: [
+        {
+          label: 'Delivered',
+          value: `${plural(merged.length, 'pull request', 'pull requests')} merged`,
+          details: [
+            plural(merged.length, 'repository', 'repositories'),
+            `${plural(commits, 'commit', 'commits')} created by ship`,
+          ],
+        },
+        validatedBlock(input),
+        usageBlock(input),
+      ],
+    },
   };
 }

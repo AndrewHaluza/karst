@@ -792,6 +792,74 @@
   #inside .done-copy{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:var(--p-muted);font-size:var(--p-sm)}
   #inside .done-state{color:var(--p-passed);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .done-check{flex:none}
+  #inside .receipt-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+    border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r2);overflow:hidden;background:var(--p-surface)}
+  #inside .receipt-block{min-width:0;padding:var(--p-s2) var(--p-s3);
+    border-right:var(--k-border-w) solid var(--p-border)}
+  #inside .receipt-block:last-child{border-right:0}
+  #inside .receipt-label{display:flex;align-items:center;gap:var(--p-s1);margin-bottom:var(--p-s1);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    text-transform:uppercase;letter-spacing:.04em}
+  #inside .receipt-value{color:var(--p-strong);font-size:var(--p-sm);
+    font-weight:var(--k-weight-semibold);line-height:1.35}
+  #inside .receipt-detail{margin-top:var(--k-space-1);color:var(--p-muted);font-size:var(--p-sm);line-height:1.35}
+  #inside .ai-usage-breakdown{display:flex;flex-wrap:wrap;gap:var(--p-s1) var(--p-s2);margin-top:var(--p-s1)}
+  #inside .ai-usage-item{color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .ai-usage-item strong{color:var(--p-text);font-weight:var(--k-weight-medium)}
+
+  /* Ship · Commit: one block per repository, its provenance pill, its commits */
+  #inside .commit-grid{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
+    overflow:hidden;background:var(--p-surface)}
+  #inside .commit-repo{border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .commit-repo:last-child{border-bottom:0}
+  #inside .commit-repo-head{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto;
+    gap:var(--p-s2);align-items:center;min-height:29px;padding:0 var(--p-s2)}
+  #inside .commit-repo-name{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .commit-repo-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .commit-origin{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+  #inside .commit-origin.ship{border-color:var(--p-edge-run);color:var(--p-running)}
+  #inside .commit-origin.existing{border-color:var(--p-border2);color:var(--p-muted2)}
+  #inside .commit-list{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s2) + 82px)}
+  #inside .commit-item{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:var(--p-s1);
+    min-height:23px;align-items:center}
+  #inside .commit-sha{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .commit-message{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+
+  /* Ship · Pull request: the recorded path per repository */
+  #inside .pr-branches{display:grid;gap:var(--k-space-1)}
+  #inside .pr-branch{display:flex;align-items:center;gap:var(--p-s1);min-height:29px;
+    padding:0 var(--p-s2);border-radius:var(--p-r1)}
+  #inside .pr-branch.current{background:var(--p-tint-run)}
+  #inside .pr-repo{width:44px;flex:none;color:var(--p-strong);font-family:var(--p-mono);
+    font-size:var(--p-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .pr-path{min-width:0;display:flex;align-items:center;gap:var(--p-s1);
+    overflow:hidden;font-size:var(--p-sm)}
+  #inside .pr-object{display:inline-flex;align-items:center;gap:var(--p-s1);min-height:18px;
+    line-height:18px;white-space:nowrap}
+  #inside .pr-link{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    font-weight:var(--k-weight-semibold)}
+  #inside .pr-status{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--p-border2);
+    border-radius:var(--k-radius-pill);height:18px;padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:9px;line-height:16px;text-transform:lowercase;white-space:nowrap}
+  #inside .pr-status.open{color:var(--p-running);border-color:var(--p-edge-run)}
+  #inside .pr-status.draft{color:var(--p-skip);border-color:var(--p-border2)}
+  #inside .pr-status.merged{color:var(--p-passed);border-color:var(--p-edge-done)}
+  #inside .pr-status.closed{color:var(--p-failed);border-color:var(--p-failed)}
+  #inside .pr-empty{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .pr-step{white-space:nowrap;color:var(--p-muted)}
+  #inside .pr-step.current{color:var(--p-running);font-weight:var(--k-weight-medium)}
+  #inside .pr-step.fail{color:var(--p-failed)}
+  #inside .pr-step.note{color:var(--p-muted2);font-style:italic}
+  #inside .pr-arrow{color:var(--p-muted2);flex:none}
+  #inside .pr-branch-note{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s2) + 48px);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px}
 
   /* The prototype's compact width, expressed as the block's own container
      query so it follows the panel rather than the window (handoff §10). */
@@ -811,6 +879,17 @@
     #inside .finding-loc{grid-column:2}
     #inside .done-line{grid-template-columns:76px minmax(0,1fr)}
     #inside .done-state{grid-column:2}
+    /* The receipt grid stacks rather than crushing three columns; the commit
+       list and the PR note lose their hanging indent so nothing truncates. */
+    #inside .receipt-grid{grid-template-columns:minmax(0,1fr)}
+    #inside .receipt-block{border-right:0;border-bottom:var(--k-border-w) solid var(--p-border)}
+    #inside .receipt-block:last-child{border-bottom:0}
+    #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto}
+    #inside .commit-repo-name{grid-column:1}
+    #inside .commit-repo-summary{grid-column:1/-1}
+    #inside .commit-list,#inside .pr-branch-note{padding-left:var(--p-s2)}
+    #inside .commit-item{grid-template-columns:52px minmax(0,1fr)}
+    #inside .pr-branch{flex-wrap:wrap}
     #inside .session-head{grid-template-columns:20px minmax(72px,90px) minmax(0,1fr)}
     #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr);
       padding-left:var(--timeline-left)}
@@ -835,6 +914,9 @@
     #inside .inside{margin-left:var(--k-space-1);margin-right:var(--k-space-1)}
     #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
     #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+    #inside .commit-repo-head,#inside .commit-list,#inside .pr-branch,#inside .pr-branch-note,
+    #inside .receipt-block{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+    #inside .pr-path{flex-wrap:wrap}
   }
   @media (prefers-reduced-motion: reduce){
     #inside .glyph.run:before{animation:none}
@@ -1645,12 +1727,88 @@
       + (r.action ? evActionHtml(r) : `<span class="finding-loc">${esc(r.duration || '')}</span>`)
       + `</div>`).join('')}</div>`;
   }
+  // The bounded remainder of a RICH body. The host owns both the count copy
+  // and the continuation's label — the webview counts nothing (UI-R31).
+  function evidenceOverflowHtml(o) {
+    if (!o) return '';
+    return `<div class="overflow-note"><span>${esc(o.detail || o.label || '')}</span>`
+      + (o.action ? insideActionBtnHtml(o.action) : '') + `</div>`;
+  }
+
+  // Ship · Commit: one block per repository — its provenance pill and the
+  // commits that pill speaks for. A snapshot with no `repos` (an older host)
+  // still renders through the generic row path.
+  function evidenceCommitsHtml(ev) {
+    if (!ev.repos || !ev.repos.length) return evidenceRowsHtml(ev);
+    const grid = ev.repos.map((r) => {
+      const list = r.commits && r.commits.length
+        ? `<div class="commit-list">${r.commits.map((c) => `<div class="commit-item">`
+          + `<span class="commit-sha">${esc(c.sha)}</span>`
+          + `<span class="commit-message">${esc(c.message)}</span>`
+          + (c.action ? evActionHtml(c) : '')
+          + `</div>`).join('')}</div>`
+        : '';
+      return `<div class="commit-repo"><div class="commit-repo-head">`
+        + `<span class="commit-repo-name">${esc(r.repo)}</span>`
+        + `<span class="commit-repo-summary">${esc(r.summary)}</span>`
+        + `<span class="commit-origin ${esc(r.originKind)}">${esc(r.origin)}</span>`
+        + `</div>${list}</div>`;
+    }).join('');
+    return `<div class="commit-grid">${grid}</div>${evidenceOverflowHtml(ev.overflow)}`;
+  }
+
+  // Ship · Pull request: the PR object karst recorded, the recorded step path,
+  // and the host's own sentence saying why the row reads as it does. A branch
+  // with no recorded number renders the host's absence copy, never a number.
+  function evidencePrsHtml(ev) {
+    if (!ev.branches || !ev.branches.length) return evidenceRowsHtml(ev);
+    const arrow = '<span class="pr-arrow" aria-hidden="true">→</span>';
+    const rows = ev.branches.map((b) => {
+      const object = b.number
+        ? `<span class="pr-object"><span class="pr-link">${esc(b.number)}</span>`
+          + (b.prState ? `<span class="pr-status ${esc(b.prState)}">${esc(b.prState)}</span>` : '')
+          + `</span>`
+        : `<span class="pr-empty">${esc(b.emptyLabel || '')}</span>`;
+      const steps = (b.steps || []).map(
+        (s) => `<span class="pr-step ${esc(s.state)}">${esc(s.label)}</span>`,
+      ).join(arrow);
+      return `<div><div class="pr-branch${b.current ? ' current' : ''}">`
+        + `<span class="pr-repo">${esc(b.repo)}</span>`
+        + `<div class="pr-path">${object}${steps ? arrow + steps : ''}</div></div>`
+        + `<div class="pr-branch-note">${esc(b.note || '')}</div></div>`;
+    }).join('');
+    return `<div class="pr-branches">${rows}</div>${evidenceOverflowHtml(ev.overflow)}`;
+  }
+
+  // Done: the hero line, the three-block receipt grid, then the delivery
+  // lines. Hero and blocks are optional — a receipt that carries only rows
+  // (an older snapshot) renders exactly what it always did.
   function evidenceReceiptHtml(ev) {
-    return ev.rows.map((r) => `<div class="done-line">`
+    const lines = ev.rows.map((r) => `<div class="done-line">`
       + `<span class="done-key">${esc(r.label)}</span>`
       + `<span class="done-copy">${esc(r.detail || '')}</span>`
       + (r.action ? evActionHtml(r) : `<span class="done-state">${esc(r.duration || statusWord(r.status))}</span>`)
       + `</div>`).join('');
+    if (!ev.hero && !(ev.blocks && ev.blocks.length)) return lines;
+    const hero = ev.hero
+      ? `<div class="done-hero"><span class="done-check glyph pass" aria-label="delivered"></span>`
+        + `<span class="done-hero-main">${esc(ev.hero.title)}</span>`
+        + `<span class="done-hero-sub">${esc(ev.hero.summary)}</span>`
+        + (ev.hero.time ? `<span class="done-hero-time">${esc(ev.hero.time)}</span>` : '')
+        + `</div>`
+      : '';
+    const blocks = ev.blocks && ev.blocks.length
+      ? `<div class="receipt-grid">${ev.blocks.map((b) => `<div class="receipt-block">`
+        + `<div class="receipt-label">${esc(b.label)}</div>`
+        + `<div class="receipt-value">${esc(b.value)}</div>`
+        + (b.details && b.details.length
+          ? `<div class="receipt-detail">${b.details.map((d) => esc(d)).join('<br>')}</div>` : '')
+        + (b.breakdown && b.breakdown.length
+          ? `<div class="ai-usage-breakdown">${b.breakdown.map((i) => `<span class="ai-usage-item">`
+            + `<strong>${esc(i.amount)}</strong> ${esc(i.label)}</span>`).join('')}</div>` : '')
+        + `</div>`).join('')}</div>`
+      : '';
+    return `<div class="done-receipt">${hero}${blocks}<div class="done-lines">${lines}</div></div>`;
   }
   function evidenceRecoveryHtml(ev) {
     return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
@@ -1705,8 +1863,8 @@
     gates: evidenceGatesHtml,
     findings: evidenceFindingsHtml,
     timeline: evidenceTimelineHtml,
-    commits: evidenceRowsHtml,
-    prs: evidenceRowsHtml,
+    commits: evidenceCommitsHtml,
+    prs: evidencePrsHtml,
     recovery: evidenceRecoveryHtml,
     receipt: evidenceReceiptHtml,
   };

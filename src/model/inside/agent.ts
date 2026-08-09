@@ -139,11 +139,28 @@ interface TimelineEvent {
  * `reported · <time>` detail, and the remainder row is a generic `event`.
  * The webview keys off `role`/`connector` — never off label prose.
  */
+/**
+ * One segment's MEASURED total, as the reducer consumes it. A structural
+ * subset of the store's `SegmentTokenTotals` (`readSegmentTokenTotals`), so a
+ * caller with a partial row still type-checks and the reducer stays pure.
+ * Only segments that HAVE a measured total appear — an absent segment is
+ * absence, and a fabricated zero would read as a measured free segment.
+ */
+export interface SegmentTokensInput {
+  implementationSegmentId: number;
+  total: number;
+}
+
 function timelineEvents(
   timeline: ImplementationTimeline,
   marks: readonly PhaseMark[],
   now: string,
+  segmentTokens: readonly SegmentTokensInput[],
 ): TimelineEvent[] {
+  // The switch row states what the segment it moved TO went on to spend.
+  const totalBySegment = new Map(
+    segmentTokens.filter((s) => s.total > 0).map((s) => [s.implementationSegmentId, s.total]),
+  );
   const events: TimelineEvent[] = [];
   const { run, segments } = timeline;
 
@@ -166,9 +183,16 @@ function timelineEvents(
     if (!segment.startedAt) continue;
     if (segment.reason !== 'switch' && segment.reason !== 'resume') continue;
     const view = executionView(segment.provider, segment.model);
+    const measured = totalBySegment.get(segment.id);
     events.push({
       at: segment.startedAt,
       row: {
+        // The segment's OWN measured spend, when the ledger attributed any to
+        // it. Absent → no pill: this reducer never claims a segment cost
+        // nothing, only that nothing was recorded for it.
+        ...(measured !== undefined
+          ? { tokens: tokenView({ total: measured }, measuresSessionUsage(segment.provider)) }
+          : {}),
         // A switch is not progress: it carries no status node beyond the
         // shared note. Only the provider/model it moved to is stated. The
         // connector is STRUCTURAL — the webview draws the relationship arrow
@@ -343,6 +367,7 @@ export function implementationSessionProcess(
   tokens: SessionTokensInput | null | undefined,
   now: string,
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined,
+  segmentTokens: readonly SegmentTokensInput[] = [],
 ): InsideProcessView {
   const execution = timeline ? latestConfirmedSegment(timeline) : undefined;
 
@@ -350,7 +375,7 @@ export function implementationSessionProcess(
   let withheld = 0;
   if (timeline) {
     const boundedRows = bounded(
-      timelineEvents(timeline, marks, now).map((e) => e.row),
+      timelineEvents(timeline, marks, now, segmentTokens).map((e) => e.row),
       TIMELINE_LIMIT,
     );
     rows = boundedRows.shown;
