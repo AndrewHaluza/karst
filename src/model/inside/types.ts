@@ -281,7 +281,6 @@ export interface InsideProcessView {
   /** A bare count, for a process whose identity IS a number (scope's hot set). */
   count?: string;
   duration?: string;
-  ai?: boolean;
   /** The execution karst actually ran, when it ran one. */
   execution?: AgentExecutionView;
   /** What the settings said WOULD run, for a process that has not run. */
