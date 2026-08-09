@@ -558,6 +558,30 @@
     overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .erow .edur{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint)}
   .erow .eact{margin-left:auto;flex:none}
+  /* ── per-kind evidence layouts (B2): one rule per closed kind (UI-R10) ──
+     The kind class rides the evidence block (`pev-<kind>`, emitted by the
+     per-kind renderer in the script), so a kind-specific treatment hangs off
+     one selector. All values are tokens (UI-R04/R05). */
+  .pev-rows .erow{}
+  .pev-gates .erow{}
+  .pev-findings .erow{}
+  .pev-commits .erow{}
+  .pev-prs .erow{}
+  .pev-recovery .erow{}
+  /* The status word — the visible state, never colour alone (UI-R06). The
+     row's own status class is already on the row, so the word inherits the
+     ramp through the scoped rules below. */
+  .pev .estatus{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .erow.pass .estatus{color:var(--k-passed)} .erow.fail .estatus{color:var(--k-failed)}
+  .erow.run .estatus{color:var(--k-running)} .erow.wait .estatus{color:var(--k-attention)}
+  .erow.note .estatus,.erow.pending .estatus{color:var(--k-text-dim)}
+  /* The timeline holds its cells on one line so the connector spine and the
+     time column stay aligned down the rows (handoff §6 impl, §10 narrow). */
+  .pev-timeline .erow{flex-wrap:nowrap}
+  .pev-timeline .etime{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  /* The receipt is a list, not a status readout: no glyph column, one line
+     per delivered fact (handoff §6 done). */
+  .pev-receipt .erow{flex-wrap:nowrap;gap:var(--k-space-2)}
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
   .act .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
@@ -1291,8 +1315,31 @@
 
   function tokensHtml(t) {
     if (!t) return '';
+    // Absence is a first-class state (decision 8): a provider that reports no
+    // per-session usage renders the handoff §6 wording with the host's title —
+    // NEVER "0 tokens" (that would assert a measurement) and never "undefined".
+    if (t.state === 'unavailable') {
+      return `<span class="ptok" title="${esc(t.title)}">usage unavailable</span>`;
+    }
     const tip = t.exact ? ` title="${esc(t.exact)}"` : '';
     return `<span class="ptok"${tip}>${esc(t.total)} tokens</span>`;
+  }
+
+  // ── per-kind evidence renderers (B2) ──────────────────────────────────
+  // The closed ProcessEvidenceView union is dispatched here: one renderer per
+  // kind, each emitting its own literal `pev-<kind>` container so the
+  // kind-specific CSS hangs off one selector (UI-R10). The statuses, labels
+  // and durations all arrive host-shipped; the only webview-local strings are
+  // this closed status→word map and the glyph map above (UI-R31).
+  const INSIDE_STATUS_LABEL = {
+    pending: 'pending', run: 'running', wait: 'waiting',
+    pass: 'passed', fail: 'failed', note: 'note', skip: 'skipped',
+  };
+
+  // The status WORD — the visible state, so status never rides colour alone
+  // (UI-R06). The host ships the key; the word is closed control copy.
+  function statusWordHtml(status) {
+    return `<span class="estatus ${esc(status)}">${esc(INSIDE_STATUS_LABEL[status] || status)}</span>`;
   }
 
   function evidenceRowHtml(r) {
@@ -1313,6 +1360,93 @@
       + `</div>`;
   }
 
+  // Gates/findings/commits/prs rows carry a status WORD beside the glyph —
+  // handoff §6's gate template ("lint  pass · 4.2s") and ship template
+  // ("Commit  passed · created by Karst"). One shared row shape; the kind
+  // class on the container is what differs.
+  function statusRowHtml(r) {
+    const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
+    const act = r.action ? insideActionBtnHtml(r.action) : '';
+    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}`
+      + `<span class="elabel">${esc(r.label)}</span>`
+      + (r.status ? statusWordHtml(r.status) : '')
+      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
+      + (r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '')
+      + (act ? `<span class="eact">${act}</span>` : '')
+      + `</div>`;
+  }
+
+  // The timeline's row: the connector spine keeps its aligned cell and the
+  // range reads as a right-aligned time column (handoff §6 impl).
+  function timelineRowHtml(r) {
+    const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
+    const conn = r.connector === 'switch' || r.connector === 'resume'
+      ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
+      : '';
+    const act = r.action ? insideActionBtnHtml(r.action) : '';
+    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
+      + `<span class="elabel">${esc(r.label)}</span>`
+      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
+      + (r.duration ? `<span class="etime">${esc(r.duration)}</span>` : '')
+      + (act ? `<span class="eact">${act}</span>` : '')
+      + `</div>`;
+  }
+
+  // The receipt is a list of delivered facts, not a status readout — the
+  // process row's own status is the verdict, so per-row glyphs would double
+  // it (handoff §6 done).
+  function receiptRowHtml(r) {
+    const act = r.action ? insideActionBtnHtml(r.action) : '';
+    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">`
+      + `<span class="elabel">${esc(r.label)}</span>`
+      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
+      + (act ? `<span class="eact">${act}</span>` : '')
+      + `</div>`;
+  }
+
+  function evidenceRowsHtml(ev) {
+    return `<div class="pev pev-rows">${ev.rows.map(evidenceRowHtml).join('')}</div>`;
+  }
+  function evidenceGatesHtml(ev) {
+    return `<div class="pev pev-gates">${ev.rows.map(statusRowHtml).join('')}</div>`;
+  }
+  function evidenceFindingsHtml(ev) {
+    return `<div class="pev pev-findings">${ev.rows.map(statusRowHtml).join('')}</div>`;
+  }
+  function evidenceTimelineHtml(ev) {
+    return `<div class="pev pev-timeline">${ev.rows.map(timelineRowHtml).join('')}</div>`;
+  }
+  function evidenceCommitsHtml(ev) {
+    return `<div class="pev pev-commits">${ev.rows.map(statusRowHtml).join('')}</div>`;
+  }
+  function evidencePrsHtml(ev) {
+    return `<div class="pev pev-prs">${ev.rows.map(statusRowHtml).join('')}</div>`;
+  }
+  function evidenceRecoveryHtml(ev) {
+    return `<div class="pev pev-recovery">${ev.rows.map(evidenceRowHtml).join('')}</div>`;
+  }
+  function evidenceReceiptHtml(ev) {
+    return `<div class="pev pev-receipt">${ev.rows.map(receiptRowHtml).join('')}</div>`;
+  }
+
+  // Kind → renderer. An unknown kind (a future host, an older snapshot) falls
+  // back to the generic rows renderer — forward compatibility, never a throw.
+  const EVIDENCE_RENDERERS = {
+    rows: evidenceRowsHtml,
+    gates: evidenceGatesHtml,
+    findings: evidenceFindingsHtml,
+    timeline: evidenceTimelineHtml,
+    commits: evidenceCommitsHtml,
+    prs: evidencePrsHtml,
+    recovery: evidenceRecoveryHtml,
+    receipt: evidenceReceiptHtml,
+  };
+
+  function evidenceBlockHtml(ev) {
+    const render = EVIDENCE_RENDERERS[ev.kind] || evidenceRowsHtml;
+    return render(ev);
+  }
+
   function processRowHtml(p, key, open) {
     const glyph = OP_GLYPH[p.status] || '·';
     const meta = [p.count, p.duration].filter(Boolean)
@@ -1323,7 +1457,7 @@
       ? `<button type="button" class="k-iconbtn chev" data-chev="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}"`
         + ` aria-label="Show ${esc(p.label)} details" title="Show ${esc(p.label)} details">${open ? '–' : '+'}</button>`
       : '';
-    const ev = hasEv && open ? `<div class="pev pev-${esc(p.evidence.kind)}">${p.evidence.rows.map(evidenceRowHtml).join('')}</div>` : '';
+    const ev = hasEv && open ? evidenceBlockHtml(p.evidence) : '';
     return `<div class="proc ${esc(p.status)}" data-proc-id="${esc(key)}"><div class="prow"><span class="pglyph">${glyph}</span>`
       + `<span class="pname">${esc(p.label)}</span>${identityChipHtml(p)}${tokensHtml(p.tokens)}`
       + `<span class="pdetail">${esc(p.detail || '')}</span>`

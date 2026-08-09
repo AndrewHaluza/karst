@@ -1213,10 +1213,20 @@ describe('dashboard webview.html', () => {
   });
 
   it('keys the evidence block by its closed kind for specialized CSS', () => {
-    // Every renderer consumes the same EvidenceRow template; the kind rides
-    // on the container as a class so a per-kind treatment (timeline spine,
-    // gate chips, receipt list) hangs off one selector.
-    expect(HTML).toMatch(/pev pev-\$\{esc\(p\.evidence\.kind\)\}/);
+    // B2 replaced the single generic renderer with one per kind: each renderer
+    // emits its OWN literal `pev-<kind>` container (UI-R10), dispatched from a
+    // closed map so an unknown kind falls back to the generic renderer.
+    expect(HTML).toContain('const EVIDENCE_RENDERERS');
+    for (const kind of ['rows', 'gates', 'findings', 'timeline', 'commits', 'prs', 'recovery', 'receipt']) {
+      const fn = `evidence${kind.charAt(0).toUpperCase()}${kind.slice(1)}Html`;
+      expect(HTML, `missing renderer for ${kind}`).toContain(`function ${fn}`);
+      expect(HTML, `renderer for ${kind} emits no pev class`).toMatch(
+        new RegExp(`function ${fn}[\\s\\S]*?class="pev pev-${kind}"`),
+      );
+      expect(HTML, `no CSS rule for .pev-${kind}`).toMatch(
+        new RegExp(`\\.pev-${kind} \\.erow\\{`),
+      );
+    }
   });
 
   it('draws the timeline connector from the structural field, never the label', () => {
@@ -1233,8 +1243,10 @@ describe('dashboard webview.html', () => {
   it('never reads the evidence kind to derive a verdict', () => {
     // Kind is a presentation hint only: the row statuses are host-set, and a
     // renderer that switches on kind to invent a status would break the
-    // "webview receives verdicts" invariant.
-    expect(HTML).toMatch(/esc\(p\.evidence\.kind\)/);
+    // "webview receives verdicts" invariant. The dispatcher selects a RENDERER
+    // by kind; the statuses it renders come from the rows alone.
+    expect(HTML).toContain('EVIDENCE_RENDERERS[ev.kind]');
+    expect(HTML).toMatch(/EVIDENCE_RENDERERS\[ev\.kind\] \|\| evidenceRowsHtml/);
     expect(HTML).not.toMatch(/evidence\.kind === .*status/);
   });
 
@@ -1652,6 +1664,122 @@ describe('inside render round trip (executed in a VM)', () => {
     // carry exactly that, or the chevron is inert and no evidence is reachable.
     const html = renderInsideFor('uat');       // use the suite's existing helper
     expect(clickChevron(html, 'uat', 'gates')).toBe('uat:gates');
+  });
+
+  /**
+   * Open one process row's disclosure and return the rendered evidence block.
+   * The fixture matrix (renderFixtures) covers all eight kinds: rows on scope's
+   * worktrees, gates/findings/recovery on uat+review, timeline on impl,
+   * commits/prs on ship, receipt on done.
+   */
+  function openEvidence(stage: InsideStageKey, processId: string): string {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor(stage) });
+    h.clickChevron(`${stage}:${processId}`);
+    return h.htmlOf('inside');
+  }
+
+  it('renders rows evidence through the generic renderer (B2)', () => {
+    const html = openEvidence('scope', 'worktrees');
+    expect(html).toContain('class="pev pev-rows"');
+    expect(html).toMatch(/<span class="elabel">worktree<\/span>/);
+    // The generic renderer carries no status word — the glyph is its status.
+    expect(html).not.toContain('estatus');
+  });
+
+  it('renders gates evidence with a per-row status word (B2)', () => {
+    // handoff §6's gate template: "lint  pass · 4.2s" — the word is the
+    // visible status, never colour alone (UI-R06).
+    const html = openEvidence('uat', 'gates');
+    expect(html).toContain('class="pev pev-gates"');
+    expect(html).toContain('<span class="estatus pass">passed</span>');
+    expect(html).toContain('<span class="elabel">lint</span>');
+  });
+
+  it('renders findings evidence with severity rows and their status words (B2)', () => {
+    const html = openEvidence('review', 'review');
+    expect(html).toContain('class="pev pev-findings"');
+    expect(html).toContain('<span class="estatus fail">failed</span>');
+    expect(html).toContain('<span class="elabel">critical</span>');
+  });
+
+  it('renders timeline evidence with the connector spine and a time column (B2)', () => {
+    // handoff §6 impl: the switch/resume relationship arrow keeps its own
+    // aligned column, and the range reads as a right-aligned column.
+    const html = openEvidence('impl', 'session');
+    expect(html).toContain('class="pev pev-timeline"');
+    expect(html).toMatch(/<span class="econn"[^>]*>↳<\/span>/);
+    expect(html).toContain('<span class="etime">4m 12s</span>');
+  });
+
+  it('renders commits evidence with a status word per repo (B2)', () => {
+    const html = openEvidence('ship', 'commit');
+    expect(html).toContain('class="pev pev-commits"');
+    expect(html).toContain('<span class="estatus pass">passed</span>');
+    expect(html).toContain('<span class="elabel">web</span>');
+  });
+
+  it('renders prs evidence with a status word per repo (B2)', () => {
+    const html = openEvidence('ship', 'pr');
+    expect(html).toContain('class="pev pev-prs"');
+    expect(html).toContain('<span class="estatus pass">passed</span>');
+    expect(html).toContain('created #120');
+  });
+
+  it('renders recovery evidence with one row per round (B2)', () => {
+    const html = openEvidence('uat', 'fix');
+    expect(html).toContain('class="pev pev-recovery"');
+    expect(html).toContain('<span class="elabel">round 1</span>');
+    expect(html).toContain('<span class="elabel">round 3</span>');
+  });
+
+  it('renders the receipt as a list with no per-row glyph column (B2)', () => {
+    // handoff §6 done: the receipt is plain lines ("2 current PRs merged"),
+    // not a status readout — the process row's own status is the verdict.
+    const html = openEvidence('done', 'delivery-receipt');
+    const blockAt = html.indexOf('class="pev pev-receipt"');
+    expect(blockAt).toBeGreaterThan(-1);
+    const block = html.slice(blockAt);
+    expect(block).toContain('<span class="elabel">merged</span>');
+    expect(block).toContain('<span class="elabel">commits</span>');
+    expect(block).not.toContain('eglyph');
+    expect(block).not.toContain('estatus');
+  });
+
+  it('renders an unknown evidence kind through the generic renderer, never throwing (B2)', () => {
+    // Forward compatibility: a host that ships a kind this build has no layout
+    // for must degrade to the generic rows renderer, not a blank block.
+    const state = renderStateFor('scope');
+    const scope = { ...state.insideViews.scope };
+    scope.processes = scope.processes.map((p) =>
+      p.id === 'worktrees'
+        ? { ...p, evidence: { kind: 'future-kind', rows: [{ status: 'note', label: 'future' }] } as unknown as InsideProcessView['evidence'] }
+        : p,
+    );
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, scope } } });
+    h.clickChevron('scope:worktrees');
+    const html = h.htmlOf('inside');
+    expect(html).toContain('class="pev pev-rows"');
+    expect(html).toContain('<span class="elabel">future</span>');
+  });
+
+  it('renders the unavailable token state as absence with a title, never 0 (B2)', () => {
+    // decision 8: a provider that reports no per-session usage (Claude,
+    // Antigravity) must read as absent with the host's title — "usage
+    // unavailable" per handoff §6, never "0 tokens" and never "undefined".
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = uat.processes.map((p) =>
+      p.id === 'tester'
+        ? { ...p, tokens: { state: 'unavailable', title: 'This agent core does not report per-session usage' } }
+        : p,
+    );
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
+    expect(html).toContain('usage unavailable');
+    expect(html).toContain('title="This agent core does not report per-session usage"');
+    expect(html).not.toContain('undefined');
+    expect(html).not.toMatch(/\b0 tokens\b/);
   });
 
   it('keeps snapshot evidence when a live completed event has none', () => {
