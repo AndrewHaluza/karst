@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildStepper, displayStatus } from './stepper.js';
+import { buildStepper, displayStatus, type StepperStageRow } from './stepper.js';
+import type { BlockerKind } from './types.js';
 import { MAX_DIAGNOSTIC_CHARS } from './diagnosticText.js';
 
 describe('buildStepper', () => {
@@ -138,6 +139,24 @@ describe('buildStepper', () => {
     expect(reason).not.toContain('\n');
     expect(reason.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS + 1);
     expect(reason.endsWith('…')).toBe(true);
+  });
+
+  it('marks only awaiting-merge non-resumable', () => {
+    // A retry clears every other kind once its cause is addressed; only a
+    // landing clears awaiting-merge, and karst never lands a PR itself.
+    const cellFor = (kind: BlockerKind) =>
+      buildStepper([
+        {
+          stageKey: 'uat',
+          status: 'running',
+          blockedKind: kind,
+          blockedReason: 'r',
+          blockedAt: '2026-07-16T10:00:00.000Z',
+        } as StepperStageRow,
+      ]).find((c) => c.stageKey === 'uat')!;
+    expect(cellFor('unmapped-repository').blocked!.resumable).toBe(true);
+    expect(cellFor('nothing-to-run').blocked!.resumable).toBe(true);
+    expect(cellFor('awaiting-merge').blocked!.resumable).toBe(false);
   });
 });
 

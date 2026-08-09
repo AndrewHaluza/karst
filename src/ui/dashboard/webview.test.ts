@@ -2061,10 +2061,37 @@ describe('inside render round trip (executed in a VM)', () => {
   });
 
   it('renders a non-resumable block as a banner with no Resume button', () => {
-    // An `unmapped-repository` block cannot be cleared by retrying — only
-    // editing karst.yml or re-scoping the ticket can — so the banner shows
-    // the reason and no dead button. The resumability verdict is the host's
-    // `resumable` flag on the cell's `blocked`, never a reason-string match.
+    // `awaiting-merge` is the one block a retry cannot clear — the merge sweep
+    // clears it when the PR lands — so the banner shows the wait and no dead
+    // button. The resumability verdict is the host's `resumable` flag on the
+    // cell's `blocked`, never a reason-string match.
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'AWM-1', title: 'awaiting merge at ship' });
+    setStage(store, t.id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, {
+      ticketId: t.id,
+      stageKey: 'ship',
+      kind: 'awaiting-merge',
+      reason: 'PR #412 is open and unmerged',
+      runAt: '2026-08-09T10:33:42.000Z',
+      gates: [],
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(store, t.id);
+    store.close();
+
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    const banner = h.htmlOf('blocked');
+    expect(banner).toContain('Waiting to merge');
+    expect(banner).toContain('PR #412 is open and unmerged');
+    expect(banner).not.toContain('data-act="stage-resume"');
+  });
+
+  it('offers Resume on an unmapped-repository block', () => {
+    // The block's own reason tells the user to edit karst.yml; once they
+    // have, a retry is the only way forward and nothing sweeps this block
+    // clear on its own. Withholding the button would strand the ticket.
     const store = openStore(':memory:');
     const t = createTicket(store, { key: 'UNM-1', title: 'unmapped at uat' });
     setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
@@ -2083,9 +2110,9 @@ describe('inside render round trip (executed in a VM)', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state });
     const banner = h.htmlOf('blocked');
-    expect(banner).toContain('UAT cannot run here');
     expect(banner).toContain('these worktrees match no repository in karst.yml: /unmapped');
-    expect(banner).not.toContain('data-act="stage-resume"');
+    expect(banner).toContain('data-act="stage-resume"');
+    expect(banner).toContain('data-stagekey="uat"');
   });
 
   // ── the approved prototype ledger (Task 3) ──────────────────────────────

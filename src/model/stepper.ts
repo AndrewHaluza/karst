@@ -34,9 +34,9 @@ export interface StepperCell {
     at: string;
     /**
      * Whether re-running the stage could plausibly clear this block. `false`
-     * for a block only a human can clear (`awaiting-merge`: a PR must land;
-     * `unmapped-repository`: karst.yml must be fixed) — a Resume button that
-     * always no-ops is a dead affordance, so the dashboard renders none.
+     * only for `awaiting-merge`, where a PR must land and the merge sweep —
+     * never a retry — clears it; a Resume button there would always no-op, so
+     * the dashboard renders none.
      */
     resumable: boolean;
   };
@@ -90,12 +90,14 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
       kind: row.blockedKind,
       reason: collapseDiagnostic(row.blockedReason ?? ''),
       at: row.blockedAt ?? '',
-      // A block only a human can clear (`awaiting-merge`, `unmapped-repository`)
-      // is not resumable: retrying reproduces the same park, so the dashboard
-      // must not offer a button that always no-ops. Every other BlockerKind
-      // means "karst could not ask, retry the question".
-      resumable:
-        row.blockedKind !== 'awaiting-merge' && row.blockedKind !== 'unmapped-repository',
+      // `awaiting-merge` is the one block a retry cannot clear: ship's work is
+      // done and a PR must LAND, which karst never does itself — the merge sweep
+      // clears it, so a Resume button would always no-op. Every other
+      // BlockerKind, `unmapped-repository` included, is cleared by a retry once
+      // the cause is addressed (there editing karst.yml or re-scoping), so the
+      // dashboard must offer the control. Matches `workflow/stageResume.ts`,
+      // which refuses exactly `awaiting-merge` and nothing else.
+      resumable: row.blockedKind !== 'awaiting-merge',
     },
   };
 }
