@@ -51,6 +51,7 @@ function make(
     (ctx) => ({
       save: () => {},
       validate: () => {},
+      validateProcessAssignments: () => {},
       installApproach: () => {},
       uninstallApproach: () => {},
       setToken: () => {},
@@ -181,6 +182,7 @@ describe('SettingsManager', () => {
         () => ({
           save: () => {},
           validate: () => {},
+          validateProcessAssignments: () => {},
           installApproach: () => {},
           uninstallApproach: () => {},
           setToken: () => {},

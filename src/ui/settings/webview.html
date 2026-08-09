@@ -415,16 +415,32 @@
   .agent-editor{margin:var(--k-space-1) var(--k-space-0) var(--k-space-5) var(--k-space-7)}
   .agent-editor .footer-row{margin-top:var(--k-space-3)}
 
-  /* ---- inside process assignments (Task 7) ---- */
+  /* ---- inside process assignments (Task 7 / handoff §7) ----
+     One card row per inside AI process: a head line (role label +
+     description + enabled switch) over a labelled field line (Agent profile /
+     Agent core / Model / Display name) over an inline state message. Every
+     label and message string arrives from the host; this is layout only. */
   .proc-row{
-    display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-5);
-    border-left:calc(var(--k-border-w) * 2) solid transparent;border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;
+    padding:var(--k-space-4) var(--k-space-5);
+    border-left:calc(var(--k-border-w) * 2) solid transparent;
+    border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;
   }
   .proc-row:hover{background:var(--k-surface-hover)}
   .proc-row.on{border-left-color:var(--k-success)}
   .proc-row.is-disabled{opacity:.6}
-  .proc-row .proc-name{flex:0 0 auto;font-family:var(--k-font-mono);font-size:var(--k-text-base)}
+  .proc-row .proc-head{display:flex;align-items:center;gap:var(--k-space-4)}
+  .proc-row .proc-name{flex:0 0 auto;font-size:var(--k-text-base);font-weight:var(--k-weight-medium)}
+  .proc-row .proc-desc{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .proc-row .spacer{flex:1}
+  .proc-row .proc-fields{display:flex;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-3)}
+  .proc-row .proc-field{flex:1 1 calc(var(--k-space-8) * 8);min-width:0}
+  .proc-row .proc-field label{margin:var(--k-space-0) var(--k-space-0) var(--k-space-1);
+    font-size:var(--k-text-2xs);opacity:.7}
+  .proc-row .proc-hint{display:block;font-size:var(--k-text-2xs);color:var(--k-text-dim);
+    margin-top:var(--k-space-1)}
+  .proc-row .proc-msg{font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
+  .proc-row .proc-msg.is-error{color:var(--k-danger)}
+  .proc-row .proc-msg.is-note{color:var(--k-text-dim)}
 
   /* Command chips become clickable when they carry data-cmd (opens the drawer) —
      rendered as a real <button class="chip"> (UI-R09) so Enter/Space/focus come
@@ -682,17 +698,20 @@
         </div>
       </div>
 
-      <!-- Inside-process assignments (Task 7): which agent name / provider /
-           model each inside AI process (uat-tester, uat-fix, review, review-fix,
-           pr-description) snapshots into its process_runs row. The rows spread
-           draft.processes rather than rebuilding it — the `agent` reference is
-           hand-authored in karst.yml and must survive a Save (see
-           updateProcessAssignment). -->
+      <!-- Inside-process assignments (handoff §7): which agent profile /
+           agent core / model each inside AI process (uat-tester, uat-fix,
+           review, review-fix, pr-description) snaps into its process_runs
+           row. The rows spread draft.processes rather than rebuilding it —
+           the `agentName` display override is hand-authored in karst.yml and
+           must survive a Save (see updateProcessAssignment). Every label and
+           validation-state string arrives in host-computed views
+           (state.processAssignments / process-assignment-views). -->
       <div class="card open">
-        <div class="card-head"><span class="card-title">Process assignments</span></div>
+        <div class="card-head"><span class="card-title">Inside process assignments</span></div>
         <div class="card-body form">
-          <p class="cap">Which agent profile and model launches each inside AI process. The
-            name snapshots into the run record; blank keeps the role default.</p>
+          <p class="cap">Which agent profile, core and model launch each inside AI process.
+            A blank field keeps the role default; the choices and validation states below
+            are computed from this project's manifest and catalogs.</p>
           <div id="processAssignments"></div>
         </div>
       </div>
@@ -1148,6 +1167,10 @@
   // Compatibility knowledge is deliberately broader than the picker catalog:
   // bundled ids remain known while newly discovered ids are added.
   let modelCompatibility = { claude: [], codex: [], antigravity: [], opencode: [] };
+  // Host-computed views for the inside-process assignment rows (handoff §7),
+  // keyed by process key: role labels, descriptions, the four validation
+  // states, the Default hints. The webview renders them verbatim.
+  let processAssignmentViews = {};
   // manifestPath/projectSlug: read-only host facts pushed alongside `state`
   // (§ state.ts SettingsState.manifestPath/projectSlug). Never part of the
   // draft manifest — SECTION_FIELDS excludes them so Save cannot write them.
@@ -1356,6 +1379,13 @@
       // Validate the CANDIDATE, not the whole draft: it is what Save would write,
       // so a half-finished edit parked on another tab can never block this one.
       post({ type: 'validate', manifest: saveCandidate(currentSection) });
+      // The inside-process rows are live only on the Agents tab, and their
+      // validation states are host-side facts computed from the same candidate
+      // (the webview derives nothing) — ask for fresh views alongside the
+      // validation the tab already posts.
+      if (currentSection === 'agents') {
+        post({ type: 'validate-process-assignments', manifest: saveCandidate('agents') });
+      }
     }, 150);
   }
 
@@ -2989,56 +3019,103 @@
     input.value = '';
   });
 
-  // ---- Inside process assignments (Task 7) ----
-  // Which agent name/provider/model each inside AI process snapshots into its
-  // process_runs row. PROCESS_KEYS mirrors validate/processAssignments.ts
-  // (UI-R34 — webview.test.ts pins the mirror); the provider labels come from
-  // the injected agent identity and the model options from the host-supplied
-  // modelCatalog, never HTML literals.
+  // ---- Inside process assignments (handoff §7) ----
+  // Which agent profile / agent core / model each inside AI process snaps into
+  // its process_runs row. PROCESS_KEYS mirrors validate/processAssignments.ts
+  // (UI-R34 — webview.test.ts pins the mirror); the profile options come from
+  // the host-computed view (the agent pool), the core labels from the injected
+  // agent identity and the model options from the host-supplied modelCatalog —
+  // never HTML literals. Every STRING the row renders (role label,
+  // description, validation states, Default hints) arrives in the host view;
+  // only the draft-bound field VALUES are read from draft.processes, so a
+  // change reflects instantly while the states follow on the round trip.
   const PROCESS_KEYS = ['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription'];
-  const PROCESS_ROLE_LABELS = {
-    uatTester: 'UAT test',
-    uatFix: 'UAT fix',
-    review: 'Review',
-    reviewFix: 'Review fix',
-    prDescription: 'PR description',
-  };
+
+  /** Index the host's row views by process key for O(1) row lookup. */
+  function indexProcessViews(rows) {
+    const byKey = {};
+    for (const row of rows || []) if (row && row.key) byKey[row.key] = row;
+    return byKey;
+  }
 
   function renderProcessAssignments() {
     const block = el('processAssignments');
-    const provider = draft.agentProvider || 'claude';
     block.innerHTML = PROCESS_KEYS
-      .map((key) => renderProcessAssignmentRow(key, (draft.processes && draft.processes[key]) || {}, provider))
+      .map((key) => renderProcessAssignmentRow(key, (draft.processes && draft.processes[key]) || {}, processAssignmentViews[key]))
       .join('');
   }
 
-  function renderProcessAssignmentRow(key, cfg, effectiveProvider) {
+  function renderProcessAssignmentRow(key, cfg, view) {
+    const v = view || {};
     const enabled = cfg.enabled !== false;
-    const name = cfg.agentName || '';
+    const agent = cfg.agent || '';
     const provider = cfg.provider || '';
-    const label = PROCESS_ROLE_LABELS[key] || key;
+    const model = cfg.model || '';
+    const label = v.roleLabel || key;
+    const msg = v.stateMessage || '';
+    const msgId = 'proc-' + key + '-msg';
+    // UI-R25: the control a state message is about carries aria-invalid and
+    // points at the message via aria-describedby.
+    const describedBy = msg ? ` aria-describedby="${esc(msgId)}"` : '';
+    const invalid = (field) => (v.invalidField === field ? ' aria-invalid="true"' : '');
     const toggleLabel = enabled
       ? 'Disable this process assignment'
       : 'Enable this process assignment';
-    return `<div class="proc-row${enabled ? ' on' : ' is-disabled'}">`
-      + `<span class="proc-name">${esc(label)}</span>`
-      + `<input type="text" class="proc-input" style="flex:1 1 220px" data-proc-field="agentName" data-proc-key="${key}"`
-      + ` value="${esc(name)}" placeholder="Name (blank = role default)" aria-label="${esc(label)} — agent name" />`
-      + `<select class="proc-select" style="flex:1 1 220px" data-proc-field="provider" data-proc-key="${key}"`
-      + ` aria-label="${esc(label)} — agent provider">`
-      + `<option value="">Default provider</option>`
+    const knownCore = v.effectiveProvider || null;
+    // Agent profile options: the host-supplied agent pool, plus the saved
+    // value when it is no longer in the pool — kept visible the same way the
+    // model select keeps an out-of-catalog saved id, with the state message
+    // marking it unknown.
+    let profileOpts = '<option value="">Role default</option>'
+      + (v.profileOptions || []).map((name) =>
+        `<option value="${esc(name)}"${name === agent ? ' selected' : ''}>${esc(name)}</option>`,
+      ).join('');
+    if (agent && !(v.profileOptions || []).includes(agent)) {
+      profileOpts += `<option value="${esc(agent)}" selected>${esc(agent)}</option>`;
+    }
+    const coreOpts = '<option value="">Default provider</option>'
       + KNOWN_AGENT_PROVIDERS.map((p) =>
         `<option value="${p}"${p === provider ? ' selected' : ''}>${esc(AGENT_PROVIDER_LABELS[p] || p)}</option>`,
-      ).join('')
-      + `</select>`
-      + `<select class="proc-select" style="flex:1 1 220px" data-proc-field="model" data-proc-key="${key}"`
-      + ` aria-label="${esc(label)} — model">`
-      + renderModelOptions(provider || effectiveProvider, cfg.model || '')
-      + `</select>`
+      ).join('');
+    // An unknown saved core gets NO model picker claim: the model select is
+    // disabled with an empty option list and the state message explains why
+    // (handoff §7 — "Unknown provider: inline error and no model picker claim").
+    const modelOpts = knownCore
+      ? renderModelOptions(knownCore, v.state === 'unknown-provider' ? '' : model)
+      : renderModelOptions('', '');
+    return `<div class="proc-row${enabled ? ' on' : ' is-disabled'}">`
+      + `<div class="proc-head">`
+      + `<span class="proc-name">${esc(label)}</span>`
+      + (v.description ? `<span class="proc-desc">${esc(v.description)}</span>` : '')
+      + `<span class="spacer"></span>`
       + `<button type="button" class="k-switch" role="switch" aria-checked="${enabled ? 'true' : 'false'}"`
       + ` data-proc-enabled="${key}" aria-label="${toggleLabel}" title="${toggleLabel}">`
-      + `<span class="k-switch-track"></span>`
-      + `</button>`
+      + `<span class="k-switch-track"></span></button>`
+      + `</div>`
+      + `<div class="proc-fields">`
+      + `<div class="proc-field">`
+      + `<label for="proc-${key}-profile">Agent profile</label>`
+      + `<select id="proc-${key}-profile" class="proc-select" data-proc-field="agent" data-proc-key="${key}"${describedBy}${invalid('agent')}>${profileOpts}</select>`
+      + (v.profileHint ? `<span class="proc-hint">${esc(v.profileHint)}</span>` : '')
+      + `</div>`
+      + `<div class="proc-field">`
+      + `<label for="proc-${key}-provider">Agent core</label>`
+      + `<select id="proc-${key}-provider" class="proc-select" data-proc-field="provider" data-proc-key="${key}"${describedBy}${invalid('provider')}>${coreOpts}</select>`
+      + (v.coreHint ? `<span class="proc-hint">${esc(v.coreHint)}</span>` : '')
+      + `</div>`
+      + `<div class="proc-field">`
+      + `<label for="proc-${key}-model">Model</label>`
+      + `<select id="proc-${key}-model" class="proc-select" data-proc-field="model" data-proc-key="${key}"${describedBy}${invalid('model')}`
+      + `${knownCore ? '' : ` disabled title="${esc(msg)}"`}>${modelOpts}</select>`
+      + (v.modelHint ? `<span class="proc-hint">${esc(v.modelHint)}</span>` : '')
+      + `</div>`
+      + `<div class="proc-field">`
+      + `<label for="proc-${key}-name">Display name</label>`
+      + `<input id="proc-${key}-name" type="text" class="proc-input" data-proc-field="agentName" data-proc-key="${key}"`
+      + ` value="${esc(cfg.agentName || '')}" placeholder="Snapshot name (blank = role default)" aria-label="${esc(label)} — display name" />`
+      + `</div>`
+      + `</div>`
+      + (msg ? `<div class="proc-msg ${v.stateTone === 'error' ? 'is-error' : 'is-note'}" id="${msgId}" role="alert">${esc(msg)}</div>` : '')
       + `</div>`;
   }
 
@@ -3773,6 +3850,12 @@
     modelCatalog = models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = compatibility || modelCatalog;
     renderModelPicker();
+    // A catalog change can flip a row's state (catalog-unavailable,
+    // incompatible-model) — re-ask for host-computed views if the rows are on
+    // screen.
+    if (currentSection === 'agents') {
+      post({ type: 'validate-process-assignments', manifest: saveCandidate('agents') });
+    }
     const prev = vscode.getState();
     if (prev) {
       vscode.setState({
@@ -3838,6 +3921,7 @@
         implementedProviders = msg.state.implementedProviders || ['claude'];
         modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [], opencode: [] };
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
+        processAssignmentViews = indexProcessViews(msg.state.processAssignments || []);
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
         manifestPath = msg.state.manifestPath || '';
@@ -3864,6 +3948,22 @@
         showError(shouldShowBanner(lastValidationError) ? lastValidationError : null);
         showConventionValidation(msg.ok ? null : msg.error);
         applyFieldValidationUI(lastValidationError);
+        break;
+      }
+      // Fresh host-computed views for the inside-process assignment rows
+      // (handoff §7): role labels, descriptions, the four validation states,
+      // the Default hints. The webview renders them verbatim.
+      case 'process-assignment-views': {
+        processAssignmentViews = indexProcessViews(msg.rows);
+        // A re-render mid-keystroke drops focus from the field being typed
+        // into — the display-name input commits on `input` with
+        // rerender:false, so skip the rebuild while a row control is focused.
+        // The agentName value takes no part in the validation states, so the
+        // stored views stay correct and apply on the next render.
+        const active = document.activeElement;
+        if (!active || !el('processAssignments').contains(active)) {
+          renderProcessAssignments();
+        }
         break;
       }
       // The folder picker's answer. Treated exactly as if the path had been
@@ -4002,6 +4102,7 @@
     implementedProviders = prev.implementedProviders || ['claude'];
     modelCatalog = prev.models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = prev.modelCompatibility || modelCatalog;
+    processAssignmentViews = indexProcessViews(prev.processAssignments || []);
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};
     valid = !prev.error;
