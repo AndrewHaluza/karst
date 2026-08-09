@@ -468,244 +468,385 @@
     .pchev{transition:none}
   }
 
-  /* ── inside ledger: what happens inside the SELECTED stage ──────────────
-     The approved quiet ledger (Task 3): ONE border around the block, a
-     hairline under the header, one between top-level processes — never a
-     filled hover card per row. Viewing bar above the header, live op inside. */
-  .inside-ledger{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
-  /* Viewing a stage that is not the current one — say so, and offer the way
-     back. Without this the strip silently contradicts the Now line. */
-  .inside-ledger.viewing{border-color:var(--k-series-2)}
-  .inside-ledger .vbar{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-xs);
-    color:var(--k-text-dim);background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border)}
-  .inside-ledger .vbar .sp{margin-left:auto}
-  .inside-head{display:flex;align-items:baseline;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-6);
-    border-bottom:var(--k-border-w) solid var(--k-border)}
-  .inside-head strong{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
-  .inside-clock{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
-  .inside-ledger .blurb{padding:var(--k-space-5) var(--k-space-7);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  /*KARST_INSIDE_PROTO_START*/
+  /* ── the Inside block: the A37 prototype, ported verbatim ───────────────
+     This block is the delivery surface from
+     `karst-inside-a37-centered-implementation-timeline.html`. It is the ONE
+     part of the dashboard that does not consume the design system's
+     component rules: the injected DS sheet's own `.k-*` and generic element
+     rules were reshaping the ported grammar (row heights, chip padding,
+     glyph boxes) into something that was neither the prototype nor the DS,
+     which is what "close, but not the prototype" kept meaning.
 
-  /* ── inside ledger: process rows with evidence (the inside redesign) ────
-     One generic row per process; every fact (status, label, detail, counts,
-     identity, tokens, action id, status WORD, footer facts) arrives pre-built
-     in the snapshot — the webview never derives a verdict or label from
-     prose. The summary is the handoff's grid (§3): status marker, flexible
-     content (label + detail), identity/tokens, terminal status + action.
-     Native <details>/<summary> (B3, UI-R09). One hairline between top-level
-     processes; no filled hover card — a quiet ledger, not a control menu. */
-  .inside-process + .inside-process{border-top:var(--k-border-w) solid var(--k-border)}
-  .inside-process summary{list-style:none;cursor:pointer}
-  .inside-process summary::-webkit-details-marker{display:none}
-  .inside-process summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .process-summary{display:grid;grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(0,1fr) auto auto auto;
-    grid-template-areas:"glyph name ident status chev" "glyph detail ident status chev";
-    align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-3) var(--k-space-4)}
-  .process-summary .pglyph{grid-area:glyph;text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint)}
-  .inside-process.pass .pglyph{color:var(--k-passed)} .inside-process.run .pglyph{color:var(--k-running)}
-  .inside-process.fail .pglyph{color:var(--k-failed)} .inside-process.wait .pglyph{color:var(--k-attention)}
-  .process-summary .pname{grid-area:name;font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
-  .process-summary .pdetail{grid-area:detail;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);
-    min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  /* The recorded execution identity — `execution` (what ran) or
-     `configuredExecution` (what settings said would run). One compact chip,
-     never both: two different claims must not read as one. */
-  .process-summary .pchip{display:inline-flex;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
-    font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
-  .process-summary .pchip::before{content:'';width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);background:var(--k-text-faint)}
-  /* The agent-core mark replaces the quiet dot (handoff §5); the injected
-     .agenticon rules own the icon's box. */
-  .process-summary .pchip.with-icon::before{display:none}
-  /* Identity + tokens, one cluster (B7): the container query moves the pair
-     to a second line TOGETHER at narrow widths. */
-  .process-summary .pident{grid-area:ident;display:inline-flex;align-items:center;gap:var(--k-space-2)}
-  .process-summary .ptok{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  .process-summary .pright{grid-area:status;display:flex;align-items:center;gap:var(--k-space-4);justify-content:flex-end;flex:none}
-  .process-summary .pmeta{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);white-space:nowrap}
-  /* The visible status WORD (UI-R06): the row's status class rides the word's
-     own span, like the evidence rows' estatus words. */
-  .process-summary .pstatus{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
-  .process-summary .pstatus.pass{color:var(--k-passed)} .process-summary .pstatus.fail{color:var(--k-failed)}
-  .process-summary .pstatus.run{color:var(--k-running)} .process-summary .pstatus.wait{color:var(--k-attention)}
-  .process-summary .pstatus.note,.process-summary .pstatus.pending{color:var(--k-text-dim)}
-  .inside-process.pending{opacity:.5}
-  .inside-process.note .pdetail{font-style:italic;opacity:.75}
-  .inside-process.skip .pdetail{font-style:italic;opacity:.7}
-  /* The disclosure is a native <details>/<summary> (B3, UI-R09): the row IS
-     the summary, so keyboard operability comes from the element, never a
-     click handler. The marker is decorative (aria-hidden); its rotation
-     states the open state; the summary's own text is the accessible name. */
-  .process-summary .pchev{grid-area:chev;color:var(--k-text-faint);font-size:var(--k-text-md);line-height:1;
+     Two rules keep this exemption honest:
+       1. Everything is scoped under `#inside`. Nothing here can reach the
+          rail, the panels, the toolbar, or another webview.
+       2. No raw colour literal. The prototype's palette is re-expressed as
+          `--p-*` custom properties on `#inside`, each pointing at the SAME
+          `--k-*` token the rest of the UI uses, so the block still themes
+          with VS Code (light themes included) and the conformance tests
+          keep their meaning. Tints are `color-mix` over those tokens, never
+          the prototype's dark-only hexes.
+     Geometry (grid templates, heights, the glyph shapes, the timeline rail)
+     is the prototype's, unchanged — that is the part being ported. */
+  #inside{
+    /* palette — prototype role → karst token */
+    --p-bg:var(--k-bg);
+    --p-surface:var(--k-surface);
+    --p-surface2:var(--k-surface-hover);
+    --p-hover:var(--k-surface-hover);
+    --p-border:var(--k-border);
+    --p-border2:var(--k-border-strong);
+    --p-text:var(--k-text);
+    --p-strong:var(--k-text);
+    --p-muted:var(--k-text-dim);
+    --p-muted2:var(--k-text-faint);
+    --p-accent:var(--k-link);
+    --p-pending:var(--k-text-faint);
+    --p-running:var(--k-running);
+    --p-attention:var(--k-attention);
+    --p-passed:var(--k-passed);
+    --p-failed:var(--k-failed);
+    --p-skip:var(--k-series-2);
+    /* tints — the prototype's filled states, mixed over the theme's own bg */
+    --p-tint-run:color-mix(in srgb, var(--p-running) 12%, var(--p-bg));
+    --p-tint-fail:color-mix(in srgb, var(--p-failed) 10%, var(--p-bg));
+    --p-tint-wait:color-mix(in srgb, var(--p-attention) 10%, var(--p-bg));
+    --p-tint-done:color-mix(in srgb, var(--p-passed) 10%, var(--p-bg));
+    --p-edge-run:color-mix(in srgb, var(--p-running) 45%, var(--p-border));
+    --p-edge-wait:color-mix(in srgb, var(--p-attention) 45%, var(--p-border));
+    --p-edge-done:color-mix(in srgb, var(--p-passed) 45%, var(--p-border));
+    /* spacing / radius / type — the prototype's own scale */
+    --p-r1:var(--k-radius-xs);--p-r2:var(--k-radius-sm);--p-r3:var(--k-radius-lg);
+    --p-s1:var(--k-space-2);--p-s2:var(--k-space-3);--p-s3:var(--k-space-4);
+    --p-s4:var(--k-space-5);--p-s5:var(--k-space-6);--p-s6:var(--k-space-7);
+    --p-xs:var(--k-text-2xs);--p-sm:var(--k-text-xs);--p-md:var(--k-text-md);
+    --p-mono:var(--k-font-mono);
+    container-type:inline-size;
+  }
+
+  /* Inside header = current operation, never a second live row */
+  #inside .inside{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);
+    border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r3);background:var(--p-bg)}
+  #inside .inside.viewing{border-color:var(--k-series-2)}
+  #inside .vbar{display:flex;align-items:center;gap:var(--p-s3);padding:var(--p-s2) var(--p-s4);
+    border-bottom:var(--k-border-w) solid var(--p-border);color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .vbar .sp{margin-left:auto}
+  #inside .inside-head{min-height:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+    align-items:center;gap:var(--p-s2);padding:0 var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .inside-title{font-size:var(--p-sm);font-weight:var(--k-weight-semibold);color:var(--p-strong);white-space:nowrap}
+  #inside .inside-live{min-width:0;overflow:hidden;white-space:nowrap;color:var(--p-muted);
+    font-size:var(--p-sm);display:flex;align-items:center;gap:var(--p-s2);line-height:18px}
+  #inside .inside-live.run{color:var(--p-running)}
+  #inside .inside-live.wait{color:var(--p-attention)}
+  #inside .inside-live.fail{color:var(--p-failed)}
+  #inside .inside-live strong{color:var(--p-strong);font-weight:var(--k-weight-semibold);line-height:18px;flex:none}
+  #inside .live-state{display:inline-flex;align-items:center;height:18px;line-height:18px;flex:none}
+  #inside .live-copy{display:inline-flex;align-items:center;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;line-height:18px;column-gap:0}
+  #inside .sep{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-4);
+    margin-inline:var(--k-border-w);padding:0;color:var(--p-muted2);line-height:18px}
+  #inside .inside-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    line-height:18px;white-space:nowrap}
+  #inside .blurb{padding:var(--p-s3) var(--p-s4);color:var(--p-muted);font-size:var(--p-sm)}
+
+  /* Agent identity primitive */
+  #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;
+    color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle}
+  #inside .agent-id .agent-sep{color:var(--p-muted2);line-height:14px}
+  #inside .agent-icon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
+  #inside .agent-icon svg{width:13px;height:13px;display:block;stroke:currentColor;fill:none;
+    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  #inside .agent-core,#inside .agent-model{display:inline-flex;align-items:center;height:14px;line-height:14px;white-space:nowrap}
+  #inside .agent-core{color:var(--p-running)}
+  #inside .agent-model{color:var(--p-muted)}
+  #inside .agent-name{display:inline-flex;align-items:center;height:14px;line-height:14px;color:var(--p-text);white-space:nowrap}
+  #inside .ai-mark{display:inline-flex;align-items:center;justify-content:center;height:18px;
+    border:var(--k-border-w) solid var(--p-edge-run);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
+    color:var(--p-running);font-family:var(--p-mono);font-size:9px;line-height:16px;letter-spacing:.03em;vertical-align:middle}
+  #inside .identity-note{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+
+  /* Token claim */
+  #inside .token-stat{display:inline-flex;align-items:center;gap:3px;border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--k-radius-pill);height:18px;padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+  #inside .token-stat.live{border-color:var(--p-edge-run);color:var(--p-running)}
+  #inside .token-stat .sigma{color:var(--p-muted2)}
+
+  /* Process ledger */
+  #inside .ledger{padding-bottom:var(--p-s2)}
+  #inside .op{border-top:var(--k-border-w) solid var(--p-border)}
+  #inside .op:first-child{border-top:0}
+  #inside .op summary,#inside .op-static{list-style:none;display:grid;
+    grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto 16px;
+    align-items:center;gap:var(--p-s1);min-height:31px;padding:0 var(--p-s1);border-radius:var(--p-r1)}
+  #inside .op summary{cursor:pointer}
+  #inside .op summary::-webkit-details-marker{display:none}
+  #inside .op summary:hover{background:var(--p-hover)}
+  #inside .op[open] summary{background:var(--p-surface2)}
+  #inside .op summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  #inside .op-static{color:var(--p-muted2)}
+  #inside .op.live summary{background:var(--p-tint-run)}
+  #inside .op.failed-source summary{background:var(--p-tint-fail)}
+  #inside .op.waiting-source summary{background:var(--p-tint-wait)}
+
+  /* The glyph: the prototype's own drawn states — never a text character. */
+  #inside .glyph{position:relative;width:16px;height:16px;display:inline-grid;place-items:center;flex:none;
+    border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-circle);color:var(--p-pending);line-height:1}
+  #inside .glyph.pass{color:var(--p-passed)}
+  #inside .glyph.fail{color:var(--p-failed)}
+  #inside .glyph.pending,#inside .glyph.note{color:var(--p-pending)}
+  #inside .glyph.skip{color:var(--p-skip)}
+  #inside .glyph.wait{color:var(--p-attention)}
+  #inside .glyph.run{color:var(--p-running)}
+  #inside .glyph.pass:before{content:"";width:6px;height:3px;border-left:1.5px solid currentColor;
+    border-bottom:1.5px solid currentColor;transform:translateY(-1px) rotate(-45deg)}
+  #inside .glyph.fail:before,#inside .glyph.fail:after{content:"";position:absolute;width:7px;height:1.5px;
+    border-radius:var(--k-border-w);background:currentColor;left:50%;top:50%;transform-origin:center}
+  #inside .glyph.fail:before{transform:translate(-50%,-50%) rotate(45deg)}
+  #inside .glyph.fail:after{transform:translate(-50%,-50%) rotate(-45deg)}
+  #inside .glyph.pending:before,#inside .glyph.note:before{content:"";width:3px;height:3px;
+    border-radius:var(--k-radius-circle);background:currentColor}
+  #inside .glyph.run:before{content:"";width:8px;height:8px;border:1.5px solid currentColor;
+    border-right-color:transparent;border-radius:var(--k-radius-circle);animation:spin var(--k-dur-spin) linear infinite}
+  #inside .glyph.wait:before,#inside .glyph.wait:after{content:"";position:absolute;width:1.5px;height:6px;
+    top:4px;border-radius:var(--k-border-w);background:currentColor}
+  #inside .glyph.wait:before{left:5px}
+  #inside .glyph.wait:after{right:5px}
+  #inside .glyph.skip:before{content:"";width:7px;height:1px;background:currentColor;transform:rotate(-45deg)}
+
+  #inside .op-name{display:flex;align-items:center;gap:var(--p-s2);min-height:18px;line-height:18px;
+    font-size:var(--p-sm);font-weight:var(--k-weight-medium);color:var(--p-text);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .op-detail{min-width:0;min-height:18px;line-height:18px;color:var(--p-muted);font-size:var(--p-sm);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .op-detail.run{color:var(--p-running)}
+  #inside .op-detail.wait{color:var(--p-attention)}
+  #inside .op-detail.fail{color:var(--p-failed)}
+  #inside .op-detail.note,#inside .op-detail.skip{font-style:italic}
+  #inside .op-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);min-width:0;
+    min-height:18px;line-height:18px;white-space:nowrap}
+  #inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:16px}
+  #inside .duration{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
+  #inside .op-state{display:inline-flex;align-items:center;height:18px;color:var(--p-muted);
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;text-transform:lowercase;white-space:nowrap}
+  #inside .op-state.pass{color:var(--p-passed)}
+  #inside .op-state.fail{color:var(--p-failed)}
+  #inside .op-state.run{color:var(--p-running)}
+  #inside .op-state.wait{color:var(--p-attention)}
+  #inside .chev{width:16px;height:16px;display:grid;place-items:center;justify-self:center;align-self:center;color:var(--p-muted2)}
+  #inside .chev:before{content:"";width:5px;height:5px;border-right:var(--k-border-w) solid currentColor;
+    border-bottom:var(--k-border-w) solid currentColor;transform:rotate(-45deg);
     transition:transform var(--k-dur-fast) var(--k-ease-standard)}
-  .inside-process[open] .pchev{transform:rotate(90deg)}
-  .process-evidence{border-top:var(--k-border-w) solid var(--k-border);margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-3) 0}
-  /* The recorded session facts below the expanded process (Task 2): finished
-     host strings, rendered verbatim — compact, mono, never concatenated. */
-  .process-footer{display:flex;flex-wrap:wrap;gap:var(--k-space-2) var(--k-space-5);
-    margin:0 var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border);padding:var(--k-space-3) 0 var(--k-space-4);
-    font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint)}
-  .erow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
-  .erow:hover{background:var(--k-surface-hover)}
-  .erow .eglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
-  .erow.pass .eglyph{color:var(--k-passed)} .erow.fail .eglyph{color:var(--k-failed)}
-  .erow.run .eglyph{color:var(--k-running)} .erow.wait .eglyph{color:var(--k-attention)}
-  /* The timeline's relationship arrow: the same execution continuing through
-     a provider switch or resume. Aligned with the status glyph column above,
-     so the segments read as one spine without becoming a diagram. */
-  .erow .econn{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-sm);color:var(--k-text-dim);flex:none}
-  .erow .elabel{font-size:var(--k-text-sm);color:var(--k-text)}
-  .erow .edetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
-    overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .erow .edur{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);white-space:nowrap}
-  .erow .eact{margin-left:auto;flex:none}
-  /* ── per-kind evidence layouts (B2): one rule per closed kind (UI-R10) ──
-     The kind class rides the evidence block (`pev-<kind>`, emitted by the
-     per-kind renderer in the script), so a kind-specific treatment hangs off
-     one selector. All values are tokens (UI-R04/R05). Every retained rule
-     materially changes its kind's layout or semantics — a dead empty rule is
-     deleted, never kept (Task 5). */
-  /* Findings: the file/finding context is the row's whole point — it WRAPS at
-     every width instead of ellipsising to nothing (a truncated path hides
-     where the fix goes, handoff §10); overflow-wrap:anywhere is what actually
-     breaks an UNBROKEN token (a path with no spaces), which white-space:normal
-     alone cannot do. The blocking severity rides the fail word above. */
-  .pev-findings .edetail{white-space:normal;overflow:visible;overflow-wrap:anywhere}
-  /* Commits: the repository and SHA are selectable copy — explicitly text,
-     even where a container rule could set user-select:none — and the detail
-     wraps (anywhere, so a bare SHA breaks) so a long SHA stays readable. */
-  .pev-commits .edetail{user-select:text;-webkit-user-select:text;white-space:normal;overflow:visible;overflow-wrap:anywhere}
-  /* PRs: repo/PR/merge facts wrap (a long branch name breaks anywhere) and
-     align on the shared grid; a waiting or conflicted PR reads with the
-     attention WORD (the .erow.wait .estatus rule below) — conflict is WAITING,
-     never failure (handoff §5). */
-  .pev-prs .edetail{white-space:normal;overflow:visible;overflow-wrap:anywhere}
-  /* The status word — the visible state, never colour alone (UI-R06). The
-     row's own status class is already on the row, so the word inherits the
-     ramp through the scoped rules below. */
-  .pev .estatus{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  .erow.pass .estatus{color:var(--k-passed)} .erow.fail .estatus{color:var(--k-failed)}
-  .erow.run .estatus{color:var(--k-running)} .erow.wait .estatus{color:var(--k-attention)}
-  .erow.note .estatus,.erow.pending .estatus{color:var(--k-text-dim)}
-  /* The timeline is the PHASE LEDGER (Task 4): one <ol>, each row a node on a
-     continuous subtle spine. The node column shares the evidence glyphs'
-     width so the spine stays centered under the ledger; the node comes from
-     `role`/`connector` — phase check, quiet hollow start, switch branch —
-     never from label prose. Identity rows carry their own provider key and
-     token claim, so the injected core icon and the bordered pill render
-     beside the row they belong to; both absent → neither renders. */
-  .session-timeline{list-style:none;margin:var(--k-space-1) 0 0;padding:0}
-  /* Four columns, one grammar (the prototype's session timeline): node rail |
-     phase name | detail | right tail. The name column is FIXED so every
-     detail starts on one x — a run-on "Understand reported · 10:06" is the
-     thing the column grid exists to prevent. */
-  .timeline-row{position:relative;display:grid;
-    grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(110px,160px) minmax(0,1fr) auto;
-    align-items:center;column-gap:var(--k-space-3);min-height:var(--k-control-h-md);padding:0 var(--k-space-4)}
-  /* The continuous hairline spine in the node column — TWO segments per row
-     (left: 8px padding + 6px ≈ the 14px node column's center), broken around
-     the node's own radius so the line reads as continuous chronology rather
-     than as a bar behind an opaque circle. The first row has nothing above
-     it and the last nothing below, so those halves are dropped. */
-  .timeline-row::before,.timeline-row::after{content:'';position:absolute;left:calc(var(--k-space-4) + var(--k-space-3));width:var(--k-border-w);background:var(--k-border)}
-  .timeline-row::before{top:0;height:calc(50% - var(--k-space-4))}
-  .timeline-row::after{top:calc(50% + var(--k-space-4));bottom:0}
-  .timeline-row:first-child::before,.timeline-row:last-child::after{display:none}
-  .timeline-row .tnode{position:relative;z-index:1;width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
-  /* The right tail: the row's own token claim, its timestamp and any action,
-     right-aligned as one group (the prototype's `timeline-tail`). */
-  .timeline-row .ttail{display:flex;align-items:center;justify-content:flex-end;column-gap:var(--k-space-3);min-width:0;white-space:nowrap}
-  .timeline-row .tlabel{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-sm);color:var(--k-text)}
-  .timeline-row .tdetail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  /* The identity is the row's point — visually stronger than event prose
-     (handoff: "provider/core identity visually stronger") — and carries the
-     injected core mark. */
-  .timeline-row .tident{display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-sm);font-weight:var(--k-weight-medium);color:var(--k-text)}
-  .timeline-row .tident .agenticon{display:inline-block;vertical-align:middle;margin-right:var(--k-space-1)}
-  /* The bordered mono token pill — the row's own claim, never parsed. */
-  .timeline-tok{flex:none;display:inline-block;padding:0 var(--k-space-2);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  .timeline-time{flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  .timeline-row .tact{flex:none}
-  /* The live row and the switch rows carry a band that starts AFTER the rail,
-     so the spine is never painted over (the prototype's 40px gradient stop). */
-  .timeline-row.run{background:linear-gradient(90deg,transparent 0 calc(var(--k-space-4) + var(--k-space-6) + var(--k-space-1) + var(--k-space-3)),var(--k-surface-selected) 0 100%)}
-  .timeline-row.connector-switch,.timeline-row.connector-resume{background:linear-gradient(90deg,transparent 0 calc(var(--k-space-4) + var(--k-space-6) + var(--k-space-1) + var(--k-space-3)),var(--k-surface) 0 100%)}
-  /* Phase nodes: the bordered circle holding the check — green when the row
-     reads passed, faint otherwise (a mark is evidence, not a verdict). The
-     circle's own surface masks the spine passing behind it. */
-  .timeline-row.role-phase .tnode{display:inline-flex;align-items:center;justify-content:center;height:calc(var(--k-space-6) + var(--k-space-1));border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-circle);background:var(--k-bg);color:var(--k-text-faint);align-self:center;line-height:1}
-  .timeline-row.role-phase.pass .tnode{border-color:var(--k-passed);color:var(--k-passed)}
-  /* The quiet hollow node for the session start. */
-  .timeline-row.role-identity:not(.connector-switch):not(.connector-resume) .tnode::before{content:'';display:inline-block;width:var(--k-space-3);height:var(--k-space-3);border:var(--k-border-w) solid var(--k-text-faint);border-radius:var(--k-radius-circle);background:var(--k-bg)}
-  /* The switch/resume branch sits ON the spine, named by its tooltip. */
-  .timeline-row.connector-switch .tnode,.timeline-row.connector-resume .tnode{color:var(--k-text-dim)}
-  /* The receipt is a list, not a status readout: no glyph column, one line
-     per delivered fact (handoff §6 done). */
-  .pev-receipt .erow{flex-wrap:nowrap;gap:var(--k-space-2)}
+  #inside .op[open] .chev:before{transform:rotate(45deg)}
+  #inside .op-body{margin:0 0 var(--p-s2) 28px;border-left:var(--k-border-w) solid var(--p-border);
+    padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
 
-  /* ── the inside block's responsive rules (B7) ─────────────────────────
-     handoff §10: readable at 300/360/430 and normal widths. The status and
-     the name never drop; the identity+token cluster moves to a second line;
-     the factual detail WRAPS instead of ellipsising to nothing; and nothing
-     scrolls horizontally. CONTAINER queries on #inside itself, so they follow
-     the panel's real width — the removed preview's width frame targeted
-     .stepper, a sibling, and never resized this block. The breakpoint px
-     cannot be a token: an @container condition cannot read a custom property
-     (the same documented UI-R04 exemption as the .svpanel 400px rule). */
-  #inside{container-type:inline-size}
+  /* Generic evidence rows */
+  #inside .evidence-row{display:grid;grid-template-columns:minmax(74px,100px) minmax(0,1fr) auto;
+    gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
+  #inside .ev-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .ev-detail{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:var(--p-sm);line-height:18px}
+  #inside .ev-state,#inside .gate-state{min-height:18px;display:inline-flex;align-items:center;
+    justify-content:flex-end;line-height:18px;text-transform:lowercase;white-space:nowrap;
+    font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2)}
+  #inside .ev-state.pass,#inside .gate-state.pass{color:var(--p-passed)}
+  #inside .ev-state.run,#inside .gate-state.run{color:var(--p-running)}
+  #inside .ev-state.wait,#inside .gate-state.wait{color:var(--p-attention)}
+  #inside .ev-state.fail,#inside .gate-state.fail{color:var(--p-failed)}
+  #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
+  #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
 
-  /* ≤430 — two-line row. Line 1 keeps glyph, name, metadata, disclosure; the
-     identity+token cluster takes line 2 as one unit (flex-basis:100% on the
-     wrapper, DOM order unchanged); the detail takes its own line and wraps.
-     Evidence detail wraps too ("allow PR title/branch content to wrap", §10).
-     The timeline re-locks: its spine and time column stay on one line so node
-     and edge alignment survive every width (§10). */
+  /* Gates */
+  #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
+    overflow:hidden;background:var(--p-surface)}
+  #inside .gate-row{display:grid;grid-template-columns:minmax(74px,90px) minmax(84px,110px) minmax(0,1fr) auto;
+    gap:var(--p-s2);align-items:center;min-height:28px;padding:0 var(--p-s2);
+    border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .gate-row:last-child{border-bottom:0}
+  #inside .gate-row.active{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
+  #inside .gate-repo,#inside .gate-name{font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .gate-repo{color:var(--p-text)}
+  #inside .gate-name{color:var(--p-muted)}
+  #inside .gate-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+
+  /* Findings */
+  #inside .findings{display:grid;gap:var(--p-s1)}
+  #inside .finding{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:var(--p-s2);
+    align-items:center;min-height:27px;padding:0 var(--p-s2)}
+  #inside .sev{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-attention)}
+  #inside .finding-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--p-sm);line-height:18px}
+  #inside .finding-loc{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+
+  /* Bounded evidence: the prototype's overflow note carries the control. */
+  #inside .overflow-note{min-height:26px;display:flex;align-items:center;gap:var(--p-s2);padding:0 var(--p-s2);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    border-top:var(--k-border-w) solid var(--p-border)}
+
+  /* Session card: phases belong to the session, not beside it */
+  #inside .session-card{margin:0 0 var(--p-s2);border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--p-r2);background:var(--p-surface);overflow:hidden}
+  #inside .session-head{display:grid;grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto;
+    gap:var(--p-s1);align-items:center;min-height:34px;padding:0 var(--p-s1);background:var(--p-surface)}
+  #inside .session-head.live{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
+  #inside .session-label{display:flex;align-items:center;gap:var(--p-s1);color:var(--p-text);
+    font-size:var(--p-sm);font-weight:var(--k-weight-semibold)}
+  #inside .session-current{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .session-current.run{color:var(--p-running)}
+  #inside .session-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s1);
+    min-width:0;min-height:18px;line-height:18px}
+
+  /* One continuous chronological session timeline */
+  #inside .session-segments{--timeline-left:var(--p-s3);--timeline-col:20px;position:relative;
+    padding:var(--p-s1) 0 var(--p-s2)}
+  #inside .timeline-row{display:grid;
+    grid-template-columns:var(--timeline-col) minmax(110px,160px) minmax(0,1fr) auto;
+    gap:var(--p-s1);align-items:center;min-height:29px;padding:0 var(--p-s2) 0 var(--timeline-left);
+    position:relative;z-index:1}
+  /* ONE source of truth for the timeline x-position: node and edge are both
+     centered at 50% of this same 20px cell. */
+  #inside .timeline-slot{position:relative;align-self:stretch;display:grid;place-items:center;
+    width:var(--timeline-col);min-width:var(--timeline-col);justify-self:stretch;z-index:2}
+  #inside .timeline-slot:before,#inside .timeline-slot:after{content:"";position:absolute;left:50%;
+    width:var(--k-border-w);transform:translateX(-50%);background:var(--p-border);z-index:0;pointer-events:none}
+  #inside .timeline-slot:before{top:0;height:calc(50% - var(--node-radius, 7px))}
+  #inside .timeline-slot:after{top:calc(50% + var(--node-radius, 7px));bottom:0}
+  #inside .timeline-row:first-child .timeline-slot:before,
+  #inside .timeline-row:last-child .timeline-slot:after{display:none}
+  #inside .timeline-start{color:var(--p-muted);--node-radius:4px}
+  #inside .timeline-start-label{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .timeline-node{display:grid;place-items:center;justify-self:center;position:relative;z-index:3;background:var(--p-bg)}
+  #inside .timeline-node.start{width:7px;height:7px;border:var(--k-border-w) solid var(--p-muted2);
+    border-radius:var(--k-radius-circle);background:var(--p-surface2)}
+  #inside .timeline-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s1);
+    min-width:0;white-space:nowrap}
+  #inside .segment-window,#inside .switch-time,#inside .phase-time{color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .phase-row{color:var(--p-muted);--node-radius:7px}
+  #inside .phase-row.current{background:linear-gradient(90deg,transparent 0 40px,var(--p-tint-run) 40px 100%)}
+  #inside .phase-status{width:14px;height:14px;transform:none;background:var(--p-bg);position:relative;z-index:3}
+  #inside .phase-status.glyph.run:before{width:7px;height:7px}
+  #inside .phase-status.glyph.pass:before{width:5px;height:3px}
+  #inside .phase-name{color:var(--p-text);font-size:var(--p-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .phase-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .phase-detail.run{color:var(--p-running)}
+  #inside .phase-detail.fail{color:var(--p-failed)}
+  /* A switch is chronology without a status node: the edge passes straight
+     through the rail cell and a short branch points at the annotation. */
+  #inside .switch-event{--node-radius:0px;color:var(--p-muted2);
+    background:linear-gradient(90deg,transparent 0 40px,var(--p-surface) 40px 100%)}
+  #inside .switch-slot .switch-branch{position:absolute;left:50%;top:50%;width:9px;height:var(--k-border-w);
+    background:var(--p-border);transform:translateY(-50%);z-index:1}
+  #inside .switch-label{display:flex;align-items:center;gap:var(--p-s1);min-width:0;color:var(--p-muted);
+    font-size:var(--p-sm);white-space:nowrap}
+  #inside .switch-arrow{display:inline-flex;align-items:center;justify-content:center;width:14px;height:16px;
+    margin-left:-10px;margin-right:2px;color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-sm);
+    line-height:16px;flex:none}
+  #inside .switch-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .session-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--p-s2);min-height:27px;
+    padding:var(--p-s1) var(--p-s3);border-top:var(--k-border-w) solid var(--p-border);
+    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
+  #inside .session-foot .session-rule{margin-left:auto}
+
+  /* Recovery: a bounded fail → Fix loop, and the round history behind it. */
+  #inside .recovery-pill{display:inline-flex;align-items:center;justify-content:center;height:18px;
+    border:var(--k-border-w) solid var(--p-edge-wait);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
+    color:var(--p-attention);font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+  #inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
+  #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-edge-wait);
+    border-radius:var(--p-r1);overflow:hidden;background:var(--p-tint-wait)}
+  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:var(--p-s2);
+    align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .recovery-round:last-child{border-bottom:0}
+  #inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
+  #inside .recovery-cause{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-text);font-size:var(--p-sm)}
+  #inside .recovery-result{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .recovery-result.run{color:var(--p-running)}
+  #inside .recovery-result.fail{color:var(--p-failed)}
+  #inside .recovery-result.pass{color:var(--p-passed)}
+
+  /* Done: the compact delivery receipt */
+  #inside .done-receipt{padding:0 0 var(--p-s2)}
+  #inside .done-hero{display:flex;align-items:center;gap:var(--p-s2);min-height:38px;margin-bottom:var(--p-s1);
+    padding:0 var(--p-s2);border:var(--k-border-w) solid var(--p-edge-done);border-radius:var(--p-r2);
+    background:var(--p-tint-done)}
+  #inside .done-hero-main{color:var(--p-strong);font-size:var(--p-sm);font-weight:var(--k-weight-semibold)}
+  #inside .done-hero-sub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .done-hero-time{margin-left:auto;color:var(--p-muted2);font-family:var(--p-mono);
+    font-size:var(--p-xs);white-space:nowrap}
+  #inside .done-line{display:grid;grid-template-columns:minmax(88px,120px) minmax(0,1fr) auto;gap:var(--p-s2);
+    align-items:center;min-height:24px;padding:0 var(--p-s2)}
+  #inside .done-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .done-copy{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .done-state{color:var(--p-passed);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+
+  /* The prototype's compact width, expressed as the block's own container
+     query so it follows the panel rather than the window (handoff §10). */
   @container (max-width: 430px){
-    .inside-ledger .process-summary{grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(0,1fr) auto auto;
-      grid-template-areas:"glyph name status chev" "glyph detail status chev" "glyph ident status chev"}
-    .inside-ledger .process-summary .pdetail{white-space:normal;overflow:visible}
-    .inside-ledger .pev .edetail{flex-basis:100%;white-space:normal;overflow:visible}
-    /* The timeline re-locks onto one line at ≤430 (§10: keep node and edge
-       aligned) while the generic evidence detail wraps; its cells shrink with
-       ellipsis instead of scrolling. */
-    .inside-ledger .session-timeline .timeline-row{
-      grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(82px,104px) minmax(0,1fr) auto}
+    #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
+    #inside .inside-head{grid-template-columns:auto minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
+    #inside .inside-meta{grid-column:2}
+    #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto 16px}
+    #inside .duration{display:none}
+    #inside .op-tail .agent-model{display:none}
+    #inside .op-body{margin-left:20px}
+    #inside .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
+    #inside .gate-state{grid-column:3}
+    #inside .evidence-row{grid-template-columns:70px minmax(0,1fr)}
+    #inside .ev-state{grid-column:2}
+    #inside .finding{grid-template-columns:36px minmax(0,1fr)}
+    #inside .finding-loc{grid-column:2}
+    #inside .done-line{grid-template-columns:76px minmax(0,1fr)}
+    #inside .done-state{grid-column:2}
+    #inside .session-head{grid-template-columns:20px minmax(72px,90px) minmax(0,1fr)}
+    #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr);
+      padding-left:var(--timeline-left)}
+    #inside .phase-time,#inside .timeline-tail{display:none}
+    #inside .session-foot{flex-wrap:wrap}
+    #inside .session-foot .session-rule{margin-left:0;width:100%}
+    #inside .recovery-round{grid-template-columns:48px minmax(0,1fr)}
+    #inside .recovery-result{grid-column:2}
+    /* handoff §10: a truncated path hides where the fix goes, so the unbounded
+       cells WRAP here instead of ellipsising — and `overflow-wrap:anywhere`,
+       because `white-space:normal` alone cannot break a long branch or SHA. */
+    #inside .finding-title,#inside .ev-detail,#inside .done-copy,#inside .op-detail{
+      white-space:normal;overflow:visible;overflow-wrap:anywhere}
   }
-
-  /* ≤360 — the status metadata collapses BELOW the process label: the summary
-     grid drops to three columns and re-areas so the meta/status-word/action
-     line sits on its OWN row under the name (handoff §10 — the row reads the
-     name first, then how the process is doing). The disclosure stays the last
-     cell of every row and the action rides the status row's flex-end, so
-     nothing is hidden — only its place moves. */
+  /* ≤360 / ≤300 — the floor: chrome thins, nothing is hidden. The status and
+     the name never drop (handoff §10). */
   @container (max-width: 360px){
-    .inside-ledger{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
-    .inside-ledger .process-summary{grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(0,1fr) auto;
-      grid-template-areas:"glyph name chev" "glyph status chev" "glyph detail chev" "glyph ident chev"}
-    .inside-ledger .pright{flex-wrap:wrap;justify-content:flex-end}
-    .inside-ledger .erow{column-gap:var(--k-space-2)}
-    .inside-ledger .timeline-row{column-gap:var(--k-space-2)}
+    #inside .op summary,#inside .op-static{gap:var(--k-border-w);padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+    #inside .evidence-row,#inside .gate-row{gap:var(--p-s1)}
   }
-
-  /* ≤300 — the floor. Only row chrome thins (padding, evidence margins); the
-     status glyph and the name are never dropped, and the disclosure keeps its
-     marker (handoff §10: "Do not hide the only status or action"). */
   @container (max-width: 300px){
-    .inside-ledger .process-summary{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
-    .inside-ledger .process-evidence{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
-    .inside-ledger .erow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
-    .inside-ledger .timeline-row{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
-    /* The thinner row padding shifts the node column; the spine must follow
-       it or it drifts off the node centers at the floor width. */
-    .inside-ledger .timeline-row::before,.inside-ledger .timeline-row::after{left:calc(var(--k-space-2) + var(--k-space-3))}
+    #inside .inside{margin-left:var(--k-space-1);margin-right:var(--k-space-1)}
+    #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
+    #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+  }
+  @media (prefers-reduced-motion: reduce){
+    #inside .glyph.run:before{animation:none}
+    #inside .chev:before{transition:none}
   }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
-  .inside-head .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
-    font-family:var(--k-font-mono);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .inside-head .alive .spin{width:var(--k-text-xs);height:var(--k-text-xs);flex:none;color:var(--k-running)}
-  .alive .adetail{color:var(--k-text-dim);margin-left:var(--k-space-2)}
-  .alive .adur{color:var(--k-text-dim);margin-left:var(--k-space-2);font-variant-numeric:tabular-nums}
+  #inside .alive{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis}
+  #inside .alive .adetail,#inside .alive .adur{color:var(--p-muted2);margin-left:var(--p-s1);
+    font-family:var(--p-mono);font-size:var(--p-xs)}
+  /*KARST_INSIDE_PROTO_END*/
 
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
@@ -1099,7 +1240,10 @@
   // difference and must never render as something a retry could clear.
   const NEEDS_GLYPH = '❚❚';
   const CONFLICT_GLYPH = '⚠';
-  const OP_GLYPH = { pass: '✓', fail: '✕', run: SPINNER, wait: '⏸', note: 'ℹ', pending: '·', skip: '⊘' };
+  // NOTE: the Inside block does NOT use a glyph character map — the ported
+  // prototype draws each state with CSS on `.glyph` (a ring, a check, a cross,
+  // a spinning arc), which is why its running state no longer renders the
+  // rail's spinner element inside a row of text.
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
   const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
@@ -1382,13 +1526,14 @@
     if (target && typeof target.focus === 'function') target.focus();
   }
 
-  // ── the inside ledger (the inside redesign) ─────────────────────────────
+  // ── the Inside block: the A37 prototype's renderer ──────────────────────
   // The host ships ONE snapshot per stage (`InsideStageView`): ordered process
   // rows, each carrying pre-built status/detail/counts/identity/evidence and
-  // an opaque action id. The webview renders rows and evidence rows
-  // verbatim — it never parses prose, never formats a number, never derives a
-  // verdict. Only the kind→label copy for the closed action vocabulary lives
-  // here, exactly like NOW_TITLE: a presentation hint, not business logic.
+  // an opaque action id. The webview renders rows verbatim — it never parses
+  // prose, never formats a number, never derives a verdict. What changed with
+  // the port is only the GRAMMAR it renders into: the prototype's op ledger
+  // (`.op` summary grid + `.op-body`), its drawn glyphs, its session card and
+  // its per-kind evidence bodies.
 
   // kind → label, from the closed InsideActionKind vocabulary. Static control
   // copy (UI-R20), like NOW_TITLE — the host never ships these strings.
@@ -1421,219 +1566,191 @@
       + `${esc(label)}</button>`;
   }
 
-  // The recorded execution identity. `execution` = what RAN; `configured`
-  // = what settings said WOULD run. One chip, whichever exists; the title
-  // says which claim it is, so a pending process never reads as evidence.
-  // The agent-core mark rides the injected identity API (B1) so the cluster
-  // reads "[core icon] Agent · Codex · sol" per handoff §5. A run that
-  // recorded no identity gets the host's §11 absence copy instead of an
-  // invented identity (`identityNote`, B9).
-  function identityChipHtml(p) {
-    if (p.identityNote) {
-      return `<span class="pchip identity-note" title="${esc(p.identityNote)}">${esc(p.identityNote)}</span>`;
-    }
-    const e = p.execution || p.configuredExecution;
-    if (!e) return '';
-    const core = e.providerLabel || e.provider;
-    const model = e.modelLabel || e.model;
-    if (!core) return '';
-    const label = [e.agentName, core, model && model !== core ? model : ''].filter(Boolean).join(' · ');
-    const tip = p.execution ? 'Executed with this identity' : 'Configured to run — has not executed yet';
-    const icon = agentIconHtml(e.provider);
-    return `<span class="pchip${icon ? ' with-icon' : ''}" title="${esc(tip)}">${icon}${esc(label)}</span>`;
-  }
-
-  function tokensHtml(t) {
-    if (!t) return '';
-    // Absence is a first-class state (decision 8): a provider that reports no
-    // per-session usage renders the handoff §6 wording with the host's title —
-    // NEVER "0 tokens" (that would assert a measurement) and never "undefined".
-    if (t.state === 'unavailable') {
-      return `<span class="ptok" title="${esc(t.title)}">usage unavailable</span>`;
-    }
-    const tip = t.exact ? ` title="${esc(t.exact)}"` : '';
-    return `<span class="ptok"${tip}>${esc(t.total)} tokens</span>`;
-  }
-
-  // ── per-kind evidence renderers (B2) ──────────────────────────────────
-  // The closed ProcessEvidenceView union is dispatched here: one renderer per
-  // kind, each emitting its own literal `pev-<kind>` container so the
-  // kind-specific CSS hangs off one selector (UI-R10). The statuses, labels
-  // and durations all arrive host-shipped; the only webview-local strings are
-  // this closed status→word map and the glyph map above (UI-R31).
+  // The status WORD — the visible state, so status never rides colour alone
+  // (UI-R06). The host ships the key; the word is closed control copy.
   const INSIDE_STATUS_LABEL = {
     pending: 'pending', run: 'running', wait: 'waiting',
     pass: 'passed', fail: 'failed', note: 'note', skip: 'skipped',
   };
-
-  // The status WORD — the visible state, so status never rides colour alone
-  // (UI-R06). The host ships the key; the word is closed control copy.
-  function statusWordHtml(status) {
-    return `<span class="estatus ${esc(status)}">${esc(INSIDE_STATUS_LABEL[status] || status)}</span>`;
+  function statusWord(status) {
+    return INSIDE_STATUS_LABEL[status] || status || '';
   }
 
-  // ONE shared evidence row helper (Task 5): every non-timeline kind renders
-  // through it with an explicit closed layout mode. `plain` = glyph + label +
-  // detail + action, the glyph as the status (generic rows, recovery — no
-  // word); `status` = + the visible status WORD beside the label (gates,
-  // findings, commits, prs — handoff §6's "lint  pass · 4.2s" template), with
-  // the duration riding the word cluster; `receipt` = delivered facts with no
-  // glyph column and no status word (handoff §6 done) — and the ONLY control
-  // that may render there is the host-supplied bounded continuation ("Show N
-  // more", handoff §10), never an executable one.
-  function evidenceRowHtml(r, mode) {
-    const word = mode === 'status' && r.status ? statusWordHtml(r.status) : '';
-    // The receipt is a list, not a status readout: no glyph column.
-    const glyph = mode === 'receipt' ? '' : (r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '');
-    // The relationship marker: this row continues the SAME execution through
-    // a provider switch or a resume. Structural (the host sets `connector`),
-    // never guessed from the label. Static tooltip copy from the closed
-    // vocabulary, like the action titles above. Receipt rows never carry one.
-    const conn = mode === 'receipt'
-      ? ''
-      : (r.connector === 'switch' || r.connector === 'resume'
-        ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
-        : '');
-    const dur = r.duration ? `<span class="edur">${esc(r.duration)}</span>` : '';
-    // In status mode the duration rides the status WORD ("pass · 4.2s",
-    // handoff §6's "lint  pass · 4.2s"); in plain mode it trails the DETAIL
-    // as it always did ("web · pushed · 1.2s") — the shared-row refactor
-    // (Task 5) had briefly emitted it before the detail; the old order is
-    // restored here.
-    const stat = mode === 'status' ? word + dur : '';
-    const detail = r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '';
-    const trail = mode === 'status' ? detail : detail + dur;
-    // A receipt row is a delivered fact: only the passive bounded continuation
-    // is a control there — never resume/restart/ship actions.
-    const act = r.action && (mode !== 'receipt' || r.action.kind === 'open-bounded-evidence')
-      ? insideActionBtnHtml(r.action) : '';
-    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
-      + `<span class="elabel">${esc(r.label)}</span>`
-      + stat
-      + trail
-      + (act ? `<span class="eact">${act}</span>` : '')
-      + `</div>`;
+  // ── the prototype's shared primitives ──────────────────────────────────
+  // The identity run: [agent name ·] core mark + core · model. Every part is
+  // host-shipped (`AgentExecutionView`); the mark comes from the injected
+  // line-icon renderer, so a provider with no mark degrades to text alone.
+  function agentIdHtml(x) {
+    if (!x) return '';
+    const name = x.agentName
+      ? `<span class="agent-name">${esc(x.agentName)}</span><span class="agent-sep">·</span>` : '';
+    const icon = x.provider ? agentLineIconHtml(x.provider) : '';
+    const core = x.providerLabel ? `<span class="agent-core">${esc(x.providerLabel)}</span>` : '';
+    const model = x.modelLabel
+      ? `<span class="agent-sep">·</span><span class="agent-model">${esc(x.modelLabel)}</span>` : '';
+    return `<span class="agent-id">${name}${icon}${core}${model}</span>`;
   }
 
-  // The timeline is the PHASE LEDGER (Task 4): one <ol>, each row a node on a
-  // continuous spine. The node comes from `role` and `connector` — closed
-  // structural fields — NEVER from parsing the label (phase names are prose).
-  // Identity rows carry their own provider key and token claim, so the
-  // injected core icon and the bordered pill render beside the row they
-  // belong to; both absent → neither renders.
-  function timelineRowHtml(r) {
-    const role = r.role || 'event';
-    const conn = r.connector === 'switch' || r.connector === 'resume';
-    const connTitle = conn
-      ? ` title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}"`
-      : '';
-    const node = conn ? '↳'
-      : r.role === 'phase' ? '✓'
-      : r.role === 'identity' ? ''
-      : (OP_GLYPH[r.status] || '·');
-    const icon = r.role === 'identity' && r.provider ? agentIconHtml(r.provider) : '';
-    const tok = r.role === 'identity' && r.tokens ? timelineTokHtml(r.tokens) : '';
-    const detail = r.detail
-      ? `<span class="${r.role === 'identity' ? 'tident' : 'tdetail'}">${icon}${esc(r.detail)}</span>`
-      : '';
-    const act = r.action ? insideActionBtnHtml(r.action) : '';
-    return `<li class="timeline-row role-${esc(role)}${r.status ? ` ${esc(r.status)}` : ''}${conn ? ` connector-${esc(r.connector)}` : ''}">`
-      + `<span class="tnode" aria-hidden="true"${connTitle}>${node}</span>`
-      + `<span class="tlabel">${esc(r.label)}</span>`
-      + (detail || '<span class="tdetail"></span>')
-      + `<span class="ttail">${tok}`
-      + (r.duration ? `<span class="timeline-time">${esc(r.duration)}</span>` : '')
-      + (act ? `<span class="tact">${act}</span>` : '')
-      + `</span></li>`;
+  // The identity a row is entitled to show, in the §11 order: what RAN, else
+  // what settings SAY will run, else the host's absence copy. Never invented.
+  function identityHtml(p) {
+    if (p.execution) return agentIdHtml(p.execution);
+    if (p.configuredExecution) return agentIdHtml(p.configuredExecution);
+    if (p.identityNote) return `<span class="identity-note">${esc(p.identityNote)}</span>`;
+    return '';
   }
 
-  // The timeline's token pill — same absence handling as the process chip
-  // (decision 8: never "0 tokens"), bordered mono pill (Task 4).
-  function timelineTokHtml(t) {
+  // The token claim as the prototype's Σ pill. `unavailable` is NOT zero: it
+  // renders as a titled absence marker, never "0 tokens" (decision 8).
+  function tokenStatHtml(t, live) {
+    if (!t) return '';
     if (t.state === 'unavailable') {
-      return `<span class="timeline-tok" title="${esc(t.title)}">usage unavailable</span>`;
+      return `<span class="token-stat" title="${esc(t.title)}">usage unavailable</span>`;
     }
     const tip = t.exact ? ` title="${esc(t.exact)}"` : '';
-    return `<span class="timeline-tok"${tip}>${esc(t.total)} tokens</span>`;
+    return `<span class="token-stat${live ? ' live' : ''}"${tip}><span class="sigma">Σ</span>${esc(t.total)} tok</span>`;
+  }
+
+  // ── per-kind evidence bodies ───────────────────────────────────────────
+  // The closed ProcessEvidenceView union is dispatched here, one body per
+  // kind, each in the prototype's own container so the kind-specific CSS
+  // hangs off one selector.
+  function evStateHtml(r, cls) {
+    if (!r.status) return `<span class="${cls}"></span>`;
+    const dur = r.duration ? ` · ${r.duration}` : '';
+    return `<span class="${cls} ${esc(r.status)}">${esc(statusWord(r.status))}${esc(dur)}</span>`;
+  }
+  function evActionHtml(r) {
+    return r.action ? `<span class="ev-tail">${insideActionBtnHtml(r.action)}</span>` : '';
   }
 
   function evidenceRowsHtml(ev) {
-    return `<div class="pev pev-rows">${ev.rows.map((r) => evidenceRowHtml(r, 'plain')).join('')}</div>`;
+    return ev.rows.map((r) => `<div class="evidence-row">`
+      + `<span class="ev-key">${esc(r.label)}</span>`
+      + `<span class="ev-detail">${esc(r.detail || '')}</span>`
+      + (r.action ? evActionHtml(r) : evStateHtml(r, 'ev-state'))
+      + `</div>`).join('');
   }
   function evidenceGatesHtml(ev) {
-    return `<div class="pev pev-gates">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
+    return `<div class="gates">${ev.rows.map((r) => `<div class="gate-row${r.status === 'run' ? ' active' : ''}">`
+      + `<span class="gate-name">${esc(r.label)}</span>`
+      + `<span class="gate-detail">${esc(r.detail || '')}</span>`
+      + evStateHtml(r, 'gate-state')
+      + `</div>`).join('')}</div>`;
   }
   function evidenceFindingsHtml(ev) {
-    return `<div class="pev pev-findings">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
-  }
-  function evidenceTimelineHtml(ev) {
-    return `<div class="pev pev-timeline"><ol class="session-timeline">${ev.rows.map(timelineRowHtml).join('')}</ol></div>`;
-  }
-  function evidenceCommitsHtml(ev) {
-    return `<div class="pev pev-commits">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
-  }
-  function evidencePrsHtml(ev) {
-    return `<div class="pev pev-prs">${ev.rows.map((r) => evidenceRowHtml(r, 'status')).join('')}</div>`;
-  }
-  function evidenceRecoveryHtml(ev) {
-    return `<div class="pev pev-recovery">${ev.rows.map((r) => evidenceRowHtml(r, 'plain')).join('')}</div>`;
+    return `<div class="findings">${ev.rows.map((r) => `<div class="finding">`
+      + `<span class="sev">${esc(r.label)}</span>`
+      + `<span class="finding-title">${esc(r.detail || '')}</span>`
+      + (r.action ? evActionHtml(r) : `<span class="finding-loc">${esc(r.duration || '')}</span>`)
+      + `</div>`).join('')}</div>`;
   }
   function evidenceReceiptHtml(ev) {
-    return `<div class="pev pev-receipt">${ev.rows.map((r) => evidenceRowHtml(r, 'receipt')).join('')}</div>`;
+    return ev.rows.map((r) => `<div class="done-line">`
+      + `<span class="done-key">${esc(r.label)}</span>`
+      + `<span class="done-copy">${esc(r.detail || '')}</span>`
+      + (r.action ? evActionHtml(r) : `<span class="done-state">${esc(r.duration || statusWord(r.status))}</span>`)
+      + `</div>`).join('');
+  }
+  function evidenceRecoveryHtml(ev) {
+    return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
+      + `<span class="recovery-num">${esc(r.label)}</span>`
+      + `<span class="recovery-cause">${esc(r.detail || '')}</span>`
+      + `<span class="recovery-result ${esc(r.status || '')}">${esc(r.duration || statusWord(r.status))}</span>`
+      + `</div>`).join('')}</div>`;
   }
 
-  // Kind → renderer. An unknown kind (a future host, an older snapshot) falls
-  // back to the generic rows renderer — forward compatibility, never a throw.
+  // The session timeline: ONE continuous rail, three row shapes. The shape
+  // comes from `role`/`connector` — closed structural fields — NEVER from
+  // parsing the label, which is prose.
+  function timelineRowHtml(r) {
+    const tail = `<span class="timeline-tail">${tokenStatHtml(r.tokens, r.status === 'run')}`
+      + (r.duration ? `<span class="segment-window">${esc(r.duration)}</span>` : '')
+      + (r.action ? insideActionBtnHtml(r.action) : '')
+      + `</span>`;
+    const identity = r.provider || r.detail
+      ? `<span class="agent-id">${r.provider ? agentLineIconHtml(r.provider) : ''}`
+        + `<span class="agent-core">${esc(r.detail || '')}</span></span>`
+      : '<span></span>';
+    if (r.connector === 'switch' || r.connector === 'resume') {
+      const word = r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here';
+      return `<div class="timeline-row switch-event">`
+        + `<span class="timeline-slot switch-slot" aria-hidden="true"><span class="switch-branch"></span></span>`
+        + `<span class="switch-label" title="${word}"><span class="switch-arrow" aria-hidden="true">↳</span>`
+        + `<span>${esc(r.label)}</span></span>`
+        + `<span class="switch-value">${identity}</span>${tail}</div>`;
+    }
+    if (r.role === 'identity') {
+      return `<div class="timeline-row timeline-start">`
+        + `<span class="timeline-slot"><span class="timeline-node start" aria-hidden="true"></span></span>`
+        + `<span class="timeline-start-label">${esc(r.label)}</span>`
+        + `<span class="switch-value">${identity}</span>${tail}</div>`;
+    }
+    const status = r.status || 'pending';
+    return `<div class="timeline-row phase-row${status === 'run' ? ' current' : ''}">`
+      + `<span class="timeline-slot phase-rail"><span class="glyph phase-status ${esc(status)}"`
+      + ` aria-label="${esc(statusWord(status))}"></span></span>`
+      + `<span class="phase-name">${esc(r.label)}</span>`
+      + `<span class="phase-detail ${esc(status)}">${esc(r.detail || '')}</span>`
+      + `<span class="phase-time">${esc(r.duration || '')}</span></div>`;
+  }
+  function evidenceTimelineHtml(ev) {
+    return `<div class="session-segments">${ev.rows.map(timelineRowHtml).join('')}</div>`;
+  }
+
+  // Kind → body. An unknown kind (a future host, an older snapshot) falls back
+  // to the generic rows body — forward compatibility, never a throw.
   const EVIDENCE_RENDERERS = {
     rows: evidenceRowsHtml,
     gates: evidenceGatesHtml,
     findings: evidenceFindingsHtml,
     timeline: evidenceTimelineHtml,
-    commits: evidenceCommitsHtml,
-    prs: evidencePrsHtml,
+    commits: evidenceRowsHtml,
+    prs: evidenceRowsHtml,
     recovery: evidenceRecoveryHtml,
     receipt: evidenceReceiptHtml,
   };
-
-  function evidenceBlockHtml(ev) {
-    const render = EVIDENCE_RENDERERS[ev.kind] || evidenceRowsHtml;
-    return render(ev);
+  function evidenceBodyHtml(ev) {
+    return (EVIDENCE_RENDERERS[ev.kind] || evidenceRowsHtml)(ev);
   }
 
+  // ── the process row ────────────────────────────────────────────────────
+  // A process with evidence (or footer facts) is a native <details>: keyboard
+  // operability comes from the element, never a handler (UI-R09). One with
+  // nothing behind it is the prototype's `.op-static` — a row that states its
+  // fact and offers no disclosure it cannot honour.
   function processRowHtml(p, key, open) {
-    const glyph = OP_GLYPH[p.status] || '·';
-    // The aggregate ("4 passed · 1 failed", "2 blocking") is host-computed
-    // (B4): the webview renders the shipped string and concatenates nothing.
-    const meta = [p.aggregate, p.count, p.duration].filter(Boolean)
-      .map((m) => `<span class="pmeta">${esc(m)}</span>`).join('');
-    const act = p.action ? insideActionBtnHtml(p.action) : '';
-    const hasEv = p.evidence && p.evidence.rows.length;
-    // Identity + tokens are ONE cluster (B7): at narrow widths the container
-    // query moves the pair to a second line together, instead of each
-    // wrapping independently and staggering the row.
-    const chip = identityChipHtml(p);
-    const tok = tokensHtml(p.tokens);
-    const ident = chip || tok ? `<span class="pident">${chip}${tok}</span>` : '';
-    // The visible status WORD (UI-R06): the host-shipped `statusLabel`
-    // ("Completed", "Running") when present — rendered verbatim, never
-    // re-derived from the glyph — else the closed status→word map.
-    const status = `<span class="pstatus ${esc(p.status)}">${esc(p.statusLabel || INSIDE_STATUS_LABEL[p.status] || p.status)}</span>`;
-    // A real <details>/<summary> (B3, decision 7): keyboard operability from
-    // the element, never a handler (UI-R09). The composite `${key}`
-    // (stage:process, Task 0.1) rides data-proc-id; the `toggle` listener
-    // persists the open set keyed by exactly that. Grid order: marker →
-    // label → detail → identity/tokens → status/action → chevron (§3).
-    const marker = hasEv ? '<span class="pchev" aria-hidden="true">›</span>' : '';
-    const ev = hasEv && open ? `<div class="process-evidence">${evidenceBlockHtml(p.evidence)}</div>` : '';
-    // Host-formatted footer facts (Task 2) ride the expanded disclosure.
-    const footer = open && p.footer && p.footer.length
-      ? `<footer class="process-footer">${p.footer.map((f) => `<span>${esc(f)}</span>`).join('')}</footer>`
+    const ai = p.execution || p.configuredExecution ? '<span class="ai-mark">AI</span>' : '';
+    const state = `<span class="op-state ${esc(p.status)}">`
+      + `${esc(p.statusLabel || statusWord(p.status))}</span>`;
+    const tail = `<span class="op-tail">${identityHtml(p)}`
+      + tokenStatHtml(p.tokens, p.status === 'run')
+      + (p.aggregate ? `<span class="count">${esc(p.aggregate)}</span>` : '')
+      + (p.count ? `<span class="count">${esc(p.count)}</span>` : '')
+      + state
+      + (p.duration ? `<span class="duration">${esc(p.duration)}</span>` : '')
+      + (p.action ? insideActionBtnHtml(p.action) : '')
+      + `</span>`;
+    const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
+    const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(statusWord(p.status))}"></span>`;
+    const detail = `<span class="op-detail ${esc(p.status)}">${esc(p.detail || '')}</span>`;
+    const hasEv = !!(p.evidence && p.evidence.rows && p.evidence.rows.length);
+    const hasFooter = !!(p.footer && p.footer.length);
+    if (!hasEv && !hasFooter) {
+      return `<div class="op"><div class="op-static" data-proc-id="${esc(key)}">`
+        + `${glyph}${name}${detail}${tail}<span></span></div></div>`;
+    }
+    const footer = hasFooter
+      ? `<div class="session-foot">${p.footer.map((f, i) => `<span${i === p.footer.length - 1 ? ' class="session-rule"' : ''}>${esc(f)}</span>`).join('')}</div>`
       : '';
-    return `<details class="inside-process ${esc(p.status)}" data-proc-id="${esc(key)}"${hasEv && open ? ' open' : ''}>`
-      + `<summary class="process-summary"><span class="pglyph">${glyph}</span>`
-      + `<span class="pname">${esc(p.label)}</span>`
-      + `<span class="pdetail">${esc(p.detail || '')}</span>${ident}`
-      + `<span class="pright">${meta}${status}${act}</span>${marker}</summary>${ev}${footer}</details>`;
+    const body = open
+      ? `<div class="op-body">${hasEv ? evidenceBodyHtml(p.evidence) : ''}${footer}</div>`
+      : '';
+    const cls = `op ${esc(p.status)}${p.status === 'run' ? ' live' : ''}`
+      + `${p.status === 'fail' ? ' failed-source' : p.status === 'wait' ? ' waiting-source' : ''}`;
+    return `<details class="${cls}" data-proc-id="${esc(key)}"${open ? ' open' : ''}>`
+      + `<summary>${glyph}${name}${detail}${tail}<span class="chev" aria-hidden="true"></span></summary>`
+      + `${body}</details>`;
   }
 
   // Live overlays, in order of precedence: a `completed` process row replaces
@@ -1652,21 +1769,19 @@
     return view.processes.map((p) => (p.id === id ? { ...p, ...live.completed, evidence: live.completed.evidence ?? p.evidence } : p));
   }
 
-  // Which process kinds render OPEN on the FIRST render (Task 3, Step 5): the
-  // completed session's timeline is the approval screenshot's starting state —
-  // no click needed. Only the ticket's own session kind earns this;
-  // gates/findings/PRs/receipts stay closed until asked for.
+  // Which process kinds render OPEN on the FIRST render: the session's own
+  // timeline is the approval screenshot's starting state — no click needed.
+  // Gates/findings/PRs/receipts stay closed until asked for.
   const DEFAULT_OPEN_PROCESS_KINDS = new Set(['session']);
 
   // A disclosure's open state for this render: the user's persisted sets win
   // once touched (`openProcesses` = opened, `closedProcesses` = collapsed — a
-  // key in neither was never touched), else the default-open kinds above. The
-  // close is tracked separately because absence from openProcesses is also
-  // "never opened", and a collapsed default-open row must stay collapsed.
+  // key in neither was never touched), else the default-open kinds above.
   function processOpen(p, key) {
     if (openProcesses.has(key)) return true;
     if (closedProcesses.has(key)) return false;
-    return !!(p.evidence && p.evidence.rows.length) && DEFAULT_OPEN_PROCESS_KINDS.has(p.kind);
+    const hasBody = !!((p.evidence && p.evidence.rows && p.evidence.rows.length) || (p.footer && p.footer.length));
+    return hasBody && DEFAULT_OPEN_PROCESS_KINDS.has(p.kind);
   }
 
   function renderInside(state, sel) {
@@ -1684,35 +1799,31 @@
         + ` title="Return the strip to the stage the ticket is actually on">Back to ${esc(back)}</button></span></div>`
       : '';
 
-    // A live operation is run/wait/fail only (progress.ts) — never a verdict.
-    // The spinner means RUNNING; a wait or a fail gets its own glyph, or the
-    // header claims progress that is not happening.
+    // The header IS the current operation — never a second live row. A live op
+    // is run/wait/fail only (progress.ts), never a verdict.
     const live = liveOps[view.stageKey];
     const lstatus = live && live.active ? (live.active.status || 'run') : '';
-    const lglyph = lstatus === 'run'
-      ? '<span class="spin" aria-hidden="true"></span>'
-      : `<span class="eglyph" aria-hidden="true">${OP_GLYPH[lstatus] || '·'}</span>`;
     const alive = live && live.active
-      ? `<span class="alive ${esc(lstatus)}">${lglyph}${esc(live.active.label || 'Running')}`
-        + (live.active.detail ? `<span class="adetail">${esc(live.active.detail)}</span>` : '')
-        + (live.active.duration ? `<span class="adur">${esc(live.active.duration)}</span>` : '')
-        + `</span>`
+      ? `<span class="glyph ${esc(lstatus)}" aria-label="${esc(statusWord(lstatus))}"></span>`
+        + `<span class="live-state">${esc(statusWord(lstatus))}</span><span class="sep">·</span>`
+        + `<strong>${esc(live.active.label || '')}</strong>`
+        + (live.active.detail ? `<span class="sep">·</span><span class="live-copy">${esc(live.active.detail)}</span>` : '')
+        + (live.active.duration ? `<span class="sep">·</span><span class="duration">${esc(live.active.duration)}</span>` : '')
       : '';
 
     const procs = overlayProcesses(view);
     const body = procs.length
-      ? procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`))).join('')
+      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`))).join('')}</div>`
       : `<div class="blurb">${esc(view.blurb)}</div>`;
 
-    // The approved ledger shell (Task 3): one <section> with the handoff's
-    // compact stage-key header ("Inside impl"), full title as tooltip; viewing
-    // bar above the header, live operation inside it, processes as children.
-    el('inside').innerHTML = `<section class="inside-ledger${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
-      + `<header class="inside-head"${view.title ? ` title="${esc(view.title)}"` : ''}>`
-      + `<strong id="inside-title">Inside ${esc(view.stageKey)}</strong>${alive}`
-      + `<span class="inside-clock">${esc(view.clock)}</span></header>${body}</section>`;
+    // The prototype's block: viewing bar, then the three-cell header (stage
+    // title · live operation · meta), then the ledger.
+    el('inside').innerHTML = `<section class="inside${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
+      + `<div class="inside-head"${view.title ? ` title="${esc(view.title)}"` : ''}>`
+      + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
+      + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
+      + `<span class="inside-meta">${esc(view.clock)}</span></div>${body}</section>`;
   }
-
   // The fault card: the reason a red node is red, the log behind it, and when it
   // ran. Shown only for a failed stage — everything else stays quiet.
   function renderFault(stepper) {

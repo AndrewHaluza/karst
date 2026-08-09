@@ -194,6 +194,13 @@ function scopeView(n: RenderRepoCount): InsideStageView {
         status: 'pending',
         count: String(n),
         detail: `${n} services to validate against the manifest`,
+        // The hot set's evidence is WHICH services it names — the reducer
+        // ships one row per selected repository, so the fixture does too or
+        // the matrix renders a row the production view no longer has.
+        evidence: {
+          kind: 'rows',
+          rows: repoNames(n).map((r): EvidenceRow => ({ status: 'pending', label: r, detail: 'to validate' })),
+        },
       },
       {
         id: 'worktrees',

@@ -75,6 +75,19 @@ export function scopeProcesses(
         ? `1 service ${ran ? 'validated' : 'to validate'} against the manifest`
         : `${count} services ${ran ? 'validated' : 'to validate'} against the manifest`,
     ...(cell.startedAt ? { duration: formatDuration(cell.startedAt, cell.endedAt ?? now) } : {}),
+    // The hot set's evidence is WHICH services it names. Without it the row
+    // stated a count and offered no way to read the list behind it — the one
+    // process on the stage whose whole content is an enumeration.
+    evidence: {
+      kind: 'rows',
+      rows: selectedRepos.map(
+        (repo): EvidenceRow => ({
+          status: ran ? 'pass' : 'pending',
+          label: repo,
+          detail: ran ? 'selected' : 'to validate',
+        }),
+      ),
+    },
   };
 
   const boundedRows = bounded(

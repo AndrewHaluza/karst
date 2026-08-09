@@ -876,8 +876,18 @@ describe('dashboard webview.html', () => {
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px'];
+    // The ported Inside block is the ONE exempt region (see its own header
+    // comment): it is the A37 prototype's geometry, scoped under `#inside`,
+    // and its pixel values ARE the design. Its colours still go through
+    // `--k-*` tokens, which is the part UI-R04 exists to protect; the
+    // exemption is delimited by markers so it cannot silently widen.
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
-    const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
+    const protoStart = style.indexOf('/*KARST_INSIDE_PROTO_START*/');
+    const protoEnd = style.indexOf('/*KARST_INSIDE_PROTO_END*/');
+    expect(protoStart, 'the Inside prototype block lost its start marker').toBeGreaterThan(-1);
+    expect(protoEnd, 'the Inside prototype block lost its end marker').toBeGreaterThan(protoStart);
+    const outsideProto = style.slice(0, protoStart) + style.slice(protoEnd);
+    const withoutComments = outsideProto.replace(/\/\*[\s\S]*?\*\//g, '');
     const found = [...withoutComments.matchAll(/[0-9]+(\.[0-9]+)?px/g)].map((m) => m[0]);
     const remaining = [...found];
     for (const allowed of ALLOWED) {
@@ -1106,27 +1116,30 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/data-act="stop-driver"/);
   });
 
-  it('renders a glyph for every OpStatus the host can produce', () => {
-    const map = /const OP_GLYPH = \{([^}]*)\}/.exec(HTML)?.[1] ?? '';
+  it('draws a glyph for every OpStatus the host can produce', () => {
+    // The ported prototype draws each state on `.glyph` with CSS — a ring
+    // plus a check, a cross, a dot, a spinning arc, two bars, a slash — so a
+    // status is a SHAPE, not a character that has to survive a font. Every
+    // status the host can ship must have a rule, or it renders as a bare ring
+    // indistinguishable from another state.
     for (const status of ['pass', 'fail', 'run', 'wait', 'pending', 'note', 'skip']) {
-      expect(map, `OP_GLYPH is missing ${status}`).toContain(`${status}:`);
+      expect(HTML, `.glyph has no ${status} rule`).toMatch(
+        new RegExp(`#inside \\.glyph\\.${status}[,{]`),
+      );
     }
   });
 
-  it('gives note a glyph distinct from every other status and the connector (B8)', () => {
-    // N5: `note` used to BE '↳', the same glyph the timeline's causal
-    // connector renders for a switch/resume — in a timeline or recovery block
-    // an informational row and a relationship marker were indistinguishable.
-    // Two meanings must never share one glyph.
-    const map = /const OP_GLYPH = \{([^}]*)\}/.exec(HTML)?.[1] ?? '';
-    const values = [...map.matchAll(/: '([^']+)'/g)].map((m) => m[1]);
-    expect(values, 'two statuses share one glyph').toHaveLength(new Set(values).size);
-    // The info-source mark is not used anywhere else in this webview, and its
-    // meaning — "karst states a fact" — is the note status's own.
-    expect(map).toContain("note: 'ℹ'");
-    expect(values, 'note still collides with the causal connector').not.toContain('↳');
-    // The connector keeps its glyph; only note moved.
-    expect(HTML).toMatch(/econn"[^>]*>↳<\/span>/);
+  it('keeps the causal connector out of the status vocabulary (B8)', () => {
+    // N5: `note` used to BE '↳', the same mark the timeline's causal
+    // connector renders for a switch/resume — an informational row and a
+    // relationship marker were indistinguishable. With the port they cannot
+    // collide by construction: a status is a DRAWN glyph shape and the
+    // connector is the switch row's own branch arrow, which appears in
+    // exactly one template.
+    expect(HTML).toMatch(/class="switch-arrow" aria-hidden="true">↳/);
+    expect(HTML).not.toMatch(/const OP_GLYPH/);
+    // `note` still draws its own shape, distinct from pending's placement.
+    expect(HTML).toMatch(/#inside \.glyph\.pending,#inside \.glyph\.note\{/);
   });
 
   it('renders a Gates panel with a per-gate toggle button', () => {
@@ -1169,7 +1182,7 @@ describe('dashboard webview.html', () => {
     // reads `state.insideViews[sel]`.
     expect(HTML).toMatch(/state\.insideViews/);
     expect(HTML).toMatch(/function processRowHtml/);
-    expect(HTML).toMatch(/class="inside-process \$\{esc\(p\.status\)\}"/);
+    expect(HTML).toMatch(/const cls = `op \$\{esc\(p\.status\)\}/);
     expect(HTML).toMatch(/function renderInside\(state, sel\)[\s\S]*state\.insideViews/);
     expect(HTML).not.toMatch(/function renderInsideFlat/);
     expect(HTML).not.toMatch(/shipping && sel === 'ship'/);
@@ -1197,7 +1210,7 @@ describe('dashboard webview.html', () => {
     // Status glyph, label, detail, counts, tokens and the action id all come
     // pre-built; the webview only maps the closed status vocabulary to glyphs
     // and the closed action vocabulary to static button copy.
-    expect(HTML).toMatch(/OP_GLYPH\[p\.status\]/);
+    expect(HTML).toMatch(/class="glyph \$\{esc\(p\.status\)\}"/);
     expect(HTML).toMatch(/INSIDE_ACTION_LABEL\[a\.kind\]/);
     expect(HTML).toMatch(/p\.execution \|\| p\.configuredExecution/);
     expect(HTML).not.toMatch(/p\.status = /);
@@ -1207,9 +1220,12 @@ describe('dashboard webview.html', () => {
     // `execution` (what ran) and `configuredExecution` (what settings said
     // would run) are two different claims; one chip renders whichever exists,
     // and the title says which claim it is.
-    expect(HTML).toMatch(/const e = p\.execution \|\| p\.configuredExecution;/);
-    expect(HTML).toContain("'Executed with this identity'");
-    expect(HTML).toContain('Configured to run — has not executed yet');
+    // `execution` wins; `configuredExecution` is the fallback; the host's
+    // absence copy is the last resort. One branch, in that order — never two
+    // identity runs on one row.
+    expect(HTML).toMatch(/if \(p\.execution\) return agentIdHtml\(p\.execution\);/);
+    expect(HTML).toMatch(/if \(p\.configuredExecution\) return agentIdHtml\(p\.configuredExecution\);/);
+    expect(HTML).toMatch(/if \(p\.identityNote\)/);
   });
 
   it('discloses process evidence with a native details/summary (B3)', () => {
@@ -1217,8 +1233,8 @@ describe('dashboard webview.html', () => {
     // <details>/<summary>, not from a click handler. The open state rides the
     // row's OWN data-proc-id (the composite `${stageKey}:${p.id}` the renderer
     // looks up, Task 0.1), persisted through the native `toggle` listener.
-    expect(HTML).toMatch(/<details class="inside-process \$\{esc\(p\.status\)\}" data-proc-id="\$\{esc\(key\)\}"/);
-    expect(HTML).toMatch(/<summary class="process-summary">/);
+    expect(HTML).toMatch(/<details class="\$\{cls\}" data-proc-id="\$\{esc\(key\)\}"/);
+    expect(HTML).toMatch(/<summary>\$\{glyph\}\$\{name\}\$\{detail\}\$\{tail\}<span class="chev"/);
     expect(HTML).toMatch(/openProcesses = next;/);
     expect(HTML).not.toMatch(/data-chev/);
     expect(HTML).not.toMatch(/aria-expanded/);
@@ -1281,55 +1297,34 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/liveOps: /);
   });
 
-  it('keys the evidence block by its closed kind for specialized CSS', () => {
-    // B2 replaced the single generic renderer with one per kind: each renderer
-    // emits its OWN literal `pev-<kind>` container (UI-R10), dispatched from a
-    // closed map so an unknown kind falls back to the generic renderer. Every
-    // per-kind CSS rule must materially affect layout or semantics — an empty
-    // `.pev-<kind> .erow{}` selector is dead (Task 5) and deleted, not kept.
+  it('gives every closed evidence kind a renderer, dispatched by kind', () => {
+    // The ported prototype has ONE body per kind — the gates table, the
+    // findings list, the session timeline, the receipt lines, the recovery
+    // history, and the generic evidence rows the remaining kinds share. The
+    // map is closed and an unknown kind falls back to the generic body, so a
+    // newer host can never reach an unhandled branch.
     expect(HTML).toContain('const EVIDENCE_RENDERERS');
     for (const kind of EVIDENCE_KINDS) {
-      const fn = `evidence${kind.charAt(0).toUpperCase()}${kind.slice(1)}Html`;
-      expect(HTML, `missing renderer for ${kind}`).toContain(`function ${fn}`);
-      expect(HTML, `renderer for ${kind} emits no pev class`).toMatch(
-        new RegExp(`function ${fn}[\\s\\S]*?class="pev pev-${kind}"`),
+      expect(HTML, `no renderer entry for ${kind}`).toMatch(
+        new RegExp(`const EVIDENCE_RENDERERS = \\{[\\s\\S]*?\\n\\s*${kind}: evidence`),
       );
     }
-    expect(HTML, 'an empty per-kind .erow rule survived').not.toMatch(/\.pev-[a-z]+ \.erow\{\s*\}/);
-  });
-
-  it('renders every non-timeline evidence row through one shared helper with a closed mode (Task 5)', () => {
-    // Step 3: the four near-duplicate row renderers collapse into ONE helper —
-    // the kind renderers call it with an explicit layout mode, so a future kind
-    // change lands in one place. The timeline keeps its own row renderer (a
-    // different DOM: <li> nodes on a spine).
-    expect(HTML).toMatch(/function evidenceRowHtml\(r, mode\)/);
-    for (const mode of ['plain', 'status', 'receipt']) {
-      expect(HTML, `no ${mode} mode call`).toMatch(new RegExp(`evidenceRowHtml\\(r, '${mode}'\\)`));
+    for (const fn of ['evidenceRowsHtml', 'evidenceGatesHtml', 'evidenceFindingsHtml',
+      'evidenceTimelineHtml', 'evidenceRecoveryHtml', 'evidenceReceiptHtml']) {
+      expect(HTML, `missing ${fn}`).toContain(`function ${fn}`);
     }
   });
 
-  it('gives findings, commits and PRs their prototype wrap/selectability variants (Task 5)', () => {
-    // Findings and PR facts WRAP at every width instead of ellipsising — a
-    // truncated path hides where the fix goes (handoff §10: "Allow PR
-    // title/branch content to wrap"). Commits additionally make the repo/SHA
-    // selectable copy even where a container rule could set user-select:none.
-    expect(HTML).toMatch(/\.pev-findings \.edetail\{[^}]*white-space:normal[^}]*overflow:visible/);
-    expect(HTML).toMatch(/\.pev-commits \.edetail\{[^}]*user-select:text/);
-    expect(HTML).toMatch(/\.pev-commits \.edetail\{[^}]*white-space:normal/);
-    expect(HTML).toMatch(/\.pev-prs \.edetail\{[^}]*white-space:normal[^}]*overflow:visible/);
-    // The waiting/conflict attention WORD — wait rows read with the attention
-    // color, never the fail ramp (handoff §5: "Conflict is waiting, not failure").
-    expect(HTML).toMatch(/\.erow\.wait \.estatus\{[^}]*--k-attention/);
-    // The receipt stays a compact one-line list, not a wrap-pressure grid.
-    expect(HTML).toMatch(/\.pev-receipt \.erow\{[^}]*flex-wrap:nowrap/);
-  });
-
-  it('closes the receipt renderer to executable controls (Task 5)', () => {
-    // Done is a receipt, not an execution stage (handoff §6 done): the only
-    // action a receipt row may render is the host-supplied bounded
-    // continuation ("Show N more") — never a resume/retry/ship control.
-    expect(HTML).toMatch(/r\.action\.kind === 'open-bounded-evidence'/);
+  it('gives each evidence kind the prototype container its CSS hangs off (Task 5)', () => {
+    // Each body emits the prototype's own container, so the kind-specific
+    // geometry (the gates table's four columns, the findings severity column,
+    // the timeline's rail) has exactly one selector to hang off.
+    expect(HTML).toMatch(/function evidenceGatesHtml[\s\S]*?class="gates"/);
+    expect(HTML).toMatch(/function evidenceFindingsHtml[\s\S]*?class="findings"/);
+    expect(HTML).toMatch(/function evidenceTimelineHtml[\s\S]*?class="session-segments"/);
+    expect(HTML).toMatch(/function evidenceRecoveryHtml[\s\S]*?class="recovery-history"/);
+    expect(HTML).toMatch(/function evidenceReceiptHtml[\s\S]*?class="done-line"/);
+    expect(HTML).toMatch(/function evidenceRowsHtml[\s\S]*?class="evidence-row"/);
   });
 
   it('draws the timeline connector from the structural field, never the label', () => {
@@ -1338,7 +1333,7 @@ describe('dashboard webview.html', () => {
     // guess a switch from parsing the label (phase names are prose).
     const fn = /function timelineRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
     expect(fn).toMatch(/r\.connector === 'switch' \|\| r\.connector === 'resume'/);
-    expect(fn).toMatch(/connector-\$\{esc\(r\.connector\)\}/);
+    expect(fn).toMatch(/class="timeline-row switch-event"/);
     expect(HTML).toMatch(/Provider switched here/);
     expect(HTML).toMatch(/Session resumed here/);
     expect(fn).not.toMatch(/r\.label\s*(?:===|!==|\.includes|\.startsWith|\.indexOf)/);
@@ -1362,14 +1357,14 @@ describe('dashboard webview.html', () => {
     // every evidence row flex-wraps, so 300px never scrolls the component
     // horizontally: only the glyph column is fixed, and the detail column
     // truncates with an ellipsis instead of pushing the row.
-    expect(HTML).toMatch(/\.process-summary\{display:grid[^}]*minmax\(0,1fr\)/);
-    expect(HTML).toMatch(/\.erow\{display:flex;flex-wrap:wrap/);
+    expect(HTML).toMatch(/#inside \.op summary,#inside \.op-static\{[\s\S]*?minmax\(0,1fr\)/);
+    expect(HTML).toMatch(/#inside \.evidence-row\{display:grid[^}]*minmax\(0,1fr\)/);
     expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
     // The detail cell is a pure grid item (min-width:0 lets it shrink to its
     // ellipsis), never a fixed or minimum width that could overflow at 300px.
-    const pdetail = HTML.slice(HTML.indexOf('.pdetail{'), HTML.indexOf('.pdetail{') + 240);
-    expect(pdetail).toContain('min-width:0');
-    expect(pdetail).not.toContain('overflow-x');
+    const detail = HTML.slice(HTML.indexOf('#inside .op-detail{'), HTML.indexOf('#inside .op-detail{') + 240);
+    expect(detail).toContain('min-width:0');
+    expect(detail).not.toContain('overflow-x');
   });
 
   it('makes the inside block its own query container (B7)', () => {
@@ -1402,29 +1397,23 @@ describe('dashboard webview.html', () => {
     // under label+detail — and both the process detail and the evidence
     // detail wrap instead of ellipsising to nothing (the §3.9 finding).
     const wide = blockFor('430px');
-    expect(wide).toMatch(/\.inside-ledger \.process-summary\{[^}]*grid-template-areas:"glyph name status chev"/);
-    expect(wide).toMatch(
-      /grid-template-areas:"glyph name status chev" "glyph detail status chev" "glyph ident status chev"/,
-    );
-    expect(wide).toMatch(/\.inside-ledger \.process-summary \.pdetail\{[^}]*white-space:normal/);
-    expect(wide).toMatch(/\.inside-ledger \.pev \.edetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
+    expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
+    expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
+    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:58px 70px minmax\(0,1fr\)\}/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
     expect(wide).toMatch(
-      /\.inside-ledger \.session-timeline \.timeline-row\{[\s\S]*?grid-template-columns:[^}]*minmax\(82px,104px\)/,
+      /#inside \.timeline-row\{grid-template-columns:var\(--timeline-col\) minmax\(82px,104px\)/,
     );
-    // ≤360: the block's chrome thins — margins and gaps tighten.
-    expect(blockFor('360px')).toMatch(/\.inside-ledger\{[^}]*margin/);
-    expect(blockFor('360px')).toMatch(/\.inside-ledger \.pright\{/);
-    expect(blockFor('360px')).toMatch(/\.inside-ledger \.erow\{/);
-    expect(blockFor('360px')).toMatch(/\.inside-ledger \.timeline-row\{[^}]*column-gap/);
+    // ≤360: the block's chrome thins — row gaps and padding tighten.
+    expect(blockFor('360px')).toMatch(/#inside \.op summary,#inside \.op-static\{/);
+    expect(blockFor('360px')).toMatch(/#inside \.evidence-row,#inside \.gate-row\{/);
     // ≤300: the floor — only row chrome thins; the status and the name are
     // never dropped (handoff §10: "Do not hide the only status or action").
     const floor = blockFor('300px');
-    expect(floor).toMatch(/\.inside-ledger \.process-summary\{/);
-    expect(floor).toMatch(/\.inside-ledger \.process-evidence\{/);
-    expect(floor).toMatch(/\.inside-ledger \.erow\{/);
-    expect(floor).toMatch(/\.inside-ledger \.timeline-row\{/);
+    expect(floor).toMatch(/#inside \.inside\{/);
+    expect(floor).toMatch(/#inside \.op-body\{/);
+    expect(floor).toMatch(/#inside \.evidence-row,#inside \.gate-row,#inside \.finding,#inside \.done-line\{/);
     expect(floor).not.toMatch(/display:none/);
   });
 
@@ -1452,32 +1441,25 @@ describe('dashboard webview.html', () => {
     }
   });
 
-  it('keeps marker and process name first in the summary grid at every width (Task 6)', () => {
-    // The prototype's four-column grid: glyph + name lead the areas at normal
-    // width, and every breakpoint RE-AREAS without demoting the name — a rule
-    // that moved the name off the first row would break the eye's read order
-    // that the round trip also pins in DOM order.
+  it('keeps the glyph and the process name leading the op grid at every width (Task 6)', () => {
+    // The prototype's five-column op row: glyph | name | detail | tail | chev.
+    // Every breakpoint narrows the NAME column; none reorders the columns, so
+    // the eye's read order (state, then what it is about) is width-invariant.
     expect(HTML).toMatch(
-      /\.process-summary\{display:grid[^}]*grid-template-areas:"glyph name ident status chev"/,
+      /#inside \.op summary,#inside \.op-static\{[\s\S]*?grid-template-columns:20px minmax\(78px,110px\) minmax\(0,1fr\) auto 16px/,
     );
-    expect(containerBlock('430px')).toMatch(/grid-template-areas:"glyph name status chev"/);
-    expect(containerBlock('360px')).toMatch(/grid-template-areas:"glyph name chev"/);
+    expect(containerBlock('430px')).toMatch(
+      /#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\) minmax\(0,1fr\) auto 16px\}/,
+    );
   });
 
-  it('collapses the status metadata below the process label at ≤360 (Task 6)', () => {
-    // At ≤430 the status rides the second column beside the name; at ≤360 the
-    // metadata (aggregate/status word/action) takes its OWN row under the
-    // label — the row reads the name first, then how the process is doing
-    // (handoff §10). The disclosure stays the last cell of every row and the
-    // action rides the status row's flex-end, so nothing is dropped.
+  it('thins row chrome at ≤360 without dropping a cell (Task 6)', () => {
+    // The floor tightens gaps and padding only. Nothing is hidden and no
+    // column is collapsed away: at this width the row still reads name,
+    // detail, tail (handoff §10).
     const narrow = containerBlock('360px');
-    expect(narrow).toMatch(
-      /\.inside-ledger \.process-summary\{[^}]*grid-template-columns:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\) minmax\(0,1fr\) auto/,
-    );
-    expect(narrow).toMatch(
-      /grid-template-areas:"glyph name chev" "glyph status chev" "glyph detail chev" "glyph ident chev"/,
-    );
-    expect(narrow).toMatch(/\.inside-ledger \.pright\{[^}]*justify-content:flex-end/);
+    expect(narrow).toMatch(/#inside \.op summary,#inside \.op-static\{[^}]*padding-left/);
+    expect(narrow).not.toMatch(/display:none/);
   });
 
   it('never hides the name, status, identity, disclosure, or action at any narrow width (Task 6)', () => {
@@ -1487,15 +1469,19 @@ describe('dashboard webview.html', () => {
     for (const w of ['430px', '360px', '300px'] as const) {
       const block = containerBlock(w);
       for (const [sel, what] of [
-        ['.pname', 'the process name'],
-        ['.pstatus', 'the status word'],
-        ['.pident', 'the identity/token cluster'],
-        ['.pright', 'the status/action cluster'],
-        ['.eact', 'a row action'],
-        ['.pchev', 'the disclosure marker'],
-        ['.tnode', 'the timeline node cell'],
+        ['.op-name', 'the process name'],
+        ['.op-state', 'the status word'],
+        ['.agent-id', 'the identity run'],
+        ['#inside .op-tail', 'the status/action cluster'],
+        ['.ev-state', 'a row status'],
+        ['.chev', 'the disclosure marker'],
+        ['.timeline-slot', 'the timeline node cell'],
       ] as const) {
-        const hiding = new RegExp(`${sel.replace('.', '\\.')}[^{]*\\{[^}]*display:none`).exec(block);
+        // The cell ITSELF may never be hidden. A rule that hides one part of
+        // its contents at a narrow width (the model name inside an identity
+        // run, whose core still renders) is a legal degradation, so the match
+        // is anchored to the cell's own declaration.
+        const hiding = new RegExp(`${sel.replace(/\./g, '\\.')}\\{[^}]*display:none`).exec(block);
         expect(hiding, `≤${w} hides ${what}`).toBeNull();
       }
     }
@@ -1515,15 +1501,15 @@ describe('dashboard webview.html', () => {
     // branch name or SHA) — overflow-wrap:anywhere is what actually wraps it.
     // The unbounded kinds (findings/commits/PRs) get it; the compact
     // status/timestamp/duration cells stay one line and carry no wrap claim.
-    expect(HTML).toMatch(/\.pev-findings \.edetail\{[^}]*overflow-wrap:anywhere/);
-    expect(HTML).toMatch(/\.pev-commits \.edetail\{[^}]*overflow-wrap:anywhere/);
-    expect(HTML).toMatch(/\.pev-prs \.edetail\{[^}]*overflow-wrap:anywhere/);
+    expect(containerBlock('430px')).toMatch(
+      /#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{[\s\S]*?overflow-wrap:anywhere/,
+    );
     for (const [sel, label] of [
-      ['.pev .estatus', 'the status word'],
-      ['.timeline-time', 'the timestamp'],
-      ['.erow .edur', 'the duration'],
+      ['#inside .op-state', 'the status word'],
+      ['#inside .phase-time', 'the timestamp'],
+      ['#inside .duration', 'the duration'],
     ] as const) {
-      const rule = new RegExp(`${sel.replace('.', '\\.')}\\{([^}]*)\\}`).exec(HTML)?.[1] ?? '';
+      const rule = new RegExp(`${sel.replace(/\./g, '\\.')}[,{]([^}]*)\\}`).exec(HTML)?.[1] ?? '';
       expect(rule, `${label} cell lost its nowrap`).toContain('white-space:nowrap');
       expect(rule, `${label} cell must never claim a wrap point`).not.toContain('overflow-wrap');
     }
@@ -1533,9 +1519,9 @@ describe('dashboard webview.html', () => {
     // <summary> is neither a <button> nor an <a>/<input>, so the primitives'
     // generic :focus-visible rule never reaches it (UI-R23 — same as .mgd and
     // .pcms). The marker is decorative; the rotation states the open state.
-    expect(HTML).toMatch(/\.inside-process summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
-    expect(HTML).toMatch(/class="pchev"/);
-    expect(HTML).toMatch(/\.inside-process\[open\] \.pchev\{transform:rotate\(90deg\)\}/);
+    expect(HTML).toMatch(/#inside \.op summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
+    expect(HTML).toMatch(/class="chev" aria-hidden="true"/);
+    expect(HTML).toMatch(/#inside \.op\[open\] \.chev:before\{transform:rotate\(45deg\)\}/);
   });
 
   it('places status and name before every piece of metadata on a process row', () => {
@@ -1548,12 +1534,11 @@ describe('dashboard webview.html', () => {
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
     const rendered = row.slice(row.indexOf('return `'));
     const positions = [
-      rendered.indexOf('<span class="pglyph">'),
-      rendered.indexOf('<span class="pname">'),
-      rendered.indexOf('<span class="pdetail">'),
-      rendered.indexOf('${ident}'),
-      rendered.indexOf('<span class="pright">'),
-      rendered.indexOf('${marker}'),
+      rendered.indexOf('${glyph}'),
+      rendered.indexOf('${name}'),
+      rendered.indexOf('${detail}'),
+      rendered.indexOf('${tail}'),
+      rendered.indexOf('<span class="chev"'),
     ];
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
@@ -1564,40 +1549,36 @@ describe('dashboard webview.html', () => {
     // can never drift onto another process. The aggregate is a host-shipped
     // string (B4); the webview concatenates nothing.
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(row).toMatch(/const meta = \[p\.aggregate, p\.count, p\.duration\]/);
-    expect(row).toMatch(/class="pright">\$\{meta\}\$\{status\}\$\{act\}<\/span>\$\{marker\}/);
+    expect(row).toMatch(/const tail = `<span class="op-tail">\$\{identityHtml\(p\)\}/);
+    expect(row).toMatch(/p\.aggregate \? `<span class="count">\$\{esc\(p\.aggregate\)\}/);
+    expect(row).toMatch(/p\.duration \? `<span class="duration">\$\{esc\(p\.duration\)\}/);
   });
 
   it('escapes every untrusted fixture string at the row templates (UI-R32)', () => {
     // Finding 1: the fixture matrix deliberately carries hostile labels and
     // long paths; every template that interpolates them must escape first.
-    expect(HTML).toMatch(/<span class="elabel">\$\{esc\(r\.label\)\}<\/span>/);
-    expect(HTML).toMatch(/<span class="edetail">\$\{esc\(r\.detail\)\}<\/span>/);
-    expect(HTML).toMatch(/<span class="pname">\$\{esc\(p\.label\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="ev-key">\$\{esc\(r\.label\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="ev-detail">\$\{esc\(r\.detail \|\| ''\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="op-name">\$\{esc\(p\.label\)\}/);
     expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
-    expect(HTML).toMatch(/<span class="edur">\$\{esc\(r\.duration\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="phase-time">\$\{esc\(r\.duration \|\| ''\)\}<\/span>/);
   });
 
   it('keeps the timeline rail geometry centered on the status glyph column', () => {
     // Task 4: the timeline's node column shares ONE width with the evidence
     // rows' status glyph column, so the spine stays centered under the
     // ledger's own glyphs at every fixture width.
-    const declOf = (sel: string): string => new RegExp(`${sel}\\{([^}]*)\\}`).exec(HTML)?.[1] ?? '';
-    const nodeWidth = /width:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\)/.exec(
-      declOf('\\.timeline-row \\.tnode'),
-    )?.[0];
-    const glyphWidth = /width:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\)/.exec(
-      declOf('\\.erow \\.eglyph'),
-    )?.[0];
-    expect(nodeWidth).toBe('width:calc(var(--k-space-6) + var(--k-space-1))');
-    expect(nodeWidth).toBe(glyphWidth);
-    expect(HTML).toMatch(/\.timeline-row \.tnode\{[^}]*text-align:center/);
-    // The ≤300 floor thins the row padding from --k-space-4 to --k-space-2,
-    // moving the node column with it; the spine must override its offset in
-    // the same container block or it drifts off the node centers.
-    const at300 = /@container \(max-width: 300px\)\{([\s\S]*?)\n  \}/.exec(HTML)?.[1] ?? '';
-    expect(at300).toMatch(
-      /\.inside-ledger \.timeline-row::before,\.inside-ledger \.timeline-row::after\{left:calc\(var\(--k-space-2\) \+ var\(--k-space-3\)\)\}/,
+    // The rail has ONE source of truth for its x-position: the slot cell. The
+    // node and both edge halves are centered on 50% of that same cell, so the
+    // spine cannot drift off the nodes at any width — which is exactly what a
+    // separately-positioned spine did.
+    expect(HTML).toMatch(/#inside \.timeline-slot\{[^}]*width:var\(--timeline-col\)/);
+    expect(HTML).toMatch(/#inside \.timeline-slot:before,#inside \.timeline-slot:after\{[^}]*left:50%/);
+    expect(HTML).toMatch(/#inside \.timeline-slot:before\{top:0;height:calc\(50% - var\(--node-radius, 7px\)\)\}/);
+    expect(HTML).toMatch(/#inside \.timeline-slot:after\{top:calc\(50% \+ var\(--node-radius, 7px\)\);bottom:0\}/);
+    // The first row has nothing above it and the last nothing below.
+    expect(HTML).toMatch(
+      /#inside \.timeline-row:first-child \.timeline-slot:before,\s*#inside \.timeline-row:last-child \.timeline-slot:after\{display:none\}/,
     );
   });
 
@@ -2060,10 +2041,11 @@ describe('inside render round trip (executed in a VM)', () => {
 
   it('renders the approved quiet ledger markup (Task 3)', () => {
     const html = renderPrototypeImpl();
-    expect(html).toContain('class="inside-ledger"');
+    expect(html).toContain('<section class="inside"');
+    expect(html).toContain('class="ledger"');
     expect(html).toContain('class="inside-head"');
     expect(html).toContain('Inside impl');
-    expect(html).toContain('class="inside-process pass"');
+    expect(html).toContain('<details class="op pass"');
     expect(html).toContain('Session');
     expect(html).toContain('Completed');
     expect(html).toContain('session c7f1');
@@ -2076,22 +2058,24 @@ describe('inside render round trip (executed in a VM)', () => {
 
   it('keeps the full stage title on the compact header (Task 3)', () => {
     const html = renderPrototypeImpl();
-    expect(html).toContain('<header class="inside-head" title="Implementation">');
+    expect(html).toContain('<div class="inside-head" title="Implementation">');
   });
 
   it('orders the summary label before detail before the right-side cluster (Task 3)', () => {
     const html = renderPrototypeImpl();
-    const summary = html.slice(html.indexOf('class="process-summary"'), html.indexOf('</summary>'));
-    const label = summary.indexOf('<span class="pname">');
-    const detail = summary.indexOf('<span class="pdetail">');
-    const ident = summary.indexOf('class="pident"');
-    const right = summary.indexOf('class="pright"');
-    expect(label).toBeGreaterThan(-1);
+    const summary = html.slice(html.indexOf('<summary>'), html.indexOf('</summary>'));
+    const glyph = summary.indexOf('<span class="glyph');
+    const label = summary.indexOf('<span class="op-name">');
+    const detail = summary.indexOf('<span class="op-detail');
+    const tail = summary.indexOf('<span class="op-tail">');
+    const chev = summary.indexOf('<span class="chev"');
+    expect(glyph).toBeGreaterThan(-1);
+    expect(label).toBeGreaterThan(glyph);
     expect(detail).toBeGreaterThan(label);
-    expect(ident).toBeGreaterThan(detail);
-    expect(right).toBeGreaterThan(detail);
-    // The footer follows the evidence inside the same disclosure.
-    expect(html.indexOf('class="process-footer"')).toBeGreaterThan(html.indexOf('class="process-evidence"'));
+    expect(tail).toBeGreaterThan(detail);
+    expect(chev).toBeGreaterThan(tail);
+    // The footer follows the evidence inside the same disclosure body.
+    expect(html.indexOf('class="session-foot"')).toBeGreaterThan(html.indexOf('class="session-segments"'));
   });
 
   it('renders the process status word as visible text, never colour alone (Task 3)', () => {
@@ -2099,7 +2083,7 @@ describe('inside render round trip (executed in a VM)', () => {
     // visible state — a real word in the markup, so the status survives any
     // theme that ignores colour, exactly like the evidence rows' status words.
     const html = renderPrototypeImpl();
-    expect(html).toContain('<span class="pstatus pass">Completed</span>');
+    expect(html).toContain('<span class="op-state pass">Completed</span>');
   });
 
   it('opens the completed session disclosure on first render (Task 3)', () => {
@@ -2108,7 +2092,7 @@ describe('inside render round trip (executed in a VM)', () => {
     // FIRST render, before the user has touched anything.
     const html = renderInsideFor('impl');
     expect(html).toContain('data-proc-id="impl:session" open');
-    expect(html).toContain('class="pev pev-timeline"');
+    expect(html).toContain('class="session-segments"');
   });
 
   it('keeps the session collapsed across re-renders once the user closes it (Task 3)', () => {
@@ -2121,7 +2105,7 @@ describe('inside render round trip (executed in a VM)', () => {
     h.clickChevron('impl:session');
     h.receive({ type: 'state', state: renderStateFor('impl') });
     expect(h.htmlOf('inside')).not.toContain('data-proc-id="impl:session" open');
-    expect(h.htmlOf('inside')).not.toContain('class="pev pev-timeline"');
+    expect(h.htmlOf('inside')).not.toContain('class="session-segments"');
   });
 
   it('default-opens only session evidence, never gates, findings, PRs, or receipts (Task 3)', () => {
@@ -2143,36 +2127,31 @@ describe('inside render round trip (executed in a VM)', () => {
     // is inferred from label prose.
     const html = renderPrototypeImpl();
     const ol = html.slice(
-      html.indexOf('<ol class="session-timeline">'),
-      html.indexOf('</ol>'),
+      html.indexOf('<div class="session-segments">'),
+      html.indexOf('class="session-foot"'),
     );
-    const labels = [...ol.matchAll(/<span class="tlabel">([^<]*)<\/span>/g)].map((m) => m[1]);
-    expect(labels).toEqual([
-      'started with',
-      'Understand',
-      'Plan',
-      'switched core + model',
-      'Implement',
-      'switched core + model',
-      'Tests',
-      'Done',
-    ]);
-    // Phase rows carry the pass marker (the green outlined check's row class):
-    // Understand, Plan, Implement, Tests — and the done marker, a phase row
-    // of its own in the acceptance image.
-    expect(ol.match(/class="timeline-row role-phase pass"/g)).toHaveLength(5);
+    const labels = [
+      ...ol.matchAll(/<span class="(?:timeline-start-label|phase-name)">([^<]*)<\/span>/g),
+    ].map((m) => m[1]).concat();
+    const switches = [...ol.matchAll(/<span class="switch-label"[^>]*>[\s\S]*?<span>([^<]*)<\/span>/g)]
+      .map((m) => m[1]);
+    expect(labels).toEqual(['started with', 'Understand', 'Plan', 'Implement', 'Tests', 'Done']);
+    expect(switches).toEqual(['switched core + model', 'switched core + model']);
+    // Phase rows carry the pass marker — Understand, Plan, Implement, Tests,
+    // and the done marker, a phase row of its own in the acceptance image.
+    expect(ol.match(/class="glyph phase-status pass"/g)).toHaveLength(5);
     // Switch rows branch from the STRUCTURAL connector — never a label match.
-    expect(ol.match(/connector-switch/g)).toHaveLength(2);
+    expect(ol.match(/class="timeline-row switch-event"/g)).toHaveLength(2);
     expect(ol).not.toContain('label-switch');
-    // The identity icon is the INJECTED renderer's mark (agentIconHtml).
-    expect(ol).toContain('<span class="agenticon" aria-hidden="true">');
-    // Token pills are secondary, styled via .timeline-tok, with the exact
-    // count as the hover title.
-    expect(ol.match(/class="timeline-tok"/g)).toHaveLength(3);
+    // The identity mark is the INJECTED line-icon renderer's.
+    expect(ol).toContain('<span class="agent-icon" aria-hidden="true">');
+    // Token pills are the prototype's Σ stat, with the exact count as the
+    // hover title.
+    expect(ol.match(/class="token-stat"/g)).toHaveLength(3);
     expect(ol).toContain('title="18,600"');
-    // Timestamps occupy the dedicated right-aligned cell.
-    expect(ol).toContain('<span class="timeline-time">10:03–10:09</span>');
-    expect(ol).toContain('<span class="timeline-time">10:22</span>');
+    // Timestamps occupy the dedicated right-aligned cells.
+    expect(ol).toContain('<span class="segment-window">10:03–10:09</span>');
+    expect(ol).toContain('<span class="phase-time">10:22</span>');
   });
 
   it('feeds the timeline identity rows through the injected agent renderer (Task 4)', () => {
@@ -2181,11 +2160,11 @@ describe('inside render round trip (executed in a VM)', () => {
     // on the first identity row, exactly like identityChipHtml. The pill is
     // a bordered mono token — border + mono font + faint text, all tokens.
     const fn = /function timelineRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(fn).toContain('agentIconHtml(r.provider)');
-    const pill = /\.timeline-tok\{([^}]*)\}/.exec(HTML)?.[1] ?? '';
+    expect(fn).toContain('agentLineIconHtml(r.provider)');
+    const pill = /#inside \.token-stat\{([^}]*)\}/.exec(HTML)?.[1] ?? '';
     expect(pill).toMatch(/border:/);
-    expect(pill).toMatch(/--k-font-mono/);
-    expect(pill).toMatch(/--k-text-faint/);
+    expect(pill).toMatch(/--p-mono/);
+    expect(pill).toMatch(/--p-muted/);
   });
 
   /**
@@ -2235,26 +2214,25 @@ describe('inside render round trip (executed in a VM)', () => {
 
   it('renders rows evidence through the generic renderer (B2)', () => {
     const html = openEvidence('scope', 'worktrees');
-    expect(html).toContain('class="pev pev-rows"');
-    expect(html).toMatch(/<span class="elabel">worktree<\/span>/);
-    // The generic renderer carries no status word — the glyph is its status.
-    expect(html).not.toContain('estatus');
+    expect(html).toContain('class="evidence-row"');
+    expect(html).toMatch(/<span class="ev-key">worktree<\/span>/);
+    expect(html).toMatch(/<span class="ev-state [a-z]+">(?:pending|passed)<\/span>/);
   });
 
   it('renders gates evidence with a per-row status word (B2)', () => {
     // handoff §6's gate template: "lint  pass · 4.2s" — the word is the
     // visible status, never colour alone (UI-R06).
     const html = openEvidence('uat', 'gates');
-    expect(html).toContain('class="pev pev-gates"');
-    expect(html).toContain('<span class="estatus pass">passed</span>');
-    expect(html).toContain('<span class="elabel">lint</span>');
+    expect(html).toContain('class="gates"');
+    expect(html).toContain('<span class="gate-state pass">passed');
+    expect(html).toContain('<span class="gate-name">lint</span>');
   });
 
   it('renders findings evidence with severity rows and their status words (B2)', () => {
     const html = openEvidence('review', 'review');
-    expect(html).toContain('class="pev pev-findings"');
-    expect(html).toContain('<span class="estatus fail">failed</span>');
-    expect(html).toContain('<span class="elabel">critical</span>');
+    expect(html).toContain('class="findings"');
+    expect(html).toContain('<span class="sev">critical</span>');
+    expect(html).toContain('class="finding-title"');
   });
 
   it('renders timeline evidence as the phase ledger with a time column (Task 4)', () => {
@@ -2262,45 +2240,46 @@ describe('inside render round trip (executed in a VM)', () => {
     // and the range reads as a right-aligned time column. The `<ol>` is the
     // timeline's semantic list; the rows are its nodes on the shared spine.
     const html = openEvidence('impl', 'session');
-    expect(html).toContain('class="pev pev-timeline"');
-    expect(html).toContain('<ol class="session-timeline">');
-    expect(html).toMatch(/<span class="tnode" aria-hidden="true"[^>]*>↳<\/span>/);
-    expect(html).toMatch(/class="timeline-row role-event note connector-switch"/);
-    expect(html).toContain('<span class="timeline-time">4m 12s</span>');
+    expect(html).toContain('class="session-segments"');
+    expect(html).toMatch(/class="timeline-row switch-event"/);
+    expect(html).toMatch(/<span class="switch-arrow" aria-hidden="true">↳<\/span>/);
+    expect(html).toContain('<span class="phase-time">4m 12s</span>');
   });
 
   it('renders commits evidence with a status word per repo (B2)', () => {
     const html = openEvidence('ship', 'commit');
-    expect(html).toContain('class="pev pev-commits"');
-    expect(html).toContain('<span class="estatus pass">passed</span>');
-    expect(html).toContain('<span class="elabel">web</span>');
+    expect(html).toContain('class="evidence-row"');
+    expect(html).toContain('<span class="ev-state pass">passed');
+    expect(html).toContain('<span class="ev-key">web</span>');
   });
 
   it('renders prs evidence with a status word per repo (B2)', () => {
     const html = openEvidence('ship', 'pr');
-    expect(html).toContain('class="pev pev-prs"');
-    expect(html).toContain('<span class="estatus pass">passed</span>');
+    expect(html).toContain('class="evidence-row"');
+    expect(html).toContain('<span class="ev-state pass">passed');
     expect(html).toContain('created #120');
   });
 
   it('renders recovery evidence with one row per round (B2)', () => {
     const html = openEvidence('uat', 'fix');
-    expect(html).toContain('class="pev pev-recovery"');
-    expect(html).toContain('<span class="elabel">round 1</span>');
-    expect(html).toContain('<span class="elabel">round 3</span>');
+    expect(html).toContain('class="recovery-history"');
+    expect(html).toContain('<span class="recovery-num">round 1</span>');
+    expect(html).toContain('<span class="recovery-num">round 3</span>');
   });
 
   it('renders the receipt as a list with no per-row glyph column (B2)', () => {
     // handoff §6 done: the receipt is plain lines ("2 current PRs merged"),
     // not a status readout — the process row's own status is the verdict.
     const html = openEvidence('done', 'delivery-receipt');
-    const blockAt = html.indexOf('class="pev pev-receipt"');
+    const blockAt = html.indexOf('class="done-line"');
     expect(blockAt).toBeGreaterThan(-1);
     const block = html.slice(blockAt);
-    expect(block).toContain('<span class="elabel">merged</span>');
-    expect(block).toContain('<span class="elabel">commits</span>');
-    expect(block).not.toContain('eglyph');
-    expect(block).not.toContain('estatus');
+    expect(block).toContain('<span class="done-key">merged</span>');
+    expect(block).toContain('<span class="done-key">commits</span>');
+    // A receipt states delivered facts; it carries no glyph column and no
+    // per-row status readout.
+    expect(block).not.toContain('class="glyph');
+    expect(block).not.toContain('ev-state');
   });
 
   it('renders an unknown evidence kind through the generic renderer, never throwing (B2)', () => {
@@ -2318,8 +2297,8 @@ describe('inside render round trip (executed in a VM)', () => {
     h.clickChevron('scope:worktrees');
     h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, scope } } });
     const html = h.htmlOf('inside');
-    expect(html).toContain('class="pev pev-rows"');
-    expect(html).toContain('<span class="elabel">future</span>');
+    expect(html).toContain('class="evidence-row"');
+    expect(html).toContain('<span class="ev-key">future</span>');
   });
 
   // ── the matrix evidence contract (Task 5) ────────────────────────────────
@@ -2339,10 +2318,24 @@ describe('inside render round trip (executed in a VM)', () => {
     receipt: ['done', 'delivery-receipt'],
   };
 
-  it('renders every evidence kind through its distinct pev container (Task 5)', () => {
+  it('renders every evidence kind through its own prototype container (Task 5)', () => {
+    // Each kind lands in the container the ported prototype gives it; the
+    // kinds with no bespoke body of their own (commits, prs) share the
+    // generic evidence row rather than inventing a layout for facts the
+    // model does not carry.
+    const CONTAINER: Readonly<Record<(typeof EVIDENCE_KINDS)[number], string>> = {
+      rows: 'class="evidence-row"',
+      gates: 'class="gates"',
+      findings: 'class="findings"',
+      timeline: 'class="session-segments"',
+      commits: 'class="evidence-row"',
+      prs: 'class="evidence-row"',
+      recovery: 'class="recovery-history"',
+      receipt: 'class="done-line"',
+    };
     for (const kind of EVIDENCE_KINDS) {
       const [stage, processId] = EVIDENCE_AT[kind];
-      expect(openEvidence(stage, processId), `kind ${kind}`).toContain(`class="pev pev-${kind}"`);
+      expect(openEvidence(stage, processId), `kind ${kind}`).toContain(CONTAINER[kind]);
     }
   });
 
@@ -2350,34 +2343,40 @@ describe('inside render round trip (executed in a VM)', () => {
     // gates/findings/commits/prs render the closed status WORD (UI-R06 — the
     // word is the row's claim, never colour alone). Findings' blocking
     // severities read as failed, the advisory medium reads as note.
-    expect(openEvidence('uat', 'gates')).toContain('<span class="estatus pass">passed</span>');
+    expect(openEvidence('uat', 'gates')).toContain('<span class="gate-state pass">passed');
     const findings = openEvidence('review', 'review');
-    expect(findings).toContain('<span class="estatus fail">failed</span>');
-    expect(findings).toContain('<span class="estatus note">note</span>');
-    expect(openEvidence('ship', 'commit')).toContain('<span class="estatus pass">passed</span>');
-    expect(openEvidence('ship', 'pr')).toContain('<span class="estatus pass">passed</span>');
+    expect(findings).toContain('<span class="sev">critical</span>');
+    expect(findings).toContain('<span class="sev">medium</span>');
+    expect(openEvidence('ship', 'commit')).toContain('<span class="ev-state pass">passed');
+    expect(openEvidence('ship', 'pr')).toContain('<span class="ev-state pass">passed');
   });
 
-  it('keeps the plain kinds to glyph-as-status, never a fabricated word (Task 5)', () => {
-    // rows, recovery and receipt carry no status WORD: their visible state is
-    // the glyph (rows, recovery) or their nature as delivered facts (receipt).
-    const rows = openEvidence('scope', 'worktrees');
-    expect(rows).not.toContain('estatus');
-    expect(rows).toMatch(/<span class="eglyph">[^<]*<\/span>/);
-    expect(openEvidence('uat', 'fix')).not.toContain('estatus');
+  it('keeps every rendered status word inside the closed vocabulary (Task 5)', () => {
+    // A status word is ALWAYS one of the closed set — the webview never
+    // fabricates copy for a state, and a receipt line carries none at all
+    // because delivered facts are not a status readout.
+    const words = ['pending', 'running', 'waiting', 'passed', 'failed', 'note', 'skipped'];
+    for (const [stage, id] of [['uat', 'gates'], ['scope', 'worktrees'], ['ship', 'pr']] as const) {
+      const html = openEvidence(stage, id);
+      for (const m of html.matchAll(/class="(?:ev|gate)-state[^"]*">([^<·]*)/g)) {
+        const word = (m[1] ?? '').trim();
+        if (word) expect(words, `${stage}:${id} rendered "${word}"`).toContain(word);
+      }
+    }
     const receipt = openEvidence('done', 'delivery-receipt');
-    expect(receipt).not.toContain('estatus');
-    expect(receipt).not.toContain('eglyph');
+    const body = receipt.slice(receipt.indexOf('class="op-body"'));
+    expect(body).not.toContain('ev-state');
+    expect(body).not.toContain('class="glyph');
   });
 
   it('renders each kind’s factual detail verbatim (Task 5)', () => {
-    expect(openEvidence('uat', 'gates')).toContain('<span class="edetail">exit 0</span>');
+    expect(openEvidence('uat', 'gates')).toContain('<span class="gate-detail">exit 0</span>');
     expect(openEvidence('review', 'review')).toContain('SQL injection in query builder');
-    expect(openEvidence('ship', 'commit')).toContain('<span class="edetail">2 created · 1 before</span>');
+    expect(openEvidence('ship', 'commit')).toContain('<span class="ev-detail">2 created · 1 before</span>');
     expect(openEvidence('ship', 'pr')).toContain('created #120');
     expect(openEvidence('uat', 'fix')).toContain('gate test failed');
     expect(openEvidence('done', 'delivery-receipt')).toContain('31 created by ship');
-    expect(openEvidence('scope', 'worktrees')).toContain('<span class="elabel">worktree</span>');
+    expect(openEvidence('scope', 'worktrees')).toContain('<span class="ev-key">worktree</span>');
   });
 
   it('places row actions in the trailing action cluster (Task 5)', () => {
@@ -2385,12 +2384,12 @@ describe('inside render round trip (executed in a VM)', () => {
     // LAST cell of its row, inside `.eact`, posting only the opaque id.
     const findings = openEvidence('review', 'review');
     expect(findings).toMatch(
-      /<span class="eact"><button[^>]*data-act="inside-action"[^>]*>Open file<\/button><\/span>/,
+      /<span class="ev-tail"><button[^>]*data-act="inside-action"[^>]*>Open file<\/button><\/span>/,
     );
     expect(findings).toContain('data-action-id="fixture:open-file:1"');
     // Tester observations (uat, kind rows) keep their open-file actions too.
     const uat = openEvidence('uat', 'tester');
-    expect(uat).toMatch(/<span class="eact"><button[^>]*>Open file<\/button><\/span>/);
+    expect(uat).toMatch(/<span class="ev-tail"><button[^>]*>Open file<\/button><\/span>/);
   });
 
   it('orders UAT Gates → causal Fix → Services → Tester (Task 5)', () => {
@@ -2425,11 +2424,11 @@ describe('inside render round trip (executed in a VM)', () => {
     // The conflicted merge row reads WAITING — the ⏸ glyph on an `.erow.wait`
     // row — never a fail glyph and never a fail word.
     const merge = openEvidence('ship', 'merge');
-    expect(merge).toMatch(/<div class="erow wait">/);
-    expect(merge).toContain('<span class="elabel">conflict</span>');
-    expect(merge).toContain('⏸');
-    expect(merge).not.toContain('✕');
-    expect(merge).not.toMatch(/estatus fail/);
+    expect(merge).toContain('<span class="ev-key">conflict</span>');
+    expect(merge).toContain('<span class="ev-state wait">waiting');
+    expect(merge).not.toMatch(/ev-state fail/);
+    // The merge PROCESS row reads waiting too — its glyph is the wait shape.
+    expect(merge).toMatch(/<details class="op wait waiting-source"/);
   });
 
   it('renders Done as a receipt with no executable controls (Task 5)', () => {
@@ -2451,10 +2450,10 @@ describe('inside render round trip (executed in a VM)', () => {
     const commits = openEvidenceCount('ship', 'commit', 20);
     expect(commits).toContain('Show 14 more');
     expect(commits).toMatch(
-      /<span class="eact"><button[^>]*data-act="inside-action"[^>]*>Show 14 more<\/button><\/span>/,
+      /<span class="ev-tail"><button[^>]*data-act="inside-action"[^>]*>Show 14 more<\/button><\/span>/,
     );
     const receipt = openEvidenceCount('done', 'delivery-receipt', 20);
-    const block = receipt.slice(receipt.indexOf('class="pev pev-receipt"'));
+    const block = receipt.slice(receipt.indexOf('class="op-body"'));
     expect(block).toContain('Show 14 more');
     expect(block).toContain('data-action-id="fixture:open-bounded-evidence:20"');
     // A gate bound the reducer did not make actionable renders no control.
@@ -2475,7 +2474,7 @@ describe('inside render round trip (executed in a VM)', () => {
       p.id === 'gates' ? { ...p, aggregate: '4 passed · 1 failed' } : p,
     );
     const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
-    expect(html).toContain('<span class="pmeta">4 passed · 1 failed</span>');
+    expect(html).toContain('<span class="count">4 passed · 1 failed</span>');
     expect(html).not.toMatch(/4 passed.*4 passed/);
   });
 
@@ -2522,8 +2521,12 @@ describe('inside render round trip (executed in a VM)', () => {
       },
     });
     const html = h.htmlOf('inside');
-    expect(html).not.toContain('class="spin"');
-    expect(html).toContain('⏸');       // OP_GLYPH.wait
+    // The live header draws the ported prototype's WAIT glyph — two bars, a
+    // different SHAPE from the running arc, so a stalled operation can never
+    // read as progress.
+    expect(html).toContain('<span class="glyph wait" aria-label="waiting"></span>');
+    expect(html).toContain('<span class="live-state">waiting</span>');
+    expect(html).not.toContain('class="glyph run"');
   });
 
   it('renders a running process row and live header regardless of animation (Task 6)', () => {
@@ -2546,9 +2549,9 @@ describe('inside render round trip (executed in a VM)', () => {
       },
     });
     const html = h.htmlOf('inside');
-    expect(html).toContain('<span class="pstatus run">running</span>');
-    expect(html).toContain('<span class="alive run">');
-    expect(html).toContain('<span class="spin" aria-hidden="true"></span>');
+    expect(html).toContain('<span class="op-state run">running</span>');
+    expect(html).toContain('<span class="inside-live run">');
+    expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
   });
 
   it('renders the viewing bar with a way back when a non-current stage is shown (Task 6)', () => {
