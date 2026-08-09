@@ -265,6 +265,16 @@ export async function runReview(
   // deliverable the stage already has, so it passes with a note instead of
   // parking forever behind a Resume that reproduces the same block.
   if (targets.length === 0) {
+    // Zero worktrees is not "nothing changed": nothing was ASKED. The ticket
+    // has no repository to run review against at all, and passing here would
+    // walk a stage that ran nothing straight to ship — the vacuous green the
+    // "asked nothing is never green" invariant exists to prevent. Resumable:
+    // registering a worktree (re-scoping) makes a retry succeed.
+    if (worktrees.length === 0) {
+      const reason =
+        'no worktree is registered for this ticket, so there is no repository to run review against';
+      return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+    }
     if (planned.unmapped.length > 0) {
       const reason =
         `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +

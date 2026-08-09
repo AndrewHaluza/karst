@@ -282,6 +282,11 @@ describe('runUat', () => {
     const id2 = createTicketFlow(store, { key: 'T-2', title: 't2' }).id;
     transition(store, id2, 'scope', { kind: 'passed' });
     transition(store, id2, 'impl', { kind: 'passed' });
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+      )
+      .run(id2);
     const empty = await runUat(
       store,
       { ticketId: id2, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
@@ -510,6 +515,11 @@ describe('runUat', () => {
   });
 
   it('passes with a note when every repository mapped and none has changes', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
@@ -521,6 +531,23 @@ describe('runUat', () => {
     expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).toContain(
       'no repository has changes from its base, so UAT had nothing to check',
     );
+  });
+
+  // Zero worktrees is a third case, and it is neither of the two above: the
+  // question was never asked of any repository, so it can only park.
+  it('parks when the ticket has no registered worktree at all', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(res).toMatchObject({
+      reason: 'no worktree is registered for this ticket, so there is no repository to run UAT against',
+    });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('nothing-to-run');
   });
 
   // Two `repositories:` entries sharing a repoPath collapse to ONE target, so a

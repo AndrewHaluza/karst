@@ -286,6 +286,16 @@ export async function runUat(
   const targets: UatTarget[] = planned.targets;
 
   if (targets.length === 0) {
+    // Zero worktrees is not "nothing changed": nothing was ASKED. The ticket
+    // has no repository to run UAT against at all, and passing here would walk
+    // a stage that ran nothing straight to review — the vacuous green the
+    // "asked nothing is never green" invariant exists to prevent. Resumable:
+    // registering a worktree (re-scoping) makes a retry succeed.
+    if (worktrees.length === 0) {
+      const reason =
+        'no worktree is registered for this ticket, so there is no repository to run UAT against';
+      return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+    }
     // Two situations that must not read as one. If any worktree matched no
     // manifest entry, karst could not ask that repository anything and a retry
     // cannot change the answer — only the user editing karst.yml or re-scoping
