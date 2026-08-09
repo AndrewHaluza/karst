@@ -32,7 +32,6 @@ function step(stepName: ShipStep, over: Partial<ShipRepoStepEvidence> = {}): Shi
     status: 'passed',
     detail: '',
     prNumber: null,
-    prStatus: null,
     existedBeforeShip: null,
     processRunId: null,
     operationIntentId: null,
