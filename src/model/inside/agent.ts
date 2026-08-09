@@ -225,11 +225,16 @@ function timelineEvents(
     });
   }
 
-  // The terminal row exists ONLY when the end is recorded: the impl marker is
-  // an explicit act (`completeImplementationRun` stamps `ended_at` AND passes
-  // the run), so `pass` is the recorded verdict — never an inference. A
-  // running session has no end and is not given one.
-  if (run.endedAt) {
+  // The terminal row exists ONLY when the marker was actually placed:
+  // `completeImplementationRun` stamps `ended_at` AND sets the run `passed`,
+  // so `pass` is the recorded verdict — never an inference. An INTERRUPTED
+  // run also carries an `ended_at` (`interruptImplementationRun`), and that
+  // timestamp records when it stopped, not that anyone marked it done —
+  // keying on `endedAt` alone rendered a green "marked done" for a session
+  // nobody marked. A running session has no end and is not given one; an
+  // interrupted one gets no row at all, because the timeline states absence
+  // by omission rather than by inventing a substitute.
+  if (run.endedAt && run.status === 'passed') {
     events.push({
       at: run.endedAt,
       row: {

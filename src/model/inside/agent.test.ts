@@ -487,7 +487,7 @@ describe('implementationSessionProcess', () => {
   it('closes the timeline with the recorded implementation marker', () => {
     const process = implementationSessionProcess(
       cell('impl', 'passed'),
-      tl([segment({ id: 1 })], { endedAt: runAt('13:00') }),
+      tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
       [],
       undefined,
       undefined,
@@ -512,10 +512,27 @@ describe('implementationSessionProcess', () => {
     expect(rows(process).map((r) => r.label)).toEqual(['started']);
   });
 
+  it('gives an interrupted session no done row', () => {
+    // `interruptImplementationRun` stamps `ended_at` too, but that records
+    // when the session stopped — nobody marked implementation done, so the
+    // timeline must not say anyone did.
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'interrupted' }),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    expect(timeline.map((r) => r.label)).toEqual(['started']);
+    expect(timeline.some((r) => r.label === 'done')).toBe(false);
+  });
+
   it('keeps a phase mark a note, never a verdict', () => {
     const process = implementationSessionProcess(
       cell('impl', 'passed'),
-      tl([segment({ id: 1 })], { endedAt: runAt('13:00') }),
+      tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
       [mark('research', runAt('12:10'), { implementationRunId: 1 })],
       undefined,
       undefined,
