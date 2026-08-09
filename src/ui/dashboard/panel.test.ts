@@ -247,6 +247,22 @@ describe('DashboardManager', () => {
     ).not.toThrow();
   });
 
+  it('reports a rejected inside action as a failure, not a success', () => {
+    const t = createTicket(store, { key: 'F4', title: 'inside outcome' });
+    const { host, panels } = fakeHost();
+    let mgr!: DashboardManager;
+    mgr = new DashboardManager(
+      store,
+      host,
+      () => ({ insideAction: (actionId: string) => mgr.dispatchInsideAction(t.id, actionId) }) as never,
+    );
+    mgr.openDashboard(t.id);
+    panels[0]!.posted.length = 0; // drop the open-time state push
+    panels[0]!.emit({ type: 'inside-action', actionId: 'stale-action-id', requestId: 'r1' });
+    const posted = panels[0]!.posted.find((m: any) => m.type === 'action-result');
+    expect(posted).toMatchObject({ type: 'action-result', ok: false });
+  });
+
   it('drops a malformed inside-progress event at the panel boundary', () => {
     // The webview is a trust boundary in both directions: an event the
     // renderer cannot handle (a live status outside run/wait/fail) never ships.

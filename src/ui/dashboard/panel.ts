@@ -19,6 +19,7 @@ import {
   type PathContext,
 } from './state.js';
 import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
+import type { InsideActionResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
@@ -201,7 +202,28 @@ export class DashboardManager {
       // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
       // no terminal outcome to report, and reporting one anyway would ack a
       // message the host never acted on.
-      if (!parseWebviewMessage(raw)) return;
+      const parsed = parseWebviewMessage(raw);
+      if (!parsed) return;
+      if (parsed.type === 'inside-action') {
+        // An inside dispatch's outcome is known synchronously; the generic
+        // seam's unconditional ack would report a rejected or stale dispatch
+        // as success (UI-R13). Post the returned result for this request.
+        const result = routeAction(raw, actions);
+        if (isInsideActionResult(result)) {
+          if (requestId) {
+            panel.postMessage({
+              type: 'action-result',
+              requestId,
+              ok: result.ok,
+              ...(result.message ? { message: result.message } : {}),
+            });
+          }
+          return;
+        }
+        // A void/promise-returning factory keeps its exact old semantics.
+        void reportAction(requestId, (message) => panel.postMessage(message), () => result);
+        return;
+      }
       void reportAction(requestId, (message) => panel.postMessage(message), () => {
         try {
           const result = routeAction(raw, actions);
@@ -211,7 +233,9 @@ export class DashboardManager {
               throw err;
             });
           }
-          return result;
+          // An InsideActionResult cannot reach this seam: `inside-action` is
+          // handled above, and no other case produces one.
+          return result as void | Promise<void>;
         } catch (err) {
           this.logError('karst: dashboard action failed', err);
           throw err;
@@ -364,10 +388,13 @@ export class DashboardManager {
    * Dispatch one opaque inside action id against the ticket's CURRENT action
    * registry. Rejects (logged) when the target fails its checks; unknown ids
    * are silently dropped — a stale or foreign id is not a fault to surface.
+   * Returns the terminal outcome so the message pump can report the REAL
+   * result to the webview (UI-R13): a rejected or stale dispatch is never
+   * acknowledged as success.
    */
-  dispatchInsideAction(ticketId: number, actionId: string): void {
+  dispatchInsideAction(ticketId: number, actionId: string): InsideActionResult {
     const registry = this.registries.get(ticketId);
-    if (!registry) return;
+    if (!registry) return { ok: false, message: 'This action is no longer available.' };
     const outcome = dispatchInsideAction(this.store, registry, actionId, {
       host: this.insideHost ?? NOOP_INSIDE_HOST,
       worktreeForRepo: (repo) =>
@@ -376,7 +403,15 @@ export class DashboardManager {
     });
     if (outcome.outcome === 'rejected') {
       this.logError(`karst: inside action rejected: ${outcome.reason}`, undefined);
+      // The reason is host diagnostic prose and may name a path — never send it
+      // to the webview. The user-facing message is a fixed string.
+      return { ok: false, message: 'This action could not be run.' };
     }
+    if (outcome.outcome === 'unknown') {
+      // A stale or foreign capability is not a success.
+      return { ok: false, message: 'This action is no longer available.' };
+    }
+    return { ok: true };
   }
 
   /**
@@ -398,6 +433,13 @@ export class DashboardManager {
   isOpen(ticketId: number): boolean {
     return this.panels.has(ticketId);
   }
+}
+
+/** Narrow a routed action's return to the synchronous inside outcome, if that is what it is. */
+function isInsideActionResult(
+  v: InsideActionResult | void | Promise<void>,
+): v is InsideActionResult {
+  return typeof v === 'object' && v !== null && typeof (v as { ok?: unknown }).ok === 'boolean';
 }
 
 /** An absent host resolves nothing: every dispatch is unknown/rejected, never acted on. */

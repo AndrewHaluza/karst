@@ -184,7 +184,19 @@ export interface DashboardActions {
    * Dispatch one opaque inside action id against the ticket's CURRENT action
    * registry. The host resolves the id; the webview cannot name a target.
    */
-  insideAction: (actionId: string) => void | Promise<void>;
+  insideAction: (actionId: string) => InsideActionResult | void | Promise<void>;
+}
+
+/**
+ * The synchronous, terminal outcome of one inside action dispatch (UI-R13).
+ * The panel posts it verbatim as the `action-result` for the request, so a
+ * rejected or stale dispatch is never acknowledged as a success. The rejection
+ * reason itself stays host-side (it may name a path); `message` is the fixed
+ * user-facing string.
+ */
+export interface InsideActionResult {
+  ok: boolean;
+  message?: string;
 }
 
 /**
@@ -350,7 +362,10 @@ export function parseInsideProgress(raw: unknown): InsideProgressEvent | null {
  * `action-result` (§ `docs/ui/DESIGN-SYSTEM.md` §5.3, UI-R13). An unparsed
  * message returns `undefined` WITHOUT calling any action.
  */
-export function routeAction(raw: unknown, actions: DashboardActions): void | Promise<void> {
+export function routeAction(
+  raw: unknown,
+  actions: DashboardActions,
+): InsideActionResult | void | Promise<void> {
   const msg = parseWebviewMessage(raw);
   if (!msg) return;
   switch (msg.type) {
