@@ -107,7 +107,14 @@ function boundedRepoRows(
     rows,
     REPOSITORY_EVIDENCE_LIMIT,
     input.attach
-      ? (allRows) => input.attach?.({ kind: 'open-bounded-evidence', title, rows: allRows })
+      ? (allRows) =>
+          input.attach?.({
+            kind: 'open-bounded-evidence',
+            title,
+            rows: allRows,
+            // handoff §10: the continuation says exactly what it reveals.
+            label: `Show ${Math.max(0, allRows.length - REPOSITORY_EVIDENCE_LIMIT)} more`,
+          })
       : undefined,
   );
 }
@@ -217,6 +224,16 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
       if (!step) {
         return { status: 'note', label: repo, detail: 'pr step not recorded' };
       }
+      // A note step is ship's own "no PR needed" record (a repo with no
+      // changes from base). handoff §11 copy states it; it is NOT a failure
+      // and NOT "created — number pending".
+      if (step.status === 'note') {
+        return {
+          status: 'note',
+          label: repo,
+          detail: 'No PR was created because this repository had no changes',
+        };
+      }
       const kind = step.existedBeforeShip === true ? 'adopted' : 'created';
       const number = step.number ? ` #${step.number}` : kind === 'created' ? ' — number pending' : '';
       return {
@@ -277,17 +294,23 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
     return { status: 'wait', label: 'open', detail: `${name} · not merged yet` };
   });
   const allMerged = recorded.length > 0 && recorded.every((r) => r.status === 'pass');
+  const conflicted = recorded.filter((r) => r.label === 'conflict').length;
   const rows = boundedRepoRows(input, 'Ship · Merge', recorded);
   return {
     id: 'merge',
     kind: 'merge',
     label: 'Merge',
     status: recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input),
-    ...(recorded.length === 0 && input.cell.startedAt
-      ? { detail: 'nothing to merge — no pull request opened' }
-      : rows.length === 0
-        ? { detail: noEvidenceDetail(input) }
-        : {}),
+    // handoff §11: a conflict is a WAIT that names what the user must do —
+    // the per-repo rows keep their factual readings; the sentence is the
+    // collapsed summary.
+    ...(conflicted > 0
+      ? { detail: 'Ship is waiting: resolve the merge conflict before the ticket can be done.' }
+      : recorded.length === 0 && input.cell.startedAt
+        ? { detail: 'nothing to merge — no pull request opened' }
+        : rows.length === 0
+          ? { detail: noEvidenceDetail(input) }
+          : {}),
     evidence: { kind: 'rows', rows },
   };
 }

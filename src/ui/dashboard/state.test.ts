@@ -10,6 +10,7 @@ import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
+import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
 
 describe('buildDashboardState', () => {
@@ -565,5 +566,24 @@ describe('insideViews (the six-stage inside presentation)', () => {
     });
     const plain = buildDashboardState(store, ticketId).insideViews.uat;
     expect(plain.processes.find((p) => p.id === 'gates')!.action).toBeUndefined();
+  });
+
+  it('carries the continuation label through the attach seam (B9)', () => {
+    // handoff §10: the label ("Show 2 more") is computed by the reducers on
+    // the target; the attach seam must carry it beside the minted action,
+    // because the registry itself models only {actionId, kind}.
+    const ticketId = ticketAt('done');
+    const insert = store.db.prepare(
+      `INSERT INTO prs (ticket_id, repo, number, url, status, merged_at)
+       VALUES (?, ?, ?, ?, 'merged', ?)`,
+    );
+    for (let i = 0; i < 8; i += 1) {
+      insert.run(ticketId, `repo-${i}`, 100 + i, `https://github.com/o/r/pull/${100 + i}`, '2026-08-08T10:00:00.000Z');
+    }
+    const registry = new InsideActionRegistry(1, ticketId);
+    const state = buildDashboardState(store, ticketId, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, registry);
+    const receipt = state.insideViews.done.processes.find((p) => p.id === 'delivery-receipt')!;
+    const continuation = receipt.evidence?.rows.find((r) => r.action)?.action;
+    expect(continuation).toMatchObject({ kind: 'open-bounded-evidence', label: 'Show 2 more' });
   });
 });

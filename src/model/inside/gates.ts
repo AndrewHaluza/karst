@@ -354,6 +354,11 @@ function aiProcessBase(
         : 'note',
     ...(run?.startedAt ? { duration: formatDuration(run.startedAt, run.endedAt ?? now) } : {}),
     ...(run?.provider ? { execution: executionView(run.provider, run.model) } : {}),
+    // A run that recorded no provider is identity ABSENCE, never "unknown
+    // identity" and never the configured default (handoff §11: "No historical
+    // execution identity recorded" — what RAN decides, and here it says
+    // nothing).
+    ...(run && !run.provider ? { identityNote: 'No historical execution identity recorded' } : {}),
     ...(!run && configured
       ? { configuredExecution: executionView(configured.provider, configured.model) }
       : {}),
@@ -443,13 +448,20 @@ function gatesProcess(
           : cell.status === 'running'
             ? 'run'
             : 'pass',
-    ...(batch.length === 0
+    // handoff §11 failure copy: the collapsed row says what failed, why, and
+    // what to do — the failing rows keep their terse exit-code detail
+    // (handoff §6's row template).
+    ...(failed > 0
       ? {
-          detail: finished
-            ? 'no gates recorded for this stage'
-            : 'resolved per repository when the stage runs',
+          detail: `Tests failed: ${failed} ${failed === 1 ? 'gate' : 'gates'} returned a nonzero exit code. Review the log and resume the stage.`,
         }
-      : {}),
+      : batch.length === 0
+        ? {
+            detail: finished
+              ? 'no gates recorded for this stage'
+              : 'resolved per repository when the stage runs',
+          }
+        : {}),
     ...(aggregate ? { aggregate } : {}),
     ...(firstStart ? { duration: formatDuration(firstStart, lastEnd) } : {}),
     evidence: { kind: 'gates', rows, passed, failed, skipped },
@@ -584,8 +596,10 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
               ? `${blocking} blocking finding${blocking === 1 ? '' : 's'}`
               : run.resultKind === 'validated'
                 ? 'no blocking findings'
-                : run.resultKind === 'execution-failed'
-                  ? 'adapter execution failed'
+                : // handoff §11: an execution failure must never read as
+                  // "no findings" — it names what failed and what to do.
+                  run.resultKind === 'execution-failed'
+                  ? 'Review execution failed: the agent did not return a result. Retry review.'
                   : run.resultKind === 'interrupted'
                     ? 'interrupted — no outcome'
                     : undefined,

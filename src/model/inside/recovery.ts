@@ -5,6 +5,7 @@ import { executionView } from './agent.js';
 import { bounded } from './bounds.js';
 import {
   formatDuration,
+  STAGE_TITLES,
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
@@ -49,6 +50,40 @@ function roundStatus(round: RecoveryRound): InsideStatus {
   }
 }
 
+/** The cause of a round as prose — handoff §11's "UAT test failure" reading. */
+function triggerProse(round: RecoveryRound): string {
+  switch (round.triggerKind) {
+    case 'gate-failure':
+      return `${STAGE_TITLES[round.sourceStage]} test failure`;
+    case 'tester-verifier-failure':
+      return 'UAT verifier failure';
+    case 'blocking-review-findings':
+      return 'Review blocking findings';
+    default:
+      // A future trigger kind degrades to the recorded prose, never a blank.
+      return collapseDiagnostic(round.triggerDetail, TRIGGER_DETAIL_MAX);
+  }
+}
+
+/**
+ * One round's state as the handoff §11 copy. `passed`/`failed`/`interrupted`
+ * keep the recorded trigger detail — §11 has no templates for those states,
+ * and the failed row's factual cause ("what failed") must not vanish.
+ */
+function roundDetail(round: RecoveryRound): string {
+  switch (round.status) {
+    case 'pending':
+    case 'fixing':
+      return `Fix started after ${triggerProse(round)} · round ${round.round} of ${round.maxRounds}`;
+    case 'revalidating':
+      return `Fix completed; ${STAGE_TITLES[round.sourceStage]} revalidation is running`;
+    case 'exhausted':
+      return `Recovery exhausted after ${round.maxRounds} ${round.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`;
+    default:
+      return `${collapseDiagnostic(round.triggerDetail, TRIGGER_DETAIL_MAX)} — max ${round.maxRounds}`;
+  }
+}
+
 /**
  * The fix row for one inside stage: every round the stage recorded, oldest
  * first, plus the identity/duration of the fix execution when the round has
@@ -72,11 +107,10 @@ export function recoveryProcess(
 
   const boundedRows = bounded(
     rounds.map((round): EvidenceRow => {
-      const detail = `${collapseDiagnostic(round.triggerDetail, TRIGGER_DETAIL_MAX)} — max ${round.maxRounds}`;
       return {
         status: roundStatus(round),
         label: `round ${round.round}`,
-        detail: round.status === 'exhausted' ? `${detail} — no fix attempts left` : detail,
+        detail: roundDetail(round),
       };
     }),
     RECOVERY_ROWS_LIMIT,
@@ -86,6 +120,19 @@ export function recoveryProcess(
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
+  // The COLLAPSED fix row is never silent (handoff §11 + §3.8): every state
+  // names what is happening, the exhausted one states what to do.
+  const detail =
+    latest.status === 'exhausted'
+      ? `Recovery exhausted after ${latest.maxRounds} ${latest.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`
+      : latest.status === 'failed'
+        ? 'the fix did not hold — the next round names the new cause'
+        : latest.status === 'pending' || latest.status === 'fixing'
+          ? `Fix started after ${triggerProse(latest)} · round ${latest.round} of ${latest.maxRounds}`
+          : latest.status === 'revalidating'
+            ? `Fix completed; ${STAGE_TITLES[latest.sourceStage]} revalidation is running`
+            : undefined;
+
   return {
     triggerProcessId: latest.sourceProcessId,
     process: {
@@ -93,11 +140,7 @@ export function recoveryProcess(
       kind: 'fix',
       label: 'Fix',
       status: roundStatus(latest),
-      ...(latest.status === 'exhausted'
-        ? { detail: 'no fix attempts left' }
-        : latest.status === 'failed'
-          ? { detail: 'the fix did not hold — the next round names the new cause' }
-          : {}),
+      ...(detail ? { detail } : {}),
       ...(fixRun?.startedAt
         ? { duration: formatDuration(fixRun.startedAt, fixRun.endedAt ?? now) }
         : {}),

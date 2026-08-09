@@ -100,11 +100,14 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
     mergedRows,
     REPOSITORY_EVIDENCE_LIMIT,
     input.attach
-      ? (allRows) => input.attach?.({
-          kind: 'open-bounded-evidence',
-          title: 'Done · Delivery receipt',
-          rows: allRows,
-        })
+      ? (allRows) =>
+          input.attach?.({
+            kind: 'open-bounded-evidence',
+            title: 'Done · Delivery receipt',
+            rows: allRows,
+            // handoff §10: the continuation says exactly what it reveals.
+            label: `Show ${Math.max(0, allRows.length - REPOSITORY_EVIDENCE_LIMIT)} more`,
+          })
       : undefined,
   );
 
@@ -120,6 +123,11 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
             detail: `${input.rounds.length} round${input.rounds.length === 1 ? '' : 's'} fixed before delivery`,
           } satisfies EvidenceRow,
         ]
+      : []),
+    // handoff §11: absence is stated, never a zero — "No token usage recorded
+    // yet" names the empty fact instead of omitting it in silence.
+    ...(input.tokens === null
+      ? [{ status: 'note', label: 'tokens', detail: 'No token usage recorded yet' } satisfies EvidenceRow]
       : []),
     ...input.roles.map(
       (role): EvidenceRow => ({

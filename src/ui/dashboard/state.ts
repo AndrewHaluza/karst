@@ -297,9 +297,15 @@ export function buildDashboardState(
   const now = nowIso();
 
   // The snapshot-scoped action seam: the registry lives here in the host; only
-  // the opaque {actionId, kind} pairs ride the view.
-  const attach = (target: InsideEvidenceTarget): TypedInsideAction | undefined =>
-    registry ? registry.register({ ...target, ticketId: ticket.id }) : undefined;
+  // the opaque {actionId, kind} pairs ride the view. The continuation label
+  // ("Show 4 more", handoff §10) is presentation copy the registry does not
+  // model, so it is carried alongside the minted action here.
+  const attach = (target: InsideEvidenceTarget): TypedInsideAction | undefined => {
+    const action = registry?.register({ ...target, ticketId: ticket.id });
+    if (!action) return undefined;
+    const label = 'label' in target ? (target as { label?: string }).label : undefined;
+    return label ? { ...action, label } : action;
+  };
 
   // Recorded token summaries per process and per role — a process whose calls
   // were all estimates reads as absent, never as a measured free call. The

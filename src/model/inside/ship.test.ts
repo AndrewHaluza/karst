@@ -202,6 +202,66 @@ describe('shipProcesses', () => {
     expect(views[2]!.aggregate).toBeUndefined();
   });
 
+  it('states a conflicted merge in the handoff §11 copy on the process row (B9)', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [pr('/web', { number: 4, status: 'open' })],
+        mergeChecks: [check('/web', { state: 'conflicted', files: ['a.ts'], reason: 'both sides edit' })],
+      }),
+    );
+    const merge = views[3]!;
+    expect(merge.status).toBe('wait'); // a conflict is a wait, never a fail
+    expect(merge.detail).toBe(
+      'Ship is waiting: resolve the merge conflict before the ticket can be done.',
+    );
+    // The per-repo row keeps its factual reading; the sentence is the summary.
+    expect(rowsOf(merge)[0]!.detail).toContain('conflicted');
+  });
+
+  it('reads a note pr step as the no-changes copy (B9)', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { status: 'note', detail: 'no PR needed — no changes from develop' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    const row = rowsOf(views[2]!)[0]!;
+    expect(row.status).toBe('note'); // no changes is not a failure
+    expect(row.detail).toBe(
+      'No PR was created because this repository had no changes',
+    );
+  });
+
+  it('names the bounded continuation with the exact reveal count (B9)', () => {
+    // handoff §10: a continuation says exactly what it reveals. The REDUCER
+    // computes the label on the target; the host's attach closure carries it
+    // into the shipped action (state.ts, pinned by its own suite).
+    const repos: Record<string, ShipRepoEvidence> = {};
+    for (let i = 0; i < 10; i += 1) {
+      repos[`/repo-${i}`] = repoEvidence(`/repo-${i}`, {
+        steps: { push: step('push', { repo: `/repo-${i}` }) },
+      });
+    }
+    let label: string | undefined;
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({ repos }),
+        attach: (target) => {
+          if (target.kind === 'open-bounded-evidence') label = target.label;
+          return { actionId: 'snapshot-1:action-0', kind: target.kind };
+        },
+      }),
+    );
+    const rows = rowsOf(views[1]!); // push — bounded at 6
+    expect(rows.at(-1)!.action).toMatchObject({ kind: 'open-bounded-evidence' });
+    expect(label).toBe('Show 4 more');
+  });
+
   it('aggregates at 20 repos: bounded rows and the remainder named', () => {    const repos: Record<string, ShipRepoEvidence> = {};
     for (let i = 0; i < 20; i += 1) {
       repos[`/repo-${i}`] = repoEvidence(`/repo-${i}`, {

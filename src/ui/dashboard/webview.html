@@ -1345,17 +1345,25 @@
 
   function insideActionBtnHtml(a) {
     if (!a || !INSIDE_ACTION_LABEL[a.kind]) return '';
+    // The host may ship a count-bearing label ("Show 4 more" — handoff §10);
+    // the static map is the fallback, never a webview-computed count.
+    const label = a.label || INSIDE_ACTION_LABEL[a.kind];
     return `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="inside-action"`
       + ` data-action-id="${esc(a.actionId)}" title="${esc(INSIDE_ACTION_TITLE[a.kind])}">`
-      + `${esc(INSIDE_ACTION_LABEL[a.kind])}</button>`;
+      + `${esc(label)}</button>`;
   }
 
   // The recorded execution identity. `execution` = what RAN; `configured`
   // = what settings said WOULD run. One chip, whichever exists; the title
   // says which claim it is, so a pending process never reads as evidence.
   // The agent-core mark rides the injected identity API (B1) so the cluster
-  // reads "[core icon] Agent · Codex · sol" per handoff §5.
+  // reads "[core icon] Agent · Codex · sol" per handoff §5. A run that
+  // recorded no identity gets the host's §11 absence copy instead of an
+  // invented identity (`identityNote`, B9).
   function identityChipHtml(p) {
+    if (p.identityNote) {
+      return `<span class="pchip identity-note" title="${esc(p.identityNote)}">${esc(p.identityNote)}</span>`;
+    }
     const e = p.execution || p.configuredExecution;
     if (!e) return '';
     const core = e.providerLabel || e.provider;

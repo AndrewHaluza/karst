@@ -84,20 +84,53 @@ describe('recoveryProcess', () => {
     expect(view!.triggerProcessId).toBe('tester');
   });
 
-  it('renders one recovery row per round, oldest first, cause and STORED budget', () => {
+  it('renders one recovery row per round, oldest first, with handoff §11 copy', () => {
     const view = recoveryProcess(
-      [round({ id: 1, round: 1, triggerDetail: 'exit 1' }), round({ id: 2, round: 2, maxRounds: 3 })],
+      [
+        round({ id: 1, round: 1, triggerDetail: 'exit 1', status: 'pending' }),
+        round({ id: 2, round: 2, maxRounds: 3, status: 'fixing' }),
+      ],
       [],
       NOW,
     );
     const rows = evidenceRows(view!);
     expect(rows.map((r) => r.label)).toEqual(['round 1', 'round 2']);
-    expect(rows[0]!.detail).toContain('exit 1');
-    expect(rows[0]!.detail).toContain('max 2');
-    // Stored max stability: the budget rendered comes from the ROW, and the
-    // reducer has no manifest to consult — a knob edited after the failure
-    // cannot rewrite what the round committed under.
-    expect(rows[1]!.detail).toContain('max 3');
+    // handoff §11: "Fix started after UAT test failure · round 1 of 2" — the
+    // cause is the recorded trigger KIND, and the budget comes from the ROW
+    // (a knob edited after the failure cannot rewrite the committed budget).
+    expect(rows[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
+    expect(rows[1]!.detail).toBe('Fix started after UAT test failure · round 2 of 3');
+  });
+
+  it('states every recovery state in the handoff §11 copy (B9)', () => {
+    const fixing = recoveryProcess([round({ status: 'fixing' })], [], NOW)!;
+    expect(evidenceRows(fixing)[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
+    const revalidating = recoveryProcess([round({ status: 'revalidating' })], [], NOW)!;
+    expect(evidenceRows(revalidating)[0]!.detail).toBe('Fix completed; UAT revalidation is running');
+    const exhausted = recoveryProcess([round({ status: 'exhausted' })], [], NOW)!;
+    expect(evidenceRows(exhausted)[0]!.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+    // §3.8: the process row is silent until exhausted/failed — the running
+    // and waiting copy must ride the collapsed row too.
+    expect(recoveryProcess([round({ status: 'pending' })], [], NOW)!.process.detail).toBe(
+      'Fix started after UAT test failure · round 1 of 2',
+    );
+    expect(recoveryProcess([round({ status: 'revalidating' })], [], NOW)!.process.detail).toBe(
+      'Fix completed; UAT revalidation is running',
+    );
+    expect(exhausted.process.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+  });
+
+  it('names each trigger kind in prose (B9)', () => {
+    const gate = recoveryProcess([round({ sourceStage: 'review', triggerKind: 'gate-failure' })], [], NOW)!;
+    expect(evidenceRows(gate)[0]!.detail).toBe('Fix started after Review test failure · round 1 of 2');
+    const verifier = recoveryProcess([round({ triggerKind: 'tester-verifier-failure' })], [], NOW)!;
+    expect(evidenceRows(verifier)[0]!.detail).toBe('Fix started after UAT verifier failure · round 1 of 2');
+    const findings = recoveryProcess([round({ triggerKind: 'blocking-review-findings' })], [], NOW)!;
+    expect(evidenceRows(findings)[0]!.detail).toBe('Fix started after Review blocking findings · round 1 of 2');
   });
 
   it('maps round states onto the process status vocabulary', () => {
@@ -125,8 +158,12 @@ describe('recoveryProcess', () => {
     );
     const rows = evidenceRows(view!);
     expect(rows.map((r) => r.label)).toEqual(['round 1', 'round 2']);
-    expect(rows[1]!.detail).toContain('no fix attempts left');
-    expect(view!.process.detail).toBe('no fix attempts left');
+    expect(rows[1]!.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+    expect(view!.process.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
   });
 
   it('carries the fix execution identity and duration when a fix run is attached', () => {

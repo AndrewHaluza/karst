@@ -201,11 +201,14 @@ export type InsideActionKind =
  * `actionId` is an opaque snapshot-scoped capability: never a path, URL, repo,
  * SHA, or PR number — the host resolves it through a ticket-scoped allowlist
  * and the webview posts only the id back. `kind` is a presentation hint only;
- * the host does not trust it on dispatch.
+ * the host does not trust it on dispatch. `label` is the host-computed control
+ * copy when it names a count ("Show 4 more" — handoff §10); absent → the
+ * webview's static kind map supplies the label.
  */
 export interface TypedInsideAction {
   actionId: string;
   kind: InsideActionKind;
+  label?: string;
 }
 
 /**
@@ -221,11 +224,12 @@ export type InsideEvidenceTarget =
       evidence: { source: 'review-finding' | 'uat-finding'; id: number };
     }
   | { kind: 'open-commit'; shipCommitId: number }
-  | { kind: 'open-full-evidence'; processRunId: number }
+  | { kind: 'open-full-evidence'; processRunId: number; label?: string }
   | {
       kind: 'open-bounded-evidence';
       title: string;
       rows: readonly EvidenceRow[];
+      label?: string;
     };
 
 /**
@@ -316,6 +320,13 @@ export interface InsideProcessView {
   execution?: AgentExecutionView;
   /** What the settings said WOULD run, for a process that has not run. */
   configuredExecution?: AgentExecutionView;
+  /**
+   * The §11 absence copy for a process that RAN without a recorded identity
+   * ("No historical execution identity recorded") — shown in the identity
+   * chip's place, never an invented identity. Absent → the chip renders
+   * whatever identity exists or nothing.
+   */
+  identityNote?: string;
   tokens?: TokenUsageView;
   evidence?: ProcessEvidenceView;
   action?: TypedInsideAction;

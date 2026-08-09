@@ -8,7 +8,7 @@ import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { implInside, fixInside, implementationSessionProcess, reportedPhases, tokenView } from './agent.js';
-import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
+import { formatTime, type EvidenceRow, type InsideEvidenceTarget, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 const SESSION = { sessionId: '0f3a91', agentState: 'running', model: 'claude-opus-4-8' };
@@ -684,7 +684,7 @@ describe('implementationSessionProcess', () => {
     );
     expect(process.tokens).toEqual({
       state: 'unavailable',
-      title: 'This agent core does not report per-session usage',
+      title: 'Token usage not available for this provider',
     });
   });
 
@@ -701,14 +701,14 @@ describe('implementationSessionProcess', () => {
     );
     expect(process.tokens).toEqual({
       state: 'unavailable',
-      title: 'This agent core does not report per-session usage',
+      title: 'Token usage not available for this provider',
     });
   });
 
   it('tokenView never claims a zero for a non-interactive provider', () => {
     expect(tokenView({ total: 12_435 }, false)).toEqual({
       state: 'unavailable',
-      title: 'This agent core does not report per-session usage',
+      title: 'Token usage not available for this provider',
     });
     // Default true preserves the measuring-provider reading for callers that
     // carry no capability context (headless gate processes).
@@ -729,6 +729,30 @@ describe('implementationSessionProcess', () => {
       NOW,
     );
     expect(rows(process).map((r) => r.label)).toEqual(['started', 'research']);
+  });
+
+  it('names the full-evidence continuation with the exact reveal count (B9)', () => {
+    // handoff §10: a continuation says exactly what it reveals. The REDUCER
+    // computes the label on the target; the host's attach closure carries it
+    // into the shipped action (state.ts, pinned by its own suite).
+    const marks = Array.from({ length: 25 }, (_, i) => mark(`phase ${i}`, runAt('12:05')));
+    let label: string | undefined;
+    const attach = (target: InsideEvidenceTarget) => {
+      if (target.kind === 'open-full-evidence') label = target.label;
+      return { actionId: 'snapshot-1:action-1', kind: target.kind as 'open-full-evidence' };
+    };
+    const process = implementationSessionProcess(
+      cell('impl', 'passed'),
+      tl([segment({ id: 1, status: 'closed', endedAt: runAt('12:20') })]),
+      marks,
+      undefined,
+      undefined,
+      NOW,
+      attach,
+    );
+    // 25 marks + the started row = 26 events; TIMELINE_LIMIT is 20.
+    expect(process.action).toMatchObject({ kind: 'open-full-evidence' });
+    expect(label).toBe('Show 6 more');
   });
 
   it('ignores marks from other stages, other runs, and segments that never started', () => {

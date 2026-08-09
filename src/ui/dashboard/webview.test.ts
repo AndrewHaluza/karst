@@ -1207,6 +1207,24 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/btn\.dataset\.actionId\) \{\n\s*post\(\{ type: act, actionId: btn\.dataset\.actionId, requestId \}\)/);
   });
 
+  it('renders the host-shipped continuation label, falling back to the static one (B9)', () => {
+    // handoff §10: a continuation says exactly what it reveals — "Show 4
+    // more". The count is host-computed and rides the action; the static
+    // map stays the fallback for actions without a count.
+    expect(HTML).toMatch(/INSIDE_ACTION_LABEL\[a\.kind\]/);
+    expect(HTML).toMatch(/a\.label \|\| INSIDE_ACTION_LABEL\[a\.kind\]/);
+  });
+
+  it('renders the identity note chip when the host ships one (B9)', () => {
+    // §11: "No historical execution identity recorded" — the reducer ships it
+    // when a run recorded no provider; the webview renders the shipped string
+    // in the identity chip's place, never inventing an identity. The literal
+    // must NOT appear here: that copy is host-side (UI-R31).
+    expect(HTML).toContain('p.identityNote');
+    expect(HTML).toMatch(/identityNote[^]*esc\(p\.identityNote\)/);
+    expect(HTML).not.toContain('No historical execution identity recorded');
+  });
+
   it('renders a live operation in the header, never as a second process row', () => {
     // The inside-progress protocol is a same-tick overlay: `active` rides the
     // stage header, `completed` replaces the snapshot's same-id process row, and
@@ -1904,18 +1922,18 @@ describe('inside render round trip (executed in a VM)', () => {
 
   it('renders the unavailable token state as absence with a title, never 0 (B2)', () => {
     // decision 8: a provider that reports no per-session usage (Claude,
-    // Antigravity) must read as absent with the host's title — "usage
+    // Antigravity) must read as absent with the handoff §11 title — "usage
     // unavailable" per handoff §6, never "0 tokens" and never "undefined".
     const state = renderStateFor('uat');
     const uat = { ...state.insideViews.uat };
     uat.processes = uat.processes.map((p) =>
       p.id === 'tester'
-        ? { ...p, tokens: { state: 'unavailable', title: 'This agent core does not report per-session usage' } }
+        ? { ...p, tokens: { state: 'unavailable', title: 'Token usage not available for this provider' } }
         : p,
     );
     const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
     expect(html).toContain('usage unavailable');
-    expect(html).toContain('title="This agent core does not report per-session usage"');
+    expect(html).toContain('title="Token usage not available for this provider"');
     expect(html).not.toContain('undefined');
     expect(html).not.toMatch(/\b0 tokens\b/);
   });

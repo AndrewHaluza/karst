@@ -228,7 +228,10 @@ describe('doneReceipt', () => {
       { status: 'complete' }
     >;
     expect(view.tokens).toBeNull();
-    expect(rowsOf(view).find((r) => r.label === 'tokens')).toBeUndefined();
+    // handoff §11: absence is stated, never zero — the receipt row names it.
+    const row = rowsOf(view).find((r) => r.label === 'tokens');
+    expect(row).toBeDefined();
+    expect(row!.detail).toBe('No token usage recorded yet');
   });
 
   it('never treats an estimated row as recorded spend', () => {

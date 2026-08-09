@@ -344,7 +344,7 @@ function timelineEvents(
 }
 
 /** The title shown when a provider can never produce a per-session usage fact. */
-const UNAVAILABLE_TOKEN_TITLE = 'This agent core does not report per-session usage';
+const UNAVAILABLE_TOKEN_TITLE = 'Token usage not available for this provider';
 
 /**
  * Whether a provider's interactive sessions can produce measured usage facts.
@@ -414,12 +414,14 @@ export function implementationSessionProcess(
   const execution = timeline ? latestConfirmedSegment(timeline) : undefined;
 
   let rows: readonly EvidenceRow[] = [];
+  let withheld = 0;
   if (timeline) {
     const boundedRows = bounded(
       timelineEvents(timeline, marks, now).map((e) => e.row),
       TIMELINE_LIMIT,
     );
     rows = boundedRows.shown;
+    withheld = boundedRows.remaining;
     if (boundedRows.remaining > 0) {
       rows = [
         ...rows,
@@ -430,7 +432,16 @@ export function implementationSessionProcess(
 
   // The process row itself can open the stable run's full evidence — the one
   // action a timeline row cannot carry without claiming a specific segment.
-  const action = attach && timeline ? attach({ kind: 'open-full-evidence', processRunId: timeline.run.processRunId }) : undefined;
+  // The label names the reveal count (handoff §10); no count → the webview's
+  // static "Show all" covers it.
+  const action =
+    attach && timeline
+      ? attach({
+          kind: 'open-full-evidence',
+          processRunId: timeline.run.processRunId,
+          ...(withheld > 0 ? { label: `Show ${withheld} more` } : {}),
+        })
+      : undefined;
 
   // Per-session usage exists only for providers whose bridge emits measured
   // UsageUpdate events (agent/provider.ts) — a Claude/Antigravity session can

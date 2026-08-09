@@ -774,7 +774,9 @@ describe('uatProcesses', () => {
     expect(fix).toHaveLength(1);
     expect(rowsOf(fix[0]!).map((r) => r.label)).toEqual(['round 1', 'round 2']);
     expect(fix[0]!.status).toBe('fail');
-    expect(fix[0]!.detail).toBe('no fix attempts left');
+    expect(fix[0]!.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
   });
 
   it('renders the round budget from the STORED max_rounds, never the live manifest', () => {
@@ -782,7 +784,7 @@ describe('uatProcesses', () => {
       qualityInput({ rounds: [round({ maxRounds: 3 })] }),
     );
     const fix = views.find((p) => p.id === 'fix')!;
-    expect(rowsOf(fix)[0]!.detail).toContain('max 3');
+    expect(rowsOf(fix)[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 3');
   });
 
   it('renders a crash without a round as no fix and a failed process row', () => {
@@ -921,7 +923,51 @@ describe('reviewProcesses', () => {
     );
     const review = views.find((p) => p.id === 'review')!;
     expect(review.status).toBe('fail');
-    expect(review.detail).toContain('execution failed');
+    // handoff §11: an execution failure must never read as "no findings".
+    expect(review.detail).toBe(
+      'Review execution failed: the agent did not return a result. Retry review.',
+    );
+  });
+
+  it('states a failed gate batch in the handoff §11 copy on the process row (B9)', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'failed'),
+        gateRuns: [run('uat', 'test (web)', 1, { runAt: NOW })],
+      }),
+    );
+    const gates = views[0]!;
+    expect(gates.detail).toBe(
+      'Tests failed: 1 gate returned a nonzero exit code. Review the log and resume the stage.',
+    );
+    // The failing ROW keeps its terse factual detail (handoff §6 row template).
+    const rows = (gates.evidence as { rows: readonly EvidenceRow[] }).rows;
+    expect(rows[0]!.detail).toBe('exit 1');
+  });
+
+  it('pluralizes the failed-gate sentence (B9)', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'failed'),
+        gateRuns: [
+          run('uat', 'test (web)', 1, { runAt: NOW }),
+          run('uat', 'e2e (web)', 2, { runAt: NOW }),
+        ],
+      }),
+    );
+    expect(views[0]!.detail).toContain('2 gates returned');
+  });
+
+  it('states when a recorded run carries no execution identity (B9)', () => {
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [
+          processRun({ id: 9, status: 'passed', resultKind: 'observed', provider: null, model: null }),
+        ],
+      }),
+    );
+    const tester = views.find((p) => p.id === 'tester')!;
+    expect(tester.identityNote).toBe('No historical execution identity recorded');
   });
 
   it('shows only the latest findings batch and bounds it at 6', () => {
