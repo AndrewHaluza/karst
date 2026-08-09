@@ -10,7 +10,7 @@ import {
   type PrDetail,
   type PrStatus,
 } from '../integrations/github.js';
-import { settleMergeStage } from './mergeGate.js';
+import { settleShipGate } from './mergeGate.js';
 
 /**
  * Merge one repo's PR for a ticket, from the ship stage, and record what actually
@@ -45,8 +45,8 @@ export interface MergeTicketPrResult {
   ok: boolean;
   /**
    * True when this merge was the LAST one outstanding and the ticket therefore
-   * advanced from `merge` to `done`. False on a multi-repo ticket with PRs still
-   * open — the ticket stays parked, which is the whole point of the merge stage.
+   * advanced from `ship` to `done`. False on a multi-repo ticket with PRs still
+   * open — the ticket stays parked at `ship`, blocked on the rest.
    *
    * Reported rather than left for the caller to re-derive, so the post-merge
    * provider status push fires exactly once, on the call that actually finished
@@ -81,7 +81,7 @@ async function probe(gh: GhRunner, url: string, cwd: string): Promise<PrDetail> 
  */
 function settle(store: Store, ticketId: number): boolean {
   try {
-    return settleMergeStage(store, ticketId).advanced;
+    return settleShipGate(store, ticketId).advanced;
   } catch {
     return false;
   }
@@ -105,9 +105,9 @@ export async function mergeTicketPr(
   }
   // Already merged: the desired state, reached earlier. Not an error, and not a
   // reason to run an irreversible command a second time. Still settles: the
-  // ticket can be parked at `merge` because a DIFFERENT repo was the holdout, and
-  // a click on the landed one is as good a moment as any to notice it has caught
-  // up.
+  // ticket can still be blocked at `ship` because a DIFFERENT repo was the
+  // holdout, and a click on the landed one is as good a moment as any to notice
+  // it has caught up.
   if (pr.status === 'merged') {
     return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId), reason: '' };
   }

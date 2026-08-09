@@ -28,10 +28,18 @@ export interface RunGatesOptions {
   /** Whether the repository defines a given package.json script. */
   scriptsAvailable?: (script: string) => boolean;
   /**
-   * Called after each gate finishes, with the gate's name. Lets callers push
-   * dashboard progress ("gate 2 of 4, elapsed 1m23s") without polling.
+   * Called after each gate finishes, with the gate's name AND its recorded
+   * outcome (`null` = the repo could not answer — the "nothing to run" note,
+   * never a verdict). Lets callers push dashboard progress ("gate 2 of 4,
+   * elapsed 1m23s") without polling.
    */
-  onGateComplete?: (gateName: string) => void;
+  onGateComplete?: (gateName: string, exitCode: number | null) => void;
+  /**
+   * Called BEFORE each gate's work begins, with the gate's name — the live
+   * counterpart of `onGateComplete`, so callers can flip a process header to
+   * `run` the moment the gate starts rather than only after it lands.
+   */
+  onGateStart?: (gateName: string) => void;
 }
 
 export async function runGateList(
@@ -43,6 +51,7 @@ export async function runGateList(
   const results: GateResult[] = [];
   for (const gate of gates) {
     if (opts.signal?.aborted) return { kind: 'stopped', results };
+    opts.onGateStart?.(gate.name);
     const startedAt = now();
 
     if (gate.script !== null && gate.required && opts.scriptsAvailable?.(gate.script) === false) {
@@ -57,7 +66,7 @@ export async function runGateList(
         startedAt,
         endedAt: now(),
       });
-      opts.onGateComplete?.(gate.name);
+      opts.onGateComplete?.(gate.name, 1);
       continue;
     }
 
@@ -73,7 +82,7 @@ export async function runGateList(
         exitCode: null,
         output: `no "${gate.script}" script available — nothing to run`,
       });
-      opts.onGateComplete?.(gate.name);
+      opts.onGateComplete?.(gate.name, null);
       continue;
     }
     results.push({
@@ -83,7 +92,7 @@ export async function runGateList(
       startedAt,
       endedAt: now(),
     });
-    opts.onGateComplete?.(gate.name);
+    opts.onGateComplete?.(gate.name, outcome.kind === 'completed' ? outcome.exitCode : 1);
   }
   return { kind: 'ran', results };
 }

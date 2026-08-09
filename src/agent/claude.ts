@@ -93,7 +93,15 @@ const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
  * Keeps every Claude-specific flag here so nothing leaks past `AgentAdapter`.
  */
 export class ClaudeAdapter implements AgentAdapter {
-  readonly capabilities: AgentCapabilities = { lifecycleEvents: true, resume: true };
+  // No interactive usage: Claude's documented hook payloads (Stop:
+  // session_id/stop_hook_active/last_assistant_message; SessionEnd: reason
+  // only) carry no authoritative token counters and no stable usage-event id,
+  // so the bridge is lifecycle-only (settings.ts registers no UsageUpdate).
+  readonly capabilities: AgentCapabilities = {
+    lifecycleEvents: true,
+    resume: true,
+    interactiveUsage: false,
+  };
   readonly requiredBinary = CLAUDE_BIN;
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}

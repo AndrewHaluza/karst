@@ -1,11 +1,11 @@
 import type { DashboardState } from './state.js';
-import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import { isHttpUrl } from '../shared/url.js';
 import type { WorktreeStats } from './worktreeStats.js';
 import type { GateOptions } from './gateOptions.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
 import { STAGE_KEYS, type StageKey } from '../../model/types.js';
 import { GATE_STAGES, type GateStage } from '../../store/ticketGates.js';
+import { validateInsideProgressEvent, type InsideProgressEvent } from '../../model/inside/progress.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -70,18 +70,28 @@ export type WebviewMessage =
    * gates at all, and the name is a bounded string matched against a RESOLVED
    * gate name host-side — it never becomes a command.
    */
-  | { type: 'set-disabled-gates'; stage: GateStage; name: string; disabled: boolean };
+  | { type: 'set-disabled-gates'; stage: GateStage; name: string; disabled: boolean }
+  /**
+   * One inside action, by its OPAQUE snapshot-scoped id only. The webview never
+   * sends a kind, repo, path, PR number, SHA, stage or process id — the host
+   * resolves the id through the ticket's current `InsideActionRegistry` and
+   * dispatches the STORED target, so a crafted or stale message cannot aim an
+   * action anywhere. The message is closed: any companion field beyond an
+   * optional well-formed `requestId` drops the whole message.
+   */
+  | { type: 'inside-action'; actionId: string };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
- * `ship-progress` overlays live ship steps that are not in the store; `bind`
- * carries the window's terminal-binding preference, which is host-owned and
- * likewise absent from `DashboardState`.
+ * `inside-progress` overlays live process events (gates, Fix, and Ship — the
+ * ship lifecycle rides this same union, Finding 12); `bind` carries the
+ * window's terminal-binding preference, which is host-owned and likewise
+ * absent from `DashboardState`.
  */
 export type HostMessage =
   | { type: 'state'; state: DashboardState }
   | { type: 'worktree-stats'; stats: WorktreeStats[] }
-  | { type: 'ship-progress'; event: ShipStepEvent }
+  | { type: 'inside-progress'; event: InsideProgressEvent }
   | { type: 'bind'; enabled: boolean }
   /**
    * The togglable gate names for this ticket. Its own message, not part of
@@ -170,6 +180,11 @@ export interface DashboardActions {
    * question to withdraw, never what to run.
    */
   setDisabledGate: (stage: GateStage, name: string, disabled: boolean) => void | Promise<void>;
+  /**
+   * Dispatch one opaque inside action id against the ticket's CURRENT action
+   * registry. The host resolves the id; the webview cannot name a target.
+   */
+  insideAction: (actionId: string) => void | Promise<void>;
 }
 
 /**
@@ -276,6 +291,21 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
         ? { type: 'set-disabled-gates', stage: m.stage, name, disabled: m.disabled }
         : null;
     }
+    case 'inside-action': {
+      // CLOSED message: `type` + `actionId` (+ an optional `requestId` the
+      // panel's readRequestId validates separately) and NOTHING else. Any
+      // other companion field — a forged kind, repo, path, PR number or SHA —
+      // drops the whole message rather than being ignored: a legacy-shaped
+      // target-bearing payload is rejected, never downgraded to an id lookup.
+      const extra = Object.keys(m).filter(
+        (k) => k !== 'type' && k !== 'actionId' && k !== 'requestId',
+      );
+      if (extra.length > 0) return null;
+      const actionId = typeof m.actionId === 'string' ? m.actionId : '';
+      if (actionId.length === 0 || actionId.length > MAX_ACTION_ID_CHARS) return null;
+      if (!/^[A-Za-z0-9:_-]+$/.test(actionId)) return null;
+      return { type: 'inside-action', actionId };
+    }
     default:
       return null;
   }
@@ -295,6 +325,20 @@ function isGateStage(v: unknown): v is GateStage {
 
 /** Longest gate name accepted from a webview. Real names are short script keys. */
 const MAX_GATE_NAME_CHARS = 128;
+
+/** Longest inside action id accepted from a webview. Ids are `snapshot-<n>:action-<n>`. */
+export const MAX_ACTION_ID_CHARS = 96;
+
+/**
+ * Narrow an untrusted host→webview inside-progress payload to a closed
+ * `InsideProgressEvent`, validating the discriminant/status combinations in
+ * one place (the webview is a trust boundary in both directions: a host bug
+ * must not ship an event the renderer cannot handle). The webview's own
+ * renderer switch can therefore meet only known shapes.
+ */
+export function parseInsideProgress(raw: unknown): InsideProgressEvent | null {
+  return validateInsideProgressEvent(raw);
+}
 
 /**
  * Route an untrusted webview message to the matching action. The message is
@@ -362,5 +406,7 @@ export function routeAction(raw: unknown, actions: DashboardActions): void | Pro
       return actions.resumeStage(msg.ticketId, msg.stageKey);
     case 'set-disabled-gates':
       return actions.setDisabledGate(msg.stage, msg.name, msg.disabled);
+    case 'inside-action':
+      return actions.insideAction(msg.actionId);
   }
 }

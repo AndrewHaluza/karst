@@ -480,11 +480,50 @@ const TICKET_CHILD_TABLES = [
 
 /**
  * Hard-delete a ticket and all its child rows in a transaction. There are no FK
- * cascades in the schema, so each child table is cleared explicitly. Irreversible
- * — the caller (UI) confirms first.
+ * cascades on the child tables (except `process_runs`, which cascades off
+ * `tickets`), so each is cleared explicitly. Irreversible — the caller (UI)
+ * confirms first.
+ *
+ * The ORDER is the product deletion contract (v27), not SQLite's discovery: the
+ * global accounting ledger is detached FIRST so its rows survive the delete,
+ * then every execution-attribution column is cleared so evidence rows can be
+ * removed leaf-first, THEN ticket-owned evidence (findings, then the process
+ * runs that are the roots of the `ON DELETE SET NULL` references) goes, and
+ * only finally the older child tables and the ticket row itself. With foreign
+ * keys ON, any other order can surface a `SQLITE_CONSTRAINT_FOREIGNKEY` — or,
+ * worse, silently delete spend that belongs to the ledger, not the ticket.
  */
 export function deleteTicket(store: Store, ticketId: number): void {
   const del = store.db.transaction((): void => {
+    // 1. Detach the global accounting ledger. `token_usage` is shared global
+    // spend, not ticket-owned evidence: its rows survive the ticket as
+    // unattributed counts, exactly like the rows recorded before the ticket
+    // existed. `review_findings` has no `ticket_id` detachment — a finding is
+    // ticket-owned evidence and dies with the ticket.
+    store.db
+      .prepare('UPDATE token_usage SET ticket_id = NULL WHERE ticket_id = ?')
+      .run(ticketId);
+    // 2. Clear every execution-attribution column present in the final schema,
+    // so the deletions below never fire an FK action against a row about to be
+    // deleted for another reason. token_usage rows were just detached, so they
+    // are found through the ticket's own process runs — the same rows this
+    // step clears attribution on.
+    store.db
+      .prepare(
+        `UPDATE token_usage SET process_run_id = NULL
+          WHERE process_run_id IN (SELECT id FROM process_runs WHERE ticket_id = ?)`,
+      )
+      .run(ticketId);
+    store.db
+      .prepare('UPDATE review_findings SET process_run_id = NULL WHERE ticket_id = ?')
+      .run(ticketId);
+    // 3. Delete ticket-owned evidence leaf-first: findings first, then the
+    // process runs they (and the usage rows) referenced — the roots of the
+    // v27 `ON DELETE SET NULL` columns. Both are deleted explicitly rather
+    // than left to `ON DELETE CASCADE` from `tickets`, because evidence
+    // cleanup is the ticket's contract, not SQLite's discovery.
+    store.db.prepare('DELETE FROM review_findings WHERE ticket_id = ?').run(ticketId);
+    store.db.prepare('DELETE FROM process_runs WHERE ticket_id = ?').run(ticketId);
     for (const table of TICKET_CHILD_TABLES) {
       store.db.prepare(`DELETE FROM ${table} WHERE ticket_id = ?`).run(ticketId);
     }

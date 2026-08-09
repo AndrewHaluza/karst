@@ -11,6 +11,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { createServer } from 'node:http';
 import { OpencodeAdapter, parseOpencodeJsonl, type SpawnHeadless } from './opencode.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 
@@ -56,7 +58,11 @@ describe('OpencodeAdapter capabilities', () => {
   it('declares truthful conservative capabilities and the opencode binary', () => {
     const a = new OpencodeAdapter();
     expect(a.requiredBinary).toBe('opencode');
-    expect(a.capabilities).toEqual({ lifecycleEvents: true, resume: false });
+    expect(a.capabilities).toEqual({
+      lifecycleEvents: true,
+      resume: false,
+      interactiveUsage: true,
+    });
   });
 });
 
@@ -112,6 +118,26 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(cmd.ownedPaths).toEqual([pluginPath]);
   });
 
+  it('generated bridge keeps cache reads and cache writes as separate counters in the usage payload', () => {
+    const worktree = makeWorktree();
+    const configDir = join(worktree, '.karst-runtime');
+    mkdirSync(configDir, { recursive: true });
+    new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl: 'http://127.0.0.1:4567/hooks', configDir },
+      initialPrompt: 'go',
+    });
+    const body = readFileSync(join(worktree, '.opencode', 'plugins', 'karst-bridge.js'), 'utf8');
+    expect(body).toContain("'UsageUpdate'");
+    // The opencode token shape nests cache under `cache: { read, write }`; the
+    // bridge must read each separately and emit `cache_read`/`cache_write`.
+    expect(body).toContain('cache.read');
+    expect(body).toContain('cache.write');
+    expect(body).toContain('cache_read');
+    expect(body).toContain('cache_write');
+    expect(body).not.toContain('cached_input');
+  });
+
   it('writes no plugin and adds no --pure when hookChannel is absent', () => {
     const worktree = makeWorktree();
     const cmd = new OpencodeAdapter().buildInteractiveCommand({
@@ -164,6 +190,216 @@ describe('OpencodeAdapter interactive commands', () => {
     });
     cleanupOwnedPaths(worktree, cmd.ownedPaths ?? []);
     expect(existsSync(join(worktree, '.opencode', 'plugins', 'karst-bridge.js'))).toBe(false);
+  });
+});
+
+/**
+ * The generated bridge runs under Bun inside the opencode server, but it is a
+ * plain ESM module — so vitest can import the generated file and drive its
+ * `event` hook with captured opencode event fixtures. That is the proof the
+ * plugin actually posts UsageUpdate: a session.idle carrying the session's
+ * cumulative tokens produces one lifecycle POST and one usage POST, and a
+ * token-less or malformed event produces no usage POST at all.
+ */
+describe('generated karst-bridge plugin — UsageUpdate', () => {
+  function receiver(count: number): Promise<{
+    endpointUrl: string;
+    received: Promise<unknown[]>;
+    close(): Promise<void>;
+  }> {
+    const bodies: unknown[] = [];
+    let resolveAll!: (b: unknown[]) => void;
+    const received = new Promise<unknown[]>((resolve) => {
+      resolveAll = resolve;
+    });
+    const server = createServer((request, response) => {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      request.on('end', () => {
+        bodies.push(JSON.parse(body));
+        if (bodies.length >= count) resolveAll(bodies);
+        response.writeHead(204);
+        response.end();
+      });
+    });
+    return new Promise((resolve, reject) => {
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (typeof address !== 'object' || address === null) {
+          reject(new Error('hook receiver did not bind a TCP port'));
+          return;
+        }
+        resolve({
+          endpointUrl: `http://127.0.0.1:${address.port}/hooks`,
+          received,
+          close: () =>
+            new Promise<void>((closeResolve, closeReject) => {
+              server.close((error) => {
+                if (error) closeReject(error);
+                else closeResolve();
+              });
+            }),
+        });
+      });
+    });
+  }
+
+  async function loadBridge(worktree: string, endpointUrl: string): Promise<{
+    event(input: unknown): Promise<void>;
+  }> {
+    const configDir = join(worktree, '.karst-runtime');
+    mkdirSync(configDir, { recursive: true });
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl, configDir },
+      initialPrompt: 'go',
+    });
+    const pluginPath = cmd.ownedPaths![0]!;
+    const mod = (await import(pathToFileURL(pluginPath).href)) as {
+      KarstBridge: (ctx: { directory: string; worktree: string }) => Promise<{
+        event(input: unknown): Promise<void>;
+      }>;
+    };
+    return mod.KarstBridge({ directory: worktree, worktree });
+  }
+
+  it('posts a UsageUpdate with the session’s cumulative tokens on a token-bearing session.idle', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(2);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-1',
+          type: 'session.idle',
+          properties: {
+            sessionID: 'ses_1',
+            cwd: '/wt',
+            reason: 'step-finish',
+            session: {
+              id: 'ses_1',
+              tokens: {
+                total: 16_318,
+                input: 16_312,
+                output: 6,
+                reasoning: 0,
+                cache: { write: 40, read: 180 },
+              },
+            },
+          },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no usage payload')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_1' },
+        {
+          hook_event_name: 'UsageUpdate',
+          cwd: '/wt',
+          session_id: 'ses_1',
+          usage: {
+            event_id: 'evt-1',
+            input: 16_312,
+            output: 6,
+            cache_read: 180,
+            cache_write: 40,
+            total: 16_318,
+          },
+        },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('posts only the lifecycle event when the idle event carries no tokens', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(1);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-2',
+          type: 'session.idle',
+          properties: { sessionID: 'ses_1', cwd: '/wt', reason: 'manual' },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no lifecycle payload')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_1' },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('drops malformed token counts — the lifecycle event still posts, no UsageUpdate', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(1);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-3',
+          type: 'session.idle',
+          properties: {
+            sessionID: 'ses_1',
+            cwd: '/wt',
+            session: { id: 'ses_1', tokens: { input: 'lots', output: 6 } },
+          },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no lifecycle payload')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_1' },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('permission.asked posts no usage — it is a wait signal, not a completion', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(1);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-4',
+          type: 'permission.asked',
+          properties: { sessionID: 'ses_1', cwd: '/wt' },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no lifecycle payload')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'permission.asked', cwd: '/wt', session_id: 'ses_1' },
+      ]);
+    } finally {
+      await r.close();
+    }
   });
 });
 

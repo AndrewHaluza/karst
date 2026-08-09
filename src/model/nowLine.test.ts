@@ -164,8 +164,12 @@ describe('buildNowLine', () => {
     });
   });
 
-  describe('the merge stage', () => {
-    const merge = cell({ stageKey: 'merge', status: 'pending' });
+  describe('ship blocked on the merge gate', () => {
+    const merge = cell({
+      stageKey: 'ship',
+      status: 'passed',
+      blocked: { kind: 'awaiting-merge', reason: '', at: '' },
+    });
 
     it('names how many repos are still to be merged', () => {
       expect(

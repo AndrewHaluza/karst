@@ -19,12 +19,6 @@
       color: var(--k-text);
       background: var(--k-bg);
       font: var(--vscode-font-weight) var(--k-text-base)/var(--k-leading-normal) var(--k-font-ui);
-      /* No dedicated "rail" token exists in the design system, and this file
-         may not add one (src/model/ is out of scope for this screen). Rebuilt
-         from token steps rather than left as a raw length — close to the
-         prior rail width, not exact, because the column is an internal
-         alignment guide nothing else keys off. */
-      --rail: calc(var(--k-space-9) * 2 + var(--k-space-8) + var(--k-space-6));
     }
     header {
       display: flex;
@@ -34,6 +28,16 @@
       padding-bottom: var(--k-space-6);
       border-bottom: var(--k-border-w) solid var(--k-border);
     }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--k-space-3);
+    }
+    /* The tree/list switcher, the same shape as usage's range selector: two
+       `.k-chip` toggle buttons; `aria-pressed` carries the engaged mode
+       (UI-R26). "Tree" is the default (folders first, then files); "List" is
+       the flat all-files view. */
+    .view-toggle { display: flex; gap: var(--k-space-2); }
     h1 {
       margin: 0;
       font-size: var(--k-text-xl);
@@ -154,21 +158,19 @@
     }
     .commit > summary {
       display: grid;
-      grid-template-columns: var(--rail) minmax(0, 1fr) auto auto;
-      gap: var(--k-space-4);
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      gap: var(--k-space-3);
       align-items: baseline;
       padding: var(--k-space-3) var(--k-space-4) var(--k-space-3) var(--k-space-8);
       list-style-position: inside;
     }
-    /* The hash ends at the rail's right edge, where a file row's status glyph
-       ends. Left-aligned it was followed by the rail's leftover width — a hash
-       is far narrower than the column — which read as a gap after the chip;
-       ending it at the rail leaves only the layout's own gap before the subject.
-       Selectable on purpose: a commit hash is something the reader retypes into
-       git, so `summary`'s user-select:none is lifted here (the click handler
-       keeps a drag-select from toggling the row). */
+    /* The hash sits directly ahead of the subject with only the layout's own
+       gap between them — the old 84px alignment rail was the "huge space"
+       between the marker column and the paths. Selectable on purpose: a commit
+       hash is something the reader retypes into git, so `summary`'s
+       user-select:none is lifted here (the click handler keeps a drag-select
+       from toggling the row). */
     .commit > summary code {
-      justify-self: end;
       overflow: hidden;
       color: var(--k-link);
       font-family: var(--k-font-mono);
@@ -195,7 +197,7 @@
       font-variant-numeric: tabular-nums;
     }
     .commit-meta {
-      padding: 0 var(--k-space-4) var(--k-space-3) calc(var(--rail) + var(--k-space-7));
+      padding: 0 var(--k-space-4) var(--k-space-3) var(--k-space-8);
       color: var(--k-text-dim);
       font-size: var(--k-text-md);
       overflow-wrap: anywhere;
@@ -206,17 +208,19 @@
        placement only local (STYLE-GUIDE §4): no local background/border/padding/
        radius/font-size, so this can never again de-style into an unrecognizable
        row the way the old reset (border:0; border-radius:0; text-align:left)
-       did. */
+       did. The two columns are status letter then path — tight, with only the
+       layout's own gap between them, replacing the old 84px rail that put a
+       huge empty gap between the M/D/A letter and the path. */
     .file {
       display: grid;
-      grid-template-columns: var(--rail) minmax(0, 1fr);
-      gap: var(--k-space-4);
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: var(--k-space-3);
       margin-top: var(--k-space-1);
     }
     /* The primitive's own ::before spinner is a flex-model leading icon; on a
        grid row it would otherwise insert itself as a THIRD column ahead of the
-       rail. Pin it into the rail's cell instead, where the status glyph — which
-       it temporarily stands in for — already lives. */
+       status cell. Pin it into the status's cell instead, where the status
+       glyph — which it temporarily stands in for — already lives. */
     .file[aria-busy="true"]::before { grid-column: 1; grid-row: 1; justify-self: end; }
     .file[aria-busy="true"] .status { visibility: hidden; }
     .file-path {
@@ -227,20 +231,51 @@
     .status {
       grid-column: 1;
       grid-row: 1;
-      justify-self: end;
       min-width: 2ch;
       font-family: var(--k-font-mono);
       font-weight: var(--k-weight-semibold);
       text-align: center;
     }
-    /* One meaning, one token. "Renamed" used to share the exact hex of
-       "copied" (.is-success below) and "all clean" (.clean-state) — three
-       meanings collapsed onto #73c991. --k-info gives renamed its own
-       identity instead of borrowing the success color. */
+    /* One meaning, one token. The GitHub default palette for change markers:
+       A green, D red, M amber, and gray for a rename — a rename is a path
+       change, not a content change, so it reads as the neutral "unchanged"
+       tone rather than borrowing a change colour. --k-pending is the ramp's
+       gray (idle/skipped), exactly the neutral GitHub reserves for
+       non-content changes. */
     .status-added { color: var(--k-success); }
     .status-modified { color: var(--k-warning); }
     .status-deleted { color: var(--k-danger); }
-    .status-renamed { color: var(--k-info); }
+    .status-renamed { color: var(--k-pending); }
+    /* Directory rows (tree mode): a native <details>/<summary> disclosure
+       (UI-R09), so aria-expanded and keyboard operation come from the browser.
+       Indentation is recursive — every nesting level adds one --k-space-5 to
+       .dir-body's left padding, so depth needs no per-level counter. */
+    .dir > summary {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: var(--k-space-3);
+      padding: var(--k-space-2) var(--k-space-3) var(--k-space-2) var(--k-space-8);
+    }
+    .dir > summary:hover { background: var(--k-surface-hover); }
+    .dir > summary .dir-name {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-family: var(--k-font-mono);
+    }
+    .dir > summary .dir-count {
+      margin-left: auto;
+      min-width: 2ch;
+      color: var(--k-text-dim);
+      font-family: var(--k-font-mono);
+      font-size: var(--k-text-md);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .dir-body {
+      padding-left: var(--k-space-5);
+      border-left: var(--k-border-w) solid var(--k-border);
+    }
     .error {
       padding-bottom: var(--k-space-5);
       border-left-color: var(--k-danger);
@@ -296,12 +331,12 @@
       .repo > summary > span:last-child { text-align: left; }
       .group { margin-right: var(--k-space-3); margin-left: var(--k-space-4); }
       .commit > summary {
-        grid-template-columns: minmax(calc(var(--k-space-9) * 2 + var(--k-space-8)), var(--rail)) minmax(0, 1fr) auto;
+        grid-template-columns: auto minmax(0, 1fr) auto;
       }
       /* The count drops under the subject; the copy action stays on the hash's
          own row, where the thing it copies is. */
-      .commit > summary > span { grid-column: 2; }
-      .commit-meta { padding-left: calc(var(--rail) + var(--k-space-7)); }
+      .commit > summary > span { grid-column: 2; grid-row: 2; }
+      .commit-meta { padding-left: var(--k-space-8); }
     }
     @media (prefers-reduced-motion: reduce) {
       .chev, .copy-hash { transition: none; }
@@ -314,7 +349,13 @@
       <h1>Ticket changes</h1>
       <div id="summary" aria-live="polite"></div>
     </div>
-    <button id="refresh" type="button" class="k-btn k-btn--secondary">Refresh</button>
+    <div class="header-actions">
+      <div class="view-toggle">
+        <button id="viewTree" type="button" class="k-chip">Tree</button>
+        <button id="viewFlat" type="button" class="k-chip">List</button>
+      </div>
+      <button id="refresh" type="button" class="k-btn k-btn--secondary">Refresh</button>
+    </div>
   </header>
   <label class="filter">
     <span class="sr">Filter files or commits</span>
@@ -331,9 +372,23 @@
     const filter = document.getElementById('filter');
     const repos = document.getElementById('repos');
     const notice = document.getElementById('notice');
+    const viewTree = document.getElementById('viewTree');
+    const viewFlat = document.getElementById('viewFlat');
     const restored = vscode.getState();
     let lastState = restored?.state || null;
     let loading = Boolean(restored?.loading);
+    // Tree is the default (folders first, then files); the List chip switches
+    // to the flat all-files view. Persisted so a panel reload keeps the user's
+    // choice.
+    let viewMode = restored?.viewMode === 'flat' ? 'flat' : 'tree';
+    // Only deviations from the default (everything expanded) are recorded, so
+    // the set stays bounded by what the user actually collapsed.
+    const collapsedDirs = new Set();
+    // The filter forces the flat list while it is active (VS Code source
+    // control does the same): a matching file hidden inside a collapsed
+    // directory would otherwise be invisible, and non-matching siblings would
+    // show in the same worktree row.
+    let activeNeedle = '';
 
     const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ESCAPES[ch]);
@@ -372,10 +427,67 @@
         + `</button>`;
     }
 
-    function pendingGroup(label, files) {
+    function compareNames(a, b) {
+      const x = a.toLowerCase();
+      const y = b.toLowerCase();
+      return x < y ? -1 : x > y ? 1 : 0;
+    }
+
+    function dirCount(dir) {
+      const childTotal = [...dir.children.values()]
+        .reduce((total, child) => total + dirCount(child), 0);
+      return dir.files.length + childTotal;
+    }
+
+    function dirHtml(dir, groupKey, parentPath) {
+      const path = parentPath ? `${parentPath}/${dir.name}` : dir.name;
+      const key = `${groupKey}:${path}`;
+      const open = !collapsedDirs.has(key);
+      const subdirs = [...dir.children.values()].sort((a, b) => compareNames(a.name, b.name));
+      const files = [...dir.files].sort((a, b) => compareNames(a.path, b.path));
+      const count = files.length + subdirs.reduce((total, child) => total + dirCount(child), 0);
+      return `<details class="dir" data-dir="${esc(key)}"${open ? ' open' : ''}>`
+        + `<summary>${CHEV}<span class="dir-name">${esc(dir.name)}</span>`
+        + `<span class="dir-count">${count}</span></summary>`
+        + `<div class="dir-body">`
+        + subdirs.map((child) => dirHtml(child, groupKey, path)).join('')
+        + files.map(fileRow).join('')
+        + `</div></details>`;
+    }
+
+    function treeHtml(files, groupKey) {
+      const root = { name: '', children: new Map(), files: [] };
+      for (const file of files) {
+        const parts = file.path.split('/');
+        const leaf = parts.pop() ?? '';
+        let node = root;
+        for (const part of parts) {
+          let child = node.children.get(part);
+          if (!child) {
+            child = { name: part, children: new Map(), files: [] };
+            node.children.set(part, child);
+          }
+          node = child;
+        }
+        // The full path stays on the row: fileRow renders a rename as
+        // `old → new`, which needs both parts. Sorting by full path is the
+        // same as sorting by leaf within one directory.
+        node.files.push(file);
+      }
+      const subdirs = [...root.children.values()].sort((a, b) => compareNames(a.name, b.name));
+      const filesAtRoot = [...root.files].sort((a, b) => compareNames(a.path, b.path));
+      return subdirs.map((dir) => dirHtml(dir, groupKey, '')).join('') + filesAtRoot.map(fileRow).join('');
+    }
+
+    function filesList(files, groupKey) {
+      if (viewMode !== 'tree' || activeNeedle) return files.map(fileRow).join('');
+      return treeHtml(files, groupKey);
+    }
+
+    function pendingGroup(label, files, key) {
       if (!files.length) return '';
       return `<details class="group" open><summary>${CHEV}${esc(label)}`
-        + `<span>${files.length}</span></summary>${files.map(fileRow).join('')}</details>`;
+        + `<span>${files.length}</span></summary>${filesList(files, key || label)}</details>`;
     }
 
     const COPY_GLYPH = '⧉';
@@ -390,7 +502,7 @@
         + ` aria-label="Copy commit hash" title="Copy commit hash">${COPY_GLYPH}</button>`
         + `<span>${commit.files.length}</span></summary>`
         + `<div class="commit-meta">${esc(commit.author)} · ${esc(commit.authoredAt)}</div>`
-        + `${commit.files.map(fileRow).join('')}</details>`;
+        + `${filesList(commit.files, `commit:${commit.hash}`)}</details>`;
     }
 
     function worktreeRow(worktree) {
@@ -411,9 +523,9 @@
           ? `<details class="group" open><summary>${CHEV}COMMITS<span>${worktree.commits.length}</span></summary>`
             + `${worktree.commits.map(commitRow).join('')}</details>`
           : ''}`
-        + pendingGroup('STAGED CHANGES', worktree.staged)
-        + pendingGroup('CHANGES', worktree.unstaged)
-        + pendingGroup('UNTRACKED FILES', worktree.untracked)
+        + pendingGroup('STAGED CHANGES', worktree.staged, 'staged')
+        + pendingGroup('CHANGES', worktree.unstaged, 'unstaged')
+        + pendingGroup('UNTRACKED FILES', worktree.untracked, 'untracked')
         + `</details>`;
     }
 
@@ -421,6 +533,7 @@
       lastState = state;
       loading = isLoading;
       const needle = filter.value.trim().toLowerCase();
+      activeNeedle = needle;
       summary.textContent = state
         ? `${state.worktreeCount} worktrees · ${state.commitCount} commits · ${state.pendingCount} pending`
         : 'No worktrees';
@@ -446,8 +559,35 @@
       // primitive's own spinner carries the pending meaning instead.
       refresh.disabled = loading;
       refresh.setAttribute('aria-busy', loading ? 'true' : 'false');
-      vscode.setState({ state: lastState, loading });
+      vscode.setState({ state: lastState, loading, viewMode });
     }
+
+    function applyViewToggle() {
+      viewTree.setAttribute('aria-pressed', viewMode === 'tree' ? 'true' : 'false');
+      viewFlat.setAttribute('aria-pressed', viewMode === 'flat' ? 'true' : 'false');
+    }
+
+    // Purely presentational: nothing posts to the host, so no pending state
+    // (UI-R11 applies to async controls; this is immediate and local).
+    viewTree.addEventListener('click', () => {
+      viewMode = 'tree';
+      applyViewToggle();
+      render(lastState, loading);
+    });
+    viewFlat.addEventListener('click', () => {
+      viewMode = 'flat';
+      applyViewToggle();
+      render(lastState, loading);
+    });
+    // The `toggle` event does not bubble, so the listener is on the capture
+    // phase. Only directory rows carry data-dir; repo/group/commit disclosures
+    // keep their native (re-render-reset) behaviour.
+    document.addEventListener('toggle', (event) => {
+      const details = event.target;
+      if (!details || details.dataset?.dir === undefined) return;
+      if (details.open) collapsedDirs.delete(details.dataset.dir);
+      else collapsedDirs.add(details.dataset.dir);
+    }, true);
 
     refresh.addEventListener('click', () => {
       render(lastState, true);
@@ -524,6 +664,7 @@
         karstSettle(msg.requestId, msg.ok, msg.message);
       }
     });
+    applyViewToggle();
     render(lastState, loading);
   </script>
 </body>

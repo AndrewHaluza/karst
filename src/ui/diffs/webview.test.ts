@@ -68,6 +68,7 @@ const EXPORTS = [
   'pendingGroup',
   'commitRow',
   'worktreeRow',
+  'filesList',
   'render',
   'esc',
   'includes',
@@ -101,21 +102,26 @@ interface Harness {
   commitMatches: (commit: CommitView, needle: string) => boolean;
   worktreeMatches: (worktree: WorktreeChangesView, needle: string) => boolean;
   fileRow: (file: ChangedFileView) => string;
-  pendingGroup: (label: string, files: ChangedFileView[]) => string;
+  pendingGroup: (label: string, files: ChangedFileView[], key?: string) => string;
   commitRow: (commit: CommitView, index: number) => string;
   worktreeRow: (worktree: WorktreeChangesView) => string;
+  filesList: (files: ChangedFileView[], key: string) => string;
   render: (state: TicketChangesState | null, isLoading: boolean) => void;
   esc: (value: unknown) => string;
   status: Record<string, string>;
   summary: { textContent: string };
   refresh: { disabled: boolean; attrs: Record<string, string> } & Listeners;
   filterBox: { value: string } & Listeners;
+  viewTree: { attrs: Record<string, string> } & Listeners;
+  viewFlat: { attrs: Record<string, string> } & Listeners;
   repos: { innerHTML: string };
   notice: { textContent: string; hidden: boolean };
   posted: unknown[];
   saved: unknown[];
   filterBy: (value: string) => void;
   clickRefresh: () => void;
+  clickView: (mode: 'tree' | 'flat') => void;
+  toggleDir: (key: string, open: boolean) => void;
   clickRow: (changeId: string | null) => FileRowButtonDouble | null;
   /** Re-fires the delegated click handler on an EXISTING row double — for a repeat click on the same row. */
   clickButton: (button: FileRowButtonDouble) => void;
@@ -208,7 +214,16 @@ function elementDouble(): Record<string, unknown> {
   return el;
 }
 
-function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
+function chipDouble(id: string): { id: string; attrs: Record<string, string> } & Listeners {
+  const attrs: Record<string, string> = {};
+  return listenable({
+    id,
+    attrs,
+    setAttribute: (name: string, value: string) => { attrs[name] = value; },
+  });
+}
+
+function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknown }): Harness {
   const posted: unknown[] = [];
   const saved: unknown[] = [];
   const summary = { textContent: '' };
@@ -222,7 +237,11 @@ function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
     getAttribute: (name: string) => refreshAttrs[name],
   });
   const filterBox = listenable({ value: '' });
-  const elements: Record<string, unknown> = { summary, repos, notice, refresh, filter: filterBox };
+  const viewTree = chipDouble('viewTree');
+  const viewFlat = chipDouble('viewFlat');
+  const elements: Record<string, unknown> = {
+    summary, repos, notice, refresh, filter: filterBox, viewTree, viewFlat,
+  };
   // `karstToastRoot` (the REAL runtime) looks up 'k-toast-root' then mints it
   // via `createElement`/`body.appendChild` on a miss — both are needed for the
   // executed script not to throw when a request settles with `ok:false`.
@@ -258,12 +277,15 @@ function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
     pendingGroup: exported.pendingGroup as Harness['pendingGroup'],
     commitRow: exported.commitRow as Harness['commitRow'],
     worktreeRow: exported.worktreeRow as Harness['worktreeRow'],
+    filesList: exported.filesList as Harness['filesList'],
     render: exported.render as Harness['render'],
     esc: exported.esc as Harness['esc'],
     status: exported.STATUS as Record<string, string>,
     summary,
     refresh: refresh as Harness['refresh'],
     filterBox,
+    viewTree: viewTree as Harness['viewTree'],
+    viewFlat: viewFlat as Harness['viewFlat'],
     repos,
     notice,
     posted,
@@ -273,6 +295,12 @@ function boot(restored?: { state?: unknown; loading?: boolean }): Harness {
       filterBox.fire('input');
     },
     clickRefresh: () => refresh.fire('click'),
+    clickView: (mode: 'tree' | 'flat') => {
+      (mode === 'tree' ? viewTree : viewFlat).fire('click');
+    },
+    toggleDir: (key: string, open: boolean) => {
+      documentDouble.fire('toggle', { target: { dataset: { dir: key }, open } });
+    },
     clickRow: (changeId: string | null) => {
       const button = changeId === null ? null : fileRowButton(changeId);
       documentDouble.fire('click', {
@@ -783,13 +811,16 @@ describe('ticket changes webview protocol', () => {
     expect(harness.repos.innerHTML).toContain('No ticket worktrees.');
   });
 
-  it('persists snapshot and loading flag, and restores both on reload', () => {
+  it('persists snapshot, loading flag, and view mode, and restores them on reload', () => {
     const harness = boot();
     const state = stateOf([worktreeView()], { commitCount: 0, pendingCount: 0 });
     harness.receive({ type: 'loading', state });
-    expect(harness.saved.at(-1)).toEqual({ state, loading: true });
+    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'tree' });
 
-    const reloaded = boot({ state, loading: true });
+    harness.clickView('flat');
+    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'flat' });
+
+    const reloaded = boot({ state, loading: true, viewMode: 'flat' });
     expect(reloaded.refresh.disabled).toBe(true);
     expect(reloaded.summary.textContent).toBe('1 worktrees · 0 commits · 0 pending');
     expect(reloaded.repos.innerHTML).toContain('<strong>api</strong>');
@@ -813,6 +844,122 @@ describe('ticket changes webview protocol', () => {
  * plan). These check the SOURCE (un-hydrated) markers and markup, same
  * rationale as every other `webview.test.ts` in this repo (STYLE-GUIDE §5).
  */
+describe('ticket changes webview tree view', () => {
+  it('defaults to tree mode: folders first, then files, nested directories expandable', () => {
+    const harness = boot();
+    const html = harness.pendingGroup('STAGED CHANGES', [
+      fileView(),
+      fileView({ changeId: 'ch-2', path: 'src/components/Button.tsx', status: 'added' }),
+      fileView({ changeId: 'ch-3', path: 'package.json' }),
+    ], 'staged');
+    expect(html).toContain('<details class="dir" data-dir="staged:src" open>');
+    expect(html).toContain('<details class="dir" data-dir="staged:src/components" open>');
+    // Folders before files at every level: the src directory and its nested
+    // components directory precede the file rows inside them.
+    expect(html.indexOf('data-dir="staged:src"')).toBeLessThan(html.indexOf('data-change-id="ch-1"'));
+    expect(html.indexOf('data-dir="staged:src/components"')).toBeLessThan(html.indexOf('data-change-id="ch-1"'));
+    // The root-level file renders after the directory.
+    expect(html.indexOf('data-change-id="ch-3"')).toBeGreaterThan(html.indexOf('data-change-id="ch-1"'));
+  });
+
+  it('shows the total file count on each directory row', () => {
+    const html = boot().pendingGroup('STAGED CHANGES', [
+      fileView(),
+      fileView({ changeId: 'ch-2', path: 'src/components/Button.tsx' }),
+    ], 'staged');
+    expect(html).toContain('<span class="dir-name">src</span><span class="dir-count">2</span>');
+    expect(html).toContain('<span class="dir-name">components</span><span class="dir-count">1</span>');
+  });
+
+  it('sorts sibling directories and files alphabetically', () => {
+    const html = boot().pendingGroup('CHANGES', [
+      fileView({ changeId: 'z', path: 'zeta.ts' }),
+      fileView({ changeId: 'a', path: 'alpha/beta.ts' }),
+      fileView({ changeId: 'b', path: 'alpha/gamma.ts' }),
+    ], 'unstaged');
+    expect(html.indexOf('data-change-id="a"')).toBeLessThan(html.indexOf('data-change-id="b"'));
+    expect(html.indexOf('data-change-id="z"')).toBeGreaterThan(html.indexOf('data-change-id="b"'));
+  });
+
+  it('keys directory rows per group and per commit so expansion state cannot collide', () => {
+    const staged = boot().pendingGroup('STAGED CHANGES', [fileView({ path: 'src/a.ts' })], 'staged');
+    const unstaged = boot().pendingGroup('CHANGES', [fileView({ path: 'src/b.ts' })], 'unstaged');
+    const commit = boot().commitRow(commitView({ files: [fileView({ path: 'src/c.ts' })] }), 0);
+    expect(staged).toContain('data-dir="staged:src"');
+    expect(unstaged).toContain('data-dir="unstaged:src"');
+    expect(commit).toContain(`data-dir="commit:${commitView().hash}:src"`);
+  });
+
+  it('escapes a hostile directory name in the row and the collapse key', () => {
+    const html = boot().pendingGroup('STAGED CHANGES', [fileView({ path: '<img src=x> /a.ts' })], 'staged');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img src=x&gt; </span>');
+    expect(html).toContain('data-dir="staged:&lt;img src=x&gt; "');
+  });
+
+  it('renders a flat list with no directory rows when list mode is chosen', () => {
+    const harness = boot();
+    harness.clickView('flat');
+    const html = harness.pendingGroup('STAGED CHANGES', [fileView({ path: 'src/app.ts' })], 'staged');
+    expect(html).not.toContain('class="dir"');
+    expect(html).toContain('<button type="button" class="k-btn k-btn--ghost k-btn--row file"');
+  });
+
+  it('toggles the view mode via the header chips, mirroring the mode in aria-pressed (UI-R26)', () => {
+    const harness = boot();
+    expect(harness.viewTree.attrs['aria-pressed']).toBe('true');
+    expect(harness.viewFlat.attrs['aria-pressed']).toBe('false');
+    harness.clickView('flat');
+    expect(harness.viewTree.attrs['aria-pressed']).toBe('false');
+    expect(harness.viewFlat.attrs['aria-pressed']).toBe('true');
+    harness.clickView('tree');
+    expect(harness.viewTree.attrs['aria-pressed']).toBe('true');
+    expect(harness.viewFlat.attrs['aria-pressed']).toBe('false');
+  });
+
+  it('keeps a collapsed directory collapsed across a re-render and re-expands on demand', () => {
+    const harness = boot();
+    const state = () => stateOf(
+      [worktreeView({ staged: [fileView({ path: 'src/app.ts' })] })],
+      { commitCount: 0, pendingCount: 1 },
+    );
+    harness.render(state(), false);
+    expect(harness.repos.innerHTML).toContain('<details class="dir" data-dir="staged:src" open>');
+    harness.toggleDir('staged:src', false);
+    harness.render(state(), false);
+    expect(harness.repos.innerHTML).toContain('<details class="dir" data-dir="staged:src">');
+    expect(harness.repos.innerHTML).not.toContain('<details class="dir" data-dir="staged:src" open>');
+    harness.toggleDir('staged:src', true);
+    harness.render(state(), false);
+    expect(harness.repos.innerHTML).toContain('<details class="dir" data-dir="staged:src" open>');
+  });
+
+  it('forces the flat list while a filter is active, then returns to the chosen mode when cleared', () => {
+    const harness = boot();
+    harness.render(
+      stateOf([worktreeView({ staged: [fileView({ path: 'src/app.ts' })] })], { commitCount: 0, pendingCount: 1 }),
+      false,
+    );
+    expect(harness.repos.innerHTML).toContain('class="dir"');
+    harness.filterBy('app.ts');
+    expect(harness.repos.innerHTML).not.toContain('class="dir"');
+    harness.filterBy('');
+    expect(harness.repos.innerHTML).toContain('class="dir"');
+  });
+
+  it('restores a persisted list-mode choice on reload', () => {
+    const harness = boot({
+      state: stateOf([worktreeView()], { commitCount: 0, pendingCount: 0 }),
+      loading: false,
+      viewMode: 'flat',
+    });
+    expect(harness.viewTree.attrs['aria-pressed']).toBe('false');
+    expect(harness.viewFlat.attrs['aria-pressed']).toBe('true');
+    const html = harness.pendingGroup('CHANGES', [fileView({ path: 'src/app.ts' })], 'unstaged');
+    expect(html).not.toContain('class="dir"');
+  });
+});
+
 describe('diffs webview design-system conformance', () => {
   it('carries the design-system markers ahead of any file-local rule (UI-R03)', () => {
     const style = styleBlock();
@@ -880,11 +1027,11 @@ describe('diffs webview design-system conformance', () => {
     expect(row).not.toContain('✓');
   });
 
-  it('every <button> in the file carries a k-btn or k-iconbtn primitive (UI-R07)', () => {
+  it('every <button> in the file carries a k-btn, k-iconbtn, or k-chip primitive (UI-R07)', () => {
     const classAttrs = [...HTML.matchAll(/<button\b[^>]*class="([^"]*)"[^>]*>/g)].map((m) => m[1]!);
     expect(classAttrs.length).toBeGreaterThan(0);
     for (const cls of classAttrs) {
-      expect(cls, cls).toMatch(/\bk-btn\b|\bk-iconbtn\b/);
+      expect(cls, cls).toMatch(/\bk-btn\b|\bk-iconbtn\b|\bk-chip\b/);
     }
   });
 
@@ -936,6 +1083,14 @@ describe('diffs webview design-system conformance', () => {
   it('every icon-only control carries a matching title/aria-label pair (UI-R19, UI-R21, UI-R24)', () => {
     const script = scriptBlock();
     expect(script).toContain('aria-label="Copy commit hash" title="Copy commit hash"');
+  });
+
+  it('colours the change markers with the GitHub default palette (A green, D red, M amber, R gray)', () => {
+    const style = styleBlock();
+    expect(style).toContain('.status-added { color: var(--k-success); }');
+    expect(style).toContain('.status-deleted { color: var(--k-danger); }');
+    expect(style).toContain('.status-modified { color: var(--k-warning); }');
+    expect(style).toContain('.status-renamed { color: var(--k-pending); }');
   });
 
   it('every title attribute is non-empty, period-free, and no longer than 80 characters (UI-R20)', () => {

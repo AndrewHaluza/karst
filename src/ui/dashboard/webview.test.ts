@@ -2,6 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { runInNewContext } from 'node:vm';
+import { injectDesignSystem } from '../../model/designSystem.js';
+import { injectPalette } from '../../model/palette.js';
+import { injectProviderIdentity } from '../../model/providerIdentity.js';
+import {
+  insidePreviewFixtures,
+  PREVIEW_REPO_COUNTS,
+  PREVIEW_SCENARIOS,
+} from './insideFixtures.js';
+import { previewPayloadFor } from './insidePreview.js';
+import type { DashboardState } from './state.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -184,7 +195,7 @@ describe('dashboard webview.html', () => {
     // No stage-name test and no status test: `needsConfirm(stage) && pending` is
     // the host's answer, and asking it a second time here is how two surfaces
     // start disagreeing about whether a ticket is blocked.
-    expect(track).not.toMatch(/=== 'ship'|=== 'merge'|'pending'/);
+    expect(track).not.toMatch(/=== 'ship'|'pending'/);
   });
 
   it('makes the needs-you button navigational, never a second actor', () => {
@@ -551,43 +562,49 @@ describe('dashboard webview.html', () => {
    * Confirm-ship progress feedback. The bug: clicking Confirm ship kicked off
    * slow backend work (model call + `gh pr create`) with zero UI change until it
    * finished — the button looked inert and users could not tell the click even
-   * registered. Later, the live progress it DID show was free text hijacking the
-   * Now line instead of structured rows in the Inside block — these guard the
-   * pieces that fix both; the pixels need F5.
+   * registered. Live feedback now rides the generic inside-progress protocol
+   * (Finding 12): the host streams `active`/`completed`/`cleared` ship events
+   * that overlay the ledger, and the click's own pending lifecycle is keyed to
+   * `shipRequestId` — the same runtime every other control uses. The old
+   * `shipping` flag and its flat `ship-progress` overlay are gone.
    */
   it('registers the confirm-ship click before the host round trip', () => {
-    // shipping is flipped and shipOps seeded inside the click handler, not on
-    // the next state push — so there is no window where the button looks inert.
+    // shipRequestId is set and the pending lifecycle starts inside the click
+    // handler, not on the next state push — so there is no window where the
+    // button looks inert.
     expect(HTML).toMatch(/act === 'ship-ticket'/);
-    expect(HTML).toMatch(/shipping = true/);
-    expect(HTML).toMatch(/shipOps = seedShipOps\(/);
+    expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
+    expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
   });
 
   it('guards against a double confirm-ship submit while one is in flight', () => {
-    // Re-clicking must not fire a second ship. The handler bails when already
-    // shipping.
-    expect(HTML).toMatch(/if \(shipping\) return/);
+    // Re-clicking must not fire a second ship. The pending requestId is the
+    // in-flight marker (the old `shipping` boolean is gone).
+    expect(HTML).toMatch(/if \(shipRequestId\) return/);
   });
 
   it('holds the ship Now line across state pushes until the stage resolves', () => {
     // Every push still reads the ship stage as "ready" (it sits at running), so
-    // renderNow must short-circuit to a static sentence while shipping, and the
-    // resolution must key off host stage truth — not the button copy.
-    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipping\)/);
+    // renderNow must short-circuit to a static sentence while a ship is in
+    // flight, and the resolution must key off host stage truth — not the button
+    // copy. The hold keys off the in-flight requestId, never a `shipping` flag.
+    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipRequestId\)/);
     expect(HTML).toMatch(/stageCurrent === 'ship'/);
     expect(HTML).toMatch(/status === 'failed'/);
+    expect(HTML).not.toMatch(/if \(shipping\)/);
   });
 
-  it('feeds live ship-progress events into the Inside block, not the Now line', () => {
-    // The live per-step state ("pushing", "describing") is not in
-    // DashboardState; it rides its own transient message, applied only while a
-    // ship is in flight, and is read by renderInside via the shippingView
-    // overlay — never rendered as free text on the Now line.
-    expect(HTML).toContain("'ship-progress'");
-    expect(HTML).toMatch(/shipOps\[e\.repo\]\[e\.step\] = /);
-    expect(HTML).toMatch(/renderInside\(shippingView\(state, sel\), sel\)/);
-    expect(HTML).not.toContain('renderShipProgress');
-    expect(HTML).not.toMatch(/shipLabel/);
+  it('feeds live Ship events through the generic inside-progress protocol, never a flat overlay', () => {
+    // Finding 12: the per-repo/per-step `ship-progress` stream is gone; ship's
+    // lifecycle rides the same `inside-progress` union as gates and Fix, and
+    // renderInside always consumes the authoritative ledger + generic overlays.
+    // (The word "shipping" still appears inside the host's static Now sentence.)
+    expect(HTML).toContain("'inside-progress'");
+    expect(HTML).not.toContain("'ship-progress'");
+    expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
+    expect(HTML).not.toMatch(/shipOps|seedShipOps/);
+    expect(HTML).not.toMatch(/renderInside\(shippingView/);
+    expect(HTML).not.toMatch(/renderInsideFlat/);
   });
 
   it('shows the follow-up button only once the ticket is done', () => {
@@ -656,7 +673,7 @@ describe('dashboard webview.html', () => {
 
   it('keeps an open merge disclosure open across a re-render, like the stage selection', () => {
     // render() replaces #prs wholesale on every `state` push AND every
-    // ship-progress tick ("pushState fires on every driver progress tick",
+    // inside-progress tick ("pushState fires on every driver progress tick",
     // above) — a user reading a long conflict list mid-ship must not have it
     // snap shut under them. So which disclosures are open is local view state,
     // exactly like `selectedStage`: never inside DashboardState, never
@@ -818,6 +835,9 @@ describe('dashboard webview.html', () => {
     // instead of holding a floor, so there is no minimum width to declare. `46px`
     // replaces it — the lane's own height, the one piece of the track's geometry
     // the space scale has no step for.
+    // `300px`/`360px`/`430px` are the development-only Inside preview frame
+    // widths (Finding 1): component dimensions with no scale match, gated on
+    // `.preview-mode` — the same exemption class as the `400px` breakpoint.
     // The four `1px` are ONE value in one place: the `@supports` probe that
     // guards the track's chevron focus ring (`calc(1px * hypot(1px,1px) / 1px)`).
     // A feature query cannot be written in tokens — a `var()` inside the
@@ -825,6 +845,7 @@ describe('dashboard webview.html', () => {
     // question being asked — so the probe is literal by construction. It is a
     // type test, not geometry: nothing is drawn at 1px because of it.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
+      '300px', '360px', '430px',
       '1px', '1px', '1px', '1px'];
     const style = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>') + '</style>'.length);
     const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -856,16 +877,16 @@ describe('dashboard webview.html', () => {
   });
 
   /**
-   * The three ad-hoc pending booleans this task replaces: `shipping`,
-   * `mergePending`, `prRefreshing`. `shipping` itself survives (it drives the
-   * ship-progress overlay content, which the task explicitly keeps) but is now
-   * PAIRED with `shipRequestId` for the runtime lifecycle; the other two are
-   * gone by name, replaced by requestId-keyed state that reports a real
-   * terminal outcome instead of clearing identically on every state push.
+   * The three ad-hoc pending booleans this work replaced: `shipping`,
+   * `mergePending`, `prRefreshing`. All three are gone — `shipping` with the
+   * legacy ship-progress overlay it drove (Finding 12) — replaced by
+   * requestId-keyed state that reports a real terminal outcome instead of
+   * clearing identically on every state push.
    */
   it('replaces the three ad-hoc pending booleans with the runtime lifecycle', () => {
     expect(HTML).not.toMatch(/\bmergePending\b/);
     expect(HTML).not.toMatch(/\bprRefreshing\b/);
+    expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
     expect(HTML).toMatch(/let mergeRequests = \{\}/);
     expect(HTML).toMatch(/let prRefreshId = null/);
     expect(HTML).toMatch(/let shipRequestId = null/);
@@ -1016,6 +1037,28 @@ describe('dashboard webview.html', () => {
     expect(renderBlockedBody).not.toMatch(/data-stage="/);
   });
 
+  it('renders a waiting-to-merge banner instead of a fault, and offers no Resume for it', () => {
+    // A ticket parked at `ship` blocked with `awaiting-merge` is not a fault —
+    // it's a normal wait for a PR to land, and (per stageResume.ts) a Resume
+    // click there would be refused anyway: only the merge gate observing the
+    // actual landing may clear that block, so a Resume button would be a dead
+    // affordance for this kind specifically.
+    const renderBlockedBody = HTML.slice(
+      HTML.indexOf('function renderBlocked(state)'),
+      HTML.indexOf('// The fault card scans the FLAT stepper'),
+    );
+    expect(renderBlockedBody).toMatch(/blocked\.kind === 'awaiting-merge'/);
+    // The awaiting-merge branch is the code between its own `if` and the next
+    // statement that builds the generic title — it must return before ever
+    // reaching the Resume-button markup.
+    const awaitingMergeBranch = renderBlockedBody.slice(
+      renderBlockedBody.indexOf("blocked.kind === 'awaiting-merge'"),
+      renderBlockedBody.indexOf('const title = `${STAGE_TITLE'),
+    );
+    expect(awaitingMergeBranch).toContain('Waiting to merge');
+    expect(awaitingMergeBranch).not.toMatch(/data-act="stage-resume"/);
+  });
+
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
     const generic = HTML.slice(
       HTML.indexOf('// Every other posting control settles'),
@@ -1072,4 +1115,729 @@ describe('dashboard webview.html', () => {
     expect(click).toContain("type: act");
   });
 
+  // ── inside ledger (the inside redesign) ─────────────────────────────────
+  it('renders the inside ledger from state.insideViews, always (Finding 12)', () => {
+    // The redesigned block consumes the six-stage view contract: ordered
+    // process rows with evidence. There is no flat fallback any more — live
+    // Ship events overlay the ledger through the generic inside-progress
+    // protocol (live header / completed process row), so the renderer always
+    // reads `state.insideViews[sel]`.
+    expect(HTML).toMatch(/state\.insideViews/);
+    expect(HTML).toMatch(/function processRowHtml/);
+    expect(HTML).toMatch(/class="procs"/);
+    expect(HTML).toMatch(/function renderInside\(state, sel\)[\s\S]*state\.insideViews/);
+    expect(HTML).not.toMatch(/function renderInsideFlat/);
+    expect(HTML).not.toMatch(/shipping && sel === 'ship'/);
+  });
+
+  it('overlays live Ship events onto the authoritative ledger (Finding 12)', () => {
+    // Step 2 of the remediation: feed an authoritative Ship InsideStageView,
+    // overlay active and completed Ship process events. `active` rides the
+    // stage header as the live line, `completed` replaces it with a process
+    // row via overlayProcesses — the ledger (state.insideViews) stays the
+    // base, and no per-repository step is derived in the webview.
+    expect(HTML).toMatch(/const view = \(state\.insideViews \|\| \{\}\)\[sel\]/);
+    expect(HTML).toMatch(/const alive = live && live\.active/);
+    expect(HTML).toMatch(/const procs = overlayProcesses\(view\)/);
+    expect(HTML).toMatch(/function overlayProcesses/);
+    expect(HTML).not.toMatch(/renderInsideFlat/);
+    expect(HTML).not.toMatch(/flattenShipOps/);
+  });
+
+  it('retires the legacy ship derivation wholesale (Finding 12, step 6)', () => {
+    expect(HTML).not.toMatch(/SHIP_STEP_ORDER|flattenShipOps|shippingView|renderInsideFlat/);
+  });
+
+  it('renders a process row from the snapshot, never deriving a verdict', () => {
+    // Status glyph, label, detail, counts, tokens and the action id all come
+    // pre-built; the webview only maps the closed status vocabulary to glyphs
+    // and the closed action vocabulary to static button copy.
+    expect(HTML).toMatch(/OP_GLYPH\[p\.status\]/);
+    expect(HTML).toMatch(/INSIDE_ACTION_LABEL\[a\.kind\]/);
+    expect(HTML).toMatch(/p\.execution \|\| p\.configuredExecution/);
+    expect(HTML).not.toMatch(/p\.status = /);
+  });
+
+  it('renders execution identity as one chip, never both claims at once', () => {
+    // `execution` (what ran) and `configuredExecution` (what settings said
+    // would run) are two different claims; one chip renders whichever exists,
+    // and the title says which claim it is.
+    expect(HTML).toMatch(/const e = p\.execution \|\| p\.configuredExecution;/);
+    expect(HTML).toContain("'Executed with this identity'");
+    expect(HTML).toContain('Configured to run — has not executed yet');
+  });
+
+  it('discloses process evidence with a real button and aria-expanded', () => {
+    // UI-R09: the disclosure is a semantic button carrying the open state; the
+    // open set is local view state that survives the next full re-render.
+    expect(HTML).toMatch(/data-chev="\$\{esc\(key\)\}"/);
+    expect(HTML).toMatch(/aria-expanded="\$\{open \? 'true' : 'false'\}"/);
+    expect(HTML).toMatch(/openProcesses = next;/);
+  });
+
+  it('posts inside actions with only the opaque actionId', () => {
+    // The closed inside-action message: type + actionId + requestId and
+    // NOTHING else — the webview never ships a path, URL, PR number, repo or
+    // stage as authority (messages.ts drops any payload with a companion
+    // field).
+    expect(HTML).toMatch(/data-action-id="\$\{esc\(a\.actionId\)\}"/);
+    expect(HTML).toMatch(/btn\.dataset\.actionId\) \{\n\s*post\(\{ type: act, actionId: btn\.dataset\.actionId, requestId \}\)/);
+  });
+
+  it('renders a live operation in the header, never as a second process row', () => {
+    // The inside-progress protocol is a same-tick overlay: `active` rides the
+    // stage header (spinner + host label), `completed` replaces the snapshot's
+    // same-id process row, and the full snapshot that follows retires both.
+    expect(HTML).toMatch(/'inside-progress'/);
+    expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ active: e\.live/);
+    expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ completed: e\.process \}/);
+    expect(HTML).toMatch(/function overlayProcesses/);
+    expect(HTML).toMatch(/live && live\.active/);
+    expect(HTML).not.toMatch(/live\.active\.status/);
+  });
+
+  it('retires a live overlay only when the snapshot contains its process', () => {
+    // A snapshot that does not know the process cannot answer about it; a
+    // `completed` overlay dies on any presence, an `active` one only once its
+    // row reads terminal (an unrelated mid-gate push must not drop the live
+    // header while the snapshot still reads `run`).
+    expect(HTML).toMatch(/entry\.completed \? entry\.completed\.id : entry\.processId/);
+    expect(HTML).toMatch(/row\.status !== 'run'/);
+    expect(HTML).toMatch(/delete liveOps\[stage\]/);
+  });
+
+  it('does not persist the live overlay across reloads', () => {
+    // A restored overlay would claim a process is running that nobody is —
+    // persist() saves only the snapshot, the selection and the filter.
+    expect(HTML).toMatch(/setState\(\{ state: lastState, sel: selectedStage, srvFilter: srvFilter \}\)/);
+    expect(HTML).not.toMatch(/liveOps: /);
+  });
+
+  it('keys the evidence block by its closed kind for specialized CSS', () => {
+    // Every renderer consumes the same EvidenceRow template; the kind rides
+    // on the container as a class so a per-kind treatment (timeline spine,
+    // gate chips, receipt list) hangs off one selector.
+    expect(HTML).toMatch(/pev pev-\$\{esc\(p\.evidence\.kind\)\}/);
+  });
+
+  it('draws the timeline connector from the structural field, never the label', () => {
+    // A switch/resume row carries `connector` from the host; the webview maps
+    // the CLOSED vocabulary to the arrow glyph + static tooltip and must not
+    // guess a switch from parsing the label (phase names are prose).
+    expect(HTML).toMatch(/r\.connector === 'switch' \|\| r\.connector === 'resume'/);
+    expect(HTML).toMatch(/econn/);
+    expect(HTML).toMatch(/Provider switched here/);
+    expect(HTML).toMatch(/Session resumed here/);
+    expect(HTML).not.toMatch(/r\.label === 'switch'/);
+  });
+
+  it('never reads the evidence kind to derive a verdict', () => {
+    // Kind is a presentation hint only: the row statuses are host-set, and a
+    // renderer that switches on kind to invent a status would break the
+    // "webview receives verdicts" invariant.
+    expect(HTML).toMatch(/esc\(p\.evidence\.kind\)/);
+    expect(HTML).not.toMatch(/evidence\.kind === .*status/);
+  });
+
+  it('keeps the ledger rows wrappable at narrow widths (UI-R04/R05)', () => {
+    // The process row and every evidence row flex-wrap, so 300px never scrolls
+    // the component horizontally: only the glyph columns are fixed, and the
+    // detail column truncates with an ellipsis instead of pushing the row.
+    expect(HTML).toMatch(/\.proc \.prow\{display:flex;flex-wrap:wrap/);
+    expect(HTML).toMatch(/\.erow\{display:flex;flex-wrap:wrap/);
+    expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
+    // The detail column is a pure flex item (min-width:0 lets it shrink to its
+    // ellipsis), never a fixed or minimum width that could overflow at 300px.
+    const pdetail = HTML.slice(HTML.indexOf('.pdetail{'), HTML.indexOf('.pdetail{') + 240);
+    expect(pdetail).toContain('min-width:0');
+    expect(pdetail).not.toContain('overflow-x');
+  });
+
+  it('carries a focus ring on the evidence chevron via the shared primitive', () => {
+    // The chevron rides on `.k-iconbtn`, so the design system's ONE
+    // :focus-visible rule (designComponents.ts FOUNDATION) applies — a
+    // keyboard user always sees where they are (UI-R09).
+    expect(HTML).toMatch(/class="k-iconbtn chev"/);
+    expect(HTML).toMatch(/data-chev="/);
+  });
+
+  // ── development-only Inside preview (Finding 1 / Task 9) ────────────────
+  /**
+   * The preview panel renders THIS SAME asset: the toolbar is inert and hidden
+   * in the production dashboard (the `preview-fixtures` message is the only
+   * thing that reveals it), and the selected fixture enters through the same
+   * `{type:'state'}` message listener a real snapshot arrives on — never a
+   * second renderer. Step 8 of the remediation plan: for every fixture/width,
+   * no whole-component horizontal scrolling, status/name precede metadata,
+   * metadata stays attached to its process, evidence disclosures/actions stay
+   * keyboard semantic, all untrusted text is escaped, the timeline rail
+   * geometry stays centered, and reduced motion disables animation without
+   * hiding the spinner ring.
+   */
+  it('ships the preview toolbar hidden, revealed only by the preview-fixtures message', () => {
+    expect(HTML).toContain('<div class="pvtoolbar hidden" id="previewToolbar">');
+    expect(HTML).toMatch(/msg\.type === 'preview-fixtures'/);
+    expect(HTML).toMatch(/classList\.remove\('hidden'\)/);
+    expect(HTML).toMatch(/classList\.add\('preview-mode'\)/);
+  });
+
+  it('routes every selected fixture through the same state message path as a real snapshot', () => {
+    // The toolbar dispatches `{type:'state', state}` on the window message
+    // listener — the identical branch the host's real `pushState` lands on —
+    // so the preview exercises the production render protocol byte for byte
+    // (Finding 1). There is no preview-specific render function.
+    expect(HTML).toMatch(
+      /dispatchEvent\(new MessageEvent\('message', \{[\s\S]{0,60}type: 'state', state: fixture\.state \} \}\)/,
+    );
+    expect(HTML).not.toMatch(/function renderInsidePreview/);
+  });
+
+  it('offers stage/scenario, repo count, and the four preview widths', () => {
+    expect(HTML).toContain('id="pvScenario"');
+    expect(HTML).toContain('id="pvRepos"');
+    for (const w of ['300', '360', '430', 'normal']) {
+      expect(HTML, `missing preview width ${w}`).toContain(`data-pv-w="${w}"`);
+    }
+  });
+
+  it('builds the preview width buttons as real buttons with a pressed state (UI-R09)', () => {
+    // The width group is a labeled group of toggle buttons: a semantic
+    // <button> per width, aria-pressed carrying the active one — never a
+    // clickable span or div.
+    expect(HTML).toMatch(/role="group" aria-label="Preview width"/);
+    expect(HTML).toMatch(/class="k-btn k-btn--ghost k-btn--sm" data-pv-w="300"[^>]*aria-pressed/);
+    expect(HTML).toMatch(/data-pv-w="normal"[^>]*aria-pressed="true"/);
+    expect(HTML).not.toMatch(/<span[^>]*data-pv-w=/);
+  });
+
+  it('labels the preview selects with real label-for controls (UI-R25)', () => {
+    expect(HTML).toContain('<label class="pvlabel" for="pvScenario">');
+    expect(HTML).toContain('<label class="pvlabel" for="pvRepos">');
+    expect(HTML).toContain('id="pvScenario"');
+    expect(HTML).toContain('id="pvRepos"');
+  });
+
+  it('constrains the preview width only under .preview-mode, never production', () => {
+    // The width frame is development-only: every rule is gated on
+    // `.preview-mode` (the class only the preview panel sets), so a production
+    // dashboard render can never be narrowed by these selectors.
+    for (const w of ['300', '360', '430']) {
+      expect(HTML, `missing width rule ${w}`).toContain(
+        `body.preview-mode[data-pv-w="${w}"] .stepper{width:${w}px}`,
+      );
+    }
+    expect(HTML).not.toMatch(/^\s*\.stepper\{[^}]*width:/m);
+    // The raw px are the same UI-R04 exemption class as a breakpoint: a
+    // component dimension with no scale match, commented in the file.
+    expect(HTML).toMatch(/Width frame: dev-only/);
+  });
+
+  it('wraps the preview toolbar and width group at narrow widths', () => {
+    // The toolbar is a component like any other: at 300px it wraps instead of
+    // scrolling the page horizontally (Step 8 — no whole-component horizontal
+    // scrolling applies to the dev controls too).
+    expect(HTML).toMatch(/\.pvtoolbar\{[^}]*flex-wrap:wrap/);
+    expect(HTML).toMatch(/\.pvtoolbar \.pvwidth\{[^}]*flex-wrap:wrap/);
+    expect(HTML).not.toMatch(/\.pvtoolbar[^{]*\{[^}]*overflow-x/);
+  });
+
+  it('places status and name before every piece of metadata on a process row', () => {
+    // Step 8: inside the RENDERED row template, status glyph → name → identity
+    // → tokens → detail → metadata → action → disclosure, in that order, so
+    // the eye reads the claim before the facts about it and the metadata can
+    // never outrank the name. (The disclosure button's markup is BUILT earlier
+    // in the function — its position in the rendered template is what counts.)
+    const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    const rendered = row.slice(row.indexOf('return `'));
+    const positions = [
+      rendered.indexOf('<span class="pglyph">'),
+      rendered.indexOf('<span class="pname">'),
+      rendered.indexOf('identityChipHtml(p)'),
+      rendered.indexOf('tokensHtml(p.tokens)'),
+      rendered.indexOf('<span class="pdetail">'),
+      rendered.indexOf('<span class="pright">'),
+      rendered.indexOf('${chev}'),
+    ];
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it('keeps process metadata attached to its own row, inside the row container', () => {
+    // The count/duration metadata renders inside `.pright` — a child of the
+    // process's `.prow` — so it can never drift onto another process.
+    const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(row).toMatch(/const meta = \[p\.count, p\.duration\]/);
+    expect(row).toMatch(/class="pright">\$\{meta\}\$\{act\}<\/span>\$\{chev\}/);
+  });
+
+  it('escapes every untrusted fixture string at the row templates (UI-R32)', () => {
+    // Finding 1: the fixture matrix deliberately carries hostile labels and
+    // long paths; every template that interpolates them must escape first.
+    expect(HTML).toMatch(/<span class="elabel">\$\{esc\(r\.label\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="edetail">\$\{esc\(r\.detail\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="pname">\$\{esc\(p\.label\)\}<\/span>/);
+    expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
+    expect(HTML).toMatch(/<span class="edur">\$\{esc\(r\.duration\)\}<\/span>/);
+  });
+
+  it('keeps the timeline rail geometry centered on the status glyph column', () => {
+    // Step 8: the connector column and the status glyph column share ONE
+    // width, so the timeline spine stays centered under its rows' status
+    // glyphs at every fixture width (the rest of each declaration is the
+    // connector's own text styling).
+    const widthOf = (name: string): string => {
+      const decl = new RegExp(`\\.erow \\.${name}\\{([^}]*)\\}`).exec(HTML)?.[1] ?? '';
+      return /width:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\)/.exec(decl)?.[0] ?? '';
+    };
+    expect(widthOf('econn')).toBe('width:calc(var(--k-space-6) + var(--k-space-1))');
+    expect(widthOf('econn')).toBe(widthOf('eglyph'));
+    expect(HTML).toMatch(/\.erow \.econn\{[^}]*text-align:center/);
+  });
+
+  it('nulls animation under reduced motion without hiding the spinner ring', () => {
+    // Step 8 + UI-R30: the ring stops spinning but stays VISIBLE (a static
+    // ring), because `aria-busy`/`disabled` carry the pending state — never
+    // `display:none`, which would hide the ring itself. Scoped to the media
+    // block that names the spinner — the file carries several, and the first
+    // one is a one-liner the naive regex would overrun.
+    const medias: string[] = [];
+    let at = 0;
+    while ((at = HTML.indexOf('@media (prefers-reduced-motion:reduce){', at)) !== -1) {
+      let depth = 0;
+      let end = at;
+      for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
+        if (HTML[i] === '{') depth += 1;
+        else if (HTML[i] === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            end = i + 1;
+            break;
+          }
+        }
+      }
+      medias.push(HTML.slice(at, end));
+      at = end;
+    }
+    const rm = medias.find((b) => b.includes('.spin')) ?? '';
+    expect(rm).toContain('.spin');
+    expect(rm).toContain('animation:none');
+    expect(rm).not.toContain('display:none');
+  });
+});
+
+// ── Task 6 (residual): executable fixture/render round trip ─────────────────
+//
+// The tests above are SOURCE guards: they pin the rules that stop a defect,
+// but they cannot tell you a fixture snapshot RENDERS. These execute the
+// dashboard's real inline script (design system + provider identity hydrated
+// exactly as dashboardWebviewHtml() does) in a `node:vm` context with DOM
+// doubles, feed it the `preview-fixtures` message, select every
+// (repo count × scenario) fixture at every preview width, and assert what the
+// selected `{type:'state'}` snapshot actually rendered: hostile fixture
+// strings escaped, semantic disclosure controls, typed actions, and the
+// fixture's own stable process roster. Nothing here claims pixels: layout,
+// overflow, focus and reduced-motion behavior stay source guards above and
+// the Dev Host matrix (docs/superpowers/verification/) is their only executor.
+
+/** The four preview width classes the toolbar offers (Finding 1 / Task 9). */
+const PREVIEW_WIDTHS = ['300', '360', '430', 'normal'] as const;
+
+/** The dashboard webview hydrated exactly as the host renders it. */
+const HYDRATED = injectProviderIdentity(injectPalette(injectDesignSystem(HTML)));
+
+function previewScriptSource(): string {
+  const open = HYDRATED.indexOf('<script>');
+  const close = HYDRATED.indexOf('</script>', open);
+  if (open < 0 || close < 0) throw new Error('dashboard webview.html has no inline script');
+  return HYDRATED.slice(open + '<script>'.length, close);
+}
+
+/** A minimal element double for whatever the script touches through `el()`. */
+function previewElement(id: string) {
+  const attrs: Record<string, string> = {};
+  const classes: string[] = [];
+  const listeners = new Map<string, (event?: unknown) => void>();
+  return {
+    id,
+    innerHTML: '',
+    textContent: '',
+    title: '',
+    value: '',
+    disabled: false,
+    dataset: {} as Record<string, string>,
+    scrollWidth: 100,
+    clientWidth: 100,
+    attrs,
+    classes,
+    classList: {
+      add: (name: string) => {
+        if (!classes.includes(name)) classes.push(name);
+      },
+      remove: (name: string) => {
+        const i = classes.indexOf(name);
+        if (i >= 0) classes.splice(i, 1);
+      },
+      toggle: (name: string, force?: boolean) => {
+        const on = force === undefined ? !classes.includes(name) : !!force;
+        if (on) {
+          if (!classes.includes(name)) classes.push(name);
+        } else {
+          const i = classes.indexOf(name);
+          if (i >= 0) classes.splice(i, 1);
+        }
+        return on;
+      },
+      contains: (name: string) => classes.includes(name),
+    },
+    setAttribute: (name: string, value: string) => {
+      attrs[name] = value;
+    },
+    getAttribute: (name: string) => attrs[name] ?? null,
+    removeAttribute: (name: string) => {
+      delete attrs[name];
+    },
+    addEventListener: (type: string, handler: (event?: unknown) => void) => {
+      listeners.set(type, handler);
+    },
+    fire: (type: string, event?: unknown) => {
+      const handler = listeners.get(type);
+      if (handler) handler(event);
+    },
+    querySelectorAll: (_sel: string): unknown[] => [],
+    querySelector: () => null,
+    focus: () => {},
+    setSelectionRange: () => {},
+    scrollIntoView: () => {},
+  };
+}
+
+type PreviewElement = ReturnType<typeof previewElement>;
+
+/** One toolbar width button — the node the width click handler mutates. */
+function widthButton(width: string) {
+  const attrs: Record<string, string> = {};
+  return {
+    dataset: { pvW: width },
+    attrs,
+    setAttribute: (name: string, value: string) => {
+      attrs[name] = value;
+    },
+  };
+}
+
+/** The MessageEvent constructor the script's toolbar selection instantiates. */
+class SandboxMessageEvent {
+  readonly type: string;
+  readonly data: unknown;
+  constructor(type: string, init?: { data?: unknown }) {
+    this.type = type;
+    this.data = init ? init.data : undefined;
+  }
+}
+
+interface PreviewHarness {
+  /** Deliver a host message through the script's `window.addEventListener('message')`. */
+  receive(message: unknown): void;
+  /** Set both toolbar selects and fire the change listener, exactly like a user picking a fixture. */
+  selectFixture(repos: number, scenario: string): void;
+  /** Click the toolbar width button, exactly like a user choosing a preview width. */
+  clickWidth(width: string): void;
+  /** Exercise the preview-only generic progress lifecycle control. */
+  clickProgress(kind: 'active' | 'completed' | 'cleared'): void;
+  /** Click one evidence disclosure chevron, exactly like a user expanding/collapsing a process. */
+  clickChevron(key: string): void;
+  htmlOf(id: string): string;
+  textOf(id: string): string;
+  classesOf(id: string): string[];
+  bodyDataset: Record<string, string>;
+  bodyClasses: string[];
+  /** The most recent message the script dispatched on `window` (the selected snapshot). */
+  lastDispatched(): { type: string; state?: DashboardState } | undefined;
+  posted: unknown[];
+}
+
+function bootPreviewHarness(): PreviewHarness {
+  const elements: Record<string, PreviewElement> = {};
+  for (const id of [
+    'pvScenario',
+    'pvRepos',
+    'previewToolbar',
+    'servers',
+    'inside',
+    'rail',
+    'title',
+    'followUpBtn',
+    'keyPill',
+    'agent',
+    'fault',
+    'blocked',
+    'now',
+    'srvCount',
+    'srvOps',
+    'worktrees',
+    'wtCount',
+    'wtChanges',
+    'prs',
+    'prCount',
+    'prRefresh',
+    'gates',
+    'gateCount',
+    'bindBtn',
+  ]) {
+    elements[id] = previewElement(id);
+  }
+  const widthButtons = PREVIEW_WIDTHS.map((w) => widthButton(w));
+  elements.previewToolbar = {
+    ...elements.previewToolbar!,
+    querySelectorAll: (sel: string) => (sel === '[data-pv-w]' ? widthButtons : []),
+  };
+
+  const bodyClasses: string[] = [];
+  const bodyDataset: Record<string, string> = {};
+  const bodyClassList = {
+    add: (name: string) => {
+      if (!bodyClasses.includes(name)) bodyClasses.push(name);
+    },
+    remove: (name: string) => {
+      const i = bodyClasses.indexOf(name);
+      if (i >= 0) bodyClasses.splice(i, 1);
+    },
+    toggle: (name: string, force?: boolean) => {
+      const on = force === undefined ? !bodyClasses.includes(name) : !!force;
+      if (on) {
+        if (!bodyClasses.includes(name)) bodyClasses.push(name);
+      } else {
+        const i = bodyClasses.indexOf(name);
+        if (i >= 0) bodyClasses.splice(i, 1);
+      }
+      return on;
+    },
+    contains: (name: string) => bodyClasses.includes(name),
+  };
+
+  const docListeners = new Map<string, Array<(event?: unknown) => void>>();
+  const winListeners = new Map<string, Array<(event?: unknown) => void>>();
+  const dispatched: Array<{ type: string; state?: DashboardState }> = [];
+  const posted: unknown[] = [];
+
+  const lane = { scrollWidth: 100, clientWidth: 100 };
+  const track = { classList: previewElement('track').classList, querySelector: (sel: string) => (sel === '.lane' ? lane : null) };
+
+  const documentDouble = {
+    getElementById: (id: string) => elements[id] ?? null,
+    addEventListener: (type: string, handler: (event?: unknown) => void) => {
+      const list = docListeners.get(type) ?? [];
+      list.push(handler);
+      docListeners.set(type, list);
+    },
+    querySelector: (sel: string) => (sel === '.track' ? track : null),
+    body: { classList: bodyClassList, dataset: bodyDataset, appendChild: () => {} },
+    createElement: () => previewElement('__created'),
+  };
+  const windowDouble = {
+    addEventListener: (type: string, handler: (event?: unknown) => void) => {
+      const list = winListeners.get(type) ?? [];
+      list.push(handler);
+      winListeners.set(type, list);
+    },
+    dispatchEvent: (event: { type: string; data?: unknown }) => {
+      if (event && event.data !== undefined) {
+        dispatched.push(event.data as { type: string; state?: DashboardState });
+      }
+      for (const handler of winListeners.get(event.type) ?? []) {
+        handler({ data: event.data });
+      }
+    },
+  };
+
+  runInNewContext(`${previewScriptSource()}\n;globalThis.__karst = { esc };`, {
+    acquireVsCodeApi: () => ({
+      getState: () => null,
+      setState: () => {},
+      postMessage: (message: unknown) => void posted.push(message),
+    }),
+    document: documentDouble,
+    window: windowDouble,
+    MessageEvent: SandboxMessageEvent,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+  });
+
+  const fireDocumentClick = (event: unknown) => {
+    for (const handler of docListeners.get('click') ?? []) handler(event);
+  };
+
+  return {
+    receive: (message) => {
+      windowDouble.dispatchEvent({ type: 'message', data: message });
+    },
+    selectFixture: (repos, scenario) => {
+      elements.pvRepos!.value = String(repos);
+      elements.pvScenario!.value = scenario;
+      elements.pvScenario!.fire('change');
+    },
+    clickWidth: (width) => {
+      const btn = widthButtons.find((b) => b.dataset.pvW === width)!;
+      fireDocumentClick({
+        target: { closest: (sel: string) => (sel === '[data-pv-w]' ? btn : null) },
+        preventDefault: () => {},
+      });
+    },
+    clickProgress: (kind) => {
+      fireDocumentClick({
+        target: { closest: (sel: string) => (sel === '[data-pv-progress]' ? { dataset: { pvProgress: kind } } : null) },
+        preventDefault: () => {},
+      });
+    },
+    clickChevron: (key) => {
+      fireDocumentClick({
+        target: {
+          closest: (sel: string) =>
+            sel === '[data-chev]' ? { dataset: { chev: key } } : null,
+        },
+        preventDefault: () => {},
+      });
+    },
+    htmlOf: (id) => elements[id]!.innerHTML,
+    textOf: (id) => elements[id]!.textContent,
+    classesOf: (id) => elements[id]!.classes,
+    bodyDataset,
+    bodyClasses,
+    lastDispatched: () => dispatched.at(-1),
+    posted,
+  };
+}
+
+describe('inside preview fixture round trip (executed in a VM)', () => {
+  const fixtures = insidePreviewFixtures().map(previewPayloadFor);
+
+  it('reveals the toolbar and lists the full scenario and repo vocabularies', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+
+    expect(h.classesOf('previewToolbar')).not.toContain('hidden');
+    expect(h.bodyClasses).toContain('preview-mode');
+    expect(h.bodyDataset.pvW).toBe('normal');
+    const scenarios = h.htmlOf('pvScenario');
+    for (const s of PREVIEW_SCENARIOS) {
+      expect(scenarios).toContain(`<option value="${s}">${s}</option>`);
+    }
+    const repos = h.htmlOf('pvRepos');
+    for (const n of PREVIEW_REPO_COUNTS) {
+      expect(repos).toContain(`<option value="${n}">${n} repositories</option>`);
+    }
+  });
+
+  it('round-trips every fixture at every preview width through the same state message a push uses', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+
+    // Evidence disclosures are view state that survives re-renders
+    // (openProcesses), so the test mirrors the open set to reset it before
+    // each fixture and get a deterministic closed state back.
+    const openKeys = new Set<string>();
+
+    for (const width of PREVIEW_WIDTHS) {
+      h.clickWidth(width);
+      expect(h.bodyDataset.pvW).toBe(width);
+      for (const f of fixtures) {
+        h.selectFixture(f.repositoryCount, f.scenario);
+
+        // The selection dispatched exactly the fixture's `{type:'state'}`
+        // snapshot — the identical message a real pushState ships.
+        const dispatched = h.lastDispatched();
+        expect(dispatched?.type, `no snapshot dispatched for ${f.id} at ${width}`).toBe('state');
+        expect(dispatched!.state!.title).toBe(f.label);
+        expect(dispatched!.state!.stageCurrent).toBe(f.stage);
+
+        const view = f.state.insideViews[f.stage];
+        const keys = view.processes
+          .filter((p) => (p.evidence?.rows.length ?? 0) > 0)
+          .map((p) => `${f.stage}:${p.id}`);
+
+        // Collapse anything a previous fixture left open.
+        for (const key of keys) {
+          if (openKeys.has(key)) {
+            h.clickChevron(key);
+            openKeys.delete(key);
+          }
+        }
+
+        // The CLOSED render: no raw hostile markup anywhere, and every
+        // disclosure is a semantic button carrying its open state.
+        let html = h.htmlOf('inside');
+        expect(html).not.toContain('<script>');
+        expect(html).not.toContain('</script>');
+        expect(html).toContain('data-chev="');
+        expect(html).toContain('aria-expanded="false"');
+
+        // Open every evidence disclosure, like a user reading the rows.
+        for (const key of keys) {
+          h.clickChevron(key);
+          openKeys.add(key);
+        }
+        html = h.htmlOf('inside');
+
+        // The renderer escaped every hostile fixture string: the raw markup
+        // never survives, and the escaped forms are what replaced it.
+        if (f.scenario === 'failed') {
+          expect(html).toContain('&lt;script&gt;');
+          expect(html).toContain('&amp; untrusted');
+          expect(html).toContain('&quot;quoted&quot;');
+        }
+        expect(html).not.toContain('<script>');
+        expect(html).not.toContain('</script>');
+        if (keys.length > 0) expect(html).toContain('aria-expanded="true"');
+
+        // Typed actions ride the closed inside-action wire with only the
+        // opaque fixture id — asserted present exactly when the fixture has one.
+        const hasAction = view.processes.some(
+          (p) => p.action || (p.evidence?.rows ?? []).some((r) => r.action),
+        );
+        if (hasAction) {
+          expect(html).toContain('data-act="inside-action"');
+          expect(html).toContain('data-action-id="fixture:');
+        } else {
+          expect(html).not.toContain('data-act="inside-action"');
+        }
+
+        // Stable process counts: the rendered roster is the snapshot's own.
+        const rows = (html.match(/class="proc /g) ?? []).length;
+        expect(rows).toBe(view.processes.length);
+      }
+    }
+  });
+
+  it('renders a stable process roster per scenario across every repo count', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+
+    const counts = new Map<string, Set<number>>();
+    for (const f of fixtures) {
+      h.selectFixture(f.repositoryCount, f.scenario);
+      const rows = (h.htmlOf('inside').match(/class="proc /g) ?? []).length;
+      const seen = counts.get(f.scenario) ?? new Set<number>();
+      seen.add(rows);
+      counts.set(f.scenario, seen);
+    }
+    for (const [scenario, seen] of counts) {
+      expect(seen.size, `scenario ${scenario} renders a roster that varies with repo count`).toBe(1);
+    }
+  });
+
+  it('lets the development preview exercise active, completed, and cleared generic inside-progress events', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'preview-fixtures', fixtures });
+    const fixture = fixtures[0]!;
+    h.selectFixture(fixture.repositoryCount, fixture.scenario);
+
+    h.clickProgress('active');
+    expect(h.htmlOf('inside')).toContain('Preview live operation');
+
+    h.clickProgress('completed');
+    expect(h.htmlOf('inside')).toContain('Preview live operation');
+    expect(h.htmlOf('inside')).toContain('proc pass');
+
+    h.clickProgress('cleared');
+    expect(h.htmlOf('inside')).not.toContain('Preview live operation');
+  });
 });

@@ -8,6 +8,7 @@ function finding(over: Partial<Finding> = {}): Finding {
     ticketId: 1,
     attempt: 0,
     runAt: '2026-08-01T10:00:00.000Z',
+    processRunId: null,
     severity: 'high',
     repo: '/web',
     file: null,

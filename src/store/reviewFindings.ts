@@ -23,6 +23,11 @@ export interface Finding {
   attempt: number;
   /** Batch stamp shared by every finding of one review invocation. */
   runAt: string;
+  /**
+   * The process_runs row of the review invocation that produced this batch
+   * (v27); NULL for a pre-v27 row or a batch whose caller named no process.
+   */
+  processRunId: number | null;
   severity: Severity;
   /** worktrees.repo; '' when the finding is not repo-scoped. */
   repo: string;
@@ -52,6 +57,11 @@ export interface FindingBatch {
   /** The stage's attempt at the moment this batch ran. */
   attempt: number;
   runAt: string;
+  /**
+   * The process_runs row of the review invocation producing this batch
+   * (v27); absent → the batch is recorded unattributed to a process.
+   */
+  processRunId?: number | null;
   findings: readonly FindingInput[];
 }
 
@@ -60,6 +70,7 @@ interface FindingRow {
   ticket_id: number;
   attempt: number;
   run_at: string;
+  process_run_id: number | null;
   severity: string;
   repo: string;
   file: string | null;
@@ -105,6 +116,7 @@ function rowToFinding(r: FindingRow): Finding {
     ticketId: r.ticket_id,
     attempt: r.attempt,
     runAt: r.run_at,
+    processRunId: r.process_run_id,
     severity: parseSeverity(r.severity),
     repo: r.repo,
     file: r.file,
@@ -139,8 +151,8 @@ export function recordFindings(store: Store, batch: FindingBatch): void {
   if (batch.findings.length === 0) return;
   const insert = store.db.prepare(
     `INSERT INTO review_findings
-       (ticket_id, attempt, run_at, severity, repo, file, line, title, detail, source, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (ticket_id, attempt, run_at, severity, repo, file, line, title, detail, source, created_at, process_run_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertBatch = store.db.transaction((items: readonly FindingInput[]) => {
     for (const f of items) {
@@ -156,6 +168,7 @@ export function recordFindings(store: Store, batch: FindingBatch): void {
         f.detail,
         f.source,
         batch.runAt,
+        batch.processRunId ?? null,
       );
     }
   });
@@ -171,7 +184,7 @@ export function recordFindings(store: Store, batch: FindingBatch): void {
 export function listFindings(store: Store, ticketId: number): Finding[] {
   return store.db
     .prepare(
-      `SELECT id, ticket_id, attempt, run_at, severity, repo, file, line, title, detail, source, created_at
+      `SELECT id, ticket_id, attempt, run_at, process_run_id, severity, repo, file, line, title, detail, source, created_at
          FROM review_findings
         WHERE ticket_id = ?
         ORDER BY id`,
@@ -196,4 +209,20 @@ export function latestFindingBatch(store: Store, ticketId: number): Finding[] {
     null,
   );
   return latest === null ? [] : all.filter((f) => f.runAt === latest);
+}
+
+/**
+ * One finding by its row id, whatever ticket it belongs to — the typed-action
+ * dispatch reloads the row by host-owned id and verifies the ticket itself
+ * (`insideActions.ts`), so it must not be scoped to a caller-supplied ticket.
+ */
+export function getFindingById(store: Store, id: number): Finding | undefined {
+  const row = store.db
+    .prepare(
+      `SELECT id, ticket_id, attempt, run_at, process_run_id, severity, repo, file, line, title, detail, source, created_at
+         FROM review_findings
+        WHERE id = ?`,
+    )
+    .get(id) as FindingRow | undefined;
+  return row === undefined ? undefined : rowToFinding(row);
 }

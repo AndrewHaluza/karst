@@ -14,6 +14,12 @@ import { transition } from '../machine.js';
  * MVP treats a completed resume as "ready to revalidate" and transitions
  * fix→uat; the *actual* re-gate happens when `runUat` runs next. There is
  * no captured session to resume ⇒ throw (we never fix blind).
+ *
+ * This headless helper is NOT the production recovery route — the driver
+ * resumes an INTERACTIVE session (live nudge or relaunched terminal) tracked
+ * against its committed recovery round (`workflow/fixExecution.ts`). It is kept
+ * only for its tested callers (token attribution, lifecycle integration); a fix
+ * that runs through it is untracked by design.
  */
 export interface RunFixOpts {
   ticketId: number;

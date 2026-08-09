@@ -145,6 +145,55 @@ function receiveOneHook(
   });
 }
 
+/** A receiver that collects `count` sequential POSTs, in arrival order. */
+function receiveHooks(
+  count: number,
+): Promise<{
+  endpointUrl: string;
+  received: Promise<unknown[]>;
+  close(): Promise<void>;
+}> {
+  const bodies: unknown[] = [];
+  let resolveAll!: (bodies: unknown[]) => void;
+  const received = new Promise<unknown[]>((resolve) => {
+    resolveAll = resolve;
+  });
+  const server = createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => {
+      body += chunk;
+    });
+    request.on('end', () => {
+      bodies.push(JSON.parse(body));
+      if (bodies.length >= count) resolveAll(bodies);
+      response.writeHead(204);
+      response.end();
+    });
+  });
+  return new Promise((resolve, reject) => {
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (typeof address !== 'object' || address === null) {
+        reject(new Error('hook receiver did not bind a TCP port'));
+        return;
+      }
+      resolve({
+        endpointUrl: `http://127.0.0.1:${address.port}/hooks`,
+        received,
+        close: () =>
+          new Promise<void>((closeResolve, closeReject) => {
+            server.close((error) => {
+              if (error) closeReject(error);
+              else closeResolve();
+            });
+          }),
+      });
+    });
+  });
+}
+
 function makeBasePackage(
   id: string,
   files: readonly (readonly [string, string])[],
@@ -166,6 +215,7 @@ describe('CodexAdapter interactive commands', () => {
     expect(adapter.capabilities).toEqual({
       lifecycleEvents: true,
       resume: true,
+      interactiveUsage: true,
     });
   });
 
@@ -368,6 +418,152 @@ describe('CodexAdapter interactive commands', () => {
         session_id: 'thread-1',
         message: 'idle_prompt',
       });
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('forwards authoritative cumulative usage as a UsageUpdate beside the lifecycle event', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveHooks(2);
+
+    try {
+      const [result, bodies] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            turn_id: 'turn-9',
+            last_assistant_message: 'Done.',
+            usage: {
+              event_id: 'turn-9',
+              input: 1_450,
+              output: 320,
+              cache_read: 180,
+              cache_write: 40,
+              total: 1_990,
+            },
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(bodies).toEqual([
+        { hook_event_name: 'Stop', cwd: '/wt', session_id: 'thread-1' },
+        {
+          hook_event_name: 'UsageUpdate',
+          cwd: '/wt',
+          session_id: 'thread-1',
+          usage: {
+            event_id: 'turn-9',
+            input: 1_450,
+            output: 320,
+            cache_read: 180,
+            cache_write: 40,
+            total: 1_990,
+          },
+        },
+      ]);
+      expect(existsSync(diagnosticsPath)).toBe(false);
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('falls back to turn_id as the usage event id when the usage object names none', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveHooks(2);
+
+    try {
+      const [, bodies] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            turn_id: 'turn-9',
+            usage: { input: 100, output: 20, cache_write: 5 },
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      const usage = (bodies[1] as { usage: Record<string, unknown> }).usage;
+      expect(usage.event_id).toBe('turn-9');
+      expect(usage.cache_write).toBe(5);
+      expect(usage.cache_read).toBeUndefined();
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('drops malformed or partial usage — the lifecycle event still posts', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            turn_id: 'turn-9',
+            usage: { input: 'not-a-number', output: 20, event_id: 'turn-9' },
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(body).toEqual({ hook_event_name: 'Stop', cwd: '/wt', session_id: 'thread-1' });
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('emits no UsageUpdate when the payload carries no usage at all', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            turn_id: 'turn-9',
+            last_assistant_message: 'Done.',
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(body).toEqual({ hook_event_name: 'Stop', cwd: '/wt', session_id: 'thread-1' });
     } finally {
       await receiver.close();
     }
@@ -628,6 +824,66 @@ describe('codexHookNormalizer', () => {
         cwd: '/wt',
       },
     ]);
+  });
+
+  it('posts a UsageUpdate with the provider usage and event id alongside the lifecycle event', async () => {
+    const { codexHookNormalizer } = await import('./codex.js');
+    const posted: unknown[] = [];
+    const normalize = codexHookNormalizer((payload) => {
+      posted.push(payload);
+      return Promise.resolve();
+    });
+
+    await normalize({
+      hook_event_name: 'Stop',
+      session_id: 'thread-1',
+      cwd: '/wt',
+      turn_id: 'turn-9',
+      usage: {
+        event_id: 'turn-9',
+        input: 1_450,
+        output: 320,
+        cache_read: 180,
+        cache_write: 40,
+        total: 1_990,
+      },
+    });
+
+    expect(posted).toEqual([
+      { hook_event_name: 'Stop', session_id: 'thread-1', cwd: '/wt' },
+      {
+        hook_event_name: 'UsageUpdate',
+        session_id: 'thread-1',
+        cwd: '/wt',
+        usage: {
+          event_id: 'turn-9',
+          input: 1_450,
+          output: 320,
+          cache_read: 180,
+          cache_write: 40,
+          total: 1_990,
+        },
+      },
+    ]);
+  });
+
+  it('drops malformed usage in the normalizer too — lifecycle-only', async () => {
+    const { codexHookNormalizer } = await import('./codex.js');
+    const posted: unknown[] = [];
+    const normalize = codexHookNormalizer((payload) => {
+      posted.push(payload);
+      return Promise.resolve();
+    });
+
+    await normalize({
+      hook_event_name: 'Stop',
+      session_id: 'thread-1',
+      cwd: '/wt',
+      usage: { input: 'ten', output: 2, event_id: 'turn-9' },
+    });
+
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toEqual({ hook_event_name: 'Stop', session_id: 'thread-1', cwd: '/wt' });
   });
 });
 

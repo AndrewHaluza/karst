@@ -4,9 +4,11 @@ import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
+import { finishProcessRun } from '../../store/processRuns.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
-import { commitGateOutcome, type RunOutcome } from '../gates/commit.js';
+import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
@@ -17,11 +19,13 @@ import { noTargetsReason } from '../gates/targets.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
+import { capForGate } from '../fixAttempts.js';
 import {
   aggregateReview,
   malformedPackageJsonEntry,
   uatIdentitiesFrom,
   DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
+  FINDINGS_FAILURE_PREFIX,
   type AggregateEntry,
 } from '../review/aggregate.js';
 import { planAndRunFindingsLane } from '../review/findingsLane.js';
@@ -65,10 +69,13 @@ export interface RunReviewOpts {
   /** One signal for the whole run, so a Stop reaches the gate in flight. */
   signal?: AbortSignal;
   /**
-   * Called after each gate finishes, with the gate's name. Lets callers push
-   * dashboard progress during long-running gate sets.
+   * Called after each gate finishes, with the gate's name and its recorded
+   * outcome (`null` = the repo could not answer — the note, never a verdict).
+   * Lets callers push dashboard progress during long-running gate sets.
    */
-  onGateComplete?: (gateName: string) => void;
+  onGateComplete?: (gateName: string, exitCode: number | null) => void;
+  /** Called before each gate's work begins, with the gate's name. */
+  onGateStart?: (gateName: string) => void;
 }
 
 export interface ReviewDeps {
@@ -89,6 +96,20 @@ export interface ReviewDeps {
    * outcome, never a failure: an agent that cannot be asked is environmental.
    */
   findingsAdapter?: AgentAdapter;
+  /**
+   * The Review findings PROCESS (Task 8): its immutable assignment snapshot
+   * and the already instrumented adapter. When present, the lane opens a
+   * `process_runs` row before its first call (snapshotting the assignment),
+   * threads the run id through token attribution and the findings batch, and
+   * the stage finishes the run with an explicit result kind
+   * (`validated`/`blocking`/`execution-failed`/`interrupted`). NULL means the
+   * configured process is DISABLED (Finding 2) — the same as absent: the lane
+   * falls back to the plain findings adapter and opens no process run.
+   */
+  reviewProcess?: {
+    assignment: ProcessAssignmentSnapshot;
+    adapter: AgentAdapter;
+  } | null;
   /**
    * Where the findings lane's boundary diagnostics land (a failed AI call,
    * an unparseable response, an untrustworthy `file`) — threaded through to
@@ -143,6 +164,41 @@ export async function runReview(
   const skippedNames: string[] = [];
 
   /**
+   * The findings lane's process run (Task 8), captured the moment the lane
+   * returns and threaded into the trigger below — a blocking-findings round
+   * names the ACTUAL findings process run as its source. Deterministic gate
+   * failures carry no AI process and stay null.
+   */
+  let findingsProcessRunId: number | null = null;
+
+  /**
+   * The recovery trigger for this run's outcome (v30), constructed HERE while
+   * the failing evidence, the current stage run and the manifest cap are all
+   * still in hand — never reconstructed later from `stages.verdict` or the
+   * live manifest. The causal source is read off the aggregate's own failure
+   * constant: a blocking-findings verdict (`FINDINGS_FAILURE_PREFIX`) is the
+   * findings lane's failure and is attributed to the `review` process (its own
+   * run id); every other failed verdict is a deterministic gate outcome
+   * attributed to `gates`. Blocks, stops and passes carry no trigger.
+   */
+  const recoveryTriggerFor = (outcome: RunOutcome): RecoveryTriggerInput | null => {
+    if (outcome.kind !== 'verdict' || outcome.verdict.kind !== 'failed') return null;
+    const triggerDetail = outcome.verdict.reason ?? 'review gates failed';
+    const fromFindings = triggerDetail.startsWith(FINDINGS_FAILURE_PREFIX);
+    return {
+      sourceProcessId: fromFindings ? 'review' : 'gates',
+      sourceStageRunId: evidence.runId,
+      // The findings lane's process run, when this failure IS the findings
+      // lane's; a deterministic gate failure has no AI process. Never an id of
+      // another table forced into this column.
+      sourceProcessRunId: fromFindings ? findingsProcessRunId : null,
+      triggerKind: fromFindings ? 'blocking-review-findings' : 'gate-failure',
+      triggerDetail,
+      maxRounds: capForGate('review', opts.manifest?.uat?.maxFixAttempts, opts.manifest?.review?.maxFixAttempts),
+    };
+  };
+
+  /**
    * Write the log and commit the outcome.
    *
    * Carries NO gate rows: every one of them was appended the moment it was
@@ -162,6 +218,7 @@ export async function runReview(
       gates: [],
       outcome,
       stageRunId: evidence.runId,
+      recoveryTrigger: recoveryTriggerFor(outcome) ?? undefined,
       now,
     });
   };
@@ -277,6 +334,7 @@ export async function runReview(
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
       onGateComplete: opts.onGateComplete,
+      onGateStart: opts.onGateStart,
     });
 
     const produced: AggregateEntry[] = [];
@@ -321,6 +379,11 @@ export async function runReview(
     }
   }
 
+  // The Review AI process (Task 8) carries its own adapter; absent, the lane
+  // falls back to the plain findings adapter (or capability-missing).
+  const reviewProcess = deps.reviewProcess;
+  const findingsAdapter = reviewProcess?.adapter ?? deps.findingsAdapter;
+
   // `worktrees.base_ref` per repository path, so the findings prompt can name
   // the exact range it must diff against instead of asking the agent to guess.
   const baseRefByRepo = new Map(worktrees.map((w) => [w.repo, w.baseRef]));
@@ -335,10 +398,23 @@ export async function runReview(
       baseRef: baseRefByRepo.get(t.repo) ?? null,
     })),
     findingsConfig: opts.manifest?.review?.findings,
-    adapter: deps.findingsAdapter,
+    adapter: findingsAdapter,
     ticketId: opts.ticketId,
     signal: opts.signal,
     warn: deps.warn,
+    // Task 8: open the Review process run before the lane's first call,
+    // snapshotting the resolved assignment identity.
+    store,
+    process: reviewProcess
+      ? {
+          assignment: reviewProcess.assignment,
+          adapter: reviewProcess.adapter,
+          stageRunId: evidence.runId,
+          attempt: evidence.attempt,
+          pid: process.pid,
+          startedAt: runAt,
+        }
+      : undefined,
   });
   // F2 — persisted the INSTANT the lane returns, before a single aggregation
   // rule reads them. These are completed model output the user has already paid
@@ -346,7 +422,27 @@ export async function runReview(
   // is what let a host restart discard them with nothing recorded anywhere.
   const collectedFindings: readonly FindingInput[] =
     findingsLane.kind === 'ran' ? findingsLane.findings : [];
-  evidence.appendFindings(collectedFindings);
+  evidence.appendFindings(
+    collectedFindings,
+    findingsLane.kind === 'ran' ? findingsLane.processRunId ?? null : null,
+  );
+  // Captured here — before the verdict exists — so the trigger below names the
+  // exact process run that produced a blocking verdict, when it is the lane's.
+  findingsProcessRunId =
+    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
+
+  // Finding 3: a Stop during the findings lane is not a review of anything —
+  // the open Review process is closed interrupted, and the run returns stopped
+  // BEFORE `aggregateReview` (a stopped lane is not evidence) and before any
+  // recovery trigger construction. Nothing is appended beyond the gate rows
+  // that already finished.
+  if (findingsLane.kind === 'stopped') {
+    const stoppedRunId = findingsLane.processRunId ?? null;
+    if (stoppedRunId !== null) {
+      finishProcessRun(store, stoppedRunId, 'interrupted', now(), 'interrupted');
+    }
+    return finish({ kind: 'stopped' }, ['review stopped before the findings lane finished']);
+  }
 
   const outcome = aggregateReview(
     entries,
@@ -362,10 +458,42 @@ export async function runReview(
       disabledGateNames: skippedNames,
     },
   );
+
+  // Task 8: close the Review findings process run with its EXPLICIT result
+  // kind — the AI call's crash is recorded as `execution-failed` (never a code
+  // verdict, never a recovery round), blocking findings as `blocking`, and a
+  // clean lane as `validated`. The artifact path rides along so the inside
+  // view can expose the run's log.
+  const crashes: readonly string[] =
+    findingsLane.kind === 'ran' ? (findingsLane.crashes ?? []) : [];
+  const processRunId =
+    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
+  if (processRunId !== null) {
+    const blocking =
+      outcome.kind === 'verdict' &&
+      outcome.verdict.kind === 'failed' &&
+      (outcome.verdict.reason ?? '').startsWith(FINDINGS_FAILURE_PREFIX);
+    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
+    if (crashes.length > 0) {
+      finishProcessRun(store, processRunId, 'failed', now(), 'execution-failed', artifactPath);
+    } else if (blocking) {
+      finishProcessRun(store, processRunId, 'failed', now(), 'blocking', artifactPath);
+    } else {
+      finishProcessRun(store, processRunId, 'passed', now(), 'validated', artifactPath);
+    }
+  }
+  // The crash diagnostics land in the artifact too — a failed lane must be
+  // distinguishable from a clean review in the log, not just in a log line.
+  const crashNotes = crashes.map((c) => `review findings lane failed: ${c}`);
+
   if (outcome.kind === 'blocked') {
     return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
       outcome.reason,
+      ...crashNotes,
     ]);
   }
-  return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+  return finish({ kind: 'verdict', verdict: outcome.verdict }, [
+    ...outcome.warnings,
+    ...crashNotes,
+  ]);
 }

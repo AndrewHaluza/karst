@@ -23,6 +23,7 @@ import {
   review as buildReview,
 } from '../../manifest/fixtures.js';
 import { gateSummary as hostGateSummary } from './gateDraft.js';
+import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -704,6 +705,7 @@ describe('settings tab-scoped save', () => {
       ['ticketing', { ticketing: { provider: 'clickup', advanceOnShip: true } }],
       ['approaches', { approaches: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }] }],
       ['agents', { agents: 'nope' as never }],
+      ['agents', { processes: { wibble: {} } as never }],
     ];
     for (const [expected, patch] of broken) {
       let message = '';
@@ -1938,5 +1940,163 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
       .replace(functionSource('updateReview'), '');
     expect(withoutUpdaters).not.toMatch(/draft\.uat\s*=/);
     expect(withoutUpdaters).not.toMatch(/draft\.review\s*=/);
+  });
+});
+
+/**
+ * Task 7: the five inside-process assignment rows on the Agents tab. ONE
+ * renderer (renderProcessAssignmentRow) parameterized by the PROCESS_KEYS
+ * vocabulary (mirrored from validate/processAssignments.ts, UI-R34), with the
+ * provider/model choices read from the HOST-SUPPLIED catalog (modelCatalog)
+ * exactly like the General tab's model picker — never HTML literals.
+ */
+describe('settings agents tab — process assignments', () => {
+  it('mirrors the host PROCESS_KEYS vocabulary exactly', () => {
+    expect(HTML).toContain(
+      `const PROCESS_KEYS = [${PROCESS_KEYS.map((k) => `'${k}'`).join(', ')}];`,
+    );
+  });
+
+  it('renders five process assignment rows with name/provider/model/enabled controls', () => {
+    expect(HTML).toContain('id="processAssignments"');
+    // The render walks the PROCESS_KEYS vocabulary (pinned above) and the row
+    // template stamps every control with the key it edits.
+    expect(HTML).toContain('PROCESS_KEYS\n      .map((key) => renderProcessAssignmentRow(key,');
+    expect(HTML).toContain('data-proc-key="${key}"');
+    expect(HTML).toContain('data-proc-field="agentName"');
+    expect(HTML).toContain('data-proc-field="provider"');
+    expect(HTML).toContain('data-proc-field="model"');
+    expect(HTML).toContain('data-proc-enabled="${key}"');
+    expect(HTML).toContain('role="switch"');
+  });
+
+  it('has no hard-coded model or provider literal list for the rows', () => {
+    // The rows must read provider options from the injected agent identity and
+    // model options from the host catalog — the same mirrors the General tab
+    // uses — so a catalog refresh flows straight through.
+    expect(HTML).not.toContain('const PROCESS_MODELS');
+    expect(HTML).not.toContain('const PROCESS_PROVIDERS');
+  });
+
+  const CATALOG = {
+    claude: [{ id: 'claude-only', label: 'Claude Only', providers: ['claude'] }],
+    codex: [{ id: 'codex-current', label: 'Codex Current', providers: ['codex'] }],
+    antigravity: [{ id: 'agy-current', label: 'Antigravity Current', providers: ['antigravity'] }],
+    opencode: [],
+  };
+
+  function loadProcessRowRenderer(): (
+    key: string,
+    cfg: Record<string, string>,
+    effectiveProvider: string,
+  ) => string {
+    const source = `
+      const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
+      const PROCESS_ROLE_LABELS = {
+        uatTester: 'UAT test', uatFix: 'UAT fix', review: 'Review',
+        reviewFix: 'Review fix', prDescription: 'PR description',
+      };
+      const AGENT_PROVIDER_LABELS = {
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+      };
+      ${functionSource('renderModelOptions')}
+      ${functionSource('renderProcessAssignmentRow')}
+      renderProcessAssignmentRow
+    `;
+    return runInNewContext(source, {
+      modelCatalog: CATALOG,
+      esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+    }) as (
+      key: string,
+      cfg: Record<string, string>,
+      effectiveProvider: string,
+    ) => string;
+  }
+
+  it('fills each model select from the host catalog for the row provider', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', { provider: 'codex', model: '' }, 'codex');
+
+    expect(html).toContain('data-proc-key="uatTester"');
+    expect(html).toContain('Codex Current');
+    expect(html).not.toContain('Claude Only');
+    expect(html).toContain('data-proc-field="provider"');
+    expect(html).toContain('data-proc-field="model"');
+  });
+
+  it('keeps a saved model visible when absent from the catalog', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('review', { provider: 'codex', model: 'preview-x' }, 'codex');
+    expect(html).toContain('Saved model: preview-x');
+  });
+
+  it('falls back to the manifest provider when the row declares none', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', {}, 'claude');
+    expect(html).toContain('Claude Only');
+  });
+
+  it('writes edits by spreading the existing processes block, never rebuilding it', () => {
+    expect(HTML).toMatch(/draft\.processes\s*=\s*\{\s*\.\.\.\(draft\.processes \|\| \{\}\)\s*,\s*\[key\]: entry\s*\};/);
+  });
+
+  it('routes process edits through the delegated click/change listeners', () => {
+    expect(HTML).toContain('t.dataset.procKey');
+    expect(HTML).toContain('t.dataset.procField');
+    expect(HTML).toContain("updateProcessAssignment(t.dataset.procKey, {");
+  });
+
+  it('preserves a hand-authored agent reference through an agents-tab save', () => {
+    // The `agent` field is NOT rendered by the tab (only enabled/agentName/
+    // provider/model are) — it is authored in karst.yml by hand. The updater
+    // must spread the entry so a Save never erases it, exactly like the
+    // Quality tab's spread-not-rebuild rule.
+    const onDisk: Manifest = {
+      ...buildManifest(
+        { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
+        { approaches: [], agents: { 'uat-author': { role: 'uat' } }, ticketing: { provider: 'manual' } },
+      ),
+      processes: {
+        uatTester: {
+          agent: 'uat-author',
+          agentName: 'My UAT',
+          provider: 'codex',
+          model: 'gpt-5.6-sol',
+        },
+      },
+    };
+    const sandbox: Record<string, unknown> = {
+      draft: JSON.parse(JSON.stringify(onDisk)),
+      markDirty: () => {},
+      renderProcessAssignments: () => {},
+    };
+    const source = `
+      ${functionSource('updateProcessAssignment')}
+      updateProcessAssignment('uatTester', { agentName: 'Renamed' });
+    `;
+    runInNewContext(source, sandbox);
+    const merged = mergeSection(onDisk, sandbox.draft as Manifest, 'agents');
+
+    expect(merged.processes?.uatTester).toEqual({
+      agent: 'uat-author',
+      agentName: 'Renamed',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+  });
+
+  it('clearing every field of a row removes the entry rather than saving an empty mapping', () => {
+    const sandbox: Record<string, unknown> = {
+      draft: { processes: { review: { agentName: 'X', provider: 'codex' } } },
+      markDirty: () => {},
+      renderProcessAssignments: () => {},
+    };
+    const source = `
+      ${functionSource('updateProcessAssignment')}
+      updateProcessAssignment('review', { agentName: '', provider: '' });
+    `;
+    runInNewContext(source, sandbox);
+    expect(sandbox.draft).toEqual({ processes: undefined });
   });
 });

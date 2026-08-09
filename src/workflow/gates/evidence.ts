@@ -4,6 +4,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
 import { recordFindings, type FindingInput } from '../../store/reviewFindings.js';
 import { openStageRun } from '../../store/stageRuns.js';
+import { attachRevalidationStageRun } from '../../store/recoveryRounds.js';
 import { stageAttempt } from '../../store/stages.js';
 import { gateRevision } from '../../manifest/gateRevision.js';
 
@@ -39,8 +40,12 @@ export interface GateRunEvidence {
    * before anything is aggregated. These are completed model output that was
    * already paid for; holding them until the verdict is what threw away a run's
    * worth of tokens with nothing to show for it.
+   *
+   * `processRunId` (v31, Task 8) attributes the batch to the Review findings
+   * process run that produced it; absent → unattributed, exactly like a
+   * pre-Task-8 caller.
    */
-  appendFindings(findings: readonly FindingInput[]): void;
+  appendFindings(findings: readonly FindingInput[], processRunId?: number | null): void;
 }
 
 export interface OpenGateRunInput {
@@ -71,6 +76,15 @@ export function openGateRun(store: Store, input: OpenGateRunInput): GateRunEvide
     startedAt: runAt,
   });
 
+  // v30: a gate run opened while a recovery round awaits its revalidation IS
+  // that revalidation — attach the run to the round the moment it opens, so
+  // the round names its revalidation evidence before any verdict exists (a
+  // review-origin round attaches its uat revalidation here and its own review
+  // revalidation when review runs later; the graph is never bypassed).
+  if (stageKey === 'uat' || stageKey === 'review') {
+    attachRevalidationStageRun(store, ticketId, stageKey, runId);
+  }
+
   return {
     runId,
     attempt,
@@ -78,9 +92,15 @@ export function openGateRun(store: Store, input: OpenGateRunInput): GateRunEvide
       if (rows.length === 0) return;
       recordGateRun(store, { ticketId, stageKey, attempt, runAt, gates: rows, stageRunId: runId });
     },
-    appendFindings(findings) {
+    appendFindings(findings, processRunId) {
       if (findings.length === 0) return;
-      recordFindings(store, { ticketId, attempt, runAt, findings });
+      recordFindings(store, {
+        ticketId,
+        attempt,
+        runAt,
+        findings,
+        processRunId: processRunId ?? undefined,
+      });
     },
   };
 }

@@ -5,6 +5,13 @@ import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
 import { recordFindings, type FindingInput } from '../../store/reviewFindings.js';
 import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
 import { closeStageRun, type StageRunOutcome } from '../../store/stageRuns.js';
+import {
+  openRecoveryRound,
+  completeRevalidation,
+  type RecoverySourceProcessId,
+  type RecoverySourceStage,
+  type RecoveryTriggerKind,
+} from '../../store/recoveryRounds.js';
 import { transition } from '../machine.js';
 import { nowIso } from '../../model/time.js';
 
@@ -13,6 +20,28 @@ export type RunOutcome =
   | { kind: 'verdict'; verdict: Exclude<Verdict, null> }
   | { kind: 'blocked'; blocker: BlockerKind; reason: string }
   | { kind: 'stopped' };
+
+/**
+ * The closed call-site payload that opens a recovery round (v30): the complete
+ * causal snapshot of a gate failure, captured where the failing evidence, the
+ * current stage run and the manifest cap are all still in hand — UAT/Review
+ * construct it BEFORE calling `commitGateOutcome`. Never reconstructed later
+ * from `stages.verdict`, latest findings, or mutable Settings.
+ *
+ * `sourceProcessId` names the process that produced the failure ('gates' for a
+ * deterministic gate, 'tester' for a verifier exit, 'review' for the findings
+ * lane); `sourceProcessRunId` is that process's run when the source was an AI
+ * process (Tester/Review), null otherwise — one id column, one table identity.
+ * `maxRounds` is the fix budget the failure committed under.
+ */
+export type RecoveryTriggerInput = {
+  sourceProcessId: RecoverySourceProcessId;
+  sourceStageRunId: number;
+  sourceProcessRunId: number | null;
+  triggerKind: RecoveryTriggerKind;
+  triggerDetail: string;
+  maxRounds: number;
+};
 
 export interface CommitGateOutcomeInput {
   ticketId: number;
@@ -44,6 +73,14 @@ export interface CommitGateOutcomeInput {
    * Absent = the caller opened no run. Nothing is invented on this side.
    */
   stageRunId?: number | null;
+  /**
+   * v30: the recovery trigger for a FAILED verdict. Legal only with a failed
+   * verdict from a gate stage — and a failed verdict that enters automatic
+   * recovery MUST carry one. The round opens inside the verdict's transaction,
+   * so the failing verdict, its recorded evidence and the round commit
+   * atomically (or not at all).
+   */
+  recoveryTrigger?: RecoveryTriggerInput;
   /** Clock for the run's `ended_at`; injected so tests are deterministic. */
   now?: () => string;
 }
@@ -70,6 +107,28 @@ export function commitGateOutcome(
   const { ticketId, stageKey, runAt, artifactPath, gates, outcome, findings, stageRunId } =
     input;
   const now = input.now ?? nowIso;
+
+  // The recovery trigger is validated against the actual outcome BEFORE
+  // anything mutates: a trigger is legal only with a failed verdict from a gate
+  // stage, and a failed verdict that enters automatic recovery (the fix loop)
+  // must carry one — otherwise the ticket would enter fix with no committed
+  // round for the driver to read back.
+  const isGate = stageKey === 'uat' || stageKey === 'review';
+  if (input.recoveryTrigger !== undefined) {
+    if (!isGate || outcome.kind !== 'verdict' || outcome.verdict.kind !== 'failed') {
+      const kind =
+        outcome.kind === 'verdict' ? `verdict/${outcome.verdict.kind}` : outcome.kind;
+      throw new Error(
+        `recovery trigger supplied for a ${kind} outcome at '${stageKey}' — ` +
+          'a trigger is only legal with a failed verdict from uat/review',
+      );
+    }
+  } else if (isGate && outcome.kind === 'verdict' && outcome.verdict.kind === 'failed') {
+    throw new Error(
+      `a failed verdict at '${stageKey}' must carry a recovery trigger — ` +
+        'automatic recovery enters fix, and the round is what the driver reads back',
+    );
+  }
 
   /** Close the caller's run, if it opened one. Always inside a transaction below. */
   const closeRun = (kind: StageRunOutcome): void => {
@@ -145,6 +204,34 @@ export function commitGateOutcome(
       stageRunId,
     });
     recordFindingsIfAny();
+    // v30: the recovery round opens INSIDE the verdict's transaction, carrying
+    // the complete causal snapshot the caller captured — the failing verdict,
+    // its evidence and the round commit together or not at all. A revalidation
+    // run that fails fails the active round here too (the round it revalidates
+    // was attached when that run opened), and the new round describes the new
+    // cause.
+    if (input.recoveryTrigger !== undefined) {
+      openRecoveryRound(store, {
+        ticketId,
+        sourceStage: stageKey as RecoverySourceStage,
+        sourceProcessId: input.recoveryTrigger.sourceProcessId,
+        sourceStageRunId: input.recoveryTrigger.sourceStageRunId,
+        sourceProcessRunId: input.recoveryTrigger.sourceProcessRunId,
+        triggerKind: input.recoveryTrigger.triggerKind,
+        triggerDetail: input.recoveryTrigger.triggerDetail,
+        maxRounds: input.recoveryTrigger.maxRounds,
+        startedAt: now(),
+      });
+    } else if (outcome.verdict.kind === 'passed' && stageRunId !== undefined && stageRunId !== null) {
+      // A passed revalidation completes the round whose run this is — for a
+      // review-origin round only its own review outcome completes it.
+      completeRevalidation(store, {
+        ticketId,
+        stageKey: stageKey as RecoverySourceStage,
+        stageRunId,
+        endedAt: now(),
+      });
+    }
     closeRun('advanced');
   });
   return { kind: 'advanced', next };

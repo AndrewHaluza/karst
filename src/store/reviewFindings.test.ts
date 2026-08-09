@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { setStage } from './stages.js';
+import { openProcessRun } from './processRuns.js';
 import {
   recordFindings,
   listFindings,
@@ -98,6 +99,39 @@ describe('review findings evidence', () => {
 
     // Nothing landed — not even the row that would have been valid alone.
     expect(listFindings(store, t.id)).toEqual([]);
+  });
+
+  it('round-trips the process run that produced a batch', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const run = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T11:59:00.000Z',
+    });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T12:00:00.000Z',
+      processRunId: run.id,
+      findings: [finding({ title: 'linked' })],
+    });
+
+    const row = listFindings(store, t.id)[0]!;
+    expect(row.processRunId).toBe(run.id);
+  });
+
+  it('records a NULL process run for a batch whose caller named none', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T12:00:00.000Z',
+      findings: [finding({ title: 'unlinked' })],
+    });
+
+    expect(listFindings(store, t.id)[0]!.processRunId).toBeNull();
   });
 
   it('survives the stage row being overwritten by a retry', () => {

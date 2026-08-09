@@ -9,11 +9,15 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
+import { listProcessRuns } from '../../store/processRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { latestStageRun } from '../../store/stageRuns.js';
+import { latestStageRun, listStageRuns } from '../../store/stageRuns.js';
 import { openGateRun } from '../gates/evidence.js';
 import { commitGateOutcome } from '../gates/commit.js';
+import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
+import type { Manifest } from '../../manifest/types.js';
+import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import { runUat, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
@@ -727,6 +731,74 @@ describe('runReview', () => {
     expect(listGateRuns(store, id).every((r) => r.attempt === 0)).toBe(true);
   });
 
+  it('a gate failure commits a review-origin recovery round attributed to the gates source', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceStage: 'review',
+      sourceProcessId: 'gates',
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'gates failed: lint (/wt/web), typecheck (/wt/web), build (/wt/web), format:check (/wt/web)',
+      round: 1,
+      maxRounds: 3,
+      status: 'pending',
+    });
+    expect(rounds[0]!.sourceStageRunId).toBe(listStageRuns(store, id)[0]!.id);
+  });
+
+  it('blocking findings are attributed to the review process — never a reconstructed gate verdict', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps({
+        findingsAdapter: findingsAgent(
+          JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }]),
+        ),
+      }),
+    );
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      triggerKind: 'blocking-review-findings',
+      triggerDetail: 'review findings: 1 critical',
+      round: 1,
+      status: 'pending',
+    });
+  });
+
+  it('snapshots review.maxFixAttempts into the round — a later manifest edit cannot widen it', async () => {
+    await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig({ maxFixAttempts: 1 }) }),
+      },
+      deps({
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(listRecoveryRounds(store, id)[0]!.maxRounds).toBe(1);
+  });
+
   it('opens nothing further once the run was stopped', async () => {
     await runReview(
       store,
@@ -1156,6 +1228,330 @@ describe('review findings lane (Lane B)', () => {
     expect(listFindings(store, id)).toHaveLength(1);
     expect(getTicket(store, id).stageCurrent).toBe('review');
     expect(stageBlock(store, id, 'review')?.kind).toBe('capability-missing');
+  });
+});
+
+/**
+ * The Review findings process run (Task 8): opened before the AI call with the
+ * resolved assignment snapshot, finished with an EXPLICIT result kind after
+ * it. A crash stays distinguishable from a finding: `execution-failed`,
+ * artifact exposed, and no recovery round — only a blocking FINDING may open
+ * one.
+ */
+describe('runReview — findings process run (Task 8)', () => {
+  let store: Store;
+  let id: number;
+  let artifactDir: string;
+
+  const reviewProcessDeps = (raw: string, over: Partial<ReviewDeps> = {}): ReviewDeps =>
+    deps({
+      reviewProcess: {
+        assignment: { agentName: 'Review Agent', provider: 'claude', model: 'claude-sonnet-5' },
+        adapter: findingsAgent(raw),
+      },
+      ...over,
+    });
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    walkToReview(store, id);
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-review-process-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  it('opens the Review process run before the call and finishes it validated on a clean pass', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps('[]'),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    const run = listProcessRuns(store, id)[0]!;
+    expect(run).toMatchObject({
+      stageKey: 'review',
+      processId: 'review',
+      resultKind: 'validated',
+      status: 'passed',
+      agentName: 'Review Agent',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    expect(run.stageRunId).toBe(listStageRuns(store, id)[0]!.id);
+  });
+
+  it('finishes the Review process run blocking when findings blocked the run', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps(JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }])),
+    );
+    expect(res).toMatchObject({ kind: 'advanced', next: 'fix' });
+    expect(listProcessRuns(store, id)[0]).toMatchObject({ resultKind: 'blocking', status: 'failed' });
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      sourceProcessId: 'review',
+      triggerKind: 'blocking-review-findings',
+    });
+  });
+
+  it('names the ACTUAL findings process run as the blocking round\'s source process run', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps(JSON.stringify([{ severity: 'critical', title: 'boom', detail: 'very bad' }])),
+    );
+    expect(res).toMatchObject({ kind: 'advanced', next: 'fix' });
+    const run = listProcessRuns(store, id).find((r) => r.processId === 'review')!;
+    expect(run).toMatchObject({ resultKind: 'blocking', status: 'failed' });
+    // The round names the exact findings process run that produced the block —
+    // causal provenance, never an id of another table forced into the column.
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      sourceProcessId: 'review',
+      sourceProcessRunId: run.id,
+      triggerKind: 'blocking-review-findings',
+    });
+  });
+
+  it('a deterministic gate failure keeps the round\'s source process run null, however the process was wired', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      reviewProcessDeps('[]', {
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({
+            name: g.name,
+            exitCode: 1,
+            output: 'boom',
+            startedAt: now(),
+            endedAt: now(),
+          })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    // The gates decided before the lane ran, so no process run was opened —
+    // and the round must not invent an AI source for a deterministic failure.
+    expect(listRecoveryRounds(store, id)[0]).toMatchObject({
+      sourceProcessId: 'gates',
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+    });
+  });
+
+  it('a crash records execution-failed, exposes the artifact, and does not increment recovery rounds', async () => {
+    const adapter: AgentAdapter = {
+      ...findingsAgent('[]'),
+      runHeadless: async () => {
+        throw new Error('spawn ENOENT');
+      },
+    };
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      deps({ reviewProcess: { assignment: { provider: 'claude' }, adapter } }),
+    );
+    // The gates still decide: an AI crash is not a code verdict.
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    const run = listProcessRuns(store, id)[0]!;
+    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
+    // The artifact is where the crash is exposed: the one-line collapsed
+    // boundary diagnostic lands in the run's artifact.
+    expect(run.artifactPath).toBe(join(artifactDir, `review-ticket-${id}.log`));
+    expect(readFileSync(run.artifactPath!, 'utf8')).toContain('spawn ENOENT');
+    // A crash is not a finding: no recovery round was opened for it.
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('opens no process run when the lane itself is skipped (gates already decided)', async () => {
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        reviewProcess: {
+          assignment: { provider: 'claude' },
+          adapter: { ...findingsAgent('[]'), runHeadless },
+        },
+        runGates: async (gates) => ({
+          kind: 'ran',
+          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(runHeadless).not.toHaveBeenCalled();
+    expect(listProcessRuns(store, id)).toEqual([]);
+  });
+
+  it('attributes the findings batch to the opened process run', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps(JSON.stringify([{ severity: 'low', title: 'nit', detail: '' }])),
+    );
+    const run = listProcessRuns(store, id)[0]!;
+    expect(listFindings(store, id)[0]!.processRunId).toBe(run.id);
+  });
+
+  // Finding 2: a disabled `processes.review` resolves to NULL — configured
+  // absence, short-circuited before any provider/model resolution. The stage
+  // then has no Review process and no adapter to ask: the deterministic gate
+  // lane still runs, but no AI call is made and no process run is opened.
+  it('a disabled Review process reads as configured absence — no AI call, no process run, gates still run', async () => {
+    const disabled: Manifest = { ...manifest({}), processes: { review: { enabled: false } } };
+    const assignment = resolveProcessAssignment(disabled, 'review');
+    expect(assignment).toBeNull();
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: disabled },
+      deps({ reviewProcess: null, findingsAdapter: undefined }),
+    );
+    // The lane has no agent core to ask: capability-missing park — the absence
+    // is NAMED, never read as a green review the AI skipped.
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    expect(listProcessRuns(store, id).filter((r) => r.processId === 'review')).toHaveLength(0);
+    expect(listFindings(store, id)).toEqual([]);
+    expect(listGateRuns(store, id).length).toBeGreaterThan(0);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+  });
+
+  // Finding 3: a Stop during the findings lane is an explicit stopped outcome —
+  // the Review process is interrupted, and the run returns stopped before any
+  // aggregation, recovery round, or transition. Gates that already finished
+  // stay recorded; nothing further opens.
+  it('a Stop before the lane first target returns stopped with the process interrupted — no verdict, no round, no transition', async () => {
+    const controller = new AbortController();
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig() }),
+        signal: controller.signal,
+      },
+      deps({
+        reviewProcess: {
+          assignment: { agentName: 'Review Agent', provider: 'claude' },
+          adapter: { ...findingsAgent('[]'), runHeadless },
+        },
+        runGates: async (gates) => {
+          controller.abort();
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({
+              name: g.name,
+              exitCode: 0,
+              output: 'ok',
+              startedAt: now(),
+              endedAt: now(),
+            })),
+          };
+        },
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(runHeadless).not.toHaveBeenCalled();
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'review',
+      resultKind: 'interrupted',
+      status: 'interrupted',
+    });
+  });
+
+  it('a Stop between lane targets returns stopped — the second target is never asked and the process is interrupted', async () => {
+    const controller = new AbortController();
+    const runHeadless = vi.fn(async () => {
+      controller.abort();
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig() }),
+        signal: controller.signal,
+      },
+      deps({
+        reviewProcess: {
+          assignment: { agentName: 'Review Agent', provider: 'claude' },
+          adapter: { ...findingsAgent('[]'), runHeadless },
+        },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'review',
+      resultKind: 'interrupted',
+      status: 'interrupted',
+    });
+  });
+
+  // Residual-fix regression: an adapter that REJECTS on abort is a Stop — the
+  // run must return stopped with the process interrupted, never a `ran` whose
+  // AbortError was recorded as a crash (which would let a cancelled review
+  // read as a verdict-deciding lane).
+  it('an in-flight adapter rejection on abort is a Stop — interrupted process, no verdict, no round, no transition', async () => {
+    const controller = new AbortController();
+    const adapter: AgentAdapter = {
+      ...findingsAgent('[]'),
+      runHeadless: ({ signal }) =>
+        new Promise<never>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        }),
+    };
+    const pending = runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { review: reviewConfig() }),
+        signal: controller.signal,
+      },
+      deps({
+        reviewProcess: {
+          assignment: { agentName: 'Review Agent', provider: 'claude' },
+          adapter,
+        },
+      }),
+    );
+    // Gates resolve in microtasks; the findings call hangs on the adapter, so
+    // by the next macrotask it is in flight — aborting now rejects it mid-call.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    const res = await pending;
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(reviewStage(store, id).attempt).toBe(0);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'review',
+      resultKind: 'interrupted',
+      status: 'interrupted',
+    });
   });
 });
 
