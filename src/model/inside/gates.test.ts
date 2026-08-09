@@ -784,6 +784,36 @@ describe('reviewProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'review']);
   });
 
+  it('ships the blocking count as the review process-row aggregate (B4)', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: { ...reviewCell, status: 'failed' },
+        processRuns: [
+          processRun({ stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'blocking' }),
+        ],
+        findings: [finding('critical', { runAt: NOW }), finding('high', { runAt: NOW }), finding('medium', { runAt: NOW })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    // handoff §6 review: "Review · …       2 blocking" — the aggregate rides
+    // the process row, host-computed (B4), never concatenated in the webview.
+    expect(review.aggregate).toBe('2 blocking');
+  });
+
+  it('omits the review aggregate when nothing blocks (B4)', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        processRuns: [
+          processRun({ stageKey: 'review', processId: 'review', status: 'passed', resultKind: 'validated' }),
+        ],
+        findings: [finding('medium', { runAt: NOW })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(review.aggregate).toBeUndefined();
+  });
+
   it('reads blocking findings as a failed review process naming the count', () => {
     const views = reviewProcesses(
       qualityInput({

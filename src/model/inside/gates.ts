@@ -544,6 +544,10 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   });
   return {
     ...base,
+    // The kind-specific aggregate (B4): the blocking count, worded per handoff
+    // §6 ("2 blocking"). Host-computed from the same count the evidence
+    // carries; omitted when nothing blocks rather than claiming "0".
+    ...(blocking > 0 ? { aggregate: `${blocking} blocking` } : {}),
     ...(run
       ? {
           detail:

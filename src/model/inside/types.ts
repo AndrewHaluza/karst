@@ -301,6 +301,14 @@ export interface InsideProcessView {
   label: string;
   status: InsideStatus;
   detail?: string;
+  /**
+   * The kind-specific aggregate copy for the process row — "4 passed · 1
+   * failed", "2 blocking", "3 commits". Computed host-side by the reducer
+   * from the SAME counts the evidence carries; the webview renders it
+   * verbatim and concatenates nothing (UI-R31). Absent → no aggregate.
+   */
+  aggregate?: string;
+  /** A bare count, for a process whose identity IS a number (scope's hot set). */
   count?: string;
   duration?: string;
   ai?: boolean;

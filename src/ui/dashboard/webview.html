@@ -1459,7 +1459,9 @@
 
   function processRowHtml(p, key, open) {
     const glyph = OP_GLYPH[p.status] || '·';
-    const meta = [p.count, p.duration].filter(Boolean)
+    // The aggregate ("4 passed · 1 failed", "2 blocking") is host-computed
+    // (B4): the webview renders the shipped string and concatenates nothing.
+    const meta = [p.aggregate, p.count, p.duration].filter(Boolean)
       .map((m) => `<span class="pmeta">${esc(m)}</span>`).join('');
     const act = p.action ? insideActionBtnHtml(p.action) : '';
     const hasEv = p.evidence && p.evidence.rows.length;

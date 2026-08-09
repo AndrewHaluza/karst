@@ -152,20 +152,20 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
     },
   );
   const rows = boundedRepoRows(input, 'Ship · Commit', recorded);
+  const total = Object.values(input.evidence.repos).reduce(
+    (sum, r) => sum + r.commits.filter((c) => c.origin === 'created-by-ship').length,
+    0,
+  );
   return {
     id: 'commit',
     kind: 'commit',
     label: 'Commit',
     status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
     ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
-    evidence: {
-      kind: 'commits',
-      rows,
-      total: Object.values(input.evidence.repos).reduce(
-        (sum, r) => sum + r.commits.filter((c) => c.origin === 'created-by-ship').length,
-        0,
-      ),
-    },
+    // The kind-specific aggregate (B4): created-by-ship commits only — a
+    // pre-existing commit is not delivery. Omitted when none were created.
+    ...(total > 0 ? { aggregate: `${total} commits` } : {}),
+    evidence: { kind: 'commits', rows, total },
   };
 }
 
@@ -231,12 +231,22 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
   const current = currentPerRepo(input.prs);
   const merged = current.filter(isMerged).length;
   const open = current.length - merged;
+  // The kind-specific aggregate (B4): the CURRENT PRs, counted — "1 merged ·
+  // 2 open". An unknown PR state is UNMERGED, so it lands in `open`, the same
+  // reading the merge process gives it. Omitted when no current PR exists.
+  const aggregate =
+    current.length === 0
+      ? undefined
+      : [merged > 0 ? `${merged} merged` : '', open > 0 ? `${open} open` : '']
+          .filter(Boolean)
+          .join(' · ');
   return {
     id: 'pr',
     kind: 'pr',
     label: 'Pull request',
     status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
     ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
+    ...(aggregate ? { aggregate } : {}),
     evidence: { kind: 'prs', rows, open, merged },
   };
 }

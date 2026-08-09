@@ -152,8 +152,57 @@ describe('shipProcesses', () => {
     expect(rowsOf(views[0]!)[0]!.detail).toContain('nothing to commit');
   });
 
-  it('aggregates at 20 repos: bounded rows and the remainder named', () => {
-    const repos: Record<string, ShipRepoEvidence> = {};
+  it('ships the created-commit total as the commit process-row aggregate (B4)', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              commits: [shipCommit('created-by-ship'), shipCommit('created-by-ship'), shipCommit('before-ship')],
+            }),
+            '/api': repoEvidence('/api', {
+              commits: [shipCommit('created-by-ship', { repo: '/api' })],
+            }),
+          },
+        }),
+      }),
+    );
+    // Host-computed (B4): the webview concatenates nothing; total is the
+    // created-by-ship count, pre-existing commits are not delivery.
+    expect(views[0]!.aggregate).toBe('3 commits');
+  });
+
+  it('omits the commit aggregate when nothing was created by ship (B4)', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web', { commits: [shipCommit('before-ship')] }) },
+        }),
+      }),
+    );
+    expect(views[0]!.aggregate).toBeUndefined();
+  });
+
+  it('aggregates current PR open/merged counts on the pr process row (B4)', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [
+          pr('/web', { number: 1, status: 'open' }),
+          pr('/api', { number: 2, status: 'merged', mergedAt: NOW }),
+          pr('/worker', { number: 3, status: 'open' }),
+        ],
+      }),
+    );
+    const prProcess = views[2]!;
+    expect(prProcess.aggregate).toBe('1 merged · 2 open');
+  });
+
+  it('omits the pr aggregate when no current PR exists (B4)', () => {
+    const views = shipProcesses(shipInput({ prs: [] }));
+    expect(views[2]!.aggregate).toBeUndefined();
+  });
+
+  it('aggregates at 20 repos: bounded rows and the remainder named', () => {    const repos: Record<string, ShipRepoEvidence> = {};
     for (let i = 0; i < 20; i += 1) {
       repos[`/repo-${i}`] = repoEvidence(`/repo-${i}`, {
         steps: { push: step('push', { repo: `/repo-${i}` }) },

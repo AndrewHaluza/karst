@@ -1298,10 +1298,12 @@ describe('dashboard webview.html', () => {
   });
 
   it('keeps process metadata attached to its own row, inside the row container', () => {
-    // The count/duration metadata renders inside `.pright` — a child of the
-    // process's `.prow` — so it can never drift onto another process.
+    // The aggregate/count/duration metadata renders inside `.pright` — a child
+    // of the process's `.prow` — so it can never drift onto another process.
+    // The aggregate is a host-shipped string (B4); the webview concatenates
+    // nothing.
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(row).toMatch(/const meta = \[p\.count, p\.duration\]/);
+    expect(row).toMatch(/const meta = \[p\.aggregate, p\.count, p\.duration\]/);
     expect(row).toMatch(/class="pright">\$\{meta\}\$\{act\}<\/span>\$\{marker\}/);
   });
 
@@ -1793,6 +1795,19 @@ describe('inside render round trip (executed in a VM)', () => {
     const html = h.htmlOf('inside');
     expect(html).toContain('class="pev pev-rows"');
     expect(html).toContain('<span class="elabel">future</span>');
+  });
+
+  it('renders the host-computed aggregate on the process row (B4)', () => {
+    // "4 passed · 1 failed" arrives pre-worded from the reducer; the webview
+    // only places it (UI-R31: it concatenates nothing).
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = uat.processes.map((p) =>
+      p.id === 'gates' ? { ...p, aggregate: '4 passed · 1 failed' } : p,
+    );
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
+    expect(html).toContain('<span class="pmeta">4 passed · 1 failed</span>');
+    expect(html).not.toMatch(/4 passed.*4 passed/);
   });
 
   it('renders the unavailable token state as absence with a title, never 0 (B2)', () => {
