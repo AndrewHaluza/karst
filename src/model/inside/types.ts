@@ -228,15 +228,21 @@ export type InsideEvidenceTarget =
       rows: readonly EvidenceRow[];
     };
 
-/** Preformatted token counts — a view never formats a number. */
-export interface TokenUsageView {
-  /** Preformatted total — `12.4k`. */
-  total: string;
-  /** Preformatted exact total — `12,435` — for a title attribute. */
-  exact?: string;
-  /** True only when the counts are an estimate, never a measurement. */
-  estimated: boolean;
-}
+/**
+ * The inside process's token claim, as ONE of three states (decision 8).
+ * A view never formats a number — the host ships the preformatted strings.
+ *
+ * - `measured` — a recorded total exists for a provider that reports usage.
+ * - `estimated` — only estimates exist (or a mix); carries the `estimated`
+ *   marker so the count is never read as a measurement.
+ * - `unavailable` — the provider reports no per-session usage (Claude,
+ *   Antigravity). NOT zero and NOT "0 tokens": it renders as absent with a
+ *   title explaining the core reports no per-session usage.
+ */
+export type TokenUsageView =
+  | { state: 'measured'; total: string; exact?: string }
+  | { state: 'estimated'; total: string; exact?: string }
+  | { state: 'unavailable'; title: string };
 
 /** One line inside a process's evidence block. */
 export interface EvidenceRow {

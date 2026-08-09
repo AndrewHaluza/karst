@@ -66,7 +66,7 @@ describe('buildDashboardState', () => {
     // mixed measured + estimated process reads as estimated.
     const state = buildDashboardState(store, t.id);
     const session = state.insideViews.impl.processes.find((p) => p.id === 'session')!;
-    expect(session.tokens).toMatchObject({ estimated: true });
+    expect(session.tokens).toMatchObject({ state: 'estimated' });
   });
 
   it('shows the resolved agent core/model and enables switching only for a live impl session', () => {

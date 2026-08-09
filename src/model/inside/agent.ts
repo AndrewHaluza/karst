@@ -1,5 +1,6 @@
 import type { AgentProvider } from '../../manifest/types.js';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
+import { PROVIDER_INTERACTIVE_USAGE } from '../../agent/provider.js';
 import type { ImplementationSegment, ImplementationTimeline } from '../../store/implementationRuns.js';
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import { FIX_ATTEMPT_CAP } from '../../workflow/fixAttempts.js';
@@ -342,12 +343,35 @@ function timelineEvents(
   return events;
 }
 
-/** Measured token totals as the shared display view — reused by every AI process. */
-export function tokenView(tokens: SessionTokensInput): TokenUsageView {
+/** The title shown when a provider can never produce a per-session usage fact. */
+const UNAVAILABLE_TOKEN_TITLE = 'This agent core does not report per-session usage';
+
+/**
+ * Whether a provider's interactive sessions can produce measured usage facts.
+ * The capability table in `agent/provider.ts` is the single source — consumed
+ * here, never re-derived. A provider absent from the table is not claimed
+ * unmeasurable: absence is not evidence it reports nothing.
+ */
+function measuresSessionUsage(provider: string | null | undefined): boolean {
+  if (!provider) return true;
+  return PROVIDER_INTERACTIVE_USAGE[provider as AgentProvider] ?? true;
+}
+
+/**
+ * Measured token totals as the shared display view — reused by every AI
+ * process. A provider that reports no per-session usage renders UNAVAILABLE,
+ * never a zero: absence is a first-class state (decision 8). The capability
+ * defaults to true so callers without one (headless gate processes, whose
+ * usage is recorded per call, not per session) keep their measured reading.
+ */
+export function tokenView(tokens: SessionTokensInput, interactiveUsage = true): TokenUsageView {
+  if (!interactiveUsage) {
+    return { state: 'unavailable', title: UNAVAILABLE_TOKEN_TITLE };
+  }
   return {
+    state: (tokens.estimatedCalls ?? 0) > 0 ? 'estimated' : 'measured',
     total: formatTokens(tokens.total),
     exact: formatExactTokens(tokens.total),
-    estimated: (tokens.estimatedCalls ?? 0) > 0,
   };
 }
 
@@ -408,6 +432,18 @@ export function implementationSessionProcess(
   // action a timeline row cannot carry without claiming a specific segment.
   const action = attach && timeline ? attach({ kind: 'open-full-evidence', processRunId: timeline.run.processRunId }) : undefined;
 
+  // Per-session usage exists only for providers whose bridge emits measured
+  // UsageUpdate events (agent/provider.ts) — a Claude/Antigravity session can
+  // never produce a token fact, so the row renders absence-with-title, NEVER
+  // "0 tokens". The capability belongs to the provider: what RAN decides, and
+  // the configured provider speaks before anything ran.
+  const interactiveUsage = measuresSessionUsage(execution?.provider ?? configured?.provider);
+  const tokensView: TokenUsageView | undefined = tokens
+    ? tokenView(tokens, interactiveUsage)
+    : interactiveUsage
+      ? undefined
+      : { state: 'unavailable', title: UNAVAILABLE_TOKEN_TITLE };
+
   return {
     id: 'session',
     kind: 'session',
@@ -419,7 +455,7 @@ export function implementationSessionProcess(
     ...(configured && !execution
       ? { configuredExecution: executionView(configured.provider, configured.model) }
       : {}),
-    ...(tokens ? { tokens: tokenView(tokens) } : {}),
+    ...(tokensView ? { tokens: tokensView } : {}),
     evidence: { kind: 'timeline', rows },
   };
 }

@@ -674,7 +674,7 @@ describe('uatProcesses', () => {
     const measured = uatProcesses(
       qualityInput({ tokens: { total: 150, estimatedCalls: 0 } }),
     ).find((p) => p.id === 'tester')!;
-    expect(measured.tokens).toEqual({ total: '150', exact: '150', estimated: false });
+    expect(measured.tokens).toEqual({ state: 'measured', total: '150', exact: '150' });
   });
 
   it('keeps services as pending config before the stage runs, naming the configured services after', () => {

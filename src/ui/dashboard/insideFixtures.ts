@@ -135,15 +135,15 @@ const CODEX_EXECUTION = {
 
 /** A measured token display — never an estimate in this matrix. */
 const MEASURED_TOKENS: TokenUsageView = {
+  state: 'measured',
   total: '12.4k',
   exact: '12,435',
-  estimated: false,
 };
 
 const ESTIMATED_TOKENS: TokenUsageView = {
+  state: 'estimated',
   total: '3.1k',
   exact: '3,098',
-  estimated: true,
 };
 
 /** A deep, long file path with no scale match in the data layer. */

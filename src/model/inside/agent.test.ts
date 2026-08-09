@@ -7,7 +7,7 @@ import type {
 import type { PhaseMark } from '../../store/phaseMarks.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
-import { implInside, fixInside, implementationSessionProcess, reportedPhases } from './agent.js';
+import { implInside, fixInside, implementationSessionProcess, reportedPhases, tokenView } from './agent.js';
 import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -623,10 +623,12 @@ describe('implementationSessionProcess', () => {
     expect(timeline[1]!.connector).toBe('resume');
   });
 
-  it('omits tokens when nothing was measured — never a zero', () => {
+  it('omits tokens when nothing was measured on a measuring provider — never a zero', () => {
+    // Codex sessions can carry measured usage (interactiveUsage true); with no
+    // recorded fact the row stays silent — absence of a fact is not zero.
     const none = implementationSessionProcess(
       cell('impl', 'running'),
-      tl([segment({ id: 1 })]),
+      tl([segment({ id: 1, provider: 'codex' })]),
       [],
       undefined,
       undefined,
@@ -635,7 +637,7 @@ describe('implementationSessionProcess', () => {
     expect(none.tokens).toBeUndefined();
     const nullSummary = implementationSessionProcess(
       cell('impl', 'running'),
-      tl([segment({ id: 1 })]),
+      tl([segment({ id: 1, provider: 'codex' })]),
       [],
       undefined,
       null,
@@ -644,28 +646,77 @@ describe('implementationSessionProcess', () => {
     expect(nullSummary.tokens).toBeUndefined();
   });
 
-  it('formats measured tokens as a TokenUsageView', () => {
+  it('renders measured tokens as a TokenUsageView', () => {
     const process = implementationSessionProcess(
       cell('impl', 'running'),
-      tl([segment({ id: 1 })]),
+      tl([segment({ id: 1, provider: 'codex' })]),
       [],
       undefined,
       { total: 12_435 },
       NOW,
     );
-    expect(process.tokens).toEqual({ total: '12.4k', exact: '12,435', estimated: false });
+    expect(process.tokens).toEqual({ state: 'measured', total: '12.4k', exact: '12,435' });
   });
 
   it('marks the token view estimated when any call fell back to an estimate', () => {
     const process = implementationSessionProcess(
       cell('impl', 'running'),
-      tl([segment({ id: 1 })]),
+      tl([segment({ id: 1, provider: 'codex' })]),
       [],
       undefined,
       { total: 12_435, estimatedCalls: 1 },
       NOW,
     );
-    expect(process.tokens!.estimated).toBe(true);
+    expect(process.tokens).toEqual({ state: 'estimated', total: '12.4k', exact: '12,435' });
+  });
+
+  it('renders unavailable — never a zero — for a provider with no per-session usage', () => {
+    // Claude declares interactiveUsage false (agent/claude.ts): its sessions
+    // can never produce a measured token fact, so the row states that absence
+    // instead of claiming "0 tokens".
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1, provider: 'claude' })]),
+      [],
+      undefined,
+      null,
+      NOW,
+    );
+    expect(process.tokens).toEqual({
+      state: 'unavailable',
+      title: 'This agent core does not report per-session usage',
+    });
+  });
+
+  it('renders unavailable from the configured provider before anything ran', () => {
+    // The default provider IS claude: a pending impl shows the truth about the
+    // provider karst will launch, not an absent chip.
+    const process = implementationSessionProcess(
+      cell('impl', 'pending'),
+      null,
+      [],
+      { provider: 'claude', model: 'claude-opus-4-8' },
+      undefined,
+      NOW,
+    );
+    expect(process.tokens).toEqual({
+      state: 'unavailable',
+      title: 'This agent core does not report per-session usage',
+    });
+  });
+
+  it('tokenView never claims a zero for a non-interactive provider', () => {
+    expect(tokenView({ total: 12_435 }, false)).toEqual({
+      state: 'unavailable',
+      title: 'This agent core does not report per-session usage',
+    });
+    // Default true preserves the measuring-provider reading for callers that
+    // carry no capability context (headless gate processes).
+    expect(tokenView({ total: 12_435 })).toEqual({
+      state: 'measured',
+      total: '12.4k',
+      exact: '12,435',
+    });
   });
 
   it('keeps legacy impl marks that predate run attribution', () => {
