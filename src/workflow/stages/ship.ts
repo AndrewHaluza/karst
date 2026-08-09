@@ -372,8 +372,6 @@ export async function shipTicket(
 
       /**
        * The PR body, rendered exactly the same way whether it is about to open a
-      /**
-       * The PR body, rendered exactly the same way whether it is about to open a
        * PR or to backfill one that was adopted — one description, one shape, so an
        * adopted PR cannot end up with prose in a different format from a created
        * one.
