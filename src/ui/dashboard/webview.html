@@ -575,10 +575,42 @@
   .erow.pass .estatus{color:var(--k-passed)} .erow.fail .estatus{color:var(--k-failed)}
   .erow.run .estatus{color:var(--k-running)} .erow.wait .estatus{color:var(--k-attention)}
   .erow.note .estatus,.erow.pending .estatus{color:var(--k-text-dim)}
-  /* The timeline holds its cells on one line so the connector spine and the
-     time column stay aligned down the rows (handoff §6 impl, §10 narrow). */
-  .pev-timeline .erow{flex-wrap:nowrap}
-  .pev-timeline .etime{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  /* The timeline is the PHASE LEDGER (Task 4): one <ol>, each row a node on a
+     continuous subtle spine. The node column shares the evidence glyphs'
+     width so the spine stays centered under the ledger; the node comes from
+     `role`/`connector` — phase check, quiet hollow start, switch branch —
+     never from label prose. Identity rows carry their own provider key and
+     token claim, so the injected core icon and the bordered pill render
+     beside the row they belong to; both absent → neither renders. */
+  .pev-timeline .erow{}
+  .session-timeline{list-style:none;margin:var(--k-space-1) 0 0;padding:0}
+  .timeline-row{position:relative;display:flex;align-items:baseline;column-gap:var(--k-space-3);padding:var(--k-space-2) var(--k-space-4)}
+  /* The continuous hairline spine in the node column — one segment per row
+     (left: 8px padding + 6px ≈ the 14px node column's center), so it stays
+     aligned at every width while the node draws over it. */
+  .timeline-row::before{content:'';position:absolute;top:0;bottom:0;left:calc(var(--k-space-4) + var(--k-space-3));width:var(--k-border-w);background:var(--k-border)}
+  .timeline-row .tnode{position:relative;z-index:1;width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
+  .timeline-row .tmain{display:flex;align-items:baseline;column-gap:var(--k-space-3);flex:1;min-width:0}
+  .timeline-row .tlabel{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-sm);color:var(--k-text)}
+  .timeline-row .tdetail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  /* The identity is the row's point — visually stronger than event prose
+     (handoff: "provider/core identity visually stronger") — and carries the
+     injected core mark. */
+  .timeline-row .tident{display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-sm);font-weight:var(--k-weight-medium);color:var(--k-text)}
+  .timeline-row .tident .agenticon{display:inline-block;vertical-align:middle;margin-right:var(--k-space-1)}
+  /* The bordered mono token pill — the row's own claim, never parsed. */
+  .timeline-tok{flex:none;display:inline-block;padding:0 var(--k-space-2);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .timeline-time{margin-left:auto;flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .timeline-row .tact{flex:none}
+  /* Phase nodes: the bordered circle holding the check — green when the row
+     reads passed, faint otherwise (a mark is evidence, not a verdict). The
+     circle's own surface masks the spine passing behind it. */
+  .timeline-row.role-phase .tnode{display:inline-flex;align-items:center;justify-content:center;height:calc(var(--k-space-6) + var(--k-space-1));border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-circle);background:var(--k-bg);color:var(--k-text-faint);align-self:center;line-height:1}
+  .timeline-row.role-phase.pass .tnode{border-color:var(--k-passed);color:var(--k-passed)}
+  /* The quiet hollow node for the session start. */
+  .timeline-row.role-identity:not(.connector-switch):not(.connector-resume) .tnode::before{content:'';display:inline-block;width:var(--k-space-3);height:var(--k-space-3);border:var(--k-border-w) solid var(--k-text-faint);border-radius:var(--k-radius-circle);background:var(--k-bg)}
+  /* The switch/resume branch sits ON the spine, named by its tooltip. */
+  .timeline-row.connector-switch .tnode,.timeline-row.connector-resume .tnode{color:var(--k-text-dim)}
   /* The receipt is a list, not a status readout: no glyph column, one line
      per delivered fact (handoff §6 done). */
   .pev-receipt .erow{flex-wrap:nowrap;gap:var(--k-space-2)}
@@ -605,7 +637,10 @@
       grid-template-areas:"glyph name status chev" "glyph detail status chev" "glyph ident status chev"}
     .inside-ledger .process-summary .pdetail{white-space:normal;overflow:visible}
     .inside-ledger .pev .edetail{flex-basis:100%;white-space:normal;overflow:visible}
-    .inside-ledger .pev-timeline .erow .edetail{flex-basis:auto;white-space:nowrap;overflow:hidden}
+    /* The timeline re-locks onto one line at ≤430 (§10: keep node and edge
+       aligned) while the generic evidence detail wraps; its cells shrink with
+       ellipsis instead of scrolling. */
+    .inside-ledger .session-timeline .timeline-row{flex-wrap:nowrap}
   }
 
   /* ≤360 — the block's chrome thins: the side margins and the row gaps
@@ -614,6 +649,7 @@
     .inside-ledger{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
     .inside-ledger .pright{flex-wrap:wrap;justify-content:flex-end}
     .inside-ledger .erow{column-gap:var(--k-space-2)}
+    .inside-ledger .timeline-row{column-gap:var(--k-space-2)}
   }
 
   /* ≤300 — the floor. Only row chrome thins (padding, evidence margins); the
@@ -623,6 +659,7 @@
     .inside-ledger .process-summary{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
     .inside-ledger .process-evidence{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
     .inside-ledger .erow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
+    .inside-ledger .timeline-row{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
   }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
@@ -1431,20 +1468,44 @@
       + `</div>`;
   }
 
-  // The timeline's row: the connector spine keeps its aligned cell and the
-  // range reads as a right-aligned time column (handoff §6 impl).
+  // The timeline is the PHASE LEDGER (Task 4): one <ol>, each row a node on a
+  // continuous spine. The node comes from `role` and `connector` — closed
+  // structural fields — NEVER from parsing the label (phase names are prose).
+  // Identity rows carry their own provider key and token claim, so the
+  // injected core icon and the bordered pill render beside the row they
+  // belong to; both absent → neither renders.
   function timelineRowHtml(r) {
-    const glyph = r.status ? `<span class="eglyph">${OP_GLYPH[r.status] || '·'}</span>` : '';
-    const conn = r.connector === 'switch' || r.connector === 'resume'
-      ? `<span class="econn" title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}">↳</span>`
+    const role = r.role || 'event';
+    const conn = r.connector === 'switch' || r.connector === 'resume';
+    const connTitle = conn
+      ? ` title="${r.connector === 'switch' ? 'Provider switched here' : 'Session resumed here'}"`
+      : '';
+    const node = conn ? '↳'
+      : r.role === 'phase' ? '✓'
+      : r.role === 'identity' ? ''
+      : (OP_GLYPH[r.status] || '·');
+    const icon = r.role === 'identity' && r.provider ? agentIconHtml(r.provider) : '';
+    const tok = r.role === 'identity' && r.tokens ? timelineTokHtml(r.tokens) : '';
+    const detail = r.detail
+      ? `<span class="${r.role === 'identity' ? 'tident' : 'tdetail'}">${icon}${esc(r.detail)}</span>`
       : '';
     const act = r.action ? insideActionBtnHtml(r.action) : '';
-    return `<div class="erow${r.status ? ` ${esc(r.status)}` : ''}">${glyph}${conn}`
-      + `<span class="elabel">${esc(r.label)}</span>`
-      + (r.detail ? `<span class="edetail">${esc(r.detail)}</span>` : '')
-      + (r.duration ? `<span class="etime">${esc(r.duration)}</span>` : '')
-      + (act ? `<span class="eact">${act}</span>` : '')
-      + `</div>`;
+    return `<li class="timeline-row role-${esc(role)}${r.status ? ` ${esc(r.status)}` : ''}${conn ? ` connector-${esc(r.connector)}` : ''}">`
+      + `<span class="tnode" aria-hidden="true"${connTitle}>${node}</span>`
+      + `<span class="tmain"><span class="tlabel">${esc(r.label)}</span>${detail}${tok}</span>`
+      + (r.duration ? `<span class="timeline-time">${esc(r.duration)}</span>` : '')
+      + (act ? `<span class="tact">${act}</span>` : '')
+      + `</li>`;
+  }
+
+  // The timeline's token pill — same absence handling as the process chip
+  // (decision 8: never "0 tokens"), bordered mono pill (Task 4).
+  function timelineTokHtml(t) {
+    if (t.state === 'unavailable') {
+      return `<span class="timeline-tok" title="${esc(t.title)}">usage unavailable</span>`;
+    }
+    const tip = t.exact ? ` title="${esc(t.exact)}"` : '';
+    return `<span class="timeline-tok"${tip}>${esc(t.total)} tokens</span>`;
   }
 
   // The receipt is a list of delivered facts, not a status readout — the
@@ -1469,7 +1530,7 @@
     return `<div class="pev pev-findings">${ev.rows.map(statusRowHtml).join('')}</div>`;
   }
   function evidenceTimelineHtml(ev) {
-    return `<div class="pev pev-timeline">${ev.rows.map(timelineRowHtml).join('')}</div>`;
+    return `<div class="pev pev-timeline"><ol class="session-timeline">${ev.rows.map(timelineRowHtml).join('')}</ol></div>`;
   }
   function evidenceCommitsHtml(ev) {
     return `<div class="pev pev-commits">${ev.rows.map(statusRowHtml).join('')}</div>`;

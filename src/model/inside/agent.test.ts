@@ -203,9 +203,9 @@ describe('implementationSessionProcess', () => {
       'switch',
       'research',
     ]);
-    expect(timeline[1]!.detail).toBe(formatTime(runAt('12:10')));
-    expect(timeline[2]!.detail).toBe(formatTime(runAt('12:20')));
-    expect(timeline[4]!.detail).toBe(formatTime(runAt('12:40')));
+    expect(timeline[1]!.detail).toBe(`reported · ${formatTime(runAt('12:10'))}`);
+    expect(timeline[2]!.detail).toBe(`reported · ${formatTime(runAt('12:20'))}`);
+    expect(timeline[4]!.detail).toBe(`reported · ${formatTime(runAt('12:40'))}`);
   });
 
   it('shows the recorded segment as the execution once the run has started', () => {
@@ -482,6 +482,108 @@ describe('implementationSessionProcess', () => {
     expect(timeline.length).toBe(21);
     expect(timeline.at(-1)).toMatchObject({ label: 'more', status: 'note' });
     expect(timeline.at(-1)!.detail).toContain('6');
+  });
+
+  describe('timeline row roles (Task 4)', () => {
+    // `role` is the structural WHAT of a timeline row — the webview draws the
+    // node (phase check / quiet hollow start / switch branch) from it and
+    // never infers it from label prose. `connector` remains the sole
+    // RELATIONSHIP marker: what the row IS (`role`) vs that it continues the
+    // SAME execution (`connector`) are two questions.
+    it('marks the run start and every switch/resume as identity rows', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([
+          segment({ id: 1 }),
+          segment({
+            id: 2,
+            reason: 'switch',
+            provider: 'codex',
+            model: 'gpt-5.6-sol',
+            providerSessionId: 'sess-2',
+            startedAt: runAt('13:00'),
+          }),
+          segment({
+            id: 3,
+            reason: 'resume',
+            provider: 'claude',
+            model: 'claude-opus-4-8',
+            providerSessionId: 'sess-3',
+            startedAt: runAt('14:00'),
+          }),
+        ]),
+        [mark('research', runAt('12:10'), { implementationRunId: 1 })],
+        undefined,
+        undefined,
+        NOW,
+      );
+      const timeline = rows(process);
+      expect(timeline.map((r) => r.role)).toEqual([
+        'identity',
+        'phase',
+        'identity',
+        'identity',
+      ]);
+      // The start row names the session's identity segment, but its prose is
+      // only the start time — it carries no provider key (an icon beside a
+      // timestamp would claim an identity the row does not state).
+      expect(timeline[0]).toMatchObject({ role: 'identity', label: 'started' });
+      expect(timeline[0]!.provider).toBeUndefined();
+      // Switch/resume rows carry their OWN provider key for the injected core
+      // icon — the row's identity, never the process's latest segment.
+      expect(timeline[2]).toMatchObject({
+        role: 'identity',
+        connector: 'switch',
+        provider: 'codex',
+      });
+      expect(timeline[3]).toMatchObject({
+        role: 'identity',
+        connector: 'resume',
+        provider: 'claude',
+      });
+    });
+
+    it('marks phase reports as phase rows with the reported prefix', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })]),
+        [
+          mark('research', runAt('12:10'), { implementationRunId: 1 }),
+          mark('plan', runAt('12:20'), { implementationRunId: 1 }),
+        ],
+        undefined,
+        undefined,
+        NOW,
+      );
+      const timeline = rows(process);
+      expect(timeline[1]).toMatchObject({ role: 'phase', label: 'research', status: 'note' });
+      // The prototype's acceptance copy: the phase name first, the report
+      // stamp second — `reported · <time>` ships from the reducer verbatim
+      // (the webview renders it, never composes it).
+      expect(timeline[1]!.detail).toBe(`reported · ${formatTime(runAt('12:10'))}`);
+      expect(timeline[2]!.detail).toBe(`reported · ${formatTime(runAt('12:20'))}`);
+    });
+
+    it('marks the bounded remainder as a generic event row', () => {
+      const marks = Array.from({ length: 25 }, (_, i) =>
+        mark(`phase-${i}`, runAt(`12:${String(i).padStart(2, '0')}`), {
+          implementationRunId: 1,
+        }),
+      );
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })]),
+        marks,
+        undefined,
+        undefined,
+        NOW,
+      );
+      expect(rows(process).at(-1)).toMatchObject({
+        role: 'event',
+        label: 'more',
+        status: 'note',
+      });
+    });
   });
 });
 

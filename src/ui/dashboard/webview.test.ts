@@ -1274,13 +1274,17 @@ describe('dashboard webview.html', () => {
 
   it('draws the timeline connector from the structural field, never the label', () => {
     // A switch/resume row carries `connector` from the host; the webview maps
-    // the CLOSED vocabulary to the arrow glyph + static tooltip and must not
+    // the CLOSED vocabulary to the branch class + static tooltip and must not
     // guess a switch from parsing the label (phase names are prose).
-    expect(HTML).toMatch(/r\.connector === 'switch' \|\| r\.connector === 'resume'/);
-    expect(HTML).toMatch(/econn/);
+    const fn = /function timelineRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(fn).toMatch(/r\.connector === 'switch' \|\| r\.connector === 'resume'/);
+    expect(fn).toMatch(/connector-\$\{esc\(r\.connector\)\}/);
     expect(HTML).toMatch(/Provider switched here/);
     expect(HTML).toMatch(/Session resumed here/);
+    expect(fn).not.toMatch(/r\.label\s*(?:===|!==|\.includes|\.startsWith|\.indexOf)/);
     expect(HTML).not.toMatch(/r\.label === 'switch'/);
+    // The label-based branch class is the failure this test exists to catch.
+    expect(HTML).not.toContain('label-switch');
   });
 
   it('never reads the evidence kind to derive a verdict', () => {
@@ -1346,17 +1350,19 @@ describe('dashboard webview.html', () => {
     expect(wide).toMatch(/\.inside-ledger \.pev \.edetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
-    expect(wide).toMatch(/\.inside-ledger \.pev-timeline \.erow \.edetail\{[^}]*white-space:nowrap/);
+    expect(wide).toMatch(/\.inside-ledger \.session-timeline \.timeline-row\{[^}]*flex-wrap:nowrap/);
     // ≤360: the block's chrome thins — margins and gaps tighten.
     expect(blockFor('360px')).toMatch(/\.inside-ledger\{[^}]*margin/);
     expect(blockFor('360px')).toMatch(/\.inside-ledger \.pright\{/);
     expect(blockFor('360px')).toMatch(/\.inside-ledger \.erow\{/);
+    expect(blockFor('360px')).toMatch(/\.inside-ledger \.timeline-row\{[^}]*column-gap/);
     // ≤300: the floor — only row chrome thins; the status and the name are
     // never dropped (handoff §10: "Do not hide the only status or action").
     const floor = blockFor('300px');
     expect(floor).toMatch(/\.inside-ledger \.process-summary\{/);
     expect(floor).toMatch(/\.inside-ledger \.process-evidence\{/);
     expect(floor).toMatch(/\.inside-ledger \.erow\{/);
+    expect(floor).toMatch(/\.inside-ledger \.timeline-row\{/);
     expect(floor).not.toMatch(/display:none/);
   });
 
@@ -1434,17 +1440,19 @@ describe('dashboard webview.html', () => {
   });
 
   it('keeps the timeline rail geometry centered on the status glyph column', () => {
-    // Step 8: the connector column and the status glyph column share ONE
-    // width, so the timeline spine stays centered under its rows' status
-    // glyphs at every fixture width (the rest of each declaration is the
-    // connector's own text styling).
-    const widthOf = (name: string): string => {
-      const decl = new RegExp(`\\.erow \\.${name}\\{([^}]*)\\}`).exec(HTML)?.[1] ?? '';
-      return /width:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\)/.exec(decl)?.[0] ?? '';
-    };
-    expect(widthOf('econn')).toBe('width:calc(var(--k-space-6) + var(--k-space-1))');
-    expect(widthOf('econn')).toBe(widthOf('eglyph'));
-    expect(HTML).toMatch(/\.erow \.econn\{[^}]*text-align:center/);
+    // Task 4: the timeline's node column shares ONE width with the evidence
+    // rows' status glyph column, so the spine stays centered under the
+    // ledger's own glyphs at every fixture width.
+    const declOf = (sel: string): string => new RegExp(`${sel}\\{([^}]*)\\}`).exec(HTML)?.[1] ?? '';
+    const nodeWidth = /width:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\)/.exec(
+      declOf('\\.timeline-row \\.tnode'),
+    )?.[0];
+    const glyphWidth = /width:calc\(var\(--k-space-6\) \+ var\(--k-space-1\)\)/.exec(
+      declOf('\\.erow \\.eglyph'),
+    )?.[0];
+    expect(nodeWidth).toBe('width:calc(var(--k-space-6) + var(--k-space-1))');
+    expect(nodeWidth).toBe(glyphWidth);
+    expect(HTML).toMatch(/\.timeline-row \.tnode\{[^}]*text-align:center/);
   });
 
   it('nulls animation under reduced motion without hiding the spinner ring', () => {
@@ -1967,6 +1975,60 @@ describe('inside render round trip (executed in a VM)', () => {
     }
   });
 
+  it('renders the prototype timeline as a connected phase ledger (Task 4)', () => {
+    // The acceptance image's exact session, rendered through the real
+    // harness: eight rows in order — a quiet hollow session start, four
+    // phase checks, two connector branches, and the done marker — with the
+    // injected core icons, secondary token pills and the right-aligned
+    // timestamp column. `role`/`connector` drive every class; nothing here
+    // is inferred from label prose.
+    const html = renderPrototypeImpl();
+    const ol = html.slice(
+      html.indexOf('<ol class="session-timeline">'),
+      html.indexOf('</ol>'),
+    );
+    const labels = [...ol.matchAll(/<span class="tlabel">([^<]*)<\/span>/g)].map((m) => m[1]);
+    expect(labels).toEqual([
+      'started with',
+      'Understand',
+      'Plan',
+      'switched core + model',
+      'Implement',
+      'switched core + model',
+      'Tests',
+      'Done',
+    ]);
+    // Phase rows carry the pass marker (the green outlined check's row class):
+    // Understand, Plan, Implement, Tests — and the done marker, a phase row
+    // of its own in the acceptance image.
+    expect(ol.match(/class="timeline-row role-phase pass"/g)).toHaveLength(5);
+    // Switch rows branch from the STRUCTURAL connector — never a label match.
+    expect(ol.match(/connector-switch/g)).toHaveLength(2);
+    expect(ol).not.toContain('label-switch');
+    // The identity icon is the INJECTED renderer's mark (agentIconHtml).
+    expect(ol).toContain('<span class="agenticon" aria-hidden="true">');
+    // Token pills are secondary, styled via .timeline-tok, with the exact
+    // count as the hover title.
+    expect(ol.match(/class="timeline-tok"/g)).toHaveLength(3);
+    expect(ol).toContain('title="18,600"');
+    // Timestamps occupy the dedicated right-aligned cell.
+    expect(ol).toContain('<span class="timeline-time">10:03–10:09</span>');
+    expect(ol).toContain('<span class="timeline-time">10:22</span>');
+  });
+
+  it('feeds the timeline identity rows through the injected agent renderer (Task 4)', () => {
+    // The timeline consumes the SAME injected identity API as the process
+    // identity chip (B1): a marker-less dashboard would throw ReferenceError
+    // on the first identity row, exactly like identityChipHtml. The pill is
+    // a bordered mono token — border + mono font + faint text, all tokens.
+    const fn = /function timelineRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(fn).toContain('agentIconHtml(r.provider)');
+    const pill = /\.timeline-tok\{([^}]*)\}/.exec(HTML)?.[1] ?? '';
+    expect(pill).toMatch(/border:/);
+    expect(pill).toMatch(/--k-font-mono/);
+    expect(pill).toMatch(/--k-text-faint/);
+  });
+
   /**
    * Open one process row's disclosure and return the rendered evidence block.
    * The fixture matrix (renderFixtures) covers all eight kinds: rows on scope's
@@ -2012,13 +2074,16 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('<span class="elabel">critical</span>');
   });
 
-  it('renders timeline evidence with the connector spine and a time column (B2)', () => {
-    // handoff §6 impl: the switch/resume relationship arrow keeps its own
-    // aligned column, and the range reads as a right-aligned column.
+  it('renders timeline evidence as the phase ledger with a time column (Task 4)', () => {
+    // handoff §6 impl: the connector branch keeps its own aligned node column,
+    // and the range reads as a right-aligned time column. The `<ol>` is the
+    // timeline's semantic list; the rows are its nodes on the shared spine.
     const html = openEvidence('impl', 'session');
     expect(html).toContain('class="pev pev-timeline"');
-    expect(html).toMatch(/<span class="econn"[^>]*>↳<\/span>/);
-    expect(html).toContain('<span class="etime">4m 12s</span>');
+    expect(html).toContain('<ol class="session-timeline">');
+    expect(html).toMatch(/<span class="tnode" aria-hidden="true"[^>]*>↳<\/span>/);
+    expect(html).toMatch(/class="timeline-row role-event note connector-switch"/);
+    expect(html).toContain('<span class="timeline-time">4m 12s</span>');
   });
 
   it('renders commits evidence with a status word per repo (B2)', () => {

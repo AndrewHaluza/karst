@@ -222,6 +222,33 @@ export interface EvidenceRow {
   duration?: string;
   action?: TypedInsideAction;
   /**
+   * Timeline-only structural role: WHAT this row is. `phase` = a reported
+   * phase mark, `identity` = an execution identity segment (the run start, a
+   * provider switch, a resume), `event` = a generic timeline event. The
+   * webview draws the timeline node (check / hollow node / branch) from it
+   * and NEVER infers it from `label` prose — `role` is the closed shape,
+   * `label` is prose. `connector` stays the sole RELATIONSHIP marker below;
+   * `role` says what the row is, `connector` says it continues the SAME
+   * execution. Optional because non-timeline evidence rows carry no role;
+   * absent → the timeline renders the row as a generic `event`.
+   */
+  role?: 'phase' | 'identity' | 'event';
+  /**
+   * Timeline-only identity key for `role: 'identity'` rows: the provider
+   * whose core mark the injected identity renderer (`agentIconHtml`) draws
+   * beside the row's own identity prose. Absent → no icon. The webview never
+   * parses the provider out of `detail` — a key that was not shipped does
+   * not exist.
+   */
+  provider?: string;
+  /**
+   * Timeline-only per-row token claim (`role: 'identity'` rows): the same
+   * `TokenUsageView` the process rows carry, rendered as the bordered mono
+   * pill. Absent → no pill; `unavailable` renders as absence-with-title,
+   * NEVER "0 tokens" (decision 8).
+   */
+  tokens?: TokenUsageView;
+  /**
    * Timeline-only relationship marker: this row continues the SAME execution
    * through a provider switch or a session resume. Structural and closed —
    * the webview draws it as the connector glyph, it never parses `label` to

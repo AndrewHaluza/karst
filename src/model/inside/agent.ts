@@ -131,6 +131,13 @@ interface TimelineEvent {
  * implementation and is dropped; a legacy mark (never attributed) predates
  * run attribution and stays — it is still this ticket's impl evidence. A
  * segment with no start never confirmed a launch, so it is not an event yet.
+ *
+ * Every row carries a structural `role` (Task 4): the run start and every
+ * switch/resume are `identity` segments (a switch/resume also carries its own
+ * `provider` key so the webview can draw the injected core icon beside the
+ * row's own identity prose), phase marks are `phase` with the prototype's
+ * `reported · <time>` detail, and the remainder row is a generic `event`.
+ * The webview keys off `role`/`connector` — never off label prose.
  */
 function timelineEvents(
   timeline: ImplementationTimeline,
@@ -147,6 +154,10 @@ function timelineEvents(
       label: 'started',
       detail: formatTime(run.startedAt),
       duration: formatDuration(run.startedAt, run.endedAt ?? now),
+      // The run start names the session's identity segment. Its prose is
+      // only the start time, so it carries no provider key — an icon beside
+      // a timestamp would claim an identity the row does not state.
+      role: 'identity',
     },
   });
 
@@ -166,6 +177,10 @@ function timelineEvents(
         label: segment.reason === 'switch' ? 'switch' : 'resumed',
         detail: `${view.providerLabel} · ${view.modelLabel}`,
         connector: segment.reason,
+        role: 'identity',
+        // The row's OWN provider key (the injected core icon beside its
+        // identity prose) — never the process's latest segment identity.
+        provider: segment.provider,
       },
     });
   }
@@ -175,7 +190,14 @@ function timelineEvents(
     if (mark.implementationRunId !== null && mark.implementationRunId !== run.id) continue;
     events.push({
       at: mark.markedAt,
-      row: { status: 'note', label: mark.phaseName, detail: formatTime(mark.markedAt) },
+      row: {
+        status: 'note',
+        label: mark.phaseName,
+        // The prototype's acceptance copy: the phase name first, the report
+        // stamp second. Ships pre-worded so the webview renders it verbatim.
+        detail: `reported · ${formatTime(mark.markedAt)}`,
+        role: 'phase',
+      },
     });
   }
 
@@ -336,7 +358,12 @@ export function implementationSessionProcess(
     if (boundedRows.remaining > 0) {
       rows = [
         ...rows,
-        { status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` },
+        {
+          status: 'note',
+          label: 'more',
+          detail: `+${boundedRows.remaining} more`,
+          role: 'event',
+        },
       ];
     }
   }
