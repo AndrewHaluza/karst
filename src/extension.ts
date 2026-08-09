@@ -1811,6 +1811,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The inside-action host: vscode bindings for the containment-checked
     // dispatches (the panel already proved ownership + containment).
     makeInsideActionHost(localStore),
+    // Live manifest getter, so the inside views resolve the REAL service names
+    // and process assignments (panel.ts is manifest-free by contract).
+    () => currentManifest(),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's

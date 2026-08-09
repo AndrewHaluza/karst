@@ -1,12 +1,17 @@
 import type { Store } from '../../store/db.js';
-import type { AgentProvider } from '../../manifest/types.js';
+import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
 import { existsSync, realpathSync } from 'node:fs';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
+import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { resolveProcessAssignment } from '../../agent/processAssignment.js';
+import { resolveProvider } from '../../agent/provider.js';
+import { resolveModelForProvider } from '../../agent/models.js';
+import { isRunnable } from '../../manifest/runnable.js';
 import {
   InsideActionRegistry,
   dispatchInsideAction,
@@ -170,6 +175,13 @@ export class DashboardManager {
      * resolve to unknown/rejected but never dispatch — a no-op host.
      */
     private readonly insideHost?: InsideActionHost,
+    /**
+     * Live manifest getter, so the inside views resolve the REAL service names
+     * and process assignments instead of empty lists. The manager is
+     * manifest-free by contract; every manifest fact arrives through injected
+     * accessors like this one.
+     */
+    private readonly manifest?: () => Manifest | undefined,
   ) {}
 
   /**
@@ -300,14 +312,57 @@ export class DashboardManager {
       this.defaultProvider?.(),
       this.agentContext?.(),
       this.fixCapFor,
-      () => [],
-      () => null,
+      (id) => this.serviceNamesFor(id),
+      (processId) => this.assignmentFor(ticketId, processId),
       registry,
     );
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
     this.refreshIcon(ticketId, panel);
     this.pushGateOptions(ticketId, panel);
+  }
+
+  /**
+   * The runnable services in the ticket's scope, by repository NAME. Non-runnable
+   * repositories are absent by construction (isRunnable is the only gate) — a
+   * repo with no `service:` block has no process to name.
+   */
+  private serviceNamesFor(ticketId: number): string[] {
+    const manifest = this.manifest?.();
+    if (!manifest) return [];
+    const scoped = new Set(getTicket(this.store, ticketId)?.selectedRepos ?? []);
+    return Object.entries(manifest.repositories)
+      .filter(([name, repo]) => scoped.has(name) && isRunnable(repo))
+      .map(([name]) => name);
+  }
+
+  /**
+   * The provider/model karst is CONFIGURED to run for one inside process —
+   * shown before any recorded segment exists. Never the recorded identity: a
+   * process_runs snapshot is what actually ran and outranks this everywhere it
+   * exists (model/inside/agent.ts).
+   */
+  private assignmentFor(
+    ticketId: number,
+    processId: 'session' | 'tester' | 'review',
+  ): SessionConfiguredInput | null {
+    const manifest = this.manifest?.();
+    if (!manifest) return null;
+    const ticket = getTicket(this.store, ticketId);
+    if (processId === 'session') {
+      // The implementation session has no process role: it is the ticket's own
+      // agent, resolved by the launch precedence rule.
+      const provider = resolveProvider(ticket?.agentProvider ?? undefined, manifest.agentProvider);
+      return { provider, model: resolveModelForProvider(provider, ticket?.model ?? null, manifest.defaultModel) ?? null };
+    }
+    const role = processId === 'tester' ? 'uat-tester' : 'review';
+    const snapshot = resolveProcessAssignment(manifest, role, {
+      provider: ticket?.agentProvider ?? undefined,
+      model: ticket?.model ?? undefined,
+    });
+    // NULL is configured ABSENCE (`enabled: false`), not "unknown" — the caller
+    // renders it as a disabled process, never as a missing lookup.
+    return snapshot ? { provider: snapshot.provider, model: snapshot.model ?? null } : null;
   }
 
   /**
