@@ -406,6 +406,29 @@ function gatesProcess(
   }
 
   const finished = cell.status === 'passed' || cell.status === 'failed';
+  // The kind-specific aggregate (B5): the WHOLE batch counted, per handoff §6
+  // ("4 passed · 1 failed"). The same counts the evidence carries, worded
+  // host-side; a batch with no counted outcome is absence, never "0 passed".
+  const aggregate =
+    passed + failed + skipped === 0
+      ? undefined
+      : [
+          passed > 0 ? `${passed} passed` : '',
+          failed > 0 ? `${failed} failed` : '',
+          skipped > 0 ? `${skipped} skipped` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+  // The process's duration: earliest recorded gate start → latest gate end
+  // (or now, while one is running). No row with a start → no duration.
+  let firstStart: string | undefined;
+  let lastEnd: string | undefined;
+  for (const r of batch) {
+    if (!r.startedAt) continue;
+    if (firstStart === undefined || r.startedAt < firstStart) firstStart = r.startedAt;
+    const end = r.endedAt ?? now;
+    if (lastEnd === undefined || end > lastEnd) lastEnd = end;
+  }
   return {
     id: 'gates',
     kind: 'gates',
@@ -427,6 +450,8 @@ function gatesProcess(
             : 'resolved per repository when the stage runs',
         }
       : {}),
+    ...(aggregate ? { aggregate } : {}),
+    ...(firstStart ? { duration: formatDuration(firstStart, lastEnd) } : {}),
     evidence: { kind: 'gates', rows, passed, failed, skipped },
   };
 }

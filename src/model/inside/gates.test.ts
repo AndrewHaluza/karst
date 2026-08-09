@@ -533,6 +533,54 @@ describe('uatProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
   });
 
+  it('ships the gate counts as the gates process-row aggregate (B5)', () => {
+    // handoff §6: "Gates  4 passed · 1 failed" — the whole batch is counted,
+    // never the bounded subset; a disabled gate is stated, not folded in.
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'failed'),
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: NOW }),
+          run('uat', 'e2e (web)', 3, { runAt: NOW }),
+          run('uat', 'lint (web)', null, { runAt: NOW, skipped: true }),
+        ],
+      }),
+    );
+    expect(views[0]!.aggregate).toBe('1 passed · 1 failed · 1 skipped');
+  });
+
+  it('omits the gates aggregate when the batch has no counted outcome (B5)', () => {
+    // An all-note batch ("nothing to run") is absence, never "0 passed".
+    const views = uatProcesses(
+      qualityInput({
+        gateRuns: [run('uat', 'lint (web)', null, { runAt: NOW })],
+      }),
+    );
+    expect(views[0]!.aggregate).toBeUndefined();
+  });
+
+  it('measures the gates process duration across the whole batch (B5)', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'passed', { startedAt: '2026-07-20T12:00:00.000Z', endedAt: NOW }),
+        gateRuns: [
+          run('uat', 'test (web)', 0, {
+            runAt: NOW,
+            startedAt: '2026-07-20T12:00:00.000Z',
+            endedAt: '2026-07-20T12:00:10.000Z',
+          }),
+          run('uat', 'e2e (web)', 0, {
+            runAt: NOW,
+            startedAt: '2026-07-20T12:00:05.000Z',
+            endedAt: '2026-07-20T12:00:40.000Z',
+          }),
+        ],
+      }),
+    );
+    // Earliest start → latest end: 12:00:00 → 12:00:40.
+    expect(views[0]!.duration).toBe('40.0s');
+  });
+
   it('counts gate outcomes and keeps skip and note distinct from pass and fail', () => {
     const views = uatProcesses(
       qualityInput({
