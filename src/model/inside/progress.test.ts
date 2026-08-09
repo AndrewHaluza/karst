@@ -125,4 +125,14 @@ describe('shipStepEvent (the live header names the step)', () => {
     expect(event.live.detail).toHaveLength(200);
     expect(validateInsideProgressEvent(event)).toEqual(event);
   });
+  it('falls back to the step wording when the recorded detail is blank', () => {
+    // A zero-length `detail` is rejected by the wire validator, so `??` would
+    // have produced an event the boundary drops — a header stalled on the
+    // previous step rather than naming this one.
+    const event = shipStepEvent(1, { repo: 'api', step: 'push', status: 'run', detail: '   ' });
+    expect(event?.kind).toBe('active');
+    if (event?.kind !== 'active') return;
+    expect(event.live.detail).toBe('pushing the branch');
+    expect(validateInsideProgressEvent(event)).toEqual(event);
+  });
 });

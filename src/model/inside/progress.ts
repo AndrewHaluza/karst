@@ -229,7 +229,11 @@ export function shipStepEvent(
       // Untrusted prose (CLI/model output) when ship recorded it, else the
       // step's own wording. Capped to fit the wire validator (MAX_WIRE_TEXT);
       // an event the boundary drops is a header that silently goes silent.
-      detail: (event.detail ?? stepDetail(event)).slice(0, 200),
+      // `??` is wrong here: an empty (or blank) recorded detail is not a
+      // detail, and the wire validator rejects a zero-length string — the
+      // whole event would be dropped and the header would silently stall on
+      // whatever step ran before it.
+      detail: (event.detail?.trim() ? event.detail : stepDetail(event)).slice(0, 200),
     },
   };
 }
