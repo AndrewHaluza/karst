@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
@@ -2338,6 +2339,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void runPrSync();
   const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });
+
+  // The `karst` CLI commits to the registry from its own `node` process; this
+  // host's connection never sees those writes, so an open dashboard would keep
+  // rendering the last snapshot it built. `PRAGMA data_version` changes only
+  // for OTHER connections' commits — the watcher refreshes every open panel
+  // when the CLI lands a marker, and stays silent for the host's own writes,
+  // which already push state. Observer only: it must never trigger the stage
+  // driver, or a change notification could start the same run in two windows
+  // at once (the DB is shared by every window).
+  context.subscriptions.push(
+    watchExternalChanges(localStore, () => {
+      for (const ticketId of dashboard.openTicketIds()) {
+        provider.refresh();
+        dashboard.pushState(ticketId);
+      }
+    }),
+  );
 
   // Startup dependency preflight (§ todo-5): karst shells out to tools it doesn't
   // bundle. The registry is the whole list — never hand-maintain one here, or the

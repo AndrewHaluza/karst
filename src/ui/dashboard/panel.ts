@@ -518,6 +518,11 @@ export class DashboardManager {
   isOpen(ticketId: number): boolean {
     return this.panels.has(ticketId);
   }
+
+  /** The tickets with a currently open panel, for the external-change watcher. */
+  openTicketIds(): number[] {
+    return [...this.panels.keys()];
+  }
 }
 
 /** Narrow a routed action's return to the synchronous inside outcome, if that is what it is. */
