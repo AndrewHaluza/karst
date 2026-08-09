@@ -213,7 +213,7 @@ describe('driveTicket', () => {
 
     expect(sawManifest).toBe(true);
     expect(outcome.status).toBe('blocked');
-    expect(outcome.reason).toContain('nothing-to-run');
+    expect(outcome.reason).toContain('unmapped-repository');
     expect(outcome.reason).toContain('/not/in/manifest');
     expect(getTicket(store, id).stageCurrent).toBe('uat');
   });

@@ -632,7 +632,11 @@ export class OpencodeAdapter implements AgentAdapter {
   }
 
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
-    const args = ['run', '--format', 'json'];
+    const args = ['run', '--format', 'json', '--pure'];
+    // `--pure` suppresses config/global plugins, the same isolation
+    // `buildInteractiveCommand` gives the interactive session: every headless
+    // run (review findings lane, classify, fix-resume) must not inherit plugins
+    // that add context, latency, or other projects' hook channels (869ef1e6x).
     if (opts.permissionMode === 'bypassPermissions') args.push('--auto');
     if (opts.model) args.push('--model', opts.model);
     if (opts.resume) args.push('--session', opts.resume);

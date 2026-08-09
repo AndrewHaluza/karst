@@ -5,6 +5,7 @@ import {
   queryTokenUsageStats,
   listTokenUsage,
   summarizeRecordedTokenUsage,
+  summarizeRecordedTokenUsageForProcess,
   summarizeRecordedTokenUsageByRole,
   EMPTY_USAGE_TOTALS,
 } from './tokenUsage.js';
@@ -377,6 +378,20 @@ describe('process-run attribution', () => {
     seed({ input: 999, output: 999, estimated: true, processRunId: r.id });
 
     expect(summarizeRecordedTokenUsage(store, 1)).toEqual({ input: 120, output: 30, total: 150 });
+  });
+
+  it('counts a process\'s estimated calls separately from its measured total', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    seed({ input: 120, output: 30, processRunId: r.id });
+    seed({ input: 500, output: 500, estimated: true, processRunId: r.id });
+
+    // A measured total and an estimate count are different facts: the count
+    // rides beside the total, and the estimate's tokens never enter it.
+    expect(summarizeRecordedTokenUsageForProcess(store, 1, 'review')).toEqual({
+      total: 150,
+      estimatedCalls: 1,
+    });
   });
 
   it('keeps legacy null-linked rows in normal ticket-level queries', () => {

@@ -164,10 +164,6 @@
       {
         "command": "karst.reportIssue",
         "title": "Karst: Report Issue"
-      },
-      {
-        "command": "karst.dev.openInsidePreview",
-        "title": "Karst: Open Inside Preview (Development)"
       }
     ],
     "menus": {
@@ -175,10 +171,6 @@
         {
           "command": "karst.openOnboarding",
           "when": "false"
-        },
-        {
-          "command": "karst.dev.openInsidePreview",
-          "when": "karst.insidePreviewAvailable"
         }
       ]
     },

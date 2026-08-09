@@ -4,7 +4,7 @@ import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { Finding } from '../../store/reviewFindings.js';
 import type { UatFinding } from '../../store/uatFindings.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
-import type { StepperCell } from '../stepper.js';
+import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
 import { bounded } from './bounds.js';
@@ -12,11 +12,11 @@ import { insertCausalFix, recoveryProcess } from './recovery.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './types.js';
 import {
   formatDuration,
-  inside,
+  formatExactDuration,
+  formatTime,
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
-  type StageInside,
   type StageOp,
 } from './types.js';
 
@@ -68,13 +68,15 @@ export function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateR
  * question to ask; a null exit with `skipped` true means the gate was there and
  * the user switched it off for this ticket. Neither of the last two is a pass.
  */
-function gateOp(run: GateRun): StageOp {
+function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: string } {
   if (run.skipped) {
     return {
       status: 'skip',
       name: run.gateName,
       detail: 'Skipped — disabled by user',
       duration: '',
+      repo: run.repo,
+      durationExact: '',
     };
   }
   return {
@@ -85,59 +87,9 @@ function gateOp(run: GateRun): StageOp {
     // but this summary line stays terse on purpose.
     detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}`,
     duration: formatDuration(run.startedAt, run.endedAt),
+    repo: run.repo,
+    durationExact: formatExactDuration(run.startedAt, run.endedAt),
   };
-}
-
-/**
- * The gate rows of one batch, or — before any row exists on a stage that is
- * plainly doing something — the fact that the list is not knowable yet. A
- * finished stage with no rows shows nothing: those gates predate this record,
- * and a pending row on a passed stage would be a false promise.
- *
- * Never shown once the stage is blocked: the block row states the reason
- * nothing ran, and pairing it with the generic "resolved per repository"
- * filler would say the same thing twice with different confidence.
- */
-function recordedOps(batch: readonly GateRun[], cell: StepperCell): StageOp[] {
-  const ops = batch.filter((r) => r.gateName !== CHANGES_GATE).map(gateOp);
-  if (
-    ops.length === 0 &&
-    !cell.blocked &&
-    (cell.status === 'running' || cell.status === 'pending')
-  ) {
-    return [
-      {
-        status: 'pending',
-        name: 'gates',
-        detail: 'resolved per repository when the stage runs',
-        duration: '',
-      },
-    ];
-  }
-  return ops;
-}
-
-/**
- * The row naming why a blocked stage could not ask its question — fail-styled
- * because a park is not progress, even though it consumed no attempt.
- */
-function blockedOp(blocked: NonNullable<StepperCell['blocked']>): StageOp {
-  return {
-    status: 'fail',
-    name: 'blocked',
-    detail: blocked.reason,
-    duration: '',
-  };
-}
-
-/**
- * A gate stage's rows: whatever evidence ran, plus the block row when the
- * stage is currently parked. Shared by both gate stages (`review`, `uat`) —
- * both commit through `commitGateOutcome` and both can park.
- */
-function gateOps(cell: StepperCell, runs: readonly GateRun[], stageKey: StageKey): StageOp[] {
-  const ops = recordedOps(latestBatch(runs, stageKey), cell);
-  return cell.blocked ? [...ops, blockedOp(cell.blocked)] : ops;
 }
 
 /**
@@ -190,76 +142,11 @@ function findingOp(finding: Finding): StageOp {
   };
 }
 
-export function reviewInside(
-  cell: StepperCell,
-  runs: readonly GateRun[],
-  findings: readonly Finding[],
-  now: string,
-): StageInside {
-  const running = cell.status === 'running';
-  const finished = cell.status === 'passed' || cell.status === 'failed';
-  const batch = latestBatch(runs, 'review');
-  const ops = gateOps(cell, runs, 'review');
-
-  // This row states what happened, never what review merely intended to do.
-  // `openDiff` is an optional host dependency (`DriveTicketDeps.openDiff`) —
-  // absent, it opens nothing — so the row is driven by a recorded 'changes'
-  // gate_run, evidence written in the SAME append-only place as every other
-  // gate row, alongside the review batch it belongs to. A live boolean on the
-  // run's return value would read correctly for one render and then be gone on
-  // the next window reload; this survives it, the same as every other row here.
-  //
-  // Named and worded as "changes", not "diff": the host implementation
-  // reveals the ticket's Changes panel — it does not itself invoke
-  // `vscode.diff` (that only fires once a human clicks a file row inside the
-  // panel). Claiming "diff opened" here would assert a control the run never
-  // performed, the exact defect this row exists to close.
-  //
-  // Skipped entirely while blocked: the block row already states why the
-  // panel has not opened, and "opens when the gate finishes" would promise a
-  // finish the park just refused to reach.
-  const changesRun = batch.find((r) => r.gateName === CHANGES_GATE);
-  if (!cell.blocked) {
-    if (running) {
-      ops.push({
-        status: 'note',
-        name: CHANGES_GATE,
-        detail: 'the changes panel opens for you when the gate finishes, pass or fail',
-        duration: '',
-      });
-    } else if (finished && changesRun) {
-      ops.push({
-        status: 'pass',
-        name: CHANGES_GATE,
-        detail: 'changes panel opened for review',
-        duration: formatDuration(changesRun.startedAt, changesRun.endedAt),
-      });
-    }
-
-    // Findings are review's own evidence, visible on the same terms as its
-    // gate rows and the changes row above — I2 (spec §6.6): before this, a
-    // finding was read only by the fix brief and `karst context`, never
-    // rendered anywhere a human looks. Skipped while blocked for the same
-    // reason the changes row is: a park already states why nothing ran, and a
-    // stale prior-attempt finding rendered beside it would read as fresh
-    // evidence about a run that never happened.
-    ops.push(...latestFindingsBatch(findings).map(findingOp));
-  }
-
-  return inside(cell, now, ops);
-}
-
-export function uatInside(cell: StepperCell, runs: readonly GateRun[], now: string): StageInside {
-  return inside(cell, now, gateOps(cell, runs, 'uat'));
-}
-
 /**
  * The quality stages' PROCESS reducers (Task 11): `uatProcesses` and
  * `reviewProcesses` emit the stage's processes in `INSIDE_PROCESSES` order and
  * insert the conditional Fix causally, immediately after the process whose
- * evidence opened the recovery round. The flat `uatInside`/`reviewInside`
- * strips above stay for the legacy renderer; these produce the new
- * `InsideProcessView` model.
+ * evidence opened the recovery round.
  *
  * Nothing here may infer a status: pass/run/fail requires a RECORDED row.
  * Pending config may describe gate names, services or the configured AI
@@ -298,6 +185,13 @@ export interface QualityProcessesInput {
    * caller attaches none. Absent → rows carry no actions.
    */
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
+  /**
+   * The gate names this stage WOULD run, resolved host-side
+   * (`ui/dashboard/gateOptions.ts`) before anything has run. Optional: a panel
+   * that has not resolved them yet passes nothing, and the row falls back to
+   * stating that they resolve when the stage runs.
+   */
+  resolvedGates?: readonly { name: string; disabled: boolean }[];
 }
 
 /** The latest invocation of a process, by its explicit run id. */
@@ -352,8 +246,19 @@ function aiProcessBase(
       : cell.status === 'pending'
         ? 'pending'
         : 'note',
-    ...(run?.startedAt ? { duration: formatDuration(run.startedAt, run.endedAt ?? now) } : {}),
-    ...(run?.provider ? { execution: executionView(run.provider, run.model) } : {}),
+    ...(run?.startedAt
+      ? {
+          duration: formatDuration(run.startedAt, run.endedAt ?? now),
+          durationExact: formatExactDuration(run.startedAt, run.endedAt ?? now),
+          time: formatTime(run.startedAt),
+        }
+      : {}),
+    ...(run?.provider ? { execution: executionView(run.provider, run.model, run.agentName) } : {}),
+    // A run that recorded no provider is identity ABSENCE, never "unknown
+    // identity" and never the configured default (handoff §11: "No historical
+    // execution identity recorded" — what RAN decides, and here it says
+    // nothing).
+    ...(run && !run.provider ? { identityNote: 'No historical execution identity recorded' } : {}),
     ...(!run && configured
       ? { configuredExecution: executionView(configured.provider, configured.model) }
       : {}),
@@ -381,6 +286,7 @@ function gatesProcess(
   runs: readonly GateRun[],
   stageKey: StageKey,
   now: string,
+  resolved: readonly { name: string; disabled: boolean }[] = [],
 ): InsideProcessView {
   const batch = latestBatch(runs, stageKey).filter((r) => r.gateName !== CHANGES_GATE);
   let passed = 0;
@@ -393,19 +299,73 @@ function gatesProcess(
     else failed += 1;
   }
 
+  // Read through `displayStatus`: `parkGateStage` leaves the status the runner
+  // set, so a parked stage keeps reading `running` while blocked — it is not
+  // running, and the row must not draw a spinner or promise the first gate's
+  // row beside its own block banner.
+  const shown = displayStatus(cell);
+  const finished = shown === 'passed' || shown === 'failed';
+  const running = shown === 'running';
+  const blocked = shown === 'blocked';
+  // Before anything ran, the resolved names (`gateOptions.ts`) are the gates
+  // that WOULD run — a forecast, ROWS ONLY: it never touches the counts or
+  // the aggregate, because a gate that has not run has no outcome. Recorded
+  // rows always win over the forecast (a record is a fact; a resolution is a
+  // prediction), and a running stage shows no forecast either — its first
+  // real row lands as the first gate finishes. A blocked stage shows none
+  // either: nothing is about to run.
+  const forecast =
+    batch.length === 0 && !finished && !running && !blocked && resolved.length > 0;
   const boundedRows = bounded(
-    batch.map((r): EvidenceRow => {
-      const op = gateOp(r);
-      return { status: op.status, label: op.name, detail: op.detail, duration: op.duration };
-    }),
+    forecast
+      ? resolved.map((g): EvidenceRow => ({
+          status: g.disabled ? 'skip' : 'pending',
+          label: g.name,
+          detail: g.disabled ? 'disabled for this ticket' : 'will run when the stage runs',
+        }))
+      : batch.map((r): EvidenceRow => {
+          const op = gateOp(r);
+          return {
+            status: op.status,
+            label: op.name,
+            detail: op.detail,
+            duration: op.duration,
+            ...(op.repo ? { repo: op.repo } : {}),
+            ...(op.durationExact ? { durationExact: op.durationExact } : {}),
+          };
+        }),
     GATES_EVIDENCE_LIMIT,
   );
   const rows = [...boundedRows.shown];
   if (boundedRows.remaining > 0) {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
-
-  const finished = cell.status === 'passed' || cell.status === 'failed';
+  // The kind-specific aggregate (B5): the WHOLE batch counted, per handoff §6,
+  // led by `n/m` — how many of the recorded gates produced a VERDICT. A skipped
+  // gate, or one whose script the repo does not define, is in `m` and not in
+  // `n`: it was recorded and it answered nothing. A batch with no recorded row
+  // is absence, never "0/0".
+  const aggregate =
+    batch.length === 0
+      ? undefined
+      : [
+          `${passed + failed}/${batch.length}`,
+          passed > 0 ? `${passed} passed` : '',
+          failed > 0 ? `${failed} failed` : '',
+          skipped > 0 ? `${skipped} skipped` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+  // The process's duration: earliest recorded gate start → latest gate end
+  // (or now, while one is running). No row with a start → no duration.
+  let firstStart: string | undefined;
+  let lastEnd: string | undefined;
+  for (const r of batch) {
+    if (!r.startedAt) continue;
+    if (firstStart === undefined || r.startedAt < firstStart) firstStart = r.startedAt;
+    const end = r.endedAt ?? now;
+    if (lastEnd === undefined || end > lastEnd) lastEnd = end;
+  }
   return {
     id: 'gates',
     kind: 'gates',
@@ -414,17 +374,46 @@ function gatesProcess(
       batch.length === 0
         ? finished
           ? 'note'
-          : 'pending'
+          : blocked
+            ? 'wait'
+            : // A running stage with nothing recorded YET is running, not
+              // pending: the first gate's row lands only when that gate finishes,
+              // so `pending` here left the row inert for the whole first gate —
+              // exactly the window the user is watching.
+              running
+              ? 'run'
+              : 'pending'
         : failed > 0
           ? 'fail'
-          : cell.status === 'running'
+          : running
             ? 'run'
             : 'pass',
-    ...(batch.length === 0
+    // handoff §11 failure copy: the collapsed row says what failed, why, and
+    // what to do — the failing rows keep their terse exit-code detail
+    // (handoff §6's row template).
+    ...(failed > 0
       ? {
-          detail: finished
-            ? 'no gates recorded for this stage'
-            : 'resolved per repository when the stage runs',
+          detail: `Tests failed: ${failed} ${failed === 1 ? 'gate' : 'gates'} returned a nonzero exit code. Review the log and resume the stage.`,
+        }
+      : batch.length === 0
+        ? {
+              detail: finished
+                ? 'no gates recorded for this stage'
+                : blocked
+                  ? 'blocked — the gates did not run'
+                  : running
+                    ? 'running the first gate — each result lands here as it finishes'
+                    : forecast
+                      ? 'not run yet — these gates would run'
+                      : 'resolved per repository when the stage runs',
+          }
+        : {}),
+    ...(aggregate ? { aggregate } : {}),
+    ...(firstStart
+      ? {
+          duration: formatDuration(firstStart, lastEnd),
+          durationExact: formatExactDuration(firstStart, lastEnd),
+          time: formatTime(firstStart),
         }
       : {}),
     evidence: { kind: 'gates', rows, passed, failed, skipped },
@@ -434,7 +423,11 @@ function gatesProcess(
 /**
  * The services process: host-known read-only context. It contributes the
  * configured service names to the stage's picture and can never pass or fail —
- * there is no recorded row that would authorize a verdict.
+ * there is no recorded row that would authorize a verdict. When the host
+ * resolved no names, the cause is not knowable here (an unresolved manifest, a
+ * repo outside the ticket's scope, a non-runnable repo), so the row says
+ * "not checked" — it must never claim a manifest fact the reducer did not
+ * read (B6).
  */
 function servicesProcess(cell: StepperCell, services: readonly string[]): InsideProcessView {
   return {
@@ -445,7 +438,7 @@ function servicesProcess(cell: StepperCell, services: readonly string[]): Inside
     detail:
       services.length > 0
         ? services.join(' · ')
-        : 'no service blocks in the manifest — gates run against the worktrees',
+        : 'not checked — no services reported for this ticket',
   };
 }
 
@@ -544,6 +537,10 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   });
   return {
     ...base,
+    // The kind-specific aggregate (B4): the blocking count, worded per handoff
+    // §6 ("2 blocking"). Host-computed from the same count the evidence
+    // carries; omitted when nothing blocks rather than claiming "0".
+    ...(blocking > 0 ? { aggregate: `${blocking} blocking` } : {}),
     ...(run
       ? {
           detail:
@@ -551,8 +548,10 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
               ? `${blocking} blocking finding${blocking === 1 ? '' : 's'}`
               : run.resultKind === 'validated'
                 ? 'no blocking findings'
-                : run.resultKind === 'execution-failed'
-                  ? 'adapter execution failed'
+                : // handoff §11: an execution failure must never read as
+                  // "no findings" — it names what failed and what to do.
+                  run.resultKind === 'execution-failed'
+                  ? 'Review execution failed: the agent did not return a result. Retry review.'
                   : run.resultKind === 'interrupted'
                     ? 'interrupted — no outcome'
                     : undefined,
@@ -565,21 +564,27 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
 /** The uat stage's processes: gates, services, tester — plus a causal fix. */
 export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const processes = [
-    gatesProcess(input.cell, input.gateRuns, 'uat', input.now),
+    gatesProcess(input.cell, input.gateRuns, 'uat', input.now, input.resolvedGates ?? []),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
   ];
   const stageRounds = input.rounds.filter((r) => r.sourceStage === 'uat');
-  return insertCausalFix(processes, recoveryProcess(stageRounds, input.processRuns, input.now));
+  return insertCausalFix(
+    processes,
+    recoveryProcess(stageRounds, input.processRuns, input.now, input.configured),
+  );
 }
 
 /** The review stage's processes: gates, services, review — plus a causal fix. */
 export function reviewProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const processes = [
-    gatesProcess(input.cell, input.gateRuns, 'review', input.now),
+    gatesProcess(input.cell, input.gateRuns, 'review', input.now, input.resolvedGates ?? []),
     servicesProcess(input.cell, input.services),
     reviewProcess(input),
   ];
   const stageRounds = input.rounds.filter((r) => r.sourceStage === 'review');
-  return insertCausalFix(processes, recoveryProcess(stageRounds, input.processRuns, input.now));
+  return insertCausalFix(
+    processes,
+    recoveryProcess(stageRounds, input.processRuns, input.now, input.configured),
+  );
 }

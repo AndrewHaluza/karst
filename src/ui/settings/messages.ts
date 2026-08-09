@@ -1,5 +1,6 @@
 import type { Manifest } from '../../manifest/types.js';
 import type { SettingsState } from './state.js';
+import type { SettingsProcessAssignmentView } from './processAssignmentViews.js';
 import type { TicketList } from '../../integrations/ticketing.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { isSettingsSection, type SettingsSection } from './sections.js';
@@ -14,6 +15,13 @@ export type SettingsWebviewMessage =
    */
   | { type: 'save'; manifest: Manifest; section?: SettingsSection }
   | { type: 'validate'; manifest: Manifest }
+  /**
+   * Recompute the inside-process-assignment row views (handoff §7) from the
+   * DRAFT and reply with `process-assignment-views`. The draft is
+   * webview-local, so the four validation states must be computed host-side
+   * on demand — exactly the existing `validate`/`validation` round trip.
+   */
+  | { type: 'validate-process-assignments'; manifest: Manifest }
   | { type: 'install-approach'; id: string }
   | { type: 'uninstall-approach'; id: string }
   | { type: 'set-token' }
@@ -34,6 +42,8 @@ export type SettingsWebviewMessage =
 export type SettingsHostMessage =
   | { type: 'state'; state: SettingsState }
   | { type: 'models'; models: ModelCatalog; modelCompatibility: ModelCatalog }
+  /** Fresh host-computed views for the inside-process assignment rows. */
+  | { type: 'process-assignment-views'; rows: SettingsProcessAssignmentView[] }
   | { type: 'validation'; ok: boolean; error: string | null }
   | { type: 'error'; message: string }
   /** `section` echoes back which tab was committed, so the page can say so. */
@@ -67,6 +77,8 @@ export interface SettingsActions {
   /** Persist the draft; `section` narrows the write to that tab's fields. */
   save(manifest: Manifest, section?: SettingsSection): void | Promise<void>;
   validate(manifest: Manifest): void | Promise<void>;
+  /** Post host-computed process-assignment row views for the draft (handoff §7). */
+  validateProcessAssignments(manifest: Manifest): void | Promise<void>;
   installApproach(id: string): void | Promise<void>;
   uninstallApproach(id: string): void | Promise<void>;
   /** Prompt (host-side) for and store the ClickUp token. Token never crosses the webview. */
@@ -128,6 +140,10 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
     }
     case 'validate':
       return isRecord(raw.manifest) ? { type: 'validate', manifest: raw.manifest as unknown as Manifest } : null;
+    case 'validate-process-assignments':
+      return isRecord(raw.manifest)
+        ? { type: 'validate-process-assignments', manifest: raw.manifest as unknown as Manifest }
+        : null;
     case 'install-approach':
       return str('id') ? { type: 'install-approach', id: raw.id as string } : null;
     case 'uninstall-approach':
@@ -196,6 +212,8 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return actions.save(msg.manifest, msg.section);
     case 'validate':
       return actions.validate(msg.manifest);
+    case 'validate-process-assignments':
+      return actions.validateProcessAssignments(msg.manifest);
     case 'install-approach':
       return actions.installApproach(msg.id);
     case 'uninstall-approach':

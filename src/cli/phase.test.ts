@@ -20,6 +20,7 @@ import { createTicket } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
 import { setStage } from '../store/stages.js';
 import { listPhaseMarks } from '../store/phaseMarks.js';
+import { openImplementationRun } from '../store/implementationRuns.js';
 
 describe('parsePhaseArgs', () => {
   it('parses "phase research" into a bare phase name', () => {
@@ -202,6 +203,23 @@ describe('runCli — phase marker', () => {
   it('carries the stage’s attempt at the moment the mark landed', () => {
     runCli(['phase', 'plan', '--db', dbPath, '--manifest', manifestPath, '--ticket', 'K-1']);
     expect(marksFor(2)[0]!.attempt).toBe(3);
+  });
+
+  it('attributes a phase mark to the ticket’s open implementation run', () => {
+    // Resolved server-side in the store writer, never from argv: the timeline
+    // filter (model/inside/agent.ts) reads this column, so an unattributed mark
+    // would leak the previous run's phases into the current timeline.
+    const seed = openStore(dbPath);
+    const run = openImplementationRun(seed, {
+      ticketId: 2,
+      attempt: 3,
+      provider: 'claude',
+      model: null,
+      startedAt: '2026-07-20T12:00:00.000Z',
+    });
+    seed.close();
+    runCli(['phase', 'research', '--db', dbPath, '--manifest', manifestPath, '--ticket', 'K-1']);
+    expect(marksFor(2)[0]!.implementationRunId).toBe(run.id);
   });
 
   it('timestamps server-side, near now', () => {

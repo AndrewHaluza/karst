@@ -31,7 +31,7 @@ const now = () => '2026-07-30T10:00:00.000Z';
 function deps(over: Partial<UatDeps> = {}): UatDeps {
   return {
     now,
-    planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }] }),
+    planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }], unmapped: [] }),
     probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
     runGates: async (gates) => ({
       kind: 'ran',
@@ -262,7 +262,9 @@ describe('runUat', () => {
   // affected) and a genuine `{kind:'targets', targets: []}` (karst asked and the
   // answer is "nothing is affected") must stay distinguishable at this seam —
   // collapsing them is exactly the vacuous-green bug this task closes: an
-  // environmental failure must never read as "nothing to test".
+  // environmental failure must never read as "nothing to test". The empty
+  // list's own fate is a pass with a note (every worktree mapped, none
+  // changed), asserted separately below.
   it('keeps an unavailable selection and a genuine empty target list apart', async () => {
     const unavailable = await runUat(
       store,
@@ -280,12 +282,18 @@ describe('runUat', () => {
     const id2 = createTicketFlow(store, { key: 'T-2', title: 't2' }).id;
     transition(store, id2, 'scope', { kind: 'passed' });
     transition(store, id2, 'impl', { kind: 'passed' });
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+      )
+      .run(id2);
     const empty = await runUat(
       store,
       { ticketId: id2, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
     );
-    expect(empty).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(empty).not.toMatchObject({ kind: 'blocked' });
+    expect(empty).toMatchObject({ kind: 'advanced', next: 'review' });
     expect(empty).not.toMatchObject({ blocker: 'capability-missing' });
   });
 
@@ -386,6 +394,7 @@ describe('runUat', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         runGates: async (gates, cwd) => {
           ran.push(cwd);
@@ -449,6 +458,7 @@ describe('runUat', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         probe: (cwd) =>
           cwd === '/wt/web'
@@ -483,10 +493,11 @@ describe('runUat', () => {
     expect(uatStage(store, id).artifactPath).not.toBeNull();
   });
 
-  // A worktree whose repoPath is absent from the manifest is dropped by
-  // `planUatTargets`, so "affected but unmapped" would otherwise be
-  // indistinguishable from "nothing to test" — a silent absence.
-  it('no target at all -> blocks with a reason naming the ticket worktrees', async () => {
+  // A worktree whose repoPath is absent from the manifest cannot be asked
+  // anything, and a retry cannot change that — the block names the worktrees
+  // and the user must edit karst.yml or re-scope the ticket. Distinct from the
+  // mapped-but-unchanged case below: that one PASSES.
+  it('blocks and names the unmapped worktrees when a repository is missing from the manifest', async () => {
     store.db
       .prepare(
         "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/unmapped', '/wt/unmapped', 'b', 'develop', 'inherited')",
@@ -495,22 +506,48 @@ describe('runUat', () => {
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: ['/unmapped'] }) }),
     );
-    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'unmapped-repository' });
     expect(res).toMatchObject({ reason: expect.stringContaining('/unmapped') });
     expect(getTicket(store, id).stageCurrent).toBe('uat');
     expect(uatStage(store, id).attempt).toBe(0);
   });
 
-  it('says so plainly when the ticket has no worktree at all', async () => {
+  it('passes with a note when every repository mapped and none has changes', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
-      deps({ planTargets: async () => ({ kind: 'targets', targets: [] }) }),
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).toContain(
+      'no repository has changes from its base, so UAT had nothing to check',
+    );
+  });
+
+  // Zero worktrees is a third case, and it is neither of the two above: the
+  // question was never asked of any repository, so it can only park.
+  it('parks when the ticket has no registered worktree at all', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: [] }) }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
-    expect(res).toMatchObject({ reason: expect.stringContaining('no worktree') });
+    expect(res).toMatchObject({
+      reason: 'no worktree is registered for this ticket, so there is no repository to run UAT against',
+    });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('nothing-to-run');
   });
 
   // Two `repositories:` entries sharing a repoPath collapse to ONE target, so a
@@ -536,7 +573,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }], unmapped: [] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -571,7 +608,7 @@ describe('runUat', () => {
         ),
       },
       deps({
-        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }] }),
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }], unmapped: [] }),
         runGates: async (gates) => {
           ran.push(...gates.map((g) => g.name));
           return {
@@ -611,6 +648,7 @@ describe('runUat', () => {
         planTargets: async () => ({
           kind: 'targets',
           targets: [{ repo: '/mono', path: '/wt/mono', names: ['web', 'admin'] }],
+        unmapped: [],
         }),
       }),
     );
@@ -633,6 +671,7 @@ describe('runUat', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
         runGates: async (gates, _cwd, opts) => {
           seen.push(opts?.signal);
@@ -1187,6 +1226,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
             { repo: '/web', path: '/wt/web', names: ['web'] },
             { repo: '/api', path: '/wt/api', names: ['api'] },
           ],
+        unmapped: [],
         }),
       }),
     );

@@ -14,7 +14,6 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { listProcessRuns, setProcessRunResultKind } from '../../store/processRuns.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
-import { noTargetsReason } from '../gates/targets.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
@@ -269,7 +268,11 @@ export async function runUat(
 
   const planned = opts.manifest
     ? await planTargets(opts.manifest, worktrees, git)
-    : { kind: 'targets' as const, targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }] };
+    : {
+        kind: 'targets' as const,
+        targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }],
+        unmapped: [],
+      };
 
   // Environmental: karst could not even determine which repositories are
   // affected (an unreachable remote, a broken git) — never a verdict about the
@@ -283,8 +286,32 @@ export async function runUat(
   const targets: UatTarget[] = planned.targets;
 
   if (targets.length === 0) {
-    const reason = noTargetsReason(worktrees, 'UAT');
-    return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+    // Zero worktrees is not "nothing changed": nothing was ASKED. The ticket
+    // has no repository to run UAT against at all, and passing here would walk
+    // a stage that ran nothing straight to review — the vacuous green the
+    // "asked nothing is never green" invariant exists to prevent. Resumable:
+    // registering a worktree (re-scoping) makes a retry succeed.
+    if (worktrees.length === 0) {
+      const reason =
+        'no worktree is registered for this ticket, so there is no repository to run UAT against';
+      return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+    }
+    // Two situations that must not read as one. If any worktree matched no
+    // manifest entry, karst could not ask that repository anything and a retry
+    // cannot change the answer — only the user editing karst.yml or re-scoping
+    // the ticket can, so this parks. If every worktree mapped and none has
+    // changes from its base, the question WAS asked and the answer is "nothing
+    // to check": that is a deliverable the stage already has, so it passes
+    // with a note rather than parking forever behind a Resume that
+    // reproduces the same block.
+    if (planned.unmapped.length > 0) {
+      const reason =
+        `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
+        'add them to `repositories:` or re-scope the ticket';
+      return finish({ kind: 'blocked', blocker: 'unmapped-repository', reason }, [reason]);
+    }
+    const note = 'no repository has changes from its base, so UAT had nothing to check';
+    return finish({ kind: 'verdict', verdict: { kind: 'passed' } }, [note]);
   }
 
   for (const target of targets) {

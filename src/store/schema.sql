@@ -459,7 +459,6 @@ CREATE TABLE IF NOT EXISTS ship_repo_steps (
   status TEXT NOT NULL CHECK (status IN ('running','passed','failed','note')),
   detail TEXT NOT NULL,
   pr_number INTEGER,
-  pr_status TEXT,
   existed_before_ship INTEGER,
   process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   started_at TEXT NOT NULL,

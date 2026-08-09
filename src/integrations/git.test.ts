@@ -454,8 +454,11 @@ describe('ship quarantine commit primitives', () => {
 
       // The quarantined tree materializes the base tree PLUS the staged
       // content — an empty quarantine object dir proves the base was read
+      // The quarantined tree materializes the base tree PLUS the staged
+      // content — an empty quarantine object dir proves the base was read
       // through the alternate. The tree object lives ONLY in the quarantine
-      // until promotion, so read it back with the quarantine env.
+      // until promotion, so read it back with the quarantine env (a main-repo
+      // read before promotion fails: the object is not there yet).
       const qObjects = join(adminDir, 'karst-quarantine', KEY, 'objects');
       const quarantineEnv = {
         GIT_OBJECT_DIRECTORY: qObjects,

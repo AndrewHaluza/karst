@@ -15,7 +15,6 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
-import { noTargetsReason } from '../gates/targets.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
@@ -51,8 +50,8 @@ import type { WarnFn } from '../review/findings.js';
  * implementation reveals the ticket's Changes panel (`TicketChangesManager`,
  * itself backed by `vscode.diff` — but only once the human clicks a file row
  * inside it). This function does not itself guarantee a diff editor opened,
- * only that the review surface did — `reviewInside` and the persisted
- * 'changes' evidence describe it that way, deliberately.
+ * only that the review surface did — the persisted
+ * 'changes' evidence describes it that way, deliberately.
  */
 export type OpenDiff = (ticketId: number, cwd: string) => void;
 
@@ -242,7 +241,11 @@ export async function runReview(
 
   const planned = opts.manifest
     ? await planTargets(opts.manifest, worktrees, git)
-    : { kind: 'targets' as const, targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }] };
+    : {
+        kind: 'targets' as const,
+        targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }],
+        unmapped: [],
+      };
 
   // R2 at the selection seam: karst could not even determine which repositories
   // are affected (an unreachable remote, a broken git). Never a verdict about
@@ -254,12 +257,33 @@ export async function runReview(
   }
   const targets: ReviewGateTarget[] = planned.targets;
 
-  // R1 — no target resolved. A ticket at review with nothing changed is an
-  // anomaly (impl produced nothing, or the worktrees are unmapped) and must
-  // reach a human, not ship.
+  // R1 — no target resolved. THREE situations that must not read as one, in
+  // the order they are ruled out below.
   if (targets.length === 0) {
-    const reason = noTargetsReason(worktrees, 'review');
-    return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+    // Zero worktrees is not "nothing changed": nothing was ASKED. The ticket
+    // has no repository to run review against at all, and passing here would
+    // walk a stage that ran nothing straight to ship — the vacuous green the
+    // "asked nothing is never green" invariant exists to prevent. Resumable:
+    // registering a worktree (re-scoping) makes a retry succeed.
+    if (worktrees.length === 0) {
+      const reason =
+        'no worktree is registered for this ticket, so there is no repository to run review against';
+      return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
+    }
+    // A worktree that matched no manifest entry: karst could not ask that
+    // repository anything, and only a human editing karst.yml (or re-scoping
+    // the ticket) can change the answer — that parks. Below it, every worktree
+    // mapped and none has changes: review asked and the answer is "nothing to
+    // check", a deliverable the stage already has, so it passes with a note
+    // rather than parking forever.
+    if (planned.unmapped.length > 0) {
+      const reason =
+        `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
+        'add them to `repositories:` or re-scope the ticket';
+      return finish({ kind: 'blocked', blocker: 'unmapped-repository', reason }, [reason]);
+    }
+    const note = 'no repository has changes from its base, so review had nothing to check';
+    return finish({ kind: 'verdict', verdict: { kind: 'passed' } }, [note]);
   }
 
   for (const target of targets) {
@@ -371,8 +395,8 @@ export async function runReview(
       // The changes surface is evidence exactly like a gate, recorded ONLY when
       // a real `openDiff` ran — and kept out of `entries` so it can never touch
       // the verdict, which stays the deterministic-gate computation it always
-      // was. This is what lets `reviewInside` read "did the changes surface
-      // open" back out of the store after a reload. Written once, on the first
+      // was. This is what persists "did the changes surface open" as evidence
+      // that can be read back out of the store after a reload. Written once, on the first
       // target that opened one: it is one fact about the run, not one per repo.
       if (!diffOpened) evidence.append([{ gateName: 'changes', exitCode: 0 }]);
       diffOpened = true;

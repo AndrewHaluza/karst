@@ -881,6 +881,55 @@ describe('openStore', () => {
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
   });
 
+  // v21 was RENUMBERED before release: it first shipped as the gate_runs
+  // invocation-identity columns in a build whose SCHEMA_VERSION was 22, and only
+  // afterwards became the servers.cwd step (SCHEMA_VERSION 23, gate_runs moved to
+  // v22). A registry stamped by the older build reports user_version = 22 — not
+  // < 21 — so the version-gated servers.cwd ALTER would be skipped forever and
+  // the column would stay missing while the DB claims to be current; the archive
+  // path's `SELECT … cwd FROM servers` then dies with "no such column: cwd"
+  // (869efu319). The repair must therefore run OUTSIDE the version gate, like
+  // the attachment-table repair above it.
+  it('repairs a pre-renumbering DB (user_version 22) that never gained servers.cwd', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      `CREATE TABLE servers (
+         id INTEGER PRIMARY KEY, ticket_id INTEGER, repo TEXT NOT NULL, host TEXT,
+         port INTEGER, pid INTEGER, status TEXT NOT NULL, log_path TEXT,
+         started_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    );
+    legacy
+      .prepare(
+        "INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path) VALUES (1,'api','h',3000,4242,'running','/l')",
+      )
+      .run();
+    // Exactly what the pre-renumbering build stamped: its own SCHEMA_VERSION was
+    // 22, and its v21 (the gate_runs columns) had already run — only servers.cwd
+    // is missing.
+    legacy.pragma('user_version = 22');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('servers')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('cwd')).toBe(true);
+    // NULL, not a guess — identical to the honest v20→v21 upgrade: the legacy
+    // row's process directory is not derivable, and every consumer reads NULL as
+    // "unknown", leaving the process alone.
+    expect(
+      migrated.db.prepare('SELECT pid, status, cwd FROM servers WHERE ticket_id = 1').get(),
+    ).toEqual({ pid: 4242, status: 'running', cwd: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(33);
+  });
+
   // Nothing reads `servers` by position — every query in the codebase names its
   // columns — so a mismatch here has no behavioral effect. Pinned anyway: `cwd`
   // is placed LAST in schema.sql specifically so a fresh DB agrees with what
@@ -1552,7 +1601,6 @@ describe('openStore', () => {
       'status',
       'detail',
       'pr_number',
-      'pr_status',
       'existed_before_ship',
       'process_run_id',
       'started_at',

@@ -3,6 +3,7 @@ import { validateManifest, ManifestError } from '../../manifest/schema.js';
 import { installCommandFor } from '../../approaches/fetch.js';
 import type { SettingsActions, SettingsHostMessage } from './messages.js';
 import { buildSettingsState, type SettingsState } from './state.js';
+import { buildProcessAssignmentViews } from './processAssignmentViews.js';
 import type { LoadedManifest } from './panel.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
@@ -201,6 +202,24 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           if (!(e instanceof ManifestError)) throw e;
           ctx.post({ type: 'validation', ok: false, error: errorMessage(e) });
         }
+      },
+
+      /**
+       * Compute the inside-process-assignment row views (handoff §7) from the
+       * DRAFT the webview just edited. The four validation states are host-side
+       * facts — the webview renders them verbatim and derives nothing. The
+       * profile pool is the live agent pool, exactly what the Agents card
+       * renders, so a profile deleted from the card reads as unknown here.
+       */
+      validateProcessAssignments(manifest: Manifest): void {
+        ctx.post({
+          type: 'process-assignment-views',
+          rows: buildProcessAssignmentViews(
+            manifest,
+            deps.listAgentRows().map((a) => a.name),
+            deps.modelCatalog(),
+          ),
+        });
       },
 
       /**

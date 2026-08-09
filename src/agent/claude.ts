@@ -287,6 +287,11 @@ export class ClaudeAdapter implements AgentAdapter {
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
     const args = ['-p', opts.prompt, '--output-format', 'json'];
     if (opts.resume) args.push('--resume', opts.resume);
+    // A resolved launch model must pin the run: without `--model` the CLI falls
+    // back to its own default (settings.json `"model"`, or the alias), which was
+    // measured at opus pricing on a PR-description call (869ef1e6x). The ticket's
+    // resolved model is a deliberate, visible choice; the CLI default is not.
+    if (opts.model) args.push('--model', opts.model);
     if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));

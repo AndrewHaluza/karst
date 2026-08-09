@@ -20,7 +20,7 @@ export type ReviewGateTarget = GateTarget;
  * caller must route it to a park.
  */
 export type ReviewTargetSelection =
-  | { kind: 'targets'; targets: ReviewGateTarget[] }
+  | { kind: 'targets'; targets: ReviewGateTarget[]; unmapped: readonly string[] }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
 /**
@@ -44,5 +44,9 @@ export async function planReviewTargets(
 ): Promise<ReviewTargetSelection> {
   const selection = await selectReviewTargets(manifest, worktrees, git);
   if (selection.kind === 'unavailable') return selection;
-  return { kind: 'targets', targets: dedupeTargetsByRepoPath(selection.targets) };
+  return {
+    kind: 'targets',
+    targets: dedupeTargetsByRepoPath(selection.targets),
+    unmapped: selection.unmapped,
+  };
 }
