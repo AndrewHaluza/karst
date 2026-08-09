@@ -350,8 +350,9 @@ export async function shipTicket(
       // open PR is what ship is FOR. Adopt it; the push above already gave it
       // the new commits.
       //
-      // Probing BEFORE the create rather than rescuing after it also keeps
-      // `describePr` from paying for prose describing a PR that already exists.
+      // Probing BEFORE the create rather than rescuing after it also keeps the
+      // description render from paying for prose describing a PR that already
+      // exists.
       onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
       const existing = await findOpenPr(gh, wt.path);
       const descriptionTemplate = conventions?.pullRequestDescription;
