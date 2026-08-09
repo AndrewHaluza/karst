@@ -535,6 +535,60 @@ export function renderFixtures(): readonly InsideRenderFixture[] {
   );
 }
 
+/**
+ * The approved Implementation example, locked as a production-render contract
+ * (prototype-fidelity Task 1). A COMPLETED session: one session process with
+ * two provider segments (Claude Code/Opus → Codex/Sol → Claude Code/Sonnet),
+ * phase rows, per-segment timestamps and token totals — the exact shape the
+ * renderer tests and the Extension Dev Host acceptance compare against. It is
+ * standalone (scenario `passed` renders `done` in the matrix), pure data, and
+ * carries no executable action targets.
+ */
+export function implementationPrototypeFixture(): InsideRenderFixture {
+  return {
+    repositoryCount: 2,
+    scenario: 'passed',
+    stage: 'impl',
+    view: {
+      stageKey: 'impl',
+      title: 'Implementation',
+      dot: 'done',
+      clock: 'completed',
+      processes: [
+        {
+          id: 'session',
+          kind: 'session',
+          label: 'Session',
+          status: 'pass',
+          detail: 'session c7f1 · completed',
+          duration: '19m',
+          execution: {
+            provider: 'claude',
+            providerLabel: 'Claude Code',
+            model: 'sonnet',
+            modelLabel: 'Sonnet',
+          },
+          tokens: { state: 'measured', total: '58.3k', exact: '58,300' },
+          evidence: {
+            kind: 'timeline',
+            rows: [
+              { status: 'note', label: 'started with', detail: 'Claude Code · Opus', duration: '10:03–10:09' },
+              { status: 'pass', label: 'Understand', detail: 'reported · 10:06:14', duration: '10:06' },
+              { status: 'pass', label: 'Plan', detail: 'reported · 10:08:52', duration: '10:08' },
+              { status: 'note', label: 'switched core + model', detail: 'Codex · Sol', duration: '10:09:04', connector: 'switch' },
+              { status: 'pass', label: 'Implement', detail: 'reported · 10:15:47', duration: '10:15' },
+              { status: 'note', label: 'switched core + model', detail: 'Claude Code · Sonnet', duration: '10:16:21', connector: 'switch' },
+              { status: 'pass', label: 'Tests', detail: 'reported · 10:20:06', duration: '10:20' },
+              { status: 'pass', label: 'Done', detail: 'done marker · 10:22:43', duration: '10:22' },
+            ],
+          },
+        },
+      ],
+      blurb: STAGE_BLURBS.impl,
+    },
+  };
+}
+
 /** The six inside stage keys, in presentation order. */
 const INSIDE_STAGE_KEYS: readonly InsideStageKey[] = [
   'scope',

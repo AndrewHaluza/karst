@@ -1470,6 +1470,61 @@ describe('dashboard webview.html', () => {
     expect(rm).toContain('animation:none');
     expect(rm).not.toContain('display:none');
   });
+
+  /**
+   * The development preview harness was DELETED, not hidden (prototype-fidelity
+   * Global Constraints): its toolbar labels and width controls are the
+   * prototype's debug surface and must never come back. The prose labels are
+   * verbatim guards; the width words collide with legitimate production text
+   * (the 300px/360px/430px container breakpoints, `white-space:normal`,
+   * `--k-weight-normal`, the Resume button's "Clear the block…" title), so
+   * they are guarded in the exact forms the toolbar rendered them — as the
+   * width-control attribute (`data-pv-w`) and as bare button text — never as
+   * bare substrings.
+   */
+  it('carries no prototype toolbar labels or width controls', () => {
+    for (const label of ['Stage / scenario', 'Repositories', 'Start live operation']) {
+      expect(HTML, `prototype toolbar label reappeared: ${label}`).not.toContain(label);
+    }
+    expect(HTML).not.toContain('data-pv-w');
+    expect(HTML).not.toMatch(/>\s*(?:300|360|430|normal)\s*</);
+    expect(HTML).not.toMatch(/>\s*(?:Complete|Clear)\s*</);
+  });
+
+  it('carries no trace of the removed preview command or host modules', () => {
+    // The dev-only command contribution, its host modules and the context key
+    // died with the harness; nothing the shipped webview ships may reference
+    // them.
+    expect(HTML).not.toContain('karst.dev.openInsidePreview');
+    expect(HTML).not.toContain('insidePreview');
+    expect(HTML).not.toContain('previewContext');
+  });
+
+  it('package.json contributes no preview command and no harness labels', () => {
+    // Unlike the webview, package.json has no legitimate occurrence of ANY
+    // constraint literal — the width words and the button words are verbatim
+    // forbidden here.
+    const pkg = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'package.json'),
+      'utf8',
+    );
+    for (const label of [
+      'Stage / scenario',
+      'Repositories',
+      'Start live operation',
+      '300',
+      '360',
+      '430',
+      'normal',
+      'Complete',
+      'Clear',
+    ]) {
+      expect(pkg, `package.json carries prototype label: ${label}`).not.toContain(label);
+    }
+    expect(pkg).not.toContain('karst.dev.openInsidePreview');
+    expect(pkg).not.toContain('insidePreview');
+    expect(pkg).not.toContain('previewContext');
+  });
 });
 
 // ── Executable render round trip ────────────────────────────────────────────

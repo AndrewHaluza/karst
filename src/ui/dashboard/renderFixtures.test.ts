@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  implementationPrototypeFixture,
   renderFixtures,
   RENDER_REPO_COUNTS,
   RENDER_SCENARIOS,
@@ -271,5 +272,29 @@ describe('render fixtures', () => {
       const json = JSON.stringify(f.view);
       expect(json).not.toMatch(/\/Users\/|\/workspace\/|\.git\/|worktrees\//);
     }
+  });
+
+  it('models the approved completed implementation session', () => {
+    const fixture = implementationPrototypeFixture();
+    const session = fixture.view.processes[0]!;
+
+    expect(fixture.view).toMatchObject({
+      stageKey: 'impl',
+      title: 'Implementation',
+      processes: [{ id: 'session', label: 'Session', status: 'pass' }],
+    });
+    expect(session.evidence).toMatchObject({
+      kind: 'timeline',
+      rows: [
+        { label: 'started with', detail: 'Claude Code · Opus' },
+        { label: 'Understand' },
+        { label: 'Plan' },
+        { label: 'switched core + model', detail: 'Codex · Sol', connector: 'switch' },
+        { label: 'Implement' },
+        { label: 'switched core + model', detail: 'Claude Code · Sonnet', connector: 'switch' },
+        { label: 'Tests' },
+        { label: 'Done' },
+      ],
+    });
   });
 });
