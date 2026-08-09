@@ -147,6 +147,12 @@ describe('extension activation', () => {
     );
   });
 
+  it('keeps evidence status visible in the bounded-evidence Quick Pick', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toContain('row.status');
+    expect(source).toContain('statusLabel');
+  });
+
   // Task 8 wiring: the Tester and Review AI processes and the verifier gate
   // runner must be reachable from the extension composition root — a stage
   // that passes its focused unit tests while the host never resolves its

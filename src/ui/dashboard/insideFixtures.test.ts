@@ -183,11 +183,21 @@ describe('inside preview fixtures', () => {
       status: 'note',
       label: 'more',
       detail: '+32 more',
-      action: {
-        actionId: expect.stringMatching(/^fixture:/),
-        kind: 'open-bounded-evidence',
-      },
     });
+  });
+
+  it('keeps non-Ship/Done remainder rows passive while Ship/Done remain actionable', () => {
+    const scope = fixtures.find((f) => f.repositoryCount === 20 && f.scenario === 'pending')!;
+    expect(rowsOf(scope, 'worktrees').at(-1)).not.toHaveProperty('action');
+
+    const uat = fixtures.find((f) => f.repositoryCount === 20 && f.scenario === 'exhausted')!;
+    expect(rowsOf(uat, 'gates').at(-1)).not.toHaveProperty('action');
+
+    const ship = fixtures.find((f) => f.repositoryCount === 20 && f.scenario === 'waiting')!;
+    expect(rowsOf(ship, 'commit').at(-1)?.action).toMatchObject({ kind: 'open-bounded-evidence' });
+
+    const done = fixtures.find((f) => f.repositoryCount === 20 && f.scenario === 'passed')!;
+    expect(rowsOf(done, 'delivery-receipt')[6]?.action).toMatchObject({ kind: 'open-bounded-evidence' });
   });
 
   it('covers every evidence kind and every scenario', () => {

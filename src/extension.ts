@@ -3814,10 +3814,21 @@ function makeInsideActionHost(store: Store): InsideActionHost {
       void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket #${ticketId}`);
     },
     openBoundedEvidence: (_ticketId, title, rows) => {
+      const statusLabel: Record<string, string> = {
+        pending: 'Pending',
+        run: 'Running',
+        wait: 'Waiting',
+        pass: 'Passed',
+        fail: 'Failed',
+        note: 'Note',
+        skip: 'Skipped',
+      };
       void vscode.window.showQuickPick(
         rows.map((row) => ({
           label: row.label,
-          ...(row.detail ? { description: row.detail } : {}),
+          ...(row.detail || row.status
+            ? { description: [row.status ? (statusLabel[row.status] ?? 'Recorded') : '', row.detail ?? ''].filter(Boolean).join(' · ') }
+            : {}),
           ...(row.duration ? { detail: row.duration } : {}),
         })),
         { title, placeHolder: 'Recorded repository evidence' },

@@ -102,8 +102,16 @@ const TIMELINE_LIMIT = 20;
 const FINDINGS_LIMIT = 6;
 
 /** Bound rows the way the production reducers do, appending the "+N more" marker. */
-function boundedRows(rows: readonly EvidenceRow[], limit: number): EvidenceRow[] {
-  return boundedEvidenceRows(rows, limit, () => fixtureAction('open-bounded-evidence', rows.length));
+function boundedRows(
+  rows: readonly EvidenceRow[],
+  limit: number,
+  actionable = false,
+): EvidenceRow[] {
+  return boundedEvidenceRows(
+    rows,
+    limit,
+    actionable ? () => fixtureAction('open-bounded-evidence', rows.length) : undefined,
+  );
 }
 
 /** The first `n` repo names, in matrix order. */
@@ -235,6 +243,7 @@ function doneView(n: PreviewRepoCount): InsideStageView {
         (r, i): EvidenceRow => ({ status: 'pass', label: 'merged', detail: `${r} #${110 + i}` }),
       ),
       REPOSITORY_EVIDENCE_LIMIT,
+      true,
     ),
     { status: 'note', label: 'commits', detail: '31 created by ship' },
     { status: 'note', label: 'validated', detail: '14 gates passed on the final run' },
@@ -368,7 +377,7 @@ function shipView(n: PreviewRepoCount): InsideStageView {
         status: 'pass',
         evidence: {
           kind: 'commits',
-          rows: boundedRows(commitRows, REPO_ROWS_LIMIT),
+          rows: boundedRows(commitRows, REPO_ROWS_LIMIT, true),
           total: 2 * n,
         },
       },
@@ -377,7 +386,7 @@ function shipView(n: PreviewRepoCount): InsideStageView {
         kind: 'push',
         label: 'Push',
         status: 'pass',
-        evidence: { kind: 'rows', rows: boundedRows(pushRows, REPO_ROWS_LIMIT) },
+        evidence: { kind: 'rows', rows: boundedRows(pushRows, REPO_ROWS_LIMIT, true) },
       },
       {
         id: 'pr',
@@ -386,7 +395,7 @@ function shipView(n: PreviewRepoCount): InsideStageView {
         status: 'pass',
         evidence: {
           kind: 'prs',
-          rows: boundedRows(prRows, REPO_ROWS_LIMIT),
+          rows: boundedRows(prRows, REPO_ROWS_LIMIT, true),
           open: n,
           merged: 0,
         },
@@ -396,7 +405,7 @@ function shipView(n: PreviewRepoCount): InsideStageView {
         kind: 'merge',
         label: 'Merge',
         status: 'wait',
-        evidence: { kind: 'rows', rows: boundedRows(mergeRows, REPOSITORY_EVIDENCE_LIMIT) },
+        evidence: { kind: 'rows', rows: boundedRows(mergeRows, REPOSITORY_EVIDENCE_LIMIT, true) },
       },
     ],
     blurb: STAGE_BLURBS.ship,
