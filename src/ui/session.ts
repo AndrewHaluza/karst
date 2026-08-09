@@ -1,5 +1,6 @@
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
+import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -55,6 +56,8 @@ export interface RestoredSession {
   ticketId: number;
   /** Opaque hook generation captured when this terminal was launched. */
   launchId?: string;
+  /** Provider/model snapshot recovered from the terminal's durable pid record. */
+  identity?: SessionIdentity;
   /**
    * The terminal's process has already exited (real: `Terminal.exitStatus`).
    * A dead tab still sits in the terminal list, so adopting one would hand the
@@ -99,6 +102,14 @@ export interface OpenSessionOptions {
    * no webview message can reach it.
    */
   seedPrompt?: string;
+  /**
+   * Host-only configured process assignment (the Fix path, Task 3): when
+   * present, the launch resolves provider/adapter/model from this snapshot
+   * rather than the ticket/manifest precedence. It also rides the
+   * prepared-launch info so the fix launch intent is recorded with the
+   * CONFIGURED identity. Host-internal: never accepted from a webview message.
+   */
+  assignment?: ProcessAssignmentSnapshot;
 }
 
 /**
@@ -119,6 +130,8 @@ export interface CreateTerminalOpts {
   shellArgs: string[];
   /** Environment variables passed to the terminal process. */
   env: Record<string, string>;
+  /** Host-only identity persisted beside the terminal pid, never put in env. */
+  identity?: SessionIdentity;
   /** Keep automated continuations out of the visible terminal UI. */
   hideFromUser?: boolean;
   /** File path to a tinted icon SVG (real: mapped to `vscode.Uri.file`). */
@@ -159,6 +172,46 @@ export type CleanupOwnedPaths = (
   ownedPaths: readonly string[],
 ) => void;
 
+/**
+ * The agent identity a session was launched with — the session manager's
+ * RECORDED active provider/model/agent snapshot, captured at `openSession` and
+ * read back by the fix-recovery path so the Fix process run carries the
+ * identity that is actually running (not the one a manifest edit resolves
+ * today). `agentName` (v33, Task 3) is the configured inside agent name when
+ * the launch was a configured Fix assignment.
+ */
+export interface SessionIdentity {
+  provider: string;
+  model: string | null;
+  agentName?: string | null;
+}
+
+/**
+ * A launch karst just decided to actually perform: a launch id was allocated
+ * and a terminal is about to be created. The host persists this as a pending
+ * `session_launch_intents` row, so the eventual SessionStart can be confirmed
+ * against the exact prepared launch — even after a window reload, when no
+ * in-memory state survives.
+ */
+export interface LaunchPreparedInfo {
+  ticketId: number;
+  /** The hook generation the terminal's hook URL will carry. */
+  launchId: string;
+  /** True when the adapter command resumes a captured provider session. */
+  resume: boolean;
+  /** True for an agent-switch launch (`allowResume: false` + providerReady). */
+  switchLaunch: boolean;
+  /**
+   * The host-only assignment this launch was prepared with (the configured Fix
+   * identity), when one was set — so the host can record the launch intent
+   * with the CONFIGURED snapshot, never re-resolve it later.
+   */
+  assignment?: ProcessAssignmentSnapshot;
+}
+export type OnLaunchPrepared = (info: LaunchPreparedInfo) => void;
+/** A terminal creation failed synchronously for the named launch. */
+export type OnLaunchFailed = (launchId: string) => void;
+
 export function continueSessionInBackground(
   sessions: Pick<SessionManager, 'nudge'>,
   open: (ticketId: number, options: { reveal: false }) => void,
@@ -188,6 +241,8 @@ function toSingleLine(text: string): string {
 interface TrackedSession {
   terminal: SessionTerminal;
   launchId?: string;
+  /** The recorded active provider/model snapshot of this session's launch. */
+  identity?: SessionIdentity;
 }
 
 /**
@@ -245,6 +300,21 @@ export class SessionManager {
       ticketId: number,
       options: OpenSessionOptions,
     ) => void,
+    /**
+     * Fired SYNCHRONOUSLY after the hook launch id is allocated for an actual
+     * new terminal and before `createTerminal` — the launch is prepared, not
+     * yet proven. The focus path (a ticket already has a live terminal) and
+     * the adoption path (a revived terminal took the ticket over) invoke
+     * NEITHER this nor `onLaunchFailed`: no launch is being prepared, so no
+     * intent may be recorded for one.
+     */
+    private readonly onLaunchPrepared?: OnLaunchPrepared,
+    /**
+     * Fired when `createTerminal` throws — a prepared launch that never became
+     * a terminal. The host marks the matching intent failed; the exception is
+     * rethrown so the caller still sees the launch failure.
+     */
+    private readonly onLaunchFailed?: OnLaunchFailed,
   ) {}
 
   private trackTerminal(
@@ -254,9 +324,14 @@ export class SessionManager {
     cleanupOwned?: () => void,
     wasResume = false,
     options: OpenSessionOptions = {},
+    identity?: SessionIdentity,
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
-    this.terminals.set(ticketId, { terminal, ...(launchId ? { launchId } : {}) });
+    this.terminals.set(ticketId, {
+      terminal,
+      ...(launchId ? { launchId } : {}),
+      ...(identity ? { identity } : {}),
+    });
     terminal.onDidClose((exitCode) => {
       // A recovery timeout can dispose one terminal and immediately create its
       // retry before VS Code delivers the old close event. Only the handle that
@@ -300,7 +375,7 @@ export class SessionManager {
    * threaded as `--model`; omitted → the agent CLI's own default. `resume` is
    * an agent session id to continue via `--resume`, fresh-launch only.
    */
-  openSession(
+   openSession(
     adapter: AgentAdapter,
     ticketId: number,
     worktreePath: string,
@@ -312,6 +387,7 @@ export class SessionManager {
     naming?: { name: string; iconPath?: string; color?: string },
     ownedPaths: string[] = [],
     options: OpenSessionOptions = {},
+    identity?: SessionIdentity,
   ): void {
     const existing = this.terminals.get(ticketId);
     if (existing) {
@@ -345,23 +421,43 @@ export class SessionManager {
     });
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 
-    const terminal = this.host.createTerminal({
-      name: terminalName,
-      description: naming ? undefined : (label?.title ?? undefined),
-      cwd: worktreePath,
-      shellPath: cmd.command,
-      shellArgs: cmd.args,
-      env: {
-        ...cmd.env,
-        [KARST_TICKET_ENV]: String(ticketId),
-        ...(hookChannel.launchId
-          ? { [KARST_LAUNCH_ENV]: hookChannel.launchId }
-          : {}),
-      },
-      ...(options.reveal === false ? { hideFromUser: true } : {}),
-      ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
-      ...(naming?.color ? { color: naming.color } : {}),
-    });
+    // The launch is PREPARED: the generation exists, a terminal is about to be
+    // created. Record it before createTerminal so a failure of either half is
+    // attributable — but only when the channel actually carries a generation
+    // (a legacy hook channel has nothing to confirm against later).
+    const launchId = hookChannel.launchId;
+    if (launchId !== undefined) {
+      this.onLaunchPrepared?.({
+        ticketId,
+        launchId,
+        resume: Boolean(resume),
+        switchLaunch: options.allowResume === false && options.providerReady === true,
+        ...(options.assignment ? { assignment: options.assignment } : {}),
+      });
+    }
+
+    let terminal: SessionTerminal;
+    try {
+      terminal = this.host.createTerminal({
+        name: terminalName,
+        description: naming ? undefined : (label?.title ?? undefined),
+        cwd: worktreePath,
+        shellPath: cmd.command,
+        shellArgs: cmd.args,
+        env: {
+          ...cmd.env,
+          [KARST_TICKET_ENV]: String(ticketId),
+          ...(launchId ? { [KARST_LAUNCH_ENV]: launchId } : {}),
+        },
+        ...(identity ? { identity } : {}),
+        ...(options.reveal === false ? { hideFromUser: true } : {}),
+        ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
+        ...(naming?.color ? { color: naming.color } : {}),
+      });
+    } catch (err) {
+      if (launchId !== undefined) this.onLaunchFailed?.(launchId);
+      throw err;
+    }
     let cleanupStarted = false;
     const cleanupOwned = (): void => {
       if (cleanupStarted) return;
@@ -375,6 +471,7 @@ export class SessionManager {
       cleanupOwned,
       Boolean(resume),
       options,
+      identity,
     );
     if (options.reveal !== false) terminal.show();
   }
@@ -437,7 +534,7 @@ export class SessionManager {
     if (session.exited) return { kind: 'ignored' };
     const disposition = classify(ticketId);
     if (disposition === 'ignore') return { kind: 'ignored' };
-    this.trackTerminal(ticketId, terminal, launchId);
+    this.trackTerminal(ticketId, terminal, launchId, undefined, false, {}, session.identity);
     this.onDidAdoptTerminal?.(ticketId, launchId);
     return { kind: 'adopted', disposition };
   }
@@ -455,7 +552,15 @@ export class SessionManager {
     if (this.recentlyDisposed.has(ticketId)) return undefined;
     for (const session of this.host.restoredSessions?.() ?? []) {
       if (session.ticketId !== ticketId || session.exited) continue;
-      this.trackTerminal(ticketId, session.terminal, session.launchId);
+      this.trackTerminal(
+        ticketId,
+        session.terminal,
+        session.launchId,
+        undefined,
+        false,
+        {},
+        session.identity,
+      );
       this.onDidAdoptTerminal?.(ticketId, session.launchId);
       return this.terminals.get(ticketId);
     }
@@ -505,6 +610,25 @@ export class SessionManager {
   /** Whether a session terminal is currently open for a ticket. */
   isOpen(ticketId: number): boolean {
     return this.terminals.has(ticketId);
+  }
+
+  /**
+   * Whether the ticket's agent is LIVE in this window: its terminal is open,
+   * or a revived handle takes the ticket over (the map is empty after a
+   * reload while the agent it forgot is still running). Adoption never reveals
+   * the terminal — the caller is an automated continuation.
+   */
+  isLive(ticketId: number): boolean {
+    return this.terminals.has(ticketId) || this.adoptRevivedSession(ticketId) !== undefined;
+  }
+
+  /**
+   * The recorded active provider/model snapshot of the ticket's session, if
+   * this window launched it (a revived handle from another window carries no
+   * snapshot — its caller falls back to a fresh resolution).
+   */
+  sessionIdentity(ticketId: number): SessionIdentity | null {
+    return this.terminals.get(ticketId)?.identity ?? null;
   }
 
   /**

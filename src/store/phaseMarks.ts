@@ -19,6 +19,14 @@ export interface PhaseMark {
   /** As reported. NOT constrained to the approach's declared phase list. */
   phaseName: string;
   markedAt: string;
+  /**
+   * v28: the stable implementation run the mark was reported inside, when the
+   * reporter named one. NULL for legacy marks and marks reported outside a run
+   * — absence is the truthful answer, never "unattributed by accident".
+   */
+  implementationRunId: number | null;
+  /** v28: the segment the mark was reported inside; NULL = none (or legacy). */
+  implementationSegmentId: number | null;
 }
 
 export interface PhaseMarkInput {
@@ -27,6 +35,8 @@ export interface PhaseMarkInput {
   attempt: number;
   phaseName: string;
   markedAt: string;
+  implementationRunId?: number | null;
+  implementationSegmentId?: number | null;
 }
 
 interface PhaseMarkRow {
@@ -36,6 +46,8 @@ interface PhaseMarkRow {
   attempt: number;
   phase_name: string;
   marked_at: string;
+  implementation_run_id: number | null;
+  implementation_segment_id: number | null;
 }
 
 function rowToPhaseMark(r: PhaseMarkRow): PhaseMark {
@@ -46,6 +58,8 @@ function rowToPhaseMark(r: PhaseMarkRow): PhaseMark {
     attempt: r.attempt,
     phaseName: r.phase_name,
     markedAt: r.marked_at,
+    implementationRunId: r.implementation_run_id,
+    implementationSegmentId: r.implementation_segment_id,
   };
 }
 
@@ -66,10 +80,20 @@ function rowToPhaseMark(r: PhaseMarkRow): PhaseMark {
 export function recordPhaseMark(store: Store, mark: PhaseMarkInput): void {
   store.db
     .prepare(
-      `INSERT INTO phase_marks (ticket_id, stage_key, attempt, phase_name, marked_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO phase_marks
+         (ticket_id, stage_key, attempt, phase_name, marked_at,
+          implementation_run_id, implementation_segment_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(mark.ticketId, mark.stageKey, mark.attempt, mark.phaseName, mark.markedAt);
+    .run(
+      mark.ticketId,
+      mark.stageKey,
+      mark.attempt,
+      mark.phaseName,
+      mark.markedAt,
+      mark.implementationRunId ?? null,
+      mark.implementationSegmentId ?? null,
+    );
 }
 
 /**
@@ -87,7 +111,8 @@ export function recordPhaseMark(store: Store, mark: PhaseMarkInput): void {
 export function listPhaseMarks(store: Store, ticketId: number): PhaseMark[] {
   return store.db
     .prepare(
-      `SELECT id, ticket_id, stage_key, attempt, phase_name, marked_at
+      `SELECT id, ticket_id, stage_key, attempt, phase_name, marked_at,
+              implementation_run_id, implementation_segment_id
          FROM phase_marks
         WHERE ticket_id = ?
         ORDER BY id`,

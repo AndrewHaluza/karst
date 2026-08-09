@@ -7,35 +7,47 @@ import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { STAGE_KEYS } from '../types.js';
-import { inside, type StageInside, type StageOp } from './types.js';
-import { reviewInside, uatInside } from './gates.js';
-import { implInside, fixInside, type SessionView } from './agent.js';
+import {
+  formatDuration,
+  inside,
+  type EvidenceRow,
+  type InsideProcessView,
+  type InsideStatus,
+  type ShipPrView,
+  type StageInside,
+  type StageOp,
+} from './types.js';
+import { bounded } from './bounds.js';
+import { reviewInside, uatInside, reviewProcesses, uatProcesses } from './gates.js';
+import { insertCausalFix, recoveryProcess } from './recovery.js';
+import { shipProcesses, currentPerRepo } from './ship.js';
+import { doneReceipt } from './done.js';
+import {
+  implInside,
+  fixInside,
+  implementationSessionProcess,
+  type SessionConfiguredInput,
+  type SessionTokensInput,
+  type SessionView,
+} from './agent.js';
 
-export type { StageInside, StageOp, OpStatus, InsideDot } from './types.js';
+export type { StageInside, StageOp, OpStatus, InsideDot, ShipPrView } from './types.js';
+export { bounded } from './bounds.js';
+export type { SessionConfiguredInput, SessionTokensInput } from './agent.js';
+export { implementationSessionProcess } from './agent.js';
+export { uatProcesses, reviewProcesses } from './gates.js';
+export type { QualityProcessesInput } from './gates.js';
+export { insertCausalFix, recoveryProcess } from './recovery.js';
+export type { RecoveryProcessView } from './recovery.js';
+export { shipProcesses } from './ship.js';
+export type { ShipProcessesInput } from './ship.js';
+export { doneReceipt } from './done.js';
+export type { DoneReceiptInput, DoneReceiptView } from './done.js';
 
 /**
  * Everything needed to say what happened inside each stage — all of it already
  * loaded by the caller, so this stays pure: no store, no clock, no vscode.
  */
-/**
- * The PR facts the ship strip reads — a structural subset of `PrView`, so the
- * strip states only what it renders and a caller with a partial row (a test, an
- * older snapshot) still type-checks. The v16 metadata is optional for exactly
- * that reason: absent is a state the strip must handle anyway.
- */
-export interface ShipPrView {
-  /** The repository path — identity. */
-  repo: string;
-  /** The repository as displayed (path-display preference). Falls back to `repo`. */
-  repoDisplay?: string;
-  number: number | null;
-  /** `open` | `merged` | `closed` | … as `prs.status` holds it, when known. */
-  status?: string | null;
-  headRef?: string | null;
-  baseRef?: string | null;
-  mergedAt?: string | null;
-}
-
 export interface StageInsideInput {
   stepper: readonly StepperCell[];
   gateRuns: readonly GateRun[];
@@ -122,6 +134,86 @@ function scopeInside(
   return inside(cell, now, ops);
 }
 
+/** The number of per-worktree detail rows one scope process row shows. */
+const WORKTREE_DETAIL_LIMIT = 8;
+
+/** Map a stage's status onto the process vocabulary. */
+function stageProcessStatus(cell: StepperCell): InsideStatus {
+  switch (cell.status) {
+    case 'passed':
+      return 'pass';
+    case 'failed':
+      return 'fail';
+    case 'running':
+      return 'run';
+    case 'skipped':
+      return 'skip';
+    default:
+      return 'pending';
+  }
+}
+
+/**
+ * Scope's two process rows (Task 10), in `INSIDE_PROCESSES.scope` order:
+ * `hot-set` first, then `worktrees`. The hot set is ONE row whatever the repo
+ * count — the count rides on it, never as a row per repo — and the worktrees
+ * are one row whose evidence lists each created worktree, bounded.
+ */
+export function scopeProcesses(
+  cell: StepperCell,
+  selectedRepos: readonly string[],
+  worktrees: readonly WorktreeView[],
+  now: string,
+): InsideProcessView[] {
+  const count = selectedRepos.length;
+  const ran = cell.status !== 'pending';
+
+  const hotSet: InsideProcessView = {
+    id: 'hot-set',
+    kind: 'hot-set',
+    label: 'Hot set',
+    status: stageProcessStatus(cell),
+    count: String(count),
+    detail:
+      count === 1
+        ? `1 service ${ran ? 'validated' : 'to validate'} against the manifest`
+        : `${count} services ${ran ? 'validated' : 'to validate'} against the manifest`,
+    ...(cell.startedAt ? { duration: formatDuration(cell.startedAt, cell.endedAt ?? now) } : {}),
+  };
+
+  const boundedRows = bounded(
+    worktrees.map(
+      (w): EvidenceRow => ({
+        status: 'pass',
+        label: 'worktree',
+        detail: w.branch ? `${w.repoDisplay} · ${w.branch}` : w.repoDisplay,
+      }),
+    ),
+    WORKTREE_DETAIL_LIMIT,
+  );
+  const rows = [...boundedRows.shown];
+  if (boundedRows.remaining > 0) {
+    rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
+  }
+
+  return [
+    hotSet,
+    {
+      id: 'worktrees',
+      kind: 'worktrees',
+      label: 'Worktrees',
+      status:
+        worktrees.length > 0
+          ? stageProcessStatus(cell)
+          : ran
+            ? 'note'
+            : 'pending',
+      ...(worktrees.length === 0 && ran ? { detail: 'no worktrees created' } : {}),
+      evidence: { kind: 'rows', rows },
+    },
+  ];
+}
+
 /** `head → base` for a strip row, degrading to whichever side is known. */
 function branchPair(headRef?: string | null, baseRef?: string | null): string {
   if (headRef && baseRef) return `${headRef} → ${baseRef}`;
@@ -193,30 +285,6 @@ function shipInside(
 }
 
 /**
- * One PR per repo — the CURRENT one — mirroring `store/prs.ts`'s
- * `CURRENT_PR_ORDER`: an open PR wins, otherwise the highest number.
- *
- * A repo re-shipped after a merge carries both rows in `prs` (`ship` inserts a
- * fresh row rather than reusing a terminal one). The `pr` rows in `shipInside`
- * show every PR it ever opened, which is right for a log of what it did;
- * `landingOps` answers "has this repo landed", and a stale `merged` beside a
- * live `open` would answer it twice.
- */
-function currentPerRepo(prs: readonly ShipPrView[]): ShipPrView[] {
-  const byRepo = new Map<string, ShipPrView>();
-  for (const pr of prs) {
-    const held = byRepo.get(pr.repo);
-    if (!held) {
-      byRepo.set(pr.repo, pr);
-      continue;
-    }
-    if (held.status === 'open') continue;
-    if (pr.status === 'open' || (pr.number ?? -1) > (held.number ?? -1)) byRepo.set(pr.repo, pr);
-  }
-  return [...byRepo.values()];
-}
-
-/**
  * Per-repo landing evidence: has this repo's CURRENT pull request made it into
  * the base branch, and if not, why the ticket is still waiting on it.
  *
@@ -259,7 +327,10 @@ function landingOps(
   return currentPerRepo(prs).map((pr): StageOp => {
     const label = pr.repoDisplay || pr.repo;
     const name = pr.number ? `${label} #${pr.number}` : label;
-    if (pr.status === 'merged' || pr.mergedAt) {
+    // Landing is read off the PR's CURRENT status, literally `merged` — a
+    // `mergedAt` stamp on an `open`/`unknown` probe is display metadata, never
+    // proof of a landing (Finding 11; see the note on `isMerged` in ship.ts).
+    if (pr.status === 'merged') {
       return { status: 'pass', name: 'merged', detail: name, duration: '' };
     }
     const check = checksByRepo.get(pr.repo);

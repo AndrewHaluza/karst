@@ -415,6 +415,17 @@
   .agent-editor{margin:var(--k-space-1) var(--k-space-0) var(--k-space-5) var(--k-space-7)}
   .agent-editor .footer-row{margin-top:var(--k-space-3)}
 
+  /* ---- inside process assignments (Task 7) ---- */
+  .proc-row{
+    display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-5);
+    border-left:calc(var(--k-border-w) * 2) solid transparent;border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;
+  }
+  .proc-row:hover{background:var(--k-surface-hover)}
+  .proc-row.on{border-left-color:var(--k-success)}
+  .proc-row.is-disabled{opacity:.6}
+  .proc-row .proc-name{flex:0 0 auto;font-family:var(--k-font-mono);font-size:var(--k-text-base)}
+  .proc-row .spacer{flex:1}
+
   /* Command chips become clickable when they carry data-cmd (opens the drawer) —
      rendered as a real <button class="chip"> (UI-R09) so Enter/Space/focus come
      for free; the pill's own local styling is unchanged, only its semantics are.
@@ -668,6 +679,21 @@
             <input type="text" id="newAgentName" placeholder="agent name" aria-label="New agent name" style="width:180px;margin-right:8px" />
             <button class="k-btn k-btn--secondary" id="addAgentBtn">+ Add agent</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Inside-process assignments (Task 7): which agent name / provider /
+           model each inside AI process (uat-tester, uat-fix, review, review-fix,
+           pr-description) snapshots into its process_runs row. The rows spread
+           draft.processes rather than rebuilding it — the `agent` reference is
+           hand-authored in karst.yml and must survive a Save (see
+           updateProcessAssignment). -->
+      <div class="card open">
+        <div class="card-head"><span class="card-title">Process assignments</span></div>
+        <div class="card-body form">
+          <p class="cap">Which agent profile and model launches each inside AI process. The
+            name snapshots into the run record; blank keeps the role default.</p>
+          <div id="processAssignments"></div>
         </div>
       </div>
     </div>
@@ -964,6 +990,7 @@
     repositories: {},
     approaches: [],
     agents: {},
+    processes: {},
     worktreePathDisplay: 'relative',
     ticketing: { provider: 'manual' },
     agentProvider: 'claude',
@@ -1254,7 +1281,7 @@
     git: ['conventions'],
     services: ['repositories'],
     approaches: ['approaches'],
-    agents: ['agents'],
+    agents: ['agents', 'processes'],
     ticketing: ['ticketing'],
     quality: ['uat', 'review'],
   };
@@ -1304,6 +1331,7 @@
     if (/^ticketing\b/.test(msg)) return 'ticketing';
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
+    if (/^processes\b/.test(msg)) return 'agents';
     if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel)\b/.test(msg)) {
       return 'general';
     }
@@ -2105,6 +2133,14 @@
       markDirty(); renderServices();
       return;
     }
+    // Inside process assignments: the enable switch is a real <button
+    // role="switch"> (UI-R24/R26), so it lands here, not on `change`.
+    if (t.dataset.procEnabled) {
+      const next = t.getAttribute('aria-checked') !== 'true';
+      updateProcessAssignment(t.dataset.procEnabled, { enabled: next });
+      t.setAttribute('aria-checked', String(next));
+      return;
+    }
     if (t.dataset.runnable) {
       const name = t.dataset.runnable;
       const repo = draft.repositories[name];
@@ -2399,9 +2435,23 @@
       markDirty();
       return;
     }
+    // Inside process assignments: provider/model/name commit on `change`. The
+    // provider change re-renders (the model select's options depend on it);
+    // agentName typing is handled on `input` below WITHOUT a re-render so the
+    // field never loses focus mid-keystroke.
+    if (t.dataset.procField) {
+      updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value });
+      return;
+    }
     // set-approach-enabled / set-agent-enabled are handled in the `click`
     // listener above: both switches are real <button role="switch"> controls
     // now (UI-R24, R26), and a button never fires `change`.
+  });
+
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!t.dataset || t.dataset.procField !== 'agentName') return;
+    updateProcessAssignment(t.dataset.procKey, { agentName: t.value }, { rerender: false });
   });
 
   document.addEventListener('keydown', (e) => {
@@ -2938,6 +2988,84 @@
     postAction(el('addAgentBtn'), 'create-agent', { name });
     input.value = '';
   });
+
+  // ---- Inside process assignments (Task 7) ----
+  // Which agent name/provider/model each inside AI process snapshots into its
+  // process_runs row. PROCESS_KEYS mirrors validate/processAssignments.ts
+  // (UI-R34 — webview.test.ts pins the mirror); the provider labels come from
+  // the injected agent identity and the model options from the host-supplied
+  // modelCatalog, never HTML literals.
+  const PROCESS_KEYS = ['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription'];
+  const PROCESS_ROLE_LABELS = {
+    uatTester: 'UAT test',
+    uatFix: 'UAT fix',
+    review: 'Review',
+    reviewFix: 'Review fix',
+    prDescription: 'PR description',
+  };
+
+  function renderProcessAssignments() {
+    const block = el('processAssignments');
+    const provider = draft.agentProvider || 'claude';
+    block.innerHTML = PROCESS_KEYS
+      .map((key) => renderProcessAssignmentRow(key, (draft.processes && draft.processes[key]) || {}, provider))
+      .join('');
+  }
+
+  function renderProcessAssignmentRow(key, cfg, effectiveProvider) {
+    const enabled = cfg.enabled !== false;
+    const name = cfg.agentName || '';
+    const provider = cfg.provider || '';
+    const label = PROCESS_ROLE_LABELS[key] || key;
+    const toggleLabel = enabled
+      ? 'Disable this process assignment'
+      : 'Enable this process assignment';
+    return `<div class="proc-row${enabled ? ' on' : ' is-disabled'}">`
+      + `<span class="proc-name">${esc(label)}</span>`
+      + `<input type="text" class="proc-input" style="flex:1 1 220px" data-proc-field="agentName" data-proc-key="${key}"`
+      + ` value="${esc(name)}" placeholder="Name (blank = role default)" aria-label="${esc(label)} — agent name" />`
+      + `<select class="proc-select" style="flex:1 1 220px" data-proc-field="provider" data-proc-key="${key}"`
+      + ` aria-label="${esc(label)} — agent provider">`
+      + `<option value="">Default provider</option>`
+      + KNOWN_AGENT_PROVIDERS.map((p) =>
+        `<option value="${p}"${p === provider ? ' selected' : ''}>${esc(AGENT_PROVIDER_LABELS[p] || p)}</option>`,
+      ).join('')
+      + `</select>`
+      + `<select class="proc-select" style="flex:1 1 220px" data-proc-field="model" data-proc-key="${key}"`
+      + ` aria-label="${esc(label)} — model">`
+      + renderModelOptions(provider || effectiveProvider, cfg.model || '')
+      + `</select>`
+      + `<button type="button" class="k-switch" role="switch" aria-checked="${enabled ? 'true' : 'false'}"`
+      + ` data-proc-enabled="${key}" aria-label="${toggleLabel}" title="${toggleLabel}">`
+      + `<span class="k-switch-track"></span>`
+      + `</button>`
+      + `</div>`;
+  }
+
+  // The one write path for the rows. It SPREADS the existing processes object
+  // and the existing entry — the `agent` reference and any future/hidden keys
+  // are authored in karst.yml and must survive a Save (the same
+  // spread-not-rebuild rule the Quality tab's updaters follow). A blank field
+  // is DELETED, so mergeSection's absent-field removal writes the clear; a row
+  // cleared to nothing is removed entirely rather than saved as an empty
+  // mapping.
+  function updateProcessAssignment(key, patch, opts) {
+    const entry = { ...((draft.processes && draft.processes[key]) || {}) };
+    for (const [field, value] of Object.entries(patch)) {
+      if (value === '' || value === undefined || value === null) delete entry[field];
+      else entry[field] = value;
+    }
+    if (Object.keys(entry).length === 0) {
+      const { [key]: _drop, ...rest } = draft.processes || {};
+      draft.processes = Object.keys(rest).length > 0 ? rest : undefined;
+    } else {
+      draft.processes = { ...(draft.processes || {}), [key]: entry };
+    }
+    markDirty();
+    // The agentName `input` handler passes { rerender: false } — rebuilding the
+    // row mid-keystroke would drop focus from the field being typed into.
+    if (!opts || opts.rerender !== false) renderProcessAssignments();
+  }
 
   // ---- Ticketing ----
   // Provider/teamId/listId ride the manifest draft (saved via Save). The token
@@ -3636,6 +3764,7 @@
     renderServices();
     renderApproaches();
     renderAgents();
+    renderProcessAssignments();
     renderTicketing();
     renderQuality();
   }

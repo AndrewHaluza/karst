@@ -3,15 +3,22 @@ import type { AgentProvider } from '../../manifest/types.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
-import type { ShipStepEvent } from '../../workflow/stages/ship.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
+import { existsSync, realpathSync } from 'node:fs';
+import type { InsideProgressEvent } from '../../model/inside/progress.js';
+import { listWorktreesByTicket } from '../../store/dashboard.js';
+import {
+  InsideActionRegistry,
+  dispatchInsideAction,
+  type InsideActionHost,
+} from './insideActions.js';
 import {
   buildDashboardState,
   type DashboardAgentContext,
   type DashboardState,
   type PathContext,
 } from './state.js';
-import { parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
+import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
@@ -92,6 +99,9 @@ export class DashboardManager {
   private readonly statsControllers = new Map<number, AbortController>();
   private readonly gateRequests = new Map<number, number>();
   private readonly gateControllers = new Map<number, AbortController>();
+  /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
+  private readonly registries = new Map<number, InsideActionRegistry>();
+  private readonly generations = new Map<number, number>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -153,6 +163,12 @@ export class DashboardManager {
      * empty, which is exactly the pre-feature panel.
      */
     private readonly loadGateOptions?: GateOptionsLoader,
+    /**
+     * The host implementations of the inside actions (open a file, open a PR
+     * URL, resume a stage…), bound in the extension host. Absent → actions
+     * resolve to unknown/rejected but never dispatch — a no-op host.
+     */
+    private readonly insideHost?: InsideActionHost,
   ) {}
 
   /**
@@ -212,6 +228,11 @@ export class DashboardManager {
       this.statsControllers.delete(ticketId);
       this.gateRequests.delete(ticketId);
       this.gateControllers.delete(ticketId);
+      // The panel's action capabilities die with it: a disposed panel's ids
+      // must never dispatch against a later snapshot.
+      this.registries.get(ticketId)?.dispose();
+      this.registries.delete(ticketId);
+      this.generations.delete(ticketId);
     });
 
     this.refreshIcon(ticketId, panel);
@@ -237,6 +258,14 @@ export class DashboardManager {
   pushState(ticketId: number): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
+    // A fresh action registry PER SNAPSHOT: every state push is authoritative,
+    // so the ids it mints are the only live capabilities. The registry itself
+    // (with its host-only targets) never leaves this manager.
+    const generation = (this.generations.get(ticketId) ?? 0) + 1;
+    this.generations.set(ticketId, generation);
+    const registry = new InsideActionRegistry(generation, ticketId);
+    this.registries.get(ticketId)?.dispose();
+    this.registries.set(ticketId, registry);
     const state = buildDashboardState(
       this.store,
       ticketId,
@@ -247,6 +276,9 @@ export class DashboardManager {
       this.defaultProvider?.(),
       this.agentContext?.(),
       this.fixCapFor,
+      () => [],
+      () => null,
+      registry,
     );
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
@@ -314,17 +346,37 @@ export class DashboardManager {
   }
 
   /**
-   * Push a transient ship-progress event to a ticket panel; no-op if not open.
-   *
-   * Separate from `pushState` on purpose: the ship stage's live per-step state
-   * is not in the store — `buildDashboardState` cannot re-derive it — so it
-   * rides its own ephemeral message that the webview overlays on the Inside
-   * block while a ship is in flight, then discards on the next real state push.
+   * Push a transient inside-progress event to a ticket panel; no-op if not open.
+   * Validated at this boundary (`parseInsideProgress`) — the webview is a trust
+   * boundary in both directions, and a malformed event must never ship. Live
+   * Ship rides this same generic union (Finding 12); there is no ship-specific
+   * progress channel.
    */
-  postShipProgress(ticketId: number, event: ShipStepEvent): void {
+  postInsideProgress(ticketId: number, event: InsideProgressEvent): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
-    panel.postMessage({ type: 'ship-progress', event });
+    const validated = parseInsideProgress(event);
+    if (validated === null) return;
+    panel.postMessage({ type: 'inside-progress', event: validated });
+  }
+
+  /**
+   * Dispatch one opaque inside action id against the ticket's CURRENT action
+   * registry. Rejects (logged) when the target fails its checks; unknown ids
+   * are silently dropped — a stale or foreign id is not a fault to surface.
+   */
+  dispatchInsideAction(ticketId: number, actionId: string): void {
+    const registry = this.registries.get(ticketId);
+    if (!registry) return;
+    const outcome = dispatchInsideAction(this.store, registry, actionId, {
+      host: this.insideHost ?? NOOP_INSIDE_HOST,
+      worktreeForRepo: (repo) =>
+        listWorktreesByTicket(this.store, ticketId).find((w) => w.repo === repo)?.path,
+      fs: { existsSync, realpathSync },
+    });
+    if (outcome.outcome === 'rejected') {
+      this.logError(`karst: inside action rejected: ${outcome.reason}`, undefined);
+    }
   }
 
   /**
@@ -347,3 +399,13 @@ export class DashboardManager {
     return this.panels.has(ticketId);
   }
 }
+
+/** An absent host resolves nothing: every dispatch is unknown/rejected, never acted on. */
+const NOOP_INSIDE_HOST: InsideActionHost = {
+  openFile: () => undefined,
+  openPr: () => undefined,
+  openCommit: () => undefined,
+  resumeStage: () => undefined,
+  openFullEvidence: () => undefined,
+  openBoundedEvidence: () => undefined,
+};

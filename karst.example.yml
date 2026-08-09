@@ -181,13 +181,40 @@ agents:
   test: { role: test }
   review: { role: review }
 
+# Inside AI process assignments (optional). Each inside process — UAT test,
+# UAT fix, Review, Review fix, and the PR description — opens its run record
+# with a SNAPSHOT of the agent name, provider and model that actually launched
+# it, resolved ONCE at launch and immutable afterwards (a later Settings edit
+# never rewrites a stored run). ABSENT (the default) resolves every role to its
+# approved default — UAT Agent, UAT Fix Agent, Review Agent, Review Fix Agent,
+# and the ticket-resolved PR-description adapter — using `agentProvider` and
+# `defaultModel` above.
+#
+# `agent` references a profile from the `agents` block ABOVE; the referenced
+# key MUST be declared there or loading fails (a dangling reference would
+# otherwise silently launch the default instead of the profile the author
+# meant). `agentName` overrides the display snapshot; blanks keep the defaults.
+# `provider`/`model` beat the ticket and manifest defaults; `enabled: false`
+# turns the assignment off.
+#
+# processes:
+#   uatTester:
+#     agent: test             # a key from the `agents` block above
+#     agentName: My UAT Agent
+#     provider: codex
+#     model: gpt-5.6-sol
+#   uatFix: { provider: codex }
+#   review: { agent: review, provider: antigravity }
+#   reviewFix: { provider: antigravity }
+#   prDescription: { provider: claude, model: claude-haiku-4-5 }
+
 # UAT gates. Step-by-step runbook for this block and `review:` below (which
 # stage a check belongs to, script vs command gates, the independent-signal
 # rule, failure playbook) sits beside this file: karst.uat-review-setup.md
 #
 # ABSENT (the default) yields the probe pipeline: karst looks for
-# known package.json scripts. Only two keys under `uat:` are read today —
-# `maxFixAttempts` and `gates` (plus per-repository `gates`).
+# known package.json scripts. Only three keys under `uat:` are read today —
+# `maxFixAttempts`, `gates` (plus per-repository `gates`) and `testerVerifier`.
 uat:
   # WIRED. Fix→UAT→fix retries before the ticket parks. Narrows UAT only; review
   # has its own `review.maxFixAttempts`.
@@ -197,6 +224,13 @@ uat:
   gates:
     - { name: test, kind: script, script: test }
     - { name: e2e, kind: command, command: npx, args: [playwright, test], repo: frontend }
+  # WIRED (Task 8). An optional deterministic verification command for the UAT
+  # Tester's observations, run AFTER the required gates pass. Its COMPLETED exit
+  # code is the sole Tester-specific verdict: 0 completes the Tester, a
+  # completed nonzero exit fails UAT (one Fix round, attributed to the Tester
+  # process), and a command that cannot run parks without spending a round.
+  # Absent → the Tester's observations are advisory and the gates decide alone.
+  testerVerifier: { name: verify-uat, kind: command, command: ./scripts/verify-uat.sh }
   repositories:
     frontend:
       # WIRED, and it REPLACES the global list for this repository — it is not

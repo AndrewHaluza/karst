@@ -20,6 +20,13 @@ export interface UsageTracking {
   callSite: AiCallSite;
   /** The ticket the spend belongs to; absent for a not-yet-saved draft. */
   ticketId?: number | null;
+  /**
+   * The inside process run making the call (v27, § task 3): gates, commit,
+   * delivery-receipt, recovery. Absent → the call is filed unattributed to a
+   * process — an interactive session, a draft, or a caller that has not
+   * threaded its run through yet.
+   */
+  processRunId?: number | null;
 }
 
 export interface RunHeadlessOpts {
@@ -159,6 +166,14 @@ export interface InteractiveCommand {
 export interface AgentCapabilities {
   lifecycleEvents: boolean;
   resume: boolean;
+  /**
+   * Task 5: whether the adapter's bridge can emit measured `UsageUpdate`
+   * events. Optional so pre-Task-5 constructors (tests, launcher fakes) keep
+   * compiling; the adapters themselves declare it explicitly, and reducers
+   * that need a definite answer read `providerInteractiveUsage` from
+   * `provider.ts`, never an adapter's absence.
+   */
+  interactiveUsage?: boolean;
 }
 
 export interface AgentAdapter {

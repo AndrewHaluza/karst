@@ -18,12 +18,13 @@ const CATALOG: ModelCatalog = {
 
 describe('agent switch presentation', () => {
   it.each([
-    ['impl', true, true],
-    ['fix', true, true],
-    ['impl', false, false],
-    ['review', true, false],
-  ] as const)('switchability at %s/open=%s is %s', (stage, open, expected) => {
-    expect(canSwitchAgentSession(stage, open)).toBe(expected);
+    ['impl', true, false, true],
+    ['fix', true, false, true],
+    ['fix', true, true, false],
+    ['impl', false, false, false],
+    ['review', true, false, false],
+  ] as const)('switchability at %s/open=%s/fixing=%s is %s', (stage, open, fixing, expected) => {
+    expect(canSwitchAgentSession(stage, open, fixing)).toBe(expected);
   });
 
   it('omits the current provider and supplies human labels', () => {
@@ -102,6 +103,27 @@ function flow(overrides: Partial<AgentSwitchFlowDeps> = {}) {
 }
 
 describe('runAgentSwitchFlow', () => {
+  it('rejects a switch during an owned Fix execution before opening a picker or changing ownership', async () => {
+    let owned = true;
+    const { deps, order } = flow({
+      read: () => ({
+        stageCurrent: 'fix',
+        provider: 'claude',
+        ticketModel: 'claude-x',
+        defaultModel: null,
+        fixExecutionActive: true,
+      }),
+      dispose: () => {
+        owned = false;
+        order.push('dispose');
+      },
+    });
+
+    await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'stale' });
+    expect(order).toEqual([]);
+    expect(owned).toBe(true);
+  });
+
   it('persists one selection, disposes, then launches', async () => {
     const { deps, order } = flow();
     await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'switched' });

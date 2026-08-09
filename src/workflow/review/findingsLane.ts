@@ -9,10 +9,15 @@
  * exactly what their doc comments already claim to be.
  */
 
+import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { ReviewFindingsConfig, Severity } from '../../manifest/types.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
+import { openProcessRun, type ProcessRun } from '../../store/processRuns.js';
+import { stageAttempt } from '../../store/stages.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
+import { nowIso } from '../../model/time.js';
 import { parseFindings, type WarnFn } from './findings.js';
 import {
   gatesOutcomeBeforeFindings,
@@ -35,11 +40,33 @@ export interface FindingsLaneTarget {
   baseRef?: string | null;
 }
 
+/**
+ * The Review AI process (Task 8): its immutable assignment snapshot plus the
+ * already instrumented adapter, and the process-run bookkeeping the lane needs
+ * to open a run. Absent `process` (or an absent `store`) → the lane makes its
+ * calls without opening a process run, exactly like a pre-Task-8 caller.
+ */
+export interface FindingsProcessInput {
+  /** The resolved identity SNAPSHOT the process run opens with (Task 7). */
+  assignment: ProcessAssignmentSnapshot;
+  /** The already instrumented adapter; when present it REPLACES `adapter`. */
+  adapter: AgentAdapter;
+  /** The stage_runs batch this process runs under, when one was opened. */
+  stageRunId?: number | null;
+  /** The stage's attempt when the run opens; defaults to the store's value. */
+  attempt?: number;
+  /** The opening host's pid; absent → unknown, never guessed. */
+  pid?: number | null;
+  /** Injected clock for the run's `started_at`. */
+  startedAt?: string;
+}
+
 export interface RunFindingsLaneOpts {
   config: ReviewFindingsConfig;
   /**
    * Absent means no agent core is available to ask — `capability-missing`
    * (spec §8.14), never a failure: this is environmental, not a code defect.
+   * When `process` supplies one, it wins over this field.
    */
   adapter?: AgentAdapter;
   targets: readonly FindingsLaneTarget[];
@@ -47,6 +74,10 @@ export interface RunFindingsLaneOpts {
   /** Threaded from the stage run so a Stop reaches a call already in flight (best-effort — see `RunHeadlessOpts.signal`). */
   signal?: AbortSignal;
   warn?: WarnFn;
+  /** Required to open the Review process run (Task 8); absent → no run opens. */
+  store?: Store;
+  /** The Review AI process — opens its run before the first call when present. */
+  process?: FindingsProcessInput;
 }
 
 /**
@@ -86,28 +117,77 @@ export function buildFindingsPrompt(repo: string, baseRef?: string | null): stri
  * still reaches `{kind:'ran', findings}`, so the stage's verdict is decided
  * from its gates (R7/R9), never broken by this lane. `capability-missing` is
  * reserved for the one case that IS environmental: no adapter to call at all.
+ *
+ * Finding 3: a Stop is an EXPLICIT `{kind:'stopped'}` outcome, checked before
+ * AND after every awaited call — never a silently truncated `ran`. The caller
+ * (`stages/review.ts`) closes the open process run as interrupted and returns
+ * stopped before any aggregation.
  */
 export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<FindingsLaneOutcome> {
   if (!opts.config.enabled) return { kind: 'not-run' };
 
-  if (!opts.adapter) {
+  const adapter = opts.process?.adapter ?? opts.adapter;
+  if (!adapter) {
     return {
       kind: 'capability-missing',
       reason: 'review findings: no agent core is available to ask about the diff',
     };
   }
-  const adapter = opts.adapter;
+
+  // Task 8: opened BEFORE the first call, so the identity snapshot is durable
+  // before any token is spent, and only when the lane is actually about to
+  // run — a lane skipped by R3–R5 (or disabled, or adapter-less) opens
+  // nothing, because no AI call happens.
+  let processRun: ProcessRun | null = null;
+  if (opts.store && opts.process) {
+    processRun = openProcessRun(opts.store, {
+      ticketId: opts.ticketId,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: opts.process.attempt ?? stageAttempt(opts.store, opts.ticketId, 'review'),
+      stageRunId: opts.process.stageRunId ?? null,
+      agentName: opts.process.assignment.agentName ?? null,
+      provider: opts.process.assignment.provider,
+      model: opts.process.assignment.model ?? null,
+      pid: opts.process.pid ?? null,
+      startedAt: opts.process.startedAt ?? nowIso(),
+    });
+  }
+
+  // Finding 3: one stopped outcome, carrying the opened run so the caller can
+  // interrupt it. Returns immediately — the user stopped; nothing further is
+  // asked and no aggregation may read the lane as a truncated `ran`.
+  const stopped = (): FindingsLaneOutcome => {
+    const outcome: Extract<FindingsLaneOutcome, { kind: 'stopped' }> = {
+      kind: 'stopped',
+      reason: 'Review stopped',
+    };
+    if (processRun !== null) outcome.processRunId = processRun.id;
+    return outcome;
+  };
 
   const findings: FindingInput[] = [];
+  // One collapsed one-line diagnostic per target whose call THREW — the
+  // "the agent looked and found nothing" vs "the agent could not be asked"
+  // distinction (Task 8). Never the raw message: it is untrusted CLI prose.
+  const crashes: string[] = [];
   for (const target of opts.targets) {
-    if (opts.signal?.aborted) break;
+    if (opts.signal?.aborted) return stopped();
     try {
       const result = await adapter.runHeadless({
         prompt: buildFindingsPrompt(target.repo, target.baseRef),
         cwd: target.worktreePath,
+        model: opts.process?.assignment.model,
         signal: opts.signal,
-        tracking: { callSite: 'review-findings', ticketId: opts.ticketId },
+        tracking: {
+          callSite: 'review-findings',
+          ticketId: opts.ticketId,
+          processRunId: processRun?.id ?? null,
+        },
       });
+      // The call returned — but if the signal aborted WHILE it ran, the user
+      // stopped and its output is not evidence to aggregate.
+      if (opts.signal?.aborted) return stopped();
       findings.push(
         ...parseFindings(
           result.raw,
@@ -116,6 +196,12 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         ),
       );
     } catch (error) {
+      // Residual fix: a rejection that lands ON an aborted signal is the Stop
+      // itself — the user cancelled, and the adapter surfaced it as a rejection
+      // (AbortError or its own failure type). That is never a crash to degrade
+      // into `ran`: a cancelled lane must not read as a review that ran. The
+      // SIGNAL is the authority, not the error's shape.
+      if (opts.signal?.aborted) return stopped();
       // See the doc comment: a failed/garbage call must not break the stage —
       // degrading to `ran` with no findings for this target is still correct.
       // What changes is that the failure is no longer silent: a missing CLI,
@@ -123,14 +209,23 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       // than being indistinguishable from "the agent looked and found
       // nothing" — the call is still billed either way, so the silence was
       // the actual defect, not the degradation.
-      const message = error instanceof Error ? error.message : String(error);
+      const message = collapseDiagnostic(error instanceof Error ? error.message : String(error));
+      crashes.push(message);
       opts.warn?.(
-        `review findings: ${target.repo} — call failed, contributing no findings: ${collapseDiagnostic(message)}`,
+        `review findings: ${target.repo} — call failed, contributing no findings: ${message}`,
       );
     }
   }
 
-  return { kind: 'ran', findings };
+  // Residual fix: the same rule holds once the loop has ended — a signal that
+  // aborted at any point (including a lane with no targets to iterate) is a
+  // Stop, never a silently truncated `ran`.
+  if (opts.signal?.aborted) return stopped();
+
+  const ran: Extract<FindingsLaneOutcome, { kind: 'ran' }> = { kind: 'ran', findings };
+  if (crashes.length > 0) ran.crashes = crashes;
+  if (processRun !== null) ran.processRunId = processRun.id;
+  return ran;
 }
 
 export interface PlanAndRunFindingsLaneOpts {
@@ -142,6 +237,10 @@ export interface PlanAndRunFindingsLaneOpts {
   ticketId: number;
   signal?: AbortSignal;
   warn?: WarnFn;
+  /** Required to open the Review process run (Task 8); absent → no run opens. */
+  store?: Store;
+  /** The Review AI process — opens its run before the first call when present. */
+  process?: FindingsProcessInput;
 }
 
 /**
@@ -165,6 +264,8 @@ export async function planAndRunFindingsLane(
           ticketId: opts.ticketId,
           signal: opts.signal,
           warn: opts.warn,
+          store: opts.store,
+          process: opts.process,
         })
       : { kind: 'not-run' };
   return { outcome, blockingSeverity: config.blockingSeverity };

@@ -50,6 +50,7 @@ describe('settings sections — vocabulary', () => {
         'defaultModel',
         'host',
         'portRange',
+        'processes',
         'repositories',
         'review',
         'terminalNameTemplate',
@@ -129,6 +130,28 @@ describe('settings sections — mergeSection', () => {
     const merged = mergeSection(BASE, incoming, 'quality');
 
     expect(merged.uat?.maxFixAttempts).toBe(9);
+    expect(merged.host).toBe(BASE.host);
+  });
+
+  it('an agents save carries processes and leaves quality untouched', () => {
+    const incoming: Manifest = {
+      ...BASE,
+      agents: {},
+      processes: { uatTester: { provider: 'codex', enabled: true } },
+      uat: {
+        maxFixAttempts: 9,
+        env: {},
+        secrets: [],
+        passthrough: [],
+        origins: [],
+        repositories: {},
+      },
+    };
+    const merged = mergeSection(BASE, incoming, 'agents');
+
+    expect(merged.processes).toEqual(incoming.processes);
+    // Quality is not the agents tab's business: a stale draft must not drag it in.
+    expect(merged.uat).toBeUndefined();
     expect(merged.host).toBe(BASE.host);
   });
 

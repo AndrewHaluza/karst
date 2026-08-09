@@ -95,6 +95,38 @@ function finish(exitCode, outcome) {
 process.on('uncaughtException', () => finish(1, 'uncaught-exception'));
 process.on('unhandledRejection', () => finish(1, 'unhandled-rejection'));
 
+// Task 5: a count is a finite, non-negative number; anything else is dropped,
+// never coerced to 0 (a 0 would read as a measured free call).
+function usageCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+// Build the UsageUpdate payload from a provider-supplied usage object. The
+// stable event id is the dedupe key: usage.event_id wins, the event's
+// turn_id is the fallback, and neither → the usage is dropped.
+function usagePayload(raw) {
+  const usage = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw.usage : null;
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
+  const eventId =
+    typeof usage.event_id === 'string' && usage.event_id.length > 0
+      ? usage.event_id
+      : typeof raw.turn_id === 'string' && raw.turn_id.length > 0
+        ? raw.turn_id
+        : null;
+  if (!eventId) return null;
+  const input = usageCount(usage.input);
+  const output = usageCount(usage.output);
+  if (input === null || output === null) return null;
+  const payload = { event_id: eventId, input, output };
+  const cacheRead = usageCount(usage.cache_read);
+  const cacheWrite = usageCount(usage.cache_write);
+  const total = usageCount(usage.total);
+  if (cacheRead !== null) payload.cache_read = cacheRead;
+  if (cacheWrite !== null) payload.cache_write = cacheWrite;
+  if (total !== null) payload.total = total;
+  return payload;
+}
+
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
@@ -129,46 +161,74 @@ process.stdin.on('end', () => {
       : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd'].includes(event)
         ? { hook_event_name: event }
         : null;
-  if (!mapped) {
+
+  const posts = [];
+  if (mapped) {
+    posts.push({ ...mapped, cwd: raw.cwd, session_id: raw.session_id });
+  }
+  const usage = usagePayload(raw);
+  if (usage) {
+    posts.push({ hook_event_name: 'UsageUpdate', cwd: raw.cwd, session_id: raw.session_id, usage });
+  }
+  if (posts.length === 0) {
     finish(0);
     return;
   }
-  const payload = JSON.stringify({
-    ...mapped,
-    cwd: raw.cwd,
-    session_id: raw.session_id,
-  });
-  let target;
-  try {
-    target = new URL(process.argv[2]);
-  } catch {
-    finish(1, 'invalid-endpoint');
-    return;
-  }
-  const req = http.request({
-    hostname: target.hostname,
-    port: target.port,
-    path: target.pathname + target.search,
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'content-length': Buffer.byteLength(payload),
-    },
-    timeout: 2000,
-  });
-  req.on('response', (res) => {
-    res.resume();
-    res.on('end', () => {
-      const status = res.statusCode ?? 0;
-      const successful = status >= 200 && status < 300;
-      finish(successful ? 0 : 1, successful ? undefined : 'http-error');
+
+  let index = 0;
+  function nextPost() {
+    if (index >= posts.length) {
+      finish(0);
+      return;
+    }
+    const payload = posts[index++];
+    const body = JSON.stringify(payload);
+    let target;
+    try {
+      target = new URL(process.argv[2]);
+    } catch {
+      finish(1, 'invalid-endpoint');
+      return;
+    }
+    const req = http.request({
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname + target.search,
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+      },
+      timeout: 2000,
     });
-    res.on('aborted', () => finish(0, 'request-error'));
-    res.on('error', () => finish(0, 'request-error'));
-  });
-  req.on('error', () => finish(0, 'request-error'));
-  req.on('timeout', () => req.destroy());
-  req.end(payload);
+    req.on('response', (res) => {
+      res.resume();
+      res.on('end', () => {
+        const status = res.statusCode ?? 0;
+        const successful = status >= 200 && status < 300;
+        if (!successful) {
+          finish(1, 'http-error');
+          return;
+        }
+        nextPost();
+      });
+      res.on('aborted', () => {
+        logFailure('request-error');
+        nextPost();
+      });
+      res.on('error', () => {
+        logFailure('request-error');
+        nextPost();
+      });
+    });
+    req.on('error', () => {
+      logFailure('request-error');
+      nextPost();
+    });
+    req.on('timeout', () => req.destroy());
+    req.end(body);
+  }
+  nextPost();
 });
 `;
 
@@ -178,8 +238,49 @@ export type NormalizedHook = {
   cwd: string;
   session_id: string;
   message?: string;
+  /** Task 5: provider-supplied cumulative counts, when the payload carried them. */
+  usage?: {
+    event_id: string;
+    input: number;
+    output: number;
+    cache_read?: number;
+    cache_write?: number;
+    total?: number;
+  };
 };
 type PostHook = (payload: NormalizedHook) => Promise<void>;
+
+/** The TS mirror of the bridge's `usagePayload` — same drop rules. */
+function usageFromInput(raw: CodexHookInput): NormalizedHook['usage'] | null {
+  const usage =
+    raw['usage'] !== null && typeof raw['usage'] === 'object' && !Array.isArray(raw['usage'])
+      ? (raw['usage'] as Record<string, unknown>)
+      : null;
+  if (usage === null) return null;
+  const count = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+  const eventId =
+    typeof usage['event_id'] === 'string' && usage['event_id'].length > 0
+      ? usage['event_id']
+      : typeof raw['turn_id'] === 'string' && raw['turn_id'].length > 0
+        ? raw['turn_id']
+        : null;
+  if (eventId === null) return null;
+  const input = count(usage['input']);
+  const output = count(usage['output']);
+  if (input === null || output === null) return null;
+  const cacheRead = count(usage['cache_read']);
+  const cacheWrite = count(usage['cache_write']);
+  const total = count(usage['total']);
+  return {
+    event_id: eventId,
+    input,
+    output,
+    ...(cacheRead !== null ? { cache_read: cacheRead } : {}),
+    ...(cacheWrite !== null ? { cache_write: cacheWrite } : {}),
+    ...(total !== null ? { total } : {}),
+  };
+}
 
 export function codexHookNormalizer(post: PostHook) {
   return async (input: CodexHookInput): Promise<void> => {
@@ -211,8 +312,18 @@ export function codexHookNormalizer(post: PostHook) {
             ) && event !== 'PermissionRequest'
           ? { hook_event_name: event }
           : null;
-    if (!mapped) return;
-    await post({ ...mapped, cwd, session_id: sessionId });
+    if (mapped) {
+      await post({ ...mapped, cwd, session_id: sessionId });
+    }
+    const usage = usageFromInput(input);
+    if (usage !== null) {
+      await post({
+        hook_event_name: 'UsageUpdate',
+        cwd,
+        session_id: sessionId,
+        usage,
+      });
+    }
   };
 }
 
@@ -412,6 +523,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly capabilities: AgentCapabilities = {
     lifecycleEvents: true,
     resume: true,
+    interactiveUsage: true,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}

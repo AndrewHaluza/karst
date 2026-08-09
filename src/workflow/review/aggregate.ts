@@ -49,11 +49,39 @@ export type AggregateOutcome =
  *   also reports `ran` with whatever it did manage to parse (often `[]`): the
  *   lane must not be able to break the stage, so a failed/garbage call still
  *   lets the run reach a verdict decided by the gates (R7/R9), never a park.
+ *   The optional `crashes` member (Task 8) carries the collapsed one-line
+ *   boundary diagnostics of any target whose call THREW, so the stage can
+ *   distinguish "the agent looked and found nothing" from "the agent could not
+ *   be asked" — the crash still never fails the stage, but it is recorded
+ *   (`execution-failed` on the process run) rather than read as a clean
+ *   review. `processRunId` (Task 8) names the Review findings process run the
+ *   lane opened, when the caller supplied a process and the lane actually ran.
+ * - `stopped`: the run's signal aborted during the lane (before the first
+ *   target or between two calls) — an explicit cancellation, never a silently
+ *   truncated `ran`. The caller (`stages/review.ts`) MUST close the open
+ *   process run as interrupted and return `{kind:'stopped'}` BEFORE calling
+ *   `aggregateReview` or constructing any recovery trigger: a stopped lane is
+ *   not evidence, and this union deliberately carries no aggregate verdict for
+ *   it.
  */
 export type FindingsLaneOutcome =
   | { kind: 'not-run' }
   | { kind: 'capability-missing'; reason: string }
-  | { kind: 'ran'; findings: readonly FindingInput[] };
+  | {
+      kind: 'ran';
+      findings: readonly FindingInput[];
+      /** One collapsed one-line diagnostic per target whose call THREW. Absent = every call succeeded. */
+      crashes?: readonly string[];
+      /** The Review process run this invocation opened; absent = none was opened. */
+      processRunId?: number | null;
+    }
+  | {
+      kind: 'stopped';
+      /** One bounded reason; the caller folds it into the stopped notes. */
+      reason: string;
+      /** The Review process run this invocation opened; the caller interrupts it. Absent = none was opened. */
+      processRunId?: number | null;
+    };
 
 export interface AggregateReviewOpts {
   /**
@@ -103,6 +131,14 @@ export const DEFAULT_REVIEW_FINDINGS = {
   blockingSeverity: 'high',
   maxFindings: 50,
 } as const;
+
+/**
+ * The reason prefix of R6's failure — the ONE thing that tells a failed review
+ * verdict "this was the findings lane" apart from "a gate failed". Authored
+ * here (R6 below) and read back by `stages/review.ts` when it classifies the
+ * verdict into a recovery trigger — a shared constant, never a second string.
+ */
+export const FINDINGS_FAILURE_PREFIX = 'review findings: ';
 
 /**
  * The invocation a malformed-package.json entry claims. Not a real command — it
@@ -351,7 +387,10 @@ export function aggregateReview(
     if (blocking.length > 0) {
       return {
         kind: 'verdict',
-        verdict: { kind: 'failed', reason: `review findings: ${summarizeSeverities(blocking)}` },
+        verdict: {
+          kind: 'failed',
+          reason: `${FINDINGS_FAILURE_PREFIX}${summarizeSeverities(blocking)}`,
+        },
         warnings: [],
       };
     }

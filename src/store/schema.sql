@@ -137,6 +137,168 @@ CREATE TABLE IF NOT EXISTS stage_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_stage_runs_ticket ON stage_runs(ticket_id, stage_key, id);
 
+-- v26: one row per inside-process INVOCATION (gates, commit, delivery-receipt,
+-- recovery…), opened before the process starts and closed at its outcome.
+--
+-- The inside redesign renders a stage as ordered processes, each carrying its
+-- own evidence and, for AI processes, the identity that ran them. The evidence
+-- tables record what FINISHED; only a row opened at entry can say a process ran
+-- at all, and only that row can carry WHO ran it as it actually was at that
+-- moment. `agent_name`/`provider`/`model` are an immutable identity SNAPSHOT —
+-- what the execution resolved to at launch — never rewritten, never backfilled
+-- into rows that predate capture.
+--
+-- Append-only, like stage_runs and for the same reason: a superseded run is
+-- marked `stale`, never deleted, because the fact that a previous process ran
+-- and was destroyed is exactly what was missing. `stale` rows keep `ended_at`
+-- NULL — when a killed process stopped is genuinely unknown. `pid` is the
+-- opening host's pid, used only for activation liveness; NULL = unknown, never
+-- guessed.
+--
+-- `status` is a closed vocabulary (running | passed | failed | interrupted |
+-- stale); `result_kind`/`artifact_path` carry the outcome's verdict kind and
+-- artifact path, both NULLable and never backfilled.
+CREATE TABLE IF NOT EXISTS process_runs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  stage_key     TEXT NOT NULL,        -- StageKey the process ran inside
+  process_id    TEXT NOT NULL,        -- 'gates' | 'commit' | … (InsideProcessId)
+  attempt       INTEGER NOT NULL,     -- the stage's attempt when the process ran
+  stage_run_id  INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,  -- v25 batch stamp, if any
+  agent_name    TEXT,                 -- identity snapshot: the agent that ran
+  provider      TEXT,                 -- identity snapshot: claude | codex | …
+  model         TEXT,                 -- identity snapshot: the resolved model id
+  pid           INTEGER,              -- the opening host's pid; NULL = unknown
+  status        TEXT NOT NULL CHECK (status IN ('running','passed','failed','interrupted','stale')),
+  result_kind   TEXT,                 -- the outcome's verdict kind, when the process has one
+  artifact_path TEXT,                 -- path of the artifact the process produced, if any
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT                  -- NULL while running AND on a stale run
+);
+CREATE INDEX IF NOT EXISTS idx_process_runs_ticket
+  ON process_runs(ticket_id, stage_key, process_id, id);
+
+-- v28: the STABLE implementation run — one per impl pass, spanning provider
+-- switches and resumes, opened when the first session launch intent for the
+-- ticket is prepared and closed ONLY by the explicit done marker
+-- (`stage impl pass`). A run is the ticket's interactive implementation as one
+-- unit; a SessionEnd without the marker may interrupt it, never pass it.
+CREATE TABLE IF NOT EXISTS implementation_runs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  -- The canonical `process_runs(stage_key='impl', process_id='session')` row —
+  -- UNIQUE so the run and its process run are one-to-one. ON DELETE CASCADE:
+  -- deleting the process run deletes the run (the whole run is that process).
+  process_run_id INTEGER NOT NULL UNIQUE REFERENCES process_runs(id) ON DELETE CASCADE,
+  attempt       INTEGER NOT NULL,     -- the impl stage's attempt when the run opened
+  status        TEXT NOT NULL CHECK (status IN ('running','passed','interrupted')),
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT                  -- NULL while running (and on an interrupted run
+                                      -- whose end is known: interrupted rows DO stamp
+                                      -- ended_at, unlike stale stage/process runs)
+);
+
+-- v28: a launch karst PREPARED, pending the provider's SessionStart. Terminal
+-- creation is not proof the provider started, so the row stays pending until a
+-- SessionStart carrying the same launch id confirms it; a terminal-creation
+-- failure marks it failed. A newer launch for the same ticket/purpose
+-- supersedes the older pending one. The partial unique index keeps at most one
+-- pending intent per (ticket, purpose).
+CREATE TABLE IF NOT EXISTS session_launch_intents (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  launch_id     TEXT NOT NULL UNIQUE, -- the hook URL generation, the authenticator
+  purpose       TEXT NOT NULL CHECK (purpose IN ('implementation','fix')),
+  implementation_run_id INTEGER REFERENCES implementation_runs(id) ON DELETE CASCADE,
+  process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  provider      TEXT NOT NULL,        -- the core the launch resolved to
+  model         TEXT,
+  -- v33: the CONFIGURED inside agent name a fix launch resolved to (the
+  -- uat-fix/review-fix process identity), so the SessionStart can open the
+  -- Fix process run with the snapshot. NULL for implementation launches and
+  -- for pre-v33 fix launches — an unknown, never an invented name.
+  agent_name    TEXT,
+  reason        TEXT NOT NULL,        -- initial | resume | switch (LaunchReason)
+  session_origin TEXT NOT NULL CHECK (session_origin IN ('new','resume','unknown')),
+  provider_session_id TEXT,           -- set when the SessionStart confirms the intent
+  status        TEXT NOT NULL CHECK (status IN ('pending','confirmed','failed','superseded')),
+  created_at    TEXT NOT NULL,
+  resolved_at   TEXT,                 -- confirmed/failed/superseded stamp; NULL while pending
+  -- v30: the recovery round a fix launch belongs to (see recovery_rounds below).
+  -- NULL for an implementation launch; REQUIRED for a fix launch — a pending
+  -- Fix launch has a durable owner before its process run exists.
+  recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending
+  ON session_launch_intents(ticket_id, purpose) WHERE status = 'pending';
+
+-- v30: one row per CAUSAL recovery round — a gate failure that entered the
+-- fix loop, snapshotted atomically with the verdict that caused it.
+--
+-- The failing verdict, the evidence that produced it (gate rows / findings),
+-- and the round itself commit together (the trigger opens inside
+-- `commitGateOutcome`'s transition premutate) or not at all. The round is
+-- therefore the durable owner of the recovery: `source_stage_run_id` names the
+-- stage_runs batch the failure belongs to, `source_process_run_id` the AI
+-- process that produced it when the source was an agent (Tester/Review; a
+-- deterministic gate failure has none), `trigger_kind` the closed causal
+-- vocabulary, and `max_rounds` the fix budget AS IT WAS when the failure was
+-- committed — never reconstructed later from a mutable manifest or from
+-- `stages.verdict` (a retry overwrites that row).
+--
+-- `round` is per (ticket, source_stage) and unique, so the ordering of a
+-- ticket's uat failures (and its review failures) is a fact, not an array
+-- position. `fix_process_run_id` links the Fix execution that answered the
+-- round (opened at nudge/confirm, passed by the `stage fix pass` marker);
+-- `uat_revalidation_stage_run_id`/`review_revalidation_stage_run_id` link the
+-- revalidation runs that complete or fail it. A session that died mid-fix
+-- marks the round `interrupted` — never a pass (the marker is the only
+-- completion authority) and no additional round is consumed.
+--
+-- Append-only like stage_runs and process_runs: a failed/abandoned round is
+-- marked, never deleted, because the fact that a recovery happened and did not
+-- land is exactly what this table exists to record.
+CREATE TABLE IF NOT EXISTS recovery_rounds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review')),
+  source_process_id TEXT NOT NULL,  -- 'gates' | 'tester' | 'review' (closed)
+  source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-review-findings' (closed)
+  trigger_detail TEXT NOT NULL, -- the causal detail captured at failure time
+  round INTEGER NOT NULL,
+  max_rounds INTEGER NOT NULL,
+  fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted')),
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
+  ON recovery_rounds(ticket_id, source_stage, round);
+
+-- v28: one segment per provider session inside an implementation run. The first
+-- segment is confirmed by the initial launch's SessionStart; a switch opens a
+-- new segment and closes the previous one; a resume reattaches the compatible
+-- segment (or confirms a resume segment). `launch_intent_id` ties a confirmed
+-- segment to the exact prepared launch that produced it — NOT NULL UNIQUE, so
+-- a segment is confirmed at most once and never twice by two starts.
+CREATE TABLE IF NOT EXISTS implementation_segments (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  implementation_run_id INTEGER NOT NULL REFERENCES implementation_runs(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,        -- claude | codex | …
+  model         TEXT,                 -- the resolved launch model; NULL = agent default
+  provider_session_id TEXT,           -- the provider's own session id, set on confirm
+  reason        TEXT,                 -- NULL (first) | 'switch' | 'resume'
+  status        TEXT NOT NULL CHECK (status IN ('pending','running','closed','interrupted')),
+  launch_intent_id INTEGER NOT NULL UNIQUE
+                REFERENCES session_launch_intents(id) ON DELETE CASCADE,
+  started_at    TEXT,                 -- set when the segment opens (or confirms)
+  ended_at      TEXT                  -- closed/interrupted stamp; NULL while running
+);
+
 -- Phases an agent REPORTED entering during a marker stage. Append-only, like
 -- gate_runs and for the same reason: a phase is an event, many per stage, so it
 -- cannot live on `stages` (one row per StageKey, single-writer via setStage).
@@ -154,7 +316,14 @@ CREATE TABLE IF NOT EXISTS phase_marks (
                                       -- needs a stage token on the CLI wire format.
   attempt       INTEGER NOT NULL,     -- the stage's attempt when this mark landed
   phase_name    TEXT NOT NULL,        -- as reported; NOT constrained to the declared list
-  marked_at     TEXT NOT NULL
+  marked_at     TEXT NOT NULL,
+  -- v28 implementation-run linkage (kept in sync with migrations.ts v28 ALTERs):
+  -- the stable implementation run and its segment the mark was reported inside.
+  -- NULL = a pre-v28 mark, or a mark reported outside any segment. Never backfilled.
+  -- ON DELETE SET NULL: deleting a run never takes its marks with it — the mark
+  -- stays, its execution attribution goes.
+  implementation_run_id    INTEGER REFERENCES implementation_runs(id) ON DELETE SET NULL,
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stage_key, id);
 
@@ -187,11 +356,18 @@ CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stag
 -- file. `repo` is NOT NULL — '' states "not repo-scoped" rather than using
 -- NULL for two different absences.
 --
+-- v27 `process_run_id` (kept in sync with migrations.ts v27 ALTER): the
+-- process_runs row of the review invocation that produced this batch. NULL = a
+-- pre-v27 row, or a batch whose caller named no process. Never backfilled.
+-- ON DELETE SET NULL: a deleted run never takes its findings with it — the
+-- finding stays, its execution attribution goes.
+--
 -- No column can hold the diff itself, for the same reason `token_usage` has
 -- no text column: this table is read on the review panel's render path.
 CREATE TABLE IF NOT EXISTS review_findings (
   id          INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS report order
   ticket_id   INTEGER NOT NULL,     -- -> tickets.id
+  process_run_id INTEGER,           -- v27: -> process_runs.id; NULL = no process (or legacy)
   attempt     INTEGER NOT NULL,     -- review's attempt when this batch landed
   run_at      TEXT NOT NULL,        -- batch stamp: one review invocation
   severity    TEXT NOT NULL,        -- critical | high | medium | low | info (closed set)
@@ -205,6 +381,121 @@ CREATE TABLE IF NOT EXISTS review_findings (
 );
 CREATE INDEX IF NOT EXISTS idx_review_findings_ticket
   ON review_findings(ticket_id, run_at, id);
+-- v27: per-process-run evidence reads (one review invocation's findings).
+CREATE INDEX IF NOT EXISTS idx_review_findings_process
+  ON review_findings(process_run_id, id);
+
+-- v31: one row per OBSERVATION the UAT Tester process (Task 8) reported about a
+-- ticket's behavior — advisory, structured evidence ONLY. The Tester is an AI
+-- process, so unlike `gate_runs` (deterministic exit codes) its rows can never
+-- pass, fail, transition, or spend a recovery round by themselves: the ordinary
+-- UAT gates stay authoritative, and the optional deterministic
+-- `uat.testerVerifier` boundary is the sole Tester-specific verdict source.
+--
+-- APPEND-ONLY like review_findings and for the same reason: an observation is
+-- an event produced by one process invocation, and `stages` (keyed
+-- (ticket_id, stage_key)) is overwritten by a retry. `process_run_id` is
+-- REQUIRED — an observation that cannot be attributed to a Tester execution is
+-- dropped, never stored against an invented one. `repo` is NULLable ("not
+-- repo-scoped") while review_findings uses '' for that, because the Tester
+-- prompt names its target explicitly and an unattributed observation must not
+-- read as belonging to the first repository in the list.
+--
+-- `severity` is the same closed `Severity` vocabulary as review_findings,
+-- enforced where untrusted model output is parsed (workflow/uat/tester.ts via
+-- review's parseFindings). `file_path` carries no absolute path and no `..`
+-- segment (validated where parsed); NULL = not file-scoped. `line` NULL =
+-- whole file. `title` is capped and single-line like review's. There is no
+-- `detail` column: an observation's row is a title plus a location, and
+-- `token_usage` is the evidence table that carries what the call cost.
+CREATE TABLE IF NOT EXISTS uat_findings (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id      INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+  repo           TEXT,
+  severity       TEXT NOT NULL,        -- critical | high | medium | low | info (closed set)
+  title          TEXT NOT NULL,        -- capped at TITLE_MAX, single line
+  file_path      TEXT,                 -- repo-relative, validated; NULL = not file-scoped
+  line           INTEGER,              -- NULL = whole file
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uat_findings_ticket ON uat_findings(ticket_id, id);
+-- Per-process-run evidence reads (the inside view's Tester evidence).
+CREATE INDEX IF NOT EXISTS idx_uat_findings_process ON uat_findings(process_run_id, id);
+
+-- v32: the durable per-repository SHIP SAGA (Task 9). A ship is a sequence of
+-- irreversible external operations (commit, push, PR-description, PR creation)
+-- per repo, and git/GitHub's answer to an operation only exists AFTER the side
+-- effect happened — a crash mid-saga cannot be re-approximated by probing.
+-- These four tables make each operation RECONCILABLE instead: the run, the
+-- per-repo steps it walked, the typed ownership rows persisted BEFORE each
+-- external touch, and the commits it created (or found already present).
+--
+-- Evidence posture like stage_runs/process_runs: append-only, opened at entry
+-- (`running`/`preparing`), closed at outcome, and a late writer is never
+-- allowed to overwrite a terminal state (every transition is guarded on the
+-- row still being where the transition expects it).
+--
+-- `ship_operation_intents.pre_state_json` is ALWAYS present before anything
+-- touches git/GitHub; `intent_json` is NULL only while a Commit row is
+-- `preparing`. Both are parsed through closed TypeScript unions keyed by
+-- `step` (src/store/shipRuns.ts) — malformed/unknown data reads as `ambiguous`,
+-- never as permission to prepare, clean up, or repeat an operation.
+-- `operation_key` is globally UNIQUE: a crash-and-rerun re-prepares the SAME
+-- operation, so the durable ownership row is returned, never duplicated.
+CREATE TABLE IF NOT EXISTS ship_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  attempt INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE TABLE IF NOT EXISTS ship_repo_steps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  step TEXT NOT NULL CHECK (step IN ('commit','push','describe','pr')),
+  status TEXT NOT NULL CHECK (status IN ('running','passed','failed','note')),
+  detail TEXT NOT NULL,
+  pr_number INTEGER,
+  pr_status TEXT,
+  existed_before_ship INTEGER,
+  process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  -- v32 ownership linkage: -> ship_operation_intents.id, the durable row that
+  -- authorizes this step's preparation. NULL = no preparation has begun (a
+  -- running step with no matching intent must never authorize one).
+  -- Placed LAST, matching where the migration's ALTER TABLE ADD COLUMN
+  -- necessarily puts it on an upgraded DB (SQLite always appends).
+  operation_intent_id INTEGER REFERENCES ship_operation_intents(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS ship_operation_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  step TEXT NOT NULL CHECK (step IN ('commit','push','describe','pr')),
+  operation_key TEXT NOT NULL UNIQUE,
+  pre_state_json TEXT NOT NULL,
+  intent_json TEXT,
+  status TEXT NOT NULL CHECK (status IN ('preparing','prepared','applied','reconciled','failed','ambiguous')),
+  created_at TEXT NOT NULL,
+  prepared_at TEXT,
+  applied_at TEXT,
+  resolved_at TEXT
+);
+CREATE TABLE IF NOT EXISTS ship_commits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ship_run_id INTEGER NOT NULL REFERENCES ship_runs(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  sha TEXT NOT NULL,
+  message TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK (origin IN ('before-ship','created-by-ship'))
+);
+CREATE INDEX IF NOT EXISTS idx_ship_run_ticket ON ship_runs(ticket_id, id);
+CREATE INDEX IF NOT EXISTS idx_ship_step_run ON ship_repo_steps(ship_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_ship_commit_run ON ship_commits(ship_run_id, id);
 
 CREATE TABLE IF NOT EXISTS worktrees (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
@@ -334,10 +625,18 @@ CREATE TABLE IF NOT EXISTS merge_checks (
 -- `estimated` marks a row whose counts came from `estimateTokenUsage` because
 -- the core reported none. It is carried to the view so an approximation is
 -- never presented as measured.
+--
+-- v27 `process_run_id` (kept in sync with migrations.ts v27 ALTER): the inside
+-- process run this call belongs to (gates, commit, delivery-receipt…). NULL =
+-- a call made before the inside redesign, or by a caller that named no process
+-- (a ticket-form draft, an interactive session). Never backfilled into legacy
+-- rows. ON DELETE SET NULL: deleting a run must never take the ledger's spend
+-- with it — the count stays, its execution attribution goes.
 CREATE TABLE IF NOT EXISTS token_usage (
   id                 INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS call order
   project_id         INTEGER,              -- -> projects.id; NULL = unscoped (recovery only)
   ticket_id          INTEGER,              -- -> tickets.id; NULL = not yet a ticket (draft)
+  process_run_id     INTEGER,              -- v27: -> process_runs.id; NULL = no process (or legacy)
   call_site          TEXT NOT NULL,        -- AiCallSite (agent/aiCallSites.ts) — a closed set
   provider           TEXT,                 -- claude | codex | antigravity
   model              TEXT,                 -- model id the core reported; NULL = it did not say
@@ -348,7 +647,19 @@ CREATE TABLE IF NOT EXISTS token_usage (
   total_tokens       INTEGER NOT NULL DEFAULT 0,
   estimated          INTEGER NOT NULL DEFAULT 0,  -- 1 = counts are an estimate, not a report
   outcome            TEXT NOT NULL,        -- ok | error (a failed call still burned tokens)
-  recorded_at        TEXT NOT NULL         -- ISO-8601; what every time-range filter cuts on
+  recorded_at        TEXT NOT NULL,        -- ISO-8601; what every time-range filter cuts on
+  -- v28 implementation-segment linkage (kept in sync with migrations.ts v28 ALTER):
+  -- the implementation segment the call was made inside. NULL = a call made
+  -- outside a segment (a draft, a gate, a pre-v28 call). Never backfilled.
+  -- ON DELETE SET NULL: deleting a segment never takes the ledger's spend with
+  -- it — the count stays, its attribution goes.
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL,
+  -- v29 interactive-sample linkage (kept in sync with migrations.ts v29 ALTER):
+  -- the interactive_usage_samples row this measured delta was computed from.
+  -- NULL = a call recorded by an instrumented headless run, or a pre-v29 row.
+  -- Never backfilled. ON DELETE SET NULL: deleting a sample never takes the
+  -- ledger's spend with it — the count stays, its measurement source goes.
+  interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL
 );
 -- The aggregation index set. Every stats query filters on (project_id,
 -- recorded_at) and then groups by one of ticket / call_site / model, so each
@@ -358,6 +669,63 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_project_time ON token_usage(project_i
 CREATE INDEX IF NOT EXISTS idx_token_usage_ticket ON token_usage(ticket_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_site ON token_usage(project_id, call_site, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, model, recorded_at);
+-- v27: per-process-run evidence reads (the inside view's spend for one process),
+-- `id` second so one run's rows come back in call order.
+CREATE INDEX IF NOT EXISTS idx_token_usage_process ON token_usage(process_run_id, id);
+-- v28: per-implementation-segment evidence reads, `id` second for call order.
+CREATE INDEX IF NOT EXISTS idx_token_usage_segment ON token_usage(implementation_segment_id, id);
+-- v29: the measured interactive delta rows; `id` second for observation order.
+-- `interactive_usage_sample_id` is kept in sync with migrations.ts v29 ALTER.
+CREATE INDEX IF NOT EXISTS idx_token_usage_interactive_sample
+  ON token_usage(interactive_usage_sample_id) WHERE interactive_usage_sample_id IS NOT NULL;
+
+-- v29: one row per measured CUMULATIVE token observation of an interactive
+-- provider session (Task 5). The provider bridge POSTs a UsageUpdate carrying
+-- numeric counts and a stable event id; the appender (store/interactiveUsageSamples.ts)
+-- persists the sample HERE before computing any delta, so a restart between
+-- observations cannot lose the baseline decision.
+--
+-- The baseline scope is the PROVIDER SESSION: (provider, provider_session_id)
+-- is the same conversation across every Karst process and segment, and a later
+-- sample subtracts the session's last persisted observation wherever it was
+-- recorded. `process_run_id` (the Karst process bound to the session when the
+-- sample landed) is REQUIRED — an observation that cannot be attributed to a
+-- process is dropped, never guessed at. `implementation_segment_id` refines the
+-- attribution for an implementation session; a fix session has none.
+--
+-- `counter_epoch` is the provider's counter generation: a decrease in any
+-- counter opens a new epoch and the reset observation is counted from zero
+-- (full non-negative counts) only when the binding proves continuous
+-- instrumentation. `baseline_only = 1` marks an observation persisted as the
+-- next delta's predecessor that wrote no `token_usage` row — a resumed/adopted
+-- session's first observation, or an unprovable reset.
+--
+-- Append-only evidence: nothing here is ever UPDATEd. A duplicate event id is
+-- rejected by the unique index, never overwritten.
+CREATE TABLE IF NOT EXISTS interactive_usage_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  process_run_id INTEGER NOT NULL REFERENCES process_runs(id) ON DELETE CASCADE,
+  implementation_segment_id INTEGER REFERENCES implementation_segments(id) ON DELETE SET NULL,
+  source_event_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  provider_session_id TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
+  total_tokens INTEGER,
+  counter_epoch INTEGER NOT NULL DEFAULT 0,
+  baseline_only INTEGER NOT NULL DEFAULT 0 CHECK (baseline_only IN (0,1)),
+  observed_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_interactive_usage_event
+  ON interactive_usage_samples(provider, provider_session_id, source_event_id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_segment
+  ON interactive_usage_samples(implementation_segment_id, id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_process
+  ON interactive_usage_samples(process_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_interactive_usage_provider_session
+  ON interactive_usage_samples(provider, provider_session_id, id);
 
 -- Images and video attached to a ticket's prompt. An INDEX of bytes that live on
 -- disk under <globalStorage>/attachments/<ticket_id>/<stored_name>, never the

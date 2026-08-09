@@ -8,6 +8,8 @@ import {
 } from './endpoint.js';
 import { connect, type Socket } from 'node:net';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
+import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
+import { listTokenUsage } from '../store/tokenUsage.js';
 
 async function post(url: string, body: unknown): Promise<number> {
   const res = await fetch(url, {
@@ -124,6 +126,38 @@ describe('startHookEndpoint', () => {
     });
 
     expect(observedLaunch).toBe(launchId);
+  });
+
+  it('a UsageUpdate POST rides the same authenticated path and records a measured delta', async () => {
+    await ep.close();
+    // The launch-intent handshake needs a provider resolver, or the SessionStart
+    // below cannot confirm the prepared launch.
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, () => 'claude');
+    const id = ticketAt();
+    // Prepare + confirm a launch so the session has a durable binding. The
+    // SessionStart must itself carry the launch generation in the URL.
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: '123e4567-e89b-42d3-a456-426614174000',
+      purpose: 'implementation', provider: 'claude', model: 'opus',
+      reason: 'initial', sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    await post(`${ep.url}?karstLaunch=123e4567-e89b-42d3-a456-426614174000`, {
+      hook_event_name: 'SessionStart',
+      cwd: WT,
+      session_id: 'sess-1',
+    });
+
+    const status = await post(ep.url, {
+      hook_event_name: 'UsageUpdate',
+      cwd: WT,
+      session_id: 'sess-1',
+      usage: { event_id: 'e1', input: 1_000, output: 200 },
+    });
+    expect(status).toBe(204);
+    const entries = listTokenUsage(store, { ticketId: id });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ callSite: 'implementation', inputTokens: 1_000 });
   });
 
   it('rejects malformed request targets without dispatching', async () => {

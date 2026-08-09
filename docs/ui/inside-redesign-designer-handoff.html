@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Karst Inside redesign — designer handoff</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --surface: #191c23;
+      --surface-2: #20242d;
+      --line: #343a46;
+      --text: #f0f2f5;
+      --muted: #9da6b4;
+      --faint: #697383;
+      --blue: #6aa7ff;
+      --green: #76d59b;
+      --amber: #e6b86b;
+      --red: #f17e86;
+      --purple: #bb91ed;
+      --radius: 9px;
+      --space: 16px;
+      font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    main { max-width: 1120px; margin: 0 auto; padding: 56px 24px 96px; }
+    h1, h2, h3 { line-height: 1.15; margin: 0 0 12px; }
+    h1 { font-size: 38px; letter-spacing: -.035em; max-width: 760px; }
+    h2 { margin-top: 56px; font-size: 24px; }
+    h3 { margin-top: 28px; font-size: 16px; }
+    p { max-width: 760px; color: var(--muted); }
+    a { color: var(--blue); }
+    .eyebrow { color: var(--blue); text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 700; }
+    .lede { font-size: 18px; max-width: 760px; color: var(--text); }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 24px 0; color: var(--faint); font-size: 12px; }
+    .callout { border-left: 3px solid var(--blue); background: var(--surface); padding: 16px 18px; border-radius: 0 var(--radius) var(--radius) 0; margin: 24px 0; }
+    .callout p { margin: 0; color: var(--text); }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin: 18px 0; }
+    .rail { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin: 18px 0 24px; }
+    .rail div { padding: 12px 8px; text-align: center; border-bottom: 2px solid var(--line); color: var(--muted); font-size: 12px; }
+    .rail .active { color: var(--text); border-color: var(--blue); background: var(--surface-2); }
+    .stage-head { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+    .stage-head small { color: var(--muted); }
+    .process { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; gap: 10px; align-items: start; padding: 15px 0; border-bottom: 1px solid var(--line); }
+    .process:last-child { border-bottom: 0; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 16%, transparent); }
+    .dot.pass { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 16%, transparent); }
+    .dot.run { background: var(--blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent); }
+    .dot.wait { background: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 16%, transparent); }
+    .dot.fail { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 16%, transparent); }
+    .name { font-weight: 650; }
+    .detail, .sub { color: var(--muted); font-size: 12px; }
+    .sub { margin-top: 4px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .chip.ai { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 45%, var(--line)); }
+    .status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .status.pass { color: var(--green); }.status.fail { color: var(--red); }.status.wait { color: var(--amber); }.status.run { color: var(--blue); }
+    .evidence { margin: 4px 0 4px 28px; border-left: 1px solid var(--line); padding-left: 14px; }
+    .evidence-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; padding: 6px 0; font-size: 12px; color: var(--muted); }
+    .evidence-row strong { color: var(--text); font-weight: 500; }
+    .button { display: inline-block; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); border-radius: 5px; padding: 6px 10px; font-size: 12px; }
+    .button.primary { border-color: var(--blue); color: var(--blue); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .state { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--surface); }
+    .state h3 { margin-top: 0; }
+    .state p { margin: 6px 0 0; font-size: 12px; }
+    .form-row { display: grid; grid-template-columns: 130px 1fr 130px 1fr 80px; gap: 8px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); }
+    .form-row:last-child { border-bottom: 0; }
+    .label { font-weight: 600; font-size: 12px; }.field { background: var(--surface-2); border: 1px solid var(--line); color: var(--text); border-radius: 5px; padding: 8px; font-size: 12px; }
+    .check { color: var(--green); font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 10px 8px; }
+    th { color: var(--muted); font-weight: 600; }
+    td { color: var(--text); }
+    .muted { color: var(--muted); }.good { color: var(--green); }.warn { color: var(--amber); }.bad { color: var(--red); }
+    code { color: #d6c2ff; background: #24202d; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow-x: auto; background: #0d0f13; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; color: #d9e0ea; font-size: 12px; }
+    ul { color: var(--muted); max-width: 780px; }
+    li { margin: 7px 0; }
+    .footer { border-top: 1px solid var(--line); margin-top: 56px; padding-top: 20px; color: var(--faint); font-size: 12px; }
+    @media (max-width: 680px) {
+      main { padding: 32px 14px 64px; }
+      h1 { font-size: 30px; }
+      .rail { overflow: hidden; }
+      .rail div { font-size: 10px; padding-inline: 2px; }
+      .process { grid-template-columns: 16px minmax(0, 1fr) auto; }
+      .process > .chip, .process > .status { grid-column: 2; }
+      .grid { grid-template-columns: 1fr; }
+      .form-row { grid-template-columns: 1fr 1fr; }
+      .form-row .label { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Karst · designer handoff · 2026-08-08</div>
+  <h1>Inside is a quiet execution ledger for one ticket.</h1>
+  <p class="lede">Design the current state, the evidence behind it, and the next human action without asking the user to inspect logs.</p>
+  <div class="meta"><span>Six presentation stages</span><span>Evidence-first</span><span>Host-owned state</span><span>Works at 300–430px</span></div>
+
+  <div class="callout"><p><strong>Important gap:</strong> there is currently no UI or manifest configuration for choosing an agent core/provider and model independently for UAT Tester, UAT Fix, Review, Review Fix, or PR-description generation. This handoff includes that Settings design as a required surface.</p></div>
+
+  <h2>1. Visual thesis and constraints</h2>
+  <p><strong>A quiet execution ledger where status is read first, evidence unfolds in place, and every claim has a visible source.</strong></p>
+  <p>Preserve Karst's injected design system, semantic controls, VS Code theme variables, sentence-case copy, status ramp, keyboard focus, and reduced motion. No new UI framework, component library, palette, or parallel business-rule layer.</p>
+  <ul>
+    <li>Missing history is absence, never zero, pass, or reconstructed prose.</li>
+    <li>AI prose never determines a stage verdict.</li>
+    <li>Unknown PR state is unmerged; Done requires every current PR to be literally merged.</li>
+    <li>Unsupported token usage is omitted, never shown as zero.</li>
+    <li>Process identity is what was captured when it ran, not current Settings.</li>
+  </ul>
+
+  <h2>2. Inside anatomy</h2>
+  <div class="panel">
+    <div class="rail"><div>Scope</div><div>Implementation</div><div class="active">UAT</div><div>Review</div><div>Ship</div><div>Done</div></div>
+    <div class="stage-head"><strong>Inside · UAT</strong><small>14:02 · 38s · attempt 2</small></div>
+    <div class="process"><span class="dot fail"></span><div><div class="name">Gates <span class="chip">4 passed · 1 failed</span></div><div class="detail">Required repository checks</div><div class="evidence"><div class="evidence-row"><strong>lint</strong><span class="good">pass · 4.2s</span><span></span></div><div class="evidence-row"><strong>tests</strong><span class="bad">fail · 34.1s</span><span class="button">Open log</span></div></div></div><span class="status fail">Failed</span><span class="muted">⌄</span></div>
+    <div class="process"><span class="dot run"></span><div><div class="name">Fix <span class="chip ai">UAT Fix Agent · Codex · sol</span></div><div class="detail">Started after UAT test failure · round 1 of 2</div></div><span class="status run">Running</span><span class="muted">⌄</span></div>
+    <div class="process"><span class="dot wait"></span><div><div class="name">Services</div><div class="detail">Waiting for local API</div></div><span class="status wait">Waiting</span><span class="muted">⌄</span></div>
+    <div class="process"><span class="dot"></span><div><div class="name">Tester <span class="chip ai">UAT Agent · Codex · sol</span></div><div class="detail">Will run after required gates pass</div></div><span class="status">Pending</span><span class="muted">⌄</span></div>
+    <p class="muted">What happens here: Runs the repo's own test script in the ticket's worktree. The exit code is the verdict.</p>
+  </div>
+  <p class="muted">The runtime still has an internal <code>fix</code> node. Inside presents six stages and inserts Fix immediately after the UAT or Review process that caused it.</p>
+
+  <h2>3. Generic process-row template</h2>
+  <pre>[status dot] [process label] [AI identity?]              [count/duration] [disclosure]
+            [short factual detail]                         [action, if any]</pre>
+  <div class="grid">
+    <div class="state"><h3 class="good">Pass</h3><div class="process"><span class="dot pass"></span><div><div class="name">Gates</div><div class="detail">4 gates passed</div></div><span class="status pass">Passed</span><span>⌄</span></div></div>
+    <div class="state"><h3 class="bad">Fail</h3><div class="process"><span class="dot fail"></span><div><div class="name">Review</div><div class="detail">2 blocking findings</div></div><span class="status fail">Failed</span><span>⌄</span></div></div>
+    <div class="state"><h3 class="warn">Wait</h3><div class="process"><span class="dot wait"></span><div><div class="name">Merge</div><div class="detail">Waiting for PR #413</div></div><span class="status wait">Waiting</span><span>⌄</span></div></div>
+    <div class="state"><h3>Note / absence</h3><div class="process"><span class="dot"></span><div><div class="name">Tokens</div><div class="detail">Usage not available for this provider</div></div><span class="status">Note</span><span>⌄</span></div></div>
+  </div>
+
+  <h2>4. Stage templates</h2>
+  <table>
+    <thead><tr><th>Stage</th><th>Stable processes</th><th>Expanded evidence</th><th>Key visual truth</th></tr></thead>
+    <tbody>
+      <tr><td>Scope</td><td>Hot set, Worktrees</td><td>Bounded repositories and worktree preparation</td><td>Top-level count stays compact</td></tr>
+      <tr><td>Implementation</td><td>Session</td><td>Provider/model segments, phase timeline, tokens</td><td>A provider switch is a segment, not a new stage</td></tr>
+      <tr><td>UAT</td><td>Gates, Services, Tester</td><td>Gate rows, services context, observations, verifier</td><td>AI observations are advisory without deterministic verification</td></tr>
+      <tr><td>Review</td><td>Gates, Services, Review</td><td>Findings, execution outcome, causal Fix</td><td>Execution failure is not “no findings”</td></tr>
+      <tr><td>Ship</td><td>Commit, Push, PR, Merge</td><td>Per-repository provenance and PR description evidence</td><td>Conflict is waiting, not failure</td></tr>
+      <tr><td>Done</td><td>Delivery receipt</td><td>Merged PRs, final evidence, recovery, recorded tokens</td><td>Receipt only; nothing runs here</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Implementation timeline</h3>
+  <div class="panel"><div class="process"><span class="dot pass"></span><div><div class="name">Codex · sol <span class="chip ai">3.2k tokens</span></div><div class="detail">12:03–12:18 · 4 phase marks</div></div><span class="status pass">Completed</span><span>⌄</span></div><div class="process"><span class="dot pass"></span><div><div class="name">Claude · opus <span class="chip">Usage unavailable</span></div><div class="detail">12:18–12:31 · switched provider · 2 phase marks</div></div><span class="status pass">Completed</span><span>⌄</span></div></div>
+
+  <h3>Ship per-repository evidence</h3>
+  <div class="panel"><div class="process"><span class="dot wait"></span><div><div class="name">api</div><div class="evidence"><div class="evidence-row"><strong>Commit</strong><span class="good">passed · abc1234</span><span></span></div><div class="evidence-row"><strong>Push</strong><span class="good">passed · origin/develop</span><span>Open log</span></div><div class="evidence-row"><strong>PR</strong><span>#413 · open</span><span class="button primary">Open PR</span></div><div class="evidence-row"><strong>Merge</strong><span class="warn">waiting</span><span class="button">Click Merge</span></div></div></div><span class="status wait">Waiting</span><span>⌄</span></div></div>
+
+  <h2>5. Settings: Inside process assignments</h2>
+  <p>This is a required new surface in Settings → Agents. Keep existing agent profiles separate from execution assignments.</p>
+  <div class="panel">
+    <h3>Inside process assignments</h3>
+    <p>Configure what runs in future tickets. Historical Inside rows use the identity captured at execution time.</p>
+    <div class="form-row"><span class="label">UAT Tester</span><span class="field">UAT Agent ▾</span><span class="field">Codex ▾</span><span class="field">sol ▾</span><span class="check">On</span></div>
+    <div class="form-row"><span class="label">UAT Fix</span><span class="field">UAT Fix Agent ▾</span><span class="field">Codex ▾</span><span class="field">sol ▾</span><span class="check">On</span></div>
+    <div class="form-row"><span class="label">Review</span><span class="field">Review Agent ▾</span><span class="field">Codex ▾</span><span class="field">sol ▾</span><span class="check">On</span></div>
+    <div class="form-row"><span class="label">Review Fix</span><span class="field">Review Fix Agent ▾</span><span class="field">Codex ▾</span><span class="field">sol ▾</span><span class="check">On</span></div>
+    <div class="form-row"><span class="label">PR description</span><span class="field">PR Agent ▾</span><span class="field">Codex ▾</span><span class="field">sol ▾</span><span class="check">On</span></div>
+  </div>
+  <p class="muted"><strong>Labels:</strong> Agent profile = reusable prompt/role. Agent core = provider executable/service. Model = provider-compatible model. Provider and model choices come from the host catalog; do not hard-code model lists in HTML.</p>
+
+  <h2>6. Live operation and actions</h2>
+  <div class="panel"><div class="stage-head"><strong>Inside · Review</strong><span class="status run">● Running · Review Agent · Codex · sol</span></div><div class="process"><span class="dot run"></span><div><div class="name">Review</div><div class="detail">Running review findings</div></div><span class="status run">Running</span><span class="button">Open log</span></div></div>
+  <p>Live events are temporary host-owned overlays. A completed snapshot replaces them; a cleared event removes them without inventing a verdict.</p>
+  <table><thead><tr><th>Action</th><th>Visual control</th><th>Security rule</th></tr></thead><tbody><tr><td>Open PR / commit / log / file</td><td>Semantic link or button</td><td>Opaque host-issued action id only</td></tr><tr><td>Resume stage</td><td>Primary/secondary async button</td><td>Pending, terminal, and unknown-result states</td></tr><tr><td>Show full evidence</td><td>Disclosure continuation</td><td>Host supplies bounded continuation; webview does not aggregate</td></tr></tbody></table>
+
+  <h2>7. Responsive and accessibility requirements</h2>
+  <div class="grid"><div class="state"><h3>Normal width</h3><ul><li>All six stage labels visible.</li><li>Status/name first; identity and token metadata secondary.</li><li>Expanded evidence uses available repository/file context.</li></ul></div><div class="state"><h3>300–430px</h3><ul><li>Move identity and token metadata to a second line.</li><li>Wrap PR branch/title content.</li><li>Keep timeline node and edge aligned.</li><li>No whole-component horizontal scrolling.</li></ul></div><div class="state"><h3>Keyboard</h3><ul><li>Disclosures are native or have complete keyboard semantics.</li><li>Actions are real buttons/links with visible focus.</li><li>Disabled controls explain why they are unavailable.</li></ul></div><div class="state"><h3>Motion</h3><ul><li>Reduced motion removes spinner animation.</li><li>Visible running state remains present.</li><li>Async labels remain stable while pending.</li></ul></div></div>
+
+  <h2>8. Copy templates</h2>
+  <table><thead><tr><th>Situation</th><th>Preferred copy</th></tr></thead><tbody><tr><td>Pending</td><td>Has not run yet · Will run after required gates pass</td></tr><tr><td>Absence</td><td>No token usage recorded yet</td></tr><tr><td>Unsupported</td><td>Token usage not available for this provider</td></tr><tr><td>Waiting</td><td>Waiting for merge</td></tr><tr><td>Failure</td><td>Tests failed: 1 gate returned a nonzero exit code. Review the log and resume the stage.</td></tr><tr><td>Recovery</td><td>Fix started after UAT test failure · round 1 of 2</td></tr><tr><td>Exhausted</td><td>Recovery exhausted after 2 rounds. Resolve the remaining failure manually.</td></tr></tbody></table>
+
+  <h2>9. Handoff checklist</h2>
+  <ul>
+    <li>Provide desktop and 300/360/430px versions of the complete Inside block.</li>
+    <li>Provide collapsed/expanded variants for every process and all seven statuses.</li>
+    <li>Provide Settings assignment rows in valid, disabled, missing-profile, provider-error, and model-error states.</li>
+    <li>Annotate token usage, focus, disclosure, async pending, unknown-result, and reduced-motion behavior.</li>
+    <li>Show bounded repository, findings, and gate continuation patterns.</li>
+    <li>Identify any genuinely new design-system primitive or token; do not introduce screen-local visual values.</li>
+    <li>Keep the webview presentation-only: no business-rule derivation, URL parsing, path construction, or status aggregation in the UI.</li>
+  </ul>
+
+  <div class="footer">Source documents: <a href="../superpowers/specs/2026-08-08-inside-redesign-implementation-gap-analysis.md">implementation gap analysis</a> · <a href="../superpowers/plans/2026-08-08-inside-redesign.md">implementation plan</a> · <a href="UI-RULES.md">UI rules</a> · <a href="DESIGN-SYSTEM.md">design system</a></div>
+</main>
+</body>
+</html>

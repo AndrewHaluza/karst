@@ -4,6 +4,8 @@ import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { runFix } from './fix.js';
+import { listRecoveryRounds } from '../../store/recoveryRounds.js';
+import { listProcessRuns } from '../../store/processRuns.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 
 function walkToFix(store: Store, id: number): void {
@@ -50,5 +52,16 @@ describe('runFix', () => {
     store.db.prepare('UPDATE tickets SET session_id = NULL WHERE id = ?').run(id);
     const { adapter } = fakeAdapter();
     await expect(runFix(store, { ticketId: id, cwd: '/wt' }, adapter)).rejects.toThrow();
+  });
+
+  it('opens no recovery tracking of its own — runFix is the headless helper, not the production route', async () => {
+    // Production recovery never calls this helper (the driver resumes an
+    // interactive session, tracked by its Fix process run + recovery round).
+    // runFix alone must therefore invent neither: no process run, no round.
+    const { adapter } = fakeAdapter();
+    const next = await runFix(store, { ticketId: id, cwd: '/wt' }, adapter);
+    expect(next).toBe('uat');
+    expect(listProcessRuns(store, id)).toEqual([]);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
   });
 });
