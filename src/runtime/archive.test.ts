@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, unlinkSyn
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { openStore, type Store } from '../store/db.js';
 import { makePortAllocator } from '../resolver/allocator.js';
 import { defaultGitRunner } from '../integrations/git.js';
@@ -122,6 +123,117 @@ describe('archive/restore worktree', () => {
     expect(res.reapedServers.map((s) => [s.repo, s.cwd, s.reason])).toEqual([
       ['frontend', rec.path, 'worktree-removed'],
     ]);
+  });
+
+  // The v21 step was renumbered before release (it once numbered the gate_runs
+  // columns), so a registry stamped by the older build reports user_version 22
+  // while `servers` never gained `cwd` — and the archive's pre-removal server
+  // scan `SELECT … cwd FROM servers` then crashed the whole operation with
+  // "no such column: cwd" (869efu319). The open must REPAIR that shape wherever
+  // the version gate has already passed, and the archive must then complete —
+  // leaving the legacy row alone: a NULL cwd reads as "unknown", never as
+  // "under this worktree".
+  it('archives successfully on a pre-fix DB whose servers table never gained cwd', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-arch-'));
+    const dbPath = join(dir, 'karst.db');
+    // Build the pre-v21 schema: `current = 22` so `openStore`'s v1 step
+    // (CREATE TABLE IF NOT EXISTS) is skipped and only v22+ migrations run.
+    // Every table the archive path and the migration path touch must exist.
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE tickets (
+        id INTEGER PRIMARY KEY, key TEXT NOT NULL, title TEXT NOT NULL,
+        source TEXT, description TEXT, brief TEXT, source_ref TEXT,
+        source_fetched_at TEXT, approach TEXT, selected_repos TEXT,
+        archived_at TEXT, agent TEXT, model TEXT, project_id INTEGER,
+        agent_provider TEXT, session_provider TEXT, parent_ticket_id INTEGER,
+        type TEXT, disabled_gates TEXT, stage_current TEXT NOT NULL DEFAULT 'impl'
+      );
+      CREATE TABLE stages (
+        ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL, status TEXT NOT NULL,
+        attempt INTEGER NOT NULL, blocked_kind TEXT, blocked_reason TEXT,
+        blocked_at TEXT, started_at TEXT, ended_at TEXT,
+        PRIMARY KEY (ticket_id, stage_key)
+      );
+      CREATE TABLE gate_runs (
+        id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL,
+        attempt INTEGER NOT NULL, run_at TEXT NOT NULL, gate_name TEXT NOT NULL,
+        exit_code INTEGER, started_at TEXT, ended_at TEXT
+      );
+      CREATE TABLE servers (
+        id INTEGER PRIMARY KEY, ticket_id INTEGER, repo TEXT NOT NULL, host TEXT,
+        port INTEGER, pid INTEGER, status TEXT NOT NULL, log_path TEXT,
+        started_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE port_allocations (
+        ticket_id INTEGER NOT NULL, repo TEXT NOT NULL, port_name TEXT NOT NULL,
+        port INTEGER NOT NULL, UNIQUE (port)
+      );
+      CREATE TABLE worktrees (
+        ticket_id INTEGER NOT NULL, repo TEXT NOT NULL, path TEXT NOT NULL,
+        branch TEXT, base_ref TEXT, deps_mode TEXT NOT NULL DEFAULT 'inherited',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE worktree_archives (
+        id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, repo TEXT NOT NULL,
+        path TEXT NOT NULL, branch TEXT NOT NULL, base_ref TEXT,
+        archive_ref TEXT NOT NULL, method TEXT NOT NULL, reclaimed_bytes INTEGER,
+        archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    legacy.prepare('INSERT INTO tickets (id, key, title) VALUES (?, ?, ?)').run(1, 'K-9', 'test');
+    // user_version 22: exactly what the pre-renumbering build stamped (its
+    // SCHEMA_VERSION was 22; its v21 ran the gate_runs columns, not servers.cwd).
+    legacy.pragma('user_version = 22');
+    // Insert a running server row BEFORE migration, WITHOUT cwd — exactly the
+    // shape a pre-renumbering build left behind. The path is a string in the DB;
+    // the directory doesn't need to exist yet.
+    legacy
+      .prepare(
+        "INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path) VALUES (1,'frontend','localhost',3005,NULL,'running','/l')",
+      )
+      .run();
+    legacy.close();
+
+    const store = openStore(dbPath);
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    const rec = createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'K-9',
+      baseRef: 'develop',
+    });
+    writeFileSync(join(rec.path, 'index.js'), 'console.log(2);\n');
+
+    const res = await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1,
+      repoPath: repo.path,
+      path: rec.path,
+      branch: rec.branch,
+      baseRef: 'develop',
+    });
+
+    // The migration repaired the missing column before the archive ran…
+    const cols = new Set(
+      (store.db.prepare("PRAGMA table_info('servers')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('cwd')).toBe(true);
+    // …the archive completed with no data loss…
+    expect(res.outcome).toBe('archived');
+    expect(res.archiveRef).toBe('refs/karst/archive/K-9');
+    expect(existsSync(rec.path)).toBe(false);
+    expect(listArchives(store, 1)).toHaveLength(1);
+    // …and the pre-v21 row was left alone: NULL cwd is "unknown", never reaped
+    // on a guess, and certainly not a reason for the archive to fail.
+    expect(res.reapedServers).toEqual([]);
+    expect(
+      store.db.prepare('SELECT status, cwd FROM servers WHERE ticket_id = 1').get(),
+    ).toEqual({ status: 'running', cwd: null });
+
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('reports no servers when the archive was skipped, rather than omitting the field', async () => {
