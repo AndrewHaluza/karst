@@ -1187,14 +1187,15 @@ describe('dashboard webview.html', () => {
 
   it('renders a live operation in the header, never as a second process row', () => {
     // The inside-progress protocol is a same-tick overlay: `active` rides the
-    // stage header (spinner + host label), `completed` replaces the snapshot's
-    // same-id process row, and the full snapshot that follows retires both.
+    // stage header, `completed` replaces the snapshot's same-id process row, and
+    // the full snapshot that follows retires both. The header is status-aware
+    // (F6): only `run` draws the spinner; a `wait` or `fail` draws its own glyph.
     expect(HTML).toMatch(/'inside-progress'/);
     expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ active: e\.live/);
     expect(HTML).toMatch(/liveOps\[e\.stage\] = \{ completed: e\.process \}/);
     expect(HTML).toMatch(/function overlayProcesses/);
     expect(HTML).toMatch(/live && live\.active/);
-    expect(HTML).not.toMatch(/live\.active\.status/);
+    expect(HTML).toMatch(/live\.active\.status \|\| 'run'/);
   });
 
   it('retires a live overlay only when the snapshot contains its process', () => {
@@ -1927,6 +1928,25 @@ describe('inside preview fixture round trip (executed in a VM)', () => {
     const state = { ...previewStateFor(fixture), stageCurrent: 'fix' };
     const html = renderWith(state);          // suite's existing render helper
     expect(html).toContain('Inside uat');    // not empty
+  });
+
+  it('renders a waiting live operation without a running spinner', () => {
+    const fixture = insidePreviewFixtures().find((f) => f.stage === 'uat');
+    if (!fixture) throw new Error('no uat fixture');
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: previewStateFor(fixture) });
+    h.receive({
+      type: 'inside-progress',
+      event: {
+        kind: 'active',
+        stage: 'uat',
+        processId: 'tester',
+        live: { label: 'Waiting for approval', status: 'wait' },
+      },
+    });
+    const html = h.htmlOf('inside');
+    expect(html).not.toContain('class="spin"');
+    expect(html).toContain('⏸');       // OP_GLYPH.wait
   });
 
   it('lets the development preview exercise active, completed, and cleared generic inside-progress events', () => {

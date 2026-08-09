@@ -558,6 +558,8 @@
   .act .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
     font-family:var(--k-font-mono);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .act .alive .spin{width:var(--k-text-xs);height:var(--k-text-xs);flex:none;color:var(--k-running)}
+  .alive .adetail{color:var(--k-text-dim);margin-left:var(--k-space-2)}
+  .alive .adur{color:var(--k-text-dim);margin-left:var(--k-space-2);font-variant-numeric:tabular-nums}
 
   /* The fault card — the one loud element on the page, because a failure is the
      one moment the user MUST read. Machine truth (reason, timings) is monospace. */
@@ -1484,11 +1486,19 @@
         + ` title="Return the strip to the stage the ticket is actually on">Back to ${esc(back)}</button></span></div>`
       : '';
 
-    // One current operation in the header while it runs — spinner + host label,
-    // never a verdict (progress.ts: a live operation is run/wait/fail only).
+    // A live operation is run/wait/fail only (progress.ts) — never a verdict.
+    // The spinner means RUNNING; a wait or a fail gets its own glyph, or the
+    // header claims progress that is not happening.
     const live = liveOps[view.stageKey];
+    const lstatus = live && live.active ? (live.active.status || 'run') : '';
+    const lglyph = lstatus === 'run'
+      ? '<span class="spin" aria-hidden="true"></span>'
+      : `<span class="eglyph" aria-hidden="true">${OP_GLYPH[lstatus] || '·'}</span>`;
     const alive = live && live.active
-      ? `<span class="alive"><span class="spin" aria-hidden="true"></span>${esc(live.active.label || 'Running')}</span>`
+      ? `<span class="alive ${esc(lstatus)}">${lglyph}${esc(live.active.label || 'Running')}`
+        + (live.active.detail ? `<span class="adetail">${esc(live.active.detail)}</span>` : '')
+        + (live.active.duration ? `<span class="adur">${esc(live.active.duration)}</span>` : '')
+        + `</span>`
       : '';
 
     const procs = overlayProcesses(view);
