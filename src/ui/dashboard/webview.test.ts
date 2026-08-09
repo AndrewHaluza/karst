@@ -7,7 +7,7 @@ import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
-import { renderStateFor } from './renderFixtures.js';
+import { implementationPrototypeFixture, renderStateFor } from './renderFixtures.js';
 import type { DashboardState } from './state.js';
 import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 
@@ -1143,7 +1143,7 @@ describe('dashboard webview.html', () => {
     // reads `state.insideViews[sel]`.
     expect(HTML).toMatch(/state\.insideViews/);
     expect(HTML).toMatch(/function processRowHtml/);
-    expect(HTML).toMatch(/class="procs"/);
+    expect(HTML).toMatch(/class="inside-process \$\{esc\(p\.status\)\}"/);
     expect(HTML).toMatch(/function renderInside\(state, sel\)[\s\S]*state\.insideViews/);
     expect(HTML).not.toMatch(/function renderInsideFlat/);
     expect(HTML).not.toMatch(/shipping && sel === 'ship'/);
@@ -1191,8 +1191,8 @@ describe('dashboard webview.html', () => {
     // <details>/<summary>, not from a click handler. The open state rides the
     // row's OWN data-proc-id (the composite `${stageKey}:${p.id}` the renderer
     // looks up, Task 0.1), persisted through the native `toggle` listener.
-    expect(HTML).toMatch(/<details class="proc \$\{esc\(p\.status\)\}" data-proc-id="\$\{esc\(key\)\}"/);
-    expect(HTML).toMatch(/<summary><span class="prow">/);
+    expect(HTML).toMatch(/<details class="inside-process \$\{esc\(p\.status\)\}" data-proc-id="\$\{esc\(key\)\}"/);
+    expect(HTML).toMatch(/<summary class="process-summary">/);
     expect(HTML).toMatch(/openProcesses = next;/);
     expect(HTML).not.toMatch(/data-chev/);
     expect(HTML).not.toMatch(/aria-expanded/);
@@ -1294,13 +1294,14 @@ describe('dashboard webview.html', () => {
   });
 
   it('keeps the ledger rows wrappable at narrow widths (UI-R04/R05)', () => {
-    // The process row and every evidence row flex-wrap, so 300px never scrolls
-    // the component horizontally: only the glyph columns are fixed, and the
-    // detail column truncates with an ellipsis instead of pushing the row.
-    expect(HTML).toMatch(/\.proc \.prow\{display:flex;flex-wrap:wrap/);
+    // The process summary is a GRID whose content column is minmax(0,1fr) and
+    // every evidence row flex-wraps, so 300px never scrolls the component
+    // horizontally: only the glyph column is fixed, and the detail column
+    // truncates with an ellipsis instead of pushing the row.
+    expect(HTML).toMatch(/\.process-summary\{display:grid[^}]*minmax\(0,1fr\)/);
     expect(HTML).toMatch(/\.erow\{display:flex;flex-wrap:wrap/);
     expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
-    // The detail column is a pure flex item (min-width:0 lets it shrink to its
+    // The detail cell is a pure grid item (min-width:0 lets it shrink to its
     // ellipsis), never a fixed or minimum width that could overflow at 300px.
     const pdetail = HTML.slice(HTML.indexOf('.pdetail{'), HTML.indexOf('.pdetail{') + 240);
     expect(pdetail).toContain('min-width:0');
@@ -1314,7 +1315,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/#inside\{[^}]*container-type:inline-size/);
   });
 
-  it('covers the handoff breakpoints 300/360/430 with .act/.proc/.erow rules (B7)', () => {
+  it('covers the handoff breakpoints 300/360/430 with ledger rules (B7)', () => {
     const blockFor = (w: string): string => {
       const at = HTML.indexOf(`@container (max-width: ${w}){`);
       expect(at, `missing @container (max-width: ${w})`).toBeGreaterThan(-1);
@@ -1333,25 +1334,29 @@ describe('dashboard webview.html', () => {
       return HTML.slice(at, end);
     };
     // ≤430: identity + token metadata move to a second line as ONE cluster
-    // (handoff §10), and both the process detail and the evidence detail wrap
-    // instead of ellipsising to nothing (the §3.9 finding).
+    // (handoff §10) — the summary grid re-areas so ident lands on its own row
+    // under label+detail — and both the process detail and the evidence
+    // detail wrap instead of ellipsising to nothing (the §3.9 finding).
     const wide = blockFor('430px');
-    expect(wide).toMatch(/\.act \.proc \.pident\{[^}]*flex-basis:100%/);
-    expect(wide).toMatch(/\.act \.proc \.pdetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
-    expect(wide).toMatch(/\.act \.erow \.edetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
+    expect(wide).toMatch(/\.inside-ledger \.process-summary\{[^}]*grid-template-areas:"glyph name status chev"/);
+    expect(wide).toMatch(
+      /grid-template-areas:"glyph name status chev" "glyph detail status chev" "glyph ident status chev"/,
+    );
+    expect(wide).toMatch(/\.inside-ledger \.process-summary \.pdetail\{[^}]*white-space:normal/);
+    expect(wide).toMatch(/\.inside-ledger \.pev \.edetail\{[^}]*flex-basis:100%[^}]*white-space:normal/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
-    expect(wide).toMatch(/\.act \.pev-timeline \.erow \.edetail\{[^}]*white-space:nowrap/);
+    expect(wide).toMatch(/\.inside-ledger \.pev-timeline \.erow \.edetail\{[^}]*white-space:nowrap/);
     // ≤360: the block's chrome thins — margins and gaps tighten.
-    expect(blockFor('360px')).toMatch(/\.act\{[^}]*margin/);
-    expect(blockFor('360px')).toMatch(/\.act \.proc \.pright\{/);
-    expect(blockFor('360px')).toMatch(/\.act \.erow\{/);
+    expect(blockFor('360px')).toMatch(/\.inside-ledger\{[^}]*margin/);
+    expect(blockFor('360px')).toMatch(/\.inside-ledger \.pright\{/);
+    expect(blockFor('360px')).toMatch(/\.inside-ledger \.erow\{/);
     // ≤300: the floor — only row chrome thins; the status and the name are
     // never dropped (handoff §10: "Do not hide the only status or action").
     const floor = blockFor('300px');
-    expect(floor).toMatch(/\.act \.proc \.prow\{/);
-    expect(floor).toMatch(/\.act \.proc \.pev\{/);
-    expect(floor).toMatch(/\.act \.erow\{/);
+    expect(floor).toMatch(/\.inside-ledger \.process-summary\{/);
+    expect(floor).toMatch(/\.inside-ledger \.process-evidence\{/);
+    expect(floor).toMatch(/\.inside-ledger \.erow\{/);
     expect(floor).not.toMatch(/display:none/);
   });
 
@@ -1383,38 +1388,39 @@ describe('dashboard webview.html', () => {
     // <summary> is neither a <button> nor an <a>/<input>, so the primitives'
     // generic :focus-visible rule never reaches it (UI-R23 — same as .mgd and
     // .pcms). The marker is decorative; the rotation states the open state.
-    expect(HTML).toMatch(/\.proc summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
+    expect(HTML).toMatch(/\.inside-process summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
     expect(HTML).toMatch(/class="pchev"/);
-    expect(HTML).toMatch(/\.proc\[open\] \.pchev\{transform:rotate\(90deg\)\}/);
+    expect(HTML).toMatch(/\.inside-process\[open\] \.pchev\{transform:rotate\(90deg\)\}/);
   });
 
   it('places status and name before every piece of metadata on a process row', () => {
-    // Step 8: inside the RENDERED row template, status glyph → name → identity
-    // cluster → detail → metadata → action → disclosure, in that order, so
-    // the eye reads the claim before the facts about it and the metadata can
-    // never outrank the name. (The disclosure button's markup is BUILT earlier
-    // in the function — its position in the rendered template is what counts.)
+    // Step 8: inside the RENDERED summary template, status glyph → label →
+    // detail → right-side identity/tokens → status/action → disclosure marker,
+    // in that order, so the eye reads the claim before the facts about it and
+    // the metadata can never outrank the name. (The disclosure button's markup
+    // is BUILT earlier in the function — its position in the rendered template
+    // is what counts.)
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
     const rendered = row.slice(row.indexOf('return `'));
     const positions = [
       rendered.indexOf('<span class="pglyph">'),
       rendered.indexOf('<span class="pname">'),
-      rendered.indexOf('${ident}'),
       rendered.indexOf('<span class="pdetail">'),
+      rendered.indexOf('${ident}'),
       rendered.indexOf('<span class="pright">'),
       rendered.indexOf('${marker}'),
     ];
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
-  it('keeps process metadata attached to its own row, inside the row container', () => {
-    // The aggregate/count/duration metadata renders inside `.pright` — a child
-    // of the process's `.prow` — so it can never drift onto another process.
-    // The aggregate is a host-shipped string (B4); the webview concatenates
-    // nothing.
+  it('keeps process metadata attached to its own row, inside the summary container', () => {
+    // The aggregate/count/duration metadata and the visible status word render
+    // inside `.pright` — a child of the process's `.process-summary` — so they
+    // can never drift onto another process. The aggregate is a host-shipped
+    // string (B4); the webview concatenates nothing.
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
     expect(row).toMatch(/const meta = \[p\.aggregate, p\.count, p\.duration\]/);
-    expect(row).toMatch(/class="pright">\$\{meta\}\$\{act\}<\/span>\$\{marker\}/);
+    expect(row).toMatch(/class="pright">\$\{meta\}\$\{status\}\$\{act\}<\/span>\$\{marker\}/);
   });
 
   it('escapes every untrusted fixture string at the row templates (UI-R32)', () => {
@@ -1809,14 +1815,21 @@ function bootPreviewHarness(): PreviewHarness {
     },
     clickChevron: (key) => {
       const [stageKey, processId] = key.split(':');
-      const procId = clickChevron(elements.inside!.innerHTML, stageKey!, processId!);
-      // A native <details> disclosure: the browser flipped `open` and fired the
+      const html = elements.inside!.innerHTML;
+      const rowAt = html.indexOf(`data-proc-id="${stageKey}:${processId}"`);
+      if (rowAt < 0) throw new Error(`no process row for ${key}`);
+      const tag = html.slice(rowAt, html.indexOf('>', rowAt));
+      // A native <details> toggles: the browser flips `open` and fires the
       // `toggle` event, which the capture-phase listener persists by procId.
+      // The new state is the OPPOSITE of what the rendered row currently has,
+      // so clicking an open row collapses it (Task 3's default-open session
+      // is exactly that case) and clicking a closed row expands it.
+      const open = !tag.includes(' open');
       for (const handler of docListeners.get('toggle') ?? []) {
         handler({
           target: {
             closest: (sel: string) =>
-              sel === '.proc' ? { dataset: { procId }, open: true } : null,
+              sel === '.inside-process' ? { dataset: { procId: `${stageKey}:${processId}` }, open } : null,
           },
         });
       }
@@ -1860,6 +1873,100 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
   });
 
+  // ── the approved prototype ledger (Task 3) ──────────────────────────────
+  // The outer Inside block is rebuilt to the designer handoff's anatomy: a
+  // quiet ledger (`inside-ledger`) with a compact stage-key header
+  // (`inside-head`), one process per native details (`inside-process`), and
+  // the process summary grid / evidence / footer (`process-summary`,
+  // `process-evidence`, `process-footer`). The implementation fixture is the
+  // locked contract (renderFixtures.ts, Task 1) — the acceptance screenshot's
+  // exact session, with its status label and footer facts (Task 2).
+
+  /** Render the implementation prototype fixture through the real harness. */
+  function renderPrototypeImpl(): string {
+    const state = renderStateFor('impl');
+    return renderWith({
+      ...state,
+      insideViews: { ...state.insideViews, impl: implementationPrototypeFixture().view },
+    });
+  }
+
+  it('renders the approved quiet ledger markup (Task 3)', () => {
+    const html = renderPrototypeImpl();
+    expect(html).toContain('class="inside-ledger"');
+    expect(html).toContain('class="inside-head"');
+    expect(html).toContain('Inside impl');
+    expect(html).toContain('class="inside-process pass"');
+    expect(html).toContain('Session');
+    expect(html).toContain('Completed');
+    expect(html).toContain('session c7f1');
+    expect(html).toContain('same session continues across switches');
+    // The old hover-card strip classes are gone wholesale — never reintroduce
+    // `.act`/`.ahead`/`.procs` as the rendered shell.
+    expect(html).not.toContain('class="act ');
+    expect(html).not.toContain('class="procs"');
+  });
+
+  it('keeps the full stage title on the compact header (Task 3)', () => {
+    const html = renderPrototypeImpl();
+    expect(html).toContain('<header class="inside-head" title="Implementation">');
+  });
+
+  it('orders the summary label before detail before the right-side cluster (Task 3)', () => {
+    const html = renderPrototypeImpl();
+    const summary = html.slice(html.indexOf('class="process-summary"'), html.indexOf('</summary>'));
+    const label = summary.indexOf('<span class="pname">');
+    const detail = summary.indexOf('<span class="pdetail">');
+    const ident = summary.indexOf('class="pident"');
+    const right = summary.indexOf('class="pright"');
+    expect(label).toBeGreaterThan(-1);
+    expect(detail).toBeGreaterThan(label);
+    expect(ident).toBeGreaterThan(detail);
+    expect(right).toBeGreaterThan(detail);
+    // The footer follows the evidence inside the same disclosure.
+    expect(html.indexOf('class="process-footer"')).toBeGreaterThan(html.indexOf('class="process-evidence"'));
+  });
+
+  it('renders the process status word as visible text, never colour alone (Task 3)', () => {
+    // The host-shipped `statusLabel` ("Completed") is the process row's own
+    // visible state — a real word in the markup, so the status survives any
+    // theme that ignores colour, exactly like the evidence rows' status words.
+    const html = renderPrototypeImpl();
+    expect(html).toContain('<span class="pstatus pass">Completed</span>');
+  });
+
+  it('opens the completed session disclosure on first render (Task 3)', () => {
+    // The approved Implementation screenshot shows the timeline without a
+    // preliminary click: a `session` process with evidence renders open on the
+    // FIRST render, before the user has touched anything.
+    const html = renderInsideFor('impl');
+    expect(html).toContain('data-proc-id="impl:session" open');
+    expect(html).toContain('class="pev pev-timeline"');
+  });
+
+  it('keeps the session collapsed across re-renders once the user closes it (Task 3)', () => {
+    // Default-open is a first-render fallback only: the user's explicit close
+    // must win on every later render, or a collapsed row would snap open again
+    // on the next state push.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('impl') });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="impl:session" open');
+    h.clickChevron('impl:session');
+    h.receive({ type: 'state', state: renderStateFor('impl') });
+    expect(h.htmlOf('inside')).not.toContain('data-proc-id="impl:session" open');
+    expect(h.htmlOf('inside')).not.toContain('class="pev pev-timeline"');
+  });
+
+  it('default-opens only session evidence, never gates, findings, PRs, or receipts (Task 3)', () => {
+    // Repository-scaled evidence (gates, findings, commit/pr/merge rows, the
+    // delivery receipt) stays closed on first render — only the ticket's own
+    // session timeline earns the open default.
+    for (const stage of ['uat', 'review', 'ship', 'done'] as const) {
+      const html = renderInsideFor(stage);
+      expect(html, `stage ${stage} default-opened a row`).not.toMatch(/data-proc-id="[^"]+"\s+open/);
+    }
+  });
+
   /**
    * Open one process row's disclosure and return the rendered evidence block.
    * The fixture matrix (renderFixtures) covers all eight kinds: rows on scope's
@@ -1869,7 +1976,12 @@ describe('inside render round trip (executed in a VM)', () => {
   function openEvidence(stage: InsideStageKey, processId: string): string {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: renderStateFor(stage) });
-    h.clickChevron(`${stage}:${processId}`);
+    // The session disclosure is default-open on first render (Task 3); a row
+    // already showing its evidence needs no click. Any other row is toggled
+    // open exactly like a user clicking its chevron.
+    if (!h.htmlOf('inside').includes(`data-proc-id="${stage}:${processId}" open`)) {
+      h.clickChevron(`${stage}:${processId}`);
+    }
     // A native <details> keeps its own DOM `open`; persistence is proven by
     // the NEXT render, which must restore the disclosure from the open set.
     h.receive({ type: 'state', state: renderStateFor(stage) });

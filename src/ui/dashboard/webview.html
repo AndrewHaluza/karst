@@ -351,9 +351,10 @@
      not be able to push the button it belongs to out of the clip. */
   .track .seg.cur .mt{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 
-  /* The needs-you control. NOT `.act` — that is the activity strip's class. It is
-     NAVIGATIONAL: it scrolls the control that owns the action into view and
-     focuses it, so the rail never becomes a second actor for an irreversible step.
+  /* The needs-you control. NOT `.act` — that was the retired activity strip's
+     class (the inside ledger now). It is NAVIGATIONAL: it scrolls the control
+     that owns the action into view and focuses it, so the rail never becomes a
+     second actor for an irreversible step.
      merge is per-repo and its confirmation modal lives in the host, so a
      rail-level Merge button could neither pick a repo nor carry the confirmation. */
   .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
@@ -459,8 +460,6 @@
     border:calc(var(--k-border-w) * 2) solid currentColor;border-top-color:transparent;
     animation:spin var(--k-dur-spin) linear infinite}
   .track .seg .spin{width:var(--k-space-6);height:var(--k-space-6)}
-  .oglyph .spin{width:var(--k-space-4);height:var(--k-space-4);margin:0 auto;
-    border-width:calc(var(--k-border-w) * 1.5);color:var(--k-running)}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){
     .spin,.track .seg.needs{animation:none}
@@ -469,93 +468,82 @@
     .pchev{transition:none}
   }
 
-  /* ── activity strip: what happens inside the SELECTED stage ───────────── */
-  .act{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
-  .act .ahead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border)}
-  .act .aname{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
-  .act .adot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-running);flex:none}
-  .act .adot.wait{background:var(--k-attention)} .act .adot.idle{background:var(--k-pending)}
-  .act .adot.fail{background:var(--k-failed)} .act .adot.done{background:var(--k-passed)}
-  .act .adot.pend{background:transparent;border:calc(var(--k-border-w) * 2) solid var(--k-pending);width:var(--k-space-4);height:var(--k-space-4)}
-  .act .aclock{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
+  /* ── inside ledger: what happens inside the SELECTED stage ──────────────
+     The approved quiet ledger (Task 3): ONE border around the block, a
+     hairline under the header, one between top-level processes — never a
+     filled hover card per row. Viewing bar above the header, live op inside. */
+  .inside-ledger{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
   /* Viewing a stage that is not the current one — say so, and offer the way
      back. Without this the strip silently contradicts the Now line. */
-  .act.viewing{border-color:var(--k-series-2)}
-  .act .vbar{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-xs);
+  .inside-ledger.viewing{border-color:var(--k-series-2)}
+  .inside-ledger .vbar{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-xs);
     color:var(--k-text-dim);background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border)}
-  .act .vbar .sp{margin-left:auto}
-  .act .blurb{padding:var(--k-space-5) var(--k-space-7);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .act .ops{padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
-  .op{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
-  .op:hover{background:var(--k-surface-hover)}
-  .op .oglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint)}
-  .op.pass .oglyph{color:var(--k-passed)} .op.run .oglyph{color:var(--k-running)}
-  .op.fail .oglyph{color:var(--k-failed)} .op.wait .oglyph{color:var(--k-attention)}
-  /* 82px has no scale match — the name column's minimum is set by the longest
-     op label karst emits ("Implementation"), not a spacing value. */
-  .op .oname{font-size:var(--k-text-md);min-width:82px}
-  .op .ocmd{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;overflow:hidden;
-    white-space:nowrap;text-overflow:ellipsis}
-  .op .odur{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
-  .op.pending{opacity:.5}
-  /* A gate the repo cannot answer, or a phase karst cannot observe, is not a
-     failure — say so plainly instead of dressing it as a status. */
-  .op.note .ocmd{font-style:italic;opacity:.75}
-  /* A withdrawn question, not an unanswerable one: dimmed like `pending` but
-     glyphed distinctly, so it never reads as a gate still to come. */
-  .op.skip .oglyph{color:var(--k-text-faint)}
-  .op.skip{opacity:.7}
-  .op.skip .ocmd{font-style:italic}
+  .inside-ledger .vbar .sp{margin-left:auto}
+  .inside-head{display:flex;align-items:baseline;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-6);
+    border-bottom:var(--k-border-w) solid var(--k-border)}
+  .inside-head strong{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
+  .inside-clock{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-faint)}
+  .inside-ledger .blurb{padding:var(--k-space-5) var(--k-space-7);font-size:var(--k-text-sm);color:var(--k-text-dim)}
 
   /* ── inside ledger: process rows with evidence (the inside redesign) ────
-     One generic row per process. Everything on the row — status, label,
-     detail, counts, identity, tokens, action id — arrives pre-built in the
-     snapshot; the webview never derives a verdict or a label from prose. The
-     disclosure is a native <details>/<summary> (B3, UI-R09), never a
-     clickable div. */
-  .act .procs{padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
-  .proc{border-radius:var(--k-radius-md)}
-  .proc:hover{background:var(--k-surface-hover)}
-  .proc .prow{display:flex;flex-wrap:wrap;align-items:center;column-gap:var(--k-space-5);row-gap:var(--k-space-2);padding:var(--k-space-3) var(--k-space-4)}
-  .proc .pglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
-  .proc.pass .pglyph{color:var(--k-passed)} .proc.run .pglyph{color:var(--k-running)}
-  .proc.fail .pglyph{color:var(--k-failed)} .proc.wait .pglyph{color:var(--k-attention)}
-  .proc .pname{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
-  /* The recorded execution identity — `execution` when the process ran,
-     `configuredExecution` when it has not. One compact chip, never both: they
-     make two different claims and must not read as one. */
-  .proc .pchip{display:inline-flex;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
+     One generic row per process; every fact (status, label, detail, counts,
+     identity, tokens, action id, status WORD, footer facts) arrives pre-built
+     in the snapshot — the webview never derives a verdict or label from
+     prose. The summary is the handoff's grid (§3): status marker, flexible
+     content (label + detail), identity/tokens, terminal status + action.
+     Native <details>/<summary> (B3, UI-R09). One hairline between top-level
+     processes; no filled hover card — a quiet ledger, not a control menu. */
+  .inside-process + .inside-process{border-top:var(--k-border-w) solid var(--k-border)}
+  .inside-process summary{list-style:none;cursor:pointer}
+  .inside-process summary::-webkit-details-marker{display:none}
+  .inside-process summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .process-summary{display:grid;grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(0,1fr) auto auto auto;
+    grid-template-areas:"glyph name ident status chev" "glyph detail ident status chev";
+    align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-3) var(--k-space-4)}
+  .process-summary .pglyph{grid-area:glyph;text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint)}
+  .inside-process.pass .pglyph{color:var(--k-passed)} .inside-process.run .pglyph{color:var(--k-running)}
+  .inside-process.fail .pglyph{color:var(--k-failed)} .inside-process.wait .pglyph{color:var(--k-attention)}
+  .process-summary .pname{grid-area:name;font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+  .process-summary .pdetail{grid-area:detail;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);
+    min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  /* The recorded execution identity — `execution` (what ran) or
+     `configuredExecution` (what settings said would run). One compact chip,
+     never both: two different claims must not read as one. */
+  .process-summary .pchip{display:inline-flex;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
     border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
     font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
-  .proc .pchip::before{content:'';width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);background:var(--k-text-faint)}
-  /* The agent-core mark replaces the quiet dot: two identity marks in one chip
-     would compete, and the icon IS the identity (handoff §5). The injected
-     .agenticon rules own the icon's box; this only stops the dot. */
-  .proc .pchip.with-icon::before{display:none}
+  .process-summary .pchip::before{content:'';width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);background:var(--k-text-faint)}
+  /* The agent-core mark replaces the quiet dot (handoff §5); the injected
+     .agenticon rules own the icon's box. */
+  .process-summary .pchip.with-icon::before{display:none}
   /* Identity + tokens, one cluster (B7): the container query moves the pair
      to a second line TOGETHER at narrow widths. */
-  .proc .pident{display:inline-flex;align-items:center;gap:var(--k-space-2)}
-  .proc .ptok{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
-  .proc .pdetail{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);flex:1;min-width:0;
-    overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .proc .pright{margin-left:auto;display:flex;align-items:center;gap:var(--k-space-4);flex:none}
-  .proc .pmeta{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);white-space:nowrap}
-  .proc.pending{opacity:.5}
-  .proc.note .pdetail{font-style:italic;opacity:.75}
-  .proc.skip .pdetail{font-style:italic;opacity:.7}
-  /* The disclosure is a native <details>/<summary> (B3, UI-R09): the process
-     row IS the summary, so keyboard operability comes from the element, never
-     from a click handler. The marker is decorative (aria-hidden) and its
-     rotation states the open state; the summary's own text is the accessible
-     name. `list-style` + the webkit marker rule silence the default triangle
-     so the marker below is the only affordance. */
-  .proc summary{list-style:none;cursor:pointer}
-  .proc summary::-webkit-details-marker{display:none}
-  .proc summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .proc .pchev{flex:none;color:var(--k-text-faint);font-size:var(--k-text-md);line-height:1;
+  .process-summary .pident{grid-area:ident;display:inline-flex;align-items:center;gap:var(--k-space-2)}
+  .process-summary .ptok{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .process-summary .pright{grid-area:status;display:flex;align-items:center;gap:var(--k-space-4);justify-content:flex-end;flex:none}
+  .process-summary .pmeta{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);white-space:nowrap}
+  /* The visible status WORD (UI-R06): the row's status class rides the word's
+     own span, like the evidence rows' estatus words. */
+  .process-summary .pstatus{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
+  .process-summary .pstatus.pass{color:var(--k-passed)} .process-summary .pstatus.fail{color:var(--k-failed)}
+  .process-summary .pstatus.run{color:var(--k-running)} .process-summary .pstatus.wait{color:var(--k-attention)}
+  .process-summary .pstatus.note,.process-summary .pstatus.pending{color:var(--k-text-dim)}
+  .inside-process.pending{opacity:.5}
+  .inside-process.note .pdetail{font-style:italic;opacity:.75}
+  .inside-process.skip .pdetail{font-style:italic;opacity:.7}
+  /* The disclosure is a native <details>/<summary> (B3, UI-R09): the row IS
+     the summary, so keyboard operability comes from the element, never a
+     click handler. The marker is decorative (aria-hidden); its rotation
+     states the open state; the summary's own text is the accessible name. */
+  .process-summary .pchev{grid-area:chev;color:var(--k-text-faint);font-size:var(--k-text-md);line-height:1;
     transition:transform var(--k-dur-fast) var(--k-ease-standard)}
-  .proc[open] .pchev{transform:rotate(90deg)}
-  .proc .pev{border-top:var(--k-border-w) solid var(--k-border);margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-3) 0}
+  .inside-process[open] .pchev{transform:rotate(90deg)}
+  .process-evidence{border-top:var(--k-border-w) solid var(--k-border);margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-3) 0}
+  /* The recorded session facts below the expanded process (Task 2): finished
+     host strings, rendered verbatim — compact, mono, never concatenated. */
+  .process-footer{display:flex;flex-wrap:wrap;gap:var(--k-space-2) var(--k-space-5);padding:0 var(--k-space-4) var(--k-space-4);
+    font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint)}
   .erow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:var(--k-space-4);row-gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4);border-radius:var(--k-radius-md)}
   .erow:hover{background:var(--k-surface-hover)}
   .erow .eglyph{width:calc(var(--k-space-6) + var(--k-space-1));text-align:center;font-size:var(--k-text-xs);color:var(--k-text-faint);flex:none}
@@ -613,33 +601,34 @@
      The timeline re-locks: its spine and time column stay on one line so node
      and edge alignment survive every width (§10). */
   @container (max-width: 430px){
-    .act .proc .pident{flex-basis:100%}
-    .act .proc .pdetail{flex-basis:100%;white-space:normal;overflow:visible}
-    .act .erow .edetail{flex-basis:100%;white-space:normal;overflow:visible}
-    .act .pev-timeline .erow .edetail{flex-basis:auto;white-space:nowrap;overflow:hidden}
+    .inside-ledger .process-summary{grid-template-columns:calc(var(--k-space-6) + var(--k-space-1)) minmax(0,1fr) auto auto;
+      grid-template-areas:"glyph name status chev" "glyph detail status chev" "glyph ident status chev"}
+    .inside-ledger .process-summary .pdetail{white-space:normal;overflow:visible}
+    .inside-ledger .pev .edetail{flex-basis:100%;white-space:normal;overflow:visible}
+    .inside-ledger .pev-timeline .erow .edetail{flex-basis:auto;white-space:nowrap;overflow:hidden}
   }
 
   /* ≤360 — the block's chrome thins: the side margins and the row gaps
      tighten so the two-line row still fits its action button. */
   @container (max-width: 360px){
-    .act{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
-    .act .proc .pright{flex-wrap:wrap;justify-content:flex-end}
-    .act .erow{column-gap:var(--k-space-2)}
+    .inside-ledger{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
+    .inside-ledger .pright{flex-wrap:wrap;justify-content:flex-end}
+    .inside-ledger .erow{column-gap:var(--k-space-2)}
   }
 
   /* ≤300 — the floor. Only row chrome thins (padding, evidence margins); the
      status glyph and the name are never dropped, and the disclosure keeps its
      marker (handoff §10: "Do not hide the only status or action"). */
   @container (max-width: 300px){
-    .act .proc .prow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
-    .act .proc .pev{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
-    .act .erow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
+    .inside-ledger .process-summary{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
+    .inside-ledger .process-evidence{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
+    .inside-ledger .erow{padding-left:var(--k-space-2);padding-right:var(--k-space-2)}
   }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
-  .act .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
+  .inside-head .alive{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim);
     font-family:var(--k-font-mono);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .act .alive .spin{width:var(--k-text-xs);height:var(--k-text-xs);flex:none;color:var(--k-running)}
+  .inside-head .alive .spin{width:var(--k-text-xs);height:var(--k-text-xs);flex:none;color:var(--k-running)}
   .alive .adetail{color:var(--k-text-dim);margin-left:var(--k-space-2)}
   .alive .adur{color:var(--k-text-dim);margin-left:var(--k-space-2);font-variant-numeric:tabular-nums}
 
@@ -1097,6 +1086,10 @@
   // through the host; only the native `toggle` listener mutates it (B3), and
   // render() itself must never reset it.
   let openProcesses = new Set();
+  // Which disclosures the user has explicitly COLLAPSED, keyed `stage:id`
+  // (Task 3, Step 5). openProcesses holds open keys only, so absence cannot
+  // tell "never opened" from "closed" — this set can. Only `toggle` mutates.
+  let closedProcesses = new Set();
   // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
   // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
   // in which a button with no busy state looks inert and gets pressed again.
@@ -1518,24 +1511,31 @@
     const act = p.action ? insideActionBtnHtml(p.action) : '';
     const hasEv = p.evidence && p.evidence.rows.length;
     // Identity + tokens are ONE cluster (B7): at narrow widths the container
-    // query moves the pair to a second line together (flex-basis:100%),
-    // instead of each wrapping independently and staggering the row.
+    // query moves the pair to a second line together, instead of each
+    // wrapping independently and staggering the row.
     const chip = identityChipHtml(p);
     const tok = tokensHtml(p.tokens);
     const ident = chip || tok ? `<span class="pident">${chip}${tok}</span>` : '';
-    // A real <details>/<summary> (B3, decision 7): the row IS the summary, so
-    // keyboard operability comes from the element, not a handler (UI-R09).
-    // The composite `${key}` (stage:process, Task 0.1) rides the row's own
-    // data-proc-id; the capture-phase `toggle` listener persists the open set
-    // keyed by exactly that, so a disclosure survives the next re-render. The
-    // marker is decorative; the summary text is the accessible name.
+    // The visible status WORD (UI-R06): the host-shipped `statusLabel`
+    // ("Completed", "Running") when present — rendered verbatim, never
+    // re-derived from the glyph — else the closed status→word map.
+    const status = `<span class="pstatus ${esc(p.status)}">${esc(p.statusLabel || INSIDE_STATUS_LABEL[p.status] || p.status)}</span>`;
+    // A real <details>/<summary> (B3, decision 7): keyboard operability from
+    // the element, never a handler (UI-R09). The composite `${key}`
+    // (stage:process, Task 0.1) rides data-proc-id; the `toggle` listener
+    // persists the open set keyed by exactly that. Grid order: marker →
+    // label → detail → identity/tokens → status/action → chevron (§3).
     const marker = hasEv ? '<span class="pchev" aria-hidden="true">›</span>' : '';
-    const ev = hasEv && open ? evidenceBlockHtml(p.evidence) : '';
-    return `<details class="proc ${esc(p.status)}" data-proc-id="${esc(key)}"${hasEv && open ? ' open' : ''}>`
-      + `<summary><span class="prow"><span class="pglyph">${glyph}</span>`
-      + `<span class="pname">${esc(p.label)}</span>${ident}`
-      + `<span class="pdetail">${esc(p.detail || '')}</span>`
-      + `<span class="pright">${meta}${act}</span>${marker}</span></summary>${ev}</details>`;
+    const ev = hasEv && open ? `<div class="process-evidence">${evidenceBlockHtml(p.evidence)}</div>` : '';
+    // Host-formatted footer facts (Task 2) ride the expanded disclosure.
+    const footer = open && p.footer && p.footer.length
+      ? `<footer class="process-footer">${p.footer.map((f) => `<span>${esc(f)}</span>`).join('')}</footer>`
+      : '';
+    return `<details class="inside-process ${esc(p.status)}" data-proc-id="${esc(key)}"${hasEv && open ? ' open' : ''}>`
+      + `<summary class="process-summary"><span class="pglyph">${glyph}</span>`
+      + `<span class="pname">${esc(p.label)}</span>`
+      + `<span class="pdetail">${esc(p.detail || '')}</span>${ident}`
+      + `<span class="pright">${meta}${status}${act}</span>${marker}</summary>${ev}${footer}</details>`;
   }
 
   // Live overlays, in order of precedence: a `completed` process row replaces
@@ -1552,6 +1552,23 @@
     // every field the event does not speak to; the next snapshot is
     // authoritative and retires the overlay entirely.
     return view.processes.map((p) => (p.id === id ? { ...p, ...live.completed, evidence: live.completed.evidence ?? p.evidence } : p));
+  }
+
+  // Which process kinds render OPEN on the FIRST render (Task 3, Step 5): the
+  // completed session's timeline is the approval screenshot's starting state —
+  // no click needed. Only the ticket's own session kind earns this;
+  // gates/findings/PRs/receipts stay closed until asked for.
+  const DEFAULT_OPEN_PROCESS_KINDS = new Set(['session']);
+
+  // A disclosure's open state for this render: the user's persisted sets win
+  // once touched (`openProcesses` = opened, `closedProcesses` = collapsed — a
+  // key in neither was never touched), else the default-open kinds above. The
+  // close is tracked separately because absence from openProcesses is also
+  // "never opened", and a collapsed default-open row must stay collapsed.
+  function processOpen(p, key) {
+    if (openProcesses.has(key)) return true;
+    if (closedProcesses.has(key)) return false;
+    return !!(p.evidence && p.evidence.rows.length) && DEFAULT_OPEN_PROCESS_KINDS.has(p.kind);
   }
 
   function renderInside(state, sel) {
@@ -1586,13 +1603,16 @@
 
     const procs = overlayProcesses(view);
     const body = procs.length
-      ? `<div class="procs">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, openProcesses.has(`${view.stageKey}:${p.id}`))).join('')}</div>`
+      ? procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`))).join('')
       : `<div class="blurb">${esc(view.blurb)}</div>`;
 
-    el('inside').innerHTML = `<div class="act ${viewing ? 'viewing' : ''}">${vbar}`
-      + `<div class="ahead"><span class="adot ${esc(view.dot)}"></span>`
-      + `<span class="aname">Inside ${esc(view.title.toLowerCase())}</span>${alive}`
-      + `<span class="aclock">${esc(view.clock)}</span></div>${body}</div>`;
+    // The approved ledger shell (Task 3): one <section> with the handoff's
+    // compact stage-key header ("Inside impl"), full title as tooltip; viewing
+    // bar above the header, live operation inside it, processes as children.
+    el('inside').innerHTML = `<section class="inside-ledger${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
+      + `<header class="inside-head"${view.title ? ` title="${esc(view.title)}"` : ''}>`
+      + `<strong id="inside-title">Inside ${esc(view.stageKey)}</strong>${alive}`
+      + `<span class="inside-clock">${esc(view.clock)}</span></header>${body}</section>`;
   }
 
   // The fault card: the reason a red node is red, the log behind it, and when it
@@ -2344,19 +2364,22 @@
   });
 
   // The inside ledger's disclosure state. A process row IS a native
-  // <details>/<summary> (B3), so the browser discloses it and the `toggle`
-  // event reports the change; persisting here — keyed by the row's OWN
-  // data-proc-id, the composite `${stageKey}:${p.id}` the renderer looks up
-  // (Task 0.1) — is what lets the next full re-render restore exactly the rows
-  // the user had open. Capture phase: `toggle` does not bubble in every
-  // engine, the same reason the .mgd listener below uses it.
+  // <details>/<summary> (B3); persisting the `toggle` — keyed by the row's
+  // OWN data-proc-id, the composite `${stageKey}:${p.id}` the renderer looks
+  // up (Task 0.1) — restores exactly the rows the user had open next render.
+  // Explicit COLLAPSES also land in `closedProcesses` (Task 3, Step 5) so a
+  // default-open row the user closed stays closed. Capture phase, like .mgd.
   document.addEventListener('toggle', (e) => {
-    const node = e.target && e.target.closest && e.target.closest('.proc');
+    const node = e.target && e.target.closest && e.target.closest('.inside-process');
     if (!node || !node.dataset.procId) return;
     const next = new Set(openProcesses);
     if (node.open) next.add(node.dataset.procId);
     else next.delete(node.dataset.procId);
     openProcesses = next;
+    const closed = new Set(closedProcesses);
+    if (node.open) closed.delete(node.dataset.procId);
+    else closed.add(node.dataset.procId);
+    closedProcesses = closed;
   }, true);
 
   // Settle every outstanding merge request against the fresh PR list. `merged`
