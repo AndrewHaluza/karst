@@ -1967,7 +1967,7 @@
     lastState = state;
     // Selection defaults to the current stage; with none (nothing has run) it
     // falls back to scope — the one the user is about to start.
-    const sel = selectedStage || state.stageCurrent || 'scope';
+    const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
     el('title').textContent = state.title || '(untitled)';
     renderKeyPill(state);
     // Follow-up only makes sense once the work shipped — same gate the

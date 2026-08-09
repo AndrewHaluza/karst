@@ -11,7 +11,7 @@ import {
   PREVIEW_REPO_COUNTS,
   PREVIEW_SCENARIOS,
 } from './insideFixtures.js';
-import { previewPayloadFor } from './insidePreview.js';
+import { previewPayloadFor, previewStateFor } from './insidePreview.js';
 import type { DashboardState } from './state.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
@@ -366,7 +366,7 @@ describe('dashboard webview.html', () => {
     // pushState fires on every driver progress tick; anything that reset the
     // selection would snap the panel back to the current stage during a run.
     expect(HTML).toContain('selectedStage');
-    expect(HTML).toMatch(/selectedStage\s*\|\|\s*\w+\.stageCurrent/);
+    expect(HTML).toMatch(/selectedStage\s*\|\|\s*state\.presentedStage\s*\|\|\s*state\.stageCurrent/);
   });
 
   it('emits no action the host does not validate', () => {
@@ -1478,6 +1478,13 @@ function renderInsideFor(stage: string): string {
   return h.htmlOf('inside');
 }
 
+/** Render the whole dashboard for one host-built state message. */
+function renderWith(state: DashboardState): string {
+  const h = bootPreviewHarness();
+  h.receive({ type: 'state', state });
+  return h.htmlOf('inside');
+}
+
 /** A minimal element double for whatever the script touches through `el()`. */
 function previewElement(id: string) {
   const attrs: Record<string, string> = {};
@@ -1858,6 +1865,14 @@ describe('inside preview fixture round trip (executed in a VM)', () => {
     // carry exactly that, or the chevron is inert and no evidence is reachable.
     const html = renderInsideFor('uat');       // use the suite's existing helper
     expect(clickChevron(html, 'uat', 'gates')).toBe('uat:gates');
+  });
+
+  it('falls back to the host-computed presented stage when the ticket is in fix', () => {
+    const fixture = insidePreviewFixtures().find((f) => f.stage === 'uat');
+    if (!fixture) throw new Error('no uat fixture');
+    const state = { ...previewStateFor(fixture), stageCurrent: 'fix' };
+    const html = renderWith(state);          // suite's existing render helper
+    expect(html).toContain('Inside uat');    // not empty
   });
 
   it('lets the development preview exercise active, completed, and cleared generic inside-progress events', () => {
