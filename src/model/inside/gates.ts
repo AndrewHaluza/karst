@@ -459,7 +459,11 @@ function gatesProcess(
 /**
  * The services process: host-known read-only context. It contributes the
  * configured service names to the stage's picture and can never pass or fail —
- * there is no recorded row that would authorize a verdict.
+ * there is no recorded row that would authorize a verdict. When the host
+ * resolved no names, the cause is not knowable here (an unresolved manifest, a
+ * repo outside the ticket's scope, a non-runnable repo), so the row says
+ * "not checked" — it must never claim a manifest fact the reducer did not
+ * read (B6).
  */
 function servicesProcess(cell: StepperCell, services: readonly string[]): InsideProcessView {
   return {
@@ -470,7 +474,7 @@ function servicesProcess(cell: StepperCell, services: readonly string[]): Inside
     detail:
       services.length > 0
         ? services.join(' · ')
-        : 'no service blocks in the manifest — gates run against the worktrees',
+        : 'not checked — no services reported for this ticket',
   };
 }
 

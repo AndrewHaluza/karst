@@ -739,9 +739,26 @@ describe('uatProcesses', () => {
     expect(after.detail).toBe('web');
   });
 
-  it('notes the absence of services rather than claiming any', () => {
+  it('reports the empty services list as not checked, never a manifest fact (B6)', () => {
+    // The empty list is host-resolved (manifest × scope × runnable), so its
+    // cause is not knowable here. The old "no service blocks in the manifest"
+    // claimed a manifest fact the reducer never read — false for a project
+    // whose karst.yml DOES declare services that merely fell outside the
+    // ticket's scope. Absence is not a claim: it is "not checked".
     const views = uatProcesses(qualityInput({ services: [] }));
-    expect(views.find((p) => p.id === 'services')!.detail).toContain('no service blocks');
+    const services = views.find((p) => p.id === 'services')!;
+    expect(services.status).toBe('note');
+    expect(services.detail).toContain('not checked');
+    expect(services.detail).not.toContain('manifest');
+  });
+
+  it('names the configured services without claiming they ran (B6)', () => {
+    // The names are host-known config; nothing here verifies they are up, so
+    // the row stays `note` — a service list is context, never a pass.
+    const views = uatProcesses(qualityInput({ services: ['api', 'web'] }));
+    const services = views.find((p) => p.id === 'services')!;
+    expect(services.status).toBe('note');
+    expect(services.detail).toBe('api · web');
   });
 
   it('renders one fix row for an exhausted series, with every round in its evidence', () => {
