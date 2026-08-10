@@ -164,6 +164,26 @@ describe('buildNowLine', () => {
     });
   });
 
+  it('says the agent is waiting when it asked for input — impl narration must not claim it is running', () => {
+    // The agent stopped on a permission/question ask: the sentence beside the
+    // amber rail must not contradict it by claiming the agent is working.
+    expect(buildNowLine(cell({ stageKey: 'impl' }), { agentWaiting: true })).toEqual({
+      text: 'Now: the agent is waiting — it asked for your input.',
+    });
+  });
+
+  it('keeps the session button beside the waiting line', () => {
+    expect(
+      buildNowLine(cell({ stageKey: 'fix' }), {
+        agentWaiting: true,
+        sessionAction: { kind: 'open', label: 'Open', detail: 'session is live · jump to terminal' },
+      }),
+    ).toEqual({
+      text: 'Now: the agent is waiting — it asked for your input.',
+      action: { kind: 'session', label: 'Open session', detail: 'session is live · jump to terminal' },
+    });
+  });
+
   describe('ship blocked on the merge gate', () => {
     const merge = cell({
       stageKey: 'ship',

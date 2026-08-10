@@ -128,6 +128,14 @@ export function buildNowLine(
     sessionAction?: SessionAction;
     /** The merge gate's current read — supplied only when it has been asked. */
     mergeGate?: MergeGateState;
+    /**
+     * The live agent asked a question or permission (`agentState ===
+     * 'waiting'`). The ticket is blocked on the user RIGHT NOW, so the sentence
+     * must say so — claiming the agent is "running" beside an amber "Needs you"
+     * rail is the contradiction this branch prevents. Mirrors `railNeeds`'
+     * precedence: the live question outranks stage narration.
+     */
+    agentWaiting?: boolean;
   } = {},
 ): NowLine {
   // The returning-user entry point (§ start/continue): the verb rides on the
@@ -144,6 +152,14 @@ export function buildNowLine(
   const NOT_STARTED = 'Now: not started. Launch a session to begin.';
 
   if (!cell) return session ? { text: NOT_STARTED, action: session } : { text: NOT_STARTED };
+
+  if (ctx.agentWaiting) {
+    const line: NowLine = {
+      text: 'Now: the agent is waiting — it asked for your input.',
+    };
+    if (session) line.action = session;
+    return line;
+  }
 
   switch (cell.stageKey) {
     case 'scope':
