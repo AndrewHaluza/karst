@@ -393,6 +393,34 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
     }
   }
 
+  /**
+   * POST + parse the response body. Deliberately separate from `putJson`:
+   * `updateStatus` never reads the payload, while `createTicket` needs the
+   * created task's id/url — one helper for each contract, so a response-shape
+   * change in one path can never surface in the other.
+   */
+  async function postJson(url: string, body: unknown): Promise<unknown> {
+    const token = await deps.token();
+    let res: Response;
+    try {
+      res = await deps.fetchFn(url, {
+        method: 'POST',
+        headers: { Authorization: token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw new ClickupError(`request failed: ${(e as Error).message}`);
+    }
+    if (!res.ok) {
+      throw new ClickupError(`POST ${url} returned ${res.status}`);
+    }
+    try {
+      return await res.json();
+    } catch (e) {
+      throw new ClickupError(`invalid JSON from ${url}: ${(e as Error).message}`);
+    }
+  }
+
   return {
     /**
      * Set a task's status. ClickUp takes the status NAME (`{status: "in review"}`),
@@ -401,6 +429,30 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
      */
     async updateStatus(ref: string, status: string): Promise<void> {
       await putJson(`${API_BASE}/task/${encodeURIComponent(ref)}${taskQuery(deps.teamId)}`, { status });
+    },
+
+    /**
+     * Create a task in the configured list. `listId` is the ONLY configuration
+     * this needs — the same gate `listStatuses` applies, so an unconfigured
+     * list fails loudly instead of minting a task in a guessed location. The
+     * created task's `id` is the ref the host binds as `sourceRef`; `url` is
+     * carried when the payload exposes it.
+     */
+    async createTicket(input: { title: string; description?: string }) {
+      if (!deps.listId) {
+        throw new ClickupError('a List ID is required to create tickets');
+      }
+      const body: Record<string, unknown> = { name: input.title };
+      if (input.description) body.description = input.description;
+      const raw = (await postJson(
+        `${API_BASE}/list/${encodeURIComponent(deps.listId)}/task`,
+        body,
+      )) as RawTask;
+      if (typeof raw.id !== 'string' || raw.id.trim() === '') {
+        throw new ClickupError('created task returned no id');
+      }
+      const url = typeof raw.url === 'string' && raw.url.trim() ? raw.url.trim() : undefined;
+      return { ref: raw.id, ...(url ? { url } : {}) };
     },
 
     async listStatuses(): Promise<string[]> {

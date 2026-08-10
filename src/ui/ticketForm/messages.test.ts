@@ -76,15 +76,15 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
     });
     // repos + approach + agent + model + agentProvider carried through when present
     expect(
       parseTicketFormMessage({
-        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
+        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
     });
   });
 
@@ -92,14 +92,14 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false,
     });
     expect(
       parseTicketFormMessage({
-        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
+        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
     });
     expect(parseTicketFormMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
     expect(parseTicketFormMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
@@ -114,12 +114,12 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
     });
     expect(
       parseTicketFormMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
+      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false,
     });
   });
 
@@ -140,6 +140,34 @@ describe('parseTicketFormMessage', () => {
     expect(parseTicketFormMessage({ ...base, type: 'save', pullBase: false })).not.toHaveProperty(
       'pullBase',
     );
+  });
+
+  it('carries the create-in-provider checkbox on submit AND save, defaulting OFF (869e9xq5y-fu1)', () => {
+    const base = { type: 'submit', key: 'P-1', title: 't', description: 'd' };
+    expect(parseTicketFormMessage({ ...base, createInProvider: true })).toMatchObject({
+      type: 'submit',
+      createInProvider: true,
+    });
+    // Absent / non-boolean reads as OFF — a stale page must never mint an
+    // unrequested remote task.
+    expect(parseTicketFormMessage(base)).toMatchObject({ createInProvider: false });
+    expect(parseTicketFormMessage({ ...base, createInProvider: 'yes' })).toMatchObject({
+      createInProvider: false,
+    });
+    expect(parseTicketFormMessage({ ...base, type: 'save', createInProvider: true })).toMatchObject({
+      type: 'save',
+      createInProvider: true,
+    });
+    expect(parseTicketFormMessage({ ...base, type: 'save' })).toMatchObject({
+      type: 'save',
+      createInProvider: false,
+    });
+  });
+
+  it('accepts create-provider-ticket (the edit-mode button)', () => {
+    expect(parseTicketFormMessage({ type: 'create-provider-ticket' })).toEqual({
+      type: 'create-provider-ticket',
+    });
   });
 
   it('accepts a well-formed set-agent message', () => {
@@ -196,14 +224,14 @@ describe('parseTicketFormMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
     });
     expect(
       parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false,
     });
   });
 
@@ -253,6 +281,7 @@ describe('routeTicketFormAction', () => {
       detachAttachment: vi.fn(),
       openAttachment: vi.fn(),
       openTicketLink: vi.fn(),
+      createProviderTicket: vi.fn(),
       submit: vi.fn(),
       save: vi.fn(),
       requestState: vi.fn(),
@@ -275,12 +304,13 @@ describe('routeTicketFormAction', () => {
     routeTicketFormAction({ type: 'set-provider', id: 'antigravity' }, actions);
     routeTicketFormAction({ type: 'set-type', id: 'fix' }, actions);
     routeTicketFormAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
+    routeTicketFormAction({ type: 'create-provider-ticket' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.searchTickets).toHaveBeenCalledWith('pay', 'to do');
     expect(actions.searchStatuses).toHaveBeenCalled();
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, pullBase: true,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
@@ -288,6 +318,7 @@ describe('routeTicketFormAction', () => {
     expect(actions.setProvider).toHaveBeenCalledWith('antigravity');
     expect(actions.setType).toHaveBeenCalledWith('fix');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
+    expect(actions.createProviderTicket).toHaveBeenCalled();
     // set-provider must not also drive setType (a missing `return` in the
     // switch made a provider pick write the provider id as the ticket TYPE).
     expect(actions.setType).toHaveBeenCalledTimes(1);
@@ -300,7 +331,7 @@ describe('routeTicketFormAction', () => {
       actions,
     );
     expect(actions.save).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
     });
   });
 
@@ -347,6 +378,7 @@ describe('attachment messages', () => {
       setProvider: vi.fn(),
       analyze: vi.fn(),
       openTicketLink: vi.fn(),
+      createProviderTicket: vi.fn(),
       submit: vi.fn(),
       save: vi.fn(),
       requestState: vi.fn(),

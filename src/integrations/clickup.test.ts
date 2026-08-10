@@ -767,3 +767,85 @@ describe('clickupProvider.searchTickets', () => {
     await expect(provider.searchTickets!('x')).rejects.toThrow(/500/);
   });
 });
+
+describe('clickupProvider.createTicket', () => {
+  it('POSTs title + description to the configured list and returns ref/url', async () => {
+    const { fn, calls } = fakeFetch({
+      '/list/42/task': {
+        json: {
+          id: 'cu-new-1',
+          name: 'Fix login',
+          url: 'https://app.clickup.com/t/cu-new-1',
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    const created = await provider.createTicket!({
+      title: 'Fix login',
+      description: 'The modal cannot close.',
+    });
+
+    expect(created).toEqual({ ref: 'cu-new-1', url: 'https://app.clickup.com/t/cu-new-1' });
+    const call = calls.find((c) => c.url.includes('/list/42/task'));
+    expect(call).toBeDefined();
+    expect(call!.method).toBe('POST');
+    expect(call!.headers.Authorization).toBe('tok');
+    expect(call!.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(call!.body ?? '{}')).toEqual({
+      name: 'Fix login',
+      description: 'The modal cannot close.',
+    });
+  });
+
+  it('omits description when none is given', async () => {
+    const { fn, calls } = fakeFetch({
+      '/list/42/task': { json: { id: 'cu-new-2', name: 't' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    await provider.createTicket!({ title: 't' });
+
+    const call = calls.find((c) => c.url.includes('/list/42/task'));
+    expect(JSON.parse(call!.body ?? '{}')).toEqual({ name: 't' });
+  });
+
+  it('returns a bare ref when the payload carries no url', async () => {
+    const { fn } = fakeFetch({ '/list/42/task': { json: { id: 'cu-new-3', name: 't' } } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    expect(await provider.createTicket!({ title: 't' })).toEqual({ ref: 'cu-new-3' });
+  });
+
+  it('throws a ClickupError when no listId is configured', async () => {
+    const { fn } = fakeFetch({ '/list/42/task': { json: { id: 'x' } } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await expect(provider.createTicket!({ title: 't' })).rejects.toThrow(/List ID/);
+  });
+
+  it('throws a ClickupError on a network failure', async () => {
+    const fn = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    await expect(provider.createTicket!({ title: 't' })).rejects.toThrow(
+      /ClickUp: request failed: fetch failed/,
+    );
+  });
+
+  it('throws a ClickupError on a non-ok response', async () => {
+    const { fn } = fakeFetch({ '/list/42/task': { status: 403, json: {} } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    await expect(provider.createTicket!({ title: 't' })).rejects.toThrow(/403/);
+  });
+
+  it('throws a ClickupError when the response has no task id', async () => {
+    const { fn } = fakeFetch({ '/list/42/task': { json: { name: 't' } } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    await expect(provider.createTicket!({ title: 't' })).rejects.toThrow(/no id/i);
+  });
+});

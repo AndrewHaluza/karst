@@ -142,6 +142,48 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * Mint the provider task for a persisted ticket and bind it as `sourceRef` —
+ * the shared heart of the create-mode checkbox AND the edit-mode button.
+ *
+ * The Karst ticket is the unit that must never be lost: callers persist it
+ * FIRST, then invoke this, so a provider failure leaves the ticket intact and
+ * the control retryable. No double-creation: a ticket that already carries a
+ * `sourceRef` is a no-op (the webview hides the control on a bound ticket;
+ * this is the host-side guard for a stale or crafted page).
+ */
+async function bindProviderTask(
+  ctx: TicketFormActionsCtx,
+  deps: TicketFormActionsDeps,
+  ticketId: number,
+): Promise<boolean> {
+  if (!deps.provider.createTicket) {
+    ctx.post({
+      type: 'provider-ticket-error',
+      message: 'This provider cannot create tickets.',
+    });
+    return false;
+  }
+  const ticket = getTicket(deps.store, ticketId);
+  if ((ticket.sourceRef ?? '').trim()) return true; // already bound — never re-create
+  ctx.post({ type: 'busy', what: 'provider-ticket', on: true });
+  try {
+    const created = await deps.provider.createTicket({
+      title: ticket.title ?? '',
+      description: ticket.description ?? undefined,
+    });
+    updateTicketFields(deps.store, ticketId, { sourceRef: created.ref });
+    deps.onChange(); // sidebar/dashboard refresh so the bound link appears
+    ctx.post({ type: 'provider-ticket-created', ref: created.ref, url: created.url ?? null });
+    return true;
+  } catch (e) {
+    ctx.post({ type: 'provider-ticket-error', message: errorMessage(e) });
+    return false;
+  } finally {
+    ctx.post({ type: 'busy', what: 'provider-ticket', on: false });
+  }
+}
+
 /** Repositories whose signal words hit the brief (score > 0), classifier order. */
 function scoredRepos(manifest: Manifest, brief: ContextBrief): string[] {
   return scoreRepos(manifest, {
@@ -691,8 +733,34 @@ export function buildTicketFormActions(
       }
     },
 
+    // The edit-mode "Create in ClickUp" button: bind this ticket to a freshly
+    // minted provider task. The ticket already exists (edit mode), so a
+    // failure leaves it untouched and the control retryable.
+    async createProviderTicket(): Promise<void> {
+      const ticketId = ctx.ticketId;
+      if (ticketId === undefined) return; // create mode has nothing to bind yet
+      await bindProviderTask(ctx, deps, ticketId);
+      // Re-seed on BOTH outcomes: success shows the bound link (sourceRef now
+      // set), failure keeps the page in edit mode with the inline error.
+      ctx.pushState();
+    },
+
     async submit(input): Promise<void> {
       const ticketId = persistDraft(ctx, deps, input);
+
+      // The create-mode "Also create in ClickUp" checkbox: mint + bind the
+      // provider task BEFORE the launch. The Karst ticket is already persisted
+      // (persistDraft), so a provider failure reports inline and stays on the
+      // page — the launch must not start a ticket whose board task failed.
+      if (input.createInProvider) {
+        const bound = await bindProviderTask(ctx, deps, ticketId);
+        if (!bound) {
+          // bindProviderTask already posted the inline reason; just re-seed the
+          // page (the ticket exists now) so the control is retryable.
+          ctx.pushState();
+          return;
+        }
+      }
 
       // Finishing the ticket form hands the ticket off to the workflow: scope its
       // selected repos (worktrees, no servers) and launch the agent session.
@@ -729,7 +797,13 @@ export function buildTicketFormActions(
     async save(input): Promise<void> {
       ctx.post({ type: 'busy', what: 'save', on: true });
       try {
-        persistDraft(ctx, deps, input);
+        const ticketId = persistDraft(ctx, deps, input);
+        // Same checkbox contract as submit: persisting the ticket with the
+        // checkbox on also mints + binds the provider task. A failure reports
+        // inline and the saved ticket stays — save never loses the draft.
+        if (input.createInProvider) {
+          await bindProviderTask(ctx, deps, ticketId);
+        }
         ctx.pushState();
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });
