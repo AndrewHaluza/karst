@@ -514,10 +514,16 @@ export class OpencodeAdapter implements AgentAdapter {
     const args: string[] = [];
     let ownedPaths: string[] | undefined;
     if (opts.hookChannel) {
-      // The generated plugin is the ONLY hook authority karst introduces; `--pure`
-      // suppresses config/global plugins so no inherited plugin can also fire.
+      // The generated plugin is the ONLY hook authority karst introduces — and
+      // `--pure` disables ALL external plugin loading in opencode, including the
+      // auto-discovered `.opencode/plugins/karst-bridge.js` this very call just
+      // wrote. An interactive session launched with `--pure` can therefore never
+      // deliver a single hook event (no SessionStart, no permission.asked, no
+      // usage), which is how a permission ask in an opencode fix session failed
+      // to surface "Needs you" (869eg458d). Never pass it here. Headless `run`
+      // keeps `--pure` on purpose: gate processes need no hooks and stay
+      // isolated from the user's own plugins.
       const pluginPath = writeKarstBridge(opts.cwd, opts.hookChannel.endpointUrl);
-      args.push('--pure');
       ownedPaths = [pluginPath];
     }
     if (opts.model) args.push('--model', opts.model);

@@ -113,8 +113,13 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(body).toContain('session.error');
     expect(body).toContain('permission.asked');
     expect(body).toContain('http://127.0.0.1:4567/hooks');
-    // --pure suppresses config/global plugins so only karst's events fire.
-    expect(cmd.args).toContain('--pure');
+    // `--pure` disables ALL external plugin loading in opencode — including the
+    // auto-discovered `.opencode/plugins/karst-bridge.js` written just above —
+    // so an interactive session launched with it can never deliver a hook event
+    // (no SessionStart, no permission.asked, no usage). That is how a permission
+    // ask in an opencode fix session failed to surface "Needs you" (869eg458d).
+    // The flag must never be passed on an interactive launch.
+    expect(cmd.args).not.toContain('--pure');
     expect(cmd.ownedPaths).toEqual([pluginPath]);
   });
 
