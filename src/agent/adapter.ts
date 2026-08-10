@@ -38,12 +38,12 @@ export interface RunHeadlessOpts {
   model?: string;
   tracking?: UsageTracking;
   /**
-   * Aborts this call, when the core honors it. Optional and best-effort like
-   * `resume`/`allowedTools`: no adapter today threads it into its child
-   * process, so a Stop pressed mid-call is not yet a kill — but the review
-   * findings lane (§ task 13) threads its stage-run signal this far so that
-   * future adapter work has a single place to wire real cancellation into,
-   * rather than inventing a second opts shape when it lands.
+   * Aborts this call: the headless spawn kills the child's whole process group
+   * and the adapter rejects with `name === 'AbortError'` (see
+   * `agent/headlessSpawn.ts`). Optional so a caller without a signal (a draft
+   * classify, a ship description) still gets the timeout bound. Callers that
+   * check `opts.signal?.aborted` after the call (tester, findings lane) keep
+   * working unchanged.
    */
   signal?: AbortSignal;
 }

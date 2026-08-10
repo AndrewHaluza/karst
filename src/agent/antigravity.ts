@@ -20,6 +20,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
 const AGY_BIN = 'agy';
@@ -97,21 +98,14 @@ export type SpawnHeadless = (
   command: string,
   args: string[],
   cwd: string,
+  opts?: HeadlessSpawnOptions,
 ) => Promise<HeadlessSpawnResult>;
 
 export type SpawnImpl = typeof spawn;
 
 export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
-  return (command, args, cwd) =>
-    new Promise((resolve, reject) => {
-      const child = spawnImpl(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-      let stdout = '';
-      let stderr = '';
-      child.stdout?.on('data', (d: unknown) => (stdout += String(d)));
-      child.stderr?.on('data', (d: unknown) => (stderr += String(d)));
-      child.on('error', reject);
-      child.on('close', (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
-    });
+  return (command, args, cwd, opts) =>
+    spawnHeadlessCli(command, args, cwd, opts, spawnImpl);
 }
 
 const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
@@ -228,7 +222,9 @@ export class AntigravityAdapter implements AgentAdapter {
     if (opts.permissionMode === 'bypassPermissions') args.push('--dangerously-skip-permissions');
     // allowedTools mapped or omitted if unsupported.
 
-    const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd);
+    const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd, {
+      signal: opts.signal,
+    });
     if (r.exitCode !== 0) {
       throw attachUsage(
         new Error(

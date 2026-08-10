@@ -77,6 +77,18 @@ describe('AntigravityAdapter', () => {
   });
 
   describe('runHeadless', () => {
+    it('forwards the abort signal into the headless spawn', async () => {
+      let seenOpts: { signal?: AbortSignal } | undefined;
+      const spawner: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+        seenOpts = opts;
+        return { stdout: 'success', stderr: '', exitCode: 0 };
+      };
+      const adapter = new AntigravityAdapter(spawner);
+      const controller = new AbortController();
+      await adapter.runHeadless({ prompt: 'do', cwd: '/test', signal: controller.signal });
+      expect(seenOpts?.signal).toBe(controller.signal);
+    });
+
     it('spawns agy -p and returns output', async () => {
       const spawner = vi.fn(fakeSpawn({ stdout: 'success', exitCode: 0 }));
       const adapter = new AntigravityAdapter(spawner);
@@ -86,7 +98,9 @@ describe('AntigravityAdapter', () => {
         cwd: '/test',
       });
 
-      expect(spawner).toHaveBeenCalledWith('agy', ['-p', 'do the thing'], '/test');
+      expect(spawner).toHaveBeenCalledWith('agy', ['-p', 'do the thing'], '/test', {
+        signal: undefined,
+      });
       expect(result.raw).toBe('success');
       expect(result.sessionId).toBe('');
     });
@@ -105,7 +119,8 @@ describe('AntigravityAdapter', () => {
       expect(spawner).toHaveBeenCalledWith(
         'agy',
         ['-p', 'do the thing', '--conversation', 'sesh-123', '--dangerously-skip-permissions'],
-        '/test'
+        '/test',
+        { signal: undefined }
       );
     });
 

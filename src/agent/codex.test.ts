@@ -1165,6 +1165,23 @@ describe('parseCodexJsonl', () => {
 });
 
 describe('CodexAdapter headless execution', () => {
+  it('forwards the abort signal into the headless spawn', async () => {
+    let seenOpts: { signal?: AbortSignal } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: okJsonl, stderr: '', exitCode: 0 };
+    };
+    const adapter = new CodexAdapter(spawn);
+    const controller = new AbortController();
+    const result = await adapter.runHeadless({
+      prompt: 'hi',
+      cwd: '/wt/a',
+      signal: controller.signal,
+    });
+    expect(result.sessionId).toBe('thread-7');
+    expect(seenOpts?.signal).toBe(controller.signal);
+  });
+
   it('runs a fresh JSONL exec', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okJsonl, exitCode: 0 }));
     const result = await new CodexAdapter(spawn).runHeadless({
@@ -1190,6 +1207,7 @@ describe('CodexAdapter headless execution', () => {
         '- inspect',
       ],
       '/wt',
+      { signal: undefined },
     );
     expect(result).toEqual({
       sessionId: 'thread-7',
@@ -1216,6 +1234,7 @@ describe('CodexAdapter headless execution', () => {
         'continue',
       ],
       '/wt',
+      { signal: undefined },
     );
   });
 

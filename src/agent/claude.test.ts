@@ -48,6 +48,11 @@ describe('makeDefaultSpawn', () => {
     const stdioClosesStdin = Array.isArray(stdio) && stdio[0] === 'ignore';
     const stdinExplicitlyEnded = child.stdin.end.mock.calls.length > 0;
     expect(stdioClosesStdin || stdinExplicitlyEnded).toBe(true);
+
+    // The child is spawned detached so an abort/timeout can kill its whole
+    // process group (killTree), like workflow/gates/run.ts.
+    const detached = (seenOptions as { detached?: boolean } | undefined)?.detached;
+    expect(detached).toBe(true);
   });
 
   it('still accumulates stdout/stderr and resolves on close', async () => {
@@ -544,6 +549,18 @@ describe('ClaudeAdapter.materializeApproach', () => {
 });
 
 describe('ClaudeAdapter.runHeadless', () => {
+  it('forwards the abort signal into the headless spawn', async () => {
+    let seenOpts: { signal?: AbortSignal } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const adapter = new ClaudeAdapter(spawn);
+    const controller = new AbortController();
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a', signal: controller.signal });
+    expect(seenOpts?.signal).toBe(controller.signal);
+  });
+
   it('parses the session id and result text from claude JSON output', async () => {
     const json = JSON.stringify({ session_id: 'sess-9', result: '["api"]' });
     const adapter = new ClaudeAdapter(fakeSpawn({ stdout: json, exitCode: 0 }));

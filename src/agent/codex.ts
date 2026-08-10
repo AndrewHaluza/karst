@@ -28,6 +28,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
@@ -461,27 +462,11 @@ export type SpawnHeadless = (
   command: string,
   args: string[],
   cwd: string,
+  opts?: HeadlessSpawnOptions,
 ) => Promise<HeadlessSpawnResult>;
 
-const defaultSpawn: SpawnHeadless = (command, args, cwd) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (data: unknown) => {
-      stdout += String(data);
-    });
-    child.stderr?.on('data', (data: unknown) => {
-      stderr += String(data);
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? 1 });
-    });
-  });
+const defaultSpawn: SpawnHeadless = (command, args, cwd, opts) =>
+  spawnHeadlessCli(command, args, cwd, opts);
 
 function diagnostic(text: string): string {
   return text.length <= MAX_DIAGNOSTIC_CHARS
@@ -745,7 +730,9 @@ export class CodexAdapter implements AgentAdapter {
     } else {
       args.push('--', opts.prompt);
     }
-    const result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd);
+    const result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd, {
+      signal: opts.signal,
+    });
     if (result.exitCode !== 0) {
       // The counts ride out on the rejection — a run that died mid-stream still
       // burned everything up to the cut (§ token consumption stats).
