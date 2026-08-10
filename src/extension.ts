@@ -2584,8 +2584,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       pidAlive,
       { projectId: startupProject.id },
     )) {
-      logger.info(describeStrandedShip(stranded));
       if (!guardCapability('ship')) continue;
+      logger.info(describeStrandedShip(stranded));
       void runShipSaga(stranded.ticketId).catch((e) => {
         logError('karst: stranded ship resume failed', e);
         provider.refresh();

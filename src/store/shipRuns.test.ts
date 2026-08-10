@@ -579,6 +579,14 @@ describe('ship_runs', () => {
     });
 
     it('ignores a freshly parked ship — stage row pending, no run — the human has not clicked yet', () => {
+      // The machine-produced parked state: review→ship transition writes a
+      // `pending` ship stage row (`ship` is a confirm stage), so the stranded
+      // sweep's `s.status = 'running'` filter excludes it. A `pending` row is
+      // the shape to pin — a missing row would also pass, but only by accident.
+      setStage(store, ticketId, 'ship', {
+        status: 'pending',
+        startedAt: '2026-08-08T11:00:00.000Z',
+      });
       store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(ticketId);
       expect(listStrandedShipTickets(store, () => false)).toEqual([]);
     });

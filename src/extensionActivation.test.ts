@@ -130,6 +130,25 @@ describe('extension activation', () => {
     expect(source).not.toMatch(/void runShipTicket\(/);
   });
 
+  // A dead ship run is ALSO recovered by parking, not just resume: the
+  // reconcile sweep closes a run whose host died and parks the stage `failed`
+  // (the "Retry ship" surface), which runs BEFORE the stranded resume above so
+  // a parked ticket is never ALSO auto-resumed. Pinned like every other
+  // activation sweep: without the wiring, a dead run would only ever be
+  // recovered by the resume path — or by neither, if the block is dropped.
+  it('parks ship runs whose host died on activation, and says which it closed', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toMatch(
+      /reconcileShipRuns\(localStore, pidAlive[\s\S]{0,80}?logger\.info\(\s*describeStaleShipRun\(/,
+    );
+    // The park sweep must run before the stranded resume, or a dead run whose
+    // stage was parked `failed` would read as a ticket that still needs one.
+    expect(source.indexOf('reconcileShipRuns(localStore, pidAlive')).toBeLessThan(
+      source.indexOf('listStrandedShipTickets('),
+    );
+  });
+
   it('identifies restored terminals by pid, which a reload does not strip', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'extension.ts'),
