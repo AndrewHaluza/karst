@@ -52,6 +52,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'terminalNameTemplate',
     'agentProvider',
     'defaultModel',
+    'archiveDoneAfterDays',
   ],
   git: ['conventions'],
   services: ['repositories'],

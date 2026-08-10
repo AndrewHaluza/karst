@@ -35,6 +35,22 @@ describe('extension activation', () => {
     expect(source).toContain('if (result.completedTicket) await onTicketCompleted();');
   });
 
+  // A done ticket is archived on a DELAY (manifest `archiveDoneAfterDays`),
+  // never when it reaches done — a freshly-done ticket must stay on the board —
+  // and a ticket may sit at done for any duration, so the archive is a SWEEP,
+  // not a transition hook. The only timer that already exists is the PR sweep,
+  // so it rides that tick (like settleShipGates): once at activation, then
+  // every PR_SYNC_INTERVAL_MS, with no second interval to dispose. Without the
+  // wiring, done tickets accumulate on the board forever.
+  it('auto-archives done tickets on the PR sweep after the configured delay', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('autoArchiveDoneTickets(localStore, {');
+    expect(source).toContain(
+      '(currentManifest() ?? emptyManifest()).archiveDoneAfterDays ??',
+    );
+  });
+
   // `removeWorktree` reaps the servers it removes a tree out from under, but it
   // can only see removals karst performs. A worktree deleted by anything else —
   // or a server leaked by a build that predates that fix — is reachable only

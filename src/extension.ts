@@ -141,6 +141,7 @@ import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
 import { settleShipGates } from './workflow/mergeGate.js';
+import { autoArchiveDoneTickets } from './store/doneArchive.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
@@ -163,6 +164,7 @@ import {
 } from './integrations/git.js';
 import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
+import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './manifest/schema.js';
 import type { PathContext } from './ui/dashboard/state.js';
 import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
@@ -2340,9 +2342,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Bookkeeping over state that is already stored: the next tick retries.
         logError('karst: merge gate settle failed', e);
       }
+      // Done tickets are archived on a DELAY (manifest `archiveDoneAfterDays`,
+      // default 3 days), never when they reach done — and a ticket can sit at
+      // done for any duration, so this is a sweep, not a transition hook. It
+      // rides this tick like settleShipGates: once at activation, then every
+      // PR_SYNC_INTERVAL_MS, with no second interval to dispose. Pure store
+      // bookkeeping (no git, no gh), and a failure only delays the next tick.
+      let archived: number[] = [];
+      try {
+        archived = autoArchiveDoneTickets(localStore, {
+          afterDays:
+            (currentManifest() ?? emptyManifest()).archiveDoneAfterDays ??
+            DEFAULT_ARCHIVE_DONE_AFTER_DAYS,
+          scope: { projectId: project.id },
+        });
+      } catch (e) {
+        logError('karst: done ticket auto-archive failed', e);
+      }
       // A forced sweep pushes unconditionally: "nothing changed" is the answer
       // the user asked for, and it is also what clears the panel's spinner.
-      if (force || changed > 0 || mergeChanged > 0 || landed.length > 0) {
+      if (force || changed > 0 || mergeChanged > 0 || landed.length > 0 || archived.length > 0) {
         provider.refresh();
         dashboard.pushAll();
       }

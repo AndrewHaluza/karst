@@ -258,6 +258,24 @@ function validateDefaultModel(raw: unknown): string | undefined {
   return raw.trim() === '' ? undefined : raw;
 }
 
+/** Default delay before a done ticket is auto-archived (§ auto-archiving). */
+export const DEFAULT_ARCHIVE_DONE_AFTER_DAYS = 3;
+
+/**
+ * Parse `archiveDoneAfterDays` — how many days a ticket stays visible at
+ * `done` before the auto-archive sweep moves it to the Archived facet.
+ * Defaults to 3 (the delay exists so a freshly-done ticket is never archived
+ * immediately). Must be a positive whole number: 0 is the exact failure the
+ * delay exists to prevent, and a fraction has no meaning against a day clock.
+ */
+function validateArchiveDoneAfterDays(raw: unknown): number {
+  if (raw === undefined) return DEFAULT_ARCHIVE_DONE_AFTER_DAYS;
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1) {
+    throw new ManifestError('archiveDoneAfterDays must be a positive whole number of days');
+  }
+  return raw;
+}
+
 /**
  * Parse the project `id`. Must be a string when present; blank/whitespace
  * normalizes to undefined so a cleared field falls back to the path-derived
@@ -434,6 +452,7 @@ export function validateManifest(raw: unknown): Manifest {
     ticketing: validateTicketing(raw.ticketing),
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),
+    archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
     uat: validateUat(raw.uat),
     review: validateReview(raw.review, Object.keys(repositories)),
   };

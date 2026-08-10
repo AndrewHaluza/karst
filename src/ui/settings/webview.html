@@ -567,6 +567,15 @@
           <label for="f-defaultModel">Default model</label>
           <select id="f-defaultModel"></select>
 
+          <label for="f-archiveDoneAfterDays">Archive done tickets after</label>
+          <input type="number" id="f-archiveDoneAfterDays" min="1" step="1" />
+          <div class="convention-hint" id="archiveHint">
+            Days a ticket stays visible at <code>done</code> before Karst archives it
+            automatically. The archive runs on a periodic sweep, so the delay is
+            approximate. Blank = the 3-day default; a done ticket is never archived
+            immediately.
+          </div>
+
           <div class="field-group" id="projectFacts">
             <label>This project</label>
             <dl class="facts">
@@ -1312,6 +1321,7 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
+      'archiveDoneAfterDays',
     ],
     git: ['conventions'],
     services: ['repositories'],
@@ -1367,7 +1377,7 @@
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
     if (/^processes\b/.test(msg)) return 'agents';
-    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel)\b/.test(msg)) {
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays)\b/.test(msg)) {
       return 'general';
     }
     return null;
@@ -1677,6 +1687,7 @@
         + `</div>`;
     }).join(''); }
     renderModelPicker();
+    el('f-archiveDoneAfterDays').value = draft.archiveDoneAfterDays ?? '';
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     const conventions = draft.conventions || {};
@@ -1862,6 +1873,20 @@
   el('f-defaultModel').addEventListener('change', () => {
     // '' clears the default (dropped by writeManifest → no default persisted).
     draft.defaultModel = el('f-defaultModel').value || undefined;
+    markDirty();
+  });
+  el('f-archiveDoneAfterDays').addEventListener('change', () => {
+    // Blank = the 3-day default; 0/negative is the exact failure the delay
+    // exists to prevent and a fraction has no meaning against a day clock, so
+    // both snap back to blank rather than pinning an invalid draft.
+    const raw = el('f-archiveDoneAfterDays').value.trim();
+    const n = Number(raw);
+    if (raw !== '' && Number.isInteger(n) && n >= 1) {
+      draft.archiveDoneAfterDays = n;
+    } else {
+      delete draft.archiveDoneAfterDays;
+      el('f-archiveDoneAfterDays').value = '';
+    }
     markDirty();
   });
   el('f-labelTemplate').addEventListener('input', () => {

@@ -45,6 +45,7 @@ describe('settings sections — vocabulary', () => {
         'agentProvider',
         'agents',
         'approaches',
+        'archiveDoneAfterDays',
         'baselineBranch',
         'conventions',
         'defaultModel',

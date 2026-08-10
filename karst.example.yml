@@ -42,6 +42,13 @@ worktreePathDisplay: relative
 # Agent CLI used for sessions: claude, codex, antigravity, or opencode.
 agentProvider: claude
 
+# How long a ticket stays visible on the board after reaching `done` before
+# Karst archives it automatically (Settings → General). The sweep runs
+# periodically, so the delay is approximate, and a done ticket is never
+# archived immediately. Omit for the 3-day default; must be a positive whole
+# number of days.
+archiveDoneAfterDays: 3
+
 repositories:
   backend:
     repoPath: /absolute/path/to/backend

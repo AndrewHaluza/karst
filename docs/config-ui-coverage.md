@@ -15,7 +15,7 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 
 | Key | Tab |
 |---|---|
-| `host`, `portRange`, `baselineBranch`, `worktreePathDisplay`, `agentProvider`, `defaultModel`, `ticketLabelTemplate`, `terminalNameTemplate` | General |
+| `host`, `portRange`, `baselineBranch`, `worktreePathDisplay`, `agentProvider`, `defaultModel`, `ticketLabelTemplate`, `terminalNameTemplate`, `archiveDoneAfterDays` | General |
 | `conventions.branchName` / `.commitMessage` / `.pullRequestTitle` / `.pullRequestDescription` / `.defaultType` | Git (+ presets) |
 | `repositories.<n>.repoPath` / `.baselineBranch` / `.hasMigrations` / `.signals` / `.enabled` | Repositories |
 | `repositories.<n>.service.start` / `.health` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
