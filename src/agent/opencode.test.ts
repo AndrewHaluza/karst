@@ -536,14 +536,64 @@ describe('OpencodeAdapter approach materialization', () => {
     expect(readFileSync(join(worktree, '.opencode/agents/karst-agent-pm.md'), 'utf8')).toContain('mode: subagent');
   });
 
-  it.each(['../escape', '/absolute', 'karst', 'a/b', 'UPPER'])('rejects unsafe/reserved/uppercase id %s', (id) => {
-    expect(() =>
-      new OpencodeAdapter().materializeApproach!({
-        baseDir: '/base',
-        sessionDir: makeWorktree(),
-        pkg: { id, label: id, workflow: [{ name: 'run' }] },
-      }),
-    ).toThrow(/unsafe|reserved|invalid|name/i);
+  it.each(['../escape', '/absolute', 'karst', 'a/b', '!!!', ''])(
+    'rejects unsafe/reserved/unsluggable id %s',
+    (id) => {
+      expect(() =>
+        new OpencodeAdapter().materializeApproach!({
+          baseDir: '/base',
+          sessionDir: makeWorktree(),
+          pkg: { id, label: id, workflow: [{ name: 'run' }] },
+        }),
+      ).toThrow(/unsafe|reserved|invalid|name/i);
+    },
+  );
+
+  // A namespaced approach id (`superpowers:writing-plans`) is legal everywhere
+  // karst stores one — the manifest, the package directory — and only the
+  // basename opencode DISCOVERS under `.opencode/` has to be kebab. Rejecting
+  // the id parked every ticket on that approach with no artifacts at all.
+  it.each([
+    ['superpowers:writing-plans', 'superpowers-writing-plans'],
+    ['UPPER', 'upper'],
+    ['dots.and_underscores', 'dots-and-underscores'],
+  ])('slugs a non-kebab approach id %s into opencode-legal names', (id, slug) => {
+    const worktree = makeWorktree();
+    const result = new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage(id, [
+        ['skills/planning/SKILL.md', '---\nname: planning\ndescription: Plan.\n---\nPlan.'],
+      ]),
+      sessionDir: worktree,
+      pkg: {
+        id,
+        label: 'Writing Plans',
+        artifacts: [{ kind: 'skill', relPath: 'skills/planning/SKILL.md' }],
+        workflow: [{ name: 'plan' }],
+      },
+    });
+    const skillDir = join(worktree, '.opencode/skills', `karst-${slug}-planning`);
+    expect(readFileSync(join(skillDir, 'SKILL.md'), 'utf8')).toContain(
+      `name: karst-${slug}-planning`,
+    );
+    expect(existsSync(join(worktree, '.opencode/commands', `${slug}.md`))).toBe(true);
+    expect(result.invocation).toBe(`/${slug}`);
+    expect(result.ownedPaths).toEqual([skillDir]);
+  });
+
+  it('slugs a non-kebab artifact basename and solo agent name', () => {
+    const worktree = makeWorktree();
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', [['agents/Deep_Researcher.md', '# Researcher']]),
+      sessionDir: worktree,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [{ kind: 'agent', relPath: 'agents/Deep_Researcher.md' }],
+      },
+      soloAgent: { name: 'Product Manager', body: 'do the work' },
+    });
+    expect(existsSync(join(worktree, '.opencode/agents/karst-rpi-deep-researcher.md'))).toBe(true);
+    expect(existsSync(join(worktree, '.opencode/agents/karst-agent-product-manager.md'))).toBe(true);
   });
 
   it('does not own a pre-existing .opencode tree (repo-owned, left alone)', () => {

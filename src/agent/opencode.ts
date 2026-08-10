@@ -7,7 +7,7 @@ import {
   renameSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join } from 'node:path';
 import type {
   AgentAdapter,
   AgentCapabilities,
@@ -73,18 +73,61 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 /**
  * opencode's skill-name rules — lowercase `kebab-case`, 1–64 chars, and NOT the
  * reserved `karst` name. A name is the folder (or file) basename opencode
- * discovers under `.opencode/`, so a violation is a hard materialize-time
- * rejection rather than a silently-unloadable artifact.
+ * discovers under `.opencode/`, so a violation would be a silently-unloadable
+ * artifact.
  */
 const OPENCODE_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/u;
+const MAX_OPENCODE_NAME = 64;
 
-function assertSafeName(kind: string, name: string): void {
-  if (name === KARST_PLUGIN_NAME) {
-    throw new Error(`materializeApproach: reserved name "${name}" for ${kind}`);
+/**
+ * Guard a RAW value that is ALSO used as a path segment (the approach id names
+ * the package directory under `baseDir`). Kept separate from the naming rule
+ * below: sluggification would happily erase a `..` instead of refusing it, and
+ * the traversal refusal is the security property.
+ */
+function assertSafeSegment(kind: string, raw: string): void {
+  if (
+    raw.length === 0 ||
+    raw === '..' ||
+    raw.includes('/') ||
+    raw.includes('\\') ||
+    isAbsolute(raw)
+  ) {
+    throw new Error(`materializeApproach: unsafe ${kind} "${raw}"`);
   }
-  if (name.length === 0 || name.length > 64 || !OPENCODE_NAME.test(name)) {
-    throw new Error(`materializeApproach: invalid name "${name}" for ${kind}`);
+}
+
+/**
+ * The opencode-legal basename DERIVED from a value karst did not choose — an
+ * approach id, an artifact basename, a solo agent name.
+ *
+ * These are NOT the user typing a skill name: an id like
+ * `superpowers:writing-plans` is legal in the manifest, is the package's
+ * directory on disk, and is what every other adapter carries verbatim. Only the
+ * basename opencode discovers under `.opencode/` has to be kebab, so a
+ * non-kebab source is SLUGGED here rather than rejected — the rejection parked
+ * every ticket on such an approach with no skills, agents or commands
+ * materialized at all (869eg343z). The source value keeps naming the package
+ * directory; only the destination name is slugged.
+ *
+ * Still a hard rejection when nothing legal survives (an id of pure
+ * punctuation), when the slug is the reserved `karst` plugin name, or when the
+ * source could escape its directory — a truncation would collide two approaches
+ * onto one name.
+ */
+function opencodeName(kind: string, raw: string): string {
+  assertSafeSegment(kind, raw);
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '');
+  if (slug === KARST_PLUGIN_NAME) {
+    throw new Error(`materializeApproach: reserved name "${raw}" for ${kind}`);
   }
+  if (slug.length === 0 || slug.length > MAX_OPENCODE_NAME || !OPENCODE_NAME.test(slug)) {
+    throw new Error(`materializeApproach: invalid name "${raw}" for ${kind}`);
+  }
+  return slug;
 }
 
 function skillDocument(
@@ -489,9 +532,9 @@ export class OpencodeAdapter implements AgentAdapter {
   }
 
   materializeApproach(opts: MaterializeOpts): Materialized {
-    assertSafeName('approach id', opts.pkg.id);
+    const idName = opencodeName('approach id', opts.pkg.id);
     const owned = new Set<string>();
-    const prefix = `karst-${opts.pkg.id}`;
+    const prefix = `karst-${idName}`;
 
     for (const artifact of opts.pkg.artifacts ?? []) {
       const source = join(opts.baseDir, opts.pkg.id, artifact.relPath);
@@ -499,8 +542,7 @@ export class OpencodeAdapter implements AgentAdapter {
         artifact.kind === 'skill'
           ? basename(dirname(artifact.relPath))
           : basename(artifact.relPath, extname(artifact.relPath));
-      assertSafeName('artifact name', base);
-      const skillName = `${prefix}-${base}`;
+      const skillName = `${prefix}-${opencodeName('artifact name', base)}`;
 
       if (artifact.kind === 'skill') {
         const destination = join(opts.sessionDir, '.opencode', 'skills', skillName);
@@ -557,12 +599,12 @@ export class OpencodeAdapter implements AgentAdapter {
     }
 
     if (opts.soloAgent) {
-      assertSafeName('solo agent name', opts.soloAgent.name);
+      const agentName = opencodeName('solo agent name', opts.soloAgent.name);
       const destination = join(
         opts.sessionDir,
         '.opencode',
         'agents',
-        `karst-agent-${opts.soloAgent.name}.md`,
+        `karst-agent-${agentName}.md`,
       );
       if (!existsSync(destination)) {
         mkdirSync(dirname(destination), { recursive: true });
@@ -597,16 +639,16 @@ export class OpencodeAdapter implements AgentAdapter {
           ? { phaseCommand: opts.cliPhasePrefix }
           : {}),
       });
-      // BARE `<id>` (NOT `karst-<id>`): opencode registers the command file as
-      // `/<basename>`, so this materializes as `/<id>`. The id was already
-      // validated and is reserved-safe. Deliberately NOT added to `ownedPaths`:
-      // OWNED_PREFIXES only covers `.opencode/commands/karst-*`, and claiming
-      // this bare-id path would make `cleanupOwnedPaths` throw.
+      // BARE `<id-slug>` (NOT `karst-<id>`): opencode registers the command file
+      // as `/<basename>`, so this materializes as `/<id-slug>`. The slug is
+      // already validated and reserved-safe. Deliberately NOT added to
+      // `ownedPaths`: OWNED_PREFIXES only covers `.opencode/commands/karst-*`,
+      // and claiming this bare-id path would make `cleanupOwnedPaths` throw.
       const destination = join(
         opts.sessionDir,
         '.opencode',
         'commands',
-        `${opts.pkg.id}.md`,
+        `${idName}.md`,
       );
       if (!existsSync(destination)) {
         mkdirSync(dirname(destination), { recursive: true });
@@ -627,7 +669,7 @@ export class OpencodeAdapter implements AgentAdapter {
     return {
       extraArgs: [],
       ownedPaths: [...owned],
-      ...(hasWorkflow ? { invocation: `/${opts.pkg.id}` } : {}),
+      ...(hasWorkflow ? { invocation: `/${idName}` } : {}),
     };
   }
 
