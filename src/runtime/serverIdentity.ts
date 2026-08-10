@@ -1,7 +1,9 @@
 import { readlinkSync } from 'node:fs';
+import { readlink } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { canonicalPath } from './pathScope.js';
 import { pidAlive } from './pidAlive.js';
+import { commandOutput } from './asyncProcess.js';
 
 /**
  * Whether a recorded pid may still be SIGNALLED.
@@ -45,10 +47,10 @@ export interface LiveCwd {
  * pure function under test — and so a platform that cannot answer one of them
  * degrades to "unknown" rather than to a guess.
  */
-export interface ProcessFacts {
-  isAlive(pid: number): boolean;
+export interface ProcessFactsSource {
+  isAlive(pid: number): boolean | Promise<boolean>;
   /** The live process's cwd, or null where the OS will not say. */
-  liveCwd(pid: number): LiveCwd | null;
+  liveCwd(pid: number): LiveCwd | null | Promise<LiveCwd | null>;
   /**
    * The live process's own start time (epoch ms), or null where the OS will not
    * say. This is EXACT (to within a second — see `systemProcessFacts`), never an
@@ -56,6 +58,13 @@ export interface ProcessFacts {
    * cannot tell our server apart from an unrelated process that reused its pid
    * later in the SAME boot, and the reap paths signal the whole process group.
    */
+  processStartMs(pid: number): number | null | Promise<number | null>;
+}
+
+/** Synchronous facts retained for existing boot/archive reconciliation paths. */
+export interface ProcessFacts extends ProcessFactsSource {
+  isAlive(pid: number): boolean;
+  liveCwd(pid: number): LiveCwd | null;
   processStartMs(pid: number): number | null;
 }
 
@@ -91,7 +100,8 @@ export function parseStartedAt(value: string | null): number | null {
  *     still matches after canonicalization strips only the suffix, not the path.
  *  2. **The live process's own start time**, compared to the moment `startHot`
  *     recorded (`servers.started_at`), within `START_TIME_TOLERANCE_MS`. This
- *     is where a cwd probe is unavailable (macOS, Windows) — and it replaces a
+ *     is where a cwd probe is unavailable (Windows, a missing lsof) or
+ *     unanswerable (a row with no recorded directory) — and it replaces a
  *     boot-time check that USED to stand in for it: "started after the last
  *     boot" is true for any pid the OS handed out since, including one reissued
  *     to an unrelated process hours after ours exited, and a wrong answer here
@@ -108,11 +118,14 @@ export function attributeServer(row: ServerIdentity, facts: ProcessFacts): Attri
   if (!facts.isAlive(pid)) return 'dead';
 
   const live = facts.liveCwd(pid);
-  if (live) {
-    if (!row.cwd) return 'unknown'; // running, but the row never recorded where
+  if (live && row.cwd) {
     return canonicalPath(live.path) === canonicalPath(row.cwd) ? 'attributable' : 'foreign';
   }
-
+  // The OS answered the cwd probe, but the row never recorded a directory to
+  // compare against (pre-v21 rows). A probe that cannot be COMPARED is not
+  // evidence either way — falling through to the start-time rule keeps those
+  // rows attributable exactly as they were on platforms without a probe,
+  // instead of stranding them the day one is added (lsof on macOS).
   const liveStart = facts.processStartMs(pid);
   if (liveStart === null) return 'unknown';
   const recordedStart = parseStartedAt(row.startedAt);
@@ -131,8 +144,8 @@ const isAliveNow = pidAlive;
  * it is a property of the directory, not part of its name.
  *
  * Any failure — no `/proc` (macOS, Windows), the process gone between the
- * liveness check and this read, another user's process — is `null`: "the OS will
- * not say", which the caller must treat as evidence it does not have.
+ * liveness check and this read, another user's process — is `null`: "the OS
+ * will not say", which the caller must treat as evidence it does not have.
  */
 function liveCwdNow(pid: number): LiveCwd | null {
   if (process.platform !== 'linux') return null;
@@ -148,11 +161,9 @@ function liveCwdNow(pid: number): LiveCwd | null {
 /**
  * Read a live process's own start time via `ps -o lstart=`, which both BSD ps
  * (macOS) and GNU ps (Linux) implement identically — unlike `etime`/`etimes`,
- * whose format differs across the two. `spawnSync` is used deliberately: this
- * is one bounded, near-instant OS query (the same shape as the `git`/`gh` calls
- * already run synchronously elsewhere in the runtime), not the arbitrary,
- * possibly minutes-long repo script the "never block the event loop" rule
- * targets (see `workflow/gates/run.ts`).
+ * whose format differs across the two. This legacy synchronous probe remains
+ * for synchronous reconciliation callers. Latency-sensitive extension-host
+ * flows such as Spin use `systemAsyncProcessFacts` below instead.
  *
  * `lstart`'s resolution is whole seconds, which is why `attributeServer` matches
  * within a tolerance rather than exactly. Any failure — no such pid, `ps`
@@ -171,4 +182,56 @@ export const systemProcessFacts: ProcessFacts = {
   isAlive: isAliveNow,
   liveCwd: liveCwdNow,
   processStartMs: processStartMsNow,
+};
+
+/** Async OS probes used by Spin's extension-host path. */
+async function liveCwdAsync(pid: number): Promise<LiveCwd | null> {
+  if (process.platform === 'linux') {
+    try {
+      const raw = await readlink(`/proc/${pid}/cwd`);
+      const deleted = raw.endsWith(' (deleted)');
+      return { path: deleted ? raw.slice(0, -' (deleted)'.length) : raw, deleted };
+    } catch {
+      return null;
+    }
+  }
+  if (process.platform === 'win32') return null;
+  const stdout = await commandOutput('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']);
+  if (stdout === null) return null;
+  for (const line of stdout.split('\n')) {
+    if (!line.startsWith('n')) continue;
+    const raw = line.slice(1);
+    const deleted = raw.endsWith(' (deleted)');
+    return { path: deleted ? raw.slice(0, -' (deleted)'.length) : raw, deleted };
+  }
+  return null;
+}
+
+type AsyncCommand = typeof commandOutput;
+
+export async function processStartMsAsync(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+  run: AsyncCommand = commandOutput,
+): Promise<number | null> {
+  const stdout =
+    platform === 'win32'
+      ? await run('powershell.exe', [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
+        ])
+      : await run('ps', ['-o', 'lstart=', '-p', String(pid)]);
+  if (!stdout) return null;
+  const ms = Date.parse(stdout.trim());
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Real async probes for paths that run on the VS Code extension-host thread. */
+export const systemAsyncProcessFacts: ProcessFactsSource = {
+  isAlive: isAliveNow,
+  liveCwd: liveCwdAsync,
+  processStartMs: processStartMsAsync,
 };

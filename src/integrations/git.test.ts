@@ -454,15 +454,17 @@ describe('ship quarantine commit primitives', () => {
 
       // The quarantined tree materializes the base tree PLUS the staged
       // content — an empty quarantine object dir proves the base was read
-      // The quarantined tree materializes the base tree PLUS the staged
-      // content — an empty quarantine object dir proves the base was read
       // through the alternate. The tree object lives ONLY in the quarantine
-      // until promotion, so read it back with the quarantine env (a main-repo
-      // read before promotion fails: the object is not there yet).
+      // until promotion, so read it back with the quarantine env: `write-tree`
+      // wrote the new tree into `GIT_OBJECT_DIRECTORY`, so the main repo
+      // cannot resolve it without the env (a main-repo read before promotion
+      // fails: the object is not there yet). The alternate names the COMMON
+      // object db directly — a linked worktree's admin dir has no objects dir,
+      // and its nesting depth must not be walked to find the main repo's.
       const qObjects = join(adminDir, 'karst-quarantine', KEY, 'objects');
       const quarantineEnv = {
         GIT_OBJECT_DIRECTORY: qObjects,
-        GIT_ALTERNATE_OBJECT_DIRECTORIES: join(adminDir, '..', '..', 'objects'),
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: join(dir, '.git', 'objects'),
       };
       const tree = await runGitEnv(
         ['ls-tree', '-r', '--name-only', prepared.intendedTree],

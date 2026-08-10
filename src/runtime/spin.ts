@@ -23,6 +23,12 @@ import { isRunnable } from '../manifest/runnable.js';
 
 export interface SpinResult {
   servers: ServerRecord[];
+  /**
+   * Pids of processes karst killed to free the allocated ports — conflicting
+   * dev servers of the repository, or karst-recorded servers of other tickets.
+   * The caller REPORTS these: a killed dev server is the user's own process.
+   */
+  reclaimedPids: number[];
 }
 
 export interface SpinOptions {
@@ -148,6 +154,7 @@ export async function spinTicket(
   // Track what this run creates so cancel / mid-way failure can undo exactly it.
   const created: WorktreeRecord[] = [];
   const servers: ServerRecord[] = [];
+  const reclaimedPids: number[] = [];
 
   try {
     bail();
@@ -223,12 +230,14 @@ export async function spinTicket(
         port: ownPort,
         healthUrl,
         logPath: serverLogPath(cwd, name),
+        repoPath: repo.repoPath,
         signal,
+        onReclaim: (pid) => reclaimedPids.push(pid),
       });
       servers.push(rec);
     }
 
-    return { servers };
+    return { servers, reclaimedPids };
   } catch (err) {
     // On cancel, undo this run's work so the ticket returns to un-spun. Other
     // errors leave partial state as-is (the caller surfaces it; a retry resumes

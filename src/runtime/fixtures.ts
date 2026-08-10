@@ -1,5 +1,5 @@
 import { rmSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { connect, createServer } from 'node:net';
 
 /** Can this port be bound on `host` right now? */
 function bindable(port: number, host?: string): Promise<boolean> {
@@ -86,6 +86,33 @@ export function removeTempDir(dir: string, attempts = 40, delayMs = 25): void {
       if (attempt >= attempts) throw err;
       sleepSync(delayMs);
     }
+  }
+}
+
+/**
+ * Poll until something ACCEPTS connections on `port` — any response at all,
+ * because a fixture squatter may deliberately answer 404 (a 404 is still proof
+ * of a listener). The health polls cannot serve here: they require a 2xx, which
+ * is exactly the shape of listener this helper exists to wait for.
+ */
+export async function waitUntilListening(port: number, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const tryOnce = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      const sock = connect({ host: '127.0.0.1', port });
+      sock.once('connect', () => {
+        sock.destroy();
+        resolve(true);
+      });
+      sock.once('error', () => {
+        sock.destroy();
+        resolve(false);
+      });
+    });
+  for (;;) {
+    if (await tryOnce()) return;
+    if (Date.now() > deadline) throw new Error(`fixture never listened on ${port}`);
+    await new Promise((r) => setTimeout(r, 50));
   }
 }
 
