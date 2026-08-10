@@ -256,6 +256,9 @@ async function generateDescription(
     agentName: assignment?.agentName ?? null,
     provider: assignment?.provider ?? null,
     model: assignment?.model ?? null,
+    // v34: the host that owns the call, so `reconcileProcessRuns` can mark a
+    // describe run killed by process death stale like every other process.
+    pid: process.pid,
     startedAt: at,
   });
   const step = openShipRepoStep(store, {
@@ -837,8 +840,11 @@ export async function shipTicket(
   const run = openShipRun(store, {
     ticketId: opts.ticketId,
     attempt: runCount.n + 1,
-    // The run is opened BY this host: when the host dies, this pid is what
-    // tells the activation sweep the run died with it (reconcileShipRuns).
+    // The run is opened BY this host (v34): when the host dies, this pid is
+    // what tells the activation sweep the run died with it — so it can tell a
+    // ship killed by process death from one another LIVE window is still
+    // executing (reconcileShipRuns parks it failed, the stranded-ship sweep
+    // resumes it).
     pid: process.pid,
     startedAt,
   });

@@ -1749,8 +1749,8 @@ describe('openStore', () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
         attempt INTEGER NOT NULL, status TEXT NOT NULL,
         started_at TEXT NOT NULL, ended_at TEXT);
-      INSERT INTO ship_runs (ticket_id, attempt, status, started_at)
-        VALUES (1, 1, 'running', '2026-08-01T00:00:00.000Z');
+      INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at)
+        VALUES (1, 1, 'running', '2026-08-01T00:00:00.000Z', NULL);
     `);
     legacy.pragma('user_version = 33');
     legacy.close();
@@ -1763,20 +1763,21 @@ describe('openStore', () => {
       ),
     );
     expect(runCols.has('pid')).toBe(true);
-    // Nothing is backfilled: a pre-v34 run names no process — the unknown
-    // stays NULL, and the pre-v34 row is otherwise untouched (the sweep
-    // leaves NULL-pid runs strictly alone).
+    // Nothing is backfilled: a pre-v34 run names no host — the unknown stays
+    // NULL (which the stranded-ship sweep reads as "no evidence of life",
+    // while the reconcile sweep leaves it strictly alone), and the pre-v34
+    // row is otherwise untouched.
     expect(
       migrated.db
-        .prepare('SELECT ticket_id, attempt, status, pid, started_at, ended_at FROM ship_runs')
+        .prepare('SELECT ticket_id, attempt, status, started_at, ended_at, pid FROM ship_runs')
         .get(),
     ).toEqual({
       ticket_id: 1,
       attempt: 1,
       status: 'running',
-      pid: null,
       started_at: '2026-08-01T00:00:00.000Z',
       ended_at: null,
+      pid: null,
     });
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(34);
 

@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { openProcessRun } from './processRuns.js';
+import { setStage } from './stages.js';
 import {
   openShipRun,
   closeShipRun,
+  listStrandedShipTickets,
   openShipRepoStep,
   finishShipRepoStep,
   recordShipCommit,
@@ -20,7 +22,6 @@ import {
   type ShipOperationPreState,
   type ShipOperationIntent,
 } from './shipRuns.js';
-import { setStage } from './stages.js';
 
 /**
  * `ship_runs` + `ship_repo_steps` + `ship_operation_intents` + `ship_commits`
@@ -510,6 +511,134 @@ describe('ship_runs', () => {
       const ev = listShipEvidence(store, ticketId);
       expect(ev.run).toBeUndefined();
       expect(ev.repos).toEqual({});
+    });
+  });
+
+  describe('listStrandedShipTickets', () => {
+    // The freeze this sweep closes: `shipTicket` set the stage row `running`,
+    // then the extension host died before its tail ran. The ticket sits at
+    // `ship` reading `running` with a `running` ship_runs row and NO
+    // awaiting-merge block — so settleShipGates skips it, the drive sweep
+    // covers only uat/review, and the dashboard offers no button for a running
+    // row. Nothing else ever re-drives the saga.
+    const atShipRunning = (id: number): void => {
+      setStage(store, id, 'ship', {
+        status: 'running',
+        startedAt: '2026-08-08T11:00:00.000Z',
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(id);
+    };
+
+    it('finds a ticket whose ship run was opened by a now-dead host', () => {
+      const r = openShipRun(store, {
+        ticketId,
+        attempt: 1,
+        startedAt: '2026-08-08T11:00:00.000Z',
+        pid: 4242,
+      });
+      atShipRunning(ticketId);
+      expect(listStrandedShipTickets(store, (pid) => pid !== 4242)).toEqual([
+        { ticketId, runId: r.id, startedAt: '2026-08-08T11:00:00.000Z', pid: 4242 },
+      ]);
+    });
+
+    it('leaves a ship another LIVE window is still executing strictly alone', () => {
+      openShipRun(store, {
+        ticketId,
+        attempt: 1,
+        startedAt: '2026-08-08T11:00:00.000Z',
+        pid: 4242,
+      });
+      atShipRunning(ticketId);
+      expect(listStrandedShipTickets(store, () => true)).toEqual([]);
+    });
+
+    it('treats a run with no recorded pid as stranded — absence of evidence is not evidence of life', () => {
+      // A pre-v34 run (or a run whose host died before the pid landed) carries
+      // no liveness evidence at all; leaving it alone would keep the freeze
+      // forever, so it is recoverable exactly like a proven-dead one.
+      const r = openShipRun(store, { ticketId, attempt: 1, startedAt: '2026-08-08T11:00:00.000Z' });
+      atShipRunning(ticketId);
+      expect(listStrandedShipTickets(store, () => true)).toEqual([
+        { ticketId, runId: r.id, startedAt: '2026-08-08T11:00:00.000Z', pid: null },
+      ]);
+    });
+
+    it('strands a running stage row whose run never opened (crash between dispatch and run open)', () => {
+      atShipRunning(ticketId);
+      const stranded = listStrandedShipTickets(store, () => true);
+      expect(stranded).toHaveLength(1);
+      // No run exists to name, but the stage row's own start stamp still dates
+      // the interrupted ship.
+      expect(stranded[0]).toEqual({
+        ticketId,
+        runId: null,
+        startedAt: '2026-08-08T11:00:00.000Z',
+        pid: null,
+      });
+    });
+
+    it('ignores a freshly parked ship — stage row pending, no run — the human has not clicked yet', () => {
+      // The machine-produced parked state: review→ship transition writes a
+      // `pending` ship stage row (`ship` is a confirm stage), so the stranded
+      // sweep's `s.status = 'running'` filter excludes it. A `pending` row is
+      // the shape to pin — a missing row would also pass, but only by accident.
+      setStage(store, ticketId, 'ship', {
+        status: 'pending',
+        startedAt: '2026-08-08T11:00:00.000Z',
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(ticketId);
+      expect(listStrandedShipTickets(store, () => false)).toEqual([]);
+    });
+
+    it('ignores a ship parked on the merge gate (passed row with an awaiting-merge block)', () => {
+      const r = openShipRun(store, {
+        ticketId,
+        attempt: 1,
+        startedAt: '2026-08-08T11:00:00.000Z',
+        pid: 4242,
+      });
+      closeShipRun(store, r.id, 'passed', '2026-08-08T11:05:00.000Z');
+      setStage(store, ticketId, 'ship', {
+        status: 'passed',
+        endedAt: '2026-08-08T11:05:00.000Z',
+        blockedKind: 'awaiting-merge',
+        blockedReason: 'blocked: the pull request has changes and is not merged yet.',
+        blockedAt: '2026-08-08T11:05:00.000Z',
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(ticketId);
+      expect(listStrandedShipTickets(store, () => false)).toEqual([]);
+    });
+
+    it('ignores a ship stage row reading running when the ticket has already left ship', () => {
+      openShipRun(store, {
+        ticketId,
+        attempt: 1,
+        startedAt: '2026-08-08T11:00:00.000Z',
+        pid: 4242,
+      });
+      setStage(store, ticketId, 'ship', { status: 'running' });
+      // stage_current stays 'uat' — a running legacy ship row is not this
+      // ticket's current state, so nothing at ship is stranded.
+      expect(listStrandedShipTickets(store, () => false)).toEqual([]);
+    });
+
+    it('respects the project scope', () => {
+      store.db.prepare('INSERT INTO projects (id, slug) VALUES (?, ?)').run(1, 'karst');
+      store.db.prepare('INSERT INTO projects (id, slug) VALUES (?, ?)').run(2, 'other');
+      const other = createTicket(store, { key: 'T-2', title: 'other', projectId: 2 }).id;
+      openShipRun(store, {
+        ticketId: other,
+        attempt: 1,
+        startedAt: '2026-08-08T11:00:00.000Z',
+        pid: 4242,
+      });
+      atShipRunning(other);
+      const stranded = listStrandedShipTickets(store, () => false, { projectId: 1 });
+      expect(stranded).toEqual([]);
+      expect(listStrandedShipTickets(store, () => false, { projectId: 2 })).toEqual([
+        { ticketId: other, runId: expect.any(Number) as number, startedAt: '2026-08-08T11:00:00.000Z', pid: 4242 },
+      ]);
     });
   });
 

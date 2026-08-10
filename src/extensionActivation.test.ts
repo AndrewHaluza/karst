@@ -30,8 +30,9 @@ describe('extension activation', () => {
   it('pushes the provider status only for a ticket that actually reached done', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    // Ship: only the nothing-to-merge case walks straight through to done.
-    expect(source).toContain("if (getTicket(store, ticketId).stageCurrent === 'done') {");
+    // Ship: only the nothing-to-merge case walks straight through to done —
+    // the guard rides the shared ship-saga seam (click AND stranded recovery).
+    expect(source).toContain("if (getTicket(localStore, ticketId).stageCurrent === 'done') {");
     // Merge: only the merge that finished the ticket.
     expect(source).toContain('if (result.completedTicket) await onTicketCompleted();');
   });
@@ -104,6 +105,47 @@ describe('extension activation', () => {
     expect(source).toMatch(/reconcileProcessRuns\(localStore, pidAlive\)/);
     expect(source).toMatch(
       /reconcileProcessRuns\(localStore, pidAlive\)[\s\S]{0,80}?logger\.info\(\s*describeStaleProcessRun\(/,
+    );
+  });
+
+  // A ship killed by a dead host freezes the ticket at `ship` reading
+  // `running` forever: no awaiting-merge block for the merge sweep, no
+  // stage_runs row for the drive sweep, no button for a running row — and the
+  // saga built to be re-run is never re-run. The activation sweep is the only
+  // place every window's shared registry can resume it, so the wiring is
+  // pinned here: liveness-gated read + resume through the SAME seam as the
+  // confirm-ship click (one seam, never a second run body).
+  it('resumes a stranded ship on activation, through the same seam as the click', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The READ that finds stranded ships, with the same liveness probe as the
+    // gate-run and process-run sweeps.
+    expect(source).toMatch(/listStrandedShipTickets\(\s*localStore,\s*pidAlive/);
+    expect(source).toMatch(/logger\.info\(\s*describeStrandedShip\(/);
+    // Each stranded ship resumes the saga from the activation sweep…
+    expect(source).toMatch(/runShipSaga\(stranded\.ticketId\)/);
+    // …and the confirm-ship click runs the saga through the same seam, adding
+    // only the capability guard and the failure toast.
+    expect(source).toMatch(/void runShipSaga\(ticketId\)\.catch/);
+    expect(source).not.toMatch(/void runShipTicket\(/);
+  });
+
+  // A dead ship run is ALSO recovered by parking, not just resume: the
+  // reconcile sweep closes a run whose host died and parks the stage `failed`
+  // (the "Retry ship" surface), which runs BEFORE the stranded resume above so
+  // a parked ticket is never ALSO auto-resumed. Pinned like every other
+  // activation sweep: without the wiring, a dead run would only ever be
+  // recovered by the resume path — or by neither, if the block is dropped.
+  it('parks ship runs whose host died on activation, and says which it closed', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toMatch(
+      /reconcileShipRuns\(localStore, pidAlive[\s\S]{0,80}?logger\.info\(\s*describeStaleShipRun\(/,
+    );
+    // The park sweep must run before the stranded resume, or a dead run whose
+    // stage was parked `failed` would read as a ticket that still needs one.
+    expect(source.indexOf('reconcileShipRuns(localStore, pidAlive')).toBeLessThan(
+      source.indexOf('listStrandedShipTickets('),
     );
   });
 
