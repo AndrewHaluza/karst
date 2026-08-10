@@ -7,6 +7,8 @@ import { upsertProject } from '../store/projects.js';
 import { parseContextArgs, runContextCommand, composeContextCommand } from './context.js';
 import type { Manifest } from '../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../manifest/fixtures.js';
+import { setStage } from '../store/stages.js';
+import { openStageRun, closeStageRun } from '../store/stageRuns.js';
 
 const MANIFEST: Manifest = buildManifest(
   {
@@ -71,6 +73,38 @@ describe('runContextCommand', () => {
     expect(parsed.key).toBe('PROJ-9');
     expect(parsed.prompt).toBe('Audit the app');
     expect(parsed.repos[0].name).toBe('frontend');
+  });
+
+  it('serializes the stage run exactly as the agent consumes it — status, start, gate-set change', () => {
+    seed();
+    setStage(store, 1, 'review', { status: 'running' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', 1);
+    openStageRun(store, {
+      ticketId: 1,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      manifestHash: 'hash-a',
+      pid: 1234,
+    });
+    openStageRun(store, {
+      ticketId: 1,
+      stageKey: 'review',
+      attempt: 1,
+      runAt: '2026-08-01T11:00:00.000Z',
+      startedAt: '2026-08-01T11:00:00.000Z',
+      manifestHash: 'hash-b',
+      pid: 5678,
+    });
+    const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' });
+    const parsed = JSON.parse(out);
+    // The first run was superseded the moment the second opened.
+    expect(parsed.stage.run.status).toBe('running');
+    expect(parsed.stage.run.startedAt).toBe('2026-08-01T11:00:00.000Z');
+    expect(parsed.stage.run.attempt).toBe(1);
+    expect(parsed.stage.run.gateSetChanged).toBe(true);
+    expect(parsed.stage.agentCanAdvance).toBe(false);
   });
 
   it('renders markdown when asked', () => {

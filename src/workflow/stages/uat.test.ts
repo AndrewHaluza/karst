@@ -33,10 +33,20 @@ function deps(over: Partial<UatDeps> = {}): UatDeps {
     now,
     planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }], unmapped: [] }),
     probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
-    runGates: async (gates) => ({
-      kind: 'ran',
-      results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })),
-    }),
+    runGates: async (gates, _cwd, opts) => {
+      // Mirrors the real `runGateList` contract: each result row fires
+      // `onGateComplete` (with the row's timing and index) — the per-gate
+      // evidence append the stage performs lives on that callback, so a fake
+      // that skips it silently drops every gate row, just like a runner that
+      // never reported.
+      const results = gates.map((g, i) => {
+        const startedAt = now();
+        const endedAt = now();
+        opts?.onGateComplete?.(g.name, 0, startedAt, endedAt, i);
+        return { name: g.name, exitCode: 0, output: 'ok', startedAt, endedAt };
+      });
+      return { kind: 'ran', results };
+    },
     ...over,
   };
 }
@@ -433,10 +443,16 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({
-        runGates: async () => ({
-          kind: 'stopped',
-          results: [{ name: 'test', exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() }],
-        }),
+        runGates: async (_gates, _cwd, opts) => {
+          // The one gate completed before the stop landed — real
+          // `runGateList` fires the callback for it, and the row must
+          // survive the stop.
+          opts?.onGateComplete?.('test', 0, now(), now(), 0);
+          return {
+            kind: 'stopped',
+            results: [{ name: 'test', exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() }],
+          };
+        },
       }),
     );
     expect(res).toEqual({ kind: 'stopped' });
@@ -478,10 +494,13 @@ describe('runUat', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({
-        runGates: async (gates) => ({
-          kind: 'ran',
-          results: gates.map((g) => ({ name: g.name, exitCode: null, output: 'nothing to run' })),
-        }),
+        runGates: async (gates, _cwd, opts) => {
+          const results = gates.map((g, i) => {
+            opts?.onGateComplete?.(g.name, null, null, null, i);
+            return { name: g.name, exitCode: null, output: 'nothing to run' };
+          });
+          return { kind: 'ran', results };
+        },
       }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
@@ -727,6 +746,33 @@ describe('runUat', () => {
     expect(listRecoveryRounds(store, id)).toEqual([]);
   });
 
+  // The durability property at its finest grain: the row is written when the
+  // GATE finishes, inside the runner's loop — never batched to the end of the
+  // target. A runner that dies mid-list (a throw here, process death in
+  // production) leaves every gate that already finished readable.
+  it('persists each gate the moment it finishes, before the target list completes', async () => {
+    await expect(
+      runUat(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir },
+        deps({
+          runGates: async (gates, _cwd, opts) => {
+            // Gate 1 finishes; its row lands inside the loop...
+            opts?.onGateComplete?.(gates[0]!.name, 0, now(), now(), 0);
+            // ...then the host dies before gate 2 even starts.
+            throw new Error('host died mid-list');
+          },
+        }),
+      ),
+    ).rejects.toThrow('host died mid-list');
+    const rows = listGateRuns(store, id);
+    expect(rows.map((r) => r.gateName)).toEqual(['test (/wt/web)']);
+    expect(rows[0]!.exitCode).toBe(0);
+    // The run itself is still open — the next run (or the activation sweep)
+    // reads it as destroyed, never as never-started or in flight.
+    expect(listStageRuns(store, id).map((r) => r.status)).toEqual(['running']);
+  });
+
   it('does not run a gate the ticket disabled', async () => {
     setDisabledGates(store, id, 'uat', ['e2e']);
     const invoked: string[] = [];
@@ -877,8 +923,8 @@ describe('runUat', () => {
       deps({
         runGates: async (gates, _cwd, opts) => {
           // Simulate each gate completing and invoke the callback.
-          for (const g of gates) {
-            opts?.onGateComplete?.(g.name, 0);
+          for (const [i, g] of gates.entries()) {
+            opts?.onGateComplete?.(g.name, 0, now(), now(), i);
           }
           return {
             kind: 'ran',

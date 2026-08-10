@@ -292,7 +292,12 @@ export function reconcileProcessRuns(
     .map((r) => rowToProcessRun(r as ProcessRunRow));
 
   const stale: StaleProcessRun[] = [];
-  const mark = store.db.prepare("UPDATE process_runs SET status = 'stale' WHERE id = ?");
+  // Guarded exactly like `closeProcessRun` and `reconcileStageRuns`: a row
+  // another window's sweep just marked — or one the driver already closed —
+  // is not running anymore, and the sweep must never rewrite a finished row.
+  const mark = store.db.prepare(
+    "UPDATE process_runs SET status = 'stale' WHERE id = ? AND status = 'running'",
+  );
   for (const run of rows) {
     if (run.pid === null) continue;
     if (isAlive(run.pid)) continue;

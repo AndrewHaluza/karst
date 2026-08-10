@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Manifest } from './types.js';
+import type { GateDef, Manifest } from './types.js';
 
 /**
  * A stable fingerprint of the GATE-RELEVANT manifest, stamped on every stage run.
@@ -8,8 +8,14 @@ import type { Manifest } from './types.js';
  * alter a gate set (a label template, a new repository nobody scoped), and a
  * fingerprint that moves for those would report "the gate set changed" on every
  * unrelated save — a warning that fires constantly is a warning nobody reads.
- * So exactly the three inputs `resolveGates` consults are hashed: the `uat` and
- * `review` blocks, and each repository's path (which decides what a probe finds).
+ * So exactly what decides a gate SET is hashed, and nothing else: the `uat`
+ * and `review` GATE LISTS (global plus each repository's per-repo override,
+ * which REPLACES the global list for that repository), and each repository's
+ * path (which decides what a probe finds). The rest of the `uat:` block —
+ * `env`, `secrets`, `maxFixAttempts`, `author`, `testDir`, and so on — cannot
+ * change which gates run, so it must not move the fingerprint: a secret
+ * rotation between two attempts is not a changed gate set, and a warning that
+ * fires on every unrelated save is a warning nobody reads.
  *
  * This answers RC5. A gate that FAILED and was then deleted from the manifest
  * reads, on the next attempt, as a stage that simply passed — the failing
@@ -25,9 +31,22 @@ export function gateRevision(manifest: Manifest | undefined): string | null {
   const repoPaths = Object.fromEntries(
     Object.entries(manifest.repositories ?? {}).map(([name, def]) => [name, def.repoPath]),
   );
+  // The per-repository gate overrides: only `gates` is a question-set member —
+  // `UatRepositoryOverride` also carries env/secrets, which are run-time
+  // inputs, not questions.
+  const gateOverrides = (overrides: Record<string, { gates?: readonly GateDef[] }> | undefined) =>
+    Object.fromEntries(
+      Object.entries(overrides ?? {}).map(([name, def]) => [name, def.gates ?? null]),
+    );
   const shape = {
-    uat: manifest.uat ?? null,
-    review: manifest.review ?? null,
+    uat: {
+      gates: manifest.uat?.gates ?? null,
+      repositories: gateOverrides(manifest.uat?.repositories),
+    },
+    review: {
+      gates: manifest.review?.gates ?? null,
+      repositories: gateOverrides(manifest.review?.repositories),
+    },
     repoPaths,
   };
   return createHash('sha256').update(stableStringify(shape)).digest('hex').slice(0, 16);

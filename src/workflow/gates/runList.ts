@@ -30,10 +30,19 @@ export interface RunGatesOptions {
   /**
    * Called after each gate finishes, with the gate's name AND its recorded
    * outcome (`null` = the repo could not answer — the "nothing to run" note,
-   * never a verdict). Lets callers push dashboard progress ("gate 2 of 4,
-   * elapsed 1m23s") without polling.
+   * never a verdict), the row's own timing (null when none exists, exactly
+   * like the recorded result) and the gate's index in the list. Lets callers
+   * push dashboard progress ("gate 2 of 4, elapsed 1m23s") and persist the
+   * gate's evidence row the moment it lands — a host death between two gates
+   * must not take the finished gate's record with it.
    */
-  onGateComplete?: (gateName: string, exitCode: number | null) => void;
+  onGateComplete?: (
+    gateName: string,
+    exitCode: number | null,
+    startedAt: string | null,
+    endedAt: string | null,
+    index: number,
+  ) => void;
   /**
    * Called BEFORE each gate's work begins, with the gate's name — the live
    * counterpart of `onGateComplete`, so callers can flip a process header to
@@ -49,7 +58,7 @@ export async function runGateList(
 ): Promise<{ kind: 'ran'; results: GateResult[] } | { kind: 'stopped'; results: GateResult[] }> {
   const now = opts.now ?? nowIso;
   const results: GateResult[] = [];
-  for (const gate of gates) {
+  for (const [index, gate] of gates.entries()) {
     if (opts.signal?.aborted) return { kind: 'stopped', results };
     opts.onGateStart?.(gate.name);
     const startedAt = now();
@@ -59,14 +68,15 @@ export async function runGateList(
       // and agent-fixable, because both the config and the missing script are in
       // the repository. Caught here rather than by spawning `npm run`, whose
       // "Missing script" exit 1 would read as a verdict about the ticket's code.
+      const endedAt = now();
       results.push({
         name: gate.name,
         exitCode: 1,
         output: `configured gate "${gate.name}" needs a "${gate.script}" script, which package.json does not define`,
         startedAt,
-        endedAt: now(),
+        endedAt,
       });
-      opts.onGateComplete?.(gate.name, 1);
+      opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index);
       continue;
     }
 
@@ -82,17 +92,18 @@ export async function runGateList(
         exitCode: null,
         output: `no "${gate.script}" script available — nothing to run`,
       });
-      opts.onGateComplete?.(gate.name, null);
+      opts.onGateComplete?.(gate.name, null, null, null, index);
       continue;
     }
+    const endedAt = now();
     results.push({
       name: gate.name,
       exitCode: outcome.kind === 'completed' ? outcome.exitCode : 1,
       output: outcome.output,
       startedAt,
-      endedAt: now(),
+      endedAt,
     });
-    opts.onGateComplete?.(gate.name, outcome.kind === 'completed' ? outcome.exitCode : 1);
+    opts.onGateComplete?.(gate.name, outcome.kind === 'completed' ? outcome.exitCode : 1, startedAt, endedAt, index);
   }
   return { kind: 'ran', results };
 }

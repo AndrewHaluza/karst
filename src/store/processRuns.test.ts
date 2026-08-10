@@ -270,5 +270,19 @@ describe('process_runs', () => {
       reconcileProcessRuns(store, () => false);
       expect(reconcileProcessRuns(store, () => false)).toEqual([]);
     });
+
+    it('never rewrites a run the driver already closed — the mark is guarded by status', () => {
+      // The sweep's mark is guarded by `status = 'running'`, exactly like
+      // `finishProcessRun`: a row another window's sweep (or the driver's own
+      // finisher) closed between the SELECT and the UPDATE must not be
+      // rewritten into a lie, however dead its pid reads.
+      const { id: runId } = open();
+      finishProcessRun(store, runId, 'passed', '2026-08-08T12:00:00.000Z', 'validated');
+      expect(reconcileProcessRuns(store, () => false)).toEqual([]);
+      expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+        status: 'passed',
+        resultKind: 'validated',
+      });
+    });
   });
 });

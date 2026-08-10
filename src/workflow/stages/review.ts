@@ -7,7 +7,6 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
 import { finishProcessRun } from '../../store/processRuns.js';
-import type { FindingInput } from '../../store/reviewFindings.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
@@ -357,14 +356,31 @@ export async function runReview(
       signal: opts.signal,
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
-      onGateComplete: opts.onGateComplete,
       onGateStart: opts.onGateStart,
+      // Each gate row is appended the INSTANT that gate finishes — inside the
+      // runner's own loop, before the next gate starts, so a host death between
+      // two gates still leaves every finished gate readable (process death
+      // fires no abort signal, so the `stopped` path never runs). Zipped by
+      // POSITION like the aggregation below: two manifest entries sharing a
+      // worktree can declare the same gate name, so a name lookup would attach
+      // the wrong identity to the row.
+      onGateComplete: (name, exitCode, startedAt, endedAt, index) => {
+        const gate = resolution.gates[index];
+        evidence.append([{
+          gateName: `${name} (${label})`,
+          exitCode,
+          startedAt,
+          endedAt,
+          repo: target.repo,
+          command: gate?.command ?? name,
+          args: gate?.args ?? [],
+        }]);
+        opts.onGateComplete?.(name, exitCode);
+      },
     });
 
     const produced: AggregateEntry[] = [];
     for (const [index, result] of run.results.entries()) {
-      // Zipped by POSITION: `runGateList` emits one result per gate in order,
-      // so a name lookup could attach the wrong identity to the row.
       const gate = resolution.gates[index];
       produced.push({
         result: { ...result, name: `${result.name} (${label})` },
@@ -379,7 +395,6 @@ export async function runReview(
       );
     }
     entries.push(...produced);
-    recordEntries(produced);
 
     // A Stop yields no verdict and no attempt. What already finished is still
     // recorded — discarding it would make work that really happened
@@ -439,17 +454,14 @@ export async function runReview(
           startedAt: runAt,
         }
       : undefined,
+    // F2 — persisted the INSTANT each target's call returns, inside the lane,
+    // before any aggregation rule reads them. These are completed model output
+    // the user has already paid for (a single lane has cost 1.3M tokens), and
+    // holding them until the lane — let alone the verdict — ended was what let
+    // a host restart discard a whole run with nothing recorded anywhere.
+    persistFindings: (findings, processRunId) =>
+      evidence.appendFindings(findings, processRunId),
   });
-  // F2 — persisted the INSTANT the lane returns, before a single aggregation
-  // rule reads them. These are completed model output the user has already paid
-  // for (a single lane has cost 1.3M tokens), and holding them until the verdict
-  // is what let a host restart discard them with nothing recorded anywhere.
-  const collectedFindings: readonly FindingInput[] =
-    findingsLane.kind === 'ran' ? findingsLane.findings : [];
-  evidence.appendFindings(
-    collectedFindings,
-    findingsLane.kind === 'ran' ? findingsLane.processRunId ?? null : null,
-  );
   // Captured here — before the verdict exists — so the trigger below names the
   // exact process run that produced a blocking verdict, when it is the lane's.
   findingsProcessRunId =
@@ -458,8 +470,9 @@ export async function runReview(
   // Finding 3: a Stop during the findings lane is not a review of anything —
   // the open Review process is closed interrupted, and the run returns stopped
   // BEFORE `aggregateReview` (a stopped lane is not evidence) and before any
-  // recovery trigger construction. Nothing is appended beyond the gate rows
-  // that already finished.
+  // recovery trigger construction. Beyond the gate rows that already finished,
+  // only the TARGETS' findings that already returned are on disk — the stopped
+  // target's call is never parsed, so its output is never treated as evidence.
   if (findingsLane.kind === 'stopped') {
     const stoppedRunId = findingsLane.processRunId ?? null;
     if (stoppedRunId !== null) {

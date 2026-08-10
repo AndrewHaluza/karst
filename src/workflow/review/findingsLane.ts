@@ -78,6 +78,15 @@ export interface RunFindingsLaneOpts {
   store?: Store;
   /** The Review AI process — opens its run before the first call when present. */
   process?: FindingsProcessInput;
+  /**
+   * Persist one target's findings the instant that target's call returns —
+   * completed model output is already paid for, and a host restart before the
+   * lane's last target would otherwise throw every earlier target's findings
+   * away with it. Called per target, before anything is aggregated; the caller
+   * (review's evidence handle) owns the store write. Absent → the lane stays a
+   * pure collector, exactly like a pre-durability caller.
+   */
+  persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
 }
 
 /**
@@ -188,13 +197,19 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       // The call returned — but if the signal aborted WHILE it ran, the user
       // stopped and its output is not evidence to aggregate.
       if (opts.signal?.aborted) return stopped();
-      findings.push(
-        ...parseFindings(
-          result.raw,
-          { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
-          opts.warn,
-        ),
+      const parsed = parseFindings(
+        result.raw,
+        { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
+        opts.warn,
       );
+      // F2 per target, not per lane: the call's output is completed, paid-for
+      // model output, and persisting it now — before the next target's call,
+      // before any aggregation — is what keeps a host restart mid-lane from
+      // discarding the targets that already answered. A Stop that lands after
+      // this point leaves the finished targets' findings recorded, exactly like
+      // the stopped path's gate rows: what already finished is still recorded.
+      if (parsed.length > 0) opts.persistFindings?.(parsed, processRun?.id ?? null);
+      findings.push(...parsed);
     } catch (error) {
       // Residual fix: a rejection that lands ON an aborted signal is the Stop
       // itself — the user cancelled, and the adapter surfaced it as a rejection
@@ -241,6 +256,8 @@ export interface PlanAndRunFindingsLaneOpts {
   store?: Store;
   /** The Review AI process — opens its run before the first call when present. */
   process?: FindingsProcessInput;
+  /** Persist each target's findings as its call lands (see `RunFindingsLaneOpts`). */
+  persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
 }
 
 /**
@@ -266,6 +283,7 @@ export async function planAndRunFindingsLane(
           warn: opts.warn,
           store: opts.store,
           process: opts.process,
+          persistFindings: opts.persistFindings,
         })
       : { kind: 'not-run' };
   return { outcome, blockingSeverity: config.blockingSeverity };

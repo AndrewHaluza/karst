@@ -74,6 +74,7 @@ import {
 } from '../artifactConventions.js';
 import {
   buildPrDescriptionPrompt,
+  gateSetChangedSincePreviousRun,
   renderPrDescription,
   sanitizePrDescription,
   type PrDiffContext,
@@ -138,9 +139,10 @@ async function describePr(
   ticketId: number,
   processRunId?: number | null,
   model?: string,
+  gateSetChanged?: boolean,
 ): Promise<string> {
   const r = await adapter.runHeadless({
-    prompt: buildPrDescriptionPrompt(title),
+    prompt: buildPrDescriptionPrompt(title, gateSetChanged),
     cwd,
     model,
     tracking: { callSite: 'pr-description', ticketId, processRunId: processRunId ?? undefined },
@@ -227,6 +229,7 @@ async function generateDescription(
   onProgress: ShipProgress,
   onInsideProgress: (event: InsideProgressEvent) => void = () => {},
   assignment?: ProcessAssignmentSnapshot,
+  gateSetChanged?: boolean,
 ): Promise<string> {
   onProgress({ repo, step: 'describe', status: 'run' });
   onInsideProgress({
@@ -265,6 +268,7 @@ async function generateDescription(
       ticketId,
       processRun.id,
       assignment?.model,
+      gateSetChanged,
     );
     finishProcessRun(store, processRun.id, 'passed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });
@@ -1138,6 +1142,11 @@ export async function shipTicket(
       const existing = await findOpenPr(gh, wt.path);
       const descriptionTemplate = conventions?.pullRequestDescription;
 
+      // RC5, stated in the public record: whether any gate stage's latest run
+      // answered a different question set than the one before it. Ticket-wide
+      // (the same for every repo), so computed once per worktree.
+      const gateSetChanged = gateSetChangedSincePreviousRun(store, opts.ticketId);
+
       /**
        * The PR body, rendered exactly the same way whether it is about to open a
        * PR or to backfill one that was adopted — one description, one shape, so an
@@ -1164,6 +1173,7 @@ export async function shipTicket(
           branch: wt.branch ?? undefined,
           baseRef: base,
           ...diffContext,
+          gateSetChanged,
         });
       };
       const runDescriptionStep = async (process: DriveProcessBundle | null | undefined): Promise<string> => {
@@ -1183,6 +1193,7 @@ export async function shipTicket(
             onProgress,
             onInsideProgress,
             process.assignment,
+            gateSetChanged,
           );
         }
         if (process === null) {
@@ -1204,6 +1215,8 @@ export async function shipTicket(
             opts.ticketId,
             onProgress,
             onInsideProgress,
+            undefined,
+            gateSetChanged,
           );
         }
         return deterministicDescription();

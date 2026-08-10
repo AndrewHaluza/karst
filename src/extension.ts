@@ -2734,18 +2734,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           context.globalStorageUri.fsPath,
         ),
       );
-      // The done marker (§5.4) rides EVERY seed, not just the approach path:
+      // The done marker (§5.4) rides every seed, not just the approach path:
       // `materializeApproach` only runs for an installed package or a solo agent,
       // so a `direct` ticket would otherwise never be told to fire the marker and
       // would strand at `impl`. The marker names the stage the session is actually
       // working on — a resume at `fix` gets `stage fix pass`, not the impl marker.
+      // ONLY marker stages carry one: seeded at `uat`/`review`/`ship` the command
+      // names an earlier stage and the CLI refuses it, so an agent that trusted
+      // it would report the ticket advanced when it had not moved (869edna84).
       // The concrete ticket key is the arg (the seed is plain text — no
       // `$ARGUMENTS` substitution).
       const markerStage = markerStageFor(t.stageCurrent as StageKey | null);
-      const markerInstruction = renderDoneMarkerInstruction(
-        buildCliStagePrefix(context, dbPath, markerStage),
-        t.key ?? String(ticketId),
-      );
+      const markerInstruction =
+        markerStage === null
+          ? null
+          : renderDoneMarkerInstruction(
+              buildCliStagePrefix(context, dbPath, markerStage),
+              t.key ?? String(ticketId),
+            );
       const initialPrompt = buildSessionSeed(
         ticketContextMd,
         approachPrompt ?? delegation,
@@ -2783,7 +2789,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages, latestFindingBatch(localStore, ticketId))
           : null;
       let seedPrompt = resumeId
-        ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}\n\n${markerInstruction}`
+        ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}${markerInstruction ? `\n\n${markerInstruction}` : ''}`
         : initialPrompt;
 
       // Materialize the ticket's approach package (and/or its chosen solo agent)
@@ -2804,7 +2810,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             sessionDir: wt.path,
             soloAgent,
             cliContextPrefix: buildCliContextPrefix(context, dbPath),
-            cliStagePrefix: buildCliStagePrefix(context, dbPath),
+            // Same marker gating as the seed above: a materialized workflow
+            // command appends its done-marker step ONLY when a stage prefix is
+            // given, so a session opened at a non-marker stage (uat/review/
+            // ship) must not be handed a command whose closing step is the
+            // `stage impl pass` the CLI would refuse (869edna84). At `fix` this
+            // also corrects the default: the command's marker step names `fix`,
+            // not the `impl` the old unconditional call defaulted to.
+            cliStagePrefix:
+              markerStage === null
+                ? undefined
+                : buildCliStagePrefix(context, dbPath, markerStage),
             cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
           });
         }

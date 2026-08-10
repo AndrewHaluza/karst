@@ -51,4 +51,29 @@ describe('gateRevision', () => {
     const base = manifest({}, { uat: uat({ gates: [gate('test')] }) });
     expect(gateRevision({ ...base, defaultModel: 'sonnet' })).toBe(gateRevision(base));
   });
+
+  it('ignores uat env/secrets/maxFixAttempts edits — run-time inputs, not questions', () => {
+    // The whole `uat:` block used to be hashed, so rotating a secret or
+    // changing `maxFixAttempts` between two attempts reported "the gate set
+    // changed" — a false positive that turns the RC5 signal into noise. Only
+    // the gate LISTS and repository paths decide the questions.
+    const base = manifest({}, { uat: uat({ gates: [gate('test')] }) });
+    const envTweak: Manifest = {
+      ...base,
+      uat: { ...base.uat!, env: { FOO: 'bar' }, secrets: ['s'], maxFixAttempts: 3 },
+    };
+    expect(gateRevision(envTweak)).toBe(gateRevision(base));
+  });
+
+  it('hashes a per-repository gate override, which REPLACES the global list', () => {
+    const withGlobal = manifest({ web: repo({ repoPath: '/web' }) }, { uat: uat({ gates: [gate('test')] }) });
+    const withOverride: Manifest = {
+      ...withGlobal,
+      uat: {
+        ...withGlobal.uat!,
+        repositories: { web: { gates: [gate('integration')] } },
+      },
+    };
+    expect(gateRevision(withOverride)).not.toBe(gateRevision(withGlobal));
+  });
 });

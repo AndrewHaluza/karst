@@ -372,15 +372,32 @@ export async function runUat(
       signal: opts.signal,
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
-      onGateComplete: opts.onGateComplete,
       onGateStart: opts.onGateStart,
+      // Each gate row is appended the INSTANT that gate finishes — inside the
+      // runner's own loop, before the next gate starts. A host death between
+      // two gates (process death fires no abort signal, so the `stopped` path
+      // never runs) must still leave every finished gate readable; batching
+      // until the target's list completed was what threw a run's worth of
+      // rows away with it. Zipped by POSITION like the aggregation below: two
+      // manifest entries sharing a worktree can declare the same gate name, so
+      // a name lookup would attach the wrong identity to the row.
+      onGateComplete: (name, exitCode, startedAt, endedAt, index) => {
+        const gate = resolution.gates[index];
+        evidence.append([{
+          gateName: `${name} (${label})`,
+          exitCode,
+          startedAt,
+          endedAt,
+          repo: target.repo,
+          command: gate?.command ?? name,
+          args: gate?.args ?? [],
+        }]);
+        opts.onGateComplete?.(name, exitCode);
+      },
     });
 
     const produced: AggregateEntry[] = [];
     for (const [index, result] of run.results.entries()) {
-      // Zipped by POSITION: `runGateList` emits one result per gate in order, and
-      // two manifest entries sharing a worktree can declare the same gate name,
-      // so a name lookup would attach the wrong identity to the row.
       const gate = resolution.gates[index];
       produced.push({
         result: { ...result, name: `${result.name} (${label})` },
@@ -395,7 +412,6 @@ export async function runUat(
       );
     }
     entries.push(...produced);
-    recordEntries(produced);
 
     // A Stop yields no verdict and no attempt. What already finished is still
     // recorded — discarding it would make work that really happened unrecoverable.

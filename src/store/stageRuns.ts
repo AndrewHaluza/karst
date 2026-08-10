@@ -243,7 +243,12 @@ export function reconcileStageRuns(
     .map((r) => rowToStageRun(r as StageRunRow));
 
   const stale: StaleStageRun[] = [];
-  const mark = store.db.prepare("UPDATE stage_runs SET status = 'stale' WHERE id = ?");
+  // Guarded exactly like `closeStageRun`: a row the driver already closed —
+  // or another window's sweep just marked — is not a running run anymore,
+  // and the sweep must never rewrite a finished row into a lie.
+  const mark = store.db.prepare(
+    "UPDATE stage_runs SET status = 'stale' WHERE id = ? AND status = 'running'",
+  );
   for (const run of rows) {
     if (run.pid === null) continue;
     if (isAlive(run.pid)) continue;

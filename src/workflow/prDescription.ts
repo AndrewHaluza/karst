@@ -14,8 +14,35 @@
  * the sanitizer is the only thing that holds when the request is ignored.
  */
 
+import type { Store } from '../store/db.js';
+import { latestStageRun, previousStageRun } from '../store/stageRuns.js';
+
+/**
+ * Whether any gate stage's latest run resolved a different gate set than the
+ * run before it. Both runs must have recorded a hash — a null on either side
+ * is "unknown", never "changed" — and a run with no predecessor cannot differ
+ * from one (RC5: a gate removed from the manifest must not read as a gate that
+ * was fixed; the PR body says so when it happened).
+ */
+export function gateSetChangedSincePreviousRun(store: Store, ticketId: number): boolean {
+  for (const stageKey of ['uat', 'review'] as const) {
+    const latest = latestStageRun(store, ticketId, stageKey);
+    if (latest === null) continue;
+    const prior = previousStageRun(store, latest);
+    if (prior === null) continue;
+    if (
+      latest.manifestHash !== null &&
+      prior.manifestHash !== null &&
+      latest.manifestHash !== prior.manifestHash
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** The description request. Rules are explicit because the default answer is chat-shaped. */
-export function buildPrDescriptionPrompt(title: string): string {
+export function buildPrDescriptionPrompt(title: string, gateSetChanged?: boolean): string {
   return [
     `Write the pull-request description for the changes in this worktree.`,
     `Title: ${title}`,
@@ -25,6 +52,13 @@ export function buildPrDescriptionPrompt(title: string): string {
     `- Do not wrap the response in a code fence. Start directly with the description — a short summary line or a "## Summary" heading.`,
     `- Use GitHub-flavored markdown for structure and emphasis: headings, bullet lists, **bold**, and inline \`code\` for identifiers, file paths, commands, and flags.`,
     `- Use fenced code blocks only for real code, diffs, terminal output, or config snippets, and tag each fence with its language.`,
+    ...(gateSetChanged
+      ? [
+          ``,
+          `The gate set for this ticket changed since the previous attempt of a gate stage — a gate may have been removed rather than fixed.`,
+          `State this in the description so a deleted gate cannot read as a fixed one.`,
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -174,6 +208,12 @@ export interface PrDescriptionContext extends PrDiffContext {
   repo?: string;
   branch?: string;
   baseRef?: string;
+  /**
+   * A gate stage's latest run answered a different question set than the one
+   * before it (RC5). Rendered as a note so a gate deleted from the manifest —
+   * rather than fixed — cannot read as a pass in the public record.
+   */
+  gateSetChanged?: boolean;
 }
 
 function commitBullet(line: string): string | null {
@@ -191,9 +231,19 @@ function commitBullet(line: string): string | null {
  * token spend, and an opportunity to inspect a different project.
  */
 export function renderPrDescription(ctx: PrDescriptionContext): string {
-  if (!ctx.commits && !ctx.diffStat) return ctx.title;
+  if (!ctx.commits && !ctx.diffStat && !ctx.gateSetChanged) return ctx.title;
 
   const parts = ['## Summary', '', ctx.title];
+  if (ctx.gateSetChanged) {
+    parts.push(
+      '',
+      '## Note',
+      '',
+      'The gate set changed since the previous attempt of a gate stage — this branch is not ' +
+        'answering the same questions the last attempt answered, and a gate may have been ' +
+        'removed rather than fixed.',
+    );
+  }
   const commits = ctx.commits
     ?.split(/\r?\n/u)
     .map(commitBullet)
