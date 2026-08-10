@@ -13,6 +13,7 @@ import type {
   HookChannelOutcome,
   HookChannelRecorder,
 } from '../diagnostics/hookChannel.js';
+import { serveCreateTicketRequest, type TicketApiOptions } from './ticketApi.js';
 
 /** Cap the accepted hook body — a local sender can't grow host memory unbounded. */
 const MAX_BODY_BYTES = 64 * 1024;
@@ -43,6 +44,15 @@ export function parseHookRequestTarget(raw: string | undefined): HookRequestTarg
   return launchId === undefined ? { kind: 'ok' } : { kind: 'ok', launchId };
 }
 
+/** The URL's pathname, '' for a target that does not parse as a URL. */
+function requestPath(raw: string | undefined): string {
+  try {
+    return new URL(raw ?? '', 'http://127.0.0.1').pathname;
+  } catch {
+    return '';
+  }
+}
+
 export interface HookEndpoint {
   port: number;
   url: string;
@@ -57,6 +67,12 @@ export interface HookEndpointOptions {
    * that story, so every request outcome is counted for the issue report.
    */
   recorder?: HookChannelRecorder;
+  /**
+   * Ticket-creation API (§ create ticket from the extension): when present,
+   * `POST /tickets` is served alongside `/hooks`. Requests are never counted
+   * on the hook channel recorder — this is not a hook.
+   */
+  ticketApi?: TicketApiOptions;
 }
 
 /**
@@ -102,6 +118,18 @@ export function startHookEndpoint(
         observe('not-found');
         res.writeHead(404);
         res.end();
+        return;
+      }
+      // The create-ticket API is a sibling route: POST /tickets, JSON in,
+      // JSON out. It is served before the hook target parse, so it never
+      // touches the hook path or its recorder.
+      if (requestPath(req.url) === '/tickets') {
+        serveCreateTicketRequest(req, res, {
+          store,
+          options: options.ticketApi,
+          maxBodyBytes: MAX_BODY_BYTES,
+          requestTimeoutMs,
+        });
         return;
       }
       const target = parseHookRequestTarget(req.url);
