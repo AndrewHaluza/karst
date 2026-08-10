@@ -7,7 +7,7 @@ import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import type { InsideEvidenceTarget, ShipPrView } from './types.js';
 import { doneReceipt, type DoneReceiptInput, type DoneReceiptView } from './done.js';
-import type { EvidenceRow } from './types.js';
+import { formatTime, type EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -409,5 +409,41 @@ describe('done receipt: the hero line and the receipt grid', () => {
     if (view.status !== 'complete') throw new Error('expected a complete receipt');
     const validated = (view.evidence.blocks ?? []).find((b) => b.label === 'Validated');
     expect(validated?.details).toContain('2 recovery rounds before delivery');
+  });
+});
+
+describe('done receipt process-row description and timestamps (Task 869egdr2u)', () => {
+  it('describes the delivery dynamically on the complete receipt', () => {
+    const view = doneReceipt(
+      receiptInput({
+        prs: [
+          pr('/web', { number: 40, status: 'merged', mergedAt: NOW }),
+          pr('/api', { number: 41, status: 'merged', mergedAt: NOW }),
+        ],
+        ship: evidence({
+          repos: {
+            '/web': repoEvidence('/web', { commits: [shipCommit('created-by-ship')] }),
+            '/api': repoEvidence('/api', { commits: [shipCommit('created-by-ship', { repo: '/api' })] }),
+          },
+        }),
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(view.detail).toBe('2 current pull requests merged');
+  });
+
+  it('states no pull requests merged when the delivery had nothing to merge', () => {
+    const view = doneReceipt(receiptInput({ prs: [] })) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(view.detail).toBe('no pull requests merged');
+  });
+
+  it('dates each merged row from its own merge stamp', () => {
+    const view = doneReceipt(
+      receiptInput({
+        prs: [pr('/web', { number: 40, status: 'merged', mergedAt: '2026-07-20T12:05:00.000Z' })],
+        ship: evidence({ repos: { '/web': repoEvidence('/web', { commits: [shipCommit('created-by-ship')] }) } }),
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    const mergedRow = rowsOf(view).find((r) => r.label === 'merged')!;
+    expect(mergedRow.time).toBe(formatTime('2026-07-20T12:05:00.000Z'));
   });
 });

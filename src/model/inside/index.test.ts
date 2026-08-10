@@ -6,7 +6,7 @@ import { formatTime, type EvidenceRow } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
-const worktree = (repo: string, branch: string) => ({
+const worktree = (repo: string, branch: string, createdAt: string | null = null) => ({
   ticketId: 1,
   repo,
   repoDisplay: repo,
@@ -14,8 +14,30 @@ const worktree = (repo: string, branch: string) => ({
   branch,
   baseRef: 'main',
   depsMode: 'link' as const,
+  createdAt,
   launchable: false,
 });
+
+function prefillRun(over: Partial<import('../../store/processRuns.js').ProcessRun> = {}) {
+  return {
+    id: 1,
+    ticketId: 1,
+    stageKey: 'scope' as const,
+    processId: 'prefill',
+    attempt: 0,
+    stageRunId: null,
+    agentName: null,
+    provider: 'claude',
+    model: 'claude-opus-4-8',
+    pid: null,
+    status: 'passed' as const,
+    resultKind: null,
+    artifactPath: null,
+    startedAt: '2026-07-20T11:30:00.000Z',
+    endedAt: '2026-07-20T11:31:00.000Z',
+    ...over,
+  };
+}
 
 describe('scopeProcesses', () => {
   function scopeCell(status: StageStatus, extra: Partial<StepperCell> = {}): StepperCell {
@@ -129,6 +151,91 @@ describe('scopeProcesses', () => {
     const worktrees = processes[1]!;
     expect(worktrees.status).toBe('note');
     expect(worktrees.detail).toContain('no worktrees');
+  });
+
+  it('dates each expanded hot-set row from the scope run that selected it', () => {
+    const processes = scopeProcesses(
+      scopeCell('passed', { startedAt: '2026-07-20T12:00:00.000Z', endedAt: NOW }),
+      ['api', 'web'],
+      [],
+      NOW,
+    );
+    const evidence = processes[0]!.evidence as { kind: 'rows'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows[0]!.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+    expect(evidence.rows[1]!.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+  });
+
+  it('dates each worktree row from its own registration stamp when recorded', () => {
+    const processes = scopeProcesses(
+      ran,
+      ['api'],
+      [
+        worktree('api', 'karst/t-1', '2026-07-20T12:01:00.000Z'),
+        worktree('web', 'karst/t-1'), // pre-v13 row: no stamp
+      ],
+      NOW,
+    );
+    const evidence = processes[1]!.evidence as { kind: 'rows'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows[0]!.time).toBe(formatTime('2026-07-20T12:01:00.000Z'));
+    // An unrecorded stamp falls back to the scope stage's start; a scope that
+    // never ran leaves the row undated rather than inventing a time.
+    expect(evidence.rows[1]!.time).toBe(formatTime(NOW));
+  });
+
+  describe('the AI prefill process (Task 10b)', () => {
+    it('appears FIRST when an analysis ran, with its AI identity and recorded spend', () => {
+      const processes = scopeProcesses(
+        scopeCell('pending'),
+        ['api'],
+        [],
+        NOW,
+        [prefillRun()],
+        { total: 4800, input: 4000, output: 800 },
+      );
+      expect(processes.map((p) => p.id)).toEqual(['prefill', 'hot-set', 'worktrees']);
+      const prefill = processes[0]!;
+      expect(prefill.kind).toBe('prefill');
+      expect(prefill.status).toBe('pass');
+      expect(prefill.detail).toContain('prompt prefilled');
+      expect(prefill.execution).toMatchObject({ provider: 'claude', model: 'claude-opus-4-8' });
+      expect(prefill.tokens?.state).toBe('measured');
+      expect(prefill.time).toBe(formatTime('2026-07-20T11:30:00.000Z'));
+    });
+
+    it('reads a failed analysis as fail — never a pass', () => {
+      const processes = scopeProcesses(
+        scopeCell('pending'),
+        ['api'],
+        [],
+        NOW,
+        [prefillRun({ status: 'failed', resultKind: 'execution-failed' })],
+      );
+      const prefill = processes[0]!;
+      expect(prefill.status).toBe('fail');
+      expect(prefill.detail).toContain('failed');
+    });
+
+    it('reads an interrupted analysis as a note, never a verdict', () => {
+      const processes = scopeProcesses(scopeCell('pending'), ['api'], [], NOW, [
+        prefillRun({ status: 'interrupted', endedAt: null }),
+      ]);
+      const prefill = processes[0]!;
+      expect(prefill.status).toBe('note');
+      expect(prefill.detail).toContain('interrupted');
+    });
+
+    it('omits the row entirely when no analysis was ever recorded', () => {
+      const processes = scopeProcesses(scopeCell('pending'), ['api'], [], NOW, []);
+      expect(processes.map((p) => p.id)).toEqual(['hot-set', 'worktrees']);
+    });
+
+    it('prefers the latest analysis run over a superseded one', () => {
+      const processes = scopeProcesses(scopeCell('pending'), ['api'], [], NOW, [
+        prefillRun({ id: 1, status: 'stale', endedAt: null }),
+        prefillRun({ id: 2, status: 'passed' }),
+      ]);
+      expect(processes[0]!.status).toBe('pass');
+    });
   });
 });
 

@@ -52,6 +52,12 @@ export interface AnalyzeInput {
    * unattributed, because it is real spend (§ token consumption stats).
    */
   ticketId?: number | null;
+  /**
+   * The inside process run this call belongs to — the scope stage's prefill
+   * process. Threaded into `tracking.processRunId` so the spend is attributed
+   * to the run the inside view renders (§ token consumption stats).
+   */
+  processRunId?: number | null;
 }
 
 export interface TicketAnalysis {
@@ -191,7 +197,11 @@ export async function analyzeTicket(
   const result = await adapter.runHeadless({
     prompt: buildPrompt(input),
     cwd: '.',
-    tracking: { callSite: 'ticket-analysis', ticketId: input.ticketId ?? null },
+    tracking: {
+      callSite: 'ticket-analysis',
+      ticketId: input.ticketId ?? null,
+      processRunId: input.processRunId ?? null,
+    },
   });
   const parsed = parse(result.raw);
 

@@ -1,3 +1,4 @@
+import type { ProcessRun } from '../../store/processRuns.js';
 import type { WorktreeView } from '../../store/dashboard.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import {
@@ -14,7 +15,9 @@ import { insertCausalFix, recoveryProcess } from './recovery.js';
 import { shipProcesses } from './ship.js';
 import { doneReceipt } from './done.js';
 import {
+  executionView,
   implementationSessionProcess,
+  tokenView,
   type SessionConfiguredInput,
   type SessionTokensInput,
   type SessionView,
@@ -58,20 +61,92 @@ function stageProcessStatus(cell: StepperCell): InsideStatus {
   }
 }
 
+/** The latest invocation of the prefill process, by its explicit run id. */
+function latestPrefillRun(runs: readonly ProcessRun[]): ProcessRun | undefined {
+  let best: ProcessRun | undefined;
+  for (const run of runs) {
+    if (run.processId !== 'prefill') continue;
+    if (best === undefined || run.id > best.id) best = run;
+  }
+  return best;
+}
+
 /**
- * Scope's two process rows (Task 10), in `INSIDE_PROCESSES.scope` order:
- * `hot-set` first, then `worktrees`. The hot set is ONE row whatever the repo
- * count — the count rides on it, never as a row per repo — and the worktrees
- * are one row whose evidence lists each created worktree, bounded.
+ * The prefill process (Task 10b): the AI analysis the ticket form ran when the
+ * ticket was created — the coupled prompt/approach/repos/type prefill. It is
+ * the scope stage's FIRST process, and it is the only scope process with an AI
+ * identity: the run snapshots the provider that analyzed, and the token pill
+ * states the recorded spend.
+ *
+ * Absent until an analysis actually ran — a ticket whose form never asked the
+ * analyzer has no prefill row, because absence-by-omission beats inventing a
+ * process that never happened. A run the analyzer closed as a failure reads as
+ * one, never as a pass.
+ */
+function prefillProcess(
+  runs: readonly ProcessRun[],
+  tokens: SessionTokensInput | null | undefined,
+  now: string,
+): InsideProcessView | null {
+  const run = latestPrefillRun(runs);
+  if (!run) return null;
+  const status: InsideStatus =
+    run.status === 'passed'
+      ? 'pass'
+      : run.status === 'running'
+        ? 'run'
+        : run.status === 'failed'
+          ? 'fail'
+          : 'note';
+  return {
+    id: 'prefill',
+    kind: 'prefill',
+    label: 'Ticket analysis',
+    status,
+    detail:
+      status === 'pass'
+        ? 'prompt prefilled · approach, repos and type suggested'
+        : status === 'run'
+          ? 'analyzing the ticket prompt'
+          : status === 'fail'
+            ? 'analysis failed — the prompt was not prefilled'
+            : 'analysis interrupted — no outcome',
+    ...(run.startedAt
+      ? {
+          duration: formatDuration(run.startedAt, run.endedAt ?? now),
+          durationExact: formatExactDuration(run.startedAt, run.endedAt ?? now),
+          time: formatTime(run.startedAt),
+        }
+      : {}),
+    ...(run.provider ? { execution: executionView(run.provider, run.model) } : {}),
+    ...(tokens ? { tokens: tokenView(tokens) } : {}),
+    evidence: { kind: 'rows', rows: [] },
+  };
+}
+
+/**
+ * Scope's process rows, in `INSIDE_PROCESSES.scope` order: the AI `prefill`
+ * (when an analysis ran), `hot-set`, then `worktrees`. The hot set is ONE row
+ * whatever the repo count — the count rides on it, never as a row per repo —
+ * and the worktrees are one row whose evidence lists each created worktree,
+ * bounded.
+ *
+ * The process runs are OPTIONAL (the prefill row appears only when one was
+ * recorded): a caller that has not loaded them passes nothing and gets the
+ * two scope rows every scope view has always had.
  */
 export function scopeProcesses(
   cell: StepperCell,
   selectedRepos: readonly string[],
   worktrees: readonly WorktreeView[],
   now: string,
+  processRuns?: readonly ProcessRun[],
+  tokens?: SessionTokensInput | null,
 ): InsideProcessView[] {
   const count = selectedRepos.length;
   const ran = cell.status !== 'pending';
+  const rowTime = (at: string | null | undefined): string =>
+    at ? formatTime(at) : '';
 
   const hotSet: InsideProcessView = {
     id: 'hot-set',
@@ -100,6 +175,9 @@ export function scopeProcesses(
           status: ran ? 'pass' : 'pending',
           label: repo,
           detail: ran ? 'selected' : 'to validate',
+          // Each row dates from the scope run that selected it — the stage's
+          // own start; there is no per-repo selection stamp.
+          ...(ran && cell.startedAt ? { time: rowTime(cell.startedAt) } : {}),
         }),
       ),
     },
@@ -107,11 +185,18 @@ export function scopeProcesses(
 
   const boundedRows = bounded(
     worktrees.map(
-      (w): EvidenceRow => ({
-        status: 'pass',
-        label: 'worktree',
-        detail: w.branch ? `${w.repoDisplay} · ${w.branch}` : w.repoDisplay,
-      }),
+      (w): EvidenceRow => {
+        // The worktree's own registration stamp when the record has one; the
+        // scope stage's start is the fallback for pre-v13 rows. An absent
+        // stamp omits the time entirely — never an empty cell.
+        const time = rowTime(w.createdAt ?? cell.startedAt);
+        return {
+          status: 'pass',
+          label: 'worktree',
+          detail: w.branch ? `${w.repoDisplay} · ${w.branch}` : w.repoDisplay,
+          ...(time ? { time } : {}),
+        };
+      },
     ),
     WORKTREE_DETAIL_LIMIT,
   );
@@ -120,7 +205,9 @@ export function scopeProcesses(
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
+  const prefill = prefillProcess(processRuns ?? [], tokens, now);
   return [
+    ...(prefill ? [prefill] : []),
     hotSet,
     {
       id: 'worktrees',

@@ -58,6 +58,8 @@ export type DoneReceiptView =
   | { status: 'pending'; title: string; detail: string }
   | {
       status: 'complete';
+      /** The process-row description — dynamic per state (Task 869egdr2u). */
+      detail: string;
       delivered: { repos: number; prs: number; commits: number };
       validated: string;
       tokens: { label: string } | null;
@@ -181,6 +183,8 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
       status: 'pass',
       label: 'merged',
       detail: pr.number ? `${pr.repoDisplay || pr.repo} #${pr.number}` : pr.repoDisplay || pr.repo,
+      // Each merged row dates from its own merge stamp (Task 869egdr2u).
+      ...(pr.mergedAt ? { time: formatTime(pr.mergedAt) } : {}),
   }));
   const repositoryRows = boundedEvidenceRows(
     mergedRows,
@@ -226,6 +230,13 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
 
   return {
     status: 'complete',
+    // The process-row description, dynamic per state: what the receipt
+    // actually delivers. Zero merged reads as "no pull requests merged" —
+    // never a fabricated "0 delivered".
+    detail:
+      merged.length > 0
+        ? `${plural(merged.length, 'current pull request', 'current pull requests')} merged`
+        : 'no pull requests merged',
     delivered: { repos: merged.length, prs: merged.length, commits },
     validated,
     tokens:

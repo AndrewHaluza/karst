@@ -11,6 +11,7 @@ const wt = (overrides: Partial<WorktreeView> = {}): WorktreeView => ({
   branch: 'karst/A',
   baseRef: 'develop',
   depsMode: 'inherited',
+  createdAt: null,
   launchable: false,
   ...overrides,
 });

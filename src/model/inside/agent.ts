@@ -9,6 +9,7 @@ import { formatExactTokens, formatTokens } from '../tokenFormat.js';
 import {
   formatDuration,
   formatExactDuration,
+  formatShortTime,
   formatTime,
   type AgentExecutionView,
   type EvidenceRow,
@@ -178,13 +179,16 @@ function timelineEvents(
   events.push({
     at: run.startedAt,
     row: {
-      status: 'note',
+      // The run start states the session's identity segment. Its prose is
+      // only the start time, so it carries no provider key — an icon beside
+      // a timestamp would claim an identity the row does not state. Once the
+      // session is marked done, the start reads as part of the completed
+      // execution — a green check, not a hollow grey node (the design's
+      // "started after done" fix).
+      status: run.status === 'passed' ? 'pass' : 'note',
       label: 'started',
       detail: formatTime(run.startedAt),
       duration: formatDuration(run.startedAt, run.endedAt ?? now),
-      // The run start names the session's identity segment. Its prose is
-      // only the start time, so it carries no provider key — an icon beside
-      // a timestamp would claim an identity the row does not state.
       role: 'identity',
     },
   });
@@ -231,6 +235,8 @@ function timelineEvents(
         // The prototype's acceptance copy: the phase name first, the report
         // stamp second. Ships pre-worded so the webview renders it verbatim.
         detail: `reported · ${formatTime(mark.markedAt)}`,
+        // The design's short HH:MM in the timeline's own time cell.
+        time: formatShortTime(mark.markedAt),
         role: 'phase',
       },
     });
@@ -252,6 +258,7 @@ function timelineEvents(
         status: 'pass',
         label: 'done',
         detail: `implementation marked done · ${formatTime(run.endedAt)}`,
+        time: formatShortTime(run.endedAt),
         role: 'phase',
       },
     });

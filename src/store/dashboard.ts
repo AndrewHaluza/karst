@@ -20,6 +20,8 @@ export interface WorktreeView {
   branch: string | null;
   baseRef: string | null;
   depsMode: string;
+  /** When the worktree was registered; null for pre-v13 rows. */
+  createdAt: string | null;
   /**
    * Whether this worktree is a karst-extension checkout and so can be
    * launched as a dev host. Only the dashboard state builder probes it (it
@@ -30,6 +32,8 @@ export interface WorktreeView {
 }
 
 export interface PrView {
+  /** The rowid — the host-owned id the typed-action dispatch reloads by. */
+  id: number;
   ticketId: number;
   repo: string;
   /**
@@ -105,11 +109,12 @@ interface WorktreeRow {
   branch: string | null;
   base_ref: string | null;
   deps_mode: string;
+  created_at: string | null;
 }
 
 export function listWorktreesByTicket(store: Store, ticketId: number): WorktreeView[] {
   const rows = store.db
-    .prepare('SELECT ticket_id, repo, path, branch, base_ref, deps_mode FROM worktrees WHERE ticket_id = ? ORDER BY path')
+    .prepare('SELECT ticket_id, repo, path, branch, base_ref, deps_mode, created_at FROM worktrees WHERE ticket_id = ? ORDER BY path')
     .all(ticketId) as WorktreeRow[];
   return rows.map((r) => ({
     ticketId: r.ticket_id,
@@ -119,6 +124,7 @@ export function listWorktreesByTicket(store: Store, ticketId: number): WorktreeV
     branch: r.branch,
     baseRef: r.base_ref,
     depsMode: r.deps_mode,
+    createdAt: r.created_at,
     launchable: false, // the dashboard state builder probes the filesystem
   }));
 }
@@ -149,6 +155,7 @@ export function listWorktreesByProject(store: Store, projectId: number): Project
 }
 
 interface PrRow {
+  id: number;
   ticket_id: number;
   repo: string;
   number: number | null;
@@ -164,11 +171,12 @@ interface PrRow {
 export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
   const rows = store.db
     .prepare(
-      `SELECT ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, comments
+      `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, comments
          FROM prs WHERE ticket_id = ? ORDER BY number`,
     )
     .all(ticketId) as PrRow[];
   return rows.map((r) => ({
+    id: r.id,
     ticketId: r.ticket_id,
     repo: r.repo,
     repoDisplay: r.repo, // default; state.ts may re-render project-relative

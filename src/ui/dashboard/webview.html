@@ -662,6 +662,7 @@
   #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
   #inside .ev-state,#inside .gate-state{gap:var(--p-s2)}
   #inside .ev-dur{color:var(--p-muted2)}
+  #inside .ev-time{color:var(--p-muted2)}
   #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
 
   /* Gates */
@@ -820,12 +821,14 @@
     overflow:hidden;background:var(--p-surface)}
   #inside .commit-repo{border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .commit-repo:last-child{border-bottom:0}
-  #inside .commit-repo-head{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto;
+  #inside .commit-repo-head{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto auto;
     gap:var(--p-s2);align-items:center;min-height:29px;padding:0 var(--p-s2)}
   #inside .commit-repo-name{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #inside .commit-repo-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:var(--p-muted);font-size:var(--p-sm)}
+  #inside .commit-time{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    white-space:nowrap}
   #inside .commit-origin{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--p-border);
     border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
     font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
@@ -836,6 +839,16 @@
     min-height:23px;align-items:center}
   #inside .commit-sha{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* In-body object links: the commit hash and the PR number ARE the controls
+     the design wants them to be — underlined, monospaced, keyboard-focusable */
+  #inside .obj-link{display:inline-flex;align-items:center;color:var(--k-link);
+    text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
+    text-decoration-color:var(--p-border2);text-underline-offset:2px;cursor:pointer;
+    font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle;
+    border-radius:var(--k-radius-1)}
+  #inside .obj-link:hover{color:var(--k-link);text-decoration-color:currentColor}
+  #inside .obj-link:focus-visible{outline:1px solid var(--p-running);outline-offset:2px}
   #inside .commit-message{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:var(--p-muted);font-size:var(--p-sm)}
 
@@ -894,7 +907,7 @@
     #inside .receipt-grid{grid-template-columns:minmax(0,1fr)}
     #inside .receipt-block{border-right:0;border-bottom:var(--k-border-w) solid var(--p-border)}
     #inside .receipt-block:last-child{border-bottom:0}
-    #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto}
+    #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto auto}
     #inside .commit-repo-name{grid-column:1}
     #inside .commit-repo-summary{grid-column:1/-1}
     #inside .commit-list,#inside .pr-branch-note{padding-left:var(--p-s2)}
@@ -1719,10 +1732,13 @@
   // fact of its own and still renders beside it.
   function evStateHtml(r, cls) {
     if (!r.status) return `<span class="${cls}"></span>`;
+    const time = r.time
+      ? `<span class="ev-time" title="started ${esc(r.time)}">${esc(r.time)}</span>`
+      : '';
     const dur = r.duration
       ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>`
       : '';
-    return `<span class="${cls} ${esc(r.status)}">${dur}`
+    return `<span class="${cls} ${esc(r.status)}">${time}${dur}`
       + `<span class="glyph ${esc(r.status)}" aria-label="${esc(statusWord(r.status))}"></span></span>`;
   }
   function evActionHtml(r) {
@@ -1732,7 +1748,9 @@
   function evidenceRowsHtml(ev) {
     return ev.rows.map((r) => `<div class="evidence-row">`
       + `<span class="ev-key">${esc(r.label)}</span>`
-      + `<span class="ev-detail">${esc(r.detail || '')}</span>`
+      + `<span class="ev-detail">${esc(r.detail || '')}`
+      + (r.prState ? `<span class="pr-status ${esc(r.prState)}">${esc(r.prState)}</span>` : '')
+      + `</span>`
       + (r.action ? evActionHtml(r) : evStateHtml(r, 'ev-state'))
       + `</div>`).join('');
   }
@@ -1771,14 +1789,19 @@
     const grid = ev.repos.map((r) => {
       const list = r.commits && r.commits.length
         ? `<div class="commit-list">${r.commits.map((c) => `<div class="commit-item">`
-          + `<span class="commit-sha">${esc(c.sha)}</span>`
+          + (c.action
+            // The commit SHA IS the open control — a link, never a button
+            // (the design's "click the hash").
+            ? `<a class="obj-link commit-link" href="#" data-act="inside-action"`
+              + ` data-action-id="${esc(c.action.actionId)}" title="Open this commit on the host">${esc(c.sha)}</a>`
+            : `<span class="commit-sha">${esc(c.sha)}</span>`)
           + `<span class="commit-message">${esc(c.message)}</span>`
-          + (c.action ? evActionHtml(c) : '')
           + `</div>`).join('')}</div>`
         : '';
       return `<div class="commit-repo"><div class="commit-repo-head">`
         + `<span class="commit-repo-name">${esc(r.repo)}</span>`
         + `<span class="commit-repo-summary">${esc(r.summary)}</span>`
+        + (r.time ? `<span class="commit-time" title="commit step started ${esc(r.time)}">${esc(r.time)}</span>` : '')
         + `<span class="commit-origin ${esc(r.originKind)}">${esc(r.origin)}</span>`
         + `</div>${list}</div>`;
     }).join('');
@@ -1793,7 +1816,12 @@
     const arrow = '<span class="pr-arrow" aria-hidden="true">→</span>';
     const rows = ev.branches.map((b) => {
       const object = b.number
-        ? `<span class="pr-object"><span class="pr-link">${esc(b.number)}</span>`
+        ? `<span class="pr-object">`
+          + (b.action
+            // The PR number IS the open-PR control — a link, never a button.
+            ? `<a class="obj-link pr-link" href="#" data-act="inside-action"`
+              + ` data-action-id="${esc(b.action.actionId)}" title="Open this pull request on the host">${esc(b.number)}</a>`
+            : `<span class="pr-link">${esc(b.number)}</span>`)
           + (b.prState ? `<span class="pr-status ${esc(b.prState)}">${esc(b.prState)}</span>` : '')
           + `</span>`
         : `<span class="pr-empty">${esc(b.emptyLabel || '')}</span>`;
@@ -1815,7 +1843,8 @@
     const lines = ev.rows.map((r) => `<div class="done-line">`
       + `<span class="done-key">${esc(r.label)}</span>`
       + `<span class="done-copy">${esc(r.detail || '')}</span>`
-      + (r.action ? evActionHtml(r) : `<span class="done-state">${esc(r.duration || statusWord(r.status))}</span>`)
+      + (r.action ? evActionHtml(r)
+        : `<span class="done-state">${r.time ? `<span class="ev-time">${esc(r.time)}</span> · ` : ''}${esc(r.duration || statusWord(r.status))}</span>`)
       + `</div>`).join('');
     if (!ev.hero && !(ev.blocks && ev.blocks.length)) return lines;
     const hero = ev.hero
@@ -1870,8 +1899,15 @@
         + `<span class="switch-value">${identity}</span>${tail}</div>`;
     }
     if (r.role === 'identity') {
+      // A completed session's start reads as part of the delivery: the grey
+      // hollow node gives way to the same green check the done row carries
+      // (the design's "started after done" fix). Anything else keeps the
+      // hollow start node — the timeline's chronology marker, not a verdict.
+      const node = r.status === 'pass'
+        ? `<span class="glyph phase-status pass" aria-label="passed"></span>`
+        : `<span class="timeline-node start" aria-hidden="true"></span>`;
       return `<div class="timeline-row timeline-start">`
-        + `<span class="timeline-slot"><span class="timeline-node start" aria-hidden="true"></span></span>`
+        + `<span class="timeline-slot">${node}</span>`
         + `<span class="timeline-start-label">${esc(r.label)}</span>`
         + `<span class="switch-value">${identity}</span>${tail}</div>`;
     }
@@ -1881,7 +1917,7 @@
       + ` aria-label="${esc(statusWord(status))}"></span></span>`
       + `<span class="phase-name">${esc(r.label)}</span>`
       + `<span class="phase-detail ${esc(status)}">${esc(r.detail || '')}</span>`
-      + `<span class="phase-time">${esc(r.duration || '')}</span></div>`;
+      + `<span class="phase-time">${esc(r.time || r.duration || '')}</span></div>`;
   }
   function evidenceTimelineHtml(ev) {
     return `<div class="session-segments">${ev.rows.map(timelineRowHtml).join('')}</div>`;

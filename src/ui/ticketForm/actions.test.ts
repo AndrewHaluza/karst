@@ -28,6 +28,7 @@ import {
   insertAttachment,
   listAttachments,
 } from '../../store/attachments.js';
+import { listProcessRuns } from '../../store/processRuns.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 import { attachmentDir, attachmentPath } from '../../attachments/paths.js';
 
@@ -935,22 +936,35 @@ describe('buildTicketFormActions', () => {
     expect(posted[posted.length - 1]).toEqual({ type: 'busy', what: 'analyze', on: false });
   });
 
-  it('analyze in create mode (no ticket) computes from the live prompt WITHOUT persisting', async () => {
+  it('analyze in create mode binds a draft and records the prefill process run', async () => {
     deps.adapter = analyzerAdapter(
       '{"prompt":"Rename the button","approach":"rpi","repos":["fe"],"reason":"trivial"}',
     );
     const posted: TicketFormHostMessage[] = [];
+    let bound: number | undefined;
     let pushes = 0;
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => { pushes += 1; }, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m),
+      pushState: () => { pushes += 1; },
+      mode: 'create',
+      bindTicket: (id) => { bound = id; },
+      close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('rename the settings button');
 
+    // The analysis is the scope stage's prefill process, and a process run
+    // needs a ticket to attach to — the draft is bound on Analyze now.
     expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ prompt: 'Rename the button' });
-    expect(pushes).toBe(0); // nothing persisted, no state re-push
-    expect(listTickets(store)).toHaveLength(0); // no draft created
+    expect(pushes).toBe(0); // create mode still holds the fields in the webview
+    const tickets = listTickets(store);
+    expect(tickets).toHaveLength(1);
+    expect(bound).toBe(tickets[0]!.id);
+    // The call was attributed to a closed, passed prefill run.
+    const runs = listProcessRuns(store, tickets[0]!.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ processId: 'prefill', stageKey: 'scope', status: 'passed' });
   });
 
   it('analyze is a no-op with no bound ticket AND no live prompt (nothing to reason over)', async () => {

@@ -10,6 +10,7 @@ import {
   generateTicketKey,
 } from '../../store/tickets.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
+import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { scoreRepos } from '../../workflow/classify/gate.js';
 import { suggestSignals as suggestSignalsAI } from '../../workflow/classify/suggest.js';
 import {
@@ -690,7 +691,41 @@ export function buildTicketFormActions(
 
       ctx.post({ type: 'busy', what: 'analyze', on: true });
       try {
-        const analysis = await analyzeTicket(deps.adapter, { brief, prompt, services, approaches });
+        // The analysis is the ticket's first AI process — the scope stage's
+        // `prefill` row. It needs a ticket to attach to, so a pure create-mode
+        // panel binds a draft FIRST (the same persist-on-bind path fetch and
+        // attachments already walk), then opens the process run and attributes
+        // the call's spend to it (`tracking.processRunId`). The draft is
+        // re-keyed and retitled at submit.
+        const ticketId = ensureTicket();
+        const startedAt = new Date().toISOString();
+        const run = openProcessRun(deps.store, {
+          ticketId,
+          stageKey: 'scope',
+          processId: 'prefill',
+          attempt: 0,
+          // The snapshot of the core that ran — the same provider the panel's
+          // adapter was resolved with (extension.ts's instrument wiring).
+          provider: deps.manifest.agentProvider ?? 'claude',
+          startedAt,
+        });
+        let analysis: Awaited<ReturnType<typeof analyzeTicket>>;
+        try {
+          analysis = await analyzeTicket(deps.adapter, {
+            brief,
+            prompt,
+            services,
+            approaches,
+            ticketId,
+            processRunId: run.id,
+          });
+          finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());
+        } catch (error) {
+          // The call's spend is already recorded (a 429 arrives after the input
+          // was billed); the run closes as a failed execution, never as a pass.
+          finishProcessRun(deps.store, run.id, 'failed', new Date().toISOString(), 'execution-failed');
+          throw error;
+        }
         // Persist only when a ticket is bound (post-fetch / edit). Pure create
         // mode holds the draft in the webview until submit, so just return the
         // analysis and let the page apply it.
