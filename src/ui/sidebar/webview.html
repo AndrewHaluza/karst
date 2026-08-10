@@ -13,32 +13,42 @@
   /*KARST_DS_CSS*/
 
   *{box-sizing:border-box}
+  /* The view is an app shell, not a scrolling document: html/body fill the
+     view, body is a non-scrolling column, and the ONLY thing that scrolls is
+     the ticket list (UI-R38). The toolbar/search/facets stay pinned — on a
+     long list they used to scroll away with the rows, leaving the filters
+     and controls unreachable at the bottom. */
   body{
     margin:0;padding:0;
+    display:flex;flex-direction:column;overflow:hidden;
     background:var(--vscode-sideBar-background,var(--vscode-editor-background));
     color:var(--k-text);
     font-family:var(--k-font-ui);
     font-size:var(--k-text-base);
   }
+  html,body{height:100%}
 
   /* toolbar */
   .toolbar{display:flex;align-items:center;gap:var(--k-space-1);padding:var(--k-space-3) var(--k-space-4);
-    border-bottom:var(--k-border-w) solid var(--k-border)}
+    border-bottom:var(--k-border-w) solid var(--k-border);flex:0 0 auto}
   .toolbar .sp{flex:1}
 
   /* search */
-  .search{position:relative;margin:var(--k-space-4) var(--k-space-4) var(--k-space-3)}
+  .search{position:relative;margin:var(--k-space-4) var(--k-space-4) var(--k-space-3);flex:0 0 auto}
   .search-icon{position:absolute;left:var(--k-space-3);top:50%;transform:translateY(-50%);
     color:var(--k-text-faint)}
   .search-input{width:100%;padding-left:var(--k-space-9)}
 
   /* facets */
   .facets{display:flex;gap:var(--k-space-3);flex-wrap:wrap;padding:0 var(--k-space-4) var(--k-space-4);
-    border-bottom:var(--k-border-w) solid var(--k-border)}
+    border-bottom:var(--k-border-w) solid var(--k-border);flex:0 0 auto}
   .facets .n{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.8}
 
   /* rows */
-  .list{padding:var(--k-space-1) 0}
+  /* flex:1 + min-height:0: the list is the one flex child allowed to shrink
+     below its content, which is what makes overflow-y scroll instead of
+     growing the body past the viewport. */
+  .list{flex:1;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0}
   .ticket{margin:0 var(--k-space-2);border-radius:var(--k-radius-md)}
   .ticket.arch{opacity:.6}
   .row{display:flex;align-items:center;gap:var(--k-space-3);

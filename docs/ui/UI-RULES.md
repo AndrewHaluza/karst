@@ -424,3 +424,15 @@ copy to drift.
 This is a presentation and interaction-feedback contract. No rule here licenses
 changing what an action does, which message it posts, what the host executes, or
 what is persisted. `npm test` and `npm run typecheck` pass.
+
+### UI-R38 — A scrolling surface keeps its controls pinned
+A list that scrolls keeps the controls that act on it — header toolbar, search
+box, filter chips — pinned above it. A control that scrolls away with the rows
+it filters is unreachable at the bottom of a long list: the sidebar's ticket
+list scrolled as one document until this rule, so the search box and facet
+chips disappeared below the fold.
+
+**Check:** the list is the only `overflow-y:auto` container in the webview's
+main `<style>`; the shell (`body`) is `overflow:hidden` and fills the view
+(`html,body{height:100%}`); pinned blocks are `flex:0 0 auto`; the list is
+`flex:1` with `min-height:0`.
