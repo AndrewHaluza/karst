@@ -29,6 +29,7 @@ import {
   listAttachments,
 } from '../../store/attachments.js';
 import { listProcessRuns } from '../../store/processRuns.js';
+import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 import { attachmentDir, attachmentPath } from '../../attachments/paths.js';
 
@@ -177,12 +178,20 @@ describe('buildTicketFormActions', () => {
       async () => ({ ok: true }),
     );
     openDashboard = vi.fn<(id: number) => void>();
+    const adapter = fakeAdapter();
     deps = {
       store,
       manifest: MANIFEST,
       manifestPath: '/tmp/karst.yml',
       provider: fakeProvider(),
-      adapter: fakeAdapter(),
+      adapter,
+      // Default resolver: the CURRENT deps.adapter under the approved default
+      // assignment, read at CALL time so per-test `deps.adapter` swaps apply.
+      // Individual tests override this with a configured bundle.
+      resolveAnalysisProcess: vi.fn<(id: number) => DriveProcessBundle | null>(() => ({
+        assignment: { agentName: 'Ticket Analysis Agent', provider: 'claude' },
+        adapter: deps.adapter,
+      })),
       onChange: onCreated,
       writeSignals,
       reloadManifest,
@@ -965,6 +974,69 @@ describe('buildTicketFormActions', () => {
     const runs = listProcessRuns(store, tickets[0]!.id);
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ processId: 'prefill', stageKey: 'scope', status: 'passed' });
+  });
+
+  it('analyze runs through the configured ticket-analysis process and snapshots its identity', async () => {
+    const runHeadless = vi.fn(async (opts: { model?: string }) => {
+      void opts;
+      return {
+        sessionId: 's',
+        verdict: null,
+        raw: '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}',
+      };
+    });
+    const configured: AgentAdapter = { ...fakeAdapter(), runHeadless };
+    const t = createTicket(store, { key: 'P-1', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.resolveAnalysisProcess = () => ({
+      assignment: { agentName: 'My Analyzer', provider: 'opencode', model: 'gemini-2.5-pro' },
+      adapter: configured,
+    });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('a ticket prompt');
+
+    // The call went through the CONFIGURED adapter, with the configured model.
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(runHeadless.mock.calls[0]![0].model).toBe('gemini-2.5-pro');
+    // The prefill run snapshots the identity that actually ran — the settings
+    // pick, never the manifest default.
+    const runs = listProcessRuns(store, t.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      processId: 'prefill',
+      stageKey: 'scope',
+      status: 'passed',
+      agentName: 'My Analyzer',
+      provider: 'opencode',
+      model: 'gemini-2.5-pro',
+    });
+    expect(posted.find((m) => m.type === 'analysis')).toBeTruthy();
+  });
+
+  it('analyze refuses with an inline error when the ticket-analysis process is disabled', async () => {
+    const t = createTicket(store, { key: 'P-1', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.resolveAnalysisProcess = () => null;
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    // Configured absence: the analyzer performs no model call and opens no run —
+    // the page gets a reason it can act on (enable it), not a silent no-op.
+    expect(deps.adapter.runHeadless).not.toHaveBeenCalled();
+    expect(listProcessRuns(store, t.id)).toHaveLength(0);
+    const err = posted.find((m) => m.type === 'error') as { message: string } | undefined;
+    expect(err?.message).toMatch(/disabled/i);
+    expect(posted.at(-1)).toEqual({ type: 'busy', what: 'analyze', on: false });
   });
 
   it('analyze is a no-op with no bound ticket AND no live prompt (nothing to reason over)', async () => {

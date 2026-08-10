@@ -136,6 +136,7 @@ describe('buildSettingsState', () => {
       'review',
       'reviewFix',
       'prDescription',
+      'ticketAnalysis',
     ]);
     const uat = s.processAssignments.find((v) => v.key === 'uatTester');
     expect(uat?.state).toBe('unknown-profile');

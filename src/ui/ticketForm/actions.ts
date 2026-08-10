@@ -3,6 +3,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { TicketingProvider, ContextBrief } from '../../integrations/ticketing.js';
 import { renderBrief } from '../../integrations/briefMarkdown.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import {
   getTicket,
   updateTicketCore,
@@ -87,6 +88,18 @@ export interface TicketFormActionsDeps {
   projectId?: number;
   provider: TicketingProvider;
   adapter: AgentAdapter;
+  /**
+   * The ticket form's analyzer process (the `ticket-analysis` role of the
+   * `processes:` block): the identity snapshot its `prefill` run opens with
+   * AND the already-instrumented adapter the analysis runs through. Resolved
+   * at analyze time, after the draft is bound, so the ticket's own
+   * provider/model picks participate as overrides — the same seam every other
+   * inside process resolves through (extension.ts's `processFor`). NULL is
+   * configured ABSENCE (`enabled: false`): the analyzer refuses rather than
+   * running on a guessed default. The plain `adapter` above stays the
+   * panel-wide default for the signal-word suggestion.
+   */
+  resolveAnalysisProcess: (ticketId: number) => DriveProcessBundle | null;
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
   onChange: () => void;
   /**
@@ -694,30 +707,47 @@ export function buildTicketFormActions(
         // The analysis is the ticket's first AI process — the scope stage's
         // `prefill` row. It needs a ticket to attach to, so a pure create-mode
         // panel binds a draft FIRST (the same persist-on-bind path fetch and
-        // attachments already walk), then opens the process run and attributes
-        // the call's spend to it (`tracking.processRunId`). The draft is
-        // re-keyed and retitled at submit.
+        // attachments already walk), then resolves the configured
+        // ticket-analysis process and attributes the call's spend to its run
+        // (`tracking.processRunId`). The draft is re-keyed and retitled at
+        // submit.
         const ticketId = ensureTicket();
+        const process = deps.resolveAnalysisProcess(ticketId);
+        if (process === null) {
+          // Configured absence (`processes.ticketAnalysis.enabled: false`),
+          // exactly like every other disabled inside process: the analyzer
+          // performs no model call and opens no run. The page gets a reason it
+          // can act on, not a silent no-op.
+          ctx.post({
+            type: 'error',
+            message:
+              'Ticket analysis is disabled in Settings — enable it to prefill the prompt.',
+          });
+          return;
+        }
         const startedAt = new Date().toISOString();
         const run = openProcessRun(deps.store, {
           ticketId,
           stageKey: 'scope',
           processId: 'prefill',
           attempt: 0,
-          // The snapshot of the core that ran — the same provider the panel's
-          // adapter was resolved with (extension.ts's instrument wiring).
-          provider: deps.manifest.agentProvider ?? 'claude',
+          // The identity SNAPSHOT of the core/model that actually ran, resolved
+          // at analyze time — later Settings edits never rewrite the row.
+          agentName: process.assignment.agentName ?? null,
+          provider: process.assignment.provider,
+          model: process.assignment.model ?? null,
           startedAt,
         });
         let analysis: Awaited<ReturnType<typeof analyzeTicket>>;
         try {
-          analysis = await analyzeTicket(deps.adapter, {
+          analysis = await analyzeTicket(process.adapter, {
             brief,
             prompt,
             services,
             approaches,
             ticketId,
             processRunId: run.id,
+            model: process.assignment.model ?? undefined,
           });
           finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());
         } catch (error) {

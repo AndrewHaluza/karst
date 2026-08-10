@@ -83,6 +83,31 @@ describe('analyzeTicket', () => {
     expect(result.type).toBe('fix');
   });
 
+  it('passes the configured model id through to the headless call', async () => {
+    const calls: Array<{ model?: string; prompt: string }> = [];
+    const adapter: AgentAdapter = {
+      requiredBinary: 'claude',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
+      async runHeadless(opts): Promise<HeadlessResult> {
+        calls.push({ model: opts.model, prompt: opts.prompt });
+        return {
+          sessionId: 's1',
+          verdict: null,
+          raw: '{"prompt":"p","approach":"gsd","repos":["backend"],"reason":"r"}',
+        };
+      },
+    };
+    await analyzeTicket(adapter, {
+      brief: 'b',
+      services,
+      approaches,
+      model: 'claude-sonnet-5',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.model).toBe('claude-sonnet-5');
+  });
+
   // The type lands in branch names and PR titles; an off-vocabulary guess from
   // the model degrades to the default rather than propagating.
   it('falls back to feat for an unknown or missing type', async () => {

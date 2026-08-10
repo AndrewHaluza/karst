@@ -58,6 +58,12 @@ export interface AnalyzeInput {
    * to the run the inside view renders (§ token consumption stats).
    */
   processRunId?: number | null;
+  /**
+   * The resolved launch model id for this analysis (the ticket-analysis
+   * process assignment). Absent → the agent CLI's own default, like every
+   * other headless call that declares none.
+   */
+  model?: string;
 }
 
 export interface TicketAnalysis {
@@ -197,6 +203,7 @@ export async function analyzeTicket(
   const result = await adapter.runHeadless({
     prompt: buildPrompt(input),
     cwd: '.',
+    model: input.model,
     tracking: {
       callSite: 'ticket-analysis',
       ticketId: input.ticketId ?? null,
