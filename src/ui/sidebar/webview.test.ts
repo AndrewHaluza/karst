@@ -187,6 +187,26 @@ describe('sidebar webview.html', () => {
     expect(main).not.toContain('--g-gray');
   });
 
+  it('pins toolbar/search/facets and scrolls only the ticket list (UI-R38)', () => {
+    const [main] = styleBlocks();
+    // App shell: html/body fill the view; body is a non-scrolling column.
+    expect(main).toContain('html,body{height:100%}');
+    const bodyRule = main!.match(/body\{[^}]*\}/)?.[0] ?? '';
+    expect(bodyRule).toContain('display:flex;flex-direction:column;');
+    expect(bodyRule).toContain('overflow:hidden');
+    // The three header blocks are pinned — they never flex out of view.
+    expect(main!).toMatch(/\.toolbar\{[^}]*flex:0 0 auto/);
+    expect(main).toMatch(/\.search\{[^}]*flex:0 0 auto/);
+    expect(main).toMatch(/\.facets\{[^}]*flex:0 0 auto/);
+    // The list is the one flex child that may shrink below its content, and it
+    // is the ONLY scroll container in the file.
+    const listRule = main!.match(/\.list\{[^}]*\}/)?.[0] ?? '';
+    expect(listRule).toContain('flex:1;');
+    expect(listRule).toContain('min-height:0;');
+    expect(listRule).toContain('overflow-y:auto');
+    expect(main!.match(/overflow-y:auto/g) ?? []).toHaveLength(1);
+  });
+
   it('contains no raw hex/rgb/px/rem style literal outside the injected tokens (UI-R04)', () => {
     const [main] = styleBlocks();
     const local = main!.slice(main!.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
