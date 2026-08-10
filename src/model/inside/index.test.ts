@@ -141,9 +141,43 @@ describe('scopeProcesses', () => {
     expect(hotSet.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
     expect(hotSet.duration).toBe('2m 0s');
     expect(hotSet.durationExact).toBe('120.000s');
-    // The worktrees row records no start of its own — it must not carry one.
-    expect(processes[1]!.time).toBeUndefined();
-    expect(processes[1]!.durationExact).toBeUndefined();
+  });
+
+  it('dates the worktrees row too — every scope row carries its stamp', () => {
+    // 869egdr2u-fu1: the worktrees row was the one scope row without a
+    // timestamp; every scope process must date from the same scope run.
+    const processes = scopeProcesses(
+      scopeCell('passed', {
+        startedAt: '2026-07-20T12:00:00.000Z',
+        endedAt: '2026-07-20T12:02:00.000Z',
+      }),
+      ['api', 'web'],
+      [worktree('api', 'karst/t-1'), worktree('web', 'karst/t-1')],
+      NOW,
+    );
+    const worktrees = processes[1]!;
+    expect(worktrees.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+    expect(worktrees.duration).toBe('2m 0s');
+    expect(worktrees.durationExact).toBe('120.000s');
+  });
+
+  it('describes the worktrees row in every state, never an empty cell', () => {
+    // 869egdr2u-fu1: the row previously had no description at all.
+    const ran = scopeProcesses(
+      scopeCell('passed', {
+        startedAt: '2026-07-20T12:00:00.000Z',
+        endedAt: '2026-07-20T12:02:00.000Z',
+      }),
+      ['api', 'web'],
+      [worktree('api', 'karst/t-1'), worktree('web', 'karst/t-1')],
+      NOW,
+    )[1]!;
+    expect(ran.detail).toBe('2 worktrees created');
+    expect(ran.count).toBe('2');
+
+    const pending = scopeProcesses(scopeCell('pending'), ['api'], [], NOW)[1]!;
+    expect(pending.detail).toBe('not created yet');
+    expect(pending.count).toBeUndefined();
   });
 
   it('notes honestly when scope ran but created no worktrees', () => {
@@ -288,6 +322,7 @@ describe('ship and done reducers (re-exported)', () => {
       tokens: null,
       roles: [],
       now: NOW,
+      stages: [],
     }) as Extract<DoneReceiptView, { status: 'complete' }>;
     expect(view.delivered).toEqual({ repos: 0, prs: 0, commits: 0 });
   });

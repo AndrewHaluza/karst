@@ -837,6 +837,9 @@ export async function shipTicket(
   const run = openShipRun(store, {
     ticketId: opts.ticketId,
     attempt: runCount.n + 1,
+    // The run is opened BY this host: when the host dies, this pid is what
+    // tells the activation sweep the run died with it (reconcileShipRuns).
+    pid: process.pid,
     startedAt,
   });
 

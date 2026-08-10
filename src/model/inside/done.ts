@@ -3,12 +3,16 @@ import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { ShipEvidence } from '../../store/shipRuns.js';
 import type { RecordedRoleUsage, RecordedUsageSummary } from '../../store/tokenUsage.js';
+import type { StageKey } from '../types.js';
+import type { StepperCell } from '../stepper.js';
 import { formatTokens } from '../tokenFormat.js';
 import { boundedEvidenceRows } from './bounds.js';
 import { latestBatch } from './gates.js';
 import { currentPerRepo, isMerged, REPOSITORY_EVIDENCE_LIMIT } from './ship.js';
 import {
+  formatSpanMs,
   formatTime,
+  STAGE_TITLES,
   type DoneHeroView,
   type EvidenceRow,
   type InsideEvidenceTarget,
@@ -68,6 +72,8 @@ export type DoneReceiptView =
         rows: readonly EvidenceRow[];
         hero: DoneHeroView;
         blocks: readonly ReceiptBlockView[];
+        /** The Timing strip: stage spans and their sum as the stated total. */
+        timing?: { label: string; total: string; items: string };
       };
     };
 
@@ -94,6 +100,13 @@ export interface DoneReceiptInput {
   completedAt?: string | null;
   now: string;
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
+  /**
+   * The ticket's stage cells — the Timing strip's source. Every work stage
+   * with both stamps contributes its span, and the total is their SUM over
+   * the same stamps, so the strip's displayed total can never disagree with
+   * the displayed stage durations (869egdr2u-fu1).
+   */
+  stages: readonly StepperCell[];
 }
 
 /** English plural, host-side. The webview never pluralises (UI-R31). */
@@ -163,6 +176,34 @@ function usageBlock(input: DoneReceiptInput): ReceiptBlockView {
   };
 }
 
+/** The work stages the Timing strip sums, in workflow order. */
+const TIMING_STAGES: readonly StageKey[] = ['scope', 'impl', 'uat', 'review', 'ship', 'fix'];
+
+/**
+ * The Timing strip (869egdr2u-fu1): each work stage's span and the TOTAL as
+ * their sum, both read from the SAME stage cells — so the strip's stated
+ * total equals the sum of its stated durations by construction. A stage
+ * without both stamps contributes nothing; a ticket with no stamped stage
+ * gets no strip at all.
+ */
+function timingStrip(input: DoneReceiptInput): { label: string; total: string; items: string } | undefined {
+  const spans: Array<{ label: string; ms: number }> = [];
+  for (const key of TIMING_STAGES) {
+    const cell = input.stages.find((c) => c.stageKey === key);
+    if (!cell?.startedAt || !cell.endedAt) continue;
+    const ms = Date.parse(cell.endedAt) - Date.parse(cell.startedAt);
+    if (!Number.isFinite(ms) || ms <= 0) continue;
+    spans.push({ label: STAGE_TITLES[key], ms });
+  }
+  if (spans.length === 0) return undefined;
+  const total = spans.reduce((sum, s) => sum + s.ms, 0);
+  return {
+    label: 'Timing',
+    total: `${formatSpanMs(total)} total`,
+    items: spans.map((s) => `${s.label} ${formatSpanMs(s.ms)}`).join(' · '),
+  };
+}
+
 export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
   if (input.stageCurrent !== 'done') {
     return {
@@ -228,6 +269,8 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
     ),
   ];
 
+  const timing = timingStrip(input);
+
   return {
     status: 'complete',
     // The process-row description, dynamic per state: what the receipt
@@ -271,6 +314,7 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
         validatedBlock(input),
         usageBlock(input),
       ],
+      ...(timing ? { timing } : {}),
     },
   };
 }

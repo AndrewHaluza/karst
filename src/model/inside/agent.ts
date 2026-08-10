@@ -179,15 +179,18 @@ function timelineEvents(
   events.push({
     at: run.startedAt,
     row: {
-      // The run start states the session's identity segment. Its prose is
-      // only the start time, so it carries no provider key — an icon beside
-      // a timestamp would claim an identity the row does not state. Once the
-      // session is marked done, the start reads as part of the completed
+      // The run start states the session's identity segment. It carries no
+      // provider key — an icon beside a timestamp would claim an identity
+      // the row does not state. The start stamp is a TIME fact, so it rides
+      // the row's time cell (rendered beside the duration in the tail),
+      // never `detail` — the detail slot is the identity chip, and a
+      // timestamp there borrowed the identity's blue (869egdr2u-fu1). Once
+      // the session is marked done, the start reads as part of the completed
       // execution — a green check, not a hollow grey node (the design's
       // "started after done" fix).
       status: run.status === 'passed' ? 'pass' : 'note',
       label: 'started',
-      detail: formatTime(run.startedAt),
+      time: formatTime(run.startedAt),
       duration: formatDuration(run.startedAt, run.endedAt ?? now),
       role: 'identity',
     },

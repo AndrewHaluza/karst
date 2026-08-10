@@ -448,6 +448,10 @@ CREATE TABLE IF NOT EXISTS ship_runs (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
   attempt INTEGER NOT NULL,
   status TEXT NOT NULL,
+  -- The process that opened the run (v34) — the extension host that runs the
+  -- saga. NULL = unknown; only a recorded pid lets the activation sweep tell
+  -- a dead run from one still in flight.
+  pid INTEGER,
   started_at TEXT NOT NULL,
   ended_at TEXT
 );

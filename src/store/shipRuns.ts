@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { setStage } from './stages.js';
 
 /**
  * `ship_runs` + `ship_repo_steps` + `ship_operation_intents` + `ship_commits`
@@ -56,6 +57,13 @@ export interface ShipRun {
   ticketId: number;
   attempt: number;
   status: ShipRunStatus;
+  /**
+   * The process that opened the run. NULL = unknown, never invented. Used only
+   * to decide liveness at activation, and a pid is a recollection, not a handle
+   * — `reconcileShipRuns` acts on it exactly as conservatively as
+   * `reconcileStageRuns` does.
+   */
+  pid: number | null;
   startedAt: string;
   endedAt: string | null;
 }
@@ -146,6 +154,7 @@ interface ShipRunRowShape {
   ticket_id: number;
   attempt: number;
   status: string;
+  pid: number | null;
   started_at: string;
   ended_at: string | null;
 }
@@ -197,6 +206,7 @@ function rowToShipRun(r: ShipRunRowShape): ShipRun {
     // Closed vocabulary at a read boundary: an unrecognized status must never
     // read as `running` (which would authorize a continuation) or as success.
     status: (RUN_STATUSES.includes(r.status) ? r.status : 'failed') as ShipRunStatus,
+    pid: r.pid,
     startedAt: r.started_at,
     endedAt: r.ended_at,
   };
@@ -250,7 +260,7 @@ function rowToShipOperationIntent(r: ShipOperationIntentRowShape): ShipOperation
 }
 
 const RUN_SELECT =
-  'SELECT id, ticket_id, attempt, status, started_at, ended_at FROM ship_runs';
+  'SELECT id, ticket_id, attempt, status, pid, started_at, ended_at FROM ship_runs';
 const STEP_SELECT =
   `SELECT id, ship_run_id, repo, step, status, detail, pr_number,
           existed_before_ship, process_run_id, operation_intent_id,
@@ -266,6 +276,8 @@ const INTENT_SELECT =
 export interface OpenShipRunInput {
   ticketId: number;
   attempt: number;
+  /** The process opening the run — the extension host that will run the saga. */
+  pid?: number | null;
   startedAt: string;
 }
 
@@ -273,10 +285,10 @@ export interface OpenShipRunInput {
 export function openShipRun(store: Store, input: OpenShipRunInput): ShipRun {
   const info = store.db
     .prepare(
-      `INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at)
-       VALUES (?, ?, 'running', ?, NULL)`,
+      `INSERT INTO ship_runs (ticket_id, attempt, status, pid, started_at, ended_at)
+       VALUES (?, ?, 'running', ?, ?, NULL)`,
     )
-    .run(input.ticketId, input.attempt, input.startedAt);
+    .run(input.ticketId, input.attempt, input.pid ?? null, input.startedAt);
   const row = store.db
     .prepare(`${RUN_SELECT} WHERE id = ?`)
     .get(Number(info.lastInsertRowid)) as ShipRunRowShape | undefined;
@@ -688,6 +700,100 @@ export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
   for (const i of intents) repoEv(i.repo).intents[i.step] = i;
 
   return { run, repos };
+}
+
+/** The step detail a sweep-closed step carries. */
+const INTERRUPTED_STEP_DETAIL = 'interrupted — the host that ran it died; retry ship to continue';
+
+/** The stage verdict a sweep-parked ship carries, shown in the fault card. */
+const INTERRUPTED_STAGE_VERDICT =
+  'ship was interrupted — the host that ran it died before the PRs opened; retry ship to continue';
+
+/** A run this sweep found dead, reported so the loss is never silent. */
+export interface StaleShipRun {
+  run: ShipRun;
+  reason: string;
+}
+
+/**
+ * Mark every ship run whose process is gone as `interrupted`, globally.
+ *
+ * A ship run killed by process death (an extension-host crash mid-saga) is a
+ * state nothing can leave on its own: the saga's crash-and-retry
+ * reconciliation runs only at the START of the next `shipTicket` invocation,
+ * and the ticket at `ship` `running` with no block offers no retry anywhere —
+ * the Now line shows no button for a running ship, and no sweep re-drives a
+ * user-confirmed stage. Closing the dead run and parking the stage `failed`
+ * is what turns "a ship that has been running for a day with no PR" into the
+ * one state that HAS a recovery path: the existing failed-ship surface, whose
+ * Now line offers "Retry ship" and whose retry re-invokes the saga, which
+ * reconciles what the dead run persisted and redoes what never landed.
+ *
+ * Global like `reconcileStageRuns` and safe for the same reason: attribution,
+ * not scope. A run opened by ANOTHER LIVE window has a live pid and is left
+ * strictly alone; a run with no recorded pid is left alone too, because
+ * absence of evidence is not evidence that it died. Every write is guarded —
+ * an already-closed run is never rewritten, and the stage row is only parked
+ * when it still reads `running` AND unblocked, so a ticket parked
+ * `awaiting-merge` beside a dead re-run keeps its parked state.
+ *
+ * Reported, never silent — an invisibly-discarded run is the whole failure
+ * this closes, and a sweep that quietly corrected the data would repeat it.
+ */
+export function reconcileShipRuns(
+  store: Store,
+  isAlive: (pid: number) => boolean,
+  now: string,
+): StaleShipRun[] {
+  const rows = store.db
+    .prepare(`${RUN_SELECT} WHERE status = 'running' ORDER BY id`)
+    .all()
+    .map((r) => rowToShipRun(r as ShipRunRowShape));
+
+  const stale: StaleShipRun[] = [];
+  const markRun = store.db.prepare(
+    "UPDATE ship_runs SET status = 'interrupted', ended_at = ? WHERE id = ? AND status = 'running'",
+  );
+  const markSteps = store.db.prepare(
+    `UPDATE ship_repo_steps SET status = 'failed', detail = ?, ended_at = ?
+      WHERE ship_run_id = ? AND status = 'running'`,
+  );
+  const stageRow = store.db.prepare(
+    "SELECT status, blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = 'ship'",
+  );
+  for (const run of rows) {
+    if (run.pid === null) continue;
+    if (isAlive(run.pid)) continue;
+    const apply = store.db.transaction(() => {
+      markRun.run(now, run.id);
+      markSteps.run(INTERRUPTED_STEP_DETAIL, now, run.id);
+      const stage = stageRow.get(run.ticketId) as
+        | { status: string; blocked_kind: string | null }
+        | undefined;
+      // The single-writer rule is still honoured — `setStage` is the only
+      // stage writer; the guarded read only decides whether to call it.
+      if (stage !== undefined && stage.status === 'running' && stage.blocked_kind === null) {
+        setStage(store, run.ticketId, 'ship', {
+          status: 'failed',
+          verdict: INTERRUPTED_STAGE_VERDICT,
+          endedAt: now,
+        });
+      }
+    });
+    apply();
+    stale.push({
+      run: { ...run, status: 'interrupted' },
+      reason:
+        `${run.startedAt} ship run (pid ${run.pid}) did not finish — its process is gone; ` +
+        'ship is parked failed so a retry can resume it',
+    });
+  }
+  return stale;
+}
+
+/** One line naming a run this sweep found dead, for the output channel. */
+export function describeStaleShipRun(s: StaleShipRun): string {
+  return `karst: ticket ${s.run.ticketId}: ${s.reason}`;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
