@@ -224,4 +224,16 @@ describe('extension activation', () => {
     expect(fix).toContain('dispose: () => sessions.disposeSession(ticketId)');
     expect(fix).toContain('providerReady: true');
   });
+
+  // The create-ticket API lands tickets on THIS window's project (the DB is
+  // shared by every window), and a created ticket must appear in the sidebar
+  // without anyone opening the form. Pinned as source like every wiring case
+  // in this file: extension.ts imports `vscode` and cannot load under vitest.
+  it('wires the ticket API to the window project and a sidebar refresh', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('ticketApi: {');
+    expect(source).toContain('projectId: () => currentProject()?.id,');
+    expect(source).toContain('onTicketCreated: (ticketId) => {');
+  });
 });
