@@ -306,9 +306,9 @@ export function readMergeChecks(
 }
 
 export interface CoreUsageTokens {
-  readonly input: number
-  readonly output: number
-  readonly total: number
+  input: number
+  output: number
+  total: number
 }
 
 export interface CoreUsageEvidence {
@@ -324,6 +324,19 @@ export interface CoreUsageEvidence {
 }
 
 export type CoreUsageScope = { readonly ticketId: number } | { readonly projectId: number }
+
+/** Mutable accumulation shape; frozen into `CoreUsageEvidence` at the end. */
+interface HeldCoreUsage {
+  core: string
+  headlessCalls: number
+  headlessTokens: CoreUsageTokens
+  interactiveCalls: number
+  interactiveTokens: CoreUsageTokens
+  sessions: number
+  models: string[]
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+}
 
 interface CoreTotalsRow {
   core: string
@@ -424,11 +437,11 @@ export function readCoreUsage(
       ORDER BY provider ASC, model ASC`,
   ).all(...params) as Array<{ core: string; model: string }>
 
-  const byCore = new Map<string, CoreUsageEvidence>()
-  const hold = (core: string): CoreUsageEvidence => {
+  const byCore = new Map<string, HeldCoreUsage>()
+  const hold = (core: string): HeldCoreUsage => {
     const existing = byCore.get(core)
     if (existing) return existing
-    const held: CoreUsageEvidence = {
+    const held: HeldCoreUsage = {
       core,
       headlessCalls: 0,
       headlessTokens: zeroTokens(),
@@ -443,7 +456,7 @@ export function readCoreUsage(
     return held
   }
   const absorb = (
-    held: CoreUsageEvidence,
+    held: HeldCoreUsage,
     row: CoreTotalsRow,
     field: 'headless' | 'interactive',
   ): void => {

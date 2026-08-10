@@ -583,7 +583,7 @@ describe('collectMetadata', () => {
 
     const section = draft.metadata.cores
     expect(section?.status).toBe('available')
-    const rows = (section as { data: unknown[] }).data as Record<string, unknown>[]
+    const rows = (section as unknown as { data: unknown[] }).data as Record<string, unknown>[]
     const byCore = new Map(rows.map((row) => [row.core as string, row]))
     expect(byCore.get('codex')).toMatchObject({
       core: 'codex',
