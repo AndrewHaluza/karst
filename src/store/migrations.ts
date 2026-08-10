@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 34;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1082,6 +1082,24 @@ export function migrate(db: Database): void {
     const intentCols33 = tableColumns(db, 'session_launch_intents');
     if (intentCols33.size > 0 && !intentCols33.has('agent_name')) {
       db.exec('ALTER TABLE session_launch_intents ADD COLUMN agent_name TEXT');
+    }
+  }
+
+  if (current < 34) {
+    // v34 records WHICH process opened a ship run (`ship_runs.pid`), so a run
+    // whose extension host died mid-saga can be told apart from one that is
+    // still in flight: `reconcileShipRuns` marks dead runs `interrupted` and
+    // parks the ship stage `failed` (retry ship), which is the one state that
+    // already has a recovery path. Same liveness posture as `stage_runs.pid`
+    // (v25): a pid is a recollection, never a handle, and a row with none is
+    // left strictly alone.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which process opened a
+    // run — a NULL names the unknown, and the sweep treats it exactly that
+    // conservatively.
+    const runCols34 = tableColumns(db, 'ship_runs');
+    if (runCols34.size > 0 && !runCols34.has('pid')) {
+      db.exec('ALTER TABLE ship_runs ADD COLUMN pid INTEGER');
     }
   }
 
