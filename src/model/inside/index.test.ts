@@ -14,6 +14,7 @@ const worktree = (repo: string, branch: string) => ({
   branch,
   baseRef: 'main',
   depsMode: 'link' as const,
+  launchable: false,
 });
 
 describe('scopeProcesses', () => {

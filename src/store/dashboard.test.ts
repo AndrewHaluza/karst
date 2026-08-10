@@ -4,6 +4,7 @@ import { createTicket } from './tickets.js';
 import {
   listServersByTicket,
   listWorktreesByTicket,
+  listWorktreesByProject,
   listPrsByTicket,
   serverAddress,
 } from './dashboard.js';
@@ -80,6 +81,27 @@ describe('dashboard store queries', () => {
     expect(wts).toHaveLength(1);
     expect(wts[0]!.path).toBe('/wt/a');
     expect(wts[0]!.branch).toBe('karst/a');
+  });
+
+  it('listWorktreesByProject returns worktrees joined with ticket keys, scoped to one project', () => {
+    const a = createTicket(store, { key: 'K-1', title: 'a', projectId: 1 });
+    const b = createTicket(store, { key: 'K-2', title: 'b', projectId: 2 });
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, 'karst', '/wt/k1', 'karst/a', 'develop', 'inherited')`,
+      )
+      .run(a.id);
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, 'app', '/wt/k2', 'karst/b', 'main', 'inherited')`,
+      )
+      .run(b.id);
+
+    const rows = listWorktreesByProject(store, a.projectId!);
+    expect(rows.map((r) => r.key)).toEqual(['K-1']);
+    expect(rows[0]).toMatchObject({ ticketId: a.id, repo: 'karst', path: '/wt/k1', branch: 'karst/a' });
   });
 
   it('listPrsByTicket returns pr rows for the ticket', () => {

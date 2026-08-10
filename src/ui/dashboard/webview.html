@@ -2337,6 +2337,13 @@
         + ` title="Open a terminal in this worktree">Open Terminal</button>`
         + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
         + ` title="Reveal this worktree in the file explorer">Reveal in Explorer</button>`
+        // Only karst-extension checkouts can become a dev host (the host probes
+        // `launchable` when it builds the state). A foreign repo's worktree
+        // gets no button at all — a dead control on every app repo is noise.
+        + (w.launchable
+          ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
+            + ` title="Build this worktree and open its extension in a new dev window">Launch Dev</button>`
+          : '')
         + `</span></div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';
   }

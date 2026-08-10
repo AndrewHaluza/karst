@@ -94,6 +94,10 @@
         "icon": "$(play)"
       },
       {
+        "command": "karst.launchWorktreeExtension",
+        "title": "Karst: Launch Worktree Extension (Development)"
+      },
+      {
         "command": "karst.refresh",
         "title": "Karst: Refresh",
         "icon": "$(refresh)"
@@ -191,8 +195,32 @@
           "type": "string",
           "default": "./.karst/agents",
           "description": "Directory where karst agent files are stored."
+        },
+        "karst.launchWorktreeDev.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable 'Karst: Launch Worktree Extension (Development)': build a ticket worktree's karst-extension checkout and open it as the extension development host in a new window. Off by default — it is a developer convenience most projects never need."
+        },
+        "karst.launchWorktreeDev.ide": {
+          "type": "string",
+          "enum": ["auto", "vscode", "cursor", "antigravity", "windsurf"],
+          "default": "auto",
+          "description": "Which editor opens the development window. 'auto' uses the editor this window runs in; a named IDE is launched through its CLI on PATH. Any other editor can be targeted via karst.launchWorktreeDev.idePath."
+        },
+        "karst.launchWorktreeDev.idePath": {
+          "type": "string",
+          "default": "",
+          "description": "Exact path to an editor CLI (e.g. /usr/local/bin/code) used to open the development window. When set, it wins over karst.launchWorktreeDev.ide."
         }
       }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "karst.launchWorktreeExtension",
+          "when": "config.karst.launchWorktreeDev.enabled"
+        }
+      ]
     }
   },
   "keywords": [],

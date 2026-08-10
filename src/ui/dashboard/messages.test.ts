@@ -22,6 +22,7 @@ function actions(): DashboardActions {
     openWorktreeTerminal: vi.fn(),
     openWorktreeFolder: vi.fn(),
     copyWorktreeBranch: vi.fn(),
+    launchWorktreeExtension: vi.fn(),
     openPr: vi.fn(),
     openTicketLink: vi.fn(),
     editTicket: vi.fn(),
@@ -80,6 +81,14 @@ describe('routeAction', () => {
     expect(parseWebviewMessage({ type: 'open-worktree-terminal', path: '' })).toBeNull();
     expect(parseWebviewMessage({ type: 'copy-worktree-branch', branch: '' })).toBeNull();
     expect(parseWebviewMessage({ type: 'copy-worktree-branch', branch: 4 })).toBeNull();
+  });
+
+  it('validates and dispatches launch-worktree-extension by path', () => {
+    const a = actions();
+    routeAction({ type: 'launch-worktree-extension', path: '/wt/a' }, a);
+    expect(a.launchWorktreeExtension).toHaveBeenCalledWith('/wt/a');
+    expect(parseWebviewMessage({ type: 'launch-worktree-extension', path: '' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'launch-worktree-extension' })).toBeNull();
   });
 
   it('dispatches open-pr by url', () => {
