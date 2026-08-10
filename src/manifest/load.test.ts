@@ -1361,6 +1361,62 @@ describe('worktreePathDisplay', () => {
   });
 });
 
+describe('archiveDoneAfterDays', () => {
+  it('defaults to 3 days when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).archiveDoneAfterDays).toBe(3);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses an explicit delay', () => {
+    const { path, cleanup } = fixture(`${VALID}\narchiveDoneAfterDays: 7\n`);
+    try {
+      expect(loadManifest(path).archiveDoneAfterDays).toBe(7);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-number', () => {
+    const { path, cleanup } = fixture(`${VALID}\narchiveDoneAfterDays: soon\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/archiveDoneAfterDays/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a fraction — the delay is counted in whole days', () => {
+    const { path, cleanup } = fixture(`${VALID}\narchiveDoneAfterDays: 2.5\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/archiveDoneAfterDays/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on 0 — the delay exists to prevent immediate archiving', () => {
+    const { path, cleanup } = fixture(`${VALID}\narchiveDoneAfterDays: 0\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/archiveDoneAfterDays/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a negative delay', () => {
+    const { path, cleanup } = fixture(`${VALID}\narchiveDoneAfterDays: -1\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/archiveDoneAfterDays/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('ticketLabelTemplate', () => {
   it('is undefined when omitted', () => {
     const { path, cleanup } = fixture(VALID);

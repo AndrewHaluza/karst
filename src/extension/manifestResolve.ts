@@ -3,6 +3,7 @@ import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
+import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from '../manifest/schema.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 
@@ -160,5 +161,6 @@ export function emptyManifest(): Manifest {
     worktreePathDisplay: 'relative',
     ticketing: { provider: 'manual' },
     agentProvider: 'claude',
+    archiveDoneAfterDays: DEFAULT_ARCHIVE_DONE_AFTER_DAYS,
   };
 }

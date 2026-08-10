@@ -408,6 +408,13 @@ export interface Manifest {
    */
   defaultModel?: string;
   /**
+   * How many days a ticket stays visible at `done` before the periodic sweep
+   * archives it (§ auto-archiving done tickets). Defaults to 3 — a ticket is
+   * never archived the moment it lands, and 0 is refused for that reason.
+   * Always set by `validateManifest` (3 when absent).
+   */
+  archiveDoneAfterDays?: number;
+  /**
    * UAT gates, credentials and (Phase 2) authored-step config. Absent yields the
    * default pipeline: karst probes package.json for known scripts. `origins` and
    * `authBootstrap` are validated at load but inert until Phase 2, so declaring

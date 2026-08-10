@@ -254,6 +254,9 @@ describe('writeManifest', () => {
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
+        // Non-default on purpose: a missing writeManifest overlay would fall
+        // back to the loader's default and the round-trip would still pass.
+        archiveDoneAfterDays: 7,
         id: 'karst-extension',
       };
       writeManifest(path, full);
