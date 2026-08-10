@@ -106,6 +106,7 @@ describe('writeManifest', () => {
         review: {
           maxFixAttempts: 4,
           requireIndependentSignal: false,
+          openChanges: true,
           gates: [{ name: 'lint', kind: 'script', script: 'lint' }],
           findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
           repositories: {},
@@ -130,6 +131,7 @@ describe('writeManifest', () => {
         review: {
           maxFixAttempts: 4,
           requireIndependentSignal: false,
+          openChanges: true,
           findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
           repositories: {},
         },
@@ -248,6 +250,7 @@ describe('writeManifest', () => {
         review: {
           maxFixAttempts: 2,
           requireIndependentSignal: false,
+          openChanges: true,
           gates: [
             { name: 'lint', kind: 'script', script: 'lint' },
             { name: 'clippy', kind: 'command', command: 'cargo', args: ['clippy', '--', '-D', 'warnings'] },

@@ -1302,6 +1302,7 @@ describe('review', () => {
       expect(loadManifest(path).review).toEqual({
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
         repositories: {},
       });
@@ -1402,6 +1403,26 @@ describe('review', () => {
     const { path, cleanup } = fixture(yaml);
     try {
       expect(() => loadManifest(path)).toThrow(/review.requireIndependentSignal/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses an explicit review.openChanges', () => {
+    const yaml = `${VALID}\nreview:\n  openChanges: true\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).review!.openChanges).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-boolean review.openChanges', () => {
+    const yaml = `${VALID}\nreview:\n  openChanges: "yes"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/review.openChanges/);
     } finally {
       cleanup();
     }

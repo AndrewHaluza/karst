@@ -113,9 +113,18 @@ export function validateReview(
     requireIndependentSignal = raw.requireIndependentSignal;
   }
 
+  let openChanges = false;
+  if (raw.openChanges !== undefined) {
+    if (typeof raw.openChanges !== 'boolean') {
+      throw new ManifestError('review.openChanges must be a boolean');
+    }
+    openChanges = raw.openChanges;
+  }
+
   const config: ReviewConfig = {
     maxFixAttempts,
     requireIndependentSignal,
+    openChanges,
     findings: validateFindings(raw.findings),
     repositories: validateReviewRepositories(raw.repositories, repoNames),
   };

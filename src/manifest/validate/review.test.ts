@@ -10,6 +10,7 @@ describe('validateReview', () => {
     expect(validateReview({}, [])).toEqual({
       maxFixAttempts: 3,
       requireIndependentSignal: true,
+      openChanges: false,
       findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       repositories: {},
     });
