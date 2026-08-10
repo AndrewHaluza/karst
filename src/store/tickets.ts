@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Store } from './db.js';
 import { STAGE_KEYS } from '../model/types.js';
-import { rowToStage, type Stage } from './stages.js';
+import { rowToStage, setStage, type Stage } from './stages.js';
 import { renderTicketLabel } from './ticketLabelTemplate.js';
 import type { AgentProvider } from '../manifest/types.js';
 // `provider.js`, not `registry.js`: the re-export still works, but importing the
@@ -10,6 +10,7 @@ import type { AgentProvider } from '../manifest/types.js';
 import { isKnownProvider } from '../agent/provider.js';
 import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
 import { slugifyTitleKey } from './titleKey.js';
+import { nowIso } from '../model/time.js';
 
 export interface Ticket {
   id: number;
@@ -460,11 +461,23 @@ export function archiveTicket(store: Store, ticketId: number): void {
     .run(ticketId);
 }
 
-/** Unarchive a ticket: clear `archived_at` and reset `created_at` so it sorts to top. */
+/**
+ * Unarchive a ticket: clear `archived_at` and reset `created_at` so it sorts to top.
+ *
+ * A ticket unarchived while still at `done` also gets its done stage's
+ * `ended_at` re-stamped to now: that timestamp IS the auto-archive clock
+ * (store/doneArchive.ts), so without the reset the next sweep tick would
+ * re-archive the ticket the user just brought back — "unarchived" would last
+ * a minute instead of a full delay (869eck7my).
+ */
 export function unarchiveTicket(store: Store, ticketId: number): void {
   store.db
     .prepare("UPDATE tickets SET archived_at = NULL, created_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
+  const ticket = getBareTicket(store, ticketId);
+  if (ticket.stageCurrent === 'done') {
+    setStage(store, ticketId, 'done', { endedAt: nowIso() });
+  }
 }
 
 /** Related tables keyed by `ticket_id`, cleared on hard-delete (no FK cascade). */

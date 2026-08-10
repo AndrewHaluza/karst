@@ -21,6 +21,8 @@ import {
   type Ticket,
 } from './tickets.js';
 import { setStage } from './stages.js';
+import { autoArchiveDoneTickets } from './doneArchive.js';
+import { transition } from '../workflow/machine.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { openProcessRun, listProcessRuns } from './processRuns.js';
 import { recordTokenUsage, listTokenUsage } from './tokenUsage.js';
@@ -364,6 +366,38 @@ describe('ticket + stage persistence', () => {
     expect(listTickets(store).map((x) => x.id)).toEqual([t.id]);
     expect(getTicket(store, t.id).archivedAt).toBeNull();
     expect(listArchivedTickets(store)).toHaveLength(0);
+  });
+
+  // The auto-archive sweep keys off the done stage's `ended_at` (doneArchive.ts),
+  // so an unarchived ticket still at `done` with an old end time would be
+  // re-archived on the very next sweep tick — "unarchived" would last a minute.
+  // Unarchiving restarts the delay instead: the ticket stays visible for another
+  // full delay from the unarchive (869eck7my).
+  it('unarchiving a done ticket restarts its auto-archive delay', () => {
+    const t = createTicket(store, { key: 'U-2', title: 'done, restored' });
+    for (const stage of ['scope', 'impl', 'uat', 'review', 'ship'] as const) {
+      transition(store, t.id, stage, { kind: 'passed' });
+    }
+    setStage(store, t.id, 'done', { endedAt: '2026-08-01T00:00:00.000Z' });
+    archiveTicket(store, t.id);
+    unarchiveTicket(store, t.id);
+
+    const done = getTicket(store, t.id).stages.find((s) => s.stageKey === 'done')!;
+    expect(done.endedAt).not.toBe('2026-08-01T00:00:00.000Z');
+    expect(
+      autoArchiveDoneTickets(store, {
+        afterDays: 3,
+        now: new Date('2026-08-10T00:00:00.000Z'),
+      }),
+    ).toEqual([]);
+  });
+
+  it('unarchiving a non-done ticket leaves its done row alone', () => {
+    const t = createTicket(store, { key: 'U-3', title: 'mid-work' });
+    archiveTicket(store, t.id);
+    unarchiveTicket(store, t.id);
+    const done = getTicket(store, t.id).stages.find((s) => s.stageKey === 'done')!;
+    expect(done.endedAt).toBeNull();
   });
 
   it('deleteTicket hard-removes the ticket and its stage rows', () => {
