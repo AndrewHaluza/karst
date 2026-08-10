@@ -1579,10 +1579,15 @@ describe('dashboard webview.html', () => {
     // Finding 1: the fixture matrix deliberately carries hostile labels and
     // long paths; every template that interpolates them must escape first.
     expect(HTML).toMatch(/<span class="ev-key">\$\{esc\(r\.label\)\}<\/span>/);
-    expect(HTML).toMatch(/<span class="ev-detail">\$\{esc\(r\.detail \|\| ''\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="ev-detail">\$\{esc\(r\.detail \|\| ''\)\}[\s\S]*?<\/span>/);
     expect(HTML).toMatch(/<span class="op-name">\$\{esc\(p\.label\)\}/);
     expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
-    expect(HTML).toMatch(/<span class="phase-time">\$\{esc\(r\.duration \|\| ''\)\}<\/span>/);
+    expect(HTML).toMatch(/<span class="phase-time">\$\{esc\(r\.time \|\| r\.duration \|\| ''\)\}<\/span>/);
+    // The object-link templates (commit hash, PR number) escape the label.
+    expect(HTML).toMatch(/class="obj-link commit-link"[^>]*>\$\{esc\(c\.sha\)\}<\/a>/);
+    expect(HTML).toMatch(/class="obj-link pr-link"[^>]*>\$\{esc\(b\.number\)\}<\/a>/);
+    // The merge rows' state chip escapes the prs.status class and text.
+    expect(HTML).toMatch(/pr-status \$\{esc\(r\.prState\)\}"\>/);
   });
 
   it('keeps the timeline rail geometry centered on the status glyph column', () => {
@@ -2371,7 +2376,9 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('<span class="commit-repo-summary">2 created · 1 before</span>');
     expect(html).toContain('<span class="commit-origin ship">created by ship</span>');
     expect(html).toContain('class="commit-item"');
-    expect(html).toContain('<span class="commit-sha">a1b2c30</span>');
+    // The commit hash IS the open-commit control — a link, never a button.
+    expect(html).toMatch(/<a class="obj-link commit-link" href="#" data-act="inside-action"[^>]*>a1b2c30<\/a>/);
+    expect(html).not.toContain('<span class="commit-sha">a1b2c30</span>');
     // Commit subjects are untrusted prose and are escaped at the template.
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain("<script>alert('xss')");
@@ -2963,5 +2970,218 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(fn!.match(/statusWord\(/g)).toHaveLength(1);
     expect(fn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
     expect(fn!).not.toContain('esc(r.duration || statusWord(r.status))');
+  });
+});
+
+describe('inside block issues p3 renderings (869egdr2u)', () => {
+  it('renders the scope prefill process with AI chip, identity and token pill', () => {
+    const state = renderStateFor('scope');
+    const scope: InsideStageView = {
+      stageKey: 'scope',
+      title: 'Scope',
+      dot: 'pend',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'prefill',
+          kind: 'prefill',
+          label: 'Ticket analysis',
+          status: 'pass',
+          detail: 'prompt prefilled · approach, repos and type suggested',
+          execution: { provider: 'opencode', providerLabel: 'OpenCode', model: 'x', modelLabel: 'DeepSeek V4 Flash' },
+          tokens: { state: 'measured', total: '4.8k' },
+        },
+        {
+          id: 'worktrees',
+          kind: 'worktrees',
+          label: 'Worktrees',
+          status: 'pass',
+          evidence: {
+            kind: 'rows',
+            rows: [
+              { status: 'pass', label: 'worktree', detail: 'web · karst/x', time: '10:03:01' },
+            ],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, scope } });
+    expect(html).toContain('<span class="ai-mark">AI</span>');
+    expect(html).toContain('OpenCode');
+    expect(html).toContain('DeepSeek V4 Flash');
+    expect(html).toContain('<span class="sigma">Σ</span>4.8k tok');
+    expect(html).toContain('<span class="ev-time" title="started 10:03:01">10:03:01</span>');
+  });
+
+  it('renders merge rows with the PR state chip and the row timestamp', () => {
+    const state = renderStateFor('ship');
+    const ship: InsideStageView = {
+      stageKey: 'ship',
+      title: 'Ship',
+      dot: 'wait',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'merge',
+          kind: 'merge',
+          label: 'Merge',
+          status: 'wait',
+          evidence: {
+            kind: 'rows',
+            rows: [
+              { status: 'wait', label: '/web · open', detail: '#120 · not merged yet', prState: 'open', time: '09:40:02' },
+              { status: 'pass', label: '/api · merged', detail: '#121', prState: 'merged', time: '09:42:00' },
+            ],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, ship } });
+    expect(html).toContain('<span class="pr-status open">open</span>');
+    expect(html).toContain('<span class="pr-status merged">merged</span>');
+    expect(html).toContain('<span class="ev-time" title="started 09:40:02">09:40:02</span>');
+  });
+
+  it('renders the PR number as a link carrying the opaque action id', () => {
+    const state = renderStateFor('ship');
+    const ship: InsideStageView = {
+      stageKey: 'ship',
+      title: 'Ship',
+      dot: 'run',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'pr',
+          kind: 'pr',
+          label: 'Pull request',
+          status: 'run',
+          evidence: {
+            kind: 'prs',
+            rows: [],
+            open: 1,
+            merged: 0,
+            branches: [
+              {
+                repo: 'web',
+                number: '#120',
+                prState: 'open',
+                steps: [{ label: 'description generated', state: 'done' }, { label: 'PR opened', state: 'done' }],
+                note: 'PR #120 was created in this ship run.',
+                current: true,
+                action: { actionId: 'snapshot-1:action-7', kind: 'open-pr' },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, ship } });
+    expect(html).toMatch(/<a class="obj-link pr-link" href="#" data-act="inside-action" data-action-id="snapshot-1:action-7"[^>]*>#120<\/a>/);
+    expect(html).not.toContain('Open this pull request</button>');
+  });
+
+  it('dates gate rows and renders the passed-start check on a completed timeline', () => {
+    const state = renderStateFor('uat');
+    const uat: InsideStageView = {
+      stageKey: 'uat',
+      title: 'UAT',
+      dot: 'done',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'gates',
+          kind: 'gates',
+          label: 'Gates',
+          status: 'pass',
+          detail: '6/6 command gates passed',
+          count: '6',
+          evidence: {
+            kind: 'gates',
+            rows: [
+              { status: 'pass', label: 'test', detail: 'exit 0', repo: 'web', time: '10:04:12', duration: '4.2s' },
+            ],
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
+    expect(html).toContain('<span class="ev-time" title="started 10:04:12">10:04:12</span>');
+    expect(html).toContain('<span class="count">6</span>');
+
+    // The completed session's START row reads as a green check, not the
+    // hollow grey node; the phase-time cell carries the short HH:MM.
+    const implState = renderStateFor('impl');
+    const impl: InsideStageView = {
+      stageKey: 'impl',
+      title: 'Implementation',
+      dot: 'done',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'session',
+          kind: 'session',
+          label: 'Session',
+          status: 'pass',
+          evidence: {
+            kind: 'timeline',
+            rows: [
+              { status: 'pass', label: 'started', detail: '10:03:01', role: 'identity' },
+              { status: 'note', label: 'plan', detail: 'reported · 10:06:14', time: '10:06', role: 'phase' },
+              { status: 'pass', label: 'done', detail: 'implementation marked done · 10:22:43', time: '10:22', role: 'phase' },
+            ],
+          },
+        },
+      ],
+    };
+    const implHtml = renderWith({ ...implState, insideViews: { ...implState.insideViews, impl } });
+    expect(implHtml).toMatch(/timeline-start[\s\S]*?<span class="glyph phase-status pass"/);
+    expect(implHtml).not.toMatch(/timeline-start[\s\S]*?timeline-node start/);
+    expect(implHtml).toContain('<span class="phase-time">10:06</span>');
+  });
+
+  it('renders the full done receipt — hero, three blocks and the lines', () => {
+    const state = renderStateFor('done');
+    const done: InsideStageView = {
+      stageKey: 'done',
+      title: 'Done',
+      dot: 'done',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'delivery-receipt',
+          kind: 'delivery-receipt',
+          label: 'Delivery receipt',
+          status: 'pass',
+          detail: '2 current pull requests merged',
+          evidence: {
+            kind: 'receipt',
+            rows: [
+              { status: 'pass', label: 'merged', detail: 'web #120', time: '09:58:01' },
+            ],
+            hero: { title: 'Delivered', summary: '2 repositories · 2 pull requests merged', time: 'completed 09:58:44' },
+            blocks: [
+              { label: 'Delivered', value: '2 pull requests merged', details: ['2 repositories', '3 commits created by ship'] },
+              { label: 'Validated', value: 'UAT passed', details: ['14 final gate checks passed'] },
+              { label: 'AI usage', value: '110.9k recorded tokens', details: [] },
+            ],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, done } });
+    expect(html).toContain('<div class="done-hero">');
+    expect(html).toContain('<div class="receipt-grid">');
+    expect(html).toContain('<div class="receipt-label">Validated</div>');
+    expect(html).toContain('2 current pull requests merged');
+    expect(html).toMatch(/<span class="done-state"><span class="ev-time">09:58:01<\/span> · passed<\/span>/);
   });
 });

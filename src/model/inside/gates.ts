@@ -67,12 +67,18 @@ export function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateR
  * with `skipped` false means the repo defines no such script, so karst had no
  * question to ask; a null exit with `skipped` true means the gate was there and
  * the user switched it off for this ticket. Neither of the last two is a pass.
+ *
+ * The `name` column is the gate's COMMAND name only: `gate_runs` records the
+ * repo-decorated name ("test (web)", "lint (/wt/web)") so a gate of the same
+ * name in two repos stays distinct, but the repo is ALREADY the row's first
+ * column — repeating it in brackets beside the command is the noise this
+ * strips (the design's "service first column, remove brackets").
  */
 function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: string } {
   if (run.skipped) {
     return {
       status: 'skip',
-      name: run.gateName,
+      name: stripRepoDecoration(run.gateName),
       detail: 'Skipped — disabled by user',
       duration: '',
       repo: run.repo,
@@ -81,7 +87,7 @@ function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: s
   }
   return {
     status: run.exitCode === null ? 'note' : run.exitCode === 0 ? 'pass' : 'fail',
-    name: run.gateName,
+    name: stripRepoDecoration(run.gateName),
     // The row states the gate's name and its exit code. `gate_runs` also
     // carries the argv that produced it now (`run.command`/`run.args`, v21),
     // but this summary line stays terse on purpose.
@@ -90,6 +96,15 @@ function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: s
     repo: run.repo,
     durationExact: formatExactDuration(run.startedAt, run.endedAt),
   };
+}
+
+/**
+ * The gate's bare name — everything before the repo decoration ` (…)` the
+ * stage appended at record time (`uat.ts`/`review.ts`'s `${name} (${label})`).
+ * A name with no suffix passes through untouched.
+ */
+function stripRepoDecoration(name: string): string {
+  return name.replace(/\s+\([^)]*\)$/, '');
 }
 
 /**
@@ -332,6 +347,9 @@ function gatesProcess(
             duration: op.duration,
             ...(op.repo ? { repo: op.repo } : {}),
             ...(op.durationExact ? { durationExact: op.durationExact } : {}),
+            // Each recorded gate row dates from its own start — the
+            // timestamp on every expanded row.
+            ...(r.startedAt ? { time: formatTime(r.startedAt) } : {}),
           };
         }),
     GATES_EVIDENCE_LIMIT,
@@ -340,22 +358,31 @@ function gatesProcess(
   if (boundedRows.remaining > 0) {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
-  // The kind-specific aggregate (B5): the WHOLE batch counted, per handoff §6,
-  // led by `n/m` — how many of the recorded gates produced a VERDICT. A skipped
-  // gate, or one whose script the repo does not define, is in `m` and not in
-  // `n`: it was recorded and it answered nothing. A batch with no recorded row
-  // is absence, never "0/0".
-  const aggregate =
-    batch.length === 0
-      ? undefined
-      : [
-          `${passed + failed}/${batch.length}`,
-          passed > 0 ? `${passed} passed` : '',
-          failed > 0 ? `${failed} failed` : '',
-          skipped > 0 ? `${skipped} skipped` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ');
+
+  // The description IS the count, per state (the design's "6 / 6 command gates
+  // passed"). A skipped gate, or one whose script the repo does not define, is
+  // in `m` and not in `n`: it was recorded and it answered nothing. A batch
+  // with no recorded row is absence, never "0/0".
+  const firstFailed = batch.find((r) => !r.skipped && r.exitCode !== null && r.exitCode !== 0);
+  const answered = passed + failed;
+  const where = (r: GateRun): string =>
+    r.repo ? `${r.repo} / ${stripRepoDecoration(r.gateName)}` : stripRepoDecoration(r.gateName);
+  let detail: string | undefined;
+  let count: string | undefined;
+  if (batch.length > 0 && failed === 0 && answered > 0) {
+    detail = `${answered}/${batch.length} command gates passed`;
+    count = answered === batch.length ? String(batch.length) : `${answered}/${batch.length}`;
+  } else if (failed > 0 && firstFailed) {
+    detail = `attempt ${cell.attempt ?? 0} failed · ${where(firstFailed)}`;
+    count = `${passed}/${batch.length}`;
+  } else if (running && batch.length > 0) {
+    detail = `${answered}/${batch.length} command gates passed so far`;
+    count = `${answered}/${batch.length}`;
+  } else if (batch.length > 0 && answered === 0) {
+    // Recorded and answered nothing (every gate's script is missing, or every
+    // gate is disabled) — the n/m reading stays, never absence.
+    detail = `${answered}/${batch.length} answered · nothing to run`;
+  }
   // The process's duration: earliest recorded gate start → latest gate end
   // (or now, while one is running). No row with a start → no duration.
   let firstStart: string | undefined;
@@ -388,13 +415,12 @@ function gatesProcess(
           : running
             ? 'run'
             : 'pass',
-    // handoff §11 failure copy: the collapsed row says what failed, why, and
-    // what to do — the failing rows keep their terse exit-code detail
-    // (handoff §6's row template).
-    ...(failed > 0
-      ? {
-          detail: `Tests failed: ${failed} ${failed === 1 ? 'gate' : 'gates'} returned a nonzero exit code. Review the log and resume the stage.`,
-        }
+    // The description IS the count, per state (design copy: "6 / 6 command
+    // gates passed", "attempt 2 failed · web / test"). The verbose failure
+    // sentence is retired with it — the failing gate's row keeps the terse
+    // exit-code detail, and this compact line says which gate at which attempt.
+    ...(detail
+      ? { detail }
       : batch.length === 0
         ? {
               detail: finished
@@ -408,7 +434,7 @@ function gatesProcess(
                       : 'resolved per repository when the stage runs',
           }
         : {}),
-    ...(aggregate ? { aggregate } : {}),
+    ...(count ? { count } : {}),
     ...(firstStart
       ? {
           duration: formatDuration(firstStart, lastEnd),

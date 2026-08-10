@@ -346,6 +346,9 @@ export class DashboardManager {
       registry,
       this.gateOptionsCache.get(ticketId),
       this.launchCheckout,
+      // The inside ship rows name the repository, never the path the runtime
+      // tables key by — the manifest's name for a recorded repoPath.
+      (repo) => this.repoNameFor(repo),
     );
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
@@ -365,6 +368,22 @@ export class DashboardManager {
     return Object.entries(manifest.repositories)
       .filter(([name, repo]) => scoped.has(name) && isRunnable(repo))
       .map(([name]) => name);
+  }
+
+  /**
+   * The manifest repository NAME for a recorded repo value — the runtime
+   * tables (`ship_repo_steps`, `prs`, `merge_checks`) key by repo PATH, and
+   * the inside rows must say "Karst-extention", never
+   * "/Users/nd/Work/projects/karst/". A path the manifest does not know
+   * (deleted repo, foreign row) falls back to the raw value.
+   */
+  private repoNameFor(repo: string): string | undefined {
+    const manifest = this.manifest?.();
+    if (!manifest) return undefined;
+    for (const [name, def] of Object.entries(manifest.repositories)) {
+      if (def.repoPath === repo) return name;
+    }
+    return undefined;
   }
 
   /**

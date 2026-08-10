@@ -177,31 +177,37 @@ describe('uatProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
   });
 
-  it('ships the gate counts as the gates process-row aggregate (B5)', () => {
-    // handoff §6: "Gates  4 passed · 1 failed" — the whole batch is counted,
-    // never the bounded subset; a disabled gate is stated, not folded in.
+  it('states the whole batch in the gates row description, per state (B5)', () => {
+    // The design's copy: "6 / 6 command gates passed" — the description IS
+    // the count; a disabled gate is stated in the batch total, never folded
+    // into the passed count.
     const views = uatProcesses(
       qualityInput({
         cell: cell('uat', 'failed'),
         gateRuns: [
-          run('uat', 'test (web)', 0, { runAt: NOW }),
-          run('uat', 'e2e (web)', 3, { runAt: NOW }),
+          run('uat', 'test (web)', 0, { runAt: NOW, repo: '/web' }),
+          run('uat', 'e2e (web)', 3, { runAt: NOW, repo: '/web' }),
           run('uat', 'lint (web)', null, { runAt: NOW, skipped: true }),
         ],
       }),
     );
-    expect(views[0]!.aggregate).toBe('2/3 · 1 passed · 1 failed · 1 skipped');
+    const gates = views[0]!;
+    expect(gates.detail).toBe('attempt 0 failed · /web / e2e');
+    expect(gates.count).toBe('1/3');
+    expect(gates.aggregate).toBeUndefined(); // the pill moved into the description
   });
 
   it('leads a recorded-but-unanswered batch as n/m, never absence', () => {
     // An all-note batch ("nothing to run") was RECORDED and answered nothing:
-    // "0/1" states that. Absence is reserved for no recorded row at all.
+    // "0/1 answered" states that. Absence is reserved for no recorded row.
     const views = uatProcesses(
       qualityInput({
         gateRuns: [run('uat', 'lint (web)', null, { runAt: NOW })],
       }),
     );
-    expect(views[0]!.aggregate).toBe('0/1');
+    const gates = views[0]!;
+    expect(gates.detail).toBe('0/1 answered · nothing to run');
+    expect(gates.count).toBeUndefined();
   });
 
   it('lists the resolved gate names as pending rows before the stage runs', () => {
@@ -275,7 +281,7 @@ describe('uatProcesses', () => {
       }),
     );
     const gates = views[0]!;
-    expect(rowsOf(gates).map((r) => r.label)).toEqual(['test (web)']);
+    expect(rowsOf(gates).map((r) => r.label)).toEqual(['test']);
     expect(rowsOf(gates).map((r) => r.status)).toEqual(['pass']);
   });
 
@@ -328,18 +334,19 @@ describe('uatProcesses', () => {
     expect(views[0]!.duration).toBe('40.0s');
   });
 
-  it('leads the gates aggregate with the verdict count over the batch size', () => {
+  it('leads the gates description with the verdict count over the batch size', () => {
     const views = uatProcesses(
       qualityInput({
         cell: cell('uat', 'failed'),
         gateRuns: [
-          run('uat', 'test (web)', 0, { runAt: NOW }),
-          run('uat', 'e2e (web)', 0, { runAt: NOW }),
-          run('uat', 'lint (web)', 2, { runAt: NOW }),
+          run('uat', 'test (web)', 0, { runAt: NOW, repo: 'web' }),
+          run('uat', 'e2e (web)', 0, { runAt: NOW, repo: 'web' }),
+          run('uat', 'lint (web)', 2, { runAt: NOW, repo: 'web' }),
         ],
       }),
     );
-    expect(views[0]!.aggregate).toBe('3/3 · 2 passed · 1 failed');
+    expect(views[0]!.detail).toBe('attempt 0 failed · web / lint');
+    expect(views[0]!.count).toBe('2/3');
   });
 
   it('counts a skipped gate in the batch total but not in the verdict count', () => {
@@ -351,12 +358,13 @@ describe('uatProcesses', () => {
         ],
       }),
     );
-    expect(views[0]!.aggregate).toBe('1/2 · 1 passed · 1 skipped');
+    expect(views[0]!.detail).toBe('1/2 command gates passed');
+    expect(views[0]!.count).toBe('1/2');
   });
 
-  it('omits the aggregate entirely when the batch recorded no row', () => {
+  it('omits the count entirely when the batch recorded no row', () => {
     const views = uatProcesses(qualityInput({ cell: cell('uat', 'pending') }));
-    expect(views[0]!.aggregate).toBeUndefined();
+    expect(views[0]!.count).toBeUndefined();
   });
 
   it('carries each gate row the repository it was recorded against', () => {
@@ -753,33 +761,53 @@ describe('reviewProcesses', () => {
     );
   });
 
-  it('states a failed gate batch in the handoff §11 copy on the process row (B9)', () => {
+  it('states a failed gate batch compactly on the process row (B9)', () => {
     const views = uatProcesses(
       qualityInput({
-        cell: cell('uat', 'failed'),
-        gateRuns: [run('uat', 'test (web)', 1, { runAt: NOW })],
+        cell: cell('uat', 'failed', { attempt: 1 }),
+        gateRuns: [run('uat', 'test (web)', 1, { runAt: NOW, repo: 'web' })],
       }),
     );
     const gates = views[0]!;
-    expect(gates.detail).toBe(
-      'Tests failed: 1 gate returned a nonzero exit code. Review the log and resume the stage.',
-    );
+    expect(gates.detail).toBe('attempt 1 failed · web / test');
+    expect(gates.count).toBe('0/1');
     // The failing ROW keeps its terse factual detail (handoff §6 row template).
     const rows = (gates.evidence as { rows: readonly EvidenceRow[] }).rows;
     expect(rows[0]!.detail).toBe('exit 1');
   });
 
-  it('pluralizes the failed-gate sentence (B9)', () => {
+  it('strips the repo decoration from gate names — the repo is column one', () => {
     const views = uatProcesses(
       qualityInput({
-        cell: cell('uat', 'failed'),
+        cell: cell('uat', 'passed'),
         gateRuns: [
-          run('uat', 'test (web)', 1, { runAt: NOW }),
-          run('uat', 'e2e (web)', 2, { runAt: NOW }),
+          run('uat', 'test (/wt/web)', 0, { runAt: NOW, repo: '/wt/web' }),
+          run('uat', 'lint (web)', 0, { runAt: NOW, repo: 'web' }),
         ],
       }),
     );
-    expect(views[0]!.detail).toContain('2 gates returned');
+    expect(rowsOf(views[0]!).map((r) => r.label)).toEqual(['test', 'lint']);
+  });
+
+  it('dates each expanded gate row from its own recorded start', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'passed'),
+        gateRuns: [
+          run('uat', 'test (web)', 0, {
+            runAt: NOW,
+            startedAt: '2026-07-20T12:00:00.000Z',
+            endedAt: '2026-07-20T12:00:10.000Z',
+          }),
+          run('uat', 'lint (web)', 0, { runAt: NOW, startedAt: null, endedAt: null }),
+        ],
+      }),
+    );
+    const rows = rowsOf(views[0]!);
+    expect(rows[0]!.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+    expect(rows[0]!.duration).toBe('10.0s');
+    // A gate with no recorded start carries no time.
+    expect(rows[1]!.time).toBeUndefined();
   });
 
   it('states when a recorded run carries no execution identity (B9)', () => {

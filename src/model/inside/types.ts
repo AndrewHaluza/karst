@@ -102,6 +102,18 @@ export function formatTime(at: string | null | undefined): string {
 }
 
 /**
+ * Time of day WITHOUT seconds — the timeline's phase-time cell, which the
+ * design draws as `10:06` rather than the full `10:06:14`. Empty for an
+ * unparseable stamp, exactly like `formatTime`.
+ */
+export function formatShortTime(at: string | null | undefined): string {
+  if (!at) return '';
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
  * The strip's header line for a stage.
  *
  * `now` is injected rather than read from the clock so this stays pure and
@@ -212,6 +224,7 @@ export type InsideEvidenceTarget =
       kind: 'open-file';
       evidence: { source: 'review-finding' | 'uat-finding'; id: number };
     }
+  | { kind: 'open-pr'; prId: number }
   | { kind: 'open-commit'; shipCommitId: number }
   | { kind: 'open-full-evidence'; processRunId: number; label?: string }
   | {
@@ -287,6 +300,12 @@ export interface EvidenceRow {
    */
   repo?: string;
   /**
+   * The PR's current state — `prs.status` — for rows the renderer draws a
+   * state chip on (the merge rows). Closed vocabulary at the host, rendered
+   * as the chip's class verbatim; absent → no chip.
+   */
+  prState?: string;
+  /**
    * The exact form of `duration`, host-formatted. Rendered only as the
    * duration's `title`. Absent → the readable duration carries no tooltip.
    */
@@ -334,6 +353,8 @@ export interface CommitRepoView {
   /** The provenance word shown in the pill. */
   origin: string;
   originKind: CommitOriginKind;
+  /** When the commit step for this repo started, as a clock time. Absent → none. */
+  time?: string;
   /** The recorded commits the pill speaks for. Empty → no list is drawn. */
   commits: readonly CommitEntryView[];
 }
@@ -370,6 +391,11 @@ export interface PrBranchView {
   note: string;
   /** Whether this row is the one currently acting (running or failed). */
   current: boolean;
+  /**
+   * Opens the PR on the host through the opaque `open-pr` capability. Absent
+   * when the caller attached none — the number then renders as plain text.
+   */
+  action?: TypedInsideAction;
 }
 
 /** One `amount + label` pair in the receipt's AI-usage breakdown. */
@@ -564,6 +590,8 @@ export interface InsideStageView {
  * that reason: absent is a state the strip must handle anyway.
  */
 export interface ShipPrView {
+  /** The prs rowid — the host-owned id the `open-pr` action reloads by. */
+  id?: number;
   /** The repository path — identity. */
   repo: string;
   /** The repository as displayed (path-display preference). Falls back to `repo`. */

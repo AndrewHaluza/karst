@@ -246,6 +246,12 @@ export function buildDashboardState(
    * degrades to "not launchable" rather than offering a button that would fail.
    */
   isCheckout: (path: string) => boolean = isKarstCheckout,
+  /**
+   * The manifest repository NAME for a recorded repo value (the runtime
+   * tables key by repo PATH). The inside ship rows show the name, never the
+   * path. Absent → the raw recorded value stands.
+   */
+  repoNameFor: (repo: string) => string | undefined = () => undefined,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const rounds = listRecoveryRounds(store, ticketId);
@@ -356,7 +362,7 @@ export function buildDashboardState(
     scope: stageView(
       'scope',
       cellOf('scope'),
-      scopeProcesses(cellOf('scope'), ticket.selectedRepos, worktrees, now),
+      scopeProcesses(cellOf('scope'), ticket.selectedRepos, worktrees, now, processRuns, tokensFor('prefill')),
       now,
     ),
     impl: stageView(
@@ -426,7 +432,19 @@ export function buildDashboardState(
     ship: stageView(
       'ship',
       cellOf('ship'),
-      shipProcesses({ cell: cellOf('ship'), evidence: shipEvidence, prs, mergeChecks, now, attach }),
+      shipProcesses({
+        cell: cellOf('ship'),
+        evidence: shipEvidence,
+        prs,
+        mergeChecks,
+        now,
+        attach,
+        // The ship rows name the repository, never the path the evidence
+        // tables key by; the host resolves the manifest name (injected).
+        repoNameFor,
+        processRuns,
+        tokens: tokensFor('pr-description'),
+      }),
       now,
     ),
     done: doneStageView(
@@ -551,7 +569,8 @@ function stageView(
 /**
  * The done stage's single process: the delivery receipt. Pending before every
  * current PR is merged (no future delivery evidence — that is the whole point
- * of the discriminated union); complete after, with the receipt's rows.
+ * of the discriminated union); complete after, with the receipt's rows, hero
+ * and blocks — the FULL evidence, never just the flat rows.
  */
 function doneStageView(cell: StepperCell, receipt: DoneReceiptView, now: string): InsideStageView {
   const complete = receipt.status === 'complete';
@@ -560,8 +579,8 @@ function doneStageView(cell: StepperCell, receipt: DoneReceiptView, now: string)
     kind: 'delivery-receipt',
     label: 'Delivery receipt',
     status: complete ? 'pass' : 'wait',
-    detail: complete ? (receipt.tokens?.label ?? 'no recorded tokens') : receipt.detail,
-    evidence: { kind: 'receipt', rows: complete ? receipt.evidence.rows : [] },
+    detail: receipt.detail,
+    evidence: complete ? receipt.evidence : { kind: 'receipt', rows: [] },
   };
   return stageView('done', cell, [process], now);
 }

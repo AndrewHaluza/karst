@@ -3,6 +3,7 @@ import type { PrView } from '../store/dashboard.js';
 import { buildPrPanelRows, formatPrStamp } from './prPanelView.js';
 
 const pr = (over: Partial<PrView> = {}): PrView => ({
+  id: 1,
   ticketId: 1,
   repo: '/Users/nd/Work/projects/karst',
   repoDisplay: './karst',

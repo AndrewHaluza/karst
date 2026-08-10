@@ -14,7 +14,7 @@ import {
   SESSION_STATUS_LABELS,
   tokenView,
 } from './agent.js';
-import { formatTime, type EvidenceRow, type InsideEvidenceTarget, type InsideProcessView } from './types.js';
+import { formatShortTime, formatTime, type EvidenceRow, type InsideEvidenceTarget, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -516,6 +516,46 @@ describe('implementationSessionProcess', () => {
     expect(timeline.at(-1)!.detail).toBe(
       `implementation marked done · ${formatTime(runAt('13:00'))}`,
     );
+    // The design's short timestamp style: the phase-time cell gets HH:MM.
+    expect(timeline.at(-1)!.time).toBe(formatShortTime(runAt('13:00')));
+  });
+
+  it('dates every phase mark with the short timestamp style', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })], { endedAt: null }),
+      [mark('research', runAt('12:10'), { implementationRunId: 1 })],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const markRow = rows(process).find((r) => r.label === 'research')!;
+    expect(markRow.time).toBe(formatShortTime(runAt('12:10')));
+    expect(markRow.detail).toBe(`reported · ${formatTime(runAt('12:10'))}`);
+  });
+
+  it('reads the start as a green check once the session is marked done (Task 6.2)', () => {
+    const passed = implementationSessionProcess(
+      cell('impl', 'passed'),
+      tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(rows(passed).find((r) => r.label === 'started')!.status).toBe('pass');
+
+    // While the session is still running the start stays the hollow node —
+    // chronology, not a verdict.
+    const running = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })], { endedAt: null }),
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(rows(running).find((r) => r.label === 'started')!.status).toBe('note');
   });
 
   it('leaves a running session open-ended', () => {

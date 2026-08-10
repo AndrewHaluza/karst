@@ -395,9 +395,21 @@ describe('shipProcesses', () => {
     expect(merge.status).toBe('wait');
     const rows = rowsOf(merge);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ status: 'pass', label: 'merged' });
-    expect(rows[1]).toMatchObject({ status: 'wait', label: 'open' });
-    expect(rows[1]!.detail).toContain('not merged yet');
+    // The expanded rows name the repo, the PR number with its state chip, and
+    // the timestamp of the fact the row reads.
+    expect(rows[0]).toMatchObject({
+      status: 'pass',
+      label: '/web · merged',
+      detail: '#40',
+      prState: 'merged',
+    });
+    expect(rows[0]!.time).toBe(formatTime(NOW));
+    expect(rows[1]).toMatchObject({
+      status: 'wait',
+      label: '/api · open',
+      detail: '#41 · not merged yet',
+      prState: 'open',
+    });
   });
 
   it('reads a draft PR as a wait, not a pass', () => {
@@ -405,7 +417,7 @@ describe('shipProcesses', () => {
       shipInput({ prs: [pr('/web', { number: 40, status: 'draft' })] }),
     );
     const rows = rowsOf(views[3]!);
-    expect(rows[0]).toMatchObject({ status: 'wait', label: 'draft' });
+    expect(rows[0]).toMatchObject({ status: 'wait', label: '/web · draft' });
   });
 
   it('reads a merge conflict as a WAIT naming the files — never a failed verdict', () => {
@@ -419,9 +431,11 @@ describe('shipProcesses', () => {
     expect(merge.status).toBe('wait');
     const rows = rowsOf(merge);
     expect(rows[0]!.status).toBe('wait');
-    expect(rows[0]!.label).toBe('conflict');
+    expect(rows[0]!.label).toBe('/web · conflict');
     expect(rows[0]!.detail).toContain('a.ts');
     expect(rows[0]!.detail).not.toContain('failed');
+    // The conflict row dates from the last merge check.
+    expect(rows[0]!.time).toBe(formatTime(NOW));
   });
 
   it('lets the CURRENT PR answer for a repo that was re-shipped after a merge', () => {
@@ -564,7 +578,7 @@ describe('shipProcesses', () => {
       );
       const merge = views[3]!;
       expect(merge.status).toBe('pass');
-      expect(rowsOf(merge)[0]).toMatchObject({ status: 'pass', label: 'merged' });
+      expect(rowsOf(merge)[0]).toMatchObject({ status: 'pass', label: '/web · merged' });
     });
   });
 
@@ -649,6 +663,7 @@ describe('ship commit evidence: the per-repository commit grid', () => {
         summary: '1 created · 1 before',
         origin: 'created by ship',
         originKind: 'ship',
+        time: formatTime('2026-07-20T12:00:00.000Z'),
         commits: [{ sha: '0123456', message: 'feat: land it' }],
       },
     ]);
@@ -862,5 +877,235 @@ describe('ship pr evidence: the per-repository branch path', () => {
     if (ev.kind !== 'prs') throw new Error('expected prs evidence');
     expect(ev.branches).toHaveLength(6);
     expect(ev.overflow).toMatchObject({ detail: '+2 more', action: { kind: 'open-bounded-evidence' } });
+  });
+});
+
+describe('ship process rows: descriptions and identity (Task 869egdr2u)', () => {
+  it('checks the commit process when every repo is settled — commits with no step included', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { repo: '/web', status: 'passed' }) },
+              commits: [shipCommit('created-by-ship')],
+            }),
+            // A repo that only carried pre-existing commits and recorded no
+            // commit STEP is still commit-ready — the checkmark must not
+            // depend on a literal passed step.
+            '/api': repoEvidence('/api', {
+              commits: [shipCommit('before-ship', { repo: '/api' })],
+            }),
+          },
+        }),
+      }),
+    );
+    const commit = views[0]!;
+    expect(commit.status).toBe('pass');
+    expect(commit.detail).toBe('2 repositories commit-ready · 1 created in Ship');
+  });
+
+  it('keeps a nothing-to-commit repo reading as a settled, checked commit phase', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { status: 'note', detail: 'nothing to commit' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    expect(views[0]!.status).toBe('pass');
+    expect(views[0]!.detail).toBe('1 repository commit-ready');
+  });
+
+  it('leaves the commit process un-checked when a repo records no commit state at all', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web') },
+        }),
+      }),
+    );
+    expect(views[0]!.status).toBe('note');
+  });
+
+  it('states the push outcome on the process row: N / N pushed', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', { steps: { push: step('push', { repo: '/web' }) } }),
+            '/api': repoEvidence('/api', { steps: { push: step('push', { repo: '/api' }) } }),
+          },
+        }),
+      }),
+    );
+    expect(views[1]!.detail).toBe('2/2 pushed');
+  });
+
+  it('names each push row existing → update or missing → create from the recorded pre-state', () => {
+    const intent = (repo: string, preRemoteHead: string | null) => ({
+      id: 1,
+      shipRunId: 1,
+      repo,
+      step: 'push' as const,
+      operationKey: `k:${repo}`,
+      preStateJson: JSON.stringify({
+        step: 'push',
+        localHead: 'abc',
+        remote: 'origin',
+        ref: 'karst/x',
+        preRemoteHead,
+      }),
+      intentJson: null,
+      status: 'reconciled' as const,
+      createdAt: NOW,
+      preparedAt: NOW,
+      appliedAt: NOW,
+      resolvedAt: NOW,
+    });
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { push: step('push', { repo: '/web', detail: 'karst/x' }) },
+              intents: { push: intent('/web', 'old-head') },
+            }),
+            '/api': repoEvidence('/api', {
+              steps: { push: step('push', { repo: '/api', detail: 'karst/x' }) },
+              intents: { push: intent('/api', null) },
+            }),
+          },
+        }),
+      }),
+    );
+    const rows = rowsOf(views[1]!);
+    expect(rows[0]!.label).toBe('/api');
+    expect(rows[0]!.detail).toBe('missing → create');
+    expect(rows[1]!.label).toBe('/web');
+    expect(rows[1]!.detail).toBe('existing → update');
+    // A legacy ship with no recorded intent falls back to the step's detail.
+    const legacy = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web', { steps: { push: step('push', { repo: '/web', detail: 'karst/x' }) } }) },
+        }),
+      }),
+    );
+    expect(rowsOf(legacy[1]!)[0]!.detail).toBe('karst/x');
+  });
+
+  it('carries the pr-description execution and recorded spend on the Pull request row', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { repo: '/web', number: 40, existedBeforeShip: false }) },
+            }),
+            '/api': repoEvidence('/api', {
+              steps: { pr: step('pr', { repo: '/api', number: 41, existedBeforeShip: true }) },
+            }),
+          },
+        }),
+        prs: [pr('/web', { number: 40, status: 'open' }), pr('/api', { number: 41, status: 'merged' })],
+        processRuns: [
+          {
+            id: 5,
+            ticketId: 1,
+            stageKey: 'ship',
+            processId: 'pr-description',
+            attempt: 0,
+            stageRunId: null,
+            agentName: null,
+            provider: 'opencode',
+            model: 'opencode-go/deepseek-v4-flash',
+            pid: null,
+            status: 'passed',
+            resultKind: null,
+            artifactPath: null,
+            startedAt: NOW,
+            endedAt: NOW,
+          },
+        ],
+        tokens: { total: 1800 },
+      }),
+    );
+    const prRow = views[2]!;
+    expect(prRow.execution).toMatchObject({ provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' });
+    expect(prRow.tokens?.state).toBe('measured');
+    expect(prRow.detail).toBe('1 created · 1 adopted');
+  });
+
+  it('mints the open-pr capability on the branch number from the current PR row', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { repo: '/web', number: 412, existedBeforeShip: false }) },
+            }),
+          },
+        }),
+        prs: [pr('/web', { id: 77, number: 412, status: 'open' })],
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: `snapshot-1:a${targets.length}`, kind: target.kind };
+        },
+      }),
+    );
+    const ev = views[2]!.evidence as { kind: 'prs'; branches?: { action?: { kind: string } }[] };
+    expect(ev.branches?.[0]?.action?.kind).toBe('open-pr');
+    expect(targets).toEqual([{ kind: 'open-pr', prId: 77 }]);
+  });
+
+  it('shows the manifest repository name instead of the recorded path', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/Users/nd/Work/projects/karst/': repoEvidence('/Users/nd/Work/projects/karst/', {
+              steps: {
+                commit: step('commit', { repo: '/Users/nd/Work/projects/karst/', status: 'passed' }),
+                push: step('push', { repo: '/Users/nd/Work/projects/karst/', status: 'passed' }),
+                pr: step('pr', { repo: '/Users/nd/Work/projects/karst/', number: 40, existedBeforeShip: false }),
+              },
+              commits: [shipCommit('created-by-ship', { repo: '/Users/nd/Work/projects/karst/' })],
+            }),
+          },
+        }),
+        prs: [pr('/Users/nd/Work/projects/karst/', { number: 40, status: 'open' })],
+        repoNameFor: (repo) => (repo === '/Users/nd/Work/projects/karst/' ? 'Karst-extention' : undefined),
+      }),
+    );
+    expect(rowsOf(views[0]!)[0]!.label).toBe('Karst-extention');
+    expect(rowsOf(views[1]!)[0]!.label).toBe('Karst-extention');
+    expect(rowsOf(views[2]!)[0]!.label).toBe('Karst-extention');
+    expect(rowsOf(views[3]!)[0]!.label).toBe('Karst-extention · open');
+    const ev = views[0]!.evidence as { kind: 'commits'; repos?: { repo: string }[] };
+    expect(ev.repos?.[0]?.repo).toBe('Karst-extention');
+  });
+
+  it('dates each merge row from the fact it reads: merged stamp, else last check', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [pr('/web', { number: 40, status: 'merged', mergedAt: '2026-07-20T12:05:00.000Z' })],
+        mergeChecks: [],
+      }),
+    );
+    expect(rowsOf(views[3]!)[0]!.time).toBe(formatTime('2026-07-20T12:05:00.000Z'));
+
+    const open = shipProcesses(
+      shipInput({
+        prs: [pr('/web', { number: 41, status: 'open' })],
+        mergeChecks: [check('/web', { state: 'clean', checkedAt: '2026-07-20T12:06:00.000Z' })],
+      }),
+    );
+    expect(rowsOf(open[3]!)[0]!.time).toBe(formatTime('2026-07-20T12:06:00.000Z'));
   });
 });
