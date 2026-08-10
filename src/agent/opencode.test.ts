@@ -112,6 +112,8 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(body).toContain('session.idle');
     expect(body).toContain('session.error');
     expect(body).toContain('permission.asked');
+    expect(body).toContain('permission.replied');
+    expect(body).toContain('session.status');
     expect(body).toContain('http://127.0.0.1:4567/hooks');
     // `--pure` disables ALL external plugin loading in opencode — including the
     // auto-discovered `.opencode/plugins/karst-bridge.js` written just above —
@@ -435,6 +437,87 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
       }
     },
   );
+
+  // opencode never posts a PostToolUse/UserPromptSubmit, so the resolution of
+  // an ask is the ONLY signal that the session is working again — without it
+  // one answered permission left the ticket amber for the whole remaining turn.
+  it.each(['permission.replied', 'permission.v2.replied', 'question.replied', 'question.v2.replied'])(
+    'posts permission.replied for %s — resolution of the wait flips the amber off',
+    async (type) => {
+      const worktree = makeWorktree();
+      const r = await receiver(1);
+      try {
+        const bridge = await loadBridge(worktree, r.endpointUrl);
+        await bridge.event({
+          event: {
+            id: `evt-${type}`,
+            type,
+            properties: { sessionID: 'ses_1', cwd: '/wt' },
+          },
+        });
+        const bodies = await Promise.race([
+          r.received,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('plugin posted no lifecycle payload')), 2_000),
+          ),
+        ]);
+        expect(bodies).toEqual([
+          { hook_event_name: 'permission.replied', cwd: '/wt', session_id: 'ses_1' },
+        ]);
+      } finally {
+        await r.close();
+      }
+    },
+  );
+
+  it('posts session.status with the status type when the session is busy (processing resumed)', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(1);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-status',
+          type: 'session.status',
+          properties: { sessionID: 'ses_1', cwd: '/wt', status: { type: 'busy' } },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no lifecycle payload')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'session.status', cwd: '/wt', session_id: 'ses_1', message: 'busy' },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('posts nothing for session.status idle — session.idle owns the idle signal', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(1);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-status-idle',
+          type: 'session.status',
+          properties: { sessionID: 'ses_1', cwd: '/wt', status: { type: 'idle' } },
+        },
+      });
+      await expect(Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('no posts within 150ms')), 150),
+        ),
+      ])).rejects.toThrow('no posts within 150ms');
+    } finally {
+      await r.close();
+    }
+  });
 });
 
 describe('parseOpencodeJsonl', () => {

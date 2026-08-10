@@ -440,6 +440,29 @@ export const KarstBridge = async ({ directory, worktree }) => {
         // karst's own closed wait vocabulary (permission.asked) so dispatch
         // needs no new event.
         post('permission.asked', input, directory, worktree);
+      } else if (
+        type === 'permission.replied' ||
+        type === 'permission.v2.replied' ||
+        type === 'question.replied' ||
+        type === 'question.v2.replied'
+      ) {
+        // The ask was ANSWERED and the session resumes. opencode never emits a
+        // PostToolUse/UserPromptSubmit, so this resolution is the ONLY signal
+        // that the wait ended — without it, one answered prompt left the
+        // ticket reading "Needs you" while the session kept processing
+        // (FIX-WRONG-STATUS). Normalized to karst's own closed resolution
+        // event (permission.replied) so dispatch needs no new event.
+        post('permission.replied', input, directory, worktree);
+      } else if (type === 'session.status') {
+        // opencode's processing signal: 'status.type' is busy/idle/retry.
+        // busy (and retry) mean the session is working — the running signal
+        // the plugin can otherwise never send. idle is skipped: session.idle
+        // already carries the idle flip.
+        const status = asRecord(input && input.status);
+        const state = status ? stringOf(status.type) : '';
+        if (state === 'busy' || state === 'retry') {
+          post('session.status', input, directory, worktree, state);
+        }
       }
     },
   };

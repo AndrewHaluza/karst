@@ -133,6 +133,18 @@ function nextAgentState(payload: HookPayload): AgentState | null {
       // opencode's normalized permission prompt (generated plugin) — the amber
       // "Needs you" signal, equivalent to Claude's Notification/permission_prompt.
       return 'waiting';
+    case 'permission.replied':
+      // opencode's normalized permission/question RESOLUTION (generated
+      // plugin). opencode has no PostToolUse or UserPromptSubmit, so the reply
+      // is the ONLY "the wait ended" signal its plugin can send — without it a
+      // single answered prompt left the ticket amber for the whole remaining
+      // turn while the session kept processing (FIX-WRONG-STATUS).
+      return 'running';
+    case 'session.status':
+      // opencode's processing signal (generated plugin posts the status type
+      // as `message`): busy (and retry) mean the session is working again.
+      // `idle` is deliberately null — session.idle already owns that flip.
+      return payload.message === 'busy' || payload.message === 'retry' ? 'running' : null;
     case 'Notification': {
       // needs-you: the amber signal. The kind is in `notification_type`; older
       // payloads that only carried it in `message` (the pre-fix symbolic values)
