@@ -95,6 +95,15 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toContain('>Open folder</button>');
   });
 
+  it('offers Launch Dev only on worktrees the host marked launchable', () => {
+    expect(HTML).toContain('data-act="launch-worktree-extension"');
+    expect(HTML).toContain('data-path="${esc(w.path)}"');
+    // Rendered conditionally on the host-probed flag — a non-karst worktree
+    // must not show a button that can only fail.
+    expect(HTML).toContain('w.launchable');
+    expect(HTML).toMatch(/Build this worktree and open its extension in a new dev window/);
+  });
+
   it('renders ephemeral additions and deletions by host-owned repo identity', () => {
     expect(HTML).toMatch(/worktreeStats\[w\.repo\]/);
     expect(HTML).toContain("msg.type === 'worktree-stats'");
@@ -994,6 +1003,7 @@ describe('dashboard webview.html', () => {
       "Switch this ticket\\'s live agent session", // .switch-agent (JS string literal, escaped apostrophe)
       'Open a terminal in this worktree', // open-worktree-terminal
       'Reveal this worktree in the file explorer', // open-worktree-folder
+      'Build this worktree and open its extension in a new dev window', // launch-worktree-extension
       "Hand this repo's conflict to an agent session", // resolve-conflicts
       'Open this pull request', // open-pr
     ]) {

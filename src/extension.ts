@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import {
   lstat as fsLstat,
   readFile as fsReadFile,
@@ -133,7 +134,15 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
-import { listWorktreesByTicket, serverAddress } from './store/dashboard.js';
+import { listWorktreesByTicket, listWorktreesByProject, serverAddress } from './store/dashboard.js';
+import {
+  LAUNCH_BUILD_SCRIPT,
+  LAUNCH_BUILD_TIMEOUT_MS,
+  isKarstCheckout,
+  launchWorktreeDev,
+  selectLaunchableWorktrees,
+} from './commands/launchWorktree.js';
+import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
 import { getDisabledGates, setDisabledGates } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
@@ -1708,6 +1717,121 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError,
   });
 
+  // One launch in flight per worktree path, per window. A second click during a
+  // multi-minute build must not start a second build beside the first.
+  const launchingWorktrees = new Set<string>();
+
+  // The feature is a developer convenience, so it ships OFF by default
+  // (karst.launchWorktreeDev.enabled) — most projects' worktrees are not karst
+  // checkouts and must not be offered a dev-host button. Read LIVE on every
+  // use: a settings edit must not need a window reload.
+  const launchWorktreeConfig = (): ReturnType<typeof parseLaunchWorktreeConfig> =>
+    parseLaunchWorktreeConfig(vscode.workspace.getConfiguration('karst').get('launchWorktreeDev'));
+
+  // The dashboard button's gate, composed host-side: a worktree is launchable
+  // when it IS a karst checkout AND the feature is enabled. State building is
+  // kept config-free; the composed probe arrives as an injected parameter.
+  const launchableCheckout = (path: string): boolean =>
+    launchWorktreeConfig().enabled && isKarstCheckout(path);
+
+  /**
+   * Build a worktree's karst-extension checkout (`npm run dev:extension` — the
+   * same recipe the F5 preLaunchTask runs) and open it in a NEW window as the
+   * extension development host. The launch is CLI-driven
+   * (`--extensionDevelopmentPath`), so it works from any window: the worktree
+   * never has to be the folder this IDE was opened with, which is the whole
+   * point — worktrees live in the hidden `.karst/worktrees/` directory the
+   * file dialogs never show.
+   *
+   * The outcome is reported through the progress notification + toasts, never
+   * through the caller's ack: a build takes minutes, which is far past the
+   * webview watchdog. The dashboard action therefore returns immediately (an
+   * "accepted" ack) and this function owns the real result.
+   */
+  const launchWorktreeDevWindow = async (worktreePath: string): Promise<void> => {
+    if (!launchWorktreeConfig().enabled) {
+      void vscode.window.showWarningMessage(
+        'Karst: launch-worktree-extension is disabled — set karst.launchWorktreeDev.enabled to true.',
+      );
+      return;
+    }
+    if (launchingWorktrees.has(worktreePath)) {
+      void vscode.window.showInformationMessage(`Already building ${worktreePath} — one launch at a time.`);
+      return;
+    }
+    launchingWorktrees.add(worktreePath);
+    try {
+      const outcome = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Building worktree extension (${worktreePath})…`,
+          cancellable: true,
+        },
+        (_progress, token) => {
+          // Bridge VS Code's CancellationToken to a standard AbortSignal, the
+          // same shape spinTicket uses for its health wait + child processes.
+          const ctrl = new AbortController();
+          token.onCancellationRequested(() => ctrl.abort());
+          return launchWorktreeDev(
+            worktreePath,
+            launchWorktreeConfig(),
+            vscode.env.appRoot,
+            process.platform,
+            {
+              build: async (cwd, signal) => {
+                const outcome = await runProcess('npm', ['run', LAUNCH_BUILD_SCRIPT], cwd, {
+                  timeoutMs: LAUNCH_BUILD_TIMEOUT_MS,
+                  signal,
+                });
+                if (outcome.kind === 'completed') {
+                  return { kind: 'completed', exitCode: outcome.exitCode, output: outcome.output };
+                }
+                if (outcome.kind === 'aborted') return { kind: 'aborted' };
+                return {
+                  kind: 'failed',
+                  message:
+                    outcome.kind === 'spawnFailed'
+                      ? outcome.message
+                      : `Build timed out after ${LAUNCH_BUILD_TIMEOUT_MS / 60_000} minutes`,
+                  output: outcome.output,
+                };
+              },
+              cliExists: (cliPath) => existsSync(cliPath),
+              binaryOnPath: (binary) => binaryExists(binary),
+              // Detached + ignored stdio: the new window outlives this host, and
+              // nothing may read a GUI process's streams.
+              spawnWindow: (cliPath, args, cwd) => {
+                const child = spawn(cliPath, args, { cwd, detached: true, stdio: 'ignore' });
+                child.on('error', (err) => logError('karst: launching dev window failed', err));
+                child.unref();
+              },
+            },
+            ctrl.signal,
+          );
+        },
+      );
+      if (outcome.kind === 'launched') {
+        void vscode.window.showInformationMessage(
+          `Launched the worktree extension in a new window (${worktreePath}).`,
+        );
+      } else if (outcome.kind === 'failed') {
+        void vscode.window.showErrorMessage(
+          `Could not launch the worktree extension: ${outcome.message}`,
+        );
+      }
+      // aborted: the user cancelled — the progress notification is its own report.
+    } catch (err) {
+      logError('launch worktree extension failed', err);
+      void vscode.window.showErrorMessage(
+        `Could not launch the worktree extension: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      launchingWorktrees.delete(worktreePath);
+      provider.refresh();
+      dashboard.pushAll();
+    }
+  };
+
   const dashboard = new DashboardManager(
     localStore,
     makePanelHost(context, brandIcon),
@@ -1756,6 +1880,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Same deferred-reference pattern as `runPrSync` above: `maybeDrive` is
         // declared further down `activate`, read only once a panel is open.
         (id) => maybeDrive(id, 'stage-resume'),
+        (path) => void launchWorktreeDevWindow(path),
+        () => launchWorktreeConfig(),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -1816,6 +1942,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Live manifest getter, so the inside views resolve the REAL service names
     // and process assignments (panel.ts is manifest-free by contract).
     () => currentManifest(),
+    // The Launch Dev gate, composed from the feature's live config: hidden
+    // (and refused) unless karst.launchWorktreeDev.enabled is true AND the
+    // worktree is a karst checkout.
+    launchableCheckout,
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -2828,10 +2958,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
     }),
+    // Build a chosen worktree's karst-extension checkout and open it as the
+    // extension development host in a new window — the F5 flow without ever
+    // opening the (hidden, path-typed) worktree folder. OFF by default
+    // (karst.launchWorktreeDev.enabled), and lists only worktrees whose
+    // package.json says "karst"; a ticket's other repos are not launchable and
+    // never appear.
+    vscode.commands.registerCommand('karst.launchWorktreeExtension', async () => {
+      if (!guardCapability('worktrees')) return;
+      if (!launchWorktreeConfig().enabled) {
+        void vscode.window.showWarningMessage(
+          'Karst: launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
+        );
+        return;
+      }
+      const project = currentProject();
+      if (!project) {
+        void vscode.window.showWarningMessage(
+          'Karst: open a workspace folder first, then launch a worktree extension.',
+        );
+        return;
+      }
+      const rows = selectLaunchableWorktrees(listWorktreesByProject(localStore, project.id));
+      if (rows.length === 0) {
+        void vscode.window.showInformationMessage(
+          'No karst-extension worktrees in this project — scope a ticket against the karst repository first.',
+        );
+        return;
+      }
+      const items = rows.map((r) => ({
+        label: `${r.key ?? `#${r.ticketId}`} · ${r.branch ?? 'no branch'}`,
+        description: r.repo,
+        detail: r.path,
+      }));
+      const picked = await vscode.window.showQuickPick(items, {
+        title: 'Launch Worktree Extension (Development)',
+        placeHolder: 'Pick a worktree to build and open as the extension dev host',
+      });
+      if (!picked) return;
+      const row = rows[items.indexOf(picked)];
+      if (row) await launchWorktreeDevWindow(row.path);
+    }),
     // "Add ticket" opens the ticket form (create mode). A manifest is
     // resolved first so the classify-gate + repo picker have services to show.
-    vscode.commands.registerCommand('karst.createTicket', () => openTicketFormCreate()),
-    vscode.commands.registerCommand('karst.openTicketForm', () => openTicketFormCreate()),
+    vscode.commands.registerCommand('karst.createTicket', () => openTicketFormCreate()),    vscode.commands.registerCommand('karst.openTicketForm', () => openTicketFormCreate()),
     // Deprecated alias. A command id is externally consumable — a user's
     // keybindings.json or another extension may already invoke it — so the old
     // `onboarding` spelling stays registered and simply forwards. It is hidden
@@ -3853,6 +4023,14 @@ function makeDashboardActions(
   // scope, alongside every other driver trigger (hook, sweep, session close) —
   // resume is just one more trigger, not a special path.
   driveAfterResume: (ticketId: number) => void,
+  // Build a worktree's karst-extension checkout and open it as the dev host in
+  // a new window. The build takes minutes, so this owns the progress
+  // notification and the action ack is immediate (host acceptance only).
+  launchWorktree: (path: string) => void,
+  // Live feature config (karst.launchWorktreeDev.*), so the action refuses
+  // when the switch is off — a crafted message must not launch what the user
+  // disabled.
+  launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -3918,6 +4096,26 @@ function makeDashboardActions(
     showChanges,
     switchAgent,
     ...worktreeActions,
+    // Launch must not be aimable: the webview names a path, and the host
+    // verifies it against the ticket's registered worktrees before building
+    // anything — a crafted or stale message cannot start a build in an
+    // arbitrary directory. It is also gated on the same config the button
+    // renders from: an off switch must hold against a crafted message even
+    // when no button is visible.
+    launchWorktreeExtension: (path) => {
+      if (!guardCapability('worktrees')) return;
+      if (!launchConfig().enabled) {
+        void vscode.window.showWarningMessage(
+          'Launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
+        );
+        return;
+      }
+      if (!listWorktreesByTicket(store, ticketId).some((w) => w.path === path)) {
+        void vscode.window.showWarningMessage('That worktree is not registered to this ticket.');
+        return;
+      }
+      launchWorktree(path);
+    },
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,

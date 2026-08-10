@@ -433,6 +433,38 @@ describe('buildDashboardState', () => {
     });
     expect(state.worktrees[0]!.repoDisplay).toBe('../other-repo');
   });
+
+  it('marks a worktree launchable only when the probe says it is a karst checkout', () => {
+    const t = createTicket(store, { key: 'P', title: 't' });
+    seedWorktree(t.id, '/Users/nd/Work/projects/karst');
+    const probe = (path: string) => path.includes('karst');
+    // isCheckout is the LAST optional param; every position before it must be
+    // skipped explicitly (the signature only defaults trailing params).
+    const state = buildDashboardState(
+      store,
+      t.id,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      probe,
+    );
+    expect(state.worktrees[0]!.launchable).toBe(true);
+  });
+
+  it('defaults launchable to false without a probe (never a dead button)', () => {
+    const t = createTicket(store, { key: 'P', title: 't' });
+    seedWorktree(t.id, '/nope');
+    const state = buildDashboardState(store, t.id);
+    expect(state.worktrees[0]!.launchable).toBe(false);
+  });
 });
 
 describe('buildDashboardState — runnable scope', () => {

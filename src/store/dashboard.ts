@@ -20,6 +20,13 @@ export interface WorktreeView {
   branch: string | null;
   baseRef: string | null;
   depsMode: string;
+  /**
+   * Whether this worktree is a karst-extension checkout and so can be
+   * launched as a dev host. Only the dashboard state builder probes it (it
+   * reads the filesystem); every other caller of `listWorktreesByTicket` gets
+   * the inert default.
+   */
+  launchable: boolean;
 }
 
 export interface PrView {
@@ -112,7 +119,33 @@ export function listWorktreesByTicket(store: Store, ticketId: number): WorktreeV
     branch: r.branch,
     baseRef: r.base_ref,
     depsMode: r.deps_mode,
+    launchable: false, // the dashboard state builder probes the filesystem
   }));
+}
+
+/**
+ * Every registered worktree of a project, joined with its ticket key. Scoped
+ * like every other query: the DB is global storage, so a project's launch
+ * picker must never offer another window's worktrees.
+ */
+export interface ProjectWorktreeRow {
+  ticketId: number;
+  key: string | null;
+  repo: string;
+  path: string;
+  branch: string | null;
+}
+
+export function listWorktreesByProject(store: Store, projectId: number): ProjectWorktreeRow[] {
+  return store.db
+    .prepare(
+      `SELECT w.ticket_id AS ticketId, t.key AS key, w.repo, w.path, w.branch
+         FROM worktrees w
+         JOIN tickets t ON t.id = w.ticket_id
+        WHERE t.project_id = ?
+        ORDER BY w.path`,
+    )
+    .all(projectId) as ProjectWorktreeRow[];
 }
 
 interface PrRow {

@@ -7,6 +7,7 @@ import {
   type ServerView,
   type WorktreeView,
 } from '../../store/dashboard.js';
+import { isKarstCheckout } from '../../commands/launchWorktree.js';
 import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
@@ -238,6 +239,13 @@ export function buildDashboardState(
     uat: readonly { name: string; disabled: boolean }[];
     review: readonly { name: string; disabled: boolean }[];
   },
+  /**
+   * Whether a worktree is a karst-extension checkout, i.e. whether its row may
+   * offer the "Launch Dev" action. Injected (the state builder never reads the
+   * filesystem) and defaults to the real probe, so a caller that cannot probe
+   * degrades to "not launchable" rather than offering a button that would fail.
+   */
+  isCheckout: (path: string) => boolean = isKarstCheckout,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const rounds = listRecoveryRounds(store, ticketId);
@@ -257,6 +265,7 @@ export function buildDashboardState(
   const worktrees = listWorktreesByTicket(store, ticketId).map((w) => ({
     ...w,
     repoDisplay: repoDisplayPath(w.repo, pathContext),
+    launchable: isCheckout(w.path),
   }));
 
   // The fix loop's displayed count is whichever gate actually sent the ticket

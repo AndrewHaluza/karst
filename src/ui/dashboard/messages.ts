@@ -23,6 +23,14 @@ export type WebviewMessage =
   | { type: 'open-worktree-terminal'; path: string }
   | { type: 'open-worktree-folder'; path: string }
   | { type: 'copy-worktree-branch'; branch: string }
+  /**
+   * Build one worktree's karst-extension checkout and open it as the
+   * extension development host in a new window. Carries the path ONLY: the
+   * host validates it against the ticket's registered worktrees (and that it
+   * is actually a karst checkout) before building anything, so a crafted or
+   * stale message cannot aim the build at an arbitrary directory.
+   */
+  | { type: 'launch-worktree-extension'; path: string }
   | { type: 'open-pr'; url: string }
   | { type: 'open-ticket-link'; url: string }
   | { type: 'edit-ticket' }
@@ -134,6 +142,12 @@ export interface DashboardActions {
   openWorktreeTerminal: (path: string) => void | Promise<void>;
   openWorktreeFolder: (path: string) => void | Promise<void>;
   copyWorktreeBranch: (branch: string) => void | Promise<void>;
+  /**
+   * Launch a worktree as the extension development host. The build takes
+   * minutes, so this returns `void` — the button acks on host acceptance and
+   * the real outcome arrives as a progress notification + state push.
+   */
+  launchWorktreeExtension: (path: string) => void | Promise<void>;
   openPr: (url: string) => void | Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
   editTicket: () => void | Promise<void>;
@@ -238,6 +252,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return path ? { type: 'open-worktree-folder', path: m.path as string } : null;
     case 'copy-worktree-branch':
       return branch ? { type: 'copy-worktree-branch', branch: m.branch as string } : null;
+    case 'launch-worktree-extension':
+      return path ? { type: 'launch-worktree-extension', path: m.path as string } : null;
     case 'open-pr':
       return isHttpUrl(m.url) ? { type: 'open-pr', url: m.url } : null;
     case 'open-ticket-link':
@@ -391,6 +407,8 @@ export function routeAction(
       return actions.openWorktreeFolder(msg.path);
     case 'copy-worktree-branch':
       return actions.copyWorktreeBranch(msg.branch);
+    case 'launch-worktree-extension':
+      return actions.launchWorktreeExtension(msg.path);
     case 'open-pr':
       return actions.openPr(msg.url);
     case 'open-ticket-link':

@@ -203,6 +203,13 @@ export class DashboardManager {
      * accessors like this one.
      */
     private readonly manifest?: () => Manifest | undefined,
+    /**
+     * Whether a worktree may offer the "Launch Dev" action: a karst-extension
+     * checkout AND the feature's own enabled flag (host-composed). Absent →
+     * the state builder's default probe, which keeps the button off for
+     * anything that is not a karst checkout.
+     */
+    private readonly launchCheckout?: (path: string) => boolean,
   ) {}
 
   /**
@@ -338,6 +345,7 @@ export class DashboardManager {
       (processId) => this.assignmentFor(ticketId, processId),
       registry,
       this.gateOptionsCache.get(ticketId),
+      this.launchCheckout,
     );
     panel.postMessage({ type: 'state', state });
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
