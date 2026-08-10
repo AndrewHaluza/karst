@@ -948,6 +948,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const prDescriptionProcess = (ticketId: number): DriveProcessBundle | null =>
     processFor(ticketId, 'pr-description');
 
+  /** Task 3: the configured ticket-analysis process for the ticket form (nullable). */
+  const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
+    processFor(ticketId, 'ticket-analysis');
+
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
   // surfaces observe the same reload behavior from one implementation. Reloads
@@ -1334,10 +1338,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // permanently stuck on the fallback ('claude') read at that moment.
       get adapter() {
         const provider = (currentManifest() ?? emptyManifest()).agentProvider ?? 'claude';
-        // Instrumented like every other adapter: the ticket form's analyzer is the
-        // first AI call of a ticket's life and often its most expensive.
+        // Instrumented like every other adapter: the ticket form's signal
+        // suggestion is an AI call that must be measured. The analyzer itself
+        // resolves through `resolveAnalysisProcess` below, which carries the
+        // configured ticket-analysis identity.
         return instrument(resolveAdapter(provider), provider);
       },
+      // The analyzer is its own inside process: resolved at analyze time
+      // through the same `processFor` seam every other role uses, so
+      // `processes.ticketAnalysis` picks its core/model and `enabled: false`
+      // reads as configured absence (the form's analyze refuses).
+      resolveAnalysisProcess: analysisProcess,
       onChange: () => provider.refresh(),
       // Finish handoff: scope the ticket's selected repos (worktrees, no
       // servers) and open the agent session seeded with its chosen approach.

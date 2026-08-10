@@ -45,6 +45,33 @@ describe('resolveProcessAssignment', () => {
     });
   });
 
+  it('resolves the ticket-analysis role to the approved default agent on the manifest core', () => {
+    expect(resolveProcessAssignment(BASE, 'ticket-analysis')).toEqual({
+      agentName: 'Ticket Analysis Agent',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+  });
+
+  it('applies an explicit ticketAnalysis assignment and the ticket override', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: { ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro' } },
+    };
+    expect(resolveProcessAssignment(manifest, 'ticket-analysis')).toEqual({
+      agentName: 'Ticket Analysis Agent',
+      provider: 'opencode',
+      model: 'gemini-2.5-pro',
+    });
+    expect(resolveProcessAssignment(manifest, 'ticket-analysis', { provider: 'claude' })).toEqual({
+      agentName: 'Ticket Analysis Agent',
+      // The CONFIG's provider beats the ticket override — same precedence as
+      // every other role.
+      provider: 'opencode',
+      model: 'gemini-2.5-pro',
+    });
+  });
+
   it('applies an explicit assignment over the defaults (plan example)', () => {
     const manifest: Manifest = { ...BASE, processes: { uatTester: { model: 'sol' } } };
     expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
@@ -164,7 +191,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('returns null for every role whose configured process is disabled (Finding 2)', () => {
-    for (const role of ['uat-tester', 'uat-fix', 'review', 'review-fix'] as const) {
+    for (const role of ['uat-tester', 'uat-fix', 'review', 'review-fix', 'ticket-analysis'] as const) {
       const manifest: Manifest = {
         ...BASE,
         processes: { [PROCESS_KEY_BY_ROLE[role]]: { enabled: false } },
@@ -203,6 +230,7 @@ describe('resolveProcessAssignment', () => {
       'uat-fix': 'UAT Fix Agent',
       review: 'Review Agent',
       'review-fix': 'Review Fix Agent',
+      'ticket-analysis': 'Ticket Analysis Agent',
     });
   });
 });

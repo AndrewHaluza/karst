@@ -23,6 +23,7 @@ describe('validateProcessAssignments', () => {
           enabled: false,
         },
         review: { provider: 'antigravity' },
+        ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro' },
       },
       AGENTS,
     );
@@ -35,6 +36,7 @@ describe('validateProcessAssignments', () => {
         enabled: false,
       },
       review: { provider: 'antigravity', enabled: true },
+      ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', enabled: true },
     });
   });
 
@@ -53,7 +55,7 @@ describe('validateProcessAssignments', () => {
 
   it('rejects an unknown process key, naming it and the closed vocabulary', () => {
     expect(() => validateProcessAssignments({ wibble: {} }, AGENTS)).toThrow(
-      /processes "wibble" is not a known inside process.*uatTester.*uatFix.*review.*reviewFix.*prDescription/,
+      /processes "wibble" is not a known inside process.*uatTester.*uatFix.*review.*reviewFix.*prDescription.*ticketAnalysis/,
     );
   });
 
@@ -108,8 +110,8 @@ describe('validateProcessAssignments', () => {
     expect(result?.reviewFix?.agent).toBe('reviewer');
   });
 
-  it('exposes the five closed vocabulary keys and their kebab roles in one place', () => {
-    expect(PROCESS_KEYS).toEqual(['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription']);
-    expect(PROCESS_ROLES).toEqual(['uat-tester', 'uat-fix', 'review', 'review-fix', 'pr-description']);
+  it('exposes the six closed vocabulary keys and their kebab roles in one place', () => {
+    expect(PROCESS_KEYS).toEqual(['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis']);
+    expect(PROCESS_ROLES).toEqual(['uat-tester', 'uat-fix', 'review', 'review-fix', 'pr-description', 'ticket-analysis']);
   });
 });

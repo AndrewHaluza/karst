@@ -1996,6 +1996,9 @@ processes:
     enabled: false
   review:
     provider: antigravity
+  ticketAnalysis:
+    provider: opencode
+    model: gemini-2.5-pro
 `;
 
   it('loads a processes block into the typed model', () => {
@@ -2010,6 +2013,7 @@ processes:
           enabled: false,
         },
         review: { provider: 'antigravity', enabled: true },
+        ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', enabled: true },
       });
     } finally {
       cleanup();

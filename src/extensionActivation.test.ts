@@ -234,16 +234,21 @@ describe('extension activation', () => {
   });
 
   // Task 3: EVERY configured inside process role must be executable from the
-  // extension composition root — the Tester, the Review findings process, the
-  // two Fix roles (resolved by the gate that failed) and the PR-description
-  // process. The null collapse used to be type-asserted at this seam; the
-  // callbacks now return `DriveProcessBundle | null` natively.
+  // extension composition root — the ticket-form analyzer, the Tester, the
+  // Review findings process, the two Fix roles (resolved by the gate that
+  // failed) and the PR-description process. The null collapse used to be
+  // type-asserted at this seam; the callbacks now return
+  // `DriveProcessBundle | null` natively.
   it('wires every configured inside process role, with no null-collapse type assertion at the seam', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
     expect(source).toContain("processFor(ticketId, 'uat-fix')");
     expect(source).toContain("processFor(ticketId, 'review-fix')");
     expect(source).toContain("processFor(ticketId, 'pr-description')");
+    // The ticket form's analyzer is its own process role, resolved through the
+    // same seam (869edcm45 follow-up).
+    expect(source).toContain("processFor(ticketId, 'ticket-analysis')");
+    expect(source).toContain('resolveAnalysisProcess: analysisProcess');
     // The seam's callbacks return `DriveProcessBundle | null` natively — the
     // old host-side null collapse is gone (the needle is split so the residual
     // guard in Task 7 stays clean).

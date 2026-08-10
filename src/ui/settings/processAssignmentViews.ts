@@ -90,6 +90,7 @@ const ROLE_LABELS: Record<ProcessKey, string> = {
   review: 'Review',
   reviewFix: 'Review Fix',
   prDescription: 'PR description',
+  ticketAnalysis: 'Ticket analysis',
 };
 
 /** Handoff §7 per-row descriptions (what each process does, when it runs). */
@@ -99,6 +100,8 @@ const ROLE_DESCRIPTIONS: Record<ProcessKey, string> = {
   review: 'Runs after required review gates pass',
   reviewFix: 'Runs to fix a failed review gate',
   prDescription: 'Writes the pull request description at ship time',
+  ticketAnalysis:
+    'Synthesizes the ticket prompt; suggests approach, repos and type on the ticket form',
 };
 
 /**

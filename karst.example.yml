@@ -201,8 +201,8 @@ agents:
 # it, resolved ONCE at launch and immutable afterwards (a later Settings edit
 # never rewrites a stored run). ABSENT (the default) resolves every role to its
 # approved default — UAT Agent, UAT Fix Agent, Review Agent, Review Fix Agent,
-# and the ticket-resolved PR-description adapter — using `agentProvider` and
-# `defaultModel` above.
+# Ticket Analysis Agent, and the ticket-resolved PR-description adapter — using
+# `agentProvider` and `defaultModel` above.
 #
 # `agent` references a profile from the `agents` block ABOVE; the referenced
 # key MUST be declared there or loading fails (a dangling reference would
@@ -221,6 +221,7 @@ agents:
 #   review: { agent: review, provider: antigravity }
 #   reviewFix: { provider: antigravity }
 #   prDescription: { provider: claude, model: claude-haiku-4-5 }
+#   ticketAnalysis: { provider: codex, model: gpt-5.6-sol }
 
 # UAT gates. Step-by-step runbook for this block and `review:` below (which
 # stage a check belongs to, script vs command gates, the independent-signal

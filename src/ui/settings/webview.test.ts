@@ -2065,13 +2065,13 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
 });
 
 /**
- * Task 7: the five inside-process assignment rows on the Agents tab. ONE
- * renderer (renderProcessAssignmentRow) parameterized by the PROCESS_KEYS
- * vocabulary (mirrored from validate/processAssignments.ts, UI-R34), with the
- * provider/model choices read from the HOST-SUPPLIED catalog (modelCatalog)
- * exactly like the General tab's model picker — never HTML literals. Every
- * string the row renders — role label, description, the four validation
- * states, the Default hints — arrives in a host-computed view
+ * Task 7 (+ ticket-form follow-up): the six inside-process assignment rows on
+ * the Agents tab. ONE renderer (renderProcessAssignmentRow) parameterized by
+ * the PROCESS_KEYS vocabulary (mirrored from validate/processAssignments.ts,
+ * UI-R34), with the provider/model choices read from the HOST-SUPPLIED
+ * catalog (modelCatalog) exactly like the General tab's model picker — never
+ * HTML literals. Every string the row renders — role label, description, the
+ * four validation states, the Default hints — arrives in a host-computed view
  * (processAssignmentViews.ts, handoff §7): the webview derives nothing.
  */
 describe('settings agents tab — process assignments', () => {
@@ -2081,7 +2081,7 @@ describe('settings agents tab — process assignments', () => {
     );
   });
 
-  it('renders five process assignment rows with profile/core/model/name controls and an enabled switch', () => {
+  it('renders six process assignment rows with profile/core/model/name controls and an enabled switch', () => {
     expect(HTML).toContain('id="processAssignments"');
     // The render walks the PROCESS_KEYS vocabulary (pinned above) and the row
     // template stamps every control with the key it edits.
