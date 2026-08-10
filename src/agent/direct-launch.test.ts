@@ -38,6 +38,7 @@ describe('direct approach launch path (integration)', () => {
         approach: 'direct',
         agent: null,
         parent: null,
+        stageCurrent: null,
         selectedRepos: ['backend'],
         worktrees: [],
         servers: [],

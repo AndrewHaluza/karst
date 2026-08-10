@@ -291,6 +291,16 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
     expect(ctx.stage?.stageKey).toBe('review');
     expect(ctx.stage?.verdict).toBe('review findings: 1 critical');
     expect(ctx.stage?.findings).toHaveLength(1);
+    // The marker is a property of the TICKET's stage, not the evidence row: a
+    // fix session fires `stage fix pass` even though the section above shows
+    // the failed review evidence.
+    expect(ctx.stageCurrent).toBe('fix');
+    expect(ctx.stage?.agentCanAdvance).toBe(true);
+    const md = renderTicketContext(ctx);
+    // The advisory must not contradict the fix session's own marker — it would
+    // tell the agent "nothing you run advances this stage" while its seed
+    // instructs firing `stage fix pass`.
+    expect(md).not.toContain('is not an agent-advanced stage');
   });
 
   it('carries no findings for a non-review stage, even with a recorded batch elsewhere', () => {
@@ -428,6 +438,36 @@ describe('ticket context — stage run state (v25, closes 869edna84)', () => {
 
     const md = renderTicketContext(buildTicketContext(store, undefined, id));
     expect(md).toContain('the previous run of this stage was destroyed');
+  });
+
+  // The acceptance criterion end to end at the render surface: a stale run
+  // shows as destroyed AND its partial gate rows stay readable, side by side.
+  it('renders a stale run with its partial gate rows still readable', () => {
+    const id = seedAt('review');
+    setStage(store, id, 'review', { status: 'running' });
+    const runId = openStageRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      pid: 999999,
+    });
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 1 }],
+      stageRunId: runId,
+    });
+    store.db.prepare("UPDATE stage_runs SET status = 'stale' WHERE id = ?").run(runId);
+
+    const md = renderTicketContext(buildTicketContext(store, undefined, id));
+    expect(md).toContain('- gate run: stale (attempt 0, started 2026-08-01T10:00:00.000Z)');
+    expect(md).toContain('the previous run of this stage was destroyed before it finished');
+    expect(md).toContain('Its gate rows below are partial; the stage will run again.');
+    expect(md).toContain('- lint (web): exit 1');
   });
 
   it('marks gateSetChanged only when both runs recorded a hash and the hashes differ', () => {

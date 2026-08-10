@@ -11,9 +11,15 @@ describe('MARKER_STAGES', () => {
     const produced = new Set(
       (['scope', 'impl', 'uat', 'review', 'fix', 'ship', 'done', null] as const).map(markerStageFor),
     );
-    expect([...produced].sort()).toEqual([...MARKER_STAGES].sort());
+    // Every non-null answer is a real marker stage — a seed can only carry a
+    // marker the CLI will actually accept.
+    for (const value of produced) {
+      if (value !== null) expect(MARKER_STAGES).toContain(value);
+    }
+    expect(produced.has('impl')).toBe(true);
+    expect(produced.has('fix')).toBe(true);
+    expect(produced.has(null)).toBe(true);
   });
-
   // The CLI narrows to these keys so an agent can't self-report a gate. That only
   // holds while no marker stage has a `failed` edge — the moment one does, a
   // `fail` verdict becomes reachable and the dropped fail branch must come back.
@@ -33,12 +39,14 @@ describe('markerStageFor', () => {
     expect(markerStageFor('impl')).toBe('impl');
   });
 
-  it('falls back to impl for every non-interactive stage', () => {
-    // Only impl and fix have an interactive continuation (resumeDecision); a seed
-    // written at any other stage is a fresh impl launch.
+  it('returns null at every stage that has no marker to fire (869edna84)', () => {
+    // Only impl and fix have an interactive continuation (resumeDecision). A
+    // seed written at any other stage would name an earlier stage's marker,
+    // which the CLI refuses — an agent that trusted it would report the ticket
+    // advanced when it had not moved, so the seed must carry no marker at all.
     for (const stage of ['scope', 'uat', 'review', 'ship', 'done'] as const) {
-      expect(markerStageFor(stage)).toBe('impl');
+      expect(markerStageFor(stage)).toBeNull();
     }
-    expect(markerStageFor(null)).toBe('impl');
+    expect(markerStageFor(null)).toBeNull();
   });
 });

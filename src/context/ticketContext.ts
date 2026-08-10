@@ -209,6 +209,12 @@ export interface TicketContext {
   /** Set when this ticket was created via "create follow-up" from a completed parent. */
   parent: TicketContextParent | null;
   repos: TicketContextRepo[];
+  /**
+   * The ticket's CURRENT stage key — the stage a session is actually sitting
+   * at. Differs from `stage.stageKey` exactly at `fix`, where the stage section
+   * shows the failed gate stage's evidence while the ticket waits at `fix`.
+   */
+  stageCurrent: string | null;
   /** Read-only stage/gate/finding state (§ context loader, closes G15). Null only for a stage key not present on the ticket's own rows — should not happen in practice. */
   stage: TicketContextStage | null;
 }
@@ -310,7 +316,12 @@ export function buildTicketContext(
         status: stageRow.status,
         verdict: stageRow.verdict,
         artifactPath: stageRow.artifactPath,
-        agentCanAdvance: isMarkerStage(stageRow.stageKey),
+        // Whether the AGENT may advance the ticket at its CURRENT stage — the
+        // marker is a property of the ticket, not of the evidence row rendered
+        // here: at `fix` the section shows the failed gate stage, yet the fix
+        // session's `stage fix pass` marker is the whole point of the session.
+        agentCanAdvance:
+          t.stageCurrent !== null && isMarkerStage(t.stageCurrent as StageKey),
         run: stageRun
           ? {
               status: stageRun.status,
@@ -358,6 +369,7 @@ export function buildTicketContext(
     brief: t.brief,
     approach: t.approach,
     agent: t.agent,
+    stageCurrent: t.stageCurrent,
     selectedRepos: t.selectedRepos,
     worktrees: listWorktreesByTicket(store, ticketId).map((w) => ({
       repo: w.repo,
@@ -474,14 +486,22 @@ export function renderTicketContext(ctx: TicketContext): string {
         }),
       );
     }
-    if (!s.agentCanAdvance && ADVISORY_STAGES.includes(s.stageKey)) {
+    if (
+      !s.agentCanAdvance &&
+      ctx.stageCurrent !== null &&
+      ADVISORY_STAGES.includes(ctx.stageCurrent)
+    ) {
       // The seeded marker command names `impl`; fired at one of these it is
       // REFUSED, and the seed never said so — an agent that trusts it reports a
       // ticket advanced that has not moved. So the refusal is stated up front,
-      // for the stages a live session can actually be sitting at. `scope` and
-      // `done` are excluded deliberately: no session exists at the first and
-      // nothing follows the last, so the line would be pure noise.
-      const why = (GATE_STAGES as readonly string[]).includes(s.stageKey)
+      // for the stages a live session can actually be sitting at. Driven by the
+      // ticket's CURRENT stage, never the evidence row above: at `fix` the
+      // section shows the failed gate stage, but the fix session's own marker
+      // (`stage fix pass`) IS valid — telling it "nothing you run advances this
+      // stage" would contradict the very instruction its seed carries.
+      // `scope` and `done` are excluded deliberately: no session exists at the
+      // first and nothing follows the last, so the line would be pure noise.
+      const why = (GATE_STAGES as readonly string[]).includes(ctx.stageCurrent)
         ? 'its verdict comes from gate exit codes'
         : 'karst advances it, not the agent';
       lines.push(

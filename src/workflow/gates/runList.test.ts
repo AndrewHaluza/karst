@@ -192,4 +192,34 @@ describe('onGateStart', () => {
     );
     expect(seen).toEqual([['a', 0]]);
   });
+
+  it('carries the row timing and the gate index, so callers can persist per gate', async () => {
+    const seen: Array<[string, number | null, string | null, string | null, number]> = [];
+    await runGateList(
+      [
+        { name: 'a', command: 'node', args: ['-e', 'process.exit(0)'], script: null, required: true },
+        { name: 'b', command: 'node', args: ['-e', 'process.exit(1)'], script: null, required: true },
+      ],
+      process.cwd(),
+      {
+        now: () => '2026-07-20T12:00:00.000Z',
+        onGateComplete: (name, exitCode, startedAt, endedAt, index) =>
+          seen.push([name, exitCode, startedAt, endedAt, index]),
+      },
+    );
+    expect(seen).toEqual([
+      ['a', 0, '2026-07-20T12:00:00.000Z', '2026-07-20T12:00:00.000Z', 0],
+      ['b', 1, '2026-07-20T12:00:00.000Z', '2026-07-20T12:00:00.000Z', 1],
+    ]);
+  });
+
+  it('reports a gate that never ran with null timing, never invented zeros', async () => {
+    const seen: Array<[string, number | null, string | null, string | null]> = [];
+    await runGateList(
+      [{ name: 'e2e', command: 'nonexistent-binary', args: [], script: 'e2e', required: false }],
+      process.cwd(),
+      { onGateComplete: (name, exitCode, startedAt, endedAt) => seen.push([name, exitCode, startedAt, endedAt]) },
+    );
+    expect(seen).toEqual([['e2e', null, null, null]]);
+  });
 });

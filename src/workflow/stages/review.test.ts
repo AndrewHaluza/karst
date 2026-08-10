@@ -60,16 +60,20 @@ function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
     unmapped: [],
     }),
     probe: () => ({ kind: 'ok', scripts: ALL_SCRIPTS }),
-    runGates: async (gates) => ({
-      kind: 'ran',
-      results: gates.map((g) => ({
-        name: g.name,
-        exitCode: 0,
-        output: 'ok',
-        startedAt: now(),
-        endedAt: now(),
-      })),
-    }),
+    runGates: async (gates, _cwd, opts) => {
+      // Mirrors the real `runGateList` contract: each result row fires
+      // `onGateComplete` (with the row's timing and index) — the per-gate
+      // evidence append the stage performs lives on that callback, so a fake
+      // that skips it silently drops every gate row, just like a runner that
+      // never reported.
+      const results = gates.map((g, i) => {
+        const startedAt = now();
+        const endedAt = now();
+        opts?.onGateComplete?.(g.name, 0, startedAt, endedAt, i);
+        return { name: g.name, exitCode: 0, output: 'ok', startedAt, endedAt };
+      });
+      return { kind: 'ran', results };
+    },
     findingsAdapter: findingsAgent(),
     ...over,
   };
@@ -365,10 +369,15 @@ describe('runReview', () => {
           cwd === '/wt/web'
             ? { kind: 'ok', scripts: { lint: 'eslint .' } }
             : { kind: 'io-error', message: 'EACCES' },
-        runGates: async (gates) => ({
-          kind: 'ran',
-          results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
-        }),
+        runGates: async (gates, _cwd, opts) => {
+          const results = gates.map((g, i) => {
+            const startedAt = now();
+            const endedAt = now();
+            opts?.onGateComplete?.(g.name, 1, startedAt, endedAt, i);
+            return { name: g.name, exitCode: 1, output: 'boom', startedAt, endedAt };
+          });
+          return { kind: 'ran', results };
+        },
       }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
@@ -475,10 +484,15 @@ describe('runReview', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({
-        runGates: async (gates) => ({
-          kind: 'ran',
-          results: gates.map((g) => ({ name: g.name, exitCode: null, output: 'nothing to run' })),
-        }),
+        runGates: async (gates, _cwd, opts) => {
+          // Every gate answered null: karst asked, and nothing answered. Each
+          // row proves a question WAS asked — and must survive the park.
+          const results = gates.map((g, i) => {
+            opts?.onGateComplete?.(g.name, null, null, null, i);
+            return { name: g.name, exitCode: null, output: 'nothing to run' };
+          });
+          return { kind: 'ran', results };
+        },
       }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
@@ -587,10 +601,15 @@ describe('runReview', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({
-        runGates: async () => ({
-          kind: 'stopped',
-          results: [{ name: 'lint', exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() }],
-        }),
+        runGates: async (_gates, _cwd, opts) => {
+          // The one gate completed before the stop landed — real `runGateList`
+          // fires the callback for it, and the row must survive the stop.
+          opts?.onGateComplete?.('lint', 0, now(), now(), 0);
+          return {
+            kind: 'stopped',
+            results: [{ name: 'lint', exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() }],
+          };
+        },
       }),
     );
     expect(res).toEqual({ kind: 'stopped' });
@@ -625,6 +644,33 @@ describe('runReview', () => {
     ).rejects.toThrow(/has no stage 'review'/);
     expect(listGateRuns(store, id).length).toBeGreaterThan(0);
     expect(getTicket(store, id).stageCurrent).toBe('review');
+  });
+
+  // The durability property at its finest grain: the row is written when the
+  // GATE finishes, inside the runner's loop — never batched to the end of the
+  // target. A runner that dies mid-list (a throw here, process death in
+  // production) leaves every gate that already finished readable.
+  it('persists each gate the moment it finishes, before the target list completes', async () => {
+    await expect(
+      runReview(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir },
+        deps({
+          runGates: async (gates, _cwd, opts) => {
+            // Gate 1 finishes; its row lands inside the loop...
+            opts?.onGateComplete?.(gates[0]!.name, 0, now(), now(), 0);
+            // ...then the host dies before gate 2 even starts.
+            throw new Error('host died mid-list');
+          },
+        }),
+      ),
+    ).rejects.toThrow('host died mid-list');
+    const rows = listGateRuns(store, id);
+    expect(rows.map((r) => r.gateName)).toEqual(['lint (/wt/web)']);
+    expect(rows[0]!.exitCode).toBe(0);
+    // The run itself is still open — the next run (or the activation sweep)
+    // reads it as destroyed, never as never-started or in flight.
+    expect(listStageRuns(store, id).map((r) => r.status)).toEqual(['running']);
   });
 
   it('runs every target and aggregates only after all of them complete', async () => {
@@ -885,20 +931,21 @@ describe('runReview', () => {
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({
-        runGates: async (gates) => ({
-          kind: 'ran',
-          results: gates.map((g, i) =>
-            i === 0
-              ? {
-                  name: g.name,
-                  exitCode: 0,
-                  output: 'ok',
-                  startedAt: '2026-07-20T12:00:00.000Z',
-                  endedAt: '2026-07-20T12:00:06.400Z',
-                }
-              : { name: g.name, exitCode: null, output: 'nothing to run' },
-          ),
-        }),
+        runGates: async (gates, _cwd, opts) => {
+          const results = gates.map((g, i) => {
+            if (i === 0) {
+              const startedAt = '2026-07-20T12:00:00.000Z';
+              const endedAt = '2026-07-20T12:00:06.400Z';
+              opts?.onGateComplete?.(g.name, 0, startedAt, endedAt, i);
+              return { name: g.name, exitCode: 0, output: 'ok', startedAt, endedAt };
+            }
+            // A gate that never ran still reports itself — real `runGateList`
+            // fires the callback with no timing, and no timing is recorded.
+            opts?.onGateComplete?.(g.name, null, null, null, i);
+            return { name: g.name, exitCode: null, output: 'nothing to run' };
+          });
+          return { kind: 'ran', results };
+        },
       }),
     );
     const [first, second] = listGateRuns(store, id);
@@ -1220,6 +1267,47 @@ describe('review findings lane (Lane B)', () => {
     const gateRunAt = new Set(listGateRuns(store, id).map((r) => r.runAt));
     const findingRunAt = new Set(listFindings(store, id).map((f) => f.runAt));
     expect(findingRunAt).toEqual(gateRunAt);
+  });
+
+  // F2 at its finest grain: each target's findings are persisted the instant
+  // THAT call returns — readable while the lane is still awaiting the next
+  // target. A host that dies mid-lane (the 1.3M-token incident shape, one
+  // target up) must not take the targets that already answered with it.
+  it("persists each target's findings as its call returns, while the lane is still in flight", async () => {
+    let releaseSecond!: () => void;
+    const secondCall = new Promise<void>((resolve) => (releaseSecond = resolve));
+    const runHeadless = vi
+      .fn()
+      .mockImplementationOnce(async () => ({
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([{ severity: 'low', title: 'first repo bug', detail: 'd' }]),
+      }))
+      .mockImplementationOnce(() =>
+        secondCall.then(() => ({ sessionId: '', verdict: null, raw: '[]' })),
+      );
+    const adapter: AgentAdapter = { ...findingsAgent(), runHeadless };
+    const pending = runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        findingsAdapter: adapter,
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+          unmapped: [],
+        }),
+      }),
+    );
+    // Both calls started means the first already RETURNED — and its findings
+    // were written before the second target was even asked.
+    await vi.waitFor(() => expect(runHeadless).toHaveBeenCalledTimes(2));
+    expect(listFindings(store, id).map((f) => f.title)).toEqual(['first repo bug']);
+    releaseSecond();
+    await expect(pending).resolves.toMatchObject({ kind: 'advanced' });
   });
 
   it("records the run's manifest_hash when a manifest is supplied", async () => {
@@ -1628,16 +1716,15 @@ describe('runUat and runReview record identities R7 can actually compare (differ
       // with review's own default probe list is deliberate config, not an
       // accident of what each stage happens to probe for.
       probe: () => ({ kind: 'ok', scripts: { lint: 'eslint .' } }),
-      runGates: async (gates) => ({
-        kind: 'ran',
-        results: gates.map((g) => ({
-          name: g.name,
-          exitCode: 0,
-          output: 'ok',
-          startedAt: now(),
-          endedAt: now(),
-        })),
-      }),
+      runGates: async (gates, _cwd, opts) => {
+        const results = gates.map((g, i) => {
+          const startedAt = now();
+          const endedAt = now();
+          opts?.onGateComplete?.(g.name, 0, startedAt, endedAt, i);
+          return { name: g.name, exitCode: 0, output: 'ok', startedAt, endedAt };
+        });
+        return { kind: 'ran', results };
+      },
       ...over,
     };
   }

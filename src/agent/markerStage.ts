@@ -21,14 +21,22 @@ export const MARKER_STAGES = ['impl', 'fix'] as const;
 export type MarkerStage = (typeof MARKER_STAGES)[number];
 
 /**
- * Which stage's done marker a session seed should carry.
+ * Which stage's done marker a session seed should carry, or null when the
+ * ticket's current stage has no marker to fire at all.
  *
  * A session opened at `fix` must be told `stage fix pass` — seeding the impl
- * marker there was why a fixed ticket never left `fix`. Everything else is a
- * fresh impl launch.
+ * marker there was why a fixed ticket never left `fix`. A session at `impl`
+ * gets the impl marker. ANYWHERE else — `uat`, `review`, `ship`, `scope`,
+ * `done` — the marker does not exist: the seeded marker would name an earlier
+ * stage and the CLI would refuse it (the stage-advance guard), so an agent
+ * that trusted it would report the ticket advanced when it had not moved.
+ * Null there, and the seed omits the marker instruction entirely rather than
+ * seeding a command that cannot succeed.
  */
-export function markerStageFor(stageCurrent: StageKey | null): MarkerStage {
-  return stageCurrent === 'fix' ? 'fix' : 'impl';
+export function markerStageFor(stageCurrent: StageKey | null): MarkerStage | null {
+  if (stageCurrent === 'fix') return 'fix';
+  if (stageCurrent === 'impl') return 'impl';
+  return null;
 }
 
 /** Narrow an arbitrary argv string to a markable stage. */

@@ -10,6 +10,7 @@ import {
   reconcileStageRuns,
   describeStaleStageRun,
 } from './stageRuns.js';
+import { listGateRuns, recordGateRun } from './gateRuns.js';
 
 /**
  * `stage_runs` exists to answer the one question `gate_runs` cannot: did a run
@@ -139,6 +140,44 @@ describe('stage_runs', () => {
       open();
       reconcileStageRuns(store, () => false);
       expect(reconcileStageRuns(store, () => false)).toEqual([]);
+    });
+
+    // The whole incident in one sequence (869edna84): a run opens, gates
+    // finish and their rows land as they happen, the host dies, and the next
+    // activation finds the run dead — the partial rows stay readable and the
+    // loss is reported, never silent.
+    it('keeps a dead run\'s partial gate rows readable and reports the loss end to end', () => {
+      const runId = openStageRun(store, {
+        ticketId: id,
+        stageKey: 'review',
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        startedAt: '2026-08-01T10:00:00.000Z',
+        manifestHash: 'hash-a',
+        pid: 4242,
+      });
+      recordGateRun(store, {
+        ticketId: id,
+        stageKey: 'review',
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        gates: [{ gateName: 'lint (web)', exitCode: 0 }],
+        stageRunId: runId,
+      });
+      // The host died; nothing ran. The sweep finds the dead pid.
+      const stale = reconcileStageRuns(store, (pid) => pid !== 4242);
+      expect(stale).toHaveLength(1);
+      expect(stale[0]!.run.id).toBe(runId);
+      // The run reads as destroyed — never as never-started, never in flight.
+      expect(latestStageRun(store, id, 'review')).toMatchObject({
+        status: 'stale',
+        endedAt: null,
+      });
+      // Every gate that finished before the death is still readable.
+      const rows = listGateRuns(store, id);
+      expect(rows.map((r) => r.gateName)).toEqual(['lint (web)']);
+      expect(rows[0]!.stageRunId).toBe(runId);
+      expect(rows[0]!.exitCode).toBe(0);
     });
   });
 });
