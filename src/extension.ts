@@ -106,6 +106,16 @@ import { buildSessionSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { renderFixBrief } from './agent/fixBrief.js';
+import {
+  agyWatchTick,
+  findConversationForWorktree,
+  openAgyConversationDb,
+  resolveAgyAppDataDir,
+  type AgyConversationSnapshot,
+  type AgyWatchState,
+} from './agent/agyConversationWatch.js';
+import type { HookPayload } from './hooks/dispatch.js';
+import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModelForProvider } from './agent/models.js';
@@ -577,6 +587,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const ownedSessionTickets = new Set(
     context.workspaceState.get<number[]>(OWNED_SESSION_TICKETS_KEY) ?? [],
   );
+  // Per-ticket memory of the agy conversation watch (see the sweep below):
+  // which conversation DB the ticket's session is writing and whether its last
+  // read showed a pending permission ask. Ephemeral — rebuilt from the CLI's
+  // own state on every sweep, cleared when the terminal closes.
+  const agyWatchStates = new Map<number, AgyWatchState>();
   const ownershipWriter = new SerializedStateWriter<number[]>(
     (snapshot) =>
       context.workspaceState.update(OWNED_SESSION_TICKETS_KEY, snapshot),
@@ -633,6 +648,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
     // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
     (ticketId) => {
+      // The agy watch's per-ticket memory dies with the terminal: a closed
+      // session must not keep a stale conversation/awaiting state behind.
+      agyWatchStates.delete(ticketId);
       ownedSessionTickets.delete(ticketId);
       void persistOwnedSessionTickets();
       setAgentState(localStore, ticketId, 'idle');
@@ -2329,47 +2347,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
+  // The notify/barrier/provider closures are shared verbatim with the agy
+  // conversation watch below: a watch event is a hook event, and the two
+  // channels must never disagree about ownership, refresh or the generation.
+  const notifyHook = (ticketId: number, payload: HookPayload): void => {
+    if (payload.hook_event_name === 'SessionStart') {
+      recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
+    }
+    const ownership = sessionOwnershipAction(
+      payload.hook_event_name,
+      sessions.isOpen(ticketId),
+    );
+    const ownershipChanged =
+      ownership === 'add'
+        ? !ownedSessionTickets.has(ticketId)
+        : ownership === 'remove'
+          ? ownedSessionTickets.has(ticketId)
+          : false;
+    if (ownership === 'add') ownedSessionTickets.add(ticketId);
+    if (ownership === 'remove') ownedSessionTickets.delete(ticketId);
+    if (ownershipChanged) void persistOwnedSessionTickets();
+    provider.refresh();
+    dashboard.pushState(ticketId);
+    maybeDrive(ticketId, 'hook');
+  };
+  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
+    shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
+  // Tag each captured session with the core that minted it, so a later switch
+  // (this ticket's override OR the manifest default) is detectable instead of
+  // surfacing as a failed `--resume` on the next Continue.
+  const sessionProviderFor = (ticketId: number): AgentProvider | null =>
+    resolveProvider(
+      getTicket(localStore, ticketId).agentProvider,
+      currentManifest()?.agentProvider,
+    );
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   endpoint = await startHookEndpoint(
     localStore,
     rememberedPort,
-    (ticketId, payload) => {
-      if (payload.hook_event_name === 'SessionStart') {
-        recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
-      }
-      const ownership = sessionOwnershipAction(
-        payload.hook_event_name,
-        sessions.isOpen(ticketId),
-      );
-      const ownershipChanged =
-        ownership === 'add'
-          ? !ownedSessionTickets.has(ticketId)
-          : ownership === 'remove'
-            ? ownedSessionTickets.has(ticketId)
-            : false;
-      if (ownership === 'add') ownedSessionTickets.add(ticketId);
-      if (ownership === 'remove') ownedSessionTickets.delete(ticketId);
-      if (ownershipChanged) void persistOwnedSessionTickets();
-      provider.refresh();
-      dashboard.pushState(ticketId);
-      maybeDrive(ticketId, 'hook');
-    },
+    notifyHook,
     logError,
-    (ticketId, payload) =>
-      shouldApplySessionHookState(
-        sessions,
-        recoveryLifecycle,
-        ticketId,
-        payload,
-      ),
-    // Tag each captured session with the core that minted it, so a later switch
-    // (this ticket's override OR the manifest default) is detectable instead of
-    // surfacing as a failed `--resume` on the next Continue.
-    (ticketId) =>
-      resolveProvider(
-        getTicket(localStore, ticketId).agentProvider,
-        currentManifest()?.agentProvider,
-      ),
+    shouldApplyHookState,
+    sessionProviderFor,
     {
       recorder: hookChannelRecorder,
       ticketApi: {
@@ -2508,6 +2527,97 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void runPrSync();
   const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });
+
+  // Antigravity conversation watch: agy 1.1.11 executes no hooks in the CLI
+  // (its hooks.json loads but never runs — see docs/guides/adding-agent-core.md
+  // § Antigravity), so its lifecycle signals are READ, not pushed — from the
+  // CLI's own conversation DB. A permission ask is a `steps` row with
+  // status = 9, observed while the approval dialog is on screen; answering
+  // resolves it to status = 3. The sweep locates the conversation by the
+  // worktree path stored in the DB's workspace blob, diffs the pending
+  // approval state per ticket, and posts the normalized events (SessionStart /
+  // permission.asked / UserPromptSubmit) through the SAME dispatchHook seam
+  // and closures as the hook endpoint, so session-id capture (--conversation
+  // resume), launch-intent confirmation, the generation barrier, the amber
+  // glyph, the Now line and the dashboard refresh are shared. Session end →
+  // idle is the terminal-close sweep's job, not this one's.
+  const AGY_WATCH_INTERVAL_MS = 10_000;
+  let agyWatchRunning = false;
+  const runAgyConversationWatch = (): void => {
+    if (agyWatchRunning) return;
+    agyWatchRunning = true;
+    try {
+      const appDataDir = resolveAgyAppDataDir();
+      for (const terminal of vscode.window.terminals) {
+        const named = terminalIdentity.identify(terminal);
+        if (named?.identity?.provider !== 'antigravity') continue;
+        const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
+        if (!worktree) continue;
+        let snapshot: AgyConversationSnapshot | null = null;
+        try {
+          const found = findConversationForWorktree(appDataDir, worktree.path);
+          if (found) {
+            const db = openAgyConversationDb(found.dbPath);
+            try {
+              snapshot = {
+                dbPath: found.dbPath,
+                conversationId: found.conversationId,
+                pendingApproval: db.pendingApprovalCount() > 0,
+              };
+            } finally {
+              db.close();
+            }
+          }
+        } catch (error) {
+          logError(`karst: agy conversation read failed for ticket ${named.ticketId}`, error);
+          continue;
+        }
+        const state =
+          agyWatchStates.get(named.ticketId) ?? { dbPath: null, started: false, awaiting: false };
+        const events = agyWatchTick(state, snapshot);
+        if (events.length === 0) continue;
+        agyWatchStates.set(named.ticketId, state);
+        // The session id for non-SessionStart events is the CURRENT
+        // conversation's id — the same one SessionStart carried.
+        const conversationId = snapshot?.conversationId;
+        for (const event of events) {
+          const base = {
+            cwd: worktree.path,
+            session_id:
+              event.kind === 'SessionStart'
+                ? event.sessionId
+                : (conversationId ?? undefined),
+            ...(named.launchId ? { launchId: named.launchId } : {}),
+          };
+          const payload: HookPayload =
+            event.kind === 'SessionStart'
+              ? { hook_event_name: 'SessionStart', ...base }
+              : event.kind === 'permission.asked'
+                ? { hook_event_name: 'permission.asked', ...base }
+                : { hook_event_name: 'UserPromptSubmit', ...base };
+          try {
+            dispatchHook(
+              localStore,
+              payload,
+              notifyHook,
+              shouldApplyHookState,
+              sessionProviderFor,
+              hookChannelRecorder,
+            );
+          } catch (error) {
+            logError(`karst: agy watch dispatch failed for ticket ${named.ticketId}`, error);
+          }
+        }
+      }
+    } catch (error) {
+      logError('karst: agy conversation watch failed', error);
+    } finally {
+      agyWatchRunning = false;
+    }
+  };
+  void runAgyConversationWatch();
+  const agyWatchTimer = setInterval(runAgyConversationWatch, AGY_WATCH_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(agyWatchTimer) });
 
   // The `karst` CLI commits to the registry from its own `node` process; this
   // host's connection never sees those writes, so an open dashboard would keep

@@ -27,13 +27,19 @@ describe('AntigravityAdapter', () => {
   it('declares the correct binary and capabilities', () => {
     const adapter = new AntigravityAdapter();
     expect(adapter.requiredBinary).toBe('agy');
-    expect(adapter.capabilities.lifecycleEvents).toBe(false);
-    expect(adapter.capabilities.resume).toBe(false);
+    // The conversation watch (agyConversationWatch.ts) reads the CLI's
+    // conversation DB: SessionStart from the discovered conversation id, and
+    // permission.asked/UserPromptSubmit from a pending `status = 9` step.
+    expect(adapter.capabilities.lifecycleEvents).toBe(true);
+    // The watch captures the conversation id, and `agy --conversation <id>`
+    // resumes it (verified against the installed CLI) — so resume is real.
+    expect(adapter.capabilities.resume).toBe(true);
   });
 
-  // Antigravity has no lifecycle channel at all, so it can have no usage
-  // channel either — the capability is truthfully absent, never a measured zero.
-  it('pins truthful absence of interactive usage — no lifecycle channel exists', () => {
+  // Antigravity has no token-bearing usage channel: agy reports no usage in
+  // `-p` stdout and the watch reads no usage file. Truthful absence, never a
+  // measured zero.
+  it('pins truthful absence of interactive usage — no usage channel exists', () => {
     const adapter = new AntigravityAdapter();
     expect(adapter.capabilities.interactiveUsage).toBe(false);
   });
