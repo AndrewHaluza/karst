@@ -111,13 +111,18 @@ export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
 const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
 
 export class AntigravityAdapter implements AgentAdapter {
-  // agy supports `--conversation`, but Karst has no Antigravity hook/channel
-  // that can capture an interactive conversation id yet.
-  // No lifecycle channel at all — and therefore no usage channel. Truthful
-  // absence, never a measured zero.
+  // agy 1.1.11 has NO executable hook channel in the CLI (its hooks.json loads
+  // but never runs — see docs/guides/adding-agent-core.md § Antigravity), so
+  // lifecycle signals come from the conversation watch (agyConversationWatch.ts):
+  // it reads the CLI's conversation DB — the pending `status = 9` step that
+  // exists exactly while a permission ask is on screen — and normalizes it into
+  // the closed hook vocabulary (SessionStart / permission.asked /
+  // UserPromptSubmit). The captured conversation id also makes `--conversation`
+  // resume real. There is still no usage channel: `interactiveUsage` stays
+  // false — truthful absence, never a measured zero.
   readonly capabilities: AgentCapabilities = {
-    lifecycleEvents: false,
-    resume: false,
+    lifecycleEvents: true,
+    resume: true,
     interactiveUsage: false,
   };
   readonly requiredBinary = AGY_BIN;
@@ -128,8 +133,8 @@ export class AntigravityAdapter implements AgentAdapter {
   // session-naming flag, so there is nothing to carry the terminal name into.
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
     const args: string[] = [];
-
-    // agy does not yet expose a lifecycle channel Karst can normalize.
+    // Lifecycle signals do not ride the launch: the conversation watch
+    // (agyConversationWatch.ts) reads them from the CLI's conversation DB.
 
     if (opts.resume && opts.resume.length > 0) {
       args.push('--conversation', opts.resume);
