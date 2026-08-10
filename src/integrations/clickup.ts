@@ -7,6 +7,8 @@ import type {
   BriefRelation,
   BriefTimestamps,
   TicketList,
+  TicketSearchResult,
+  TicketSearchOptions,
 } from './ticketing.js';
 import { materializeAttachments } from './attachments.js';
 import { extractLinks, toIsoDate } from './briefFields.js';
@@ -23,6 +25,16 @@ import { extractLinks, toIsoDate } from './briefFields.js';
 const API_BASE = 'https://api.clickup.com/api/v2';
 /** Metadata is optional, so it must never delay a ticket brief indefinitely. */
 const RELATION_METADATA_TIMEOUT_MS = 5_000;
+
+/**
+ * How many result pages (100 tasks each) one search may scan. The v2 API has no
+ * text-search parameter, so matching is CLIENT-SIDE over the fetched pages —
+ * the page cap bounds the cost of a broad status filter, and the match cap
+ * stops paging the moment the dropdown has enough to show.
+ */
+const SEARCH_MAX_PAGES = 3;
+/** Enough matches — stop scanning further pages. */
+const SEARCH_MAX_MATCHES = 25;
 
 /** Provider `fetch` — the global `fetch` signature, injected for testability. */
 export type FetchLike = typeof fetch;
@@ -74,7 +86,8 @@ interface RawTask {
   tags?: { name?: string }[];
   attachments?: { title?: string; url?: string; mimetype?: string }[];
   status?: { status?: string };
-  priority?: { priority?: string } | null;
+  /** `orderindex` is ClickUp's sortable rank ("1" = urgent … "4" = low). */
+  priority?: { priority?: string; orderindex?: string | number } | null;
   date_created?: string;
   date_updated?: string;
   date_closed?: string;
@@ -123,6 +136,27 @@ function parseTags(task: RawTask): string[] {
   return (task.tags ?? [])
     .map((t) => t.name)
     .filter((n): n is string => typeof n === 'string');
+}
+
+/**
+ * Rank a task's priority for "highest first" ordering. ClickUp's `orderindex`
+ * is the authoritative sortable rank ("1" = urgent, "2" = high, "3" = normal,
+ * "4" = low); the label is a fallback for a payload that carries one without
+ * the other. Unknown/absent ranks LAST — a task without a priority is a fact,
+ * not a tie for the top.
+ */
+function priorityRank(p: { priority?: string; orderindex?: string | number } | null | undefined): number {
+  const oi = p?.orderindex;
+  const numeric =
+    (typeof oi === 'string' && oi.trim() !== '' && Number(oi))
+    || (typeof oi === 'number' && oi);
+  if (numeric && Number.isFinite(numeric)) return numeric;
+  const label = p?.priority?.trim().toLowerCase();
+  if (label === 'urgent') return 1;
+  if (label === 'high') return 2;
+  if (label === 'normal') return 3;
+  if (label === 'low') return 4;
+  return 99;
 }
 
 function parseAttachments(task: RawTask): BriefAttachment[] {
@@ -408,6 +442,60 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
         }
       }
       return out;
+    },
+
+    /**
+     * Search the configured list's tickets by title. The v2 API exposes no
+     * text-search parameter, so pages are fetched with the status filter (and
+     * closed/subtask tasks excluded) and MATCHED CLIENT-SIDE on the title —
+     * deterministic across providers, and the only reason this module can sort
+     * the results by priority itself. A blank query matches nothing, and the
+     * fetch is skipped entirely for it.
+     */
+    async searchTickets(query: string, opts?: TicketSearchOptions): Promise<TicketSearchResult[]> {
+      if (!deps.listId) {
+        throw new ClickupError('a List ID is required to search tickets');
+      }
+      const needle = query.trim().toLowerCase();
+      if (!needle) return [];
+
+      const params = new URLSearchParams();
+      params.set('include_closed', 'false');
+      params.set('subtasks', 'false');
+      if (opts?.status) params.append('statuses[]', opts.status);
+
+      const out: { result: TicketSearchResult; rank: number }[] = [];
+      for (let page = 0; page < SEARCH_MAX_PAGES; page++) {
+        const pageParams = new URLSearchParams(params);
+        pageParams.set('page', String(page));
+        const raw = (await getJson(
+          `${API_BASE}/list/${encodeURIComponent(deps.listId)}/task?${pageParams}`,
+        )) as { tasks?: RawTask[]; last_page?: boolean };
+        const tasks = Array.isArray(raw.tasks) ? raw.tasks : [];
+        for (const t of tasks) {
+          const title = typeof t.name === 'string' ? t.name.trim() : '';
+          if (!title || !title.toLowerCase().includes(needle)) continue;
+          const status = t.status?.status?.trim();
+          const priority = t.priority?.priority?.trim();
+          out.push({
+            result: {
+              ref: typeof t.id === 'string' ? t.id : '',
+              title,
+              ...(status ? { status } : {}),
+              ...(priority ? { priority } : {}),
+            },
+            rank: priorityRank(t.priority),
+          });
+        }
+        if (out.length >= SEARCH_MAX_MATCHES || raw.last_page === true || tasks.length === 0) {
+          break;
+        }
+      }
+
+      return out
+        .sort((a, b) => a.rank - b.rank || a.result.title.localeCompare(b.result.title))
+        .slice(0, SEARCH_MAX_MATCHES)
+        .map((e) => e.result);
     },
 
     async fetchTicket(ref: string): Promise<ContextBrief> {

@@ -130,6 +130,27 @@ export interface TicketList {
   space: string; // owning space name, disambiguates same-named lists
 }
 
+/**
+ * One ticket as the Add/Edit page's search dropdown lists it — enough to
+ * identify (ref) and disambiguate (title) a ticket before the user commits to
+ * a full `fetchTicket`. `ref` is the provider's own task ref, exactly what
+ * `fetchTicket` takes, so selecting a result is one round trip away from the
+ * full brief. `status`/`priority` are provider-native labels, absent when the
+ * provider did not expose them.
+ */
+export interface TicketSearchResult {
+  ref: string;
+  title: string;
+  status?: string;
+  priority?: string;
+}
+
+/** How a search narrows the list, normalized across providers. */
+export interface TicketSearchOptions {
+  /** Filter to tickets in exactly this status (provider-native name). Absent = every status. */
+  status?: string;
+}
+
 export interface TicketingProvider {
   /** Set the ticket's status. `ref` is the provider's own task ref (never karst's user-editable `key`). */
   updateStatus(ref: string, status: string): Promise<void>;
@@ -149,6 +170,12 @@ export interface TicketingProvider {
    * `manualProvider` has no remote to enumerate. Needs a configured teamId.
    */
   listLists?(): Promise<TicketList[]>;
+  /**
+   * Search the configured list for tickets whose title matches `query`,
+   * sorted by priority with the highest priority first. Optional: only ClickUp
+   * implements this; `manualProvider` has no board to search.
+   */
+  searchTickets?(query: string, opts?: TicketSearchOptions): Promise<TicketSearchResult[]>;
 }
 
 export interface ManualProvider extends TicketingProvider {

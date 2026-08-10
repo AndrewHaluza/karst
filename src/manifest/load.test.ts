@@ -941,6 +941,7 @@ describe('ticketing', () => {
         provider: 'manual',
         advanceOnShip: false,
         advanceOnStart: false,
+        searchEnabled: true,
       });
     } finally {
       cleanup();
@@ -957,6 +958,7 @@ describe('ticketing', () => {
         listId: '42',
         advanceOnShip: false,
         advanceOnStart: false,
+        searchEnabled: true,
       });
     } finally {
       cleanup();
@@ -987,6 +989,36 @@ describe('ticketing', () => {
     }
   });
 
+  it('defaults searchEnabled to true', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).ticketing?.searchEnabled).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses an explicit searchEnabled: false', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  searchEnabled: false\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).ticketing?.searchEnabled).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-boolean searchEnabled', () => {
+    const yaml = `${VALID}\nticketing:\n  provider: clickup\n  searchEnabled: "yes"\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/searchEnabled must be a boolean/);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('parses advanceOnShip and shipStatus', () => {
     const yaml =
       `${VALID}\nticketing:\n  provider: clickup\n  listId: "42"\n` +
@@ -999,6 +1031,7 @@ describe('ticketing', () => {
         advanceOnShip: true,
         shipStatus: 'in review',
         advanceOnStart: false,
+        searchEnabled: true,
       });
     } finally {
       cleanup();
@@ -1071,6 +1104,7 @@ describe('ticketing', () => {
         advanceOnShip: false,
         advanceOnStart: true,
         startStatus: 'in dev',
+        searchEnabled: true,
       });
     } finally {
       cleanup();

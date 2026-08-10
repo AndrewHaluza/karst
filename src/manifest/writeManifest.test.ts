@@ -90,6 +90,7 @@ describe('writeManifest', () => {
         listId: '42',
         advanceOnShip: false,
         advanceOnStart: false,
+        searchEnabled: true,
       });
     } finally {
       cleanup();
@@ -241,6 +242,7 @@ describe('writeManifest', () => {
           shipStatus: 'in review',
           advanceOnStart: true,
           startStatus: 'in dev',
+          searchEnabled: true,
         },
         review: {
           maxFixAttempts: 2,

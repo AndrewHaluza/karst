@@ -326,6 +326,87 @@ describe('buildTicketFormActions', () => {
     expect(err?.message).toMatch(/boom/);
   });
 
+  it('searchTickets posts the provider results, echoing the request', async () => {
+    deps.provider = fakeProvider({
+      searchTickets: vi.fn(async (query, opts) => [
+        { ref: 't1', title: `${query} one`, status: opts?.status ?? 'to do', priority: 'urgent' },
+      ]),
+    });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.searchTickets('pay', 'to do');
+    const res = posted.find((m) => m.type === 'ticket-search-results') as
+      | { query: string; status: string | null; results: { ref: string }[] }
+      | undefined;
+    expect(res?.query).toBe('pay');
+    expect(res?.status).toBe('to do');
+    expect(res?.results[0]?.ref).toBe('t1');
+    expect(deps.provider.searchTickets).toHaveBeenCalledWith('pay', { status: 'to do' });
+  });
+
+  it('searchTickets drops the status option when the filter is null', async () => {
+    deps.provider = fakeProvider({ searchTickets: vi.fn(async () => []) });
+    const ctx = mkCtx();
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.searchTickets('pay', null);
+    expect(deps.provider.searchTickets).toHaveBeenCalledWith('pay', undefined);
+  });
+
+  it('searchTickets posts a dropdown error when the provider rejects', async () => {
+    deps.provider = fakeProvider({
+      searchTickets: vi.fn(async () => { throw new Error('rate limited'); }),
+    });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.searchTickets('pay', null);
+    const err = posted.find((m) => m.type === 'ticket-search-error') as
+      | { message: string }
+      | undefined;
+    expect(err?.message).toMatch(/rate limited/);
+  });
+
+  it('searchTickets reports a provider without search support on the dropdown channel', async () => {
+    const ctx = mkCtx();
+    const actions = buildTicketFormActions(deps)(ctx); // fakeProvider has no searchTickets
+
+    await actions.searchTickets('pay', null);
+    const err = ctx.posted.find((m) => m.type === 'ticket-search-error') as
+      | { message: string }
+      | undefined;
+    expect(err?.message).toMatch(/cannot search/);
+  });
+
+  it('searchStatuses posts the provider status names', async () => {
+    deps.provider = fakeProvider({ listStatuses: vi.fn(async () => ['to do', 'in progress']) });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.searchStatuses();
+    const res = posted.find((m) => m.type === 'ticket-search-statuses') as
+      | { statuses: string[] }
+      | undefined;
+    expect(res?.statuses).toEqual(['to do', 'in progress']);
+  });
+
+  it('searchStatuses reports a provider failure on the dropdown channel', async () => {
+    deps.provider = fakeProvider({ listStatuses: vi.fn(async () => { throw new Error('no list'); }) });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.searchStatuses();
+    const err = posted.find((m) => m.type === 'ticket-search-error') as
+      | { message: string }
+      | undefined;
+    expect(err?.message).toMatch(/no list/);
+  });
+
   it('suggestSignals posts the suggested words for a service', async () => {
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };

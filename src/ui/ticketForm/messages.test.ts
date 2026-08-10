@@ -10,6 +10,35 @@ describe('parseTicketFormMessage', () => {
     });
   });
 
+  it('accepts search-tickets with a blank query and a null status', () => {
+    expect(parseTicketFormMessage({ type: 'search-tickets', query: '', status: null })).toEqual({
+      type: 'search-tickets',
+      query: '',
+      status: null,
+    });
+    expect(
+      parseTicketFormMessage({ type: 'search-tickets', query: 'pay', status: 'to do' }),
+    ).toEqual({ type: 'search-tickets', query: 'pay', status: 'to do' });
+  });
+
+  it('rejects malformed search-tickets at the trust boundary', () => {
+    expect(parseTicketFormMessage({ type: 'search-tickets' })).toBeNull(); // missing query
+    expect(parseTicketFormMessage({ type: 'search-tickets', query: 7, status: null })).toBeNull();
+    expect(
+      parseTicketFormMessage({ type: 'search-tickets', query: 'pay', status: 7 }),
+    ).toBeNull(); // status must be a string or null
+    // A crafted page must not send an unbounded query to a network call.
+    expect(
+      parseTicketFormMessage({ type: 'search-tickets', query: 'x'.repeat(201), status: null }),
+    ).toBeNull();
+    // An absent status is not the same as null — it is rejected.
+    expect(parseTicketFormMessage({ type: 'search-tickets', query: 'pay' })).toBeNull();
+  });
+
+  it('accepts search-statuses', () => {
+    expect(parseTicketFormMessage({ type: 'search-statuses' })).toEqual({ type: 'search-statuses' });
+  });
+
   it('accepts suggest-signals and save-signals with validated fields', () => {
     expect(parseTicketFormMessage({ type: 'suggest-signals', service: 'fe' })).toEqual({
       type: 'suggest-signals',
@@ -208,6 +237,8 @@ describe('routeTicketFormAction', () => {
   function spyActions(): TicketFormActions {
     return {
       fetchSource: vi.fn(),
+      searchTickets: vi.fn(),
+      searchStatuses: vi.fn(),
       suggestSignals: vi.fn(),
       saveSignals: vi.fn(),
       setRepos: vi.fn(),
@@ -231,6 +262,8 @@ describe('routeTicketFormAction', () => {
   it('routes each valid message to its action', () => {
     const actions = spyActions();
     routeTicketFormAction({ type: 'fetch-source', ref: 'CU-1' }, actions);
+    routeTicketFormAction({ type: 'search-tickets', query: 'pay', status: 'to do' }, actions);
+    routeTicketFormAction({ type: 'search-statuses' }, actions);
     routeTicketFormAction({ type: 'save-signals', service: 'be', signals: ['api'] }, actions);
     routeTicketFormAction(
       { type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex' },
@@ -243,6 +276,8 @@ describe('routeTicketFormAction', () => {
     routeTicketFormAction({ type: 'set-type', id: 'fix' }, actions);
     routeTicketFormAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
+    expect(actions.searchTickets).toHaveBeenCalledWith('pay', 'to do');
+    expect(actions.searchStatuses).toHaveBeenCalled();
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
       key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, pullBase: true,
@@ -287,12 +322,21 @@ describe('routeTicketFormAction', () => {
     expect(() => routeTicketFormAction({ type: 'nope' }, actions)).not.toThrow();
     expect(actions.fetchSource).not.toHaveBeenCalled();
   });
+
+  it('does not route a malformed search-tickets', () => {
+    const actions = spyActions();
+    routeTicketFormAction({ type: 'search-tickets', query: 7, status: null }, actions);
+    routeTicketFormAction({ type: 'search-tickets' }, actions);
+    expect(actions.searchTickets).not.toHaveBeenCalled();
+  });
 });
 
 describe('attachment messages', () => {
   function spyActions(): TicketFormActions {
     return {
       fetchSource: vi.fn(),
+      searchTickets: vi.fn(),
+      searchStatuses: vi.fn(),
       suggestSignals: vi.fn(),
       saveSignals: vi.fn(),
       setRepos: vi.fn(),

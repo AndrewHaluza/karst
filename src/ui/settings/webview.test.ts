@@ -490,6 +490,33 @@ describe('ticketing provider dropdown', () => {
   });
 });
 
+describe('ticketing search toggle', () => {
+  it('renders a search toggle card that defaults ON, hidden for manual', () => {
+    const markup = HTML.slice(HTML.indexOf('id="searchCard"'), HTML.indexOf('id="searchCard"') + 500);
+    expect(markup).toContain('id="f-searchEnabled"');
+    expect(markup).toContain('Search tickets in the Add/Edit ticket page');
+    // renderTicketing shows it only for clickup and reflects the draft value.
+    const render = functionSource('renderTicketing');
+    expect(render).toContain("el('searchCard').classList.toggle('hidden', !isClickup)");
+    expect(render).toContain("el('f-searchEnabled').checked = cfg.searchEnabled !== false");
+  });
+
+  it('writes the toggle back into the manifest draft and marks it dirty', () => {
+    const m = HTML.match(
+      /el\('f-searchEnabled'\)\.addEventListener\('change', \(\) => \{([\s\S]*?)\n {2}}\);/,
+    );
+    expect(m, 'f-searchEnabled change listener not found').toBeTruthy();
+    const body = m![1]!;
+    expect(body).toContain("ticketingCfg().searchEnabled = el('f-searchEnabled').checked");
+    expect(body).toContain('markDirty()');
+  });
+
+  it('clears a stale searchEnabled when the provider leaves clickup', () => {
+    const source = functionSource('pickProvider');
+    expect(source).toContain('delete cfg.searchEnabled');
+  });
+});
+
 describe('ticketing token state', () => {
   // Regression: the token buttons used to trigger a full `state` push, which
   // replaces `draft` with the manifest on disk. Setting a token is the first

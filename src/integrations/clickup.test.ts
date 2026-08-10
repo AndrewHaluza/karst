@@ -624,3 +624,146 @@ describe('clickupProvider.updateStatus', () => {
     await expect(provider.updateStatus('abc123', 'nope')).rejects.toThrow(ClickupError);
   });
 });
+
+describe('clickupProvider.searchTickets', () => {
+  const LIST_TASKS = [
+    {
+      id: 't-low',
+      name: 'Low priority ticket',
+      status: { status: 'to do' },
+      priority: { priority: 'low', orderindex: '4' },
+    },
+    {
+      id: 't-high',
+      name: 'High priority ticket',
+      status: { status: 'to do' },
+      priority: { priority: 'high', orderindex: '2' },
+    },
+    {
+      id: 't-none',
+      name: 'No priority ticket',
+      status: { status: 'in review' },
+      priority: null,
+    },
+    {
+      id: 't-urgent',
+      name: 'Urgent ticket',
+      status: { status: 'to do' },
+      priority: { priority: 'urgent', orderindex: '1' },
+    },
+    {
+      id: 't-other',
+      name: 'Unrelated widget',
+      status: { status: 'to do' },
+      priority: { priority: 'normal', orderindex: '3' },
+    },
+  ];
+
+  /**
+   * A fetch that EMULATES the real endpoint: honors the `statuses[]` filter and
+   * `page` slicing server-side (like ClickUp does) — the provider only matches
+   * the title client-side, so a fixture that returned every task regardless of
+   * the status parameter would make the status-filter tests meaningless.
+   */
+  function listFetch(pageSize = 100) {
+    const calls: { url: string }[] = [];
+    const fn = (async (url: string | URL) => {
+      const u = String(url);
+      calls.push({ url: u });
+      const parsed = new URL(u);
+      const page = Number(parsed.searchParams.get('page') ?? 0);
+      const statuses = parsed.searchParams.getAll('statuses[]');
+      const matching = LIST_TASKS.filter(
+        (t) => statuses.length === 0 || statuses.includes(t.status.status),
+      );
+      const tasks = matching.slice(page * pageSize, (page + 1) * pageSize);
+      return new Response(
+        JSON.stringify({
+          tasks,
+          last_page: (page + 1) * pageSize >= matching.length,
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    return { fn, calls };
+  }
+
+  it('searches the configured list by title and returns ref/title/status/priority', async () => {
+    const { fn, calls } = listFetch();
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    const results = await provider.searchTickets!('ticket', { status: 'to do' });
+
+    expect(results.map((r) => r.ref)).toEqual(['t-urgent', 't-high', 't-low']);
+    expect(results[0]).toEqual({
+      ref: 't-urgent',
+      title: 'Urgent ticket',
+      status: 'to do',
+      priority: 'urgent',
+    });
+    // The list endpoint, with the status filter and no closed/subtasks.
+    expect(calls[0]!.url).toContain('/list/42/task?');
+    expect(calls[0]!.url).toContain('statuses%5B%5D=to+do');
+    expect(calls[0]!.url).toContain('include_closed=false');
+    expect(calls[0]!.url).toContain('subtasks=false');
+    expect(calls[0]!.url).toContain('page=0');
+  });
+
+  it('sorts by priority with highest first, unknown priority last', async () => {
+    const { fn } = listFetch();
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    const results = await provider.searchTickets!('priority');
+
+    // 'Low priority ticket' (low) and 'High priority ticket' (high) match;
+    // 'No priority ticket' carries no priority object at all.
+    expect(results.map((r) => r.ref)).toEqual(['t-high', 't-low', 't-none']);
+  });
+
+  it('filters case-insensitively and never matches an empty query', async () => {
+    const { fn, calls } = listFetch();
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    // 'TICKET' matches every task whose name ends in "ticket" (4 of 5).
+    expect(await provider.searchTickets!('TICKET')).toHaveLength(4);
+    expect(await provider.searchTickets!('')).toEqual([]);
+    expect(await provider.searchTickets!('   ')).toEqual([]);
+    // An empty query never hits the API.
+    expect(calls).toHaveLength(1);
+  });
+
+  it('drops the status filter when no status is requested', async () => {
+    const { fn, calls } = listFetch();
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    await provider.searchTickets!('ticket');
+
+    expect(calls[0]!.url).not.toContain('statuses');
+    expect(await provider.searchTickets!('ticket')).toHaveLength(4);
+  });
+
+  it('pages through results until last_page or enough matches', async () => {
+    const { fn, calls } = listFetch(2);
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    const results = await provider.searchTickets!('ticket');
+
+    expect(results.map((r) => r.ref)).toEqual(['t-urgent', 't-high', 't-low', 't-none']);
+    expect(calls.length).toBeGreaterThan(1);
+    expect(calls[1]!.url).toContain('page=1');
+  });
+
+  it('throws a ClickupError when no listId is configured', async () => {
+    const { fn } = listFetch();
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await expect(provider.searchTickets!('x', { status: 'to do' })).rejects.toThrow(/List ID/);
+  });
+
+  it('throws a ClickupError on a non-ok response', async () => {
+    const { fn } = fakeFetch({ '/list/42/task': { status: 500, json: {} } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    await expect(provider.searchTickets!('x')).rejects.toThrow(/500/);
+  });
+});

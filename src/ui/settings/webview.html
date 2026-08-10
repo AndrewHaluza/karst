@@ -754,6 +754,18 @@
         </div>
       </div>
 
+      <!-- Ticket-search dropdown in the Add/Edit ticket page. ClickUp-only:
+           `manual` has no board to search. On by default. -->
+      <div class="card open hidden" id="searchCard">
+        <div class="card-body" style="display:block;padding-top:14px">
+          <div class="toggle">
+            <input type="checkbox" id="f-searchEnabled" />
+            <label for="f-searchEnabled">Search tickets in the Add/Edit ticket page</label>
+          </div>
+          <div class="field-hint">The Key field becomes a dropdown that searches this list's tickets — filtered by status (default: the list's TODO) and sorted by priority.</div>
+        </div>
+      </div>
+
       <!-- On-start advance. Hidden unless provider === clickup: manual has no
            statuses to list, and advancing a local no-op record means nothing. -->
       <div class="card open hidden" id="startAdvanceCard">
@@ -3374,6 +3386,13 @@
     markDirty();
   });
 
+  // Ticket-search dropdown toggle (default ON). The value rides the manifest
+  // draft like every other ticketing field — no companion state to sync.
+  el('f-searchEnabled').addEventListener('change', () => {
+    ticketingCfg().searchEnabled = el('f-searchEnabled').checked;
+    markDirty();
+  });
+
   el('f-startStatus').addEventListener('change', () => {
     ticketingCfg().startStatus = el('f-startStatus').value;
     renderStartAdvance();
@@ -3465,6 +3484,10 @@
       delete cfg.shipStatus;
       cfg.advanceOnStart = false;
       delete cfg.startStatus;
+      // Same for search: the toggle is hidden for `manual`, so a stale
+      // searchEnabled: false must not silently keep the Add/Edit page's
+      // dropdown off after the provider comes back.
+      delete cfg.searchEnabled;
     }
     markDirty(); renderTicketing(); closeProviderMenu();
     el('providerTrigger').focus();
@@ -3509,6 +3532,10 @@
     renderLists();
     const isClickup = current === 'clickup';
     el('clickupFields').classList.toggle('hidden', !isClickup);
+    // Ticket-search dropdown toggle (ClickUp-only; default ON, matching
+    // validateManifest's `searchEnabled: true` normalization).
+    el('searchCard').classList.toggle('hidden', !isClickup);
+    el('f-searchEnabled').checked = cfg.searchEnabled !== false;
     const pill = el('tokenStatus');
     pill.className = 'status-pill ' + (tokenConfigured ? 'ok' : 'off');
     pill.querySelector('.txt').textContent = tokenConfigured ? 'Token set' : 'No token';

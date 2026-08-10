@@ -79,6 +79,35 @@ describe('buildTicketFormState — create mode', () => {
     expect(s.provider).toBe('clickup');
   });
 
+  it('enables ticket search for a clickup provider with a configured list (default on)', () => {
+    const withClickup: Manifest = {
+      ...MANIFEST,
+      ticketing: { provider: 'clickup', listId: '42' },
+    };
+    const s = buildTicketFormState(store, withClickup, () => [], () => []);
+    expect(s.ticketSearchEnabled).toBe(true);
+  });
+
+  it('disables ticket search without a configured list (nothing to search)', () => {
+    const withClickup: Manifest = { ...MANIFEST, ticketing: { provider: 'clickup' } };
+    const s = buildTicketFormState(store, withClickup, () => [], () => []);
+    expect(s.ticketSearchEnabled).toBe(false);
+  });
+
+  it('honors an explicit searchEnabled: false', () => {
+    const off: Manifest = {
+      ...MANIFEST,
+      ticketing: { provider: 'clickup', listId: '42', searchEnabled: false },
+    };
+    const s = buildTicketFormState(store, off, () => [], () => []);
+    expect(s.ticketSearchEnabled).toBe(false);
+  });
+
+  it('disables ticket search for the manual provider', () => {
+    const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    expect(s.ticketSearchEnabled).toBe(false);
+  });
+
   it('offers the current provider models from an injected catalog', () => {
     const withCodex: Manifest = { ...MANIFEST, agentProvider: 'codex' };
     const s = buildTicketFormState(

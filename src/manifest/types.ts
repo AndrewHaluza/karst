@@ -215,6 +215,14 @@ export interface TicketingConfig {
    * "in progress" is a sensible default most trackers already have.
    */
   startStatus?: string;
+  /**
+   * Offer the ticket-search dropdown on the Add/Edit ticket page: the Key
+   * field becomes a combobox that lists the configured list's tickets, with a
+   * status filter defaulting to the list's TODO status. Always set by
+   * `validateManifest` (default `true`). Only meaningful for a provider that
+   * can search (`clickup`); `manual` has no board to list.
+   */
+  searchEnabled?: boolean;
 }
 
 export type GateKind = 'script' | 'command';
