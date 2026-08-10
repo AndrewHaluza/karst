@@ -258,6 +258,7 @@ Settings UI — check spelling by hand.
 review:
   maxFixAttempts: 3               # positive integer, default 3
   requireIndependentSignal: true  # boolean, default true
+  openChanges: false              # boolean, default false — auto-reveal the Changes panel
   gates: [ <gate>, ... ]
   findings:
     enabled: true                 # boolean, default true
@@ -367,6 +368,7 @@ uat:
 review:
   maxFixAttempts: 3
   requireIndependentSignal: true
+  openChanges: false
   gates:
     - { name: lint,      kind: script, script: lint }
     - { name: typecheck, kind: script, script: typecheck }
