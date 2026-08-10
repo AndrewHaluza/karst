@@ -91,6 +91,9 @@ import {
   recordFixLaunchIntent,
   recoveryDecision,
   listRecoveryRounds,
+  interruptActiveFixExecution,
+  reconcileStrandedFixRounds,
+  describeStrandedFixRound,
 } from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
@@ -578,6 +581,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   } catch (err) {
     logError('karst: stale process-run sweep failed', err);
   }
+  // Stranded fix-execution sweep. Runs AFTER the process-run pass above, which
+  // is what turns a destroyed Fix run into a non-`running` row this can read:
+  // a `fixing` recovery round whose execution is gone is a round nothing can
+  // ever leave, and the driver answers it with "already in flight; leaving it"
+  // on every trigger. Interrupting it puts the ticket back where a human can
+  // act on it instead of watching a fix elapse for hours.
+  try {
+    for (const s of reconcileStrandedFixRounds(localStore, new Date().toISOString())) {
+      logger.info(describeStrandedFixRound(s));
+    }
+  } catch (err) {
+    logError('karst: stranded fix-round sweep failed', err);
+  }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package
   // into agent-specific launch args).
@@ -654,6 +670,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ownedSessionTickets.delete(ticketId);
       void persistOwnedSessionTickets();
       setAgentState(localStore, ticketId, 'idle');
+      // A FIX session that ends without the marker is an interrupted recovery,
+      // exactly as the SessionEnd hook reads it — and this sweep exists because
+      // that hook cannot be relied on to arrive (an agent core with no hook
+      // channel, a killed terminal, a reload). Without it the round stays
+      // `fixing` forever, the driver reads "a fix execution is already in
+      // flight" on every trigger, and the ticket sits at fix indefinitely — the
+      // ten-hour fix this closes. A round that is not fixing (pending, or
+      // already completed by the marker) is left strictly alone.
+      try {
+        if (interruptActiveFixExecution(localStore, ticketId, new Date().toISOString())) {
+          logger.info(
+            `stage driver: ticket ${ticketId} fix session closed without the marker — ` +
+              `recovery round interrupted; the ticket rests at fix for a human`,
+          );
+        }
+      } catch (err) {
+        logError(`karst: interrupting the fix execution for ticket ${ticketId} failed`, err);
+      }
       provider.refresh();
       dashboard.pushState(ticketId);
       maybeDrive(ticketId, 'session-closed');
@@ -3519,6 +3553,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   for (const ticketId of backgroundRecoveryPlan.idle) {
     setAgentState(localStore, ticketId, 'idle');
+    // No resumable session and no worktree means nothing of this ticket is
+    // running anywhere — so a recovery round still reading `fixing` is a fix
+    // that died with a previous host and will never report. Interrupting it
+    // here is what keeps the driver from answering every later trigger with
+    // "a fix execution is already in flight" for a session that is gone.
+    try {
+      if (interruptActiveFixExecution(localStore, ticketId, new Date().toISOString())) {
+        logger.info(
+          `session recovery: ticket ${ticketId} had a fix execution with no resumable ` +
+            `session — recovery round interrupted; the ticket rests at fix for a human`,
+        );
+      }
+    } catch (err) {
+      logError(`karst: interrupting the fix execution for ticket ${ticketId} failed`, err);
+    }
     ownershipChanged =
       ownedSessionTickets.delete(ticketId) || ownershipChanged;
     logger.warn(

@@ -15,6 +15,7 @@ import {
   completeRevalidation,
   attachRevalidationStageRun,
   exhaustRecoveryRound,
+  reconcileStrandedFixRounds,
   listRecoveryRounds,
   type RecoveryRound,
 } from './recoveryRounds.js';
@@ -435,6 +436,56 @@ describe('recovery rounds — store', () => {
     store.db.prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?").run(r.id);
     expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(false);
     expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('revalidating');
+  });
+
+  it('reconcileStrandedFixRounds interrupts a fixing round whose Fix run is no longer running', () => {
+    const r = round();
+    const run = beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+    // The host died: the activation process-run sweep (or a superseding open)
+    // marked the run stale, which nothing propagated to the round — the round
+    // stayed `fixing` and the ticket sat at fix forever.
+    store.db.prepare("UPDATE process_runs SET status = 'stale' WHERE id = ?").run(run.id);
+
+    const stranded = reconcileStrandedFixRounds(store, T1);
+
+    expect(stranded).toEqual([
+      { roundId: r.id, ticketId, sourceStage: 'uat', round: 1, fixProcessRunId: run.id },
+    ]);
+    expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+      status: 'interrupted',
+      endedAt: T1,
+    });
+    // Idempotent: a round already interrupted is not reported twice.
+    expect(reconcileStrandedFixRounds(store, T2)).toEqual([]);
+  });
+
+  it('reconcileStrandedFixRounds interrupts a fixing round that never opened a Fix run', () => {
+    const r = round();
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(r.id);
+    expect(reconcileStrandedFixRounds(store, T1)).toMatchObject([{ roundId: r.id }]);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('interrupted');
+  });
+
+  it('reconcileStrandedFixRounds leaves a live Fix execution strictly alone', () => {
+    const r = round();
+    beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+    expect(reconcileStrandedFixRounds(store, T1)).toEqual([]);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    // Nor any round that is not fixing at all.
+    const otherId = createTicketFlow(store, { key: 'T-3', title: 'pending' }).id;
+    openRecoveryRound(store, {
+      ticketId: otherId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: T0,
+    });
+    expect(reconcileStrandedFixRounds(store, T1)).toEqual([]);
+    expect(listRecoveryRounds(store, otherId)[0]!.status).toBe('pending');
   });
 
   it('an execution crash — evidence never committed — creates no recovery round', () => {

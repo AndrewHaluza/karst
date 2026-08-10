@@ -660,6 +660,74 @@ export function interruptActiveFixExecution(store: Store, ticketId: number, at: 
   return interruptFixExecution(store, row.id, at);
 }
 
+/** A `fixing` round this sweep found stranded, reported so the loss is never silent. */
+export interface StrandedFixRound {
+  roundId: number;
+  ticketId: number;
+  sourceStage: RecoverySourceStage;
+  round: number;
+  fixProcessRunId: number | null;
+}
+
+/**
+ * Interrupt every `fixing` round whose Fix execution can no longer be running.
+ *
+ * `fixing` is the one recovery status nothing can leave on its own: the marker
+ * is the only completion authority, and a session that dies without firing it
+ * fires no signal either. The driver reads such a round as "a fix execution is
+ * already in flight" and leaves the ticket alone — forever, which is exactly
+ * how a ticket sat at fix for ten hours with an idle agent and no session
+ * (869ee...): the SessionEnd hook that would have called
+ * `interruptActiveFixExecution` never reached the endpoint, and the process-run
+ * sweep marked the run stale without propagating that to the round.
+ *
+ * Stranded means one of two things, both proven from stored state rather than
+ * guessed: the round carries NO Fix process run (nothing was ever opened, or
+ * its launch never confirmed), or the run it carries is no longer `running`
+ * (another window's open superseded it, or the activation sweep found its
+ * process gone). A run still `running` is left STRICTLY alone — a live fix in
+ * this or any other window must never be accused of having died, which is why
+ * this sweep runs AFTER `reconcileProcessRuns` rather than judging liveness
+ * itself.
+ *
+ * Global like the run sweeps and for the same reason: the registry is shared by
+ * every IDE window, and a stranded round is wrong in whichever project owns it.
+ */
+export function reconcileStrandedFixRounds(store: Store, at: string): StrandedFixRound[] {
+  const rows = store.db
+    .prepare(
+      `${ROUND_SELECT} WHERE status = 'fixing'
+          AND (fix_process_run_id IS NULL
+               OR fix_process_run_id IN
+                    (SELECT id FROM process_runs WHERE status <> 'running'))
+        ORDER BY id`,
+    )
+    .all()
+    .map((r) => rowToRound(r as RecoveryRoundRow));
+
+  const stranded: StrandedFixRound[] = [];
+  for (const round of rows) {
+    if (!interruptFixExecution(store, round.id, at)) continue;
+    stranded.push({
+      roundId: round.id,
+      ticketId: round.ticketId,
+      sourceStage: round.sourceStage,
+      round: round.round,
+      fixProcessRunId: round.fixProcessRunId,
+    });
+  }
+  return stranded;
+}
+
+/** One line naming a round this sweep found stranded, for the output channel. */
+export function describeStrandedFixRound(s: StrandedFixRound): string {
+  return (
+    `karst: ticket ${s.ticketId}: ${s.sourceStage} recovery round ${s.round} was fixing ` +
+    `with no live fix execution${s.fixProcessRunId === null ? ' (none was ever opened)' : ''} — ` +
+    `marked interrupted; the ticket rests at fix for a human`
+  );
+}
+
 /** Every round recorded for a ticket, oldest first (insertion order is round order). */
 export function listRecoveryRounds(store: Store, ticketId: number): RecoveryRound[] {
   return store.db
