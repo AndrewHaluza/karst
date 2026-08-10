@@ -439,12 +439,24 @@ describe('parseOpencodeJsonl', () => {
 });
 
 describe('OpencodeAdapter headless execution', () => {
+  it('forwards the abort signal into the headless spawn', async () => {
+    let seenOpts: { signal?: AbortSignal } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: okNdjson, stderr: '', exitCode: 0 };
+    };
+    const adapter = new OpencodeAdapter(spawn);
+    const controller = new AbortController();
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a', signal: controller.signal });
+    expect(seenOpts?.signal).toBe(controller.signal);
+  });
+
   it('runs a fresh NDJSON run with --auto under bypassPermissions', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     const result = await new OpencodeAdapter(spawn).runHeadless({
       cwd: '/wt', prompt: '- inspect', permissionMode: 'bypassPermissions', model: 'openrouter/~openai/gpt-mini-latest',
     });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt');
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined });
     expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
   });
 
@@ -457,7 +469,7 @@ describe('OpencodeAdapter headless execution', () => {
   it('runs a resumed headless run via --session', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt', prompt: 'continue', resume: 'ses_abc' });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--session', 'ses_abc', '--', 'continue'], '/wt');
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--session', 'ses_abc', '--', 'continue'], '/wt', { signal: undefined });
   });
 
   it('reports bounded diagnostics + usage on a nonzero exit', async () => {

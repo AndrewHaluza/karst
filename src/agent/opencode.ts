@@ -19,6 +19,7 @@ import type {
   RunHeadlessOpts,
 } from './adapter.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { KARST_PLUGIN_NAME, renderWorkflowCommand } from './workflowCommand.js';
@@ -36,27 +37,11 @@ export type SpawnHeadless = (
   command: string,
   args: string[],
   cwd: string,
+  opts?: HeadlessSpawnOptions,
 ) => Promise<HeadlessSpawnResult>;
 
-const defaultSpawn: SpawnHeadless = (command, args, cwd) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (data: unknown) => {
-      stdout += String(data);
-    });
-    child.stderr?.on('data', (data: unknown) => {
-      stderr += String(data);
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? 1 });
-    });
-  });
+const defaultSpawn: SpawnHeadless = (command, args, cwd, opts) =>
+  spawnHeadlessCli(command, args, cwd, opts);
 
 function diagnostic(text: string): string {
   return text.length <= MAX_DIAGNOSTIC_CHARS
@@ -643,7 +628,9 @@ export class OpencodeAdapter implements AgentAdapter {
     // `--` terminates options so a dash-prefixed prompt (e.g. a YAML
     // frontmatter `---` in a seed) cannot be misread as an option.
     args.push('--', opts.prompt);
-    const result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd);
+    const result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
+      signal: opts.signal,
+    });
     if (result.exitCode !== 0) {
       throw attachUsage(
         new Error(
