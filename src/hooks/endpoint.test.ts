@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, getTicket } from '../store/tickets.js';
+import { createTicket, getTicket, getTicketByKey } from '../store/tickets.js';
 import {
   parseHookRequestTarget,
   startHookEndpoint,
@@ -336,5 +336,124 @@ describe('startHookEndpoint', () => {
         socket.on('error', () => resolve());
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('POST /tickets', () => {
+  let store: Store;
+  let ep: HookEndpoint;
+  let created: number[];
+
+  beforeEach(async () => {
+    store = openStore(':memory:');
+    created = [];
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      ticketApi: {
+        projectId: () => 7,
+        onTicketCreated: (id) => created.push(id),
+      },
+    });
+  });
+  afterEach(async () => {
+    await ep?.close();
+    store.close();
+  });
+
+  const ticketsUrl = (): string => `${ep.url.replace(/\/hooks$/, '')}/tickets`;
+
+  const postJson = async (body: unknown): Promise<{ status: number; json: unknown }> => {
+    const res = await fetch(ticketsUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, json: await res.json() };
+  };
+
+  it('creates a ticket with a title and description and returns it', async () => {
+    const { status, json } = await postJson({
+      title: 'Fix login',
+      description: 'session cookie not set',
+    });
+    expect(status).toBe(201);
+    expect(json).toMatchObject({
+      ok: true,
+      ticket: { title: 'Fix login', description: 'session cookie not set' },
+    });
+    const key = (json as { ticket: { key: string } }).ticket.key;
+    expect(key).toBe('FIX-LOGIN');
+    expect(getTicketByKey(store, key)).not.toBeNull();
+    expect(created).toEqual([expect.any(Number)]);
+  });
+
+  it('derives the key from the title when none is given', async () => {
+    const { json } = await postJson({ title: 'Fix login' });
+    expect((json as { ticket: { key: string } }).ticket.key).toBe('FIX-LOGIN');
+  });
+
+  it('honors an explicit key', async () => {
+    const { json } = await postJson({ title: 'Fix login', key: 'LOGIN-1' });
+    expect((json as { ticket: { key: string } }).ticket.key).toBe('LOGIN-1');
+  });
+
+  it('rejects a missing title with 400 and a JSON error', async () => {
+    const { status, json } = await postJson({ description: 'no title' });
+    expect(status).toBe(400);
+    expect(json).toEqual({ ok: false, error: 'title is required' });
+  });
+
+  it('rejects a non-string title with 400', async () => {
+    const { status, json } = await postJson({ title: 42 });
+    expect(status).toBe(400);
+    expect(json).toEqual({ ok: false, error: 'title must be a string' });
+  });
+
+  it('rejects a malformed JSON body with 400', async () => {
+    const res = await fetch(ticketsUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: 'not json',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: 'request body is not valid JSON',
+    });
+  });
+
+  it('rejects a non-object JSON body with 400', async () => {
+    const { status, json } = await postJson(null);
+    expect(status).toBe(400);
+    expect(json).toEqual({ ok: false, error: 'request body must be a JSON object' });
+  });
+
+  it('rejects a GET on /tickets with 404 (the endpoint serves POSTs only)', async () => {
+    const res = await fetch(ticketsUrl());
+    expect(res.status).toBe(404);
+  });
+
+  it('scopes the created ticket to the window project getter', async () => {
+    const { json } = await postJson({ title: 'Fix login' });
+    const id = (json as { ticket: { id: number } }).ticket.id;
+    expect(getTicket(store, id).projectId).toBe(7);
+  });
+
+  it('counts nothing on the hook channel recorder for a /tickets request', async () => {
+    const recorder = createHookChannelRecorder();
+    const ep2 = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      recorder,
+      ticketApi: { projectId: () => undefined },
+    });
+    try {
+      const res = await fetch(`${ep2.url.replace(/\/hooks$/, '')}/tickets`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Fix login' }),
+      });
+      expect(res.status).toBe(201);
+      expect(recorder.snapshot().total).toBe(0);
+    } finally {
+      await ep2.close();
+    }
   });
 });

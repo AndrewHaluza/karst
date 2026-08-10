@@ -2238,7 +2238,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getTicket(localStore, ticketId).agentProvider,
         currentManifest()?.agentProvider,
       ),
-    { recorder: hookChannelRecorder },
+    {
+      recorder: hookChannelRecorder,
+      ticketApi: {
+        // Same getter pattern as the ticket form: the project binds at
+        // activation, read it at call time.
+        projectId: () => currentProject()?.id,
+        // A created ticket must appear in the sidebar immediately; a dashboard
+        // tab for it is not open (no one navigated to it), and pushState is a
+        // no-op when no panel is open — safe either way.
+        onTicketCreated: (ticketId) => {
+          provider.refresh();
+          dashboard.pushState(ticketId);
+        },
+      },
+    },
   );
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
