@@ -304,3 +304,192 @@ export function readMergeChecks(
     })),
   }
 }
+
+export interface CoreUsageTokens {
+  input: number
+  output: number
+  total: number
+}
+
+export interface CoreUsageEvidence {
+  readonly core: string
+  readonly headlessCalls: number
+  readonly headlessTokens: CoreUsageTokens
+  readonly interactiveCalls: number
+  readonly interactiveTokens: CoreUsageTokens
+  readonly sessions: number
+  readonly models: readonly string[]
+  readonly firstSeenAt: string | null
+  readonly lastSeenAt: string | null
+}
+
+export type CoreUsageScope = { readonly ticketId: number } | { readonly projectId: number }
+
+/** Mutable accumulation shape; frozen into `CoreUsageEvidence` at the end. */
+interface HeldCoreUsage {
+  core: string
+  headlessCalls: number
+  headlessTokens: CoreUsageTokens
+  interactiveCalls: number
+  interactiveTokens: CoreUsageTokens
+  sessions: number
+  models: string[]
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+}
+
+interface CoreTotalsRow {
+  core: string
+  calls: number
+  input: number
+  output: number
+  total: number
+  first_at: string | null
+  last_at: string | null
+}
+
+function zeroTokens(): CoreUsageTokens {
+  return { input: 0, output: 0, total: 0 }
+}
+
+function earliest(values: readonly (string | null)[]): string | null {
+  const kept = values.filter((value): value is string => value !== null)
+  return kept.length > 0 ? kept.reduce((a, b) => (a < b ? a : b)) : null
+}
+
+function latest(values: readonly (string | null)[]): string | null {
+  const kept = values.filter((value): value is string => value !== null)
+  return kept.length > 0 ? kept.reduce((a, b) => (a > b ? a : b)) : null
+}
+
+/**
+ * Per-core usage evidence for the report's `cores` section. Three append-only
+ * sources, merged by provider:
+ *
+ *  - `token_usage` — every headless AI call (provider, model, tokens);
+ *  - `interactive_usage_samples` — every interactive usage observation, joined
+ *    through `process_runs` for the ticket scope;
+ *  - `session_launch_intents` — every prepared launch; only `confirmed` rows
+ *    count as sessions.
+ *
+ * All three are written at the moment the event happens, so a mid-session core
+ * switch leaves every earlier core's rows in place — the report describes all
+ * used cores, never just the latest `tickets.session_provider`.
+ */
+export function readCoreUsage(
+  store: Store,
+  scope: CoreUsageScope,
+  cap: number,
+): BoundedRows<CoreUsageEvidence> {
+  const limit = checkedCap(cap)
+  const ticket = 'ticketId' in scope
+  const params: number[] = ticket ? [scope.ticketId] : [scope.projectId]
+  const scopeWhere = ticket ? 'ticket_id = ?' : 'project_id = ?'
+
+  const headlessRows = store.db.prepare(
+    `SELECT COALESCE(provider, 'unknown') AS core,
+            COUNT(*) AS calls,
+            COALESCE(SUM(input_tokens), 0) AS input,
+            COALESCE(SUM(output_tokens), 0) AS output,
+            COALESCE(SUM(total_tokens), 0) AS total,
+            MIN(recorded_at) AS first_at,
+            MAX(recorded_at) AS last_at
+       FROM token_usage
+      WHERE ${scopeWhere}
+      GROUP BY COALESCE(provider, 'unknown')`,
+  ).all(...params) as CoreTotalsRow[]
+
+  const interactiveRows = store.db.prepare(
+    `SELECT s.provider AS core,
+            COUNT(*) AS calls,
+            COALESCE(SUM(s.input_tokens), 0) AS input,
+            COALESCE(SUM(s.output_tokens), 0) AS output,
+            COALESCE(SUM(s.total_tokens),
+                     COALESCE(SUM(s.input_tokens), 0) + COALESCE(SUM(s.output_tokens), 0)) AS total,
+            MIN(s.observed_at) AS first_at,
+            MAX(s.observed_at) AS last_at
+       FROM interactive_usage_samples s
+       JOIN process_runs p ON p.id = s.process_run_id
+       ${ticket
+         ? 'WHERE p.ticket_id = ?'
+         : 'JOIN tickets t ON t.id = p.ticket_id WHERE t.project_id = ?'}
+      GROUP BY s.provider`,
+  ).all(...params) as CoreTotalsRow[]
+
+  const sessionRows = store.db.prepare(
+    `SELECT i.provider AS core,
+            COUNT(*) AS calls,
+            MIN(i.created_at) AS first_at,
+            MAX(i.created_at) AS last_at
+       FROM session_launch_intents i
+       ${ticket
+         ? 'WHERE i.ticket_id = ? AND i.status = ?'
+         : 'JOIN tickets t ON t.id = i.ticket_id WHERE t.project_id = ? AND i.status = ?'}
+      GROUP BY i.provider`,
+  ).all(...params, 'confirmed') as CoreTotalsRow[]
+
+  const modelRows = store.db.prepare(
+    `SELECT provider AS core, model
+       FROM token_usage
+      WHERE ${scopeWhere}
+        AND provider IS NOT NULL AND model IS NOT NULL AND model <> ''
+      GROUP BY provider, model
+      ORDER BY provider ASC, model ASC`,
+  ).all(...params) as Array<{ core: string; model: string }>
+
+  const byCore = new Map<string, HeldCoreUsage>()
+  const hold = (core: string): HeldCoreUsage => {
+    const existing = byCore.get(core)
+    if (existing) return existing
+    const held: HeldCoreUsage = {
+      core,
+      headlessCalls: 0,
+      headlessTokens: zeroTokens(),
+      interactiveCalls: 0,
+      interactiveTokens: zeroTokens(),
+      sessions: 0,
+      models: [],
+      firstSeenAt: null,
+      lastSeenAt: null,
+    }
+    byCore.set(core, held)
+    return held
+  }
+  const absorb = (
+    held: HeldCoreUsage,
+    row: CoreTotalsRow,
+    field: 'headless' | 'interactive',
+  ): void => {
+    const tokens = field === 'headless' ? held.headlessTokens : held.interactiveTokens
+    tokens.input += row.input
+    tokens.output += row.output
+    tokens.total += row.total
+    held.firstSeenAt = earliest([held.firstSeenAt, row.first_at])
+    held.lastSeenAt = latest([held.lastSeenAt, row.last_at])
+    if (field === 'headless') held.headlessCalls += row.calls
+    else held.interactiveCalls += row.calls
+  }
+  for (const row of headlessRows) absorb(hold(row.core), row, 'headless')
+  for (const row of interactiveRows) absorb(hold(row.core), row, 'interactive')
+  for (const row of sessionRows) {
+    const held = hold(row.core)
+    held.sessions += row.calls
+    held.firstSeenAt = earliest([held.firstSeenAt, row.first_at])
+    held.lastSeenAt = latest([held.lastSeenAt, row.last_at])
+  }
+  const modelSets = new Map<string, Set<string>>()
+  for (const row of modelRows) {
+    const set = modelSets.get(row.core) ?? new Set<string>()
+    set.add(row.model)
+    modelSets.set(row.core, set)
+  }
+  for (const [core, models] of modelSets) hold(core).models = [...models]
+
+  const rows = [...byCore.values()].sort((a, b) =>
+    b.headlessTokens.total + b.interactiveTokens.total - a.headlessTokens.total - a.interactiveTokens.total
+    || (a.core < b.core ? -1 : a.core > b.core ? 1 : 0))
+  return {
+    rows: rows.slice(0, limit),
+    omitted: rows.length > limit ? rows.length - limit : 0,
+  }
+}

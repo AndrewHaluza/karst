@@ -1,12 +1,13 @@
 import type { Ticket } from '../store/tickets.js'
-import { buildIssuePrefill, hookLines } from './issuePrefill.js'
+import { buildIssuePrefill, coreLines, hookLines } from './issuePrefill.js'
 import type { FinalizedDiagnosticReport } from './types.js'
 
 export const DISCLOSURE = Object.freeze({
   included:
     'Included now — diagnostic metadata: runtime, report-local correlation references, '
-    + 'stages, gates, phases, effective configuration, hook-channel counters, registry '
-    + 'schema version and row counts, and bounded sanitized Karst logs.',
+    + 'stages, gates, phases, effective configuration, hook-channel counters, per-core '
+    + 'agent usage evidence, registry schema version and row counts, and bounded '
+    + 'sanitized Karst logs.',
   notIncluded:
     'Not included — session context: ticket description, brief and other prompt-like text.',
   alwaysExcluded:
@@ -67,12 +68,16 @@ export function buildReviewSummary(snapshot: FinalizedDiagnosticReport): string 
   // Hook counters are surfaced at review time, not only inside the report: an
   // agent that keeps printing `hook exited with code 1` is the reason many of
   // these reports are opened, and the reviewer should see it before exporting.
+  // Same for the cores line — the report used to read "codex only" because the
+  // bridge was the only core-specific evidence; every used core must be named.
   const hooks = hookLines(snapshot)
+  const cores = coreLines(snapshot)
   return [
     context,
     'This is a point-in-time snapshot and may contain only the latest session reference.',
     `Checksum: ${snapshot.checksum}`,
     ...(hooks.length ? ['Hook channel:', ...hooks] : []),
+    ...cores,
     ...(notices.length ? ['Section notices:', ...notices] : []),
     ...(redactions.length ? ['Redactions:', ...redactions] : ['Redactions: none']),
   ].join('\n')

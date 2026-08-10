@@ -211,6 +211,44 @@ export function hookLines(snapshot: FinalizedDiagnosticReport): string[] {
   return lines.length > 0 ? lines : []
 }
 
+function formatTokens(value: number): string {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return String(value)
+}
+
+/**
+ * One line naming every agent core the ticket actually used, read from the
+ * append-only `cores` section — a mid-session core switch leaves both cores
+ * visible, which is the point: the report used to carry only the codex bridge.
+ * Absent/unavailable section reads as no line, like the hook lines.
+ */
+export function coreLines(snapshot: FinalizedDiagnosticReport): string[] {
+  const section = snapshot.report.metadata.cores
+  if (!section || section.status === 'unavailable') return []
+  if (!Array.isArray(section.data)) return []
+  const parts: string[] = []
+  for (const row of section.data) {
+    const value = row as Readonly<Record<string, JsonValue>>
+    const core = typeof value.core === 'string' ? value.core : null
+    if (core === null) continue
+    const headless = typeof value.headlessCalls === 'number' ? value.headlessCalls : 0
+    const interactive = typeof value.interactiveCalls === 'number' ? value.interactiveCalls : 0
+    const sessions = typeof value.sessions === 'number' ? value.sessions : 0
+    const tokens = asObject(value.headlessTokens)
+    const tokenTotal = typeof tokens?.total === 'number' ? formatTokens(tokens.total) : null
+    const bits = [
+      ...(headless > 0 ? [`${headless} headless`] : []),
+      ...(interactive > 0 ? [`${interactive} interactive`] : []),
+      ...(sessions > 0 ? [`${sessions} ${sessions === 1 ? 'session' : 'sessions'}`] : []),
+      ...(tokenTotal !== null && tokenTotal !== '0' ? [`${tokenTotal} tokens`] : []),
+    ]
+    if (bits.length > 0) parts.push(`${core} (${bits.join(' · ')})`)
+  }
+  return parts.length > 0 ? [`- Cores used: ${parts.join(', ')}`] : []
+}
+
 function noticeLines(snapshot: FinalizedDiagnosticReport): string[] {
   const notices = Object.entries(snapshot.report.metadata).flatMap(([name, section]) => {
     if (section?.status === 'truncated') {
@@ -231,6 +269,7 @@ export function buildIssuePrefill(
   extensionVersion: string,
 ): IssuePrefill {
   const hooks = hookLines(snapshot)
+  const cores = coreLines(snapshot)
   const environment = environmentRows(snapshot)
   const body = [
     '### What happened',
@@ -242,6 +281,7 @@ export function buildIssuePrefill(
       ? ['### Environment', '', '| Field | Value |', '| --- | --- |', ...environment, '']
       : []),
     ...(hooks.length > 0 ? ['### Hook channel', '', ...hooks, ''] : []),
+    ...(cores.length > 0 ? ['### Agent cores', '', ...cores, ''] : []),
     '### Diagnostic report',
     '',
     `- Report reference: ${snapshot.report.reportId}`,
