@@ -685,6 +685,8 @@ describe('settings tab-scoped save', () => {
     expect(dirtySectionsOf({ ...base, id: 'karst' }, base)).toEqual([]);
     // uat is now owned by the quality tab.
     expect(dirtySectionsOf({ ...base, uat: { maxFixAttempts: 3 } }, base)).toEqual(['quality']);
+    // The auto-archive delay is a General-tab field (869eck7my).
+    expect(dirtySectionsOf({ ...base, archiveDoneAfterDays: 7 }, base)).toEqual(['general']);
   });
 
   it('treats a cleared optional field as a change', () => {
@@ -703,6 +705,7 @@ describe('settings tab-scoped save', () => {
       ['general', { portRange: [9000, 1000] as [number, number] }],
       ['general', { worktreePathDisplay: 'sideways' as never }],
       ['general', { agentProvider: 'nope' as never }],
+      ['general', { archiveDoneAfterDays: 0 }],
       ['services', { repositories: {} }],
       ['services', { repositories: { api: { repoPath: 42 as never, hasMigrations: false } } }],
       ['git', { conventions: { branchName: '{nope}' } }],
@@ -1281,6 +1284,18 @@ describe('project facts (manifest path & resolved project id)', () => {
     const result = runInNewContext(source, {}) as { path: string; slug: string };
     expect(result.path).toBe('(unresolved)');
     expect(result.slug).toBe('(unresolved)');
+  });
+});
+
+describe('auto-archive delay field (General tab)', () => {
+  it('renders a number input that cannot express "immediately"', () => {
+    const generalStart = HTML.indexOf('id="section-general"');
+    const generalEnd = HTML.indexOf('<!-- Git -->');
+    const section = HTML.slice(generalStart, generalEnd);
+    expect(section).toContain('id="f-archiveDoneAfterDays"');
+    expect(section).toContain('min="1"');
+    expect(section).toContain('step="1"');
+    expect(section).toContain('id="archiveHint"');
   });
 });
 
