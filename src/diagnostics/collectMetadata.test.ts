@@ -5,6 +5,7 @@ import { openStore, type Store } from '../store/db.js'
 import { createTicket } from '../store/tickets.js'
 import { upsertProject } from '../store/projects.js'
 import { CollectionCancelledError, collectMetadata } from './collectMetadata.js'
+import { finalizeReport } from './finalize.js'
 import { createPseudonymizer } from './pseudonymize.js'
 
 describe('collectMetadata', () => {
@@ -542,5 +543,99 @@ describe('collectMetadata', () => {
     expect(prs[0]?.repositories).toEqual([])
     expect(prs[0]?.repoPathRef).toBe(worktrees[0]?.repoPathRef)
     expect(JSON.stringify(draft)).not.toContain('/src/removed')
+  })
+
+  it('reports every agent core used on the ticket, including after a mid-session switch', async () => {
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    // Session A ran on codex; the ticket then switched mid-session to claude.
+    // Both cores' rows are append-only evidence and must both appear.
+    localStore.db.prepare(
+      `INSERT INTO token_usage
+        (project_id, ticket_id, call_site, provider, model, input_tokens, output_tokens,
+         total_tokens, estimated, outcome, recorded_at)
+       VALUES (?, ?, 'uat-tester', 'codex', 'gpt-5-codex', 100, 40, 140, 0, 'ok', '2026-07-28T09:00:00.000Z'),
+              (?, ?, 'pr-description', 'claude', 'opus', 30, 10, 40, 0, 'ok', '2026-07-29T08:00:00.000Z')`,
+    ).run(project.id, ticket.id, project.id, ticket.id)
+    localStore.db.prepare(
+      `INSERT INTO session_launch_intents
+        (ticket_id, launch_id, purpose, provider, model, reason, session_origin, status, created_at)
+       VALUES (?, 'l-a', 'implementation', 'codex', 'gpt-5-codex', 'open', 'new', 'confirmed', '2026-07-28T08:00:00.000Z'),
+              (?, 'l-b', 'implementation', 'claude', 'opus', 'switch', 'new', 'confirmed', '2026-07-29T08:00:00.000Z')`,
+    ).run(ticket.id, ticket.id)
+
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1', editorVersion: '1', platform: 'darwin', arch: 'arm64',
+        remoteNamePresent: false, uiKind: 'desktop', developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-cores',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(5)),
+    })
+
+    const section = draft.metadata.cores
+    expect(section?.status).toBe('available')
+    const rows = (section as { data: unknown[] }).data as Record<string, unknown>[]
+    const byCore = new Map(rows.map((row) => [row.core as string, row]))
+    expect(byCore.get('codex')).toMatchObject({
+      core: 'codex',
+      headlessCalls: 1,
+      headlessTokens: { input: 100, output: 40, total: 140 },
+      sessions: 1,
+      models: ['gpt-5-codex'],
+    })
+    expect(byCore.get('claude')).toMatchObject({
+      core: 'claude',
+      headlessCalls: 1,
+      headlessTokens: { input: 30, output: 10, total: 40 },
+      sessions: 1,
+      models: ['opus'],
+    })
+    // A finalized report accepts the new section.
+    expect(() => finalizeReport({ ...draft, contextStatus: 'declined' })).not.toThrow()
+  })
+
+  it('marks cores unavailable when its reader fails and finalizes', async () => {
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    const originalPrepare = localStore.db.prepare.bind(localStore.db)
+    const failingStore = {
+      ...localStore,
+      db: new Proxy(localStore.db, {
+        get(target, property, receiver) {
+          if (property !== 'prepare') return Reflect.get(target, property, receiver)
+          return (sql: string) => {
+            if (/\bFROM\s+token_usage\b/i.test(sql)) throw new Error('PRIVATE_CORES_FAILURE')
+            return originalPrepare(sql)
+          }
+        },
+      }),
+    } as Store
+    const draft = await collectMetadata({
+      store: failingStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1', editorVersion: '1', platform: 'darwin', arch: 'arm64',
+        remoteNamePresent: false, uiKind: 'desktop', developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-cores-fail',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(6)),
+    })
+    expect(draft.metadata.cores).toEqual({ status: 'unavailable', reason: 'reader_failed' })
+    expect(JSON.stringify(draft)).not.toContain('PRIVATE_CORES_FAILURE')
   })
 })
