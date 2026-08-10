@@ -28,7 +28,18 @@ export interface StepperCell {
    * (never null) exactly like every other detail field here: a stage that has
    * never been blocked has nothing to say about it.
    */
-  blocked?: { kind: BlockerKind; reason: string; at: string };
+  blocked?: {
+    kind: BlockerKind;
+    reason: string;
+    at: string;
+    /**
+     * Whether re-running the stage could plausibly clear this block. `false`
+     * only for `awaiting-merge`, where a PR must land and the merge sweep —
+     * never a retry — clears it; a Resume button there would always no-op, so
+     * the dashboard renders none.
+     */
+    resumable: boolean;
+  };
 }
 
 /**
@@ -79,8 +90,27 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
       kind: row.blockedKind,
       reason: collapseDiagnostic(row.blockedReason ?? ''),
       at: row.blockedAt ?? '',
+      // `awaiting-merge` is the one block a retry cannot clear: ship's work is
+      // done and a PR must LAND, which karst never does itself — the merge sweep
+      // clears it, so a Resume button would always no-op. Every other
+      // BlockerKind, `unmapped-repository` included, is cleared by a retry once
+      // the cause is addressed (there editing karst.yml or re-scoping), so the
+      // dashboard must offer the control. Matches `workflow/stageResume.ts`,
+      // which refuses exactly `awaiting-merge` and nothing else.
+      resumable: row.blockedKind !== 'awaiting-merge',
     },
   };
+}
+
+/**
+ * How a cell READS. A stage with a block is not running: park writes the block
+ * and leaves the status the runner set, so a parked stage keeps saying
+ * `running` — a spinner and a growing clock beside a banner saying it is
+ * blocked. The stored status stays the record of what the runner was doing;
+ * this is what every surface renders.
+ */
+export function displayStatus(cell: StepperCell): StageStatus | 'blocked' {
+  return cell.blocked && cell.status === 'running' ? 'blocked' : cell.status;
 }
 
 /**

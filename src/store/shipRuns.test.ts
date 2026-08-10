@@ -177,7 +177,6 @@ describe('ship_runs', () => {
       status: 'running',
       detail: 'draft',
       prNumber: null,
-      prStatus: null,
       existedBeforeShip: null,
       processRunId,
       operationIntentId: null,
@@ -194,7 +193,6 @@ describe('ship_runs', () => {
       status: 'passed',
       detail: 'pushed d…',
       prNumber: 413,
-      prStatus: 'open',
       existedBeforeShip: false,
       endedAt: '2026-08-08T10:02:00.000Z',
     });
@@ -203,7 +201,6 @@ describe('ship_runs', () => {
       status: 'passed',
       detail: 'pushed d…',
       prNumber: 413,
-      prStatus: 'open',
       existedBeforeShip: false,
       endedAt: '2026-08-08T10:02:00.000Z',
     });
@@ -429,7 +426,6 @@ describe('ship_runs', () => {
         status: 'passed',
         detail: 'opened',
         prNumber: 413,
-        prStatus: 'open',
         existedBeforeShip: false,
         endedAt: '2026-08-08T10:02:30.000Z',
       });

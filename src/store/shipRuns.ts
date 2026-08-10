@@ -68,7 +68,6 @@ export interface ShipRepoStep {
   status: ShipStepStatus;
   detail: string;
   prNumber: number | null;
-  prStatus: string | null;
   existedBeforeShip: boolean | null;
   processRunId: number | null;
   /** -> ship_operation_intents.id; NULL = no preparation has begun. */
@@ -159,7 +158,6 @@ interface ShipRepoStepRowShape {
   status: string;
   detail: string;
   pr_number: number | null;
-  pr_status: string | null;
   existed_before_ship: number | null;
   process_run_id: number | null;
   operation_intent_id: number | null;
@@ -213,7 +211,6 @@ function rowToShipRepoStep(r: ShipRepoStepRowShape): ShipRepoStep {
     status: (STEP_STATUSES.includes(r.status) ? r.status : 'failed') as ShipStepStatus,
     detail: r.detail,
     prNumber: r.pr_number,
-    prStatus: r.pr_status,
     existedBeforeShip: r.existed_before_ship === null ? null : r.existed_before_ship === 1,
     processRunId: r.process_run_id,
     operationIntentId: r.operation_intent_id,
@@ -255,7 +252,7 @@ function rowToShipOperationIntent(r: ShipOperationIntentRowShape): ShipOperation
 const RUN_SELECT =
   'SELECT id, ticket_id, attempt, status, started_at, ended_at FROM ship_runs';
 const STEP_SELECT =
-  `SELECT id, ship_run_id, repo, step, status, detail, pr_number, pr_status,
+  `SELECT id, ship_run_id, repo, step, status, detail, pr_number,
           existed_before_ship, process_run_id, operation_intent_id,
           started_at, ended_at
      FROM ship_repo_steps`;
@@ -341,7 +338,6 @@ export interface FinishShipRepoStepInput {
   status: 'passed' | 'failed' | 'note';
   detail?: string | null;
   prNumber?: number | null;
-  prStatus?: string | null;
   existedBeforeShip?: boolean | null;
   endedAt: string;
 }
@@ -360,7 +356,6 @@ export function finishShipRepoStep(store: Store, stepId: number, input: FinishSh
           SET status = ?, ended_at = ?,
               detail = COALESCE(?, detail),
               pr_number = COALESCE(?, pr_number),
-              pr_status = COALESCE(?, pr_status),
               existed_before_ship = COALESCE(?, existed_before_ship)
         WHERE id = ? AND status = 'running'`,
     )
@@ -369,7 +364,6 @@ export function finishShipRepoStep(store: Store, stepId: number, input: FinishSh
       input.endedAt,
       input.detail ?? null,
       input.prNumber ?? null,
-      input.prStatus ?? null,
       input.existedBeforeShip === null || input.existedBeforeShip === undefined
         ? null
         : input.existedBeforeShip

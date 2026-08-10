@@ -30,7 +30,6 @@ function step(stepName: ShipStep, over: Partial<ShipRepoStepEvidence> = {}): Shi
     status: 'passed',
     detail: '',
     prNumber: null,
-    prStatus: null,
     existedBeforeShip: null,
     processRunId: null,
     operationIntentId: null,
@@ -228,7 +227,10 @@ describe('doneReceipt', () => {
       { status: 'complete' }
     >;
     expect(view.tokens).toBeNull();
-    expect(rowsOf(view).find((r) => r.label === 'tokens')).toBeUndefined();
+    // handoff §11: absence is stated, never zero — the receipt row names it.
+    const row = rowsOf(view).find((r) => r.label === 'tokens');
+    expect(row).toBeDefined();
+    expect(row!.detail).toBe('No token usage recorded yet');
   });
 
   it('never treats an estimated row as recorded spend', () => {
@@ -320,5 +322,92 @@ describe('doneReceipt', () => {
     expect(rowsOf(view).filter((row) => row.label === 'merged')).toHaveLength(6);
     expect(rowsOf(view).find((row) => row.label === 'more')).toBeUndefined();
     expect(attach).not.toHaveBeenCalled();
+  });
+});
+
+// ── the prototype's delivery hero and three-block receipt grid ─────────────
+// Both are OPTIONAL fields beside the receipt rows, and every cell is a
+// recorded fact: an unrecorded completion stamp is an EMPTY time, and a
+// ticket with no measured spend says so instead of showing a zero.
+describe('done receipt: the hero line and the receipt grid', () => {
+  it('names the delivery, its validation and its completion stamp', () => {
+    const view = doneReceipt(
+      receiptInput({
+        completedAt: '2026-07-20T12:29:00.000Z',
+        prs: [
+          pr('/web', { number: 40, status: 'merged' }),
+          pr('/api', { number: 41, status: 'merged' }),
+        ],
+      }),
+    );
+    if (view.status !== 'complete') throw new Error('expected a complete receipt');
+    expect(view.evidence.hero).toEqual({
+      title: 'Delivered',
+      summary: '2 repositories · 2 pull requests merged',
+      time: `completed ${new Date('2026-07-20T12:29:00.000Z').toLocaleTimeString()}`,
+    });
+  });
+
+  it('leaves the hero time empty when no completion stamp was recorded', () => {
+    const view = doneReceipt(receiptInput({ completedAt: null }));
+    if (view.status !== 'complete') throw new Error('expected a complete receipt');
+    expect(view.evidence.hero?.time).toBe('');
+  });
+
+  it('builds the three receipt blocks from recorded delivery, validation and spend', () => {
+    const view = doneReceipt(
+      receiptInput({
+        completedAt: NOW,
+        prs: [pr('/web', { number: 40, status: 'merged' })],
+        ship: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              commits: [shipCommit('created-by-ship'), shipCommit('created-by-ship')],
+            }),
+          },
+        }),
+        tokens: { input: 87_700, output: 23_200, total: 110_900 } as RecordedUsageSummary,
+        roles: [
+          { role: 'implementation', input: 40_000, output: 18_300, total: 58_300 },
+          { role: 'ship', input: 4_000, output: 1_600, total: 5_600 },
+        ] as RecordedRoleUsage[],
+      }),
+    );
+    if (view.status !== 'complete') throw new Error('expected a complete receipt');
+    const blocks = view.evidence.blocks ?? [];
+    expect(blocks.map((b) => b.label)).toEqual(['Delivered', 'Validated', 'AI usage']);
+    expect(blocks[0]).toMatchObject({
+      value: '1 pull request merged',
+      details: ['1 repository', '2 commits created by ship'],
+    });
+    expect(blocks[2]).toMatchObject({
+      value: '110.9k recorded tokens',
+      details: ['87.7k input · 23.2k output'],
+      breakdown: [
+        { amount: '58.3k', label: 'implementation' },
+        { amount: '5.6k', label: 'ship' },
+      ],
+    });
+  });
+
+  it('states an unrecorded spend as absence, never as a zero', () => {
+    const view = doneReceipt(receiptInput({ completedAt: NOW, tokens: null, roles: [] }));
+    if (view.status !== 'complete') throw new Error('expected a complete receipt');
+    const usage = (view.evidence.blocks ?? []).find((b) => b.label === 'AI usage');
+    expect(usage).toMatchObject({ value: 'No token usage recorded yet', details: [] });
+    expect(usage?.breakdown).toBeUndefined();
+  });
+
+  it('names the recovery rounds in the validation block when any were recorded', () => {
+    const view = doneReceipt(
+      receiptInput({
+        completedAt: NOW,
+        rounds: [round(), round({ sourceStage: 'review' })],
+        gateRuns: [gateRun({ gateName: 'lint' }), gateRun({ stageKey: 'review', gateName: 'test' })],
+      }),
+    );
+    if (view.status !== 'complete') throw new Error('expected a complete receipt');
+    const validated = (view.evidence.blocks ?? []).find((b) => b.label === 'Validated');
+    expect(validated?.details).toContain('2 recovery rounds before delivery');
   });
 });

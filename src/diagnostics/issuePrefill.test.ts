@@ -121,6 +121,63 @@ describe('GitHub issue prefill', () => {
     expect(prefill.body).not.toContain('aborted')
   })
 
+  it('names the HTTP status and connection error the hook exited on', () => {
+    const prefill = buildIssuePrefill(
+      snapshot({
+        hooks: {
+          status: 'available',
+          data: {
+            channel: { requests: 3, outcomes: { accepted: 3 }, events: { PostToolUse: 3 } },
+            bridge: {
+              present: true,
+              failures: 3,
+              byOutcome: { 'http-error': 2, 'request-error': 1 },
+              byDetail: {
+                'http-error:404': 1,
+                'http-error:500': 1,
+                'request-error:ECONNREFUSED': 1,
+              },
+              byEvent: { PostToolUse: 3 },
+              newestAt: '2026-08-01T09:59:00.000Z',
+              unparsedLines: 0,
+              recent: [],
+            },
+          },
+        },
+      }),
+      '1.2.3',
+    )
+    expect(prefill.body).toContain(
+      '- Codex bridge: 3 failure(s) — http-error 2 (404, 500), request-error 1 (ECONNREFUSED) (newest 2026-08-01T09:59:00.000Z)',
+    )
+  })
+
+  it('keeps the folded tally when the bridge logged no details', () => {
+    const prefill = buildIssuePrefill(
+      snapshot({
+        hooks: {
+          status: 'available',
+          data: {
+            channel: { requests: 1, outcomes: { accepted: 1 }, events: { PostToolUse: 1 } },
+            bridge: {
+              present: true,
+              failures: 1,
+              byOutcome: { 'request-error': 1 },
+              byEvent: { PostToolUse: 1 },
+              newestAt: '2026-08-01T09:59:00.000Z',
+              unparsedLines: 0,
+              recent: [],
+            },
+          },
+        },
+      }),
+      '1.2.3',
+    )
+    expect(prefill.body).toContain(
+      '- Codex bridge: 1 failure(s) — request-error 1 (newest 2026-08-01T09:59:00.000Z)',
+    )
+  })
+
   it('omits the hook section entirely when no channel was observed', () => {
     const prefill = buildIssuePrefill(snapshot({ runtime: RUNTIME }), '1.2.3')
     expect(prefill.body).not.toContain('### Hook channel')

@@ -68,7 +68,14 @@ export type BlockerKind =
   // parked-on-a-human-action stage needs, and a second column set would just
   // duplicate it. Entered on ship's own pass (workflow/mergeGate.ts), cleared
   // the moment every PR it opened reads merged.
-  | 'awaiting-merge';
+  | 'awaiting-merge'
+  // A worktree whose `repo` matched no `repositories:` entry in karst.yml.
+  // Also not "karst could not ask": the question was asked of the manifest and
+  // answered "this repository is not mapped" — a retry cannot change that
+  // answer, only the user editing karst.yml or re-scoping the ticket can, so a
+  // retry only helps AFTER the user fixes karst.yml — which is exactly what the
+  // Resume button is for, so the block stays resumable.
+  | 'unmapped-repository';
 
 /**
  * What one stage run did. A runner no longer implies a transition by returning:

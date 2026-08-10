@@ -431,30 +431,43 @@ export function summarizeRecordedTokenUsage(
   return row;
 }
 
+/** Measured spend of one inside process — plus how many calls fell back. */
+export interface ProcessRecordedUsage {
+  /**
+   * Measured token total across rows the core actually reported
+   * (`estimated = 0`).
+   */
+  total: number;
+  /**
+   * Calls whose counts are estimates (`estimated = 1`). COUNTED, never summed —
+   * an estimate is not measured spend, and the two facts must never add up.
+   */
+  estimatedCalls: number;
+}
+
 /**
  * RECORDED spend of ONE inside process (a `process_runs.process_id` — session,
  * tester, review…), for the process rows' token views.
  *
- * Same recorded-only contract as `summarizeRecordedTokenUsage`; a process with
- * no measured calls sums to zero, which the caller renders as absence (never
- * as a measured free call).
+ * The measured total excludes estimated rows; the estimate COUNT rides beside
+ * it as a separate fact — a core that reported nothing stays visible, never
+ * folded into the total. A process with no measured calls sums to zero, which
+ * the caller renders as absence (never as a measured free call).
  */
 export function summarizeRecordedTokenUsageForProcess(
   store: Store,
   ticketId: number,
   processId: string,
-): RecordedUsageSummary {
+): ProcessRecordedUsage {
   const row = store.db
     .prepare(
-      `SELECT COALESCE(SUM(input_tokens), 0) AS input,
-              COALESCE(SUM(output_tokens), 0) AS output,
-              COALESCE(SUM(total_tokens), 0) AS total
+      `SELECT COALESCE(SUM(CASE WHEN estimated = 0 THEN total_tokens ELSE 0 END), 0) AS total,
+              COALESCE(SUM(CASE WHEN estimated = 1 THEN 1 ELSE 0 END), 0) AS estimated_calls
          FROM token_usage
-        WHERE ticket_id = ? AND estimated = 0
-          AND process_run_id IN (SELECT id FROM process_runs WHERE process_id = ?)`,
+        WHERE ticket_id = ? AND process_run_id IN (SELECT id FROM process_runs WHERE process_id = ?)`,
     )
-    .get(ticketId, processId) as { input: number; output: number; total: number };
-  return row;
+    .get(ticketId, processId) as { total: number; estimated_calls: number };
+  return { total: row.total, estimatedCalls: row.estimated_calls };
 }
 
 /** Measured spend of one ticket, grouped by the inside role that spent it. */

@@ -6,12 +6,19 @@ import type {
 import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import { boundedEvidenceRows } from './bounds.js';
+import { bounded } from './bounds.js';
 import {
   formatDuration,
+  formatExactDuration,
+  formatTime,
+  type CommitEntryView,
+  type CommitRepoView,
   type EvidenceRow,
   type InsideEvidenceTarget,
   type InsideProcessView,
   type InsideStatus,
+  type PrBranchView,
+  type PrStepView,
   type ShipPrView,
   type TypedInsideAction,
 } from './types.js';
@@ -107,7 +114,14 @@ function boundedRepoRows(
     rows,
     REPOSITORY_EVIDENCE_LIMIT,
     input.attach
-      ? (allRows) => input.attach?.({ kind: 'open-bounded-evidence', title, rows: allRows })
+      ? (allRows) =>
+          input.attach?.({
+            kind: 'open-bounded-evidence',
+            title,
+            rows: allRows,
+            // handoff §10: the continuation says exactly what it reveals.
+            label: `Show ${Math.max(0, allRows.length - REPOSITORY_EVIDENCE_LIMIT)} more`,
+          })
       : undefined,
   );
 }
@@ -124,6 +138,73 @@ function aggregateStatus(rows: readonly EvidenceRow[]): InsideStatus {
   if (rows.some((r) => r.status === 'run')) return 'run';
   if (rows.length > 0 && rows.every((r) => r.status === 'pass' || r.status === 'skip')) return 'pass';
   return 'note';
+}
+
+/**
+ * Bound the RICH per-repository blocks the same way `boundedRepoRows` bounds
+ * the flat rows, and hand back the remainder as its own `EvidenceRow` rather
+ * than as a block the grid would have to render as a fake repository. The
+ * continuation is minted over the FULL recorded rows, so "Show N more" opens
+ * exactly what the bound withheld.
+ */
+function boundedBlocks<T>(
+  input: ShipProcessesInput,
+  title: string,
+  blocks: readonly T[],
+  allRows: readonly EvidenceRow[],
+): { shown: readonly T[]; overflow?: EvidenceRow } {
+  const result = bounded(blocks, REPOSITORY_EVIDENCE_LIMIT);
+  if (result.remaining === 0) return { shown: result.shown };
+  const action = input.attach?.({
+    kind: 'open-bounded-evidence',
+    title,
+    rows: allRows,
+    label: `Show ${result.remaining} more`,
+  });
+  return {
+    shown: result.shown,
+    overflow: {
+      status: 'note',
+      label: 'more',
+      detail: `+${result.remaining} more`,
+      ...(action ? { action } : {}),
+    },
+  };
+}
+
+/** The displayed object id: git's own abbreviation length, formatted host-side. */
+const SHORT_SHA = 7;
+
+/**
+ * One repository's commit block. The pill and the list ALWAYS agree: a repo
+ * that produced ship commits shows those, a repo that only carried
+ * pre-existing ones says so and shows those, and a repo karst recorded no
+ * commit for states the absence rather than showing an empty delivery.
+ */
+function commitRepoView(
+  input: ShipProcessesInput,
+  repo: string,
+  commits: readonly { id: number; sha: string; message: string; origin: string }[],
+): CommitRepoView {
+  const created = commits.filter((c) => c.origin === 'created-by-ship');
+  const before = commits.filter((c) => c.origin === 'before-ship');
+  const listed = created.length > 0 ? created : before;
+  const entry = (c: (typeof commits)[number]): CommitEntryView => {
+    const action = input.attach?.({ kind: 'open-commit', shipCommitId: c.id });
+    return { sha: c.sha.slice(0, SHORT_SHA), message: c.message, ...(action ? { action } : {}) };
+  };
+  return {
+    repo,
+    summary: `${created.length} created · ${before.length} before`,
+    origin:
+      created.length > 0
+        ? 'created by ship'
+        : before.length > 0
+          ? 'already committed'
+          : 'no commits recorded',
+    originKind: created.length > 0 ? 'ship' : before.length > 0 ? 'existing' : 'none',
+    commits: listed.map(entry),
+  };
 }
 
 /** The commit process: per repo, what the ship created vs what was already there. */
@@ -147,24 +228,42 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
         label: repo,
         detail,
         ...(action ? { action } : {}),
-        ...(step?.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
+        ...(step?.startedAt
+          ? {
+              duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
+              durationExact: formatExactDuration(step.startedAt, step.endedAt ?? input.now),
+              time: formatTime(step.startedAt),
+            }
+          : {}),
       };
     },
   );
   const rows = boundedRepoRows(input, 'Ship · Commit', recorded);
+  const blocks = boundedBlocks(
+    input,
+    'Ship · Commit',
+    repos.map((repo) => commitRepoView(input, repo, input.evidence.repos[repo]!.commits)),
+    recorded,
+  );
+  const total = Object.values(input.evidence.repos).reduce(
+    (sum, r) => sum + r.commits.filter((c) => c.origin === 'created-by-ship').length,
+    0,
+  );
   return {
     id: 'commit',
     kind: 'commit',
     label: 'Commit',
     status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
     ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
+    // The kind-specific aggregate (B4): created-by-ship commits only — a
+    // pre-existing commit is not delivery. Omitted when none were created.
+    ...(total > 0 ? { aggregate: `${total} commits` } : {}),
     evidence: {
       kind: 'commits',
       rows,
-      total: Object.values(input.evidence.repos).reduce(
-        (sum, r) => sum + r.commits.filter((c) => c.origin === 'created-by-ship').length,
-        0,
-      ),
+      total,
+      ...(blocks.shown.length > 0 ? { repos: blocks.shown } : {}),
+      ...(blocks.overflow ? { overflow: blocks.overflow } : {}),
     },
   };
 }
@@ -190,7 +289,13 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
         status: stepStatus(step),
         label: repo,
         detail: step?.detail || 'no push recorded',
-        ...(step?.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
+        ...(step?.startedAt
+          ? {
+              duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
+              durationExact: formatExactDuration(step.startedAt, step.endedAt ?? input.now),
+              time: formatTime(step.startedAt),
+            }
+          : {}),
       };
     },
   );
@@ -206,6 +311,80 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
 }
 
 /**
+ * One repository's pull-request path, from the RECORDED steps alone.
+ *
+ * Every cell is absence-safe. A number karst never recorded is not invented —
+ * the row shows `no PR` and its note says the number appears once Open
+ * succeeds. A PR whose current status karst has not probed carries no state
+ * pill; an unprobed PR is not an open one. The step sequence lists only the
+ * steps that were actually recorded, so a run that never reached `describe`
+ * does not show a describe step at all.
+ */
+function prBranchView(
+  input: ShipProcessesInput,
+  repo: string,
+  current: ReadonlyMap<string, ShipPrView>,
+): PrBranchView {
+  const evidence = input.evidence.repos[repo]!;
+  const describe = evidence.steps.describe;
+  const step = evidence.steps.pr;
+  const pr = current.get(repo);
+  const recordedNumber = step?.number ?? pr?.number ?? null;
+  const number = recordedNumber === null ? '' : `#${recordedNumber}`;
+  const prState = number && pr?.status ? pr.status : '';
+
+  const steps: PrStepView[] = [];
+  if (describe) {
+    steps.push(
+      describe.status === 'failed'
+        ? { label: 'description failed', state: 'fail' }
+        : describe.status === 'running'
+          ? { label: 'generating description', state: 'current' }
+          : describe.status === 'note'
+            ? { label: 'no description needed', state: 'note' }
+            : { label: 'description generated', state: 'done' },
+    );
+  }
+
+  let note: string;
+  if (!step) {
+    steps.push({ label: 'pr step not recorded', state: 'note' });
+    note = 'No pull-request step was recorded for this repository.';
+  } else if (step.status === 'note') {
+    steps.push({ label: 'no PR needed', state: 'note' });
+    note = 'No PR was created because this repository had no changes.';
+  } else if (step.status === 'failed') {
+    steps.push({ label: 'PR failed', state: 'fail' });
+    note = step.detail
+      ? `The pull-request step failed: ${step.detail}`
+      : 'The pull-request step failed; no detail was recorded.';
+  } else if (step.status === 'running') {
+    steps.push({ label: 'opening PR', state: 'current' });
+    note = 'The pull-request step is still running.';
+  } else if (step.existedBeforeShip === true) {
+    steps.push({ label: 'PR adopted', state: 'done' });
+    note = number
+      ? `No create step because ${number} already existed.`
+      : 'The pull request already existed; its number was not recorded.';
+  } else {
+    steps.push({ label: 'PR opened', state: 'done' });
+    note = number
+      ? `PR ${number} was created in this ship run.`
+      : 'The pull request was created; its number was not recorded yet.';
+  }
+
+  return {
+    repo,
+    number,
+    prState,
+    ...(number ? {} : { emptyLabel: 'no PR' }),
+    steps,
+    note,
+    current: step?.status === 'running' || step?.status === 'failed',
+  };
+}
+
+/**
  * The pr process: per repo, how the PR came to be — adopted (it already
  * existed when ship ran) or created — with its number when recorded.
  */
@@ -217,27 +396,67 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
       if (!step) {
         return { status: 'note', label: repo, detail: 'pr step not recorded' };
       }
+      // A note step is ship's own "no PR needed" record (a repo with no
+      // changes from base). handoff §11 copy states it; it is NOT a failure
+      // and NOT "created — number pending".
+      if (step.status === 'note') {
+        return {
+          status: 'note',
+          label: repo,
+          detail: 'No PR was created because this repository had no changes',
+        };
+      }
       const kind = step.existedBeforeShip === true ? 'adopted' : 'created';
       const number = step.number ? ` #${step.number}` : kind === 'created' ? ' — number pending' : '';
       return {
         status: stepStatus(step),
         label: repo,
         detail: `${kind}${number}`,
-        ...(step.startedAt ? { duration: formatDuration(step.startedAt, step.endedAt ?? input.now) } : {}),
+        ...(step.startedAt
+          ? {
+              duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
+              durationExact: formatExactDuration(step.startedAt, step.endedAt ?? input.now),
+              time: formatTime(step.startedAt),
+            }
+          : {}),
       };
     },
   );
   const rows = boundedRepoRows(input, 'Ship · Pull request', recorded);
   const current = currentPerRepo(input.prs);
+  const currentByRepo = new Map(current.map((p) => [p.repo, p]));
+  const branches = boundedBlocks(
+    input,
+    'Ship · Pull request',
+    repos.map((repo) => prBranchView(input, repo, currentByRepo)),
+    recorded,
+  );
   const merged = current.filter(isMerged).length;
   const open = current.length - merged;
+  // The kind-specific aggregate (B4): the CURRENT PRs, counted — "1 merged ·
+  // 2 open". An unknown PR state is UNMERGED, so it lands in `open`, the same
+  // reading the merge process gives it. Omitted when no current PR exists.
+  const aggregate =
+    current.length === 0
+      ? undefined
+      : [merged > 0 ? `${merged} merged` : '', open > 0 ? `${open} open` : '']
+          .filter(Boolean)
+          .join(' · ');
   return {
     id: 'pr',
     kind: 'pr',
     label: 'Pull request',
     status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
     ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
-    evidence: { kind: 'prs', rows, open, merged },
+    ...(aggregate ? { aggregate } : {}),
+    evidence: {
+      kind: 'prs',
+      rows,
+      open,
+      merged,
+      ...(branches.shown.length > 0 ? { branches: branches.shown } : {}),
+      ...(branches.overflow ? { overflow: branches.overflow } : {}),
+    },
   };
 }
 
@@ -267,17 +486,23 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
     return { status: 'wait', label: 'open', detail: `${name} · not merged yet` };
   });
   const allMerged = recorded.length > 0 && recorded.every((r) => r.status === 'pass');
+  const conflicted = recorded.filter((r) => r.label === 'conflict').length;
   const rows = boundedRepoRows(input, 'Ship · Merge', recorded);
   return {
     id: 'merge',
     kind: 'merge',
     label: 'Merge',
     status: recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input),
-    ...(recorded.length === 0 && input.cell.startedAt
-      ? { detail: 'nothing to merge — no pull request opened' }
-      : rows.length === 0
-        ? { detail: noEvidenceDetail(input) }
-        : {}),
+    // handoff §11: a conflict is a WAIT that names what the user must do —
+    // the per-repo rows keep their factual readings; the sentence is the
+    // collapsed summary.
+    ...(conflicted > 0
+      ? { detail: 'Ship is waiting: resolve the merge conflict before the ticket can be done.' }
+      : recorded.length === 0 && input.cell.startedAt
+        ? { detail: 'nothing to merge — no pull request opened' }
+        : rows.length === 0
+          ? { detail: noEvidenceDetail(input) }
+          : {}),
     evidence: { kind: 'rows', rows },
   };
 }
