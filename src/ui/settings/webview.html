@@ -858,6 +858,12 @@
           </div>
           <div class="field-hint">A pass needs evidence beyond the agent's own claim.</div>
           <div class="toggle" style="margin-top:10px">
+            <input type="checkbox" id="f-reviewOpenChanges" />
+            <label for="f-reviewOpenChanges">Open changes panel after review</label>
+          </div>
+          <div class="field-hint">Off by default. When on, a finished review reveals the
+            ticket's Changes panel for every affected repository.</div>
+          <div class="toggle" style="margin-top:10px">
             <input type="checkbox" id="f-findingsEnabled" />
             <label for="f-findingsEnabled">Agent findings</label>
           </div>
@@ -1219,6 +1225,7 @@
   const REVIEW_DEFAULTS = {
     maxFixAttempts: 3,
     requireIndependentSignal: true,
+    openChanges: false,
     findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
   };
   // Mirrors validate/uat.ts's maxFixAttempts fallback.
@@ -3833,6 +3840,9 @@
     el('f-reviewIndependent').checked = review.requireIndependentSignal != null
       ? Boolean(review.requireIndependentSignal)
       : REVIEW_DEFAULTS.requireIndependentSignal;
+    el('f-reviewOpenChanges').checked = review.openChanges != null
+      ? Boolean(review.openChanges)
+      : REVIEW_DEFAULTS.openChanges;
     el('f-findingsEnabled').checked = findings.enabled != null ? Boolean(findings.enabled) : REVIEW_DEFAULTS.findings.enabled;
     el('f-findingsSeverity').innerHTML = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join('');
     el('f-findingsSeverity').value = findings.blockingSeverity || REVIEW_DEFAULTS.findings.blockingSeverity;
@@ -3871,6 +3881,9 @@
   });
   el('f-reviewIndependent').addEventListener('change', () => {
     updateReview({ requireIndependentSignal: el('f-reviewIndependent').checked });
+  });
+  el('f-reviewOpenChanges').addEventListener('change', () => {
+    updateReview({ openChanges: el('f-reviewOpenChanges').checked });
   });
   el('f-findingsEnabled').addEventListener('change', () => {
     updateFindings({ enabled: el('f-findingsEnabled').checked });
