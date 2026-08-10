@@ -18,7 +18,7 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 | `host`, `portRange`, `baselineBranch`, `worktreePathDisplay`, `agentProvider`, `defaultModel`, `ticketLabelTemplate`, `terminalNameTemplate` | General |
 | `conventions.branchName` / `.commitMessage` / `.pullRequestTitle` / `.pullRequestDescription` / `.defaultType` | Git (+ presets) |
 | `repositories.<n>.repoPath` / `.baselineBranch` / `.hasMigrations` / `.signals` / `.enabled` | Repositories |
-| `repositories.<n>.service.start` / `.health` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
+| `repositories.<n>.service.start` / `.health` / `.portRange` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
 | `approaches[].id` / `.label` / `.description` / `.entrypoint` / `.recommended` / `.enabled` / `.source` (git: repo/ref/include; npm: package/command/collect) | Approaches |
 | `agents.<n>.enabled` | Agents |
 | `ticketing.provider` / `.teamId` / `.listId` / `.advanceOnStart` / `.startStatus` / `.advanceOnShip` / `.shipStatus` | Ticketing |
