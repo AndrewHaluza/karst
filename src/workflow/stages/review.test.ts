@@ -749,7 +749,7 @@ describe('runReview', () => {
   it('surfaces the changes of every target it reviewed, and records that as evidence', async () => {
     await runReview(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig({ openChanges: true }) }) },
       deps({
         planTargets: async () => ({
           kind: 'targets',
@@ -779,7 +779,7 @@ describe('runReview', () => {
   it('records the changes evidence exactly once, however many targets opened it', async () => {
     await runReview(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig({ openChanges: true }) }) },
       deps({
         planTargets: async () => ({
           kind: 'targets',
@@ -800,10 +800,30 @@ describe('runReview', () => {
     expect(listGateRuns(store, id).find((r) => r.gateName === 'changes')).toBeUndefined();
   });
 
+  // The host ALWAYS wires `openDiff`; the manifest setting is the only gate.
+  // With the default (absent key → OFF), a wired host must not open anything
+  // and must not claim it did in the evidence.
+  it('does not open the changes surface while review.openChanges is off, even with a host wired to open it', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+        unmapped: [],
+        }),
+        openDiff,
+      }),
+    );
+    expect(openDiff).not.toHaveBeenCalled();
+    expect(listGateRuns(store, id).find((r) => r.gateName === 'changes')).toBeUndefined();
+  });
+
   it('opens the changes surface on a failing verdict too', async () => {
     await runReview(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir },
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig({ openChanges: true }) }) },
       deps({
         openDiff,
         runGates: async (gates) => ({
