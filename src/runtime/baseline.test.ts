@@ -75,7 +75,10 @@ describe('baseline pool', () => {
   const started: number[] = [];
 
   beforeAll(async () => {
-    portCounter = await freePortWindow(20, portCounter);
+    // Ceiling keeps this probe inside the suite's own band [48400, 48600) so
+    // a blocked window THROWS loudly ("leaked servers") rather than sliding
+    // into supervisor's or spin.integration's band and drawing the same ports.
+    portCounter = await freePortWindow(20, portCounter, 48600);
   });
   beforeEach(() => {
     store = openStore(':memory:');

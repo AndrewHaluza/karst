@@ -153,7 +153,11 @@ describe('spinTicket integration', () => {
   const started: number[] = [];
 
   beforeAll(async () => {
-    portBase = await freePortWindow(140, portBase);
+    // Ceiling keeps this probe inside the suite's own band: supervisor and
+    // baseline own [48200, 48400) and [48400, 48600) respectively, so a window
+    // blocked by a leftover server THROWS loudly ("leaked servers") instead of
+    // sliding into a sibling suite's band and drawing the same ports it draws.
+    portBase = await freePortWindow(140, portBase, 49000);
   });
   beforeEach(() => {
     store = openStore(':memory:');

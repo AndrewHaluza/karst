@@ -88,7 +88,10 @@ describe('server supervisor', () => {
   let dir: string;
 
   beforeAll(async () => {
-    portCounter = await freePortWindow(40, portCounter);
+    // Ceiling keeps this probe inside the suite's own band [48200, 48400) so
+    // a blocked window THROWS loudly ("leaked servers") rather than sliding
+    // into baseline's or spin.integration's band and drawing the same ports.
+    portCounter = await freePortWindow(40, portCounter, 48400);
   });
   beforeEach(() => {
     store = openStore(':memory:');
