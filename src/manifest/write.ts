@@ -116,6 +116,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
             start: repo.service.start,
             health: repo.service.health,
             ports: repo.service.ports,
+            // Written when set, dropped (undefined → omitted by the dumper)
+            // when cleared, so the service falls back to the global range.
+            portRange: repo.service.portRange,
             dependsOn: repo.service.dependsOn,
           }
         : undefined,
