@@ -444,7 +444,16 @@ export const KarstBridge = async ({ directory, worktree }) => {
           postUsage(event && event.id, input, directory, worktree));
       } else if (type === 'session.error') {
         post('session.error', input, directory, worktree, extractErrorMessage(input));
-      } else if (type === 'permission.asked' || type === 'permission.v2.asked') {
+      } else if (
+        type === 'permission.asked' ||
+        type === 'permission.v2.asked' ||
+        type === 'question.asked' ||
+        type === 'question.v2.asked'
+      ) {
+        // A question is the same "blocked on the user" signal as a permission:
+        // the agent stopped and only a human can continue it. Normalized to
+        // karst's own closed wait vocabulary (permission.asked) so dispatch
+        // needs no new event.
         post('permission.asked', input, directory, worktree);
       }
     },
