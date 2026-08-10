@@ -82,6 +82,8 @@ function recordingFactory(
     seen.push(ctx);
     return {
       fetchSource: () => {},
+      searchTickets: () => {},
+      searchStatuses: () => {},
       suggestSignals: () => {},
       saveSignals: () => {},
       setRepos: () => {},

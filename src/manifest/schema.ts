@@ -158,7 +158,7 @@ function validateAgents(raw: unknown): Record<string, AgentDef> {
  */
 function validateTicketing(raw: unknown): TicketingConfig {
   if (raw === undefined) {
-    return { provider: 'manual', advanceOnShip: false, advanceOnStart: false };
+    return { provider: 'manual', advanceOnShip: false, advanceOnStart: false, searchEnabled: true };
   }
   if (!isObject(raw)) throw new ManifestError('ticketing must be a mapping');
   if (raw.provider !== 'clickup' && raw.provider !== 'manual') {
@@ -168,6 +168,7 @@ function validateTicketing(raw: unknown): TicketingConfig {
     provider: raw.provider,
     advanceOnShip: false,
     advanceOnStart: false,
+    searchEnabled: true,
   };
   if (raw.teamId !== undefined) {
     config.teamId = requireString(raw.teamId, 'ticketing.teamId');
@@ -221,6 +222,12 @@ function validateTicketing(raw: unknown): TicketingConfig {
     throw new ManifestError(
       "ticketing.advanceOnStart requires a provider that can set status (not 'manual')",
     );
+  }
+  if (raw.searchEnabled !== undefined) {
+    if (typeof raw.searchEnabled !== 'boolean') {
+      throw new ManifestError('ticketing.searchEnabled must be a boolean');
+    }
+    config.searchEnabled = raw.searchEnabled;
   }
   return config;
 }

@@ -21,7 +21,7 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 | `repositories.<n>.service.start` / `.health` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
 | `approaches[].id` / `.label` / `.description` / `.entrypoint` / `.recommended` / `.enabled` / `.source` (git: repo/ref/include; npm: package/command/collect) | Approaches |
 | `agents.<n>.enabled` | Agents |
-| `ticketing.provider` / `.teamId` / `.listId` / `.advanceOnStart` / `.startStatus` / `.advanceOnShip` / `.shipStatus` | Ticketing |
+| `ticketing.provider` / `.teamId` / `.listId` / `.advanceOnStart` / `.startStatus` / `.advanceOnShip` / `.shipStatus` / `.searchEnabled` | Ticketing |
 | `uat.maxFixAttempts`, `uat.gates`, `uat.repositories.<n>.gates` | Quality |
 | `review.maxFixAttempts`, `review.requireIndependentSignal`, `review.findings.{enabled,blockingSeverity,maxFindings}`, `review.gates`, `review.repositories.<n>.gates` | Quality |
 | `id` — **read-only**, displayed with provenance (manifest vs. derived) | General |

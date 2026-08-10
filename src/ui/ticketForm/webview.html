@@ -130,6 +130,37 @@
      end rather than sitting flush beside it. */
   #ticketLink{margin-left:auto;font-size:var(--k-text-sm);display:inline-flex;align-items:center;gap:var(--k-space-2)}
 
+  /* Key-field search combobox: the input plus its dropdown. `.searchbox` is
+     the positioning context (the popup spans the input's width, not the whole
+     row); the popup follows the same absolute/elevated pattern as the
+     agent-core custom select above — tokens only. */
+  .searchbox{position:relative;flex:1;min-width:0}
+  .searchbox input{width:100%}
+  .searchmenu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
+    max-height:calc(var(--k-space-8) * 14);overflow:auto}
+  .searchnote{padding:var(--k-space-3) var(--k-space-4);font-size:var(--k-text-sm);opacity:.7}
+  /* A search result row. Options are DIVs (not buttons) because they are
+     ARIA listbox options inside the combobox — the same justified exception
+     as the agent-core menu above (UI-R09): role, tabindex and Enter/Space
+     handlers are all present, and ArrowUp/Down navigation is wired in the
+     menu's keydown handler. */
+  .searchopt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
+  .searchopt:hover{background:var(--k-surface-hover)}
+  .searchopt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .searchopt .search-ref{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:none;color:var(--k-link)}
+  .searchopt .search-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .searchopt .searchprio{font-size:var(--k-text-2xs);opacity:.6;text-transform:capitalize;flex:none}
+  /* Status filter row under the key field: the label/select stay small and
+     the hint rides the same row (the filter is secondary to the search box). */
+  .searchfilter{margin-top:var(--k-space-3)}
+  .searchfilter label{margin:var(--k-space-0);flex:none}
+  .searchfilter select{width:auto;flex:none}
+  .searchfilter .searchhint{margin:var(--k-space-0);font-size:var(--k-text-xs)}
+
   /* ── Phase 2: vertical stepper (repos → approach → create) ─────────────── */
   .step{display:flex;align-items:center;gap:var(--k-space-5);margin:var(--k-space-0) var(--k-space-0) var(--k-space-5)}
   .step .dot{flex:none;width:var(--k-space-9);height:var(--k-space-9);border-radius:var(--k-radius-circle);
@@ -242,8 +273,27 @@
   </div>
   <label for="ref">Key</label>
   <div class="row">
-    <input type="text" class="k-input" id="ref" placeholder="PROJ-142  ·  a board id like CU-1234  ·  or leave it to the title" />
+    <!-- The Key field doubles as a search combobox over the provider's list
+         (searchEnabled: true on the state). The input is the combobox text
+         box; the popup lists matching tickets priority-sorted by the host;
+         picking one fills the key and fetches its brief. Without search the
+         popup never opens and the field is exactly the plain key entry it
+         always was. -->
+    <div class="searchbox" id="searchBox">
+      <input type="text" class="k-input" id="ref" placeholder="PROJ-142  ·  a board id like CU-1234  ·  or leave it to the title"
+             role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchMenu" />
+      <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
+    </div>
     <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
+  </div>
+  <!-- Status filter for the search dropdown: the provider list's own statuses,
+       defaulting to the list's TODO status. Hidden when search is disabled. -->
+  <div class="row searchfilter hidden" id="searchFilterRow">
+    <label for="searchStatus">Status</label>
+    <select class="k-input" id="searchStatus">
+      <option value="to do" selected>to do</option>
+    </select>
+    <span class="sub searchhint">Filters the dropdown — defaults to the list's TODO status.</span>
   </div>
   <div class="row2">
     <button type="button" class="k-btn k-btn--link k-btn--sm hidden" id="detailsBtn" aria-expanded="false" aria-controls="drawer">Show details</button>
@@ -465,6 +515,7 @@
     submitLabel = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
     if (!submitBusy) el('submitBtn').textContent = submitLabel;
     renderProvider(state.provider);
+    renderSearchControls(state.ticketSearchEnabled === true);
     renderTicketFormTicketLink(state);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
@@ -999,9 +1050,28 @@
   // Enter in the key/fetch-id field fires the same fetch as the button — the
   // paste-id → fetch flow shouldn't require reaching for the mouse. preventDefault
   // guards against this input ever sitting inside a real <form> and navigating.
+  // With the search dropdown open, ArrowDown/Enter/Escape operate the listbox
+  // instead: Enter picks the focused option (falling back to the plain fetch),
+  // Escape closes the popup.
   el('ref').addEventListener('keydown', (e) => {
+    const menuOpen = !el('searchMenu').classList.contains('hidden');
+    if (e.key === 'Escape' && menuOpen) {
+      closeSearchMenu();
+      return;
+    }
+    if (e.key === 'ArrowDown' && menuOpen) {
+      e.preventDefault();
+      const opt = el('searchMenu').querySelector('.searchopt');
+      if (opt) opt.focus();
+      return;
+    }
     if (e.key !== 'Enter') return;
     e.preventDefault();
+    const focused = el('searchMenu').querySelector('.searchopt:focus');
+    if (focused && focused.dataset.ref) {
+      pickSearchResult(focused.dataset.ref);
+      return;
+    }
     doFetch();
   });
 
@@ -1068,12 +1138,16 @@
     post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType });
   });
 
-  // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live.
+  // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live. When the
+  // key field doubles as a search combobox, typing also schedules the dropdown
+  // search (debounced) — but only for text the USER typed: a key derived from
+  // the Title is not a query, it is the derive preview.
   el('ref').addEventListener('input', () => {
     // Own the field while it has content; empty hands it back to the Title.
     refTouched = el('ref').value.trim() !== '';
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
     syncPhase2();
+    scheduleSearch();
   });
   el('title').addEventListener('input', () => {
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
@@ -1081,6 +1155,217 @@
     // no longer blank, rather than waiting for the next submit attempt.
     if (el('title').value.trim() !== '') setTitleInvalid(false);
     syncPhase2();
+  });
+
+  // ---- ticket search (the Key field's dropdown) ----
+  // Search-as-you-type over the provider's list. Only active when the host
+  // says so (state.ticketSearchEnabled): a clickup provider with a configured
+  // list AND the settings toggle. The popup lists matching tickets, already
+  // priority-sorted by the provider; picking one fills the key and fetches
+  // its brief through the ordinary fetch path (doFetch). Every rendered value
+  // is provider prose, so all of it goes through esc() (UI-R32).
+  let searchEnabled = false;
+  // The filter itself starts at the required default, 'to do' (TODO), and is
+  // corrected to the list's real TODO status when the host answers the one
+  // search-statuses request.
+  let searchStatusesRequested = false;
+  // The in-flight request, or null. Results/errors echoing a different
+  // query/status are stale and dropped; a response with no request pending is
+  // a reply to a search that was superseded or closed.
+  let searchPending = null;
+  let searchDebounceTimer = null;
+  let searchWatchdogTimer = null;
+
+  const SEARCH_MIN_CHARS = 2;
+  const SEARCH_DEBOUNCE_MS = 250;
+
+  function renderSearchControls(enabled) {
+    searchEnabled = enabled;
+    el('searchFilterRow').classList.toggle('hidden', !enabled);
+    if (!enabled) {
+      clearTimeout(searchDebounceTimer);
+      closeSearchMenu();
+    }
+  }
+
+  function clearSearchBusy() {
+    clearTimeout(searchWatchdogTimer);
+    searchWatchdogTimer = null;
+    el('ref').removeAttribute('aria-busy');
+  }
+
+  function openSearchMenu() {
+    el('searchMenu').classList.remove('hidden');
+    el('ref').setAttribute('aria-expanded', 'true');
+  }
+  function closeSearchMenu() {
+    el('searchMenu').classList.add('hidden');
+    el('ref').setAttribute('aria-expanded', 'false');
+    searchPending = null;
+    clearSearchBusy();
+  }
+
+  // The menu's four static states: hint (nothing typed yet), searching, error
+  // and empty. Results render one row per ticket. Nothing here is a control —
+  // the rows are listbox options (see the CSS note on .searchopt).
+  function renderSearchMenu(state, extra) {
+    let html = '';
+    if (state === 'hint') {
+      html = '<div class="searchnote">Type at least 2 characters to search the list.</div>';
+    } else if (state === 'searching') {
+      html = '<div class="searchnote">Searching\u2026</div>';
+    } else if (state === 'error') {
+      html = '<div class="searchnote">' + esc(extra) + '</div>';
+    } else if (state === 'empty') {
+      html = '<div class="searchnote">No tickets found.</div>';
+    } else {
+      html = extra.map((r) => (
+        '<div class="searchopt" role="option" tabindex="0" data-ref="' + esc(r.ref) + '" aria-selected="false">'
+        + '<span class="search-ref">' + esc(r.ref) + '</span>'
+        + '<span class="search-title" title="' + esc(r.title) + '">' + esc(r.title) + '</span>'
+        + (r.status ? '<span class="badge">' + esc(r.status) + '</span>' : '')
+        + (r.priority ? '<span class="searchprio">' + esc(r.priority) + '</span>' : '')
+        + '</div>'
+      )).join('');
+    }
+    el('searchMenu').innerHTML = html;
+    openSearchMenu();
+  }
+
+  // The trimmed key-field value, or '' when below the search threshold. The
+  // derived-key preview never counts as a query (scheduleSearch gates on
+  // refTouched), and a 1-char keystroke must not hit the provider.
+  function currentSearchQuery() {
+    const q = el('ref').value.trim();
+    return q.length >= SEARCH_MIN_CHARS ? q : '';
+  }
+
+  // Debounced trigger from the input listener: opens the popup immediately,
+  // then posts the search after the pause. Pending is entered LOCALLY (the
+  // popup says "Searching…" and the input goes aria-busy) before the round
+  // trip (UI-R11); the reply settles it, and the watchdog covers a host that
+  // never replies (UI-R14, reporting UNKNOWN rather than failure).
+  function scheduleSearch() {
+    if (!searchEnabled || !refTouched) return;
+    clearTimeout(searchDebounceTimer);
+    openSearchMenu();
+    const query = currentSearchQuery();
+    if (!query) {
+      searchPending = null;
+      clearSearchBusy();
+      renderSearchMenu('hint');
+      return;
+    }
+    renderSearchMenu('searching');
+    searchDebounceTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
+  }
+
+  function runSearch() {
+    const query = currentSearchQuery();
+    if (!query) {
+      searchPending = null;
+      clearSearchBusy();
+      renderSearchMenu('hint');
+      return;
+    }
+    const status = el('searchStatus').value || null;
+    // The filter's real options are provider data — load them once, on the
+    // first search, so the select can correct its 'to do' default to the
+    // list's actual TODO status.
+    requestSearchStatuses();
+    searchPending = { query, status };
+    el('ref').setAttribute('aria-busy', 'true');
+    clearTimeout(searchWatchdogTimer);
+    searchWatchdogTimer = setTimeout(() => {
+      searchPending = null;
+      clearSearchBusy();
+      renderSearchMenu('error', 'Search timed out \u2014 the result is unknown.');
+    }, KARST_WATCHDOG_MS);
+    post({ type: 'search-tickets', query, status });
+  }
+
+  // The provider's status names, requested once on the first search. The
+  // filter keeps its 'to do' default while they load and is corrected to the
+  // list's real TODO status when they arrive — a list without one falls back
+  // to its first status, and the current search re-runs under the corrected
+  // filter so the shown results always match what the select says.
+  function requestSearchStatuses() {
+    if (searchStatusesRequested) return;
+    searchStatusesRequested = true;
+    post({ type: 'search-statuses' });
+  }
+
+  function applySearchStatuses(names) {
+    const sel = el('searchStatus');
+    const previous = sel.value || '';
+    sel.innerHTML = (names || [])
+      .map((s) => '<option value="' + esc(s) + '">' + esc(s) + '</option>')
+      .join('');
+    const todo = (names || []).find(
+      (s) => s.trim().toLowerCase() === 'to do' || s.trim().toLowerCase() === 'todo',
+    );
+    sel.value = todo || (names && names[0]) || previous;
+    if (sel.value !== previous && currentSearchQuery()) runSearch();
+  }
+
+  // Picking a result commits the chosen ticket: fill the key (marking it
+  // touched so the derive preview never overwrites it), close the popup, and
+  // fetch the brief — the exact same path as Enter in the field or the Fetch
+  // button, so the prefill/classify machinery behaves identically.
+  function pickSearchResult(ref) {
+    el('ref').value = ref;
+    refTouched = true;
+    closeSearchMenu();
+    doFetch();
+  }
+
+  el('searchStatus').addEventListener('change', () => {
+    if (!searchEnabled) return;
+    // The filter is part of the question — a change re-asks it immediately
+    // (no debounce: the user already made a deliberate choice).
+    clearTimeout(searchDebounceTimer);
+    if (currentSearchQuery()) {
+      runSearch();
+    } else {
+      searchPending = null;
+      clearSearchBusy();
+      renderSearchMenu('hint');
+    }
+  });
+
+  // ArrowUp/Down move the listbox's own focus between options (wrapping),
+  // Enter/Space activate the focused option, Escape closes and returns focus
+  // to the input. The same pattern as the agent-core menu above.
+  el('searchMenu').addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const opts = [...el('searchMenu').querySelectorAll('.searchopt')];
+      if (!opts.length) return;
+      const idx = opts.indexOf(document.activeElement);
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      const next = opts[(idx + dir + opts.length) % opts.length];
+      if (next) next.focus();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeSearchMenu();
+      el('ref').focus();
+      return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const opt = e.target.closest('.searchopt');
+      if (opt && opt.dataset.ref) pickSearchResult(opt.dataset.ref);
+    }
+  });
+  el('searchMenu').addEventListener('click', (e) => {
+    const opt = e.target.closest('.searchopt');
+    if (opt && opt.dataset.ref) pickSearchResult(opt.dataset.ref);
+  });
+  // Clicking outside the combobox closes the popup, like the agent menu.
+  document.addEventListener('click', (e) => {
+    if (searchEnabled && !el('searchBox').contains(e.target)) closeSearchMenu();
   });
   // Editing the Prompt is a context change: re-gate the control. It does NOT
   // auto-prefill (that would rewrite the prompt mid-type); prefill auto-runs only
@@ -1481,6 +1766,37 @@
         renderAgentPicker(lastAgents, lastSelectedAgent);
         syncPhase2();
         syncAnalyzeBtn();
+        break;
+      }
+      case 'ticket-search-results': {
+        // A reply to a request that is no longer pending (superseded by a
+        // newer keystroke, or the popup closed) is stale — dropped, never
+        // rendered over newer results. The echo also guards the case where a
+        // reply arrives AFTER the user moved the status filter.
+        if (!searchPending) break;
+        if (msg.query !== searchPending.query || msg.status !== searchPending.status) break;
+        searchPending = null;
+        clearSearchBusy();
+        if (el('searchMenu').classList.contains('hidden')) break;
+        if (msg.results && msg.results.length) renderSearchMenu('results', msg.results);
+        else renderSearchMenu('empty');
+        break;
+      }
+      case 'ticket-search-statuses': {
+        applySearchStatuses(msg.statuses || []);
+        break;
+      }
+      case 'ticket-search-error': {
+        // A failure settles the request it belongs to: the in-flight search
+        // (if any) owns this error; otherwise it is the status-list request
+        // and the filter simply keeps its default.
+        if (searchPending) {
+          searchPending = null;
+          clearSearchBusy();
+          if (!el('searchMenu').classList.contains('hidden')) {
+            renderSearchMenu('error', msg.message);
+          }
+        }
         break;
       }
       case 'signals-suggested': {

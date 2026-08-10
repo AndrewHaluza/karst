@@ -503,6 +503,35 @@ export function buildTicketFormActions(
       }
     },
 
+    async searchTickets(query: string, status: string | null): Promise<void> {
+      if (!deps.provider.searchTickets) {
+        ctx.post({ type: 'ticket-search-error', message: 'This provider cannot search tickets.' });
+        return;
+      }
+      try {
+        const results = await deps.provider.searchTickets(
+          query,
+          status ? { status } : undefined,
+        );
+        ctx.post({ type: 'ticket-search-results', query, status, results });
+      } catch (e) {
+        ctx.post({ type: 'ticket-search-error', message: errorMessage(e) });
+      }
+    },
+
+    async searchStatuses(): Promise<void> {
+      if (!deps.provider.listStatuses) {
+        ctx.post({ type: 'ticket-search-error', message: 'This provider cannot list statuses.' });
+        return;
+      }
+      try {
+        const statuses = await deps.provider.listStatuses();
+        ctx.post({ type: 'ticket-search-statuses', statuses });
+      } catch (e) {
+        ctx.post({ type: 'ticket-search-error', message: errorMessage(e) });
+      }
+    },
+
     async suggestSignals(service: string): Promise<void> {
       // Signals classify a SOURCE TREE, so this works for a non-runnable
       // repository too — only `repoPath` is read.

@@ -190,6 +190,151 @@ describe('ticket-form webview.html', () => {
   });
 });
 
+// ---- ticket search (the Key field's dropdown) ----
+// The feature's DECISIONS are host-agnostic script logic: the popup is a
+// combobox, results are escaped provider prose, the filter defaults to TODO
+// and corrects itself to the list's real statuses. Pin them at text level.
+describe('ticket-form webview.html — ticket search', () => {
+  it('turns the key field into a combobox with a status filter defaulting to to do', () => {
+    const refMarkup = HTML.slice(HTML.indexOf('id="ref"'), HTML.indexOf('id="ref"') + 400);
+    expect(refMarkup).toContain('role="combobox"');
+    expect(refMarkup).toContain('aria-autocomplete="list"');
+    expect(refMarkup).toContain('aria-expanded="false"');
+    expect(refMarkup).toContain('aria-controls="searchMenu"');
+    const filter = HTML.slice(HTML.indexOf('id="searchFilterRow"'), HTML.indexOf('id="searchFilterRow"') + 400);
+    expect(filter).toContain('id="searchStatus"');
+    expect(filter).toContain('<option value="to do" selected>to do</option>'); // TODO default
+    expect(HTML).toContain('id="searchMenu"');
+  });
+
+  it('renders search results as escaped listbox options (provider prose, UI-R32)', () => {
+    const state = { innerHTML: '' };
+    const opened: boolean[] = [];
+    const renderSearchMenu = loadFunction('renderSearchMenu', {
+      el: (id: string) => (id === 'searchMenu' ? state : null),
+      openSearchMenu: () => opened.push(true),
+    });
+    renderSearchMenu('results', [
+      { ref: 'CU-1', title: 'Fix <login> & "pay"', status: 'to do', priority: 'urgent' },
+      { ref: 'CU-2', title: 'Plain', status: 'in review' },
+    ]);
+    expect(opened).toHaveLength(1);
+    expect(state.innerHTML).toContain('role="option"');
+    expect(state.innerHTML).toContain('data-ref="CU-1"');
+    expect(state.innerHTML).not.toContain('<login>');
+    expect(state.innerHTML).toContain('Fix &lt;login&gt; &amp; &quot;pay&quot;');
+    expect(state.innerHTML).toContain('urgent');
+    expect(state.innerHTML).toContain('to do');
+  });
+
+  it('renders the hint/searching/error/empty states of the popup', () => {
+    const state = { innerHTML: '' };
+    const renderSearchMenu = loadFunction('renderSearchMenu', {
+      el: () => state,
+      openSearchMenu: () => {},
+    });
+    renderSearchMenu('hint');
+    expect(state.innerHTML).toContain('Type at least 2 characters');
+    renderSearchMenu('searching');
+    expect(state.innerHTML).toContain('Searching');
+    renderSearchMenu('error', 'boom');
+    expect(state.innerHTML).toContain('boom');
+    renderSearchMenu('empty');
+    expect(state.innerHTML).toContain('No tickets found');
+  });
+
+  it('never searches below 2 characters and never searches a derived key', () => {
+    const currentSearchQuery = loadFunction('currentSearchQuery', {
+      el: () => ({ value: 'a' }),
+      SEARCH_MIN_CHARS: 2,
+    });
+    expect(currentSearchQuery()).toBe('');
+    const full = loadFunction('currentSearchQuery', {
+      el: () => ({ value: '  pay ' }),
+      SEARCH_MIN_CHARS: 2,
+    });
+    expect(full()).toBe('pay');
+
+    // scheduleSearch gates on refTouched — the derive-key preview is not a query.
+    const schedule = functionSource('scheduleSearch');
+    expect(schedule).toContain('!searchEnabled || !refTouched');
+    expect(schedule).toContain('SEARCH_DEBOUNCE_MS');
+    expect(schedule).toContain('runSearch');
+    // The input listener schedules the search.
+    const refInput = HTML.match(/el\('ref'\)\.addEventListener\('input', \(\) => \{([\s\S]*?)\n {2}}\);/);
+    expect(refInput![1]).toContain('scheduleSearch()');
+  });
+
+  it('posts search-tickets with the live status filter and arms a watchdog', () => {
+    const run = functionSource('runSearch');
+    expect(run).toContain("post({ type: 'search-tickets', query, status })");
+    expect(run).toContain("el('searchStatus').value");
+    expect(run).toContain("setAttribute('aria-busy', 'true')");
+    expect(run).toContain('KARST_WATCHDOG_MS'); // UI-R14: a hung host cannot leave it pending
+    expect(run).toContain('Search timed out');
+  });
+
+  it('drops stale replies and settles only the in-flight request', () => {
+    const results = HTML.match(/case 'ticket-search-results': \{([\s\S]*?)\n {6}}/);
+    expect(results, 'ticket-search-results handler not found').toBeTruthy();
+    const body = results![1]!;
+    expect(body).toContain('searchPending');
+    expect(body).toContain('msg.query !== searchPending.query || msg.status !== searchPending.status');
+    const err = HTML.match(/case 'ticket-search-error': \{([\s\S]*?)\n {6}}/);
+    expect(err![1]).toContain('searchPending');
+  });
+
+  it('picking a result fills the key, marks it touched, and fetches the brief', () => {
+    const pick = functionSource('pickSearchResult');
+    expect(pick).toContain("el('ref').value = ref;");
+    expect(pick).toContain('refTouched = true;');
+    expect(pick).toContain('closeSearchMenu()');
+    expect(pick).toContain('doFetch()');
+    // Enter with the popup open picks the focused option; otherwise plain fetch.
+    const refKeydown = HTML.match(/el\('ref'\)\.addEventListener\('keydown', \(e\) => \{([\s\S]*?)\n {2}}\);/);
+    expect(refKeydown![1]).toContain('pickSearchResult(focused.dataset.ref)');
+    expect(refKeydown![1]).toContain('doFetch()');
+  });
+
+  it('corrects the filter to the list statuses: TODO when present, else the first', () => {
+    const makeSel = () => {
+      const sel = { innerHTML: '', value: 'to do' };
+      return sel;
+    };
+    let reruns = 0;
+    const apply = loadFunction('applySearchStatuses', {
+      el: () => sel,
+      esc: (s: unknown) => String(s),
+      currentSearchQuery: () => 'pay',
+      runSearch: () => { reruns += 1; },
+    });
+
+    const sel = makeSel();
+    apply(['to do', 'in progress', 'done']);
+    expect(sel.value).toBe('to do'); // TODO default kept
+    expect(sel.innerHTML).toContain('value="to do"');
+    expect(reruns).toBe(0); // the default did not move — no re-run needed
+
+    const sel2 = makeSel();
+    const apply2 = loadFunction('applySearchStatuses', {
+      el: () => sel2,
+      esc: (s: unknown) => String(s),
+      currentSearchQuery: () => 'pay',
+      runSearch: () => { reruns += 1; },
+    });
+    apply2(['backlog', 'in review']);
+    expect(sel2.value).toBe('backlog'); // no TODO → first status
+    expect(reruns).toBe(1); // the filter moved — the open search re-runs under it
+  });
+
+  it('requests the provider statuses once, on the first search', () => {
+    const fn = functionSource('requestSearchStatuses');
+    expect(fn).toContain('searchStatusesRequested');
+    expect(fn).toContain("post({ type: 'search-statuses' })");
+    expect(functionSource('runSearch')).toContain('requestSearchStatuses()');
+  });
+});
+
 describe('attachment strip', () => {
   const render = (list: unknown): string =>
     loadFunction('renderAttachments', {

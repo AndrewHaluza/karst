@@ -80,6 +80,13 @@ export interface TicketFormState {
    * whether a fetch is even possible (`manual` has no board to fetch from).
    */
   provider: TicketProvider;
+  /**
+   * Whether the Key field acts as a search combobox over the provider's list:
+   * the manifest toggle (default ON) AND a provider that can search (`clickup`
+   * with a configured `listId` — there is no list to search without one). The
+   * webview renders the plain key input otherwise.
+   */
+  ticketSearchEnabled: boolean;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
   /** Services still lacking signal words — the classify gate targets these. */
@@ -186,6 +193,13 @@ export function buildTicketFormState(
   const unclassified = unclassifiedRepos(manifest);
   const provider: TicketProvider = manifest.ticketing?.provider ?? 'manual';
   const defaultAgentProvider = manifest.agentProvider ?? 'claude';
+  // Search needs a provider that can search AND a list to search: the manifest
+  // toggle defaults ON, but a clickup provider with no listId configured has
+  // nothing to list. `manual` never qualifies.
+  const ticketSearchEnabled =
+    provider !== 'manual'
+    && manifest.ticketing?.searchEnabled !== false
+    && Boolean(manifest.ticketing?.listId);
 
   const repoEntries = Object.entries(manifest.repositories);
   /**
@@ -222,6 +236,7 @@ export function buildTicketFormState(
       sourceRef: '',
       brief: null,
       provider,
+      ticketSearchEnabled,
       ticketUrl: null,
       unclassified,
       repos: makeRepos(new Set(), new Map()),
@@ -264,6 +279,7 @@ export function buildTicketFormState(
     sourceRef: ticket.sourceRef ?? '',
     brief: ticket.brief,
     provider,
+    ticketSearchEnabled,
     ticketUrl: providerTicketUrl(provider, ticket.sourceRef),
     unclassified,
     repos: makeRepos(selectedSet, scores),

@@ -363,13 +363,17 @@ uat:
 
 # Ticketing integration (optional; default { provider: manual }). `manual` is
 # local-only. `clickup` fetches ticket context; set `teamId` (ClickUp workspace
-# id, for custom task ids) and optionally `listId` (reserved). The API token is
+# id, for custom task ids) and `listId` — the list the Add/Edit ticket page's
+# search dropdown lists (and the list statuses are read from). The API token is
 # NOT stored here — set it in Settings → Ticketing (kept in the OS keychain).
+# `searchEnabled` (default true) turns that dropdown off; it is a Settings
+# toggle.
 ticketing:
   provider: manual
   # provider: clickup
   # teamId: "9001"
   # listId: "42"
+  # searchEnabled: true
 
 # Review stage gates (optional). Absent yields the default pipeline: karst
 # probes package.json for lint/typecheck/build/format and runs whichever

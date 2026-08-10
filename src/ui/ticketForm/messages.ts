@@ -1,5 +1,5 @@
 import type { TicketFormState } from './state.js';
-import type { ContextBrief } from '../../integrations/ticketing.js';
+import type { ContextBrief, TicketSearchResult } from '../../integrations/ticketing.js';
 import { isHttpUrl } from '../shared/url.js';
 import { isKnownProvider } from '../../agent/registry.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
@@ -47,6 +47,13 @@ export interface SubmitFields extends TicketDraftFields {
 
 export type TicketFormMessage =
   | { type: 'fetch-source'; ref: string }
+  // Search-as-you-type over the provider's list (the Key field's dropdown).
+  // `status` is the active filter (provider-native name) or null for every
+  // status. `query` may be blank — the provider resolves that to "no match".
+  | { type: 'search-tickets'; query: string; status: string | null }
+  // Load the provider's status names for the search filter (first dropdown
+  // open). Distinct from search so the filter can load once and stay.
+  | { type: 'search-statuses' }
   | { type: 'suggest-signals'; service: string }
   | { type: 'save-signals'; service: string; signals: string[] }
   | { type: 'set-repos'; repos: string[] }
@@ -87,6 +94,14 @@ export type TicketFormBusyKind = 'fetch' | 'suggest' | 'submit' | 'analyze' | 's
 export type TicketFormHostMessage =
   | { type: 'state'; state: TicketFormState }
   | { type: 'brief'; brief: ContextBrief }
+  // The dropdown's search outcome, echoing the request so the page can drop a
+  // stale reply (an earlier keystroke resolving after a newer one).
+  | { type: 'ticket-search-results'; query: string; status: string | null; results: TicketSearchResult[] }
+  // The provider's status names, for the search filter. Shown once loaded.
+  | { type: 'ticket-search-statuses'; statuses: string[] }
+  // A search or status-list failure, for the dropdown's own surface (the page
+  // bucket `error` is for fetch/attach/host failures, not per-keystroke noise).
+  | { type: 'ticket-search-error'; message: string }
   | { type: 'signals-suggested'; service: string; signals: string[] }
   | {
       type: 'analysis';
@@ -114,6 +129,14 @@ export type TicketFormHostMessage =
  */
 export interface TicketFormActions {
   fetchSource: (ref: string) => void | Promise<void>;
+  /**
+   * Search the provider's list for tickets matching `query`, filtered to
+   * `status` (null = every status). Replies with `ticket-search-results` or
+   * `ticket-search-error`. Never throws: a failure is reported on the channel.
+   */
+  searchTickets: (query: string, status: string | null) => void | Promise<void>;
+  /** Load the provider's status names; replies `ticket-search-statuses` or `ticket-search-error`. */
+  searchStatuses: () => void | Promise<void>;
   suggestSignals: (service: string) => void | Promise<void>;
   saveSignals: (service: string, signals: string[]) => void | Promise<void>;
   setRepos: (repos: string[]) => void | Promise<void>;
@@ -207,6 +230,16 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
   switch (m.type) {
     case 'fetch-source':
       return str('ref') ? { type: 'fetch-source', ref: m.ref as string } : null;
+    case 'search-tickets': {
+      // query may be blank (the provider resolves it to "no match" without a
+      // round trip); status must be a string or null. Query is capped so a
+      // crafted page cannot send an unbounded string to a network call.
+      if (typeof m.query !== 'string' || m.query.length > 200) return null;
+      if (m.status !== null && typeof m.status !== 'string') return null;
+      return { type: 'search-tickets', query: m.query, status: m.status };
+    }
+    case 'search-statuses':
+      return { type: 'search-statuses' };
     case 'suggest-signals':
       return str('service') ? { type: 'suggest-signals', service: m.service as string } : null;
     case 'save-signals':
@@ -292,6 +325,12 @@ export function routeTicketFormAction(
   switch (msg.type) {
     case 'fetch-source':
       actions.fetchSource(msg.ref);
+      return;
+    case 'search-tickets':
+      actions.searchTickets(msg.query, msg.status);
+      return;
+    case 'search-statuses':
+      actions.searchStatuses();
       return;
     case 'suggest-signals':
       actions.suggestSignals(msg.service);
