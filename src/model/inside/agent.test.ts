@@ -137,8 +137,13 @@ describe('implementationSessionProcess', () => {
     expect(process.status).toBe('run');
     expect(process.evidence).toMatchObject({ kind: 'timeline' });
     const first = rows(process)[0]!;
-    expect(first).toMatchObject({ label: 'started', status: 'note' });
-    expect(first.detail).toBe(formatTime(runAt('12:00')));
+    expect(first).toMatchObject({ label: 'started', status: 'note', role: 'identity' });
+    // 869egdr2u-fu1: the start stamp rides the row's TIME cell (which the
+    // webview renders beside the duration), never the detail — the detail
+    // slot is the identity chip, and a timestamp there rendered in the
+    // identity's blue.
+    expect(first.time).toBe(formatTime(runAt('12:00')));
+    expect(first.detail).toBeUndefined();
     expect(first.duration).not.toBe('');
   });
 

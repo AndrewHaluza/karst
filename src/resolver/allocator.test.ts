@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { makePortAllocator, type PortAllocator } from './allocator.js';
+import { makePortAllocator, makeDryRunAllocator, type PortAllocator } from './allocator.js';
 
 describe('makePortAllocator', () => {
   let store: Store;
@@ -89,5 +89,37 @@ describe('makePortAllocator', () => {
     tight.allocate(2, 'b', ['http']); // 4001
     // free: only 4002 (size 1); asking for 2 contiguous must fail
     expect(() => tight.allocate(3, 'c', ['http', 'debug'])).toThrow(/exhaust|contiguous|no .*free|range/i);
+  });
+
+  it('allocates within a per-call range override', () => {
+    const ports = alloc.allocate(1, 'a', ['http', 'debug'], [5000, 5010]);
+    for (const p of Object.values(ports)) {
+      expect(p).toBeGreaterThanOrEqual(5000);
+      expect(p).toBeLessThanOrEqual(5010);
+    }
+    expect(ports.http).toBe(5000); // lowest free wins, inside the override
+  });
+
+  it('never reuses a port allocated in another service range', () => {
+    alloc.allocate(1, 'a', ['http'], [5000, 5010]); // takes 5000
+    const b = alloc.allocate(2, 'b', ['http'], [5000, 5010]);
+    expect(b.http).toBe(5001); // shared used-set: the override window is still unique
+    const c = alloc.allocate(3, 'c', ['http']); // no override → construction range
+    expect(c.http).toBe(4000); // independent of the 5000s
+  });
+
+  it('throws naming the service when a per-call range is exhausted', () => {
+    const tight = makePortAllocator(store, [4000, 4010]);
+    tight.allocate(1, 'a', ['http', 'debug'], [5000, 5001]); // fills the window
+    expect(() => tight.allocate(2, 'b', ['http'], [5000, 5001])).toThrow(
+      /no free contiguous block of 1 port\(s\) in range \[5000, 5001\] for service "b"/,
+    );
+  });
+
+  it('dry-run honors a per-call range too', () => {
+    const dry = makeDryRunAllocator([4000, 4999]);
+    const ports = dry.allocate(1, 'backend', ['http', 'debug'], [5000, 5001]);
+    expect(ports.http).toBe(5000);
+    expect(ports.debug).toBe(5001);
   });
 });

@@ -453,9 +453,10 @@ CREATE TABLE IF NOT EXISTS ship_runs (
   -- v34 liveness evidence: the extension host that opened the run, so an
   -- activation sweep can tell a ship that died with its host from one another
   -- LIVE window is still executing. NULL = unknown (a pre-v34 run) and is
-  -- never read as "alive". Placed LAST, matching where the migration's ALTER
-  -- TABLE ADD COLUMN necessarily puts it on an upgraded DB (SQLite always
-  -- appends).
+  -- never read as "alive" — the stranded-ship sweep resumes a NULL-pid
+  -- running run, while `reconcileShipRuns` leaves it strictly alone.
+  -- Placed LAST, matching where the migration's ALTER TABLE ADD COLUMN
+  -- necessarily puts it on an upgraded DB (SQLite always appends).
   pid INTEGER
 );
 CREATE TABLE IF NOT EXISTS ship_repo_steps (

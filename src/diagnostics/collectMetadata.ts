@@ -17,6 +17,7 @@ import {
   type RuntimeDiagnosticInput,
 } from './hostEvidence.js'
 import {
+  readCoreUsage,
   readGateRuns,
   readMergeChecks,
   readPhaseMarks,
@@ -263,6 +264,8 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
   await yieldToHost(input.isCancelled)
   metadata.pullRequest = collectPullRequests(input, safe, repositories)
   await yieldToHost(input.isCancelled)
+  metadata.cores = collectCores(input, safe)
+  await yieldToHost(input.isCancelled)
   metadata.logs = collectLogs(input.logs.snapshot(), input.generatedAt, safe)
 
   return {
@@ -305,6 +308,7 @@ export async function collectProjectMetadata(
         aliases: input.aliases,
         repositoryAlias: aliases.byName,
       })),
+      cores: collectProjectCores(input, safe),
       logs: collectLogs(input.logs.snapshot(), input.generatedAt, safe),
     },
     exclusions: [
@@ -432,4 +436,67 @@ function collectLogs(
           : 'bytes',
     }
     : available(data)
+}
+
+interface CoreEvidenceSource {
+  readonly store: Store
+  readonly scope: { ticketId: number } | { projectId: number }
+}
+
+/**
+ * Per-core usage evidence for the report's `cores` section — which agent cores
+ * the ticket actually used, with headless and interactive spend, confirmed
+ * sessions and models. Read from append-only sources (`token_usage`,
+ * `interactive_usage_samples`, `session_launch_intents`), so a mid-session core
+ * switch leaves every earlier core's rows in place: the section names ALL used
+ * cores, never just the latest `tickets.session_provider` or the codex bridge.
+ */
+function renderCoresEvidence(
+  source: CoreEvidenceSource,
+  safe: (value: string | null) => string | null,
+): DiagnosticSection {
+  try {
+    const result = readCoreUsage(
+      source.store,
+      source.scope,
+      DIAGNOSTIC_LIMITS.maxRowsPerSection,
+    )
+    const data = result.rows.map((row) => ({
+      core: row.core,
+      headlessCalls: row.headlessCalls,
+      headlessTokens: row.headlessTokens,
+      interactiveCalls: row.interactiveCalls,
+      interactiveTokens: row.interactiveTokens,
+      sessions: row.sessions,
+      models: row.models
+        .map((model) => safe(model))
+        .filter((model): model is string => model !== null),
+      firstSeenAt: safe(row.firstSeenAt),
+      lastSeenAt: safe(row.lastSeenAt),
+    }))
+    return result.omitted > 0
+      ? {
+        status: 'truncated',
+        data: json(data),
+        omitted: result.omitted,
+        reason: 'rows',
+      }
+      : available(data)
+  } catch {
+    return { status: 'unavailable', reason: 'reader_failed' }
+  }
+}
+
+function collectCores(
+  input: MetadataSources,
+  safe: (value: string | null) => string | null,
+): DiagnosticSection {
+  return renderCoresEvidence({ store: input.store, scope: { ticketId: input.ticketId } }, safe)
+}
+
+function collectProjectCores(
+  input: Omit<MetadataSources, 'ticketId'>,
+  safe: (value: string | null) => string | null,
+): DiagnosticSection {
+  return renderCoresEvidence({ store: input.store, scope: { projectId: input.project.id } }, safe)
 }

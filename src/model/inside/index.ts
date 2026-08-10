@@ -219,7 +219,29 @@ export function scopeProcesses(
           : ran
             ? 'note'
             : 'pending',
-      ...(worktrees.length === 0 && ran ? { detail: 'no worktrees created' } : {}),
+      // The row's description in EVERY state (869egdr2u-fu1): the count of
+      // created worktrees once scope ran, the "not created yet" answer before
+      // it — never an empty detail cell.
+      ...(worktrees.length > 0
+        ? {
+            detail:
+              worktrees.length === 1
+                ? '1 worktree created'
+                : `${worktrees.length} worktrees created`,
+            count: String(worktrees.length),
+          }
+        : ran
+          ? { detail: 'no worktrees created' }
+          : { detail: 'not created yet' }),
+      // The row dates from the same scope run as the hot set — every scope
+      // process carries its stamp (869egdr2u-fu1).
+      ...(cell.startedAt
+        ? {
+            duration: formatDuration(cell.startedAt, cell.endedAt ?? now),
+            durationExact: formatExactDuration(cell.startedAt, cell.endedAt ?? now),
+            time: formatTime(cell.startedAt),
+          }
+        : {}),
       evidence: { kind: 'rows', rows },
     },
   ];

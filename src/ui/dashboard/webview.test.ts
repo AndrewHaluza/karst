@@ -1552,7 +1552,10 @@ describe('dashboard webview.html', () => {
     // is BUILT earlier in the function — its position in the rendered template
     // is what counts.)
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    const rendered = row.slice(row.indexOf('return `'));
+    // The receipt branch returns EARLIER than the disclosure rows (it is not
+    // a disclosure — 869egdr2u-fu1), so the summary template under test is
+    // the LAST return: the one that carries the disclosure marker.
+    const rendered = row.slice(row.lastIndexOf('return `'));
     const positions = [
       rendered.indexOf('${glyph}'),
       rendered.indexOf('${name}'),
@@ -2364,7 +2367,10 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('class="session-segments"');
     expect(html).toMatch(/class="timeline-row switch-event"/);
     expect(html).toMatch(/<span class="switch-arrow" aria-hidden="true">↳<\/span>/);
-    expect(html).toContain('<span class="phase-time">4m 12s</span>');
+    // The start stamp rides the tail beside its span — the identity slot is
+    // not a place for a time (869egdr2u-fu1).
+    expect(html).toContain('<span class="segment-window">09:12:33</span>');
+    expect(html).toContain('<span class="segment-window">4m 12s</span>');
   });
 
   it('renders commits evidence as the prototype commit grid (B2)', () => {
@@ -2458,6 +2464,34 @@ describe('inside render round trip (executed in a VM)', () => {
     // The delivery lines the receipt has always carried are still below it.
     expect(html).toContain('class="done-lines"');
     expect(html).toContain('<span class="done-key">commits</span>');
+  });
+
+  it('keeps the receipt overview visible without any click — it is not a disclosure (869egdr2u-fu1)', () => {
+    // The done overview (hero + receipt grid + timing) is NEVER behind the
+    // process chevron: the row renders static and the body sits beneath it
+    // unconditionally. Only the detail lines expand, behind the receipt's own
+    // inner <details>.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('done') });
+    const html = h.htmlOf('inside');
+    expect(html).toContain('data-proc-id="done:delivery-receipt"');
+    expect(html).not.toMatch(/data-proc-id="done:delivery-receipt" open/);
+    expect(html).toContain('class="done-hero"');
+    expect(html).toContain('class="receipt-grid"');
+    expect(html).toContain('<details class="done-details">');
+    expect(html).toMatch(/<summary><span class="done-chev" aria-hidden="true"><\/span>Details<\/summary>/);
+  });
+
+  it('renders the Timing strip with the host-stated total and stage spans (869egdr2u-fu1)', () => {
+    // The sum of the stage spans IS the stated total — computed host-side
+    // from the same stamps (UI-R31: the webview concatenates nothing).
+    const html = renderInsideFor('done');
+    expect(html).toContain('<div class="done-timing">');
+    expect(html).toContain('<span class="done-timing-label">Timing</span>');
+    expect(html).toContain('<span class="done-timing-value">37m 8s total</span>');
+    expect(html).toContain(
+      '<span class="done-timing-items">Scope 2m 10s · Implementation 22m 15s · UAT 5m 2s · Review 4m 30s · Ship 3m 11s</span>',
+    );
   });
 
   it('renders a receipt with no hero or blocks as the plain line list', () => {
@@ -2675,7 +2709,7 @@ describe('inside render round trip (executed in a VM)', () => {
       /<div class="overflow-note"><span>\+14 more<\/span><button[^>]*data-act="inside-action"[^>]*>Show 14 more<\/button><\/div>/,
     );
     const receipt = openEvidenceCount('done', 'delivery-receipt', 20);
-    const block = receipt.slice(receipt.indexOf('class="op-body"'));
+    const block = receipt.slice(receipt.indexOf('receipt-body'));
     expect(block).toContain('Show 14 more');
     expect(block).toContain('data-action-id="fixture:open-bounded-evidence:20"');
     // A gate bound the reducer did not make actionable renders no control.
@@ -3133,7 +3167,7 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
           evidence: {
             kind: 'timeline',
             rows: [
-              { status: 'pass', label: 'started', detail: '10:03:01', role: 'identity' },
+              { status: 'pass', label: 'started', time: '10:03:01', role: 'identity' },
               { status: 'note', label: 'plan', detail: 'reported · 10:06:14', time: '10:06', role: 'phase' },
               { status: 'pass', label: 'done', detail: 'implementation marked done · 10:22:43', time: '10:22', role: 'phase' },
             ],
@@ -3145,6 +3179,10 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
     expect(implHtml).toMatch(/timeline-start[\s\S]*?<span class="glyph phase-status pass"/);
     expect(implHtml).not.toMatch(/timeline-start[\s\S]*?timeline-node start/);
     expect(implHtml).toContain('<span class="phase-time">10:06</span>');
+    // The start stamp renders BESIDE the duration in the tail — never in the
+    // identity chip's blue (869egdr2u-fu1).
+    expect(implHtml).toMatch(/<span class="segment-window">10:03:01<\/span>/);
+    expect(implHtml).not.toMatch(/agent-core">10:03:01/);
   });
 
   it('renders the full done receipt — hero, three blocks and the lines', () => {

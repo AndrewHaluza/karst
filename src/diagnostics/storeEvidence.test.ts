@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { openStore, type Store } from '../store/db.js'
+import { upsertProject } from '../store/projects.js'
+import { createTicket } from '../store/tickets.js'
 import {
+  readCoreUsage,
   readGateRuns,
   readMergeChecks,
   readPhaseMarks,
@@ -168,5 +171,98 @@ describe('diagnostic store evidence', () => {
     expect(readServers(store, 7, 2).omitted).toBe(2)
     expect(readPullRequests(store, 7, 2).omitted).toBe(2)
     expect(readMergeChecks(store, 7, 2).omitted).toBe(2)
+  })
+
+  function seedUsageEvidence(store: Store, ticketId: number, projectId: number, tag = ''): void {
+    const providerSessionId = `sess-codex${tag}`
+    store.db.prepare(
+      `INSERT INTO token_usage
+        (project_id, ticket_id, call_site, provider, model, input_tokens, output_tokens,
+         total_tokens, estimated, outcome, recorded_at)
+       VALUES (?, ?, 'uat-tester', 'codex', 'gpt-5-codex', 100, 40, 140, 0, 'ok', '2026-07-28T09:00:00.000Z'),
+              (?, ?, 'uat-tester', 'codex', 'gpt-5-codex', 200, 60, 260, 0, 'ok', '2026-07-28T10:00:00.000Z'),
+              (?, ?, 'pr-description', 'claude', 'opus', 30, 10, 40, 0, 'ok', '2026-07-29T08:00:00.000Z'),
+              (?, ?, 'ticket-analysis', NULL, NULL, 5, 1, 6, 0, 'ok', '2026-07-29T09:00:00.000Z')`,
+    ).run(projectId, ticketId, projectId, ticketId, projectId, ticketId, projectId, ticketId)
+    store.db.prepare(
+      `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at)
+       VALUES (?, 'impl', 'session', 1, 'passed', '2026-07-28T08:00:00.000Z')`,
+    ).run(ticketId)
+    const processId = (
+      store.db.prepare('SELECT id FROM process_runs WHERE ticket_id = ?').get(ticketId) as { id: number }
+    ).id
+    store.db.prepare(
+      `INSERT INTO interactive_usage_samples
+        (process_run_id, source_event_id, provider, provider_session_id,
+         input_tokens, output_tokens, total_tokens, baseline_only, observed_at)
+       VALUES (?, 'ev-1', 'codex', ?, 500, 200, 700, 0, '2026-07-28T11:00:00.000Z'),
+              (?, 'ev-2', 'codex', ?, 300, 100, 400, 0, '2026-07-28T12:00:00.000Z')`,
+    ).run(processId, providerSessionId, processId, providerSessionId)
+    store.db.prepare(
+      `INSERT INTO session_launch_intents
+        (ticket_id, launch_id, purpose, provider, model, reason, session_origin, status, created_at, resolved_at)
+       VALUES (?, 'launch-a${tag}', 'implementation', 'codex', 'gpt-5-codex', 'open', 'new', 'confirmed', '2026-07-28T08:00:00.000Z', '2026-07-28T08:01:00.000Z'),
+              (?, 'launch-b${tag}', 'implementation', 'claude', 'opus', 'switch', 'new', 'confirmed', '2026-07-29T08:00:00.000Z', '2026-07-29T08:01:00.000Z'),
+              (?, 'launch-c${tag}', 'implementation', 'codex', 'gpt-5-codex', 'retry', 'new', 'failed', '2026-07-29T09:00:00.000Z', '2026-07-29T09:01:00.000Z')`,
+    ).run(ticketId, ticketId, ticketId)
+  }
+
+  it('aggregates per-core usage from token_usage, interactive samples and confirmed launches', () => {
+    store = openStore(':memory:')
+    const project = upsertProject(store, { slug: 'p' })
+    const ticket = createTicket(store, { projectId: project.id, key: 'K-1', title: 't' })
+    seedUsageEvidence(store, ticket.id, project.id)
+
+    const result = readCoreUsage(store, { ticketId: ticket.id }, 10)
+    const byCore = new Map(result.rows.map((row) => [row.core, row]))
+    expect(byCore.get('codex')).toMatchObject({
+      core: 'codex',
+      headlessCalls: 2,
+      headlessTokens: { input: 300, output: 100, total: 400 },
+      interactiveCalls: 2,
+      interactiveTokens: { input: 800, output: 300, total: 1100 },
+      sessions: 1, // the 'failed' launch is not a session
+      models: ['gpt-5-codex'],
+      firstSeenAt: '2026-07-28T08:00:00.000Z',
+      lastSeenAt: '2026-07-28T12:00:00.000Z',
+    })
+    expect(byCore.get('claude')).toMatchObject({
+      core: 'claude',
+      headlessCalls: 1,
+      headlessTokens: { input: 30, output: 10, total: 40 },
+      interactiveCalls: 0,
+      interactiveTokens: { input: 0, output: 0, total: 0 },
+      sessions: 1,
+      models: ['opus'],
+    })
+    // NULL provider rows stay visible under 'unknown' — never dropped.
+    expect(byCore.get('unknown')).toMatchObject({
+      core: 'unknown',
+      headlessCalls: 1,
+      headlessTokens: { input: 5, output: 1, total: 6 },
+    })
+    expect(result.omitted).toBe(0)
+  })
+
+  it('scopes readCoreUsage to the ticket or project and caps rows', () => {
+    store = openStore(':memory:')
+    const project = upsertProject(store, { slug: 'p' })
+    const other = upsertProject(store, { slug: 'q' })
+    const ticket = createTicket(store, { projectId: project.id, key: 'K-1', title: 't' })
+    const otherTicket = createTicket(store, { projectId: other.id, key: 'K-2', title: 't2' })
+    seedUsageEvidence(store, ticket.id, project.id)
+    seedUsageEvidence(store, otherTicket.id, other.id, '-2')
+
+    const scoped = readCoreUsage(store, { ticketId: ticket.id }, 10)
+    expect(scoped.rows.length).toBe(3)
+    expect(scoped.rows.map((row) => row.core).sort()).toEqual(['claude', 'codex', 'unknown'])
+
+    const projectWide = readCoreUsage(store, { projectId: project.id }, 10)
+    expect(projectWide.rows.length).toBe(3)
+    expect(readCoreUsage(store, { projectId: other.id }, 10).rows.map((row) => row.core).sort()).toEqual(
+      ['claude', 'codex', 'unknown'],
+    )
+    expect(readCoreUsage(store, { ticketId: ticket.id }, 2).omitted).toBe(1)
+    expect(readCoreUsage(store, { ticketId: 99999 }, 10).rows).toEqual([])
   })
 })

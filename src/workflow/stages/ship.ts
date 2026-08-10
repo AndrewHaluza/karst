@@ -840,10 +840,13 @@ export async function shipTicket(
   const run = openShipRun(store, {
     ticketId: opts.ticketId,
     attempt: runCount.n + 1,
-    startedAt,
-    // v34: the host that owns the saga, so an activation sweep can tell a ship
-    // killed by process death from one another LIVE window is still executing.
+    // The run is opened BY this host (v34): when the host dies, this pid is
+    // what tells the activation sweep the run died with it — so it can tell a
+    // ship killed by process death from one another LIVE window is still
+    // executing (reconcileShipRuns parks it failed, the stranded-ship sweep
+    // resumes it).
     pid: process.pid,
+    startedAt,
   });
 
   // Live Ship progress rides the SAME generic inside-progress union as gates

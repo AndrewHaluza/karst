@@ -1589,7 +1589,7 @@ describe('openStore', () => {
     expect(tableNames(store)).toContain('ship_commits');
 
     const runCols = columns(store, 'ship_runs');
-    for (const col of ['id', 'ticket_id', 'attempt', 'status', 'started_at', 'ended_at']) {
+    for (const col of ['id', 'ticket_id', 'attempt', 'status', 'pid', 'started_at', 'ended_at']) {
       expect(runCols, col).toContain(col);
     }
     const stepCols = columns(store, 'ship_repo_steps');
@@ -1737,7 +1737,7 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(34);
   });
 
-  it('migrates a v33 DB to v34, adding ship_runs.pid without touching rows', () => {
+  it('migrates a v33 DB to v34, adding the ship run pid column without touching rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
@@ -1764,8 +1764,9 @@ describe('openStore', () => {
     );
     expect(runCols.has('pid')).toBe(true);
     // Nothing is backfilled: a pre-v34 run names no host — the unknown stays
-    // NULL (which the stranded-ship sweep reads as "no evidence of life"),
-    // and the pre-v34 row is otherwise untouched.
+    // NULL (which the stranded-ship sweep reads as "no evidence of life",
+    // while the reconcile sweep leaves it strictly alone), and the pre-v34
+    // row is otherwise untouched.
     expect(
       migrated.db
         .prepare('SELECT ticket_id, attempt, status, started_at, ended_at, pid FROM ship_runs')

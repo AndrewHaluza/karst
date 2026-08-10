@@ -15,6 +15,7 @@ import {
   markShipOperationApplied,
   reconcileShipOperation,
   listShipEvidence,
+  reconcileShipRuns,
   parseShipPreState,
   parseShipIntent,
   type ShipStep,
@@ -630,6 +631,114 @@ describe('ship_runs', () => {
       expect(listStrandedShipTickets(store, () => false, { projectId: 2 })).toEqual([
         { ticketId: other, runId: expect.any(Number) as number, startedAt: '2026-08-08T11:00:00.000Z', pid: 4242 },
       ]);
+    });
+  });
+
+  describe('reconcileShipRuns', () => {
+    const parkAtShip = () => {
+      setStage(store, ticketId, 'ship', {
+        status: 'running',
+        startedAt: '2026-08-08T10:00:00.000Z',
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(ticketId);
+    };
+
+    it('carries the opening host pid on the run row', () => {
+      const r = run({ pid: 4242 });
+      expect(r.pid).toBe(4242);
+      expect(listShipEvidence(store, ticketId).run!.pid).toBe(4242);
+    });
+
+    it('marks a dead run interrupted, closes its running steps failed, and parks the stage for a retry', () => {
+      parkAtShip();
+      const r = run({ pid: 4242 });
+      const describe = step(r.id, { step: 'describe' });
+      step(r.id, { step: 'commit', repo: 'api' });
+
+      const stale = reconcileShipRuns(store, (pid) => pid !== 4242, '2026-08-08T11:00:00.000Z');
+      expect(stale).toHaveLength(1);
+      expect(stale[0]!.run.id).toBe(r.id);
+      expect(stale[0]!.run.status).toBe('interrupted');
+      expect(stale[0]!.reason).toMatch(/pid 4242/);
+
+      const ev = listShipEvidence(store, ticketId);
+      expect(ev.run).toMatchObject({ status: 'interrupted', endedAt: '2026-08-08T11:00:00.000Z' });
+      expect(ev.repos.web!.describe).toMatchObject({
+        status: 'failed',
+        detail: 'interrupted — the host that ran it died; retry ship to continue',
+        endedAt: '2026-08-08T11:00:00.000Z',
+      });
+      expect(ev.repos.api!.commit).toMatchObject({ status: 'failed' });
+
+      // The stage reads failed with a retry verdict, so the existing
+      // failed-ship surface ("Retry ship") explains the interruption.
+      const stage = store.db
+        .prepare("SELECT status, verdict, ended_at FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+        .get(ticketId) as { status: string; verdict: string; ended_at: string | null };
+      expect(stage.status).toBe('failed');
+      expect(stage.verdict).toMatch(/interrupted/);
+      expect(stage.ended_at).toBe('2026-08-08T11:00:00.000Z');
+    });
+
+    it('leaves a run whose pid is still alive strictly alone', () => {
+      parkAtShip();
+      const r = run({ pid: 4242 });
+      step(r.id, { step: 'describe' });
+      const stale = reconcileShipRuns(store, () => true, '2026-08-08T11:00:00.000Z');
+      expect(stale).toEqual([]);
+      const ev = listShipEvidence(store, ticketId);
+      expect(ev.run!.status).toBe('running');
+      expect(ev.run!.endedAt).toBeNull();
+      expect(ev.repos.web!.describe!.status).toBe('running');
+      const stage = store.db
+        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+        .get(ticketId) as { status: string };
+      expect(stage.status).toBe('running');
+    });
+
+    it('leaves a run with no recorded pid alone — absence of evidence is not evidence it died', () => {
+      parkAtShip();
+      const r = run();
+      step(r.id, { step: 'describe' });
+      const stale = reconcileShipRuns(store, () => false, '2026-08-08T11:00:00.000Z');
+      expect(stale).toEqual([]);
+      expect(listShipEvidence(store, ticketId).run!.status).toBe('running');
+    });
+
+    it('never rewrites an already-closed run', () => {
+      parkAtShip();
+      const r = run({ pid: 4242 });
+      closeShipRun(store, r.id, 'passed', '2026-08-08T10:30:00.000Z');
+      const stale = reconcileShipRuns(store, () => false, '2026-08-08T11:00:00.000Z');
+      expect(stale).toEqual([]);
+      expect(listShipEvidence(store, ticketId).run!.status).toBe('passed');
+    });
+
+    it('closes the dead run but leaves the stage alone when the stage is blocked, not running', () => {
+      // A ticket parked awaiting-merge keeps its stored `running` beside the
+      // block; a dead run must not flip that parked state to failed.
+      setStage(store, ticketId, 'ship', {
+        status: 'running',
+        startedAt: '2026-08-08T10:00:00.000Z',
+        blockedKind: 'awaiting-merge',
+        blockedReason: 'PR #413 not merged',
+        blockedAt: '2026-08-08T10:30:00.000Z',
+      });
+      const r = run({ pid: 4242 });
+      reconcileShipRuns(store, () => false, '2026-08-08T11:00:00.000Z');
+      expect(listShipEvidence(store, ticketId).run!.status).toBe('interrupted');
+      const stage = store.db
+        .prepare("SELECT status, blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+        .get(ticketId) as { status: string; blocked_kind: string | null };
+      expect(stage.status).toBe('running');
+      expect(stage.blocked_kind).toBe('awaiting-merge');
+    });
+
+    it('is idempotent: a second sweep finds nothing left to mark', () => {
+      parkAtShip();
+      run({ pid: 4242 });
+      reconcileShipRuns(store, () => false, '2026-08-08T11:00:00.000Z');
+      expect(reconcileShipRuns(store, () => false, '2026-08-08T11:05:00.000Z')).toEqual([]);
     });
   });
 });

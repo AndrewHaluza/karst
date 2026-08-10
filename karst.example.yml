@@ -29,6 +29,7 @@
 host: 127.0.0.1
 
 # Inclusive [min, max] port window Karst allocates ticket-hot ports from.
+# A service may override this with its own `portRange:` (see backend below).
 portRange: [4000, 4100]
 
 # Default branch every worktree is created off, baseline services run from, and
@@ -72,6 +73,12 @@ repositories:
         - name: port        # slot identity, referenced by dependsOn.port
           env: PORT          # env var that sets this port on spawn
           default: 8000      # baseline / default-mode value
+      # Optional per-service port window. When set, karst allocates THIS
+      # service's ticket-hot ports only from this inclusive [min, max] window,
+      # instead of the global `portRange` above. Absent = inherit the global.
+      # Overlapping windows across services are fine — no port is ever handed
+      # to two services at once.
+      portRange: [5000, 5100]
       dependsOn: []
 
   frontend:

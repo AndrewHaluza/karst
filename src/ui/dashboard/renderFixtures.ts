@@ -211,6 +211,7 @@ function scopeView(n: RenderRepoCount): InsideStageView {
         kind: 'worktrees',
         label: 'Worktrees',
         status: 'pending',
+        detail: 'not created yet',
         evidence: { kind: 'rows', rows },
       },
     ],
@@ -221,7 +222,9 @@ function scopeView(n: RenderRepoCount): InsideStageView {
 /** The impl stage: the live session timeline (the "live" state). */
 function implView(_n: RenderRepoCount): InsideStageView {
   const rows: EvidenceRow[] = [
-    { status: 'note', label: 'started', detail: '09:12:33', duration: '4m 12s' },
+    // The run start: a time fact beside its span, never an identity chip —
+    // the reducer ships the stamp in `time` (869egdr2u-fu1).
+    { status: 'note', label: 'started', time: '09:12:33', duration: '4m 12s', role: 'identity' },
     {
       status: 'note',
       label: 'switch',
@@ -312,6 +315,13 @@ function doneView(n: RenderRepoCount): InsideStageView {
       ],
     },
   ];
+  // The Timing strip: stage spans whose sum IS the stated total — the same
+  // host-side consistency the done reducer guarantees (869egdr2u-fu1).
+  const doneTiming = {
+    label: 'Timing',
+    total: '37m 8s total',
+    items: 'Scope 2m 10s · Implementation 22m 15s · UAT 5m 2s · Review 4m 30s · Ship 3m 11s',
+  };
   return {
     stageKey: 'done',
     title: 'Done',
@@ -325,7 +335,7 @@ function doneView(n: RenderRepoCount): InsideStageView {
         status: 'pass',
         detail: '38.2k tokens recorded',
         tokens: { ...ESTIMATED_TOKENS },
-        evidence: { kind: 'receipt', rows, hero, blocks },
+        evidence: { kind: 'receipt', rows, hero, blocks, timing: doneTiming },
       },
     ],
     blurb: STAGE_BLURBS.done,
@@ -517,6 +527,7 @@ function shipView(n: RenderRepoCount): InsideStageView {
         kind: 'merge',
         label: 'Merge',
         status: 'wait',
+        detail: 'Ship is waiting: resolve the merge conflict before the ticket can be done.',
         evidence: { kind: 'rows', rows: boundedRows(mergeRows, REPOSITORY_EVIDENCE_LIMIT, true) },
       },
     ],

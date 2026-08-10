@@ -1086,18 +1086,26 @@ export function migrate(db: Database): void {
   }
 
   if (current < 34) {
-    // v34 records which extension host opened a ship run (`ship_runs.pid`), so
-    // the stranded-ship sweep (`store/shipRuns.ts`'s `listStrandedShipTickets`)
-    // can tell a ship that died with its host from one another LIVE window is
-    // still executing. Without it a killed ship freezes the ticket at `ship`
-    // reading `running` forever — no awaiting-merge block for the merge sweep,
-    // no stage_runs row for the drive sweep, and no button for a running row —
-    // and nothing ever re-runs the saga built to be re-run.
+    // v34 records WHICH extension host opened a ship run (`ship_runs.pid`), so
+    // an activation sweep can tell a ship that died with its host from one
+    // another LIVE window is still executing. Without it a killed ship freezes
+    // the ticket at `ship` reading `running` forever — no awaiting-merge block
+    // for the merge sweep, no stage_runs row for the drive sweep, and no
+    // button for a running row.
     //
-    // NOTHING IS BACKFILLED. A pre-v34 run names no host; NULL reads as
-    // "unknown", and the sweep treats a NULL-pid running run as stranded
-    // (absence of evidence is not evidence of life) — the freeze is still
-    // recovered, it just cannot be proven dead first.
+    // Two recovery sweeps read it (both in `store/shipRuns.ts`):
+    // `reconcileShipRuns` marks dead runs `interrupted` and parks the stage
+    // `failed` (the one state that already has a recovery path: "Retry ship"),
+    // while `listStrandedShipTickets` resumes the interrupted saga outright.
+    // Same liveness posture as `stage_runs.pid` (v25): a pid is a recollection,
+    // never a handle.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded which process opened a
+    // run — a NULL names the unknown, never an invented one: `reconcileShipRuns`
+    // leaves a NULL-pid run strictly alone (absence of evidence is not evidence
+    // it died), while the stranded-ship sweep treats it as stranded (absence of
+    // evidence is not evidence of life) — a pre-v34 run can only be recovered
+    // by re-running the saga built to be re-run.
     const shipRunCols34 = tableColumns(db, 'ship_runs');
     if (shipRunCols34.size > 0 && !shipRunCols34.has('pid')) {
       db.exec('ALTER TABLE ship_runs ADD COLUMN pid INTEGER');

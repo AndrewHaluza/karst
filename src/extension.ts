@@ -238,7 +238,13 @@ import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
 import { getPrById } from './store/prs.js';
-import { getShipCommitById, listStrandedShipTickets, describeStrandedShip } from './store/shipRuns.js';
+import {
+  getShipCommitById,
+  listStrandedShipTickets,
+  describeStrandedShip,
+  reconcileShipRuns,
+  describeStaleShipRun,
+} from './store/shipRuns.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
@@ -582,6 +588,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   } catch (err) {
     logError('karst: stale process-run sweep failed', err);
+  }
+  // Stale ship-run sweep (869egdr2u-fu1 follow-up). A ship run killed by
+  // process death mid-saga — the host died between opening the run and closing
+  // it — is a state nothing can leave on its own: the saga's crash-and-retry
+  // reconciliation only runs at the start of the next `shipTicket` invocation,
+  // and a ticket at `ship` `running` with no block offers no retry anywhere
+  // (the Now line shows no button for a running ship, and the driver only
+  // auto-runs gates). Marking the dead run `interrupted` and parking the
+  // stage `failed` is what turns that stuck state into the one that already
+  // has a recovery path: the failed-ship surface's "Retry ship".
+  //
+  // GLOBAL for the same reason as the gate-run pass above, and safe for the
+  // same reason: attribution, not scope. A run opened by ANOTHER LIVE window
+  // has a live pid and is left strictly alone; a run with no recorded pid is
+  // left alone too, because absence of evidence is not evidence that it died.
+  //
+  // Reported, never silent — an invisibly-discarded run is the whole failure
+  // this closes, and a sweep that quietly corrected the data would repeat it.
+  try {
+    for (const s of reconcileShipRuns(localStore, pidAlive, new Date().toISOString())) {
+      logger.info(describeStaleShipRun(s));
+    }
+  } catch (err) {
+    logError('karst: stale ship-run sweep failed', err);
   }
   // Stranded fix-execution sweep. Runs AFTER the process-run pass above, which
   // is what turns a destroyed Fix run into a non-`running` row this can read:

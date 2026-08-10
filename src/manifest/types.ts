@@ -38,6 +38,12 @@ export interface ServiceDef {
   start: string;
   health?: string;
   ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
+  /**
+   * Optional per-service allocation window. When present, ticket-hot ports for
+   * this service are allocated ONLY from this inclusive [min, max] window,
+   * overriding the manifest-level `portRange`. Absent → the global range.
+   */
+  portRange?: [number, number];
   dependsOn: DependsOn[];
 }
 

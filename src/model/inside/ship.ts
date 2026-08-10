@@ -650,6 +650,7 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
   });
   const allMerged = recorded.length > 0 && recorded.every((r) => r.status === 'pass');
   const conflicted = recorded.filter((r) => r.label.endsWith(' · conflict')).length;
+  const merged = recorded.filter((r) => r.status === 'pass').length;
   const rows = boundedRepoRows(input, 'Ship · Merge', recorded);
   return {
     id: 'merge',
@@ -665,7 +666,11 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
         ? { detail: 'nothing to merge — no pull request opened' }
         : rows.length === 0
           ? { detail: noEvidenceDetail(input) }
-          : {}),
+          // The row describes EVERY state: the merged count over the CURRENT
+          // PRs, the same count shape Push's description uses — "1/2 merged",
+          // "2/2 merged" (869egdr2u-fu1: the row had no description at all).
+          // An unknown PR status is UNMERGED, so it reads in the open half.
+          : { detail: `${merged}/${recorded.length} merged` }),
     evidence: { kind: 'rows', rows },
   };
 }
