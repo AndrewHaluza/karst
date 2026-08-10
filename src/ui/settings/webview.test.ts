@@ -360,6 +360,10 @@ describe('repository field validation UX', () => {
       .toEqual({ key: 'api.start' });
     expect(parse('repository "api" service.ports[0].env must be a non-empty string'))
       .toEqual({ key: 'api.ports.0.env' });
+    expect(parse('repository "api" service.portRange must be a [min, max] number pair'))
+      .toEqual({ key: 'api.portRange' });
+    expect(parse('repository "api" service.portRange min must be an integer between 1 and 65535 (got 0)'))
+      .toEqual({ key: 'api.portRange' });
     expect(parse('portRange must be a [min, max] number pair')).toBeNull();
   });
 
@@ -439,6 +443,25 @@ describe('repository field placeholders', () => {
     expect(HTML).toContain('placeholder="PORT"'); // port env
     expect(HTML).toContain('placeholder="3000"'); // port default
     expect(HTML).toContain('placeholder="my-repo"'); // repo name field
+    expect(HTML).toContain('data-port-range-field="min"'); // port range min input
+    expect(HTML).toContain('data-port-range-field="max"'); // port range max input
+    expect(HTML).toContain('data-touch-key="${esc(name)}.portRange"');
+  });
+});
+
+describe('per-service port range editing', () => {
+  it('writes draft.repositories[name].service.portRange from the range inputs', () => {
+    expect(HTML).toContain('t.dataset.portRangeField');
+    expect(HTML).toMatch(/svcDef\.portRange = \[Number\(minVal\) \|\| 0, Number\(maxVal\) \|\| 0\];/);
+  });
+
+  it('clears service.portRange when both inputs are blank', () => {
+    expect(HTML).toContain("if (minVal === '' && maxVal === '') delete svcDef.portRange;");
+  });
+
+  it('renders an existing portRange into the min/max inputs', () => {
+    expect(HTML).toContain('value="${svc.portRange ? svc.portRange[0] : \'\'}"');
+    expect(HTML).toContain('value="${svc.portRange ? svc.portRange[1] : \'\'}"');
   });
 });
 
