@@ -10,6 +10,10 @@
  * key rule). `endpoint.ts` stays a thin router over this module.
  */
 
+import type { Store } from '../store/db.js';
+import { generateTicketKey, type Ticket } from '../store/tickets.js';
+import { createTicketFlow } from '../workflow/stages/create.js';
+
 /** Fields a ticket-creation request may carry. Everything is validated. */
 export interface CreateTicketRequest {
   title: string;
@@ -57,4 +61,26 @@ export function parseCreateTicketRequest(raw: unknown): ParseCreateTicketResult 
       ...(key ? { key } : {}),
     },
   };
+}
+
+/**
+ * Create (or resurrect) the ticket through `createTicketFlow` — the same path
+ * the ticket form's `persistDraft` uses, so an API-created ticket is
+ * byte-identical in store shape to a form-created one. A blank key is derived
+ * from the title exactly once, scoped to the project.
+ */
+export function createTicketFromApi(
+  store: Store,
+  request: CreateTicketRequest,
+  opts: { projectId?: number } = {},
+): Ticket {
+  const key =
+    request.key ??
+    generateTicketKey(store, { projectId: opts.projectId }, request.title);
+  return createTicketFlow(store, {
+    key,
+    title: request.title,
+    description: request.description,
+    projectId: opts.projectId,
+  });
 }
