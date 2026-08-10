@@ -43,7 +43,7 @@
   .ticket.arch{opacity:.6}
   .row{display:flex;align-items:center;gap:var(--k-space-3);
     padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) var(--k-space-2);
-    border-radius:var(--k-radius-md);position:relative}
+    border-radius:var(--k-radius-md);position:relative;overflow:hidden}
   .row:hover{background:var(--k-surface-hover)}
   /* Opening a ticket is a handoff — the dashboard panel IS the answer — so the
      success flash only has to say "that one". `.k-btn--row` already replaces the
@@ -128,11 +128,13 @@
      rather than a solid chip, so "unknown" never masquerades as a real stage. */
   .stage.stg-unknown{border:var(--k-border-w) dashed currentColor}
   /* Actions overlay the row's right edge on hover so showing them never reflows
-     the row. The stage pill hides under them (same slot) to avoid overlap. The
-     cluster backs itself with the SOLID --k-surface (not the translucent
-     --k-surface-hover wash the row uses): the row's own text passes underneath
-     on narrow rows, and a translucent backdrop would let it show through the
-     icon buttons and read as a UI defect (UI-R05). */
+      the row. The stage pill hides under them (same slot) to avoid overlap. The
+      cluster backs itself with the SOLID --k-surface (not the translucent
+      --k-surface-hover wash the row uses): the row's own text passes underneath
+      on narrow rows, and a translucent backdrop would let it show through the
+      icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
+      clips the name text at the row boundary so it never bleeds under the
+      actions overlay on narrow rows. */
   .rowacts{display:flex;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
     transform:translateY(-50%);background:var(--k-surface);border-radius:var(--k-radius-sm);
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
