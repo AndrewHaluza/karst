@@ -1495,6 +1495,8 @@
     if (m) return { key: m[1] + '.' + m[2] };
     m = msg.match(/^repository "([^"]+)" service\.(start|health)\b/);
     if (m) return { key: m[1] + '.' + m[2] };
+    m = msg.match(/^repository "([^"]+)" service\.portRange\b/);
+    if (m) return { key: m[1] + '.portRange' };
     m = msg.match(/^repository "([^"]+)" service\.ports\[(\d+)\]\.(name|env|default)\b/);
     if (m) return { key: m[1] + '.ports.' + m[2] + '.' + m[3] };
     return null;
@@ -2010,6 +2012,9 @@
     const repoPathErrId = safeId('err', name + '.repoPath');
     const startErrId = safeId('err', name + '.start');
     const healthErrId = safeId('err', name + '.health');
+    const portMinId = safeId('f-svc-port-min', name);
+    const portMaxId = safeId('f-svc-port-max', name);
+    const portRangeErrId = safeId('err', name + '.portRange');
     // The disclosure is a real <button aria-expanded>, not the whole row
     // (UI-R09, R26) — it was a bare `<div data-toggle>` with `cursor:pointer`,
     // no role, no tabindex and no keydown handler anywhere, so the repo
@@ -2064,6 +2069,12 @@
           + `<input type="text" id="${healthId}" placeholder="http://{host}:{port}/health" data-svc-field="health" data-svc="${esc(name)}" data-touch-key="${esc(name)}.health" aria-describedby="${healthErrId}" value="${esc(svc.health || '')}"/>`
           + `<div class="field-error hidden" id="${healthErrId}" role="alert" data-field-error="${esc(name)}.health"></div>`
           + `<h2 style="margin-top:16px">Ports</h2>`
+          + `<label id="${portMinId}">Port range <span class="field-hint">(blank inherits global)</span></label>`
+          + `<div class="row" role="group" aria-labelledby="${portMinId}">`
+          + `<input type="number" id="${portMinId}" placeholder="min" aria-label="Port range minimum" data-port-range-field="min" data-svc="${esc(name)}" data-touch-key="${esc(name)}.portRange" aria-describedby="${portRangeErrId}" value="${svc.portRange ? svc.portRange[0] : ''}"/>`
+          + `<input type="number" id="${portMaxId}" placeholder="max" aria-label="Port range maximum" data-port-range-field="max" data-svc="${esc(name)}" data-touch-key="${esc(name)}.portRange" aria-describedby="${portRangeErrId}" value="${svc.portRange ? svc.portRange[1] : ''}"/>`
+          + `</div>`
+          + `<div class="field-error hidden" id="${portRangeErrId}" role="alert" data-field-error="${esc(name)}.portRange"></div>`
           + renderPortsTable(name, svc.ports || [])
           + `<h2 style="margin-top:16px">Depends on</h2>`
           + renderDependsOn(name, svc.dependsOn || [], otherNames)
@@ -2444,6 +2455,19 @@
       const port = (draft.repositories[svc].service || {}).ports?.[idx];
       if (!port) return;
       port[field] = field === 'default' ? Number(t.value) || 0 : t.value;
+      markDirty();
+      return;
+    }
+    if (t.dataset.portRangeField) {
+      const svc = t.dataset.svc;
+      const svcDef = draft.repositories[svc].service;
+      if (!svcDef) return;
+      const minEl = document.querySelector('[data-port-range-field="min"][data-svc="' + CSS.escape(svc) + '"]');
+      const maxEl = document.querySelector('[data-port-range-field="max"][data-svc="' + CSS.escape(svc) + '"]');
+      const minVal = minEl ? minEl.value : '';
+      const maxVal = maxEl ? maxEl.value : '';
+      if (minVal === '' && maxVal === '') delete svcDef.portRange;
+      else svcDef.portRange = [Number(minVal) || 0, Number(maxVal) || 0];
       markDirty();
       return;
     }
