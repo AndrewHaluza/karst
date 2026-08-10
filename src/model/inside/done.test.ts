@@ -18,6 +18,7 @@ const shipRun: ShipRun = {
   status: 'passed',
   startedAt: '2026-07-20T12:00:00.000Z',
   endedAt: '2026-07-20T12:03:00.000Z',
+  pid: null,
 };
 
 let nextId = 1;

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 34;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1082,6 +1082,25 @@ export function migrate(db: Database): void {
     const intentCols33 = tableColumns(db, 'session_launch_intents');
     if (intentCols33.size > 0 && !intentCols33.has('agent_name')) {
       db.exec('ALTER TABLE session_launch_intents ADD COLUMN agent_name TEXT');
+    }
+  }
+
+  if (current < 34) {
+    // v34 records which extension host opened a ship run (`ship_runs.pid`), so
+    // the stranded-ship sweep (`store/shipRuns.ts`'s `listStrandedShipTickets`)
+    // can tell a ship that died with its host from one another LIVE window is
+    // still executing. Without it a killed ship freezes the ticket at `ship`
+    // reading `running` forever — no awaiting-merge block for the merge sweep,
+    // no stage_runs row for the drive sweep, and no button for a running row —
+    // and nothing ever re-runs the saga built to be re-run.
+    //
+    // NOTHING IS BACKFILLED. A pre-v34 run names no host; NULL reads as
+    // "unknown", and the sweep treats a NULL-pid running run as stranded
+    // (absence of evidence is not evidence of life) — the freeze is still
+    // recovered, it just cannot be proven dead first.
+    const shipRunCols34 = tableColumns(db, 'ship_runs');
+    if (shipRunCols34.size > 0 && !shipRunCols34.has('pid')) {
+      db.exec('ALTER TABLE ship_runs ADD COLUMN pid INTEGER');
     }
   }
 

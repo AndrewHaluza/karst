@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import type { ProjectScope } from './tickets.js';
 
 /**
  * `ship_runs` + `ship_repo_steps` + `ship_operation_intents` + `ship_commits`
@@ -58,6 +59,13 @@ export interface ShipRun {
   status: ShipRunStatus;
   startedAt: string;
   endedAt: string | null;
+  /**
+   * The extension host that opened the run (v34). NULL = unknown (a pre-v34
+   * run, or one whose pid never landed) — never read as "alive": the
+   * stranded-ship sweep treats a NULL-pid running run as stranded, because
+   * absence of evidence is not evidence of life.
+   */
+  pid: number | null;
 }
 
 export interface ShipRepoStep {
@@ -148,6 +156,7 @@ interface ShipRunRowShape {
   status: string;
   started_at: string;
   ended_at: string | null;
+  pid: number | null;
 }
 
 interface ShipRepoStepRowShape {
@@ -199,6 +208,7 @@ function rowToShipRun(r: ShipRunRowShape): ShipRun {
     status: (RUN_STATUSES.includes(r.status) ? r.status : 'failed') as ShipRunStatus,
     startedAt: r.started_at,
     endedAt: r.ended_at,
+    pid: r.pid,
   };
 }
 
@@ -250,7 +260,7 @@ function rowToShipOperationIntent(r: ShipOperationIntentRowShape): ShipOperation
 }
 
 const RUN_SELECT =
-  'SELECT id, ticket_id, attempt, status, started_at, ended_at FROM ship_runs';
+  'SELECT id, ticket_id, attempt, status, started_at, ended_at, pid FROM ship_runs';
 const STEP_SELECT =
   `SELECT id, ship_run_id, repo, step, status, detail, pr_number,
           existed_before_ship, process_run_id, operation_intent_id,
@@ -267,16 +277,22 @@ export interface OpenShipRunInput {
   ticketId: number;
   attempt: number;
   startedAt: string;
+  /**
+   * This host's pid (v34), so an activation sweep can tell a ship that died
+   * with its host from one another LIVE window is still executing. NULL
+   * records no evidence, exactly like a pre-v34 row.
+   */
+  pid?: number | null;
 }
 
 /** Open a ship run as `running` and return it. */
 export function openShipRun(store: Store, input: OpenShipRunInput): ShipRun {
   const info = store.db
     .prepare(
-      `INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at)
-       VALUES (?, ?, 'running', ?, NULL)`,
+      `INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at, pid)
+       VALUES (?, ?, 'running', ?, NULL, ?)`,
     )
-    .run(input.ticketId, input.attempt, input.startedAt);
+    .run(input.ticketId, input.attempt, input.startedAt, input.pid ?? null);
   const row = store.db
     .prepare(`${RUN_SELECT} WHERE id = ?`)
     .get(Number(info.lastInsertRowid)) as ShipRunRowShape | undefined;
@@ -300,6 +316,84 @@ export function closeShipRun(
       `UPDATE ship_runs SET status = ?, ended_at = ? WHERE id = ? AND status = 'running'`,
     )
     .run(status, endedAt, runId);
+}
+
+/** A ship this sweep found stranded, reported so the loss is never silent. */
+export interface StrandedShipTicket {
+  ticketId: number;
+  /** The still-`running` ship_runs row; NULL when the run never opened. */
+  runId: number | null;
+  startedAt: string | null;
+  pid: number | null;
+}
+
+/**
+ * Select the tickets at `ship` whose ship is stranded — the stage row reads
+ * `running` (a ship began and never finished) and no in-flight run carries a
+ * LIVE pid.
+ *
+ * A killed ship is otherwise a permanent freeze (869egdr2u-fu1): the ticket
+ * sits at `ship` reading `running` with a `running` ship_runs row and no
+ * awaiting-merge block, so `settleShipGate` skips it, the drive sweep covers
+ * only uat/review, and the dashboard offers no button for a running row.
+ * Nothing ever re-drives `shipTicket`, whose saga is built exactly to be
+ * re-run (`reconcilePriorShipOperations` adopts or refutes the interrupted
+ * run's effects). This is the READ that makes the re-run possible — the host
+ * resumes the saga for every ticket listed.
+ *
+ * Liveness is proven from stored state, never guessed: a run still carrying a
+ * live pid is a ship another LIVE window is executing and is left STRICTLY
+ * alone. A run with no pid is treated as stranded — absence of evidence is
+ * not evidence of life, and the alternative is a freeze that survives every
+ * reload (a pre-v34 run, or a host that died before its pid landed).
+ */
+export function listStrandedShipTickets(
+  store: Store,
+  isAlive: (pid: number) => boolean,
+  scope: ProjectScope = {},
+): StrandedShipTicket[] {
+  const projectFilter = scope.projectId === undefined ? '' : 'AND t.project_id = ?';
+  const projectArgs = scope.projectId === undefined ? [] : [scope.projectId];
+  const rows = store.db
+    .prepare(
+      `SELECT t.id AS ticket_id, r.id AS run_id,
+              COALESCE(r.started_at, s.started_at) AS started_at, r.pid AS pid
+         FROM tickets t
+         JOIN stages s ON s.ticket_id = t.id AND s.stage_key = t.stage_current
+         LEFT JOIN ship_runs r ON r.ticket_id = t.id AND r.status = 'running'
+        WHERE t.stage_current = 'ship'
+          AND s.status = 'running'
+          ${projectFilter}
+        ORDER BY t.id`,
+    )
+    .all(...projectArgs) as { ticket_id: number; run_id: number | null; started_at: string | null; pid: number | null }[];
+
+  const stranded: StrandedShipTicket[] = [];
+  const seen = new Set<number>();
+  for (const row of rows) {
+    if (seen.has(row.ticket_id)) continue;
+    seen.add(row.ticket_id);
+    // The ticket's OTHER running runs (a pathological second row) must agree:
+    // any live pid anywhere proves the ship is still executing somewhere.
+    const siblings = rows.filter((r) => r.ticket_id === row.ticket_id);
+    if (siblings.some((r) => r.pid !== null && isAlive(r.pid))) continue;
+    stranded.push({
+      ticketId: row.ticket_id,
+      runId: row.run_id,
+      startedAt: row.started_at,
+      pid: row.pid,
+    });
+  }
+  return stranded;
+}
+
+/** One line naming a ship this sweep found stranded, for the output channel. */
+export function describeStrandedShip(s: StrandedShipTicket): string {
+  return (
+    `karst: ticket ${s.ticketId}: ship ${s.runId === null ? 'stage row' : `run ${s.runId}`} ` +
+    `opened ${s.startedAt ?? 'unknown'} (pid ${s.pid ?? 'unknown'}) did not finish — ` +
+    `resuming the interrupted ship saga`
+  );
 }
 
 export interface OpenShipRepoStepInput {

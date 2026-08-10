@@ -256,6 +256,9 @@ async function generateDescription(
     agentName: assignment?.agentName ?? null,
     provider: assignment?.provider ?? null,
     model: assignment?.model ?? null,
+    // v34: the host that owns the call, so `reconcileProcessRuns` can mark a
+    // describe run killed by process death stale like every other process.
+    pid: process.pid,
     startedAt: at,
   });
   const step = openShipRepoStep(store, {
@@ -838,6 +841,9 @@ export async function shipTicket(
     ticketId: opts.ticketId,
     attempt: runCount.n + 1,
     startedAt,
+    // v34: the host that owns the saga, so an activation sweep can tell a ship
+    // killed by process death from one another LIVE window is still executing.
+    pid: process.pid,
   });
 
   // Live Ship progress rides the SAME generic inside-progress union as gates
