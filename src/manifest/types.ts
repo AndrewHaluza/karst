@@ -326,6 +326,14 @@ export interface ReviewFindingsConfig {
 export interface ReviewConfig {
   maxFixAttempts: number;
   requireIndependentSignal: boolean;
+  /**
+   * Whether review reveals the ticket's Changes panel when its gates finish.
+   * DEFAULT OFF (this ticket): opening the panel used to be unconditional
+   * whenever the host wired `openDiff`, so a review could surface a stack of
+   * panels the user never asked for. The host ALWAYS wires `openDiff`; this
+   * flag is the user's control over whether anything opens at all.
+   */
+  openChanges: boolean;
   gates?: GateDef[];
   findings: ReviewFindingsConfig;
   repositories: Record<string, { gates?: GateDef[] }>;

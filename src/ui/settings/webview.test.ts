@@ -1439,6 +1439,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       'f-uatMaxFix',
       'f-reviewMaxFix',
       'f-reviewIndependent',
+      'f-reviewOpenChanges',
       'f-findingsEnabled',
       'f-findingsSeverity',
       'f-findingsMax',
@@ -1460,7 +1461,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       "const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];",
     );
     expect(HTML).toMatch(
-      /const REVIEW_DEFAULTS = \{\s*maxFixAttempts: 3,\s*requireIndependentSignal: true,\s*findings: \{ enabled: true, blockingSeverity: 'high', maxFindings: 50 \},\s*\};/,
+      /const REVIEW_DEFAULTS = \{\s*maxFixAttempts: 3,\s*requireIndependentSignal: true,\s*openChanges: false,\s*findings: \{ enabled: true, blockingSeverity: 'high', maxFindings: 50 \},\s*\};/,
     );
   });
 
@@ -1479,6 +1480,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
@@ -1519,6 +1521,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
     expect(field(result, 'f-findingsSeverity').value).toBe('high');
     expect(field(result, 'f-findingsMax').value).toBe(50);
     expect(field(result, 'f-reviewIndependent').checked).toBe(true);
+    expect(field(result, 'f-reviewOpenChanges').checked).toBe(false);
     expect(field(result, 'f-reviewMaxFix').value).toBe(3);
     expect(field(result, 'f-uatMaxFix').value).toBe(3);
   });
@@ -1529,12 +1532,14 @@ describe('settings quality tab (UAT + review scalars)', () => {
       review: {
         maxFixAttempts: 2,
         requireIndependentSignal: false,
+        openChanges: true,
         findings: { enabled: false, blockingSeverity: 'none', maxFindings: 10 },
       },
     });
     expect(field(result, 'f-uatMaxFix').value).toBe(5);
     expect(field(result, 'f-reviewMaxFix').value).toBe(2);
     expect(field(result, 'f-reviewIndependent').checked).toBe(false);
+    expect(field(result, 'f-reviewOpenChanges').checked).toBe(true);
     expect(field(result, 'f-findingsEnabled').checked).toBe(false);
     expect(field(result, 'f-findingsSeverity').value).toBe('none');
     expect(field(result, 'f-findingsMax').value).toBe(10);
@@ -1551,6 +1556,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
@@ -1964,6 +1970,7 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       ${functionSource('updateUat')}
@@ -2025,6 +2032,7 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       ${functionSource('updateReview')}

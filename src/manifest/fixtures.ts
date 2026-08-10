@@ -117,6 +117,7 @@ export function review(over: Partial<ReviewConfig> = {}): ReviewConfig {
   return {
     maxFixAttempts: 3,
     requireIndependentSignal: true,
+    openChanges: false,
     findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
     repositories: {},
     ...over,

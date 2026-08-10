@@ -492,7 +492,7 @@ values are rejected naming the field):
   agent name/provider/model resolved ONCE at launch and immutable afterwards.
 - `uat` — `maxFixAttempts`, `gates`, `testerVerifier`, per-repository gates.
   Everything else under `uat` is validated but not yet active.
-- `review` — `maxFixAttempts`, `requireIndependentSignal`, `gates`,
+- `review` — `maxFixAttempts`, `requireIndependentSignal`, `openChanges`, `gates`,
   `findings`.
 - `conventions` — branch/commit/PR templates, `defaultType` (see *Conventions*).
 - `ticketing` — provider (`manual` default, `clickup`), `teamId`, `listId`,

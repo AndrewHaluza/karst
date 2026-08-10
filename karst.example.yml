@@ -401,6 +401,10 @@ review:
   # signal — that FAILS to `fix` (not a warning, unlike UAT's own overlap
   # check) unless you turn it off here.
   requireIndependentSignal: true
+  # Whether a finished review reveals the ticket's Changes panel for every
+  # affected repository. Off by default — the changes are one click away in
+  # the panel either way.
+  openChanges: false
   # gates:
   #   - { name: lint,   kind: script,  script: lint }
   #   - { name: clippy, kind: command, command: cargo, args: [clippy, --, -D, warnings] }
