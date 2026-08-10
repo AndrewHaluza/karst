@@ -48,6 +48,7 @@ describe('settings sections — vocabulary', () => {
         'archiveDoneAfterDays',
         'baselineBranch',
         'conventions',
+        'debug',
         'defaultModel',
         'host',
         'portRange',

@@ -19,7 +19,7 @@ import type {
   RunHeadlessOpts,
 } from './adapter.js';
 import { describeHeadlessFailure } from './cliFailure.js';
-import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
+import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { KARST_PLUGIN_NAME, renderWorkflowCommand } from './workflowCommand.js';
@@ -685,10 +685,22 @@ export class OpencodeAdapter implements AgentAdapter {
     // `--` terminates options so a dash-prefixed prompt (e.g. a YAML
     // frontmatter `---` in a seed) cannot be misread as an option.
     args.push('--', opts.prompt);
+
+    // The prompt is ticket prose — never logged in full. The debug line names
+    // the invocation and redacts the prompt to its length (§ debug logging).
+    opts.debug?.(
+      `[agent:opencode] spawn: ${args
+        .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
+        .join(' ')} (cwd ${opts.cwd})`,
+    );
     const result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
       signal: opts.signal,
+      onDebug: opts.debug,
     });
     if (result.exitCode !== 0) {
+      opts.debug?.(
+        `[agent:opencode] exit ${result.exitCode} — stdout: ${headlessPreview(result.stdout)}; stderr: ${headlessPreview(result.stderr)}`,
+      );
       throw attachUsage(
         new Error(
           describeHeadlessFailure({
@@ -701,7 +713,15 @@ export class OpencodeAdapter implements AgentAdapter {
         parseOpencodeJsonlUsage(result.stdout),
       );
     }
-    const parsed = parseOpencodeJsonl(result.stdout);
+    let parsed: ReturnType<typeof parseOpencodeJsonl>;
+    try {
+      parsed = parseOpencodeJsonl(result.stdout);
+    } catch (error) {
+      opts.debug?.(
+        `[agent:opencode] unparseable output — first 500 chars: ${headlessPreview(result.stdout)}`,
+      );
+      throw error;
+    }
     return {
       sessionId: parsed.sessionId,
       verdict: null,

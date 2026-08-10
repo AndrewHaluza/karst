@@ -45,6 +45,28 @@ function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
 }
 
 describe('instrumentAdapter', () => {
+  it('injects the host debug callback into every headless call', async () => {
+    const s = sink();
+    let seenDebug: ((message: string) => void) | undefined;
+    const inner = fakeAdapter({
+      runHeadless: async (opts) => {
+        seenDebug = opts.debug;
+        return { sessionId: 's1', verdict: null, raw: 'answer' };
+      },
+    });
+    const adapter = instrumentAdapter(inner, {
+      sink: s,
+      debug: (message: string) => message.toLowerCase(),
+    });
+
+    await adapter.runHeadless({ prompt: 'hi', cwd: '.' });
+
+    // The adapter's own debug lines are bound ONCE here — a new AI integration
+    // gets debug logging by construction, not by threading at every call site.
+    expect(seenDebug).toBeDefined();
+    expect(seenDebug!('[AGENT:CLAUDE] x')).toBe('[agent:claude] x');
+  });
+
   it('records the provider-reported counts under the declared call site and ticket', async () => {
     const s = sink();
     const adapter = instrumentAdapter(fakeAdapter(), {

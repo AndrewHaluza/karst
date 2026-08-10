@@ -65,6 +65,12 @@ export interface RunUatOpts {
   onGateComplete?: (gateName: string, exitCode: number | null) => void;
   /** Called before each gate's work begins, with the gate's name. */
   onGateStart?: (gateName: string) => void;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 export interface UatDeps {
@@ -279,11 +285,18 @@ export async function runUat(
   // ticket's code, so this parks rather than transitioning or throwing. Nothing
   // has run yet, so there is no partial evidence to keep.
   if (planned.kind === 'unavailable') {
+    opts.debug?.(
+      `[gate] uat ticket ${opts.ticketId}: targets unavailable (${planned.blocker}: ${planned.reason})`,
+    );
     return finish({ kind: 'blocked', blocker: planned.blocker, reason: planned.reason }, [
       planned.reason,
     ]);
   }
   const targets: UatTarget[] = planned.targets;
+  opts.debug?.(
+    `[gate] uat ticket ${opts.ticketId}: planned ${targets.length} target(s) ` +
+      `(manifest ${opts.manifest ? 'present' : 'absent'}, ${worktrees.length} worktree(s) registered)`,
+  );
 
   if (targets.length === 0) {
     // Zero worktrees is not "nothing changed": nothing was ASKED. The ticket
@@ -294,6 +307,7 @@ export async function runUat(
     if (worktrees.length === 0) {
       const reason =
         'no worktree is registered for this ticket, so there is no repository to run UAT against';
+      opts.debug?.(`[gate] uat ticket ${opts.ticketId}: zero targets — no worktree registered`);
       return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
     }
     // Two situations that must not read as one. If any worktree matched no
@@ -308,9 +322,13 @@ export async function runUat(
       const reason =
         `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
         'add them to `repositories:` or re-scope the ticket';
+      opts.debug?.(
+        `[gate] uat ticket ${opts.ticketId}: zero targets — ${planned.unmapped.length} worktree(s) unmapped`,
+      );
       return finish({ kind: 'blocked', blocker: 'unmapped-repository', reason }, [reason]);
     }
     const note = 'no repository has changes from its base, so UAT had nothing to check';
+    opts.debug?.(`[gate] uat ticket ${opts.ticketId}: zero targets — nothing changed from base`);
     return finish({ kind: 'verdict', verdict: { kind: 'passed' } }, [note]);
   }
 
@@ -324,6 +342,10 @@ export async function runUat(
     // targets already ran, so their rows go down with the park.
     if (resolution.kind === 'unavailable') {
       const reason = `${label}: ${resolution.reason}`;
+      opts.debug?.(
+        `[gate] uat ticket ${opts.ticketId}: target ${label} unavailable ` +
+          `(${resolution.blocker}: ${resolution.reason})`,
+      );
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }
 
@@ -368,11 +390,16 @@ export async function runUat(
     }
 
     const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
+    opts.debug?.(
+      `[gate] uat ticket ${opts.ticketId}: target ${label} — ${resolution.gates.length} gate(s)` +
+        (resolution.skipped.length > 0 ? `, ${resolution.skipped.length} disabled` : ''),
+    );
     const run = await runGates(resolution.gates, target.path, {
       signal: opts.signal,
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
       onGateStart: opts.onGateStart,
+      onDebug: opts.debug,
       // Each gate row is appended the INSTANT that gate finishes — inside the
       // runner's own loop, before the next gate starts. A host death between
       // two gates (process death fires no abort signal, so the `stopped` path
@@ -424,6 +451,17 @@ export async function runUat(
     entries,
     reviewIdentities,
     skippedNames,
+  );
+  opts.debug?.(
+    `[gate] uat ticket ${opts.ticketId}: aggregate over ${entries.length} entry(ies)` +
+      `${skippedNames.length > 0 ? `, ${skippedNames.length} skipped` : ''} → ` +
+      (outcome.kind === 'blocked'
+        ? `blocked (${outcome.blocker}: ${outcome.reason})`
+        : `verdict ${outcome.verdict.kind}${
+            outcome.verdict.kind === 'failed' && outcome.verdict.reason
+              ? ` (${outcome.verdict.reason})`
+              : ''
+          }`),
   );
   if (outcome.kind === 'blocked') {
     return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [

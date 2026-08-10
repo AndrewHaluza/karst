@@ -55,6 +55,12 @@ export interface StartHotOpts {
    * server die?" mystery starts (the archive paths raise the same warning).
    */
   onReclaim?: (pid: number) => void;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[runtime]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -94,9 +100,17 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   // port before spawning: reclaim only dev servers of this repository or
   // karst-recorded servers, and refuse strangers without signalling them.
   if (await isPortOpen(opts.host, opts.port)) {
+    opts.debug?.(
+      `[runtime] ${opts.service}: port ${opts.host}:${opts.port} is occupied — attributing the owner`,
+    );
     const reclaimed = await reclaimPort(store, opts.host, opts.port, opts.repoPath);
     for (const id of reclaimed.stoppedRows) markServerStopped(store, id);
     for (const pid of reclaimed.killedPids) opts.onReclaim?.(pid);
+    if (reclaimed.killedPids.length > 0) {
+      opts.debug?.(
+        `[runtime] ${opts.service}: reclaimed port from pid(s) ${reclaimed.killedPids.join(', ')}`,
+      );
+    }
     if (!reclaimed.portFree) {
       const survivors = reclaimed.survivors
         .map((s) =>
@@ -191,8 +205,10 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       spawnFailed,
       rejectAfter(2000, new Error(`could not start '${opts.service}': no pid`)),
     ]);
+    opts.debug?.(`[runtime] ${opts.service}: spawned without a pid — reporting the spawn error`);
     throw new Error(`could not start '${opts.service}': no pid`);
   }
+  opts.debug?.(`[runtime] ${opts.service}: spawned pid ${pid}; waiting on ${opts.healthUrl}`);
 
   try {
     // Race the spawn failure: an error that arrives after a pid did (EACCES on
@@ -209,6 +225,9 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   } catch (err) {
     // Health failed or the start was cancelled — reap the whole tree, not just
     // the launcher, so no dev server is left running.
+    opts.debug?.(
+      `[runtime] ${opts.service}: health gate failed (${err instanceof Error ? err.message : String(err)}) — killing pid ${pid}`,
+    );
     killTree(pid);
     throw err;
   }

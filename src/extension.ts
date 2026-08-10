@@ -534,7 +534,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // process, let alone a stranger's. Rows it cannot attribute are cleared, not
   // killed, and every line says which path it acted on.
   try {
-    for (const s of reapStaleServers(localStore)) logger.info(describeReap(s));
+    for (const s of reapStaleServers(localStore, {
+      debug: (message) => logger.debug(message),
+    })) logger.info(describeReap(s));
   } catch (err) {
     logError('karst: stale-server sweep failed', err);
   }
@@ -809,7 +811,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     exists: existsSync,
     load: loadManifest,
   });
-  const currentManifest = (): Manifest | undefined => manifests.get();
+  /**
+   * Keep the logger's gated debug flag pointed at the live manifest's `debug`
+   * field. `logger.debug()` reads this flag at call time, so a `debug: true`
+   * edit to karst.yml takes effect on the next manifest (re)load — no window
+   * reload, no rebuild. Idempotent and cheap (a boolean assignment), so it
+   * rides every manifest read.
+   */
+  const applyManifestDebug = (manifest: Manifest | undefined): void => {
+    logger.setDebugEnabled(manifest?.debug === true);
+  };
+  const currentManifest = (): Manifest | undefined => {
+    const manifest = manifests.get();
+    applyManifestDebug(manifest);
+    return manifest;
+  };
   /**
    * Every agent adapter this window hands out is INSTRUMENTED (§ token
    * consumption stats). Wrapping happens here, at the two places an adapter is
@@ -826,6 +842,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider,
       projectId: () => currentProject()?.id ?? null,
       logError,
+      // Injected ONCE here, threaded into every headless call's opts — a new
+      // adapter gets debug logging by construction (gated inside the logger).
+      debug: (message) => logger.debug(message),
     });
 
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
@@ -901,8 +920,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
-  // surfaces observe the same reload behavior from one implementation.
-  const reloadManifest = (): void => manifests.reload();
+  // surfaces observe the same reload behavior from one implementation. Reloads
+  // eagerly (rather than waiting for the next lazy `get`) so the debug flag is
+  // re-applied the moment the file changed — including the external watcher.
+  const reloadManifest = (): void => {
+    manifests.reload();
+    applyManifestDebug(currentManifest());
+  };
 
   // This window's project (§ projects / multi-window). Every window shares one
   // global DB, so without a project id each one would list — and act on — the
@@ -2247,6 +2271,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           fixProcess,
           runVerifier: runProcess,
           log: (message) => logger.info(message),
+          // Verbose decision-point lines (manifest `debug` flag): gated inside
+          // the logger, so this binding is a no-op unless debug is on.
+          debug: (message) => logger.debug(message),
           // Findings-lane boundary diagnostics (a failed AI call, garbage
           // output, an untrustworthy `file`) — routed to `Logger.warn` so
           // they read as warnings in the output channel rather than as
@@ -2519,7 +2546,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // having to reopen the dashboard.
       let landed: number[] = [];
       try {
-        landed = settleShipGates(localStore, { projectId: project.id });
+        landed = settleShipGates(
+          localStore,
+          { projectId: project.id },
+          (message) => logger.debug(message),
+        );
         for (const id of landed) void pushDoneStatus(id, false);
       } catch (e) {
         // Bookkeeping over state that is already stored: the next tick retries.
@@ -3131,7 +3162,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // threads down into the health wait + child processes.
             const ctrl = new AbortController();
             token.onCancellationRequested(() => ctrl.abort());
-            return spinTicket(localStore, manifest, ticketId, hot, { signal: ctrl.signal });
+            return spinTicket(localStore, manifest, ticketId, hot, {
+              signal: ctrl.signal,
+              debug: (message) => logger.debug(message),
+            });
           },
         );
         provider.refresh();

@@ -112,6 +112,50 @@ describe('spawnHeadlessCli', () => {
     expect(result.stdout).toContain('[output truncated]');
     expect(result.exitCode).toBe(0);
   });
+
+  it('emits onDebug lines for spawn, abort, and the close that follows the kill', async () => {
+    const child = fakeChild();
+    const killed = vi.spyOn(process, 'kill');
+    const spawnImpl = vi.fn(() => {
+      setTimeout(() => child.emit('close', null), 20);
+      return child;
+    }) as unknown as typeof spawn;
+    const controller = new AbortController();
+    const lines: string[] = [];
+
+    const promise = spawnHeadlessCli(
+      'codex',
+      ['exec'],
+      '/wt/a',
+      { signal: controller.signal, onDebug: (m) => lines.push(m) },
+      spawnImpl,
+    );
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(killed).toHaveBeenCalledWith(-4242, 'SIGKILL');
+    expect(lines.some((line) => /spawned codex \(pid 4242/.test(line))).toBe(true);
+    expect(lines.some((line) => /abort requested/.test(line))).toBe(true);
+    expect(lines.some((line) => /close after abort kill/.test(line))).toBe(true);
+  });
+
+  it('emits a timeout onDebug line naming the deadline when the child hangs', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn;
+    const lines: string[] = [];
+
+    await expect(
+      spawnHeadlessCli(
+        'codex',
+        ['exec'],
+        '/wt/a',
+        { timeoutMs: 10, terminationGraceMs: 5, onDebug: (m) => lines.push(m) },
+        spawnImpl,
+      ),
+    ).rejects.toThrow(/timed out after 10ms/);
+
+    expect(lines.some((line) => /timed out after 10ms/.test(line))).toBe(true);
+  });
 });
 
 describe('spawnHeadlessCli (real processes)', () => {

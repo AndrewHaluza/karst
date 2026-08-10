@@ -1326,6 +1326,49 @@ describe('auto-archive delay field (General tab)', () => {
   });
 });
 
+describe('debug logging toggle (General tab)', () => {
+  it('renders a checkbox in the General section with the debug hint', () => {
+    const generalStart = HTML.indexOf('id="section-general"');
+    const generalEnd = HTML.indexOf('<!-- Git -->');
+    const section = HTML.slice(generalStart, generalEnd);
+    expect(section).toContain('id="f-debug"');
+    expect(section).toContain('type="checkbox"');
+    expect(section).toContain('id="debugHint"');
+  });
+
+  it('checks the box only when the draft carries debug: true', () => {
+    const source = `
+      let draft = {};
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      function renderModelPicker() {}
+      function renderPresetOptions() {}
+      function renderDefaultTypeOptions() {}
+      function renderLabelPreview() {}
+      function renderConventions() {}
+      function renderProjectFacts() {}
+      function agentBadgeHtml() { return ''; }
+      const KNOWN_AGENT_PROVIDERS = [];
+      const implementedProviders = [];
+      function esc(s) { return String(s); }
+      ${functionSource('renderGeneral')}
+      draft = { debug: true };
+      renderGeneral();
+      const on = el('f-debug').checked;
+      draft = {};
+      renderGeneral();
+      const off = el('f-debug').checked;
+      ({ on, off });
+    `;
+    const result = runInNewContext(source, {}) as { on: boolean; off: boolean };
+    expect(result.on).toBe(true);
+    expect(result.off).toBe(false);
+  });
+});
+
 describe('ClickUp reload buttons', () => {
   /**
    * These two fetches predate `action-result` and settle through their own

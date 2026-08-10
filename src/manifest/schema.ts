@@ -277,6 +277,19 @@ function validateArchiveDoneAfterDays(raw: unknown): number {
 }
 
 /**
+ * Parse `debug` (default undefined → debug logging off). Must be a boolean
+ * when present — a string `"true"` is a YAML typo, and a non-boolean must
+ * fail loudly rather than silently pinning verbose logging on.
+ */
+function validateDebug(raw: unknown): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') {
+    throw new ManifestError('debug must be a boolean');
+  }
+  return raw;
+}
+
+/**
  * Parse the project `id`. Must be a string when present; blank/whitespace
  * normalizes to undefined so a cleared field falls back to the path-derived
  * slug rather than pinning every ticket to an empty project. Trimmed, because
@@ -453,6 +466,7 @@ export function validateManifest(raw: unknown): Manifest {
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
+    debug: validateDebug(raw.debug),
     uat: validateUat(raw.uat),
     review: validateReview(raw.review, Object.keys(repositories)),
   };

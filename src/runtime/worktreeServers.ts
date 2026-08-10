@@ -37,6 +37,12 @@ export interface ReapedServer {
 export interface ReapOptions {
   /** OS probes; injected so tests never depend on this machine's processes. */
   facts?: ProcessFacts;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[runtime]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 interface ServerRow {
@@ -88,6 +94,7 @@ function reap(
   cwd: string,
   reason: ReapedServer['reason'],
   facts: ProcessFacts,
+  debug?: (message: string) => void,
 ): ReapedServer {
   const base = { id: row.id, repo: row.repo, pid: row.pid, cwd, reason };
   const attribution = attributeServer(
@@ -100,6 +107,9 @@ function reap(
     // way and stops claiming to run, but nothing is signalled. `killTree` sends
     // SIGKILL to the process GROUP, so a wrong answer here would take down an
     // unrelated process tree.
+    debug?.(
+      `[runtime] reap '${row.repo}' (pid ${row.pid ?? 'none'}): attribution says '${attribution}' — clearing the row, signalling nothing`,
+    );
     try {
       markServerStopped(store, row.id);
     } catch {
@@ -115,6 +125,9 @@ function reap(
   } catch {
     outcome = 'kill-failed';
   }
+  debug?.(
+    `[runtime] reap '${row.repo}' (pid ${row.pid}): signalled — ${outcome}`,
+  );
 
   if (outcome === 'killed') {
     try {
@@ -153,7 +166,10 @@ export function stopServersUnder(store: Store, root: string, opts: ReapOptions =
   for (const row of runningWithCwd(store)) {
     const cwd = row.cwd!;
     if (!isPathUnder(cwd, root)) continue;
-    reaped.push(reap(store, row, cwd, 'worktree-removed', facts));
+    opts.debug?.(
+      `[runtime] stopServersUnder ${root}: '${row.repo}' (pid ${row.pid ?? 'none'}) serves ${cwd} — reaping`,
+    );
+    reaped.push(reap(store, row, cwd, 'worktree-removed', facts, opts.debug));
   }
   return reaped;
 }
@@ -206,7 +222,10 @@ export function reapStaleServers(store: Store, opts: ReapOptions = {}): ReapedSe
   for (const row of runningWithCwd(store, { ticketOnly: true })) {
     const cwd = row.cwd!;
     if (!directoryGone(cwd, row.pid, facts)) continue;
-    reaped.push(reap(store, row, cwd, 'directory-gone', facts));
+    opts.debug?.(
+      `[runtime] reapStaleServers: '${row.repo}' (pid ${row.pid ?? 'none'}) — directory gone, reaping`,
+    );
+    reaped.push(reap(store, row, cwd, 'directory-gone', facts, opts.debug));
   }
   return reaped;
 }

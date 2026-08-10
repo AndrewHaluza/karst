@@ -14,7 +14,7 @@ import type {
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
 import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
-import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
+import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
@@ -291,10 +291,21 @@ export class ClaudeAdapter implements AgentAdapter {
       args.push('--allowedTools', opts.allowedTools.join(','));
     }
 
+    // The prompt is ticket prose — never logged in full. The debug line names
+    // the invocation and redacts the prompt to its length (§ debug logging).
+    opts.debug?.(
+      `[agent:claude] spawn: ${args
+        .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
+        .join(' ')} (cwd ${opts.cwd})`,
+    );
     const r = await this.spawnHeadless(CLAUDE_BIN, args, opts.cwd, {
       signal: opts.signal,
+      onDebug: opts.debug,
     });
     if (r.exitCode !== 0) {
+      opts.debug?.(
+        `[agent:claude] exit ${r.exitCode} — stdout: ${headlessPreview(r.stdout)}; stderr: ${headlessPreview(r.stderr)}`,
+      );
       // The whole `--output-format json` envelope used to land on the stage
       // verdict; a 429 read as an internal crash. `describeHeadlessFailure`
       // unwraps it (shared by every agent core) — see cliFailure.ts.
@@ -317,6 +328,9 @@ export class ClaudeAdapter implements AgentAdapter {
     try {
       parsed = JSON.parse(r.stdout) as { session_id?: string; result?: string };
     } catch (e) {
+      opts.debug?.(
+        `[agent:claude] unparseable output — first 500 chars: ${headlessPreview(r.stdout)}`,
+      );
       throw new Error(`claude output was not valid JSON: ${(e as Error).message}`);
     }
 

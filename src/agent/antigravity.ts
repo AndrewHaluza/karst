@@ -20,7 +20,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
-import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
+import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
 const AGY_BIN = 'agy';
@@ -227,10 +227,21 @@ export class AntigravityAdapter implements AgentAdapter {
     if (opts.permissionMode === 'bypassPermissions') args.push('--dangerously-skip-permissions');
     // allowedTools mapped or omitted if unsupported.
 
+    // The prompt is ticket prose — never logged in full. The debug line names
+    // the invocation and redacts the prompt to its length (§ debug logging).
+    opts.debug?.(
+      `[agent:antigravity] spawn: ${args
+        .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
+        .join(' ')} (cwd ${opts.cwd})`,
+    );
     const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd, {
       signal: opts.signal,
+      onDebug: opts.debug,
     });
     if (r.exitCode !== 0) {
+      opts.debug?.(
+        `[agent:antigravity] exit ${r.exitCode} — stdout: ${headlessPreview(r.stdout)}; stderr: ${headlessPreview(r.stderr)}`,
+      );
       throw attachUsage(
         new Error(
           describeHeadlessFailure({

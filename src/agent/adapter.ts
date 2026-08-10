@@ -46,6 +46,14 @@ export interface RunHeadlessOpts {
    * working unchanged.
    */
   signal?: AbortSignal;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[agent:<name>]`.
+   * Absent → no debug lines. The host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on); `instrumentAdapter` injects it
+   * into every headless call, so a new adapter gets debug logging by
+   * construction.
+   */
+  debug?: (message: string) => void;
 }
 
 export interface HeadlessResult {

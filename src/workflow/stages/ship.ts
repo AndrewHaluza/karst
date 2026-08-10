@@ -111,6 +111,12 @@ export interface ShipOpts {
    * `adapter` parameter still drives the step as before, without a snapshot.
    */
   prDescriptionProcess?: DriveProcessBundle | null;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[merge]`,
+   * threaded into `resolveShipLanding`. Absent → no debug lines; the host
+   * binds it to `Logger.debug` (a no-op unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 export interface ShippedPr {
@@ -1424,7 +1430,7 @@ export async function shipTicket(
   // still AT ship is the one entitled to decide its landing (see
   // `resolveShipLanding`'s doc comment for why this guard matters).
   if (atShip) {
-    resolveShipLanding(store, opts.ticketId);
+    resolveShipLanding(store, opts.ticketId, opts.debug);
   }
 
   return { prs };

@@ -40,6 +40,12 @@ export interface StageDriverDeps {
   worktreeFor: (ticketId: number) => string | null;
   onProgress: (ticketId: number, stage: StageKey, status: DriverStatus) => void;
   shouldContinue: () => boolean;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[driver]`.
+   * Absent → no debug lines. The host binds it to `Logger.debug`, which is a
+   * no-op unless the manifest's `debug` flag is on.
+   */
+  debug?: (message: string) => void;
 }
 
 function finish(
@@ -58,6 +64,7 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
     // stage_current is `string | null` at the store layer; STAGE_KEYS values in
     // practice (house precedent: src/store/stages.ts rowToStage).
     const stage = getTicket(deps.store, ticketId).stageCurrent as StageKey;
+    deps.debug?.(`[driver] ticket ${ticketId}: loop entry, stage_current = ${stage}`);
 
     // Human boundaries — stop without running.
     // `ship` covers TWO different waits that both read `stage === 'ship'`:
@@ -73,18 +80,35 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
         stageBlock(deps.store, ticketId, 'ship')?.kind === 'awaiting-merge'
           ? 'awaiting-merge'
           : 'ship-confirm';
+      deps.debug?.(`[driver] ticket ${ticketId}: human boundary 'ship' (${reason})`);
       return finish(deps, ticketId, stage, 'blocked', reason);
     }
-    if (stage === 'fix') return finish(deps, ticketId, stage, 'blocked', 'gate-failed');
-    if (stage === 'impl') return finish(deps, ticketId, stage, 'blocked', 'awaiting-marker');
-    if (stage === 'scope') return finish(deps, ticketId, stage, 'blocked', 'not-spun');
-    if (stage === 'done') return finish(deps, ticketId, stage, 'stopped');
+    if (stage === 'fix') {
+      deps.debug?.(`[driver] ticket ${ticketId}: human boundary 'fix' (gate-failed)`);
+      return finish(deps, ticketId, stage, 'blocked', 'gate-failed');
+    }
+    if (stage === 'impl') {
+      deps.debug?.(`[driver] ticket ${ticketId}: human boundary 'impl' (awaiting-marker)`);
+      return finish(deps, ticketId, stage, 'blocked', 'awaiting-marker');
+    }
+    if (stage === 'scope') {
+      deps.debug?.(`[driver] ticket ${ticketId}: human boundary 'scope' (not-spun)`);
+      return finish(deps, ticketId, stage, 'blocked', 'not-spun');
+    }
+    if (stage === 'done') {
+      deps.debug?.(`[driver] ticket ${ticketId}: terminal stage 'done'`);
+      return finish(deps, ticketId, stage, 'stopped');
+    }
 
     // Stop requested — halt at this gate boundary before running it.
-    if (!deps.shouldContinue()) return finish(deps, ticketId, stage, 'stopped');
+    if (!deps.shouldContinue()) {
+      deps.debug?.(`[driver] ticket ${ticketId}: stop requested at '${stage}'`);
+      return finish(deps, ticketId, stage, 'stopped');
+    }
 
     const cwd = deps.worktreeFor(ticketId);
     if (!cwd) throw new Error(`ticket ${ticketId} has no worktree for stage '${stage}'`);
+    deps.debug?.(`[driver] ticket ${ticketId}: dispatching '${stage}' runner (cwd ${cwd})`);
 
     deps.onProgress(ticketId, stage, 'running');
     const result = stage === 'uat'
@@ -99,11 +123,16 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
       // A block is a resting place, not an error: the stage stays current, the
       // row carries why, and the sweep skips it until a human clears it.
       case 'blocked':
+        deps.debug?.(
+          `[driver] ticket ${ticketId}: '${stage}' runner blocked (${result.blocker}: ${result.reason})`,
+        );
         return finish(deps, ticketId, stage, 'blocked', `${result.blocker}: ${result.reason}`);
       case 'stopped':
+        deps.debug?.(`[driver] ticket ${ticketId}: '${stage}' runner stopped`);
         return finish(deps, ticketId, stage, 'stopped');
       case 'advanced':
         // The runner already transitioned; re-read stage_current and continue.
+        deps.debug?.(`[driver] ticket ${ticketId}: '${stage}' runner advanced — continuing`);
         break;
       default: {
         const unreachable: never = result;

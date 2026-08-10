@@ -49,6 +49,13 @@ export interface RunGatesOptions {
    * `run` the moment the gate starts rather than only after it lands.
    */
   onGateStart?: (gateName: string) => void;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on). Threaded into `runProcess` so
+   * the gate's process lifecycle is visible in the same stream.
+   */
+  onDebug?: (message: string) => void;
 }
 
 export async function runGateList(
@@ -58,10 +65,15 @@ export async function runGateList(
 ): Promise<{ kind: 'ran'; results: GateResult[] } | { kind: 'stopped'; results: GateResult[] }> {
   const now = opts.now ?? nowIso;
   const results: GateResult[] = [];
+  const onDebug = opts.onDebug;
   for (const [index, gate] of gates.entries()) {
     if (opts.signal?.aborted) return { kind: 'stopped', results };
     opts.onGateStart?.(gate.name);
     const startedAt = now();
+    onDebug?.(
+      `[gate] ${gate.name}: gate ${index + 1} of ${gates.length} — ` +
+        `${gate.command}${gate.args.length > 0 ? ` ${gate.args.join(' ')}` : ''}`,
+    );
 
     if (gate.script !== null && gate.required && opts.scriptsAvailable?.(gate.script) === false) {
       // The config named a question this repo cannot answer. A failure, not null —
@@ -69,6 +81,9 @@ export async function runGateList(
       // the repository. Caught here rather than by spawning `npm run`, whose
       // "Missing script" exit 1 would read as a verdict about the ticket's code.
       const endedAt = now();
+      onDebug?.(
+        `[gate] ${gate.name}: configured script "${gate.script}" is missing from package.json (required gate)`,
+      );
       results.push({
         name: gate.name,
         exitCode: 1,
@@ -80,13 +95,17 @@ export async function runGateList(
       continue;
     }
 
-    const outcome = await runProcess(gate.command, gate.args, cwd, { signal: opts.signal });
+    const outcome = await runProcess(gate.command, gate.args, cwd, {
+      signal: opts.signal,
+      onDebug,
+    });
 
     if (outcome.kind === 'aborted') return { kind: 'stopped', results };
     if (outcome.kind === 'spawnFailed' && !gate.required && gate.script !== null) {
       // A discovered script whose binary vanished between probe and spawn: karst
       // had no question to ask after all, so it stays null rather than becoming a
       // verdict about the ticket's code.
+      onDebug?.(`[gate] ${gate.name}: discovered script's binary is gone — recorded as nothing to run`);
       results.push({
         name: gate.name,
         exitCode: null,
@@ -96,6 +115,9 @@ export async function runGateList(
       continue;
     }
     const endedAt = now();
+    onDebug?.(
+      `[gate] ${gate.name}: ${outcome.kind} (exit ${outcome.kind === 'completed' ? outcome.exitCode : 1}) — ${outcome.output.length} byte(s)`,
+    );
     results.push({
       name: gate.name,
       exitCode: outcome.kind === 'completed' ? outcome.exitCode : 1,
