@@ -14,6 +14,7 @@ import type {
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
 import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
@@ -58,6 +59,7 @@ export type SpawnHeadless = (
   command: string,
   args: string[],
   cwd: string,
+  opts?: HeadlessSpawnOptions,
 ) => Promise<HeadlessSpawnResult>;
 
 /** The real `child_process.spawn` signature, injected so the default spawner
@@ -66,23 +68,15 @@ export type SpawnImpl = typeof spawn;
 
 /**
  * Build the default headless spawner from an injectable `spawn` implementation.
- * `stdio: ['ignore', 'pipe', 'pipe']` explicitly closes the child's stdin —
- * without it, Node defaults stdin to an open, never-written, never-ended pipe,
- * and `claude -p` (headless) on a non-TTY stdin hangs waiting on it before
- * erroring "no stdin data received". With stdin ignored, `child.stdin` is
- * `null`, so it is never referenced below.
+ * The spawn closes the child's stdin (`stdio: ['ignore', 'pipe', 'pipe']`),
+ * enforced inside `spawnHeadlessCli` — without it, Node defaults stdin to an
+ * open, never-written, never-ended pipe, and `claude -p` (headless) on a non-TTY
+ * stdin hangs waiting on it before erroring "no stdin data received". With stdin
+ * ignored, `child.stdin` is `null`, so it is never referenced below.
  */
 export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
-  return (command, args, cwd) =>
-    new Promise((resolve, reject) => {
-      const child = spawnImpl(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-      let stdout = '';
-      let stderr = '';
-      child.stdout?.on('data', (d: unknown) => (stdout += String(d)));
-      child.stderr?.on('data', (d: unknown) => (stderr += String(d)));
-      child.on('error', reject);
-      child.on('close', (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
-    });
+  return (command, args, cwd, opts) =>
+    spawnHeadlessCli(command, args, cwd, opts, spawnImpl);
 }
 
 /** Default spawner: run `claude` in `cwd`, buffering stdout/stderr. */
@@ -297,7 +291,9 @@ export class ClaudeAdapter implements AgentAdapter {
       args.push('--allowedTools', opts.allowedTools.join(','));
     }
 
-    const r = await this.spawnHeadless(CLAUDE_BIN, args, opts.cwd);
+    const r = await this.spawnHeadless(CLAUDE_BIN, args, opts.cwd, {
+      signal: opts.signal,
+    });
     if (r.exitCode !== 0) {
       // The whole `--output-format json` envelope used to land on the stage
       // verdict; a 429 read as an internal crash. `describeHeadlessFailure`
