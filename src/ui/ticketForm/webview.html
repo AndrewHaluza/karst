@@ -297,6 +297,12 @@
   </div>
   <div class="row2">
     <button type="button" class="k-btn k-btn--link k-btn--sm hidden" id="detailsBtn" aria-expanded="false" aria-controls="drawer">Show details</button>
+    <!-- Edit mode, ticket with no provider ref yet: mint + bind the ClickUp task.
+         Hidden once sourceRef is set — a bound ticket never offers a second
+         creation (no double-creation). -->
+    <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="createInBtn"
+            title="Create the matching task in ClickUp and link this ticket to it">Create in ClickUp</button>
+    <span class="err hidden" id="createInBtnErr" role="alert"></span>
     <a href="#" class="k-link hidden" id="ticketLink"></a>
   </div>
 
@@ -391,6 +397,17 @@
       <span class="st">Create the ticket</span>
     </div>
     <div class="stepbody last">
+      <!-- The create-mode "Also create in ClickUp" checkbox: persisting this
+           ticket (submit or save) also mints + binds the provider task. Only
+           shown when the provider can create; the ticket's own inline error
+           rides this row. -->
+      <div class="labelrow pullrow hidden" id="createInRow">
+        <button type="button" class="k-switch" id="createIn" role="switch" aria-checked="false"
+                title="Create the matching task in ClickUp and link this ticket to it">
+          <span class="k-switch-track" aria-hidden="true"></span>Also create in ClickUp
+        </button>
+        <span class="err hidden" id="createInErr" role="alert"></span>
+      </div>
       <!-- The worktree is cut from each repository's baseline branch, so an
            un-refreshed local base starts the ticket behind the team. On by
            default; the value left here is what the launch honors. -->
@@ -468,6 +485,32 @@
     link.innerHTML = '↗ ' + badge + ref;
   }
 
+  // Last inline error for the provider-task control (see renderCreateIn). Lives
+  // here so it survives the state pushes that re-render the control: a failed
+  // attempt re-seeds the page in edit mode, and the error must still be there
+  // explaining what went wrong and offering the retry.
+  let createInError = '';
+  // The create-mode "Also create in ClickUp" checkbox state. Reset on failure so
+  // a broken provider never traps the ticket at submit — the edit-mode button
+  // is the explicit retry, and starting the ticket as-is stays possible.
+  let createInOn = false;
+
+  // The provider-task control (869e9xq5y-fu1): a checkbox in create mode, a
+  // button in edit mode on a ticket with no sourceRef yet. Both hidden once the
+  // ticket is bound — a bound ticket never offers a second creation. The error
+  // renders beside whichever control is visible.
+  function renderCreateIn(state) {
+    const creatable = state.canCreateProviderTicket === true;
+    const showCheck = creatable && state.mode === 'create';
+    const showBtn = creatable && state.mode === 'edit' && !(state.sourceRef || '').trim();
+    el('createInRow').classList.toggle('hidden', !showCheck);
+    el('createInBtn').classList.toggle('hidden', !showBtn);
+    el('createInErr').textContent = createInError;
+    el('createInErr').classList.toggle('hidden', !(showCheck && createInError));
+    el('createInBtnErr').textContent = createInError;
+    el('createInBtnErr').classList.toggle('hidden', !(showBtn && createInError));
+  }
+
   function formatBytes(n) {
     if (n >= 1048576) return Math.round(n / 1048576) + ' MB';
     if (n >= 1024) return Math.round(n / 1024) + ' KB';
@@ -517,6 +560,7 @@
     renderProvider(state.provider);
     renderSearchControls(state.ticketSearchEnabled === true);
     renderTicketFormTicketLink(state);
+    renderCreateIn(state);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
     // what the user is typing on a re-push). The single #ref field IS the key —
@@ -1109,7 +1153,7 @@
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType, pullBase: pullBaseOn });
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType, createInProvider: createInOn, pullBase: pullBaseOn });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -1135,7 +1179,7 @@
     const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType });
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType, createInProvider: createInOn });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live. When the
@@ -1460,6 +1504,23 @@
   // Enter/Space activation natively — no custom keydown handler needed.
   el('autoPrefill').addEventListener('click', () => setAutoPrefill(!autoPrefillOn));
 
+  // The create-mode "Also create in ClickUp" switch (default off). Same native
+  // button activation as Auto-prefill; the value rides submit/save.
+  el('createIn').addEventListener('click', () => {
+    createInOn = !createInOn;
+    el('createIn').setAttribute('aria-checked', String(createInOn));
+  });
+
+  // The edit-mode "Create in ClickUp" button. Pending is entered LOCALLY, on
+  // click (UI-R11) — the host's busy/provider-ticket-* replies settle it. A
+  // failure posts provider-ticket-error and the button re-enables: retryable.
+  el('createInBtn').addEventListener('click', () => {
+    if (el('createInBtn').disabled) return;
+    el('createInBtn').setAttribute('aria-busy', 'true');
+    el('createInBtn').disabled = true;
+    post({ type: 'create-provider-ticket' });
+  });
+
   // Pull-the-base switch (default on). Same native-button activation as
   // Auto-prefill above.
   el('pullBase').addEventListener('click', () => setPullBase(!pullBaseOn));
@@ -1697,6 +1758,12 @@
       approachBusy = on;
       syncAnalyzeBtn();
     }
+    if (what === 'provider-ticket') {
+      // The edit-mode button is the control; the create-mode checkbox rides
+      // submit/save and is never busy on its own.
+      if (on) { el('createInBtn').setAttribute('aria-busy', 'true'); el('createInBtn').disabled = true; }
+      else { el('createInBtn').removeAttribute('aria-busy'); el('createInBtn').disabled = false; }
+    }
   }
 
   window.addEventListener('message', (e) => {
@@ -1813,6 +1880,31 @@
       case 'error': showErr(msg.message); break;
       case 'busy': setBusy(msg.what, msg.on); break;
       case 'action-result': karstSettle(msg.requestId, msg.ok, msg.message); break;
+      case 'provider-ticket-created': {
+        // Bound at last: clear the inline error; the state push that follows
+        // hides the control and shows the ticket link. The ref is echoed here
+        // so a page that missed the push still knows what happened.
+        createInError = '';
+        createInOn = false;
+        const state = vscode.getState();
+        if (state) renderCreateIn(state);
+        break;
+      }
+      case 'provider-ticket-error': {
+        // The control's OWN surface: a clear inline reason, never the page
+        // bucket (#err is for fetch/attach/host failures). The control stays
+        // enabled — retryable. The checkbox resets so a broken provider can
+        // never trap the ticket at submit (the edit-mode button is the retry).
+        createInError = msg.message || '';
+        createInOn = false;
+        if (el('createInBtn').disabled) {
+          el('createInBtn').removeAttribute('aria-busy');
+          el('createInBtn').disabled = false;
+        }
+        const state = vscode.getState();
+        if (state) renderCreateIn(state);
+        break;
+      }
     }
   });
 

@@ -28,6 +28,13 @@ export interface TicketDraftFields {
    * `type`. Null = inherit the manifest default.
    */
   ticketType: string | null;
+  /**
+   * Create-mode checkbox: when the ticket is persisted (submit or save), also
+   * mint a task in the ticketing provider's list and bind it as `sourceRef`.
+   * Absent/false = local ticket only. Only meaningful when the provider can
+   * create (`clickup`); the host re-checks at the trust boundary.
+   */
+  createInProvider: boolean;
 }
 
 /**
@@ -75,6 +82,9 @@ export type TicketFormMessage =
   | { type: 'detach-attachment'; id: number }
   | { type: 'open-attachment'; id: number }
   | { type: 'open-ticket-link'; url: string }
+  // Edit-mode button: create the provider task for a ticket with no source_ref
+  // yet and bind it (the create-mode checkbox rides `submit`/`save` instead).
+  | { type: 'create-provider-ticket' }
   | ({ type: 'submit' } & TicketDraftFields & { pullBase: boolean })
   // Persists the ticket like `submit`, but never calls startTicket — no
   // worktrees, no agent launch. The "save without a run" path.
@@ -88,7 +98,7 @@ export type TicketFormMessage =
  * rendered. Every member here has a matching case in the webview's `setBusy`;
  * `webview.test.ts` pins the two together so they cannot drift apart again.
  */
-export type TicketFormBusyKind = 'fetch' | 'suggest' | 'submit' | 'analyze' | 'save';
+export type TicketFormBusyKind = 'fetch' | 'suggest' | 'submit' | 'analyze' | 'save' | 'provider-ticket';
 
 /** Host → webview messages: state pushes + async results. */
 export type TicketFormHostMessage =
@@ -111,6 +121,13 @@ export type TicketFormHostMessage =
       reason: string;
       ticketType: string;
     }
+  // A provider task was created and bound to the ticket. `ref`/`url` let the
+  // page say what happened without waiting for the next state push.
+  | { type: 'provider-ticket-created'; ref: string; url: string | null }
+  // The provider-task control's own failure surface: a clear inline error that
+  // leaves the control retryable (the Karst ticket itself was already
+  // persisted — a provider failure must never lose it).
+  | { type: 'provider-ticket-error'; message: string }
   | { type: 'error'; message: string }
   | { type: 'busy'; what: TicketFormBusyKind; on: boolean }
   | ActionResultMessage;
@@ -151,6 +168,13 @@ export interface TicketFormActions {
   detachAttachment: (id: number) => Promise<void>;
   openAttachment: (id: number) => Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
+  /**
+   * Create the provider task for the bound ticket and bind its ref as
+   * `sourceRef`. Only meaningful in edit mode on a ticket with no ref yet —
+   * the create-mode checkbox rides `submit`/`save`. Never throws: replies with
+   * `provider-ticket-created` or `provider-ticket-error` and stays retryable.
+   */
+  createProviderTicket: () => void | Promise<void>;
   submit: (input: SubmitFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
   requestState: () => void | Promise<void>;
@@ -204,6 +228,10 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     typeof m.agentProvider === 'string' && isKnownProvider(m.agentProvider) ? m.agentProvider : null;
   const ticketType =
     typeof m.ticketType === 'string' && m.ticketType.length > 0 ? m.ticketType : null;
+  // The create-in-provider checkbox. Only an explicit `true` opts in: absent
+  // or malformed reads as "local ticket only" — a stale page must never mint
+  // an unrequested remote task (the host re-checks capability + binding too).
+  const createInProvider = m.createInProvider === true;
   return {
     key: m.key as string,
     title: m.title as string,
@@ -214,6 +242,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     model,
     agentProvider,
     ticketType,
+    createInProvider,
   };
 }
 
@@ -293,6 +322,8 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       // check is not enough (a crafted file://, vscode:// or command: URI would
       // pass it). Same guard as the dashboard's; shared so they can't diverge.
       return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
+    case 'create-provider-ticket':
+      return { type: 'create-provider-ticket' };
     case 'submit': {
       const fields = parseDraftFields(m);
       // Default ON: only an explicit `false` opts out. An absent or non-boolean
@@ -370,6 +401,10 @@ export function routeTicketFormAction(
     case 'open-ticket-link':
       actions.openTicketLink(msg.url);
       return;
+    case 'create-provider-ticket':
+      // Fire-and-forget: the action self-reports via busy/provider-ticket-* posts.
+      void actions.createProviderTicket();
+      return;
     case 'submit':
       // Fire-and-forget: `submit` reports its own outcome to the page (busy /
       // error / close), so the pump does not wait on the launch.
@@ -383,6 +418,7 @@ export function routeTicketFormAction(
         model: msg.model,
         agentProvider: msg.agentProvider,
         ticketType: msg.ticketType,
+        createInProvider: msg.createInProvider,
         pullBase: msg.pullBase,
       });
       return;
@@ -399,6 +435,7 @@ export function routeTicketFormAction(
         model: msg.model,
         agentProvider: msg.agentProvider,
         ticketType: msg.ticketType,
+        createInProvider: msg.createInProvider,
       });
       return;
     case 'request-state':

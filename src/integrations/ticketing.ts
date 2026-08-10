@@ -151,6 +151,19 @@ export interface TicketSearchOptions {
   status?: string;
 }
 
+/** What a provider needs to mint a task in its configured list. */
+export interface CreateTicketInput {
+  title: string;
+  description?: string;
+}
+
+/** A created task, normalized across providers. `ref` is what `fetchTicket`/`updateStatus` take. */
+export interface CreateTicketResult {
+  ref: string;
+  /** Canonical task URL when the provider exposes one, else absent. */
+  url?: string;
+}
+
 export interface TicketingProvider {
   /** Set the ticket's status. `ref` is the provider's own task ref (never karst's user-editable `key`). */
   updateStatus(ref: string, status: string): Promise<void>;
@@ -176,6 +189,13 @@ export interface TicketingProvider {
    * implements this; `manualProvider` has no board to search.
    */
   searchTickets?(query: string, opts?: TicketSearchOptions): Promise<TicketSearchResult[]>;
+  /**
+   * Create a task in the provider's configured list and return its ref.
+   * Optional: `manualProvider` has no remote to create on. The extension host
+   * calls this and binds the returned ref onto the Karst ticket (`sourceRef`),
+   * so every Karst ticket can own a linked provider task.
+   */
+  createTicket?(input: CreateTicketInput): Promise<CreateTicketResult>;
 }
 
 export interface ManualProvider extends TicketingProvider {

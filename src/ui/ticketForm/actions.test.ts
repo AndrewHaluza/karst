@@ -461,7 +461,8 @@ describe('buildTicketFormActions', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null });
+    await actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null,
+      createInProvider: false });
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(tickets[0]!.key).toBe('NEW-1');
@@ -475,7 +476,8 @@ describe('buildTicketFormActions', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: '', title: 'no key please', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.submit({ key: '', title: 'no key please', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(tickets[0]!.key).toBeTruthy(); // never persists an empty string
@@ -485,7 +487,8 @@ describe('buildTicketFormActions', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.submit({ key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
     expect(listTickets(store)[0]!.key).toBe('FIX-LOGIN-REDIRECT');
   });
 
@@ -493,7 +496,8 @@ describe('buildTicketFormActions', () => {
     const mk = () => buildTicketFormActions(deps)({
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
     });
-    const fields = { key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null };
+    const fields = { key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false };
 
     await mk().submit({ ...fields });
     await mk().submit({ ...fields });
@@ -509,8 +513,10 @@ describe('buildTicketFormActions', () => {
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
     });
 
-    await actionsA.submit({ key: '', title: 'first', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
-    await actionsB.submit({ key: '', title: 'second', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actionsA.submit({ key: '', title: 'first', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
+    await actionsB.submit({ key: '', title: 'second', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
     const [a, b] = listTickets(store);
     expect(a!.key).not.toBe(b!.key);
   });
@@ -519,7 +525,8 @@ describe('buildTicketFormActions', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null, ticketType: null });
+    await actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null, ticketType: null,
+      createInProvider: false });
     const t = getTicket(store, listTickets(store)[0]!.id);
     expect(t.selectedRepos).toEqual(['fe', 'be']);
     expect(t.approach).toBe('rpi');
@@ -529,7 +536,8 @@ describe('buildTicketFormActions', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8', ticketType: null });
+    await actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8', ticketType: null,
+      createInProvider: false });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBe('claude-opus-4-8');
   });
 
@@ -540,6 +548,7 @@ describe('buildTicketFormActions', () => {
     await actions.submit({
       key: 'NEW-P', title: 't', description: '', repos: [], approach: null, agent: null,
       model: null, agentProvider: 'antigravity', ticketType: null,
+      createInProvider: false,
     });
     expect(getTicket(store, listTickets(store)[0]!.id).agentProvider).toBe('antigravity');
   });
@@ -548,7 +557,8 @@ describe('buildTicketFormActions', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
     expect(getTicket(store, listTickets(store)[0]!.id).model).toBeNull();
   });
 
@@ -558,6 +568,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.submit({
       key: 'NEW-A', title: 't', description: '', repos: [], approach: null, agent: 'reviewer', model: null, ticketType: null,
+      createInProvider: false,
     });
     const t = getTicket(store, listTickets(store)[0]!.id);
     expect(t.agent).toBe('reviewer');
@@ -572,7 +583,8 @@ describe('buildTicketFormActions', () => {
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.submit({ key: 'NEW-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
     const id = listTickets(store)[0]!.id;
     expect(bound).toBe(id);
     expect(startTicket).toHaveBeenCalledWith(id, { pullBase: true });
@@ -583,7 +595,8 @@ describe('buildTicketFormActions', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
     const reloaded = getTicket(store, t.id);
     expect(reloaded.key).toBe('NEW');
     expect(reloaded.title).toBe('new');
@@ -597,6 +610,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.submit({
       key: 'NEW-D', title: 't', description: '', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null,
+      createInProvider: false,
     });
 
     const id = listTickets(store)[0]!.id;
@@ -614,7 +628,8 @@ describe('buildTicketFormActions', () => {
     const actions = buildTicketFormActions(deps)(mkCtx());
 
     await actions.submit({
-      key: 'NEW-P', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null, pullBase: false,
+      key: 'NEW-P', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false, pullBase: false,
     });
 
     const id = listTickets(store)[0]!.id;
@@ -637,6 +652,7 @@ describe('buildTicketFormActions', () => {
 
     const done = actions.submit({
       key: 'NEW-O', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false,
     });
     expect(order).toEqual(['start']); // still launching — panel stays put
     expect(ctx.closes).toBe(0);
@@ -652,6 +668,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.submit({
       key: 'NEW-F', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false,
     });
 
     expect(ctx.posted.find((m) => m.type === 'error')).toEqual({
@@ -672,6 +689,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.submit({
       key: 'NEW-T', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false,
     });
 
     expect((ctx.posted.find((m) => m.type === 'error') as { message: string }).message).toMatch(
@@ -688,6 +706,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.submit({
       key: 'OLD-D', title: 'new', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false,
     });
 
     expect(openDashboard).toHaveBeenCalledWith(t.id);
@@ -700,6 +719,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.save({
       key: 'DRAFT-1', title: 'a draft', description: 'no run yet', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false,
     });
 
     const tickets = listTickets(store);
@@ -722,7 +742,8 @@ describe('buildTicketFormActions', () => {
     const ctx = mkCtx();
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.save({ key: '', title: 'a draft', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.save({ key: '', title: 'a draft', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
 
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
@@ -735,6 +756,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.save({
       key: 'DRAFT-2', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', ticketType: null,
+      createInProvider: false,
     });
 
     const t = getTicket(store, listTickets(store)[0]!.id);
@@ -748,7 +770,8 @@ describe('buildTicketFormActions', () => {
     const ctx = mkCtx();
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.save({ key: 'DRAFT-3', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.save({ key: 'DRAFT-3', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
 
     const id = listTickets(store)[0]!.id;
     expect(ctx.ticketId).toBe(id);
@@ -760,7 +783,8 @@ describe('buildTicketFormActions', () => {
     const ctx = mkCtx(t.id);
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.save({ key: 'NEW-S', title: 'new title', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.save({ key: 'NEW-S', title: 'new title', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
 
     const reloaded = getTicket(store, t.id);
     expect(reloaded.key).toBe('NEW-S');
@@ -774,7 +798,8 @@ describe('buildTicketFormActions', () => {
     const ctx = mkCtx(t.id);
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.save({ key: '', title: 'old', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.save({ key: '', title: 'old', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
 
     const reloaded = getTicket(store, t.id);
     expect(reloaded.key).toBeTruthy();
@@ -785,7 +810,8 @@ describe('buildTicketFormActions', () => {
     const ctx = mkCtx();
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.save({ key: 'DRAFT-4', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.save({ key: 'DRAFT-4', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
 
     expect(ctx.posted[0]).toEqual({ type: 'busy', what: 'save', on: true });
     expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'save', on: false });
@@ -797,7 +823,8 @@ describe('buildTicketFormActions', () => {
     const ctx = mkCtx();
     const actions = buildTicketFormActions(deps)(ctx);
 
-    await actions.save({ key: 'DRAFT-5', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null });
+    await actions.save({ key: 'DRAFT-5', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
 
     expect(ctx.posted.find((m) => m.type === 'error')).toBeTruthy();
     expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'save', on: false });
@@ -1323,6 +1350,157 @@ describe('buildTicketFormActions', () => {
       if (!foreign) return;
       await actions.openAttachment(foreign.id);
       expect(opened).toEqual([]);
+    });
+  });
+
+  describe('provider ticket creation (869e9xq5y-fu1)', () => {
+    const CREATED = { ref: 'cu-new-1', url: 'https://app.clickup.com/t/cu-new-1' };
+
+    it('createProviderTicket mints the task and binds sourceRef on an unbound edit-mode ticket', async () => {
+      const t = createTicket(store, { key: 'P-1', title: 'Fix login', description: 'modal' });
+      deps.provider = fakeProvider({ createTicket: vi.fn(async () => CREATED) });
+      const ctx = mkCtx(t.id);
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.createProviderTicket();
+
+      expect(deps.provider.createTicket).toHaveBeenCalledWith({ title: 'Fix login', description: 'modal' });
+      expect(getTicket(store, t.id).sourceRef).toBe('cu-new-1');
+      expect(ctx.posted).toContainEqual({ type: 'provider-ticket-created', ...CREATED });
+      expect(ctx.posted).toContainEqual({ type: 'busy', what: 'provider-ticket', on: true });
+      expect(ctx.posted).toContainEqual({ type: 'busy', what: 'provider-ticket', on: false });
+      expect(ctx.pushes).toBe(1); // re-seeded so the link appears
+    });
+
+    it('never re-creates a task for an already-bound ticket (no double-creation)', async () => {
+      const t = createTicket(store, { key: 'P-2', title: 't' });
+      updateTicketFields(store, t.id, { sourceRef: 'cu-existing' });
+      const providerCreate = vi.fn(async () => CREATED);
+      deps.provider = fakeProvider({ createTicket: providerCreate });
+      const ctx = mkCtx(t.id);
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.createProviderTicket();
+
+      expect(providerCreate).not.toHaveBeenCalled();
+      expect(getTicket(store, t.id).sourceRef).toBe('cu-existing');
+    });
+
+    it('reports a provider failure inline and leaves the ticket untouched', async () => {
+      const t = createTicket(store, { key: 'P-3', title: 't' });
+      deps.provider = fakeProvider({
+        createTicket: vi.fn(async () => {
+          throw new Error('ClickUp: a List ID is required to create tickets');
+        }),
+      });
+      const ctx = mkCtx(t.id);
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.createProviderTicket();
+
+      expect(getTicket(store, t.id).sourceRef).toBeNull(); // ticket survives
+      expect(ctx.posted).toContainEqual({
+        type: 'provider-ticket-error',
+        message: 'ClickUp: a List ID is required to create tickets',
+      });
+      expect(ctx.pushes).toBe(1); // stays on the page, retryable
+    });
+
+    it('refuses when the provider cannot create tickets', async () => {
+      const t = createTicket(store, { key: 'P-4', title: 't' });
+      const ctx = mkCtx(t.id);
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.createProviderTicket();
+
+      expect(ctx.posted).toContainEqual({
+        type: 'provider-ticket-error',
+        message: 'This provider cannot create tickets.',
+      });
+      expect(getTicket(store, t.id).sourceRef).toBeNull();
+    });
+
+    it('is a no-op in create mode with no bound ticket', async () => {
+      const providerCreate = vi.fn(async () => CREATED);
+      deps.provider = fakeProvider({ createTicket: providerCreate });
+      const ctx = mkCtx();
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.createProviderTicket();
+
+      expect(providerCreate).not.toHaveBeenCalled();
+    });
+
+    it('submit with createInProvider creates + binds the task before starting', async () => {
+      deps.provider = fakeProvider({ createTicket: vi.fn(async () => CREATED) });
+      const ctx = mkCtx();
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.submit({
+        key: 'NEW-CU', title: 'Fix login', description: 'modal', repos: ['fe'], approach: 'rpi',
+        agent: null, model: null, ticketType: null, createInProvider: true,
+      });
+
+      const t = getTicket(store, listTickets(store)[0]!.id);
+      expect(t.sourceRef).toBe('cu-new-1');
+      expect(ctx.posted).toContainEqual({ type: 'provider-ticket-created', ...CREATED });
+      expect(startTicket).toHaveBeenCalledWith(t.id, { pullBase: true });
+    });
+
+    it('submit with createInProvider on a provider failure keeps the ticket, skips the launch, and stays retryable', async () => {
+      deps.provider = fakeProvider({
+        createTicket: vi.fn(async () => {
+          throw new Error('ClickUp: a List ID is required to create tickets');
+        }),
+      });
+      const ctx = mkCtx();
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.submit({
+        key: 'NEW-FAIL', title: 'Fix login', description: 'modal', repos: ['fe'], approach: 'rpi',
+        agent: null, model: null, ticketType: null, createInProvider: true,
+      });
+
+      // The Karst ticket was persisted FIRST and must survive the provider failure.
+      const tickets = listTickets(store);
+      expect(tickets).toHaveLength(1);
+      expect(tickets[0]!.sourceRef).toBeNull();
+      expect(startTicket).not.toHaveBeenCalled();
+      expect(ctx.posted).toContainEqual({
+        type: 'provider-ticket-error',
+        message: 'ClickUp: a List ID is required to create tickets',
+      });
+      expect(ctx.pushes).toBeGreaterThan(0); // re-seeded so the page offers a retry
+    });
+
+    it('submit with createInProvider:false never calls the provider', async () => {
+      const providerCreate = vi.fn(async () => CREATED);
+      deps.provider = fakeProvider({ createTicket: providerCreate });
+      const ctx = mkCtx();
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.submit({
+        key: 'NEW-LOCAL', title: 't', description: '', repos: ['fe'], approach: 'rpi',
+        agent: null, model: null, ticketType: null, createInProvider: false,
+      });
+
+      expect(providerCreate).not.toHaveBeenCalled();
+      expect(listTickets(store)[0]!.sourceRef).toBeNull();
+    });
+
+    it('save with createInProvider binds the task without starting anything', async () => {
+      deps.provider = fakeProvider({ createTicket: vi.fn(async () => CREATED) });
+      const ctx = mkCtx();
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      await actions.save({
+        key: 'SAVE-CU', title: 'Fix login', description: 'modal', repos: [], approach: null,
+        agent: null, model: null, ticketType: null, createInProvider: true,
+      });
+
+      expect(getTicket(store, listTickets(store)[0]!.id).sourceRef).toBe('cu-new-1');
+      expect(startTicket).not.toHaveBeenCalled();
+      expect(ctx.posted).toContainEqual({ type: 'provider-ticket-created', ...CREATED });
     });
   });
 

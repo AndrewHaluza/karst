@@ -87,6 +87,14 @@ export interface TicketFormState {
    * webview renders the plain key input otherwise.
    */
   ticketSearchEnabled: boolean;
+  /**
+   * Whether the provider can CREATE a task (`clickup`): drives the "Also create
+   * in ClickUp" checkbox (create mode) and the "Create in ClickUp" button
+   * (edit mode on a ticket with no `sourceRef` yet). Not gated on `listId` —
+   * an unconfigured list must surface its clear inline error, not hide the
+   * control that would say so.
+   */
+  canCreateProviderTicket: boolean;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
   /** Services still lacking signal words — the classify gate targets these. */
@@ -237,6 +245,7 @@ export function buildTicketFormState(
       brief: null,
       provider,
       ticketSearchEnabled,
+      canCreateProviderTicket: provider === 'clickup',
       ticketUrl: null,
       unclassified,
       repos: makeRepos(new Set(), new Map()),
@@ -280,6 +289,7 @@ export function buildTicketFormState(
     brief: ticket.brief,
     provider,
     ticketSearchEnabled,
+    canCreateProviderTicket: provider === 'clickup',
     ticketUrl: providerTicketUrl(provider, ticket.sourceRef),
     unclassified,
     repos: makeRepos(selectedSet, scores),

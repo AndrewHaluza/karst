@@ -98,6 +98,7 @@ function recordingFactory(
       detachAttachment: async () => {},
       openAttachment: async () => {},
       openTicketLink: () => {},
+      createProviderTicket: () => {},
       submit: () => {},
       save: () => {},
       requestState: () => ctx.pushState(),

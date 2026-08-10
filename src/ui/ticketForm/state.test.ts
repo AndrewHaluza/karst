@@ -108,6 +108,21 @@ describe('buildTicketFormState — create mode', () => {
     expect(s.ticketSearchEnabled).toBe(false);
   });
 
+  it('enables provider-ticket creation only for the clickup provider (869e9xq5y-fu1)', () => {
+    const withClickup: Manifest = { ...MANIFEST, ticketing: { provider: 'clickup' } };
+    expect(
+      buildTicketFormState(store, withClickup, () => [], () => []).canCreateProviderTicket,
+    ).toBe(true);
+    // No listId still allows creation — an unconfigured list must surface its
+    // clear inline error, not hide the control that would say so.
+    expect(
+      buildTicketFormState(store, withClickup, () => [], () => []).canCreateProviderTicket,
+    ).toBe(true);
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => []).canCreateProviderTicket).toBe(
+      false,
+    );
+  });
+
   it('offers the current provider models from an injected catalog', () => {
     const withCodex: Manifest = { ...MANIFEST, agentProvider: 'codex' };
     const s = buildTicketFormState(

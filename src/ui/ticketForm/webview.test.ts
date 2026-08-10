@@ -675,9 +675,46 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     const fnMatch = script.match(/function setBusy\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
     expect(fnMatch, 'setBusy() not found').toBeTruthy();
     const body = fnMatch![1]!;
-    for (const what of ['fetch', 'submit', 'save', 'suggest', 'analyze']) {
+    for (const what of ['fetch', 'submit', 'save', 'suggest', 'analyze', 'provider-ticket']) {
       expect(body, `setBusy has no '${what}' case`).toContain(`what === '${what}'`);
     }
+  });
+
+  /**
+   * The provider-task control (869e9xq5y-fu1): a create-mode checkbox and an
+   * edit-mode button, both hidden once the ticket is bound (no double-creation),
+   * with the inline error rendered beside whichever control is visible.
+   */
+  it('renders the provider-task control by mode and hides it on a bound ticket', () => {
+    const fnMatch = HTML.match(/function renderCreateIn\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
+    expect(fnMatch, 'renderCreateIn() not found').toBeTruthy();
+    const body = fnMatch![1]!;
+    expect(body).toContain("el('createInRow').classList.toggle('hidden', !showCheck);");
+    expect(body).toContain("el('createInBtn').classList.toggle('hidden', !showBtn);");
+    expect(body).toContain('state.mode === \'edit\' && !(state.sourceRef || \'\').trim()');
+    expect(body).toContain('createInError');
+  });
+
+  it('the edit-mode button enters pending locally on click and posts create-provider-ticket', () => {
+    const script = scriptBlock();
+    expect(script).toContain("post({ type: 'create-provider-ticket' });");
+    expect(script).toMatch(/el\('createInBtn'\)\.setAttribute\('aria-busy', 'true'\)/);
+    expect(script).toMatch(/el\('createInBtn'\)\.disabled = true;/);
+  });
+
+  it('the create-mode checkbox rides submit and save as createInProvider (default off)', () => {
+    const script = scriptBlock();
+    expect(script).toContain('createInProvider: createInOn');
+    expect(script).toContain("createInOn = !createInOn;");
+  });
+
+  it('handles provider-ticket-created and provider-ticket-error on the message channel', () => {
+    const script = scriptBlock();
+    expect(script).toContain("case 'provider-ticket-created':");
+    expect(script).toContain("case 'provider-ticket-error':");
+    // A failure resets the checkbox so a broken provider can never trap the
+    // ticket at submit — the edit-mode button is the explicit retry.
+    expect(script).toMatch(/case 'provider-ticket-error':[\s\S]*?createInOn = false/);
   });
 });
 
