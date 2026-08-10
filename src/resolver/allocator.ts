@@ -7,15 +7,21 @@ import type { Store } from '../store/db.js';
  */
 export interface PortAllocator {
   /** Allocate one contiguous port per slot for a ticket's service. */
-  allocate(ticketId: number, repo: string, slots: string[]): Record<string, number>;
+  allocate(
+    ticketId: number,
+    repo: string,
+    slots: string[],
+    range?: [number, number],
+  ): Record<string, number>;
   /** Free every port held by a ticket (teardown). */
   release(ticketId: number): void;
 }
 
 export class PortRangeExhaustedError extends Error {
-  constructor(range: [number, number], need: number) {
+  constructor(range: [number, number], need: number, repo?: string) {
+    const who = repo === undefined ? '' : ` for service "${repo}"`;
     super(
-      `no free contiguous block of ${need} port(s) in range [${range[0]}, ${range[1]}]`,
+      `no free contiguous block of ${need} port(s) in range [${range[0]}, ${range[1]}]${who}`,
     );
     this.name = 'PortRangeExhaustedError';
   }
@@ -50,10 +56,11 @@ function findContiguous(
 export function makeDryRunAllocator(range: [number, number]): PortAllocator {
   const used = new Set<number>();
   return {
-    allocate(_ticketId, _service, slots) {
+    allocate(_ticketId, repo, slots, override) {
       if (slots.length === 0) return {};
-      const start = findContiguous(used, range, slots.length);
-      if (start === null) throw new PortRangeExhaustedError(range, slots.length);
+      const window = override ?? range;
+      const start = findContiguous(used, window, slots.length);
+      if (start === null) throw new PortRangeExhaustedError(window, slots.length, repo);
       const out: Record<string, number> = {};
       slots.forEach((slot, i) => {
         const port = start + i;
@@ -80,11 +87,17 @@ export function makePortAllocator(store: Store, range: [number, number]): PortAl
   }
 
   const allocate = store.db.transaction(
-    (ticketId: number, repo: string, slots: string[]): Record<string, number> => {
+    (
+      ticketId: number,
+      repo: string,
+      slots: string[],
+      override?: [number, number],
+    ): Record<string, number> => {
       if (slots.length === 0) return {};
+      const window = override ?? range;
       const used = currentUsed();
-      const start = findContiguous(used, range, slots.length);
-      if (start === null) throw new PortRangeExhaustedError(range, slots.length);
+      const start = findContiguous(used, window, slots.length);
+      if (start === null) throw new PortRangeExhaustedError(window, slots.length, repo);
 
       const out: Record<string, number> = {};
       slots.forEach((slot, i) => {
@@ -97,7 +110,7 @@ export function makePortAllocator(store: Store, range: [number, number]): PortAl
   );
 
   return {
-    allocate: (ticketId, service, slots) => allocate(ticketId, service, slots),
+    allocate: (ticketId, service, slots, override) => allocate(ticketId, service, slots, override),
     release: (ticketId) => {
       deleteByTicket.run(ticketId);
     },
