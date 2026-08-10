@@ -2647,7 +2647,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             sessionDir: wt.path,
             soloAgent,
             cliContextPrefix: buildCliContextPrefix(context, dbPath),
-            cliStagePrefix: buildCliStagePrefix(context, dbPath),
+            // Same marker gating as the seed above: a materialized workflow
+            // command appends its done-marker step ONLY when a stage prefix is
+            // given, so a session opened at a non-marker stage (uat/review/
+            // ship) must not be handed a command whose closing step is the
+            // `stage impl pass` the CLI would refuse (869edna84). At `fix` this
+            // also corrects the default: the command's marker step names `fix`,
+            // not the `impl` the old unconditional call defaulted to.
+            cliStagePrefix:
+              markerStage === null
+                ? undefined
+                : buildCliStagePrefix(context, dbPath, markerStage),
             cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
           });
         }
