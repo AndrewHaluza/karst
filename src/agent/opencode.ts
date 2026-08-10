@@ -429,7 +429,16 @@ export const KarstBridge = async ({ directory, worktree }) => {
           postUsage(event && event.id, input, directory, worktree));
       } else if (type === 'session.error') {
         post('session.error', input, directory, worktree, extractErrorMessage(input));
-      } else if (type === 'permission.asked' || type === 'permission.v2.asked') {
+      } else if (
+        type === 'permission.asked' ||
+        type === 'permission.v2.asked' ||
+        type === 'question.asked' ||
+        type === 'question.v2.asked'
+      ) {
+        // A question is the same "blocked on the user" signal as a permission:
+        // the agent stopped and only a human can continue it. Normalized to
+        // karst's own closed wait vocabulary (permission.asked) so dispatch
+        // needs no new event.
         post('permission.asked', input, directory, worktree);
       }
     },
@@ -499,10 +508,16 @@ export class OpencodeAdapter implements AgentAdapter {
     const args: string[] = [];
     let ownedPaths: string[] | undefined;
     if (opts.hookChannel) {
-      // The generated plugin is the ONLY hook authority karst introduces; `--pure`
-      // suppresses config/global plugins so no inherited plugin can also fire.
+      // The generated plugin is the ONLY hook authority karst introduces — and
+      // `--pure` disables ALL external plugin loading in opencode, including the
+      // auto-discovered `.opencode/plugins/karst-bridge.js` this very call just
+      // wrote. An interactive session launched with `--pure` can therefore never
+      // deliver a single hook event (no SessionStart, no permission.asked, no
+      // usage), which is how a permission ask in an opencode fix session failed
+      // to surface "Needs you" (869eg458d). Never pass it here. Headless `run`
+      // keeps `--pure` on purpose: gate processes need no hooks and stay
+      // isolated from the user's own plugins.
       const pluginPath = writeKarstBridge(opts.cwd, opts.hookChannel.endpointUrl);
-      args.push('--pure');
       ownedPaths = [pluginPath];
     }
     if (opts.model) args.push('--model', opts.model);

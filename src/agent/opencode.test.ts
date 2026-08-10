@@ -113,8 +113,13 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(body).toContain('session.error');
     expect(body).toContain('permission.asked');
     expect(body).toContain('http://127.0.0.1:4567/hooks');
-    // --pure suppresses config/global plugins so only karst's events fire.
-    expect(cmd.args).toContain('--pure');
+    // `--pure` disables ALL external plugin loading in opencode — including the
+    // auto-discovered `.opencode/plugins/karst-bridge.js` written just above —
+    // so an interactive session launched with it can never deliver a hook event
+    // (no SessionStart, no permission.asked, no usage). That is how a permission
+    // ask in an opencode fix session failed to surface "Needs you" (869eg458d).
+    // The flag must never be passed on an interactive launch.
+    expect(cmd.args).not.toContain('--pure');
     expect(cmd.ownedPaths).toEqual([pluginPath]);
   });
 
@@ -401,6 +406,35 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
       await r.close();
     }
   });
+
+  it.each(['question.asked', 'question.v2.asked'])(
+    'posts permission.asked for %s — a question is the same wait signal',
+    async (type) => {
+      const worktree = makeWorktree();
+      const r = await receiver(1);
+      try {
+        const bridge = await loadBridge(worktree, r.endpointUrl);
+        await bridge.event({
+          event: {
+            id: `evt-${type}`,
+            type,
+            properties: { sessionID: 'ses_1', cwd: '/wt' },
+          },
+        });
+        const bodies = await Promise.race([
+          r.received,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('plugin posted no lifecycle payload')), 2_000),
+          ),
+        ]);
+        expect(bodies).toEqual([
+          { hook_event_name: 'permission.asked', cwd: '/wt', session_id: 'ses_1' },
+        ]);
+      } finally {
+        await r.close();
+      }
+    },
+  );
 });
 
 describe('parseOpencodeJsonl', () => {

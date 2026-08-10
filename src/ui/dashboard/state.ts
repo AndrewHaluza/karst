@@ -461,6 +461,7 @@ export function buildDashboardState(
     currentStage,
     now: buildNowLine(currentStage, {
       fixAttempts,
+      agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
       sessionAction: sessionAction(
         ticket,
         resolvedProvider,

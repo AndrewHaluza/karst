@@ -338,6 +338,8 @@ describe('buildDashboardState', () => {
     expect(impl.needsUser).toBe(true);
     expect(impl.needs?.action).toBe('Open session');
     expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
+    // The Now line must agree: the agent is waiting, not "working in its terminal".
+    expect(state.now.text).toBe('Now: the agent is waiting — it asked for your input.');
   });
 
   it('leaves every segment clear when nothing is blocked on the user', () => {
