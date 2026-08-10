@@ -349,6 +349,8 @@ implementation (Claude Code); a second agent is a config swap, not a rewrite.
 
 ## Design docs
 
+- [`glossary.md`](./docs/glossary.md) — every term, one definition: stages,
+  gates, blocks, sessions, approaches, PRs, runtime, CLI, UI
 - [`plans/001-architecture.md`](./plans/001-architecture.md) — design decisions
 - [`plans/002-mvp-plan.md`](./plans/002-mvp-plan.md) — milestone roadmap (M0–M4)
 - [`plans/003-implementation-plan.md`](./plans/003-implementation-plan.md) —
