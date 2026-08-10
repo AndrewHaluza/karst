@@ -392,3 +392,38 @@ Antigravity, and Codex.
 - Materialization uses `.opencode/` (opencode's primary discovery root); opencode ALSO reads `.agents/skills/` and `.claude/skills/`, so codex/claude materialization is incidentally discoverable, but opencode keeps its own tree clean.
 - Models are discovered live via `opencode models` (plain format, one `provider/model` ID per line). The bundled catalog is intentionally empty — CLI discovery is the primary source. Custom model IDs are always accepted by the resolution layer.
 - Token usage is adapter-parsed from `step_finish.part.tokens` (keys `input`/`output`/`total` don't match the shared extractor); the adapter owns `parseOpencodeJsonl` like Codex owns `parseCodexJsonl`.
+
+## 14. Antigravity implementation notes
+
+Antigravity (agy 1.1.11, Go binary) was verified against the installed CLI
+rather than its docs.
+
+- **Hooks do not execute in the CLI.** agy ships a full hooks system
+  (`hooks.json` at `<appdata>/hooks.json` AND `<workspace>/.agents/hooks.json`,
+  merged; events PreToolUse/PostToolUse/PreInvocation/PostInvocation/Stop;
+  stdin JSON payloads with `conversationId`/`workspacePaths`; `ask`/`allow`/
+  `deny`/`force_ask` decisions). The CLI LOADS the files ("loaded 4 named hooks
+  from 2 hooks.json file(s)") but NEVER RUNS the commands — verified across
+  print and interactive sessions, allowed and permission-requiring tools. The
+  hook machinery is wired for the IDE/Antigravity-2.0 surface (the
+  model-mediated "call the 'finish' tool to submit your hook decision" path and
+  `policyguardian: NewHooks called with nil modelAPI` in the binary). Do NOT
+  build a bridge on it — a silent no-op is a fake signal.
+- **The lifecycle channel is the conversation DB.** The CLI writes
+  `<appdata>/conversations/<conv-id>.db` (SQLite). While a permission dialog
+  ("Allow creation of this file?") is on screen, the conversation has a
+  `steps` row with `status = 9` (pending user decision); answering resolves it
+  to `status = 3`. The `trajectory_metadata_blob` row (`id='main'`) carries the
+  workspace path as `file://<path>` bytes, which locates the conversation for a
+  ticket's worktree. Karst's `agyConversationWatch` sweep reads this state
+  read-only and normalizes it into the closed hook vocabulary
+  (`SessionStart` / `permission.asked` / `UserPromptSubmit`) through the same
+  `dispatchHook` seam as the HTTP endpoint. `--conversation <id>` resumes a
+  session (verified: the CLI prints `agy --conversation=<id>` on exit).
+- `ANTIGRAVITY_CONVERSATION_ID` exists in the binary but is NOT set on the CLI
+  process environment — do not rely on it for discovery.
+- The `-p` (print/headless) mode runs no hooks and writes no conversation DB;
+  headless `sessionId` stays `''`.
+- Capabilities: `lifecycleEvents: true` and `resume: true` (the watch delivers
+  both), `interactiveUsage: false` (no usage channel exists — never a measured
+  zero).
