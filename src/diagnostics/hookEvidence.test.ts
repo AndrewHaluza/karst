@@ -91,6 +91,78 @@ describe('codex bridge failure log', () => {
     expect(result.evidence.entries).toEqual([])
   })
 
+  it('recognizes http-error with a status code suffix as http-error', () => {
+    const text = line({ at: '2026-08-01T10:00:00.000Z', event: 'PostToolUse', outcome: 'http-error:404' })
+    const evidence = parseHookFailures(text, 10)
+    expect(evidence.entries).toHaveLength(1)
+    expect(evidence.entries[0]!.outcome).toBe('http-error')
+    expect(evidence.byOutcome).toEqual({ 'http-error': 1 })
+  })
+
+  it('preserves different http-error status codes under the same outcome bucket', () => {
+    const text = [
+      line({ at: '2026-08-01T10:00:00.000Z', event: 'PostToolUse', outcome: 'http-error:404' }),
+      line({ at: '2026-08-01T10:00:01.000Z', event: 'Stop', outcome: 'http-error:500' }),
+      line({ at: '2026-08-01T10:00:02.000Z', event: 'PostToolUse', outcome: 'http-error:403' }),
+    ].join('')
+    const evidence = parseHookFailures(text, 10)
+    expect(evidence.byOutcome).toEqual({ 'http-error': 3 })
+    expect(evidence.entries).toHaveLength(3)
+  })
+
+  it('recognizes a request-error with a connection error code suffix', () => {
+    const text = line({ at: '2026-08-01T10:00:00.000Z', event: 'PostToolUse', outcome: 'request-error:ECONNREFUSED' })
+    const evidence = parseHookFailures(text, 10)
+    expect(evidence.entries[0]!.outcome).toBe('request-error')
+    expect(evidence.byOutcome).toEqual({ 'request-error': 1 })
+    expect(evidence.byDetail).toEqual({ 'request-error:ECONNREFUSED': 1 })
+  })
+
+  it('tracks validated status and error-code details under byDetail', () => {
+    const text = [
+      line({ at: '2026-08-01T10:00:00.000Z', event: 'PostToolUse', outcome: 'http-error:404' }),
+      line({ at: '2026-08-01T10:00:01.000Z', event: 'PostToolUse', outcome: 'http-error:500' }),
+      line({ at: '2026-08-01T10:00:02.000Z', event: 'PostToolUse', outcome: 'request-error:ECONNREFUSED' }),
+      line({ at: '2026-08-01T10:00:03.000Z', event: 'Stop', outcome: 'http-error' }),
+    ].join('')
+    const evidence = parseHookFailures(text, 10)
+    expect(evidence.byDetail).toEqual({
+      'http-error:404': 1,
+      'http-error:500': 1,
+      'request-error:ECONNREFUSED': 1,
+    })
+    // The plain outcome has no detail; the base counts cover every line.
+    expect(evidence.byOutcome).toEqual({ 'http-error': 3, 'request-error': 1 })
+  })
+
+  it('refuses an unbounded outcome detail instead of carrying it', () => {
+    const evidence = parseHookFailures(
+      line({
+        at: '2026-08-01T10:00:00.000Z',
+        event: 'PostToolUse',
+        outcome: 'http-error:connect ECONNREFUSED 127.0.0.1:9999',
+      }),
+      10,
+    )
+    expect(evidence.entries).toEqual([
+      { at: '2026-08-01T10:00:00.000Z', event: 'PostToolUse', outcome: 'unknown' },
+    ])
+    expect(evidence.byDetail).toEqual({})
+  })
+
+  it('rejects a known base with an empty or oversized detail suffix', () => {
+    const evidence = parseHookFailures(
+      line({ at: '2026-08-01T10:00:00.000Z', event: 'PostToolUse', outcome: 'http-error:' })
+      + line({ at: '2026-08-01T10:00:01.000Z', event: 'PostToolUse', outcome: 'request-error:' + 'X'.repeat(25) }),
+      10,
+    )
+    // The invalid detail drops the record to `unknown` — a suffix is data, and
+    // an unvalidated one must never reach a report key.
+    expect(evidence.byOutcome).toEqual({ unknown: 2 })
+    expect(evidence.byDetail).toEqual({})
+    expect(evidence.entries.every((entry) => entry.outcome === 'unknown')).toBe(true)
+  })
+
   it('trusts only the tail when the file is larger than the bridge would ever write', () => {
     const filler = `${'x'.repeat(64 * 1024)}\n`
     const result = readHookFailureLog(

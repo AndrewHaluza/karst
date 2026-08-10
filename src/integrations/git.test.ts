@@ -454,9 +454,28 @@ describe('ship quarantine commit primitives', () => {
 
       // The quarantined tree materializes the base tree PLUS the staged
       // content — an empty quarantine object dir proves the base was read
-      // through the alternate.
-      const tree = await runGit(['ls-tree', '-r', '--name-only', prepared.intendedTree], dir);
+      // The quarantined tree materializes the base tree PLUS the staged
+      // content — an empty quarantine object dir proves the base was read
+      // through the alternate. The tree object lives ONLY in the quarantine
+      // until promotion, so read it back with the quarantine env (a main-repo
+      // read before promotion fails: the object is not there yet).
+      const qObjects = join(adminDir, 'karst-quarantine', KEY, 'objects');
+      const quarantineEnv = {
+        GIT_OBJECT_DIRECTORY: qObjects,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: join(adminDir, '..', '..', 'objects'),
+      };
+      const tree = await runGitEnv(
+        ['ls-tree', '-r', '--name-only', prepared.intendedTree],
+        wt,
+        quarantineEnv,
+      );
       expect(tree.stdout.trim().split('\n').sort()).toEqual(['a.txt', 'b.txt']);
+      const baseContent = await runGitEnv(
+        ['show', `${prepared.intendedTree}:a.txt`],
+        wt,
+        quarantineEnv,
+      );
+      expect(baseContent.stdout).toBe('b');
       expect(await headCommit(defaultGitRunner, wt)).toBe(preHead);
 
       await promoteQuarantineTwice(wt);
