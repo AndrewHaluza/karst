@@ -140,6 +140,20 @@ export interface ShipGateResult {
   state: MergeGateState;
 }
 
+/** One line naming where the landing decision went, for `[merge]` debug logs. */
+function describeMergeState(state: MergeGateState): string {
+  switch (state.kind) {
+    case 'nothing-to-merge':
+      return 'nothing-to-merge (no PRs)';
+    case 'merged':
+      return `merged: ${state.repos.join(', ')}`;
+    case 'conflicted':
+      return `conflicted: ${state.repos.join(', ')} (pending: ${state.pending.join(', ')})`;
+    case 'awaiting':
+      return `awaiting: ${state.repos.join(', ')}`;
+  }
+}
+
 /**
  * Try to land a ticket right after ship's own work just finished (PRs opened,
  * or nothing to ship). Called ONLY from `stages/ship.ts`, guarded by the same
@@ -149,9 +163,16 @@ export interface ShipGateResult {
  * ticket freshly parked at `ship` pending its FIRST confirm click would also
  * read `nothing-to-merge` (no PR exists yet) and wrongly look landed.
  */
-export function resolveShipLanding(store: Store, ticketId: number): ShipGateResult {
+export function resolveShipLanding(
+  store: Store,
+  ticketId: number,
+  debug?: (message: string) => void,
+): ShipGateResult {
   const state = mergeGateState(store, ticketId);
   if (isLanded(state)) {
+    debug?.(
+      `[merge] ticket ${ticketId}: ship's tail sees ${describeMergeState(state)} — transitioning to done`,
+    );
     // Ship's own verdict. `shipTicket`'s tail (`stages/ship.ts`) calls this
     // straight after the PRs were opened, deliberately outside the try/catch
     // that parks ship as `failed` on any throw from that tail — so this half
@@ -163,6 +184,9 @@ export function resolveShipLanding(store: Store, ticketId: number): ShipGateResu
     });
     return { advanced: true, state };
   }
+  debug?.(
+    `[merge] ticket ${ticketId}: ship's tail sees ${describeMergeState(state)} — parking at ship with an awaiting-merge block`,
+  );
   try {
     // Bookkeeping over state that already exists (the PRs are open; that
     // irreversible part already succeeded) — never let a failure here escape
@@ -211,18 +235,36 @@ export function resolveShipLanding(store: Store, ticketId: number): ShipGateResu
  * teammate's merge, ship itself when there was nothing to merge), and none of
  * them should have to know about the other two.
  */
-export function settleShipGate(store: Store, ticketId: number): ShipGateResult {
+export function settleShipGate(
+  store: Store,
+  ticketId: number,
+  debug?: (message: string) => void,
+): ShipGateResult {
   const ticket = getTicket(store, ticketId);
   if (ticket.stageCurrent !== 'ship') {
+    debug?.(
+      `[merge] ticket ${ticketId}: settle skipped — ticket is at '${ticket.stageCurrent}', not 'ship'`,
+    );
     return { advanced: false, state: mergeGateState(store, ticketId) };
   }
   if (stageBlock(store, ticketId, 'ship')?.kind !== 'awaiting-merge') {
+    debug?.(
+      `[merge] ticket ${ticketId}: settle skipped — no awaiting-merge block (freshly parked at ship?)`,
+    );
     return { advanced: false, state: mergeGateState(store, ticketId) };
   }
 
   const state = mergeGateState(store, ticketId);
-  if (!isLanded(state)) return { advanced: false, state };
+  if (!isLanded(state)) {
+    debug?.(
+      `[merge] ticket ${ticketId}: settle sees ${describeMergeState(state)} — still waiting`,
+    );
+    return { advanced: false, state };
+  }
 
+  debug?.(
+    `[merge] ticket ${ticketId}: settle sees ${describeMergeState(state)} — transitioning to done`,
+  );
   transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
     clearStageBlock(store, ticketId, 'ship');
   });
@@ -238,12 +280,17 @@ export function settleShipGate(store: Store, ticketId: number): ShipGateResult {
  * in this window performed. One ticket's failure never sinks the rest — the
  * same discipline the PR and merge sweeps follow.
  */
-export function settleShipGates(store: Store, scope: ProjectScope = {}): number[] {
+export function settleShipGates(
+  store: Store,
+  scope: ProjectScope = {},
+  debug?: (message: string) => void,
+): number[] {
   const advanced: number[] = [];
   for (const ticket of listTickets(store, scope)) {
     if (ticket.stageCurrent !== 'ship') continue;
+    debug?.(`[merge] sweep: ticket ${ticket.id} is at 'ship' — settling`);
     try {
-      if (settleShipGate(store, ticket.id).advanced) advanced.push(ticket.id);
+      if (settleShipGate(store, ticket.id, debug).advanced) advanced.push(ticket.id);
     } catch {
       continue;
     }

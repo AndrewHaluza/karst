@@ -34,6 +34,12 @@ export interface SpinResult {
 export interface SpinOptions {
   /** Abort a running spin (cancel button); triggers teardown of this run's work. */
   signal?: AbortSignal;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[runtime]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -118,6 +124,7 @@ export async function spinTicket(
   opts: SpinOptions = {},
 ): Promise<SpinResult> {
   const { signal } = opts;
+  const debug = opts.debug;
   const bail = (): void => {
     if (signal?.aborted) throw new SpinCancelledError(ticketId);
   };
@@ -182,6 +189,12 @@ export async function spinTicket(
         });
         worktreeByRepo.set(repo.repoPath, wt);
         created.push(wt);
+        debug?.(
+          `[runtime] ticket ${ticketId}: created worktree for ${name} at ${wt.path} ` +
+            `(${wt.adopted ? 'adopted existing' : 'fresh'})`,
+        );
+      } else {
+        debug?.(`[runtime] ticket ${ticketId}: ${name} shares worktree ${wt.path} — deduped`);
       }
       worktreePath[name] = wt.path;
     }
@@ -192,8 +205,13 @@ export async function spinTicket(
       // Non-runnable repos have no resolver entry and therefore no dependencies.
       for (const dep of resolved.services[name]?.baselineDeps ?? []) baselineDeps.add(dep);
     }
+    debug?.(
+      `[runtime] ticket ${ticketId}: resolved ${hot.length} repo(s) into ` +
+        `${Object.keys(worktreePath).length} worktree(s); ${baselineDeps.size} baseline dep(s)`,
+    );
     for (const dep of baselineDeps) {
       bail();
+      debug?.(`[runtime] ticket ${ticketId}: ensuring baseline dep ${dep}`);
       await ensureBaseline(store, manifest, dep);
       addBaselineRef(store, ticketId, dep);
     }
@@ -219,6 +237,9 @@ export async function spinTicket(
         ? renderHealthUrl(service.health, manifest.host, ownPort)
         : `http://${manifest.host}:${ownPort}/health`;
 
+      debug?.(
+        `[runtime] ticket ${ticketId}: starting ${name} (port ${ownPort}, cwd ${cwd})`,
+      );
       const rec = await startHot(store, {
         ticketId,
         service: name,
@@ -233,8 +254,10 @@ export async function spinTicket(
         repoPath: repo.repoPath,
         signal,
         onReclaim: (pid) => reclaimedPids.push(pid),
+        debug,
       });
       servers.push(rec);
+      debug?.(`[runtime] ticket ${ticketId}: ${name} healthy (pid ${rec.pid})`);
     }
 
     return { servers, reclaimedPids };

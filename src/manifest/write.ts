@@ -144,6 +144,10 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // the next reload falls back to the default.
     archiveDoneAfterDays:
       manifest.archiveDoneAfterDays ?? DEFAULT_ARCHIVE_DONE_AFTER_DAYS,
+    // Optional: written when set, dropped (undefined → omitted by the dumper,
+    // overriding any stale raw value) when cleared, so it falls back to "debug
+    // logging off".
+    debug: manifest.debug,
     // Merge modeled convention fields over the raw block so future/unmodeled
     // nested keys survive Settings saves. Each modeled child is assigned even
     // when absent so clearing one field drops its stale raw value. Clearing the

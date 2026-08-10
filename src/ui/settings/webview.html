@@ -576,6 +576,15 @@
             immediately.
           </div>
 
+          <label for="f-debug">Debug logging</label>
+          <input type="checkbox" id="f-debug" aria-describedby="debugHint" />
+          <div class="convention-hint" id="debugHint">
+            Verbose <code>[driver]</code>/<code>[gate]</code>/<code>[agent]</code>/
+            <code>[runtime]</code> lines in the Karst output channel, kept in memory
+            for issue reports. Off by default; off means <code>logger.debug()</code>
+            is a no-op. Debug entries are redacted like every other log line.
+          </div>
+
           <div class="field-group" id="projectFacts">
             <label>This project</label>
             <dl class="facts">
@@ -1321,7 +1330,7 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
-      'archiveDoneAfterDays',
+      'archiveDoneAfterDays', 'debug',
     ],
     git: ['conventions'],
     services: ['repositories'],
@@ -1377,7 +1386,7 @@
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
     if (/^processes\b/.test(msg)) return 'agents';
-    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays)\b/.test(msg)) {
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug)\b/.test(msg)) {
       return 'general';
     }
     return null;
@@ -1688,6 +1697,8 @@
     }).join(''); }
     renderModelPicker();
     el('f-archiveDoneAfterDays').value = draft.archiveDoneAfterDays ?? '';
+    // Absent (undefined) renders unchecked — debug logging is off by default.
+    el('f-debug').checked = draft.debug === true;
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     const conventions = draft.conventions || {};
@@ -1887,6 +1898,14 @@
       delete draft.archiveDoneAfterDays;
       el('f-archiveDoneAfterDays').value = '';
     }
+    markDirty();
+  });
+  el('f-debug').addEventListener('change', () => {
+    // Unchecking deletes the field entirely — absent IS the off default, so a
+    // cleared manifest never carries a stale `debug: false` the loader would
+    // have to read past.
+    if (el('f-debug').checked) draft.debug = true;
+    else delete draft.debug;
     markDirty();
   });
   el('f-labelTemplate').addEventListener('input', () => {

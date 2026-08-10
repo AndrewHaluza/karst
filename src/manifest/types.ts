@@ -423,6 +423,15 @@ export interface Manifest {
    */
   archiveDoneAfterDays?: number;
   /**
+   * Enable verbose debug-level logging (`logger.debug`, § debug logging).
+   * Defaults to false. The host reads this at manifest (re)load and toggles
+   * the logger's gated debug flag at runtime; when false, `logger.debug()` is
+   * a no-op, so production carries zero cost. Debug entries ride the same
+   * redaction pipeline as info/warn/error and appear in issue reports when
+   * enabled.
+   */
+  debug?: boolean;
+  /**
    * UAT gates, credentials and (Phase 2) authored-step config. Absent yields the
    * default pipeline: karst probes package.json for known scripts. `origins` and
    * `authBootstrap` are validated at load but inert until Phase 2, so declaring

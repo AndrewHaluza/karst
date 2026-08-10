@@ -54,6 +54,14 @@ export interface InstrumentOptions {
   projectId?: () => number | null;
   /** Report a swallowed tracking fault to the Karst output channel. */
   logError?: (message: string, error: unknown) => void;
+  /**
+   * Verbose decision-point logging (§ debug logging). Injected into every
+   * headless call's `RunHeadlessOpts.debug`, so the ADAPTER's debug lines are
+   * bound exactly once here — the same seam that instruments token usage. The
+   * host binds it to `Logger.debug` (a no-op unless the manifest's `debug`
+   * flag is on).
+   */
+  debug?: (message: string) => void;
   /** Injected clock, for tests. */
   now?: () => string;
 }
@@ -115,7 +123,7 @@ export function instrumentAdapter(
     async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
       let result: HeadlessResult;
       try {
-        result = await adapter.runHeadless(opts);
+        result = await adapter.runHeadless({ ...opts, debug: options.debug });
       } catch (error) {
         // A failure after the provider counted the input is still spend. When
         // it reported nothing, the prompt was sent regardless — estimate the

@@ -38,6 +38,13 @@ export interface MergeTicketPrOpts {
   repo: string;
   /** How to merge. Always explicit — the host asks the user which. */
   method: MergeMethod;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[merge]`,
+   * threaded into the post-merge settlement. Absent → no debug lines; the
+   * host binds it to `Logger.debug` (a no-op unless the manifest's `debug`
+   * flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 export interface MergeTicketPrResult {
@@ -79,9 +86,9 @@ async function probe(gh: GhRunner, url: string, cwd: string): Promise<PrDetail> 
  * idempotent and the background sweep runs it again on the next tick, so the
  * ticket still reaches `done` — just later.
  */
-function settle(store: Store, ticketId: number): boolean {
+function settle(store: Store, ticketId: number, debug?: (message: string) => void): boolean {
   try {
-    return settleShipGate(store, ticketId).advanced;
+    return settleShipGate(store, ticketId, debug).advanced;
   } catch {
     return false;
   }
@@ -109,7 +116,7 @@ export async function mergeTicketPr(
   // holdout, and a click on the landed one is as good a moment as any to notice
   // it has caught up.
   if (pr.status === 'merged') {
-    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId), reason: '' };
+    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId, opts.debug), reason: '' };
   }
 
   const attempt = await mergePr(gh, pr.url, pr.cwd, opts.method);
@@ -121,7 +128,7 @@ export async function mergeTicketPr(
 
   const status = detail.status === 'unknown' ? pr.status : detail.status;
   if (detail.status === 'merged') {
-    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId), reason: '' };
+    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId, opts.debug), reason: '' };
   }
   if (!attempt.ok) return { ok: false, status, completedTicket: false, reason: attempt.reason };
   return {

@@ -74,6 +74,12 @@ export interface RunReviewOpts {
   onGateComplete?: (gateName: string, exitCode: number | null) => void;
   /** Called before each gate's work begins, with the gate's name. */
   onGateStart?: (gateName: string) => void;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 export interface ReviewDeps {
@@ -250,11 +256,18 @@ export async function runReview(
   // are affected (an unreachable remote, a broken git). Never a verdict about
   // the ticket's code, so this parks rather than transitioning or throwing.
   if (planned.kind === 'unavailable') {
+    opts.debug?.(
+      `[gate] review ticket ${opts.ticketId}: targets unavailable (${planned.blocker}: ${planned.reason})`,
+    );
     return finish({ kind: 'blocked', blocker: planned.blocker, reason: planned.reason }, [
       planned.reason,
     ]);
   }
   const targets: ReviewGateTarget[] = planned.targets;
+  opts.debug?.(
+    `[gate] review ticket ${opts.ticketId}: planned ${targets.length} target(s) ` +
+      `(manifest ${opts.manifest ? 'present' : 'absent'}, ${worktrees.length} worktree(s) registered)`,
+  );
 
   // R1 — no target resolved. THREE situations that must not read as one, in
   // the order they are ruled out below.
@@ -267,6 +280,7 @@ export async function runReview(
     if (worktrees.length === 0) {
       const reason =
         'no worktree is registered for this ticket, so there is no repository to run review against';
+      opts.debug?.(`[gate] review ticket ${opts.ticketId}: zero targets — no worktree registered`);
       return finish({ kind: 'blocked', blocker: 'nothing-to-run', reason }, [reason]);
     }
     // A worktree that matched no manifest entry: karst could not ask that
@@ -279,9 +293,13 @@ export async function runReview(
       const reason =
         `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
         'add them to `repositories:` or re-scope the ticket';
+      opts.debug?.(
+        `[gate] review ticket ${opts.ticketId}: zero targets — ${planned.unmapped.length} worktree(s) unmapped`,
+      );
       return finish({ kind: 'blocked', blocker: 'unmapped-repository', reason }, [reason]);
     }
     const note = 'no repository has changes from its base, so review had nothing to check';
+    opts.debug?.(`[gate] review ticket ${opts.ticketId}: zero targets — nothing changed from base`);
     return finish({ kind: 'verdict', verdict: { kind: 'passed' } }, [note]);
   }
 
@@ -307,6 +325,10 @@ export async function runReview(
       // an absence a human cannot see reads the same as a repository karst
       // never met.
       if (resolution.blocker === 'nothing-to-run') {
+        opts.debug?.(
+          `[gate] review ticket ${opts.ticketId}: target ${label} has nothing to run ` +
+            `(${resolution.reason})`,
+        );
         sections.push(`# ${label} (nothing to run)\n${resolution.reason}`);
         continue;
       }
@@ -316,6 +338,10 @@ export async function runReview(
       // answers it — so it parks, and the completed targets' rows go down with
       // the park.
       const reason = `${label}: ${resolution.reason}`;
+      opts.debug?.(
+        `[gate] review ticket ${opts.ticketId}: target ${label} unreadable ` +
+          `(${resolution.blocker}: ${resolution.reason})`,
+      );
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }
 
@@ -352,11 +378,16 @@ export async function runReview(
     }
 
     const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
+    opts.debug?.(
+      `[gate] review ticket ${opts.ticketId}: target ${label} — ${resolution.gates.length} gate(s)` +
+        (resolution.skipped.length > 0 ? `, ${resolution.skipped.length} disabled` : ''),
+    );
     const run = await runGates(resolution.gates, target.path, {
       signal: opts.signal,
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
       onGateStart: opts.onGateStart,
+      onDebug: opts.debug,
       // Each gate row is appended the INSTANT that gate finishes — inside the
       // runner's own loop, before the next gate starts, so a host death between
       // two gates still leaves every finished gate readable (process death
@@ -494,6 +525,20 @@ export async function runReview(
       findingsBlockingSeverity: blockingSeverity,
       disabledGateNames: skippedNames,
     },
+  );
+  opts.debug?.(
+    `[gate] review ticket ${opts.ticketId}: aggregate over ${entries.length} entry(ies)` +
+      `${skippedNames.length > 0 ? `, ${skippedNames.length} skipped` : ''}` +
+      `, findings lane ${findingsLane.kind}` +
+      ` → ${
+        outcome.kind === 'blocked'
+          ? `blocked (${outcome.blocker}: ${outcome.reason})`
+          : `verdict ${outcome.verdict.kind}${
+              outcome.verdict.kind === 'failed' && outcome.verdict.reason
+                ? ` (${outcome.verdict.reason})`
+                : ''
+            }`
+      }`,
   );
 
   // Task 8: close the Review findings process run with its EXPLICIT result

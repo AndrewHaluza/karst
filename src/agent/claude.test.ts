@@ -622,4 +622,64 @@ describe('ClaudeAdapter.runHeadless', () => {
     const adapter = new ClaudeAdapter(fakeSpawn({ stdout: 'not json', exitCode: 0 }));
     await expect(adapter.runHeadless({ prompt: 'go', cwd: '/wt/a' })).rejects.toThrow(/JSON/i);
   });
+
+  it('emits a spawn debug line with the prompt redacted to its length', async () => {
+    const lines: string[] = [];
+    const prompt = 'a very long ticket prompt nobody may see verbatim';
+    const adapter = new ClaudeAdapter(
+      fakeSpawn({ stdout: JSON.stringify({ session_id: 's', result: 'x' }), exitCode: 0 }),
+    );
+    await adapter.runHeadless({
+      prompt,
+      cwd: '/wt/a',
+      debug: (m) => lines.push(m),
+    });
+    expect(lines.some((line) => line.startsWith('[agent:claude] spawn:'))).toBe(true);
+    expect(lines[0]).toContain(`<prompt:${prompt.length} chars>`);
+    expect(lines[0]).not.toContain('ticket prompt');
+  });
+
+  it('emits an exit debug line with bounded stdout/stderr on a nonzero exit', async () => {
+    const lines: string[] = [];
+    const adapter = new ClaudeAdapter(
+      fakeSpawn({ stdout: 'x'.repeat(600), exitCode: 2, stderr: 'boom' }),
+    );
+    await expect(
+      adapter.runHeadless({
+        prompt: 'go',
+        cwd: '/wt/a',
+        debug: (m) => lines.push(m),
+      }),
+    ).rejects.toThrow();
+    const exitLine = lines.find((line) => line.startsWith('[agent:claude] exit'));
+    expect(exitLine).toContain('exit 2');
+    expect(exitLine).toContain('boom');
+    // The stdout preview is capped at 500 chars, never the full 600.
+    expect(exitLine?.match(/stdout: x{500}…/)).not.toBeNull();
+  });
+
+  it('emits a debug line naming unparseable output, bounded', async () => {
+    const lines: string[] = [];
+    const adapter = new ClaudeAdapter(fakeSpawn({ stdout: 'not json', exitCode: 0 }));
+    await expect(
+      adapter.runHeadless({
+        prompt: 'go',
+        cwd: '/wt/a',
+        debug: (m) => lines.push(m),
+      }),
+    ).rejects.toThrow(/JSON/i);
+    expect(lines.some((line) => /\[agent:claude\] unparseable output/.test(line))).toBe(true);
+  });
+
+  it('forwards the debug callback into the headless spawn options', async () => {
+    let seenOpts: { onDebug?: (m: string) => void } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const adapter = new ClaudeAdapter(spawn);
+    const debug = (m: string): void => undefined as void;
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a', debug });
+    expect(seenOpts?.onDebug).toBe(debug);
+  });
 });

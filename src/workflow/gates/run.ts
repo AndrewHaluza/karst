@@ -17,6 +17,12 @@ export interface RunCommandOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   terminationGraceMs?: number;
+  /**
+   * Verbose process lifecycle logging (§ debug logging), prefixed `[gate]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  onDebug?: (message: string) => void;
 }
 
 /**
@@ -52,15 +58,21 @@ export function runProcess(
     const terminationGraceMs =
       options.terminationGraceMs ?? DEFAULT_GATE_TERMINATION_GRACE_MS;
     const output = new BoundedOutput(Math.max(0, maxOutputBytes));
+    const startedAt = Date.now();
+    const onDebug = options.onDebug;
 
     // Already aborted: never spawn. Otherwise Stop would start the very child it
     // is cancelling, and the run would pay for a gate nobody is waiting for.
     if (options.signal?.aborted) {
+      onDebug?.('[gate] process: not spawned — signal already aborted');
       resolve({ kind: 'aborted', output: output.render() });
       return;
     }
 
     const p = prepareCommand(command, args);
+    onDebug?.(
+      `[gate] process: spawning ${p.command}${p.args.length > 0 ? ` ${p.args.join(' ')}` : ''} in ${cwd}`,
+    );
 
     // node:child_process.spawn validates its arguments SYNCHRONOUSLY and throws
     // for a structurally invalid command (e.g. an empty string) rather than
@@ -77,6 +89,7 @@ export function runProcess(
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      onDebug?.(`[gate] process: spawn failed synchronously (${message})`);
       resolve({ kind: 'spawnFailed', message, output: output.render(message) });
       return;
     }
@@ -94,6 +107,10 @@ export function runProcess(
       if (deadline !== undefined) clearTimeout(deadline);
       if (terminationDeadline !== undefined) clearTimeout(terminationDeadline);
       options.signal?.removeEventListener('abort', onAbort);
+      onDebug?.(
+        `[gate] process: ${outcome.kind}${outcome.kind === 'completed' ? ` (exit ${outcome.exitCode})` : ''} ` +
+          `— ${output.render().length} byte(s) captured`,
+      );
       resolve(outcome);
     };
 
@@ -111,6 +128,9 @@ export function runProcess(
       if (settled) return;
       aborted = true;
       terminate();
+      onDebug?.(
+        `[gate] process: aborted (pid ${child.pid ?? 'unavailable'})${terminationDiagnostic}`,
+      );
       settle({ kind: 'aborted', output: output.render('\nStopped\n') });
     }
     options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -145,6 +165,10 @@ export function runProcess(
       if (settled) return;
       timedOut = true;
       terminate();
+      onDebug?.(
+        `[gate] process: timed out after ${timeoutMs}ms ` +
+          `(elapsed ${Date.now() - startedAt}ms, pid ${child.pid ?? 'unavailable'})${terminationDiagnostic}`,
+      );
       if (settled) return;
       terminationDeadline = setTimeout(() => {
         terminationDiagnostic += '; child exit was not confirmed';

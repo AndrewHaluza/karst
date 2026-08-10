@@ -135,6 +135,14 @@ export interface DriveTicketDeps {
   runVerifier?: TesterGateRunner;
   log: (message: string) => void;
   /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[driver]`,
+   * threaded into the stage driver and the uat/review runners. Absent → no
+   * debug lines. The host binds it to `Logger.debug` (a no-op unless the
+   * manifest's `debug` flag is on) — deliberately distinct from `log`, which
+   * is `Logger.info` and always writes.
+   */
+  debug?: (message: string) => void;
+  /**
    * Where the findings lane's boundary diagnostics land (a failed AI call, an
    * unparseable response, an untrustworthy `file`) — threaded straight into
    * `ReviewDeps.warn`. Absent falls back all the way to `parseFindings`'s own
@@ -201,6 +209,7 @@ export async function driveTicket(
         worktreeFor: deps.worktreeFor,
         onProgress: deps.onProgress,
         shouldContinue,
+        debug: deps.debug,
         // `runUat` reports its own StageRunResult, so it is passed through
         // verbatim: wrapping a park as 'advanced' at the ticket's unchanged
         // stage would send the driver round the same blocked gate forever.
@@ -217,6 +226,7 @@ export async function driveTicket(
               artifactDir: deps.artifactDirFor(id),
               manifest: deps.manifest(),
               signal: controller.signal,
+              debug: deps.debug,
               onGateStart: (name) =>
                 deps.onInsideProgress?.({
                   kind: 'active',
@@ -263,6 +273,7 @@ export async function driveTicket(
               artifactDir: deps.artifactDirFor(id),
               manifest: deps.manifest(),
               signal: controller.signal,
+              debug: deps.debug,
               onGateStart: (name) =>
                 deps.onInsideProgress?.({
                   kind: 'active',
@@ -322,6 +333,10 @@ export async function driveTicket(
         const resumingGate = gate as GateStageKey;
         const decision = roundFixDecision(round);
         if (decision.kind === 'resume') {
+          deps.debug?.(
+            `[driver] ticket ${ticketId} at fix: resuming round ${decision.roundId} ` +
+              `(attempt ${decision.attempts + 1} of ${round.maxRounds})`,
+          );
           // Task 3: the Fix process resolves EXACTLY once here, by the gate
           // that failed; the bundle (or its configured absence, null) rides the
           // resume call so the host snapshots the resolved identity instead of
@@ -334,17 +349,25 @@ export async function driveTicket(
           // reconsidered, and a later drive reads it as such. Only the pending
           // round this ticket owns can transition; anything else is a no-op.
           exhaustRecoveryRound(deps.store, ticketId, decision.roundId, nowIso());
+          deps.debug?.(
+            `[driver] ticket ${ticketId} at fix: recovery round ${decision.roundId} exhausted ` +
+              `(${round.maxRounds} rounds)`,
+          );
           deps.log(
             `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +
               `${resumingGate} recovery rounds, at the cap of ${decision.cap}; leaving it for a human`,
           );
         }
       } else if (round !== null && round.status === 'fixing') {
+        deps.debug?.(
+          `[driver] ticket ${ticketId} at fix: recovery round ${round.round} already fixing — leaving it`,
+        );
         deps.log(
           `stage driver: ticket ${ticketId} at fix with a fix execution already in flight ` +
             `(recovery round ${round.round}); leaving it`,
         );
       } else if (round !== null) {
+        deps.debug?.(`[driver] ticket ${ticketId} at fix: round ${round.round} is ${round.status}`);
         deps.log(
           `stage driver: ticket ${ticketId} at fix with no resumable recovery round ` +
             `(${round.status}); leaving it`,
@@ -354,6 +377,7 @@ export async function driveTicket(
         // interrupted) — history, never reconsidered. A v30 ticket whose
         // series exhausted is NOT untracked: falling back to the stages-attempt
         // decision would re-resume it against the live manifest with no round.
+        deps.debug?.(`[driver] ticket ${ticketId} at fix: only terminal recovery rounds — leaving it`);
         deps.log(
           `stage driver: ticket ${ticketId} at fix with only terminal recovery rounds; leaving it`,
         );
@@ -361,17 +385,26 @@ export async function driveTicket(
         const decision = fixResumeDecision(stages, deps.manifest());
         switch (decision.kind) {
           case 'resume': {
+            deps.debug?.(
+              `[driver] ticket ${ticketId} at fix: resume fix for ${decision.gate} ` +
+                `(attempt ${decision.attempts + 1})`,
+            );
             const fix = deps.fixProcess?.(ticketId, decision.gate) ?? null;
             deps.resumeFix(ticketId, decision.gate, decision.attempts, null, fix);
             break;
           }
           case 'exhausted':
+            deps.debug?.(
+              `[driver] ticket ${ticketId} at fix: fix attempts exhausted for ${decision.gate} ` +
+                `(${decision.attempts} of ${decision.cap})`,
+            );
             deps.log(
               `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +
                 `${decision.gate} failures, at the cap of ${decision.cap}; leaving it for a human`,
             );
             break;
           case 'no-failed-gate':
+            deps.debug?.(`[driver] ticket ${ticketId} at fix: no failed gate found`);
             deps.log(`stage driver: ticket ${ticketId} at fix with no failed gate; leaving it`);
             break;
           default: {

@@ -28,7 +28,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
-import { spawnHeadlessCli, type HeadlessSpawnOptions } from './headlessSpawn.js';
+import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
@@ -730,10 +730,22 @@ export class CodexAdapter implements AgentAdapter {
     } else {
       args.push('--', opts.prompt);
     }
+
+    // The prompt is ticket prose — never logged in full. The debug line names
+    // the invocation and redacts the prompt to its length (§ debug logging).
+    opts.debug?.(
+      `[agent:codex] spawn: ${args
+        .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
+        .join(' ')} (cwd ${opts.cwd})`,
+    );
     const result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd, {
       signal: opts.signal,
+      onDebug: opts.debug,
     });
     if (result.exitCode !== 0) {
+      opts.debug?.(
+        `[agent:codex] exit ${result.exitCode} — stdout: ${headlessPreview(result.stdout)}; stderr: ${headlessPreview(result.stderr)}`,
+      );
       // The counts ride out on the rejection — a run that died mid-stream still
       // burned everything up to the cut (§ token consumption stats).
       throw attachUsage(
@@ -748,7 +760,15 @@ export class CodexAdapter implements AgentAdapter {
         extractTokenUsage(result.stdout),
       );
     }
-    const parsed = parseCodexJsonl(result.stdout);
+    let parsed: { sessionId: string; raw: string };
+    try {
+      parsed = parseCodexJsonl(result.stdout);
+    } catch (error) {
+      opts.debug?.(
+        `[agent:codex] unparseable output — first 500 chars: ${headlessPreview(result.stdout)}`,
+      );
+      throw error;
+    }
     const usage = extractTokenUsage(result.stdout);
     return { ...parsed, verdict: null, ...(usage ? { usage } : {}) };
   }

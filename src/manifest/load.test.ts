@@ -1451,6 +1451,53 @@ describe('archiveDoneAfterDays', () => {
   });
 });
 
+describe('debug', () => {
+  it('is undefined when omitted (debug logging off)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).debug).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses debug: true', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndebug: true\n`);
+    try {
+      expect(loadManifest(path).debug).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses debug: false', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndebug: false\n`);
+    try {
+      expect(loadManifest(path).debug).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean — a string "true" is a YAML typo', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndebug: "true"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/debug must be a boolean/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean number', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndebug: 1\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/debug must be a boolean/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('ticketLabelTemplate', () => {
   it('is undefined when omitted', () => {
     const { path, cleanup } = fixture(VALID);

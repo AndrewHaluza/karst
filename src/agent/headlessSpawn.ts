@@ -17,6 +17,13 @@ export interface HeadlessSpawnOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   terminationGraceMs?: number;
+  /**
+   * Verbose process lifecycle logging (§ debug logging), prefixed `[agent]`.
+   * Absent → no debug lines; the adapters thread their `RunHeadlessOpts.debug`
+   * here, so the host binds it to `Logger.debug` (a no-op unless the
+   * manifest's `debug` flag is on).
+   */
+  onDebug?: (message: string) => void;
 }
 
 function abortError(): Error {
@@ -27,6 +34,16 @@ function abortError(): Error {
 
 function timeoutError(timeoutMs: number, diagnostic: string): Error {
   return new Error(`headless agent run timed out after ${timeoutMs}ms${diagnostic}`);
+}
+
+/**
+ * First 500 chars of untrusted CLI prose, for a debug line — capped because the
+ * full text may be megabytes, and the report pipeline's sanitization runs at
+ * CAPTURE time, not here. A truncated tail is marked with an ellipsis so a
+ * reader never mistakes the preview for the whole output.
+ */
+export function headlessPreview(text: string, max = 500): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
 /**
@@ -59,9 +76,11 @@ export function spawnHeadlessCli(
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_HEADLESS_MAX_OUTPUT_BYTES;
   const terminationGraceMs =
     options.terminationGraceMs ?? DEFAULT_HEADLESS_TERMINATION_GRACE_MS;
+  const onDebug = options.onDebug;
 
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) {
+      onDebug?.('[agent] headless run: not spawned — signal already aborted');
       reject(abortError());
       return;
     }
@@ -74,9 +93,13 @@ export function spawnHeadlessCli(
         detached: true,
       });
     } catch (err) {
+      onDebug?.(
+        `[agent] headless run: spawn failed synchronously (${err instanceof Error ? err.message : String(err)})`,
+      );
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
+    onDebug?.(`[agent] headless run: spawned ${command} (pid ${child.pid ?? 'unavailable'}, cwd ${cwd})`);
 
     const stdout = new BoundedOutput(Math.max(0, maxOutputBytes));
     const stderr = new BoundedOutput(Math.max(0, maxOutputBytes));
@@ -120,6 +143,9 @@ export function spawnHeadlessCli(
     function onAbort(): void {
       if (settled) return;
       killReason = 'abort';
+      onDebug?.(
+        `[agent] headless run: abort requested (pid ${child.pid ?? 'unavailable'})${terminationDiagnostic}`,
+      );
       terminate();
       // Wait for the SIGKILLed group to report 'close' before rejecting, so a
       // caller's cleanup never races a process that is still winding down.
@@ -144,6 +170,11 @@ export function spawnHeadlessCli(
     child.once('close', (code) => {
       if (settled) return;
       if (killReason !== null) {
+        // The 'close' that lands AFTER a kill must never read as a clean exit —
+        // the killReason flag makes the abort/timeout rejection win over it.
+        onDebug?.(
+          `[agent] headless run: close after ${killReason} kill (pid ${child.pid ?? 'unavailable'}) — rejecting with the kill reason`,
+        );
         settle(killError());
         return;
       }
@@ -157,6 +188,10 @@ export function spawnHeadlessCli(
     deadline = setTimeout(() => {
       if (settled) return;
       killReason = 'timeout';
+      onDebug?.(
+        `[agent] headless run: timed out after ${timeoutMs}ms ` +
+          `(pid ${child.pid ?? 'unavailable'})${terminationDiagnostic}`,
+      );
       terminate();
       if (settled) return;
       terminationDeadline = setTimeout(() => {

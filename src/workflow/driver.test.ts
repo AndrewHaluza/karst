@@ -38,6 +38,20 @@ describe('runStageDriver', () => {
     store.close();
   });
 
+  it('emits [driver] debug lines at the loop entry and each boundary', async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    const lines: string[] = [];
+    const out = await runStageDriver(
+      baseDeps(store, { debug: (m) => lines.push(m) }),
+      id,
+    );
+    expect(out.stage).toBe('ship');
+    expect(lines.some((line) => line.startsWith(`[driver] ticket ${id}: loop entry`))).toBe(true);
+    expect(lines.some((line) => /human boundary 'ship' \(ship-confirm\)/.test(line))).toBe(true);
+    store.close();
+  });
+
   // Both states read `stage === 'ship'`, but they are not the same thing: one
   // needs a human's confirm click, the other needs a PR to land — and only
   // the `awaiting-merge` block on the ship row distinguishes them

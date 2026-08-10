@@ -19,7 +19,8 @@ describe('extension activation', () => {
   it('settles the merge gate on the PR sweep, and pushes the status of what landed', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    expect(source).toContain('settleShipGates(localStore, { projectId: project.id })');
+    expect(source).toContain('settleShipGates(');
+    expect(source).toContain('{ projectId: project.id }');
     expect(source).toContain('for (const id of landed) void pushDoneStatus(id, false);');
   });
 
@@ -67,8 +68,8 @@ describe('extension activation', () => {
     // is allowed to signal, are behavioural and are pinned where they can
     // actually run: `worktreeServers.test.ts` (real detached processes) and
     // `serverIdentity.test.ts`.
-    expect(source).toMatch(/reapStaleServers\(localStore\)/);
-    expect(source).toMatch(/reapStaleServers\(localStore\)[\s\S]{0,80}?logger\.info\(\s*describeReap\(/);
+    expect(source).toMatch(/reapStaleServers\(localStore[,{]/);
+    expect(source).toMatch(/reapStaleServers\(localStore[,{][\s\S]{0,200}?logger\.info\(\s*describeReap\(/);
   });
 
   it('reconciles terminals VS Code revives after the activation scan', () => {
