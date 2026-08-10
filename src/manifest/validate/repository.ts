@@ -26,7 +26,7 @@ import {
 } from './primitives.js';
 
 /** Runtime fields that belong under `service:` and nowhere else. */
-const RUNTIME_FIELDS = ['start', 'health', 'ports', 'dependsOn'] as const;
+const RUNTIME_FIELDS = ['start', 'health', 'ports', 'dependsOn', 'portRange'] as const;
 
 /**
  * A string that is required when `strict` (the repository is enabled), and
@@ -61,6 +61,38 @@ function validatePortSlot(raw: unknown, where: string, strict: boolean): PortSlo
     env: strictString(raw.env, `${where}.env`, strict),
     default: strictPort(raw.default, `${where}.default`, strict),
   };
+}
+
+/**
+ * An optional [min, max] port window narrowing the manifest-global portRange
+ * for ONE service. Absent → allocation uses the global range. In DRAFT mode
+ * (strict=false) only the two-number shape is checked, so a half-filled range
+ * can be saved on a disabled repo — the same relaxation `strictPort` gives
+ * `default: 0`.
+ */
+function validatePortRange(
+  raw: unknown,
+  where: string,
+  strict: boolean,
+): [number, number] | undefined {
+  if (raw === undefined) return undefined;
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== 2 ||
+    typeof raw[0] !== 'number' ||
+    typeof raw[1] !== 'number' ||
+    Number.isNaN(raw[0]) ||
+    Number.isNaN(raw[1])
+  ) {
+    throw new ManifestError(`${where} must be a [min, max] number pair`);
+  }
+  if (!strict) return [raw[0], raw[1]];
+  const min = requirePort(raw[0], `${where} min`);
+  const max = requirePort(raw[1], `${where} max`);
+  if (min > max) {
+    throw new ManifestError(`${where} min (${min}) exceeds max (${max})`);
+  }
+  return [min, max];
 }
 
 function validateBind(raw: unknown, where: string, strict: boolean): BindVar {
@@ -125,6 +157,7 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
     );
   }
   const ports = portsRaw.map((p, i) => validatePortSlot(p, `${where}.ports[${i}]`, strict));
+  const portRange = validatePortRange(raw.portRange, `${where}.portRange`, strict);
 
   if (strict) {
     assertUnique(ports.map((p) => p.name), (i) => `${where}.ports[${i}]`, 'name');
@@ -140,6 +173,7 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
     start,
     health,
     ports,
+    portRange,
     dependsOn: dependsOnRaw.map((d, i) => validateDependsOn(d, repo, i, strict)),
   };
 }

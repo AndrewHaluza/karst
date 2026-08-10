@@ -192,6 +192,105 @@ describe('loadManifest', () => {
     }
   });
 
+  describe('per-service portRange', () => {
+    it('reads an optional per-service portRange from the manifest', () => {
+      const yaml = VALID.replace(
+        '      dependsOn: []\n',
+        '      portRange: [5000, 5100]\n      dependsOn: []\n',
+      );
+      const { path, cleanup } = fixture(yaml);
+      try {
+        expect(loadManifest(path).repositories.backend!.service!.portRange).toEqual([5000, 5100]);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('defaults service.portRange to undefined when absent', () => {
+      const { path, cleanup } = fixture(VALID);
+      try {
+        expect(loadManifest(path).repositories.backend!.service!.portRange).toBeUndefined();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('throws when service.portRange is not a [min, max] number pair', () => {
+      const yaml = VALID.replace(
+        '      dependsOn: []\n',
+        '      portRange: 5000\n      dependsOn: []\n',
+      );
+      const { path, cleanup } = fixture(yaml);
+      try {
+        expect(() => loadManifest(path)).toThrow(/service\.portRange must be a \[min, max\] number pair/);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('throws when service.portRange min exceeds max', () => {
+      const yaml = VALID.replace(
+        '      dependsOn: []\n',
+        '      portRange: [5100, 5000]\n      dependsOn: []\n',
+      );
+      const { path, cleanup } = fixture(yaml);
+      try {
+        expect(() => loadManifest(path)).toThrow(/exceeds max/);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('throws when a service.portRange endpoint is not a valid port', () => {
+      const yaml = VALID.replace(
+        '      dependsOn: []\n',
+        '      portRange: [0, 5000]\n      dependsOn: []\n',
+      );
+      const { path, cleanup } = fixture(yaml);
+      try {
+        expect(() => loadManifest(path)).toThrow(/1 and 65535/);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('accepts an incomplete portRange on a disabled draft repository', () => {
+      const yaml = VALID
+        .replace(
+          '    repoPath: ../backend\n    service:',
+          '    repoPath: ../backend\n    enabled: false\n    service:',
+        )
+        .replace(
+          '    repoPath: ../frontend\n    service:',
+          '    repoPath: ../frontend\n    enabled: false\n    service:',
+        )
+        .replace(
+          '      dependsOn: []\n',
+          '      portRange: [0, 0]\n      dependsOn: []\n',
+        );
+      const { path, cleanup } = fixture(yaml);
+      try {
+        expect(loadManifest(path).repositories.backend!.service!.portRange).toEqual([0, 0]);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('rejects a portRange at repository level as a stray runtime field', () => {
+      const yaml = VALID.replace(
+        '    repoPath: ../backend\n    service:',
+        '    repoPath: ../backend\n    portRange: [5000, 5100]\n    service:',
+      );
+      const { path, cleanup } = fixture(yaml);
+      try {
+        expect(() => loadManifest(path)).toThrow(/at repository level/);
+        expect(() => loadManifest(path)).toThrow(/move it under/);
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
   it('throws when top level is not a mapping', () => {
     const { path, cleanup } = fixture('- just\n- a\n- list\n');
     try {
@@ -322,7 +421,7 @@ repositories:
   // A half-migrated file leaves runtime fields at repository level, where they
   // are inert — accepting them would silently turn a runnable repo into a
   // non-runnable one and nothing would ever start.
-  it.each(['start: npm run dev', 'ports: []', 'dependsOn: []', 'health: "http://x"'])(
+  it.each(['start: npm run dev', 'ports: []', 'dependsOn: []', 'health: "http://x"', 'portRange: [5000, 5100]'])(
     'rejects the stray repository-level runtime field %s',
     (field) => {
       const { path, cleanup } = fixture(`${DOCS}    ${field}\n`);
