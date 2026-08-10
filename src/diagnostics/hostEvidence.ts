@@ -105,6 +105,7 @@ export function hooksSection(
           present: true,
           failures: bridge.evidence.entries.length + bridge.evidence.omitted,
           byOutcome: bridge.evidence.byOutcome,
+          byDetail: bridge.evidence.byDetail,
           byEvent: bridge.evidence.byEvent,
           oldestAt: bridge.evidence.oldestAt,
           newestAt: bridge.evidence.newestAt,

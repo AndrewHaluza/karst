@@ -75,6 +75,29 @@ function tally(entries: readonly [string, number][]): string {
   return entries.map(([name, count]) => `${name} ${count}`).join(', ')
 }
 
+/**
+ * Group the validated outcome details (`byDetail`) under their base outcome, as
+ * `[base, '404, 500']`. Only exact outcomes the bridge wrote with a validated
+ * detail suffix appear; counts still come from the closed `byOutcome` tally.
+ */
+function detailGroups(source: JsonObject | null): [string, string][] {
+  const byDetail = asObject(source?.['byDetail'])
+  if (!byDetail) return []
+  const groups = new Map<string, Set<string>>()
+  for (const key of Object.keys(byDetail)) {
+    const colon = key.indexOf(':')
+    if (colon === -1) continue
+    const base = key.slice(0, colon)
+    const detail = key.slice(colon + 1)
+    const set = groups.get(base) ?? new Set<string>()
+    set.add(detail)
+    groups.set(base, set)
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([base, details]) => [base, [...details].sort().join(', ')] as [string, string])
+}
+
 function joinDefined(parts: readonly (string | null)[], separator: string): string | null {
   const kept = parts.filter((part): part is string => part !== null && part.length > 0)
   return kept.length > 0 ? kept.join(separator) : null
@@ -162,7 +185,22 @@ export function hookLines(snapshot: FinalizedDiagnosticReport): string[] {
   }
   const bridge = asObject(hooks.bridge)
   if (bridge?.present === true) {
-    const outcomes = tally(counts(bridge, 'byOutcome'))
+    // The detail groups name the status/code the hook exited on (`http-error
+    // 2 (404, 500)` instead of a bare `http-error 2` count) — the agent's own
+    // message only ever says `hook exited with code 1`.
+    const groups = detailGroups(bridge)
+    const outcomes = groups.length > 0
+      ? groups
+        .map(([base, details]) => {
+          const byBase = asObject(bridge['byOutcome'])
+          const count =
+            byBase !== null && typeof byBase[base] === 'number'
+              ? (byBase[base] as number)
+              : 0
+          return `${base} ${count} (${details})`
+        })
+        .join(', ')
+      : tally(counts(bridge, 'byOutcome'))
     const newest = text(bridge, 'newestAt')
     lines.push(
       `- Codex bridge: ${text(bridge, 'failures') ?? '0'} failure(s)`

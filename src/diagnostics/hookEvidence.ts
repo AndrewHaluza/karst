@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import {
   HOOK_BRIDGE_OUTCOMES,
   HOOK_FAILURE_LOG_MAX_BYTES,
+  bridgeOutcomeDetail,
   type HookBridgeOutcome,
 } from '../agent/hookFailureLog.js'
 import { normalizeHookEventName } from './hookChannel.js'
@@ -15,7 +16,15 @@ export interface HookFailureEntry {
 export interface HookFailureEvidence {
   readonly entries: readonly HookFailureEntry[]
   readonly omitted: number
+  /** Counts under the closed outcome vocabulary — a detail suffix folds onto its base. */
   readonly byOutcome: Readonly<Record<string, number>>
+  /**
+   * Counts of the exact validated outcomes, e.g. `http-error:404` or
+   * `request-error:ECONNREFUSED`. Absent for records whose suffix failed
+   * validation — those fold onto their base in `byOutcome` and are `unknown`
+   * in the entries.
+   */
+  readonly byDetail: Readonly<Record<string, number>>
   readonly byEvent: Readonly<Record<string, number>>
   readonly oldestAt: string | null
   readonly newestAt: string | null
@@ -29,6 +38,7 @@ export const EMPTY_HOOK_FAILURE_EVIDENCE: HookFailureEvidence = Object.freeze({
   entries: [],
   omitted: 0,
   byOutcome: {},
+  byDetail: {},
   byEvent: {},
   oldestAt: null,
   newestAt: null,
@@ -55,6 +65,7 @@ export function parseHookFailures(
   if (!Number.isSafeInteger(cap) || cap < 0) throw new Error('Hook failure cap is invalid')
   const lines = text.split('\n').filter((line) => line.trim().length > 0)
   const parsed: HookFailureEntry[] = []
+  const detailCounts: Record<string, number> = {}
   let unparsedLines = 0
   for (const line of lines) {
     let raw: unknown
@@ -74,9 +85,13 @@ export function parseHookFailures(
       unparsedLines += 1
       continue
     }
-    const outcome = typeof record.outcome === 'string' && KNOWN_OUTCOMES.has(record.outcome)
-      ? (record.outcome as HookBridgeOutcome)
-      : 'unknown'
+    const rawOutcome = typeof record.outcome === 'string' ? record.outcome : ''
+    const parsedDetail = bridgeOutcomeDetail(rawOutcome)
+    const outcome = KNOWN_OUTCOMES.has(rawOutcome)
+      ? (rawOutcome as HookBridgeOutcome)
+      : parsedDetail !== null
+        ? parsedDetail.base
+        : 'unknown'
     parsed.push({
       at,
       event: normalizeHookEventName(
@@ -84,6 +99,9 @@ export function parseHookFailures(
       ),
       outcome,
     })
+    if (parsedDetail !== null) {
+      detailCounts[rawOutcome] = (detailCounts[rawOutcome] ?? 0) + 1
+    }
   }
 
   const byOutcome: Record<string, number> = {}
@@ -100,6 +118,7 @@ export function parseHookFailures(
     entries: kept,
     omitted: parsed.length - kept.length,
     byOutcome,
+    byDetail: detailCounts,
     byEvent,
     oldestAt: parsed[0]?.at ?? null,
     newestAt: parsed[parsed.length - 1]?.at ?? null,
