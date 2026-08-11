@@ -37,3 +37,20 @@ for (const rel of rootAssets) {
   copyFileSync(join(root, rel), to);
   console.log(`copied ${rel}`);
 }
+
+// Vendored webview libraries (xterm.js): npm devDependencies are build-time
+// asset SOURCES only — the extension never requires them at runtime. The
+// runtime reads dist/vendor/xterm/* (inlined into the dashboard webview by
+// src/model/xtermAssets.ts), and .vscodeignore excludes node_modules/@xterm.
+const vendorAssets = [
+  ['node_modules/@xterm/xterm/lib/xterm.js', 'vendor/xterm/xterm.js'],
+  ['node_modules/@xterm/xterm/css/xterm.css', 'vendor/xterm/xterm.css'],
+  ['node_modules/@xterm/addon-fit/lib/addon-fit.js', 'vendor/xterm/addon-fit.js'],
+];
+
+for (const [from, rel] of vendorAssets) {
+  const to = join(root, 'dist', rel);
+  mkdirSync(dirname(to), { recursive: true });
+  copyFileSync(join(root, from), to);
+  console.log(`copied ${rel}`);
+}
