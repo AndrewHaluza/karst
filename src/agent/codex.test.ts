@@ -259,6 +259,20 @@ describe('CodexAdapter interactive commands', () => {
     });
   });
 
+  it('threads an effort as --config model_reasoning_effort=<value>', () => {
+    const cmd = new CodexAdapter().buildInteractiveCommand({
+      cwd: '/wt',
+      model: 'custom-model',
+      effort: 'high',
+      initialPrompt: 'go',
+    });
+    expect(cmd).toEqual({
+      command: 'codex',
+      args: ['--model', 'custom-model', '--config', 'model_reasoning_effort=high', '--', 'go'],
+      env: {},
+    });
+  });
+
   it('materializes Codex command hooks and passes the project config layer', () => {
     const worktree = makeWorktree();
     const configDir = makeWorktree();
@@ -1266,6 +1280,32 @@ describe('CodexAdapter headless execution', () => {
       verdict: null,
       raw: 'final',
     });
+  });
+
+  it('threads an effort into a headless run as --config model_reasoning_effort=<value>', async () => {
+    const spawn = vi.fn(fakeSpawn({ stdout: okJsonl, exitCode: 0 }));
+    await new CodexAdapter(spawn).runHeadless({
+      cwd: '/wt',
+      prompt: '- inspect',
+      model: 'custom-model',
+      effort: 'high',
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      'codex',
+      [
+        'exec',
+        '--json',
+        '--skip-git-repo-check',
+        '--model',
+        'custom-model',
+        '--config',
+        'model_reasoning_effort=high',
+        '--',
+        '- inspect',
+      ],
+      '/wt',
+      { signal: undefined },
+    );
   });
 
   it('runs a resumed JSONL exec', async () => {

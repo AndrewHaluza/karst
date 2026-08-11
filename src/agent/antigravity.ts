@@ -142,6 +142,9 @@ export class AntigravityAdapter implements AgentAdapter {
     if (opts.model && opts.model.length > 0) {
       args.push('--model', opts.model);
     }
+    if (opts.effort && opts.effort.length > 0) {
+      args.push('--effort', opts.effort);
+    }
     if (opts.extraArgs && opts.extraArgs.length > 0) {
       args.push(...opts.extraArgs);
     }
@@ -226,6 +229,7 @@ export class AntigravityAdapter implements AgentAdapter {
     const args = ['-p', opts.prompt];
     if (opts.resume) args.push('--conversation', opts.resume);
     if (opts.permissionMode === 'bypassPermissions') args.push('--dangerously-skip-permissions');
+    if (opts.effort) args.push('--effort', opts.effort);
     // allowedTools mapped or omitted if unsupported.
 
     // The prompt is ticket prose — never logged in full. The debug line names

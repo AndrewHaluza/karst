@@ -132,6 +132,9 @@ export class ClaudeAdapter implements AgentAdapter {
       // its own default. An option, so it goes before the `--`/positional seed.
       args.push('--model', opts.model);
     }
+    if (opts.effort && opts.effort.length > 0) {
+      args.push('--effort', opts.effort);
+    }
     if (opts.extraArgs && opts.extraArgs.length > 0) {
       // Agent-specific launch additions from materializeApproach (e.g. a plugin
       // dir). Appended before the `--`/positional so they parse as options.
@@ -287,6 +290,7 @@ export class ClaudeAdapter implements AgentAdapter {
     // measured at opus pricing on a PR-description call (869ef1e6x). The ticket's
     // resolved model is a deliberate, visible choice; the CLI default is not.
     if (opts.model) args.push('--model', opts.model);
+    if (opts.effort) args.push('--effort', opts.effort);
     if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));

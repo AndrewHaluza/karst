@@ -7,6 +7,15 @@ export interface ModelOption {
   label: string;
   /** Agent CLIs that accept this exact model id. */
   providers: readonly AgentProvider[];
+  /**
+   * Effort values this model advertises (design § Execution policy
+   * resolution). Absent → the model accepts NO effort value — an explicitly
+   * configured effort is then a configuration failure at Save, never silently
+   * discarded. Mirrored into `model-catalog.json` (the equality test pins both
+   * copies). A custom user-typed model id is not in the catalog, so it has no
+   * efforts — intended conservative behavior.
+   */
+  efforts?: readonly string[];
 }
 
 export type ModelCatalog = Readonly<Record<AgentProvider, readonly ModelOption[]>>;
@@ -14,27 +23,28 @@ export type ModelCatalog = Readonly<Record<AgentProvider, readonly ModelOption[]
 const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
+const EFFORT_VALUE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const BUNDLED_CATALOG: ModelCatalog = {
   claude: [
-    { id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'] },
-    { id: 'claude-opus-4-8', label: 'Opus 4.8', providers: ['claude'] },
-    { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'] },
-    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', providers: ['claude'] },
-    { id: 'claude-fable-5', label: 'Fable 5', providers: ['claude'] },
+    { id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'], efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'] },
+    { id: 'claude-opus-4-8', label: 'Opus 4.8', providers: ['claude'], efforts: ['low', 'medium', 'high'] },
+    { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'], efforts: ['low', 'medium', 'high'] },
+    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', providers: ['claude'], efforts: ['low', 'medium', 'high'] },
+    { id: 'claude-fable-5', label: 'Fable 5', providers: ['claude'], efforts: ['low', 'medium', 'high'] },
   ],
   codex: [
-    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'] },
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'], efforts: ['minimal', 'low', 'medium', 'high'] },
   ],
   antigravity: [
-    { id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)', providers: ['antigravity'] },
-    { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', providers: ['antigravity'] },
-    { id: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)', providers: ['antigravity'] },
-    { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash (High)', providers: ['antigravity'] },
-    { id: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', providers: ['antigravity'] },
-    { id: 'gemini-3.5-flash-low', label: 'Gemini 3.5 Flash (Low)', providers: ['antigravity'] },
-    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', providers: ['antigravity'] },
-    { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', providers: ['antigravity'] },
+    { id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'] },
+    { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'] },
+    { id: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'] },
+    { id: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash (High)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'] },
+    { id: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'] },
+    { id: 'gemini-3.5-flash-low', label: 'Gemini 3.5 Flash (Low)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'] },
+    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', providers: ['antigravity'], efforts: ['low', 'high'] },
+    { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', providers: ['antigravity'], efforts: ['low', 'high'] },
     { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', providers: ['antigravity'] },
     { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 Thinking', providers: ['antigravity'] },
     { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', providers: ['antigravity'] },
@@ -75,8 +85,25 @@ export function validateModelList(
       return undefined;
     }
 
+    // `efforts` is optional; when present it must be a duplicate-free list of
+    // bounded, safe values — a malformed list invalidates the whole section,
+    // exactly like any other malformed field (a silently accepted effort value
+    // would later surface as an opaque CLI rejection at launch).
+    let efforts: readonly string[] | undefined;
+    if (entry.efforts !== undefined) {
+      if (!Array.isArray(entry.efforts) || entry.efforts.length === 0) return undefined;
+      const seen = new Set<string>();
+      for (const raw of entry.efforts) {
+        if (typeof raw !== 'string') return undefined;
+        const value = raw.trim();
+        if (!EFFORT_VALUE.test(value) || seen.has(value)) return undefined;
+        seen.add(value);
+      }
+      efforts = [...seen];
+    }
+
     ids.add(id);
-    models.push({ id, label, providers: [provider] });
+    models.push({ id, label, providers: [provider], ...(efforts ? { efforts } : {}) });
   }
   return models;
 }
