@@ -24,9 +24,12 @@ export const LIVE_TICK_MS = 1000;
  *
  * Read off the built view rather than the store a second time: the view is what
  * the panel is showing, so "is anything moving" and "is anything drawn as
- * moving" can never disagree. A stage's `live` line (running or waiting) and a
- * process row that is running both qualify; a blocked/parked ticket does not —
- * it is waiting on a human, and polling it would be a timer that never stops.
+ * moving" can never disagree.
+ *
+ * RUNNING only, on both carriers — a stage's live line reading `run`, or a
+ * process row reading `run`. The other two live statuses are deliberately not
+ * live work: `wait` is a park, which is waiting on a HUMAN and would be a timer
+ * that never stops, and `fail` is settled.
  */
 export function hasLiveWork(state: DashboardState): boolean {
   return Object.values(state.insideViews).some(

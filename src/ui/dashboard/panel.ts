@@ -129,6 +129,12 @@ export class DashboardManager {
   private readonly gateOptionsCache = new Map<number, GateOptions>();
   /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
   private readonly registries = new Map<number, InsideActionRegistry>();
+  /**
+   * The registry of the snapshot the current one SUPERSEDED — the grace window
+   * for a click already in flight when a repaint replaced the render it was
+   * posted from. Exactly one generation deep; disposed with the panel.
+   */
+  private readonly priorRegistries = new Map<number, InsideActionRegistry>();
   private readonly generations = new Map<number, number>();
   /**
    * The pending live-snapshot timer per ticket (§ liveTick.ts). A self-
@@ -310,6 +316,8 @@ export class DashboardManager {
       // must never dispatch against a later snapshot.
       this.registries.get(ticketId)?.dispose();
       this.registries.delete(ticketId);
+      this.priorRegistries.get(ticketId)?.dispose();
+      this.priorRegistries.delete(ticketId);
       this.generations.delete(ticketId);
     });
 
@@ -334,6 +342,23 @@ export class DashboardManager {
 
   /** Push a fresh state snapshot to a ticket panel; no-op if not open. */
   pushState(ticketId: number): void {
+    this.pushSnapshot(ticketId, true);
+  }
+
+  /**
+   * Build and post one snapshot.
+   *
+   * `supplemental` is what separates a real push from a live repaint. The
+   * async loaders beside the state — worktree Git totals (`git` per worktree)
+   * and the resolved gate names (a walk of every scoped repo) — answer
+   * questions that change when the WORKTREE or the MANIFEST changes, not when
+   * a gate advances a second. Re-running them on every tick would abort and
+   * respawn a child process per second and never let one finish; the repaint
+   * is a store read and a `postMessage`, nothing else. The tab icon is skipped
+   * for the same reason: the glyph it tints changes with the ticket's status,
+   * and every status change arrives on a real push.
+   */
+  private pushSnapshot(ticketId: number, supplemental: boolean): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
     // A fresh action registry PER SNAPSHOT: every state push is authoritative,
@@ -342,7 +367,16 @@ export class DashboardManager {
     const generation = (this.generations.get(ticketId) ?? 0) + 1;
     this.generations.set(ticketId, generation);
     const registry = new InsideActionRegistry(generation, ticketId);
-    this.registries.get(ticketId)?.dispose();
+    // The snapshot the user was LOOKING AT stays dispatchable for exactly one
+    // more generation. A click is posted against the ids of the render on
+    // screen, and with a repaint every second that render can be superseded
+    // while the message is in flight — rejecting it would report "no longer
+    // available" for a button the user just pressed. One generation of grace,
+    // never more: a capability must still die promptly.
+    this.priorRegistries.get(ticketId)?.dispose();
+    const superseded = this.registries.get(ticketId);
+    if (superseded) this.priorRegistries.set(ticketId, superseded);
+    else this.priorRegistries.delete(ticketId);
     this.registries.set(ticketId, registry);
     const state = buildDashboardState(
       this.store,
@@ -364,9 +398,11 @@ export class DashboardManager {
       (repo) => this.repoNameFor(repo),
     );
     panel.postMessage({ type: 'state', state });
-    this.pushWorktreeStats(ticketId, panel, state.worktrees);
-    this.refreshIcon(ticketId, panel);
-    this.pushGateOptions(ticketId, panel);
+    if (supplemental) {
+      this.pushWorktreeStats(ticketId, panel, state.worktrees);
+      this.refreshIcon(ticketId, panel);
+      this.pushGateOptions(ticketId, panel);
+    }
     this.scheduleLiveTick(ticketId, state);
   }
 
@@ -398,7 +434,7 @@ export class DashboardManager {
       this.liveTicks.delete(ticketId);
       if (!this.panels.has(ticketId)) return;
       try {
-        this.pushState(ticketId);
+        this.pushSnapshot(ticketId, false);
       } catch (err) {
         // A tick is a repaint, never a mutation: a failed read (a deleted
         // ticket, a locked DB) must not take the extension host down, and it
@@ -560,14 +596,23 @@ export class DashboardManager {
    * acknowledged as success.
    */
   dispatchInsideAction(ticketId: number, actionId: string): InsideActionResult {
+    // Current snapshot first, then the ONE it superseded: an id only ever
+    // resolves against its own generation, so trying both is a grace window,
+    // not a widening of what a given id can reach.
     const registry = this.registries.get(ticketId);
     if (!registry) return { ok: false, message: 'This action is no longer available.' };
-    const outcome = dispatchInsideAction(this.store, registry, actionId, {
-      host: this.insideHost ?? NOOP_INSIDE_HOST,
-      worktreeForRepo: (repo) =>
-        listWorktreesByTicket(this.store, ticketId).find((w) => w.repo === repo)?.path,
-      fs: { existsSync, realpathSync },
-    });
+    const dispatchAgainst = (target: InsideActionRegistry): ReturnType<typeof dispatchInsideAction> =>
+      dispatchInsideAction(this.store, target, actionId, {
+        host: this.insideHost ?? NOOP_INSIDE_HOST,
+        worktreeForRepo: (repo) =>
+          listWorktreesByTicket(this.store, ticketId).find((w) => w.repo === repo)?.path,
+        fs: { existsSync, realpathSync },
+      });
+    let outcome = dispatchAgainst(registry);
+    if (outcome.outcome === 'unknown') {
+      const prior = this.priorRegistries.get(ticketId);
+      if (prior) outcome = dispatchAgainst(prior);
+    }
     if (outcome.outcome === 'rejected') {
       this.logError(`karst: inside action rejected: ${outcome.reason}`, undefined);
       // The reason is host diagnostic prose and may name a path — never send it

@@ -3320,3 +3320,54 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
     expect(html).toMatch(/<span class="done-state"><span class="ev-time">09:58:01<\/span> · passed<\/span>/);
   });
 });
+
+/**
+ * The repaint's focus rule, run as the webview's OWN functions against element
+ * doubles — a snapshot push once a second rebuilds every section by innerHTML
+ * assignment, and an unrestored focus would take the keyboard away from the
+ * user roughly as often as they could press a key.
+ */
+describe('focus across a repaint', () => {
+  function focusHarness(before: string[], after: string[]) {
+    const src = `${/function focusMark[\s\S]*?\n  \}/.exec(HYDRATED)?.[0]}\n${
+      /function restoreFocus[\s\S]*?\n  \}/.exec(HYDRATED)?.[0]
+    }`;
+    if (src.includes('undefined')) throw new Error('focus helpers not found in the webview script');
+    const focused: string[] = [];
+    const mk = (act: string) => ({
+      getAttribute: (name: string) => (name === 'data-act' ? act : null),
+      focus: () => focused.push(act),
+    });
+    let controls = before.map(mk);
+    const active = () => controls[1];
+    const doc = {
+      get activeElement() {
+        return active();
+      },
+      querySelectorAll: () => controls,
+    };
+    const run = new Function(
+      'document',
+      'setControls',
+      `${src}\n;return { focusMark, restoreFocus };`,
+    ) as (
+      document: unknown,
+      setControls: unknown,
+    ) => { focusMark: () => unknown; restoreFocus: (m: unknown) => void };
+    const api = run(doc, null);
+    const mark = api.focusMark();
+    controls = after.map(mk);
+    api.restoreFocus(mark);
+    return focused;
+  }
+
+  it('returns the keyboard to the same control after the page is rebuilt', () => {
+    expect(focusHarness(['edit-ticket', 'inside-action'], ['edit-ticket', 'inside-action'])).toEqual([
+      'inside-action',
+    ]);
+  });
+
+  it('never moves focus onto a DIFFERENT control when the page shape changed', () => {
+    expect(focusHarness(['edit-ticket', 'inside-action'], ['edit-ticket', 'merge-pr'])).toEqual([]);
+  });
+});

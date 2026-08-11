@@ -790,6 +790,80 @@ describe('DashboardManager', () => {
       expect(states(panels[0]!).length).toBe(initial);
     });
 
+    it('is a snapshot repaint only — it never re-runs the git/filesystem loaders', async () => {
+      // The supplemental loaders spawn `git` per worktree and walk the repo
+      // for gate scripts. Re-running them once a second (aborting the previous
+      // one each time) would spawn a child process per second that never gets
+      // to finish — the repaint reads the store and nothing else.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host } = fakeHost();
+      const loadStats: WorktreeStatsLoader = vi.fn().mockResolvedValue([]);
+      const loadGateOptions = vi.fn().mockResolvedValue({ uat: [], review: [] });
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
+      );
+
+      mgr.openDashboard(t.id);
+      const statsCalls = (loadStats as ReturnType<typeof vi.fn>).mock.calls.length;
+      const gateCalls = loadGateOptions.mock.calls.length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+
+      expect((loadStats as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(statsCalls);
+      expect(loadGateOptions.mock.calls).toHaveLength(gateCalls);
+    });
+
+    it('keeps the SUPERSEDED snapshot dispatchable for one generation', () => {
+      // A repaint mints a new registry every second, so a click posted against
+      // the snapshot the user was actually looking at could land after it was
+      // replaced and be rejected as stale. One generation of grace covers the
+      // in-flight click; two generations back is still gone.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      // A merged PR gives the done receipt its `open-pr` rows; the running
+      // tester run is what keeps the repaint ticking.
+      store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+      store.db
+        .prepare(
+          `INSERT INTO prs (ticket_id, repo, number, url, status, merged_at)
+           VALUES (?, ?, ?, ?, 'merged', ?)`,
+        )
+        .run(t.id, '/repo/a', 12, 'https://github.com/o/r/pull/12', new Date().toISOString());
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const opened: number[] = [];
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        { openPr: (_id: number, prId: number) => void opened.push(prId) } as never,
+      );
+
+      mgr.openDashboard(t.id);
+      const first = JSON.stringify(panels[0]!.posted);
+      const actionId = /"actionId":"(snapshot-1:action-\d+)"/.exec(first)?.[1];
+      expect(actionId).toBeDefined();
+
+      vi.advanceTimersByTime(LIVE_TICK_MS); // generation 2 supersedes it
+      expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: true });
+
+      vi.advanceTimersByTime(LIVE_TICK_MS); // generation 3 — the grace is spent
+      expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: false });
+    });
+
     it('a disposed panel stops its tick — no timer outlives the panel', () => {
       const t = createTicket(store, { key: 'A', title: 'a' });
       openProcessRun(store, {

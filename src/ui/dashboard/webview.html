@@ -2686,7 +2686,31 @@
       + `${icon}${esc(label)} <span class="arw" aria-hidden="true">↗</span></a>`;
   }
 
+  // Keyboard focus across a repaint. The host re-pushes the snapshot once a
+  // second while a stage is running, and every section is rebuilt by innerHTML
+  // assignment, which blurs whatever the user had focused. The action ids are
+  // snapshot-scoped, so they cannot identify the same control across two
+  // renders — its POSITION among the page's controls plus its own `data-act`
+  // can. Restoring only on an exact match is the point: a page whose shape
+  // changed must never move focus onto a DIFFERENT control than the one the
+  // user was on.
+  function focusMark() {
+    const active = document.activeElement;
+    if (!active || !active.getAttribute || !active.getAttribute('data-act')) return null;
+    const controls = Array.prototype.slice.call(document.querySelectorAll('[data-act]'));
+    const index = controls.indexOf(active);
+    return index < 0 ? null : { index: index, act: active.getAttribute('data-act') };
+  }
+
+  function restoreFocus(mark) {
+    if (!mark) return;
+    const controls = Array.prototype.slice.call(document.querySelectorAll('[data-act]'));
+    const target = controls[mark.index];
+    if (target && target.getAttribute('data-act') === mark.act) target.focus();
+  }
+
   function render(state) {
+    const mark = focusMark();
     lastState = state;
     // Selection defaults to the current stage; with none (nothing has run) it
     // falls back to scope — the one the user is about to start.
@@ -2707,6 +2731,7 @@
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
     renderGates();
+    restoreFocus(mark);
   }
 
   // One toggle row for one resolved gate. A real <button> (UI-R09), never a
