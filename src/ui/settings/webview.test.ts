@@ -1242,17 +1242,14 @@ describe('UI-R13 — action-result is handled', () => {
 });
 
 describe('project facts (manifest path & resolved project id)', () => {
-  it('renders a read-only <dl>, not inputs, so Save can never write these back', () => {
+  it('does not render the read-only facts in the General tab — they live in the sidebar footer only', () => {
     const generalStart = HTML.indexOf('id="section-general"');
     const generalEnd = HTML.indexOf('<!-- Git -->');
     const section = HTML.slice(generalStart, generalEnd);
-    expect(section).toContain('id="projectFacts"');
-    expect(section).toContain('<dl class="facts">');
-    expect(section).toContain('id="factManifestPath"');
-    expect(section).toContain('id="factProjectSlug"');
-    expect(section).toContain('id="factSlugDerived"');
-    expect(section).toContain('id="factVersion"');
-    expect(section).toContain('id="openManifestBtn"');
+    expect(section).not.toContain('This project');
+    expect(section).not.toContain('id="projectFacts"');
+    expect(section).not.toContain('id="factManifestPath"');
+    expect(section).not.toContain('id="openManifestBtn"');
   });
 
   it('never adds the facts to SECTION_FIELDS — they must not enter the draft', () => {
@@ -1260,80 +1257,8 @@ describe('project facts (manifest path & resolved project id)', () => {
     expect(SECTION_FIELDS.general).not.toContain('projectSlug');
   });
 
-  it('the Open karst.yml button posts through the pending action runtime (UI-R11)', () => {
-    expect(HTML).toMatch(/postAction\(el\('openManifestBtn'\),\s*'open-manifest'/);
-  });
-
-  it("renderProjectFacts fills the facts from the host-pushed state, marking a derived id", () => {
-    const source = `
-      let manifestPath = '';
-      let projectSlug = { value: '', derived: true };
-      let extensionVersion = '1.0.0';
-      const elements = {};
-      function el(id) {
-        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
-        return elements[id];
-      }
-      ${functionSource('renderProjectFacts')}
-      manifestPath = '/work/proj/.karst/karst.yml';
-      projectSlug = { value: 'my-proj', derived: true };
-      extensionVersion = '1.0.0';
-      renderProjectFacts();
-      ({
-        path: elements.factManifestPath.textContent,
-        slug: elements.factProjectSlug.textContent,
-        derivedHidden: elements.factSlugDerived.hidden,
-        version: elements.factVersion.textContent,
-      });
-    `;
-    const result = runInNewContext(source, {}) as {
-      path: string;
-      slug: string;
-      derivedHidden: boolean;
-      version: string;
-    };
-    expect(result.path).toBe('/work/proj/.karst/karst.yml');
-    expect(result.slug).toBe('my-proj');
-    expect(result.derivedHidden).toBe(false);
-    expect(result.version).toBe('1.0.0');
-  });
-
-  it('renderProjectFacts hides the derived chip when the id is explicit', () => {
-    const source = `
-      let manifestPath = 'x';
-      let projectSlug = { value: '', derived: true };
-      let extensionVersion = '';
-      const elements = {};
-      function el(id) {
-        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
-        return elements[id];
-      }
-      ${functionSource('renderProjectFacts')}
-      projectSlug = { value: 'explicit-id', derived: false };
-      renderProjectFacts();
-      elements.factSlugDerived.hidden;
-    `;
-    const result = runInNewContext(source, {});
-    expect(result).toBe(true);
-  });
-
-  it('falls back to (unresolved) when the host has not supplied the facts yet', () => {
-    const source = `
-      let manifestPath = '';
-      let projectSlug = { value: '', derived: true };
-      let extensionVersion = '';
-      const elements = {};
-      function el(id) {
-        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
-        return elements[id];
-      }
-      ${functionSource('renderProjectFacts')}
-      renderProjectFacts();
-      ({ path: elements.factManifestPath.textContent, slug: elements.factProjectSlug.textContent });
-    `;
-    const result = runInNewContext(source, {}) as { path: string; slug: string };
-    expect(result.path).toBe('(unresolved)');
-    expect(result.slug).toBe('(unresolved)');
+  it('the sidebar Open karst.yml button posts through the pending action runtime (UI-R11)', () => {
+    expect(HTML).toMatch(/postAction\(footOpen,\s*'open-manifest'\)/);
   });
 });
 
@@ -1372,7 +1297,6 @@ describe('debug logging toggle (General tab)', () => {
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
-      function renderProjectFacts() {}
       function agentBadgeHtml() { return ''; }
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
@@ -2530,6 +2454,49 @@ describe('settings v7 shared primitives', () => {
     expect(HTML).toContain('.dropdown');
     expect(HTML).toContain('.drop-item');
     expect(HTML).toContain('.chev');
+  });
+
+  it('pairs the selection foreground on every active dropdown option (light-theme contrast)', () => {
+    // The active wash is a saturated blue on light themes; inherited `--k-text`
+    // is grey and fails contrast on it (UI-R29). Each option family must take
+    // the theme's own paired foreground, and dim/faint descendants must not
+    // re-grey themselves on the fill.
+    expect(HTML).toContain('.provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));');
+    expect(HTML).toMatch(/\.provselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toMatch(/\.agentselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toMatch(/\.drop-item\.active,\.drop-item\[aria-selected="true"\]\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toMatch(/\.model-item\.active[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toContain('.model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}');
+    expect(HTML).toContain('.drop-item.active .ident-meta{color:inherit;opacity:.8}');
+  });
+
+  it('keeps dropdown items readable on hover with an explicit foreground', () => {
+    expect(HTML).toContain('.provselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
+    expect(HTML).toContain('.agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
+    expect(HTML).toContain('.drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}');
+    expect(HTML).toContain('.model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}');
+  });
+
+  it('overlay pops use their own display:none — never the !important .hidden class', () => {
+    // `.hidden{display:none !important}` defeats `.open{display:block}`: the
+    // template helper pop, context menu and project-info pop all carried the
+    // class and could never become visible.
+    expect(HTML).toContain('<div class="helper-pop" id="helperPop"');
+    expect(HTML).toContain('<div class="ctx-menu" id="ctxMenu"');
+    expect(HTML).toContain('<div class="project-info-pop" id="projectInfoPop"');
+    expect(HTML).not.toMatch(/id="helperPop"[^>]*class="[^"]*hidden/);
+    expect(HTML).not.toMatch(/id="ctxMenu"[^>]*class="[^"]*hidden/);
+    expect(HTML).not.toMatch(/id="projectInfoPop"[^>]*class="[^"]*hidden/);
+  });
+
+  it('renders the repositories list as ONE rounded roster: head and cards share the container', () => {
+    // The head used to float bare above the cards — a square block against
+    // their rounded corners. renderServices now wraps both in `.roster`,
+    // which owns the single border+radius, and the per-card chrome is
+    // neutralized inside it.
+    expect(HTML).toMatch(/<div class="roster">`\s*\+ `<div class="roster-head repo-cols">`/);
+    expect(HTML).toContain('.roster .card{border:none;border-radius:0;margin-bottom:var(--k-space-0);background:transparent}');
+    expect(HTML).toContain('.roster .card + .card{border-top:var(--k-border-w) solid var(--vscode-panel-border)}');
   });
 
   it('implements the fixed-size reload icon button with a pending spin', () => {
