@@ -145,6 +145,14 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('.glyph .sdot{');
   });
 
+  it('rows carry the approved #35 silhouette, not the old three-node graph', () => {
+    expect(HTML).toContain('M 96 20');
+    expect(HTML).toContain('M 151 42');
+    expect(HTML).toContain('cx="106.5" cy="111.5" r="26.5"');
+    expect(HTML).not.toContain('cx="6"');
+    expect(HTML).not.toContain('7.6 7.6');
+  });
+
   it('lets multiple status chips light at once (multi-select fix)', () => {
     // A chip click reports which facet was clicked; the host owns the union.
     expect(HTML).toContain("post({ type:'toggle-facet', facet: t.dataset.facet })");
