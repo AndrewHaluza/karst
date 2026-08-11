@@ -3317,6 +3317,10 @@
     el('cmdDrawerTitle').textContent = command;
     el('cmdDrawerBody').textContent = body;
     el('cmdDrawer').classList.add('open');
+    // Initial focus inside the drawer (UI-R09b/§19.3): the close button is the
+    // stable, non-destructive control.
+    const close = el('cmdDrawerClose');
+    if (close && typeof close.focus === 'function') close.focus();
   }
   function closeDrawer() {
     el('cmdDrawer').classList.remove('open');
@@ -3554,6 +3558,11 @@
     el('approachDrawerDelete').disabled = isInstalled;
 
     el('approachFormDrawer').classList.add('open');
+    // Initial focus inside the drawer (§19.3): the id field on ADD, the label
+    // on EDIT (id is read-only there) — never the destructive Delete.
+    const focusId = mode === 'edit' ? 'af-label' : 'af-id';
+    const first = el(focusId);
+    if (first && typeof first.focus === 'function') first.focus();
   }
 
   function closeApproachDrawer() {
