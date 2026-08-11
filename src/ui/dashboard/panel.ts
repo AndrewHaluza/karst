@@ -146,7 +146,7 @@ export class DashboardManager {
      * dashboard can render a link to the source board (§ C3). Absent → no link.
      */
     private readonly ticketing?: () => { provider?: TicketProvider } | undefined,
-    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    /** Report a caught pump error to the Karst output channel. */
     private readonly logError: LogError = (m, e) => console.error(m, e),
     /**
      * Resolve an approach id → its workflow phase names, for the read-only

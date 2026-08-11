@@ -125,7 +125,7 @@ export class TicketFormManager {
      * Defaults to "never open" for callers that don't care.
      */
     private readonly isSessionOpen: (ticketId: number) => boolean = () => false,
-    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    /** Report a caught pump error to the Karst output channel. */
     private readonly logError: LogError = (m, e) => console.error(m, e),
     /**
      * Resolve a ticket → the file path of its status-tinted tab icon. Called on

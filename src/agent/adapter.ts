@@ -188,7 +188,7 @@ export interface AgentAdapter {
   /**
    * The CLI binary this adapter invokes (e.g. `'claude'`). Advertised so the
    * startup dependency check can verify it's installed without knowing the
-   * agent's flag details (§ todo-5 dependencies check).
+   * agent's flag details.
    */
   readonly requiredBinary: string;
 

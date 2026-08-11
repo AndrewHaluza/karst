@@ -58,7 +58,7 @@ export class SidebarViewManager {
     private readonly pathContext?: () => PathContext | undefined,
     /** Live ticket-label template getter (honors manifest `ticketLabelTemplate`). */
     private readonly labelTemplate?: () => string | undefined,
-    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    /** Report a caught pump error to the Karst output channel. */
     private readonly logError: LogError = (m, e) => console.error(m, e),
     /**
      * The window's bound project (§ projects / multi-window). A getter, not a

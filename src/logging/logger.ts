@@ -2,7 +2,7 @@
  * A minimal structured logger, vscode-free so it is unit-testable and shared by
  * every module. The real host binds `sink` to a `vscode.OutputChannel` (its
  * `appendLine` matches `LogSink`), giving the user one "Karst" channel where all
- * errors land (§ todo-5 error handling). Keep the surface tiny — info/warn/error,
+ * errors land. Keep the surface tiny — info/warn/error,
  * plus a gated `debug` level: `logger.debug()` is a NO-OP unless
  * `setDebugEnabled(true)` was called (the manifest's `debug` field), so the
  * verbose lines cost nothing in normal mode and every decision point can log
