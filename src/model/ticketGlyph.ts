@@ -10,6 +10,21 @@ export function currentStageStatus(t: TicketWithStages): StageStatus {
 }
 
 /**
+ * Whether the ticket's `waiting` agentState is a running-ship artifact rather
+ * than a needs-you: ship is the driver's own headless work (committing,
+ * pushing, opening PRs), and the hook that set `waiting` fired inside that run
+ * — the ticket is NOT parked on the user (869ed7bpd). An awaiting-merge ship
+ * reads `passed`, never `running`, so this can never swallow a merge wait.
+ */
+function waitingWhileShipRuns(t: TicketWithStages): boolean {
+  return (
+    ((t.agentState ?? 'none') as AgentState) === 'waiting' &&
+    t.stageCurrent === 'ship' &&
+    currentStageStatus(t) === 'running'
+  );
+}
+
+/**
  * Whether the ticket is blocked on the user — the needs-you signal, in one place
  * so the color, the badge and the facet can never disagree about it.
  *
@@ -30,6 +45,9 @@ export function currentStageStatus(t: TicketWithStages): StageStatus {
  * right.
  */
 export function needsUser(t: TicketWithStages): boolean {
+  // `waiting` normally IS the needs-you signal — except while a ship is
+  // RUNNING, where the ticket is moving, not parked (see `waitingWhileShipRuns`).
+  if (waitingWhileShipRuns(t)) return false;
   if (((t.agentState ?? 'none') as AgentState) === 'waiting') return true;
 
   // `stageCurrent` is a stored string: a row from an older schema (or a stage
@@ -52,5 +70,12 @@ export function needsUser(t: TicketWithStages): boolean {
  */
 export function ticketGlyph(t: TicketWithStages): Glyph {
   if (needsUser(t)) return 'amber';
-  return glyphFor(currentStageStatus(t), (t.agentState ?? 'none') as AgentState);
+  // The same running-ship exception, applied to the residual `waiting` the
+  // glyph function would otherwise paint amber: pass the running state so the
+  // glyph, facet, badge and attention set all read "in progress", never
+  // "Needs you", while ship is shipping.
+  const agent: AgentState = waitingWhileShipRuns(t)
+    ? 'running'
+    : ((t.agentState ?? 'none') as AgentState);
+  return glyphFor(currentStageStatus(t), agent);
 }

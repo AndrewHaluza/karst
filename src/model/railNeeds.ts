@@ -1,4 +1,5 @@
 import type { MergeGateState } from '../workflow/mergeGate.js';
+import type { StageStatus } from './types.js';
 
 /**
  * The words a needs-you segment carries: why the ticket stopped, and what the
@@ -29,6 +30,15 @@ export interface RailNeedsInput {
   /** The agent asked a question (`agentState === 'waiting'`). */
   agentWaiting: boolean;
   /**
+   * The stored status of the SHIP stage row — `running` while ship is actively
+   * committing, pushing and opening PRs. A live agent question does NOT outrank
+   * that: the hooks that set `agentWaiting` fire inside ship's own headless run,
+   * so "the agent asked you something" beside shipping in progress is the exact
+   * contradiction this input prevents (869ed7bpd). Only consulted when
+   * `stage === 'ship'`; an awaiting-merge ship reads `passed`, never `running`.
+   */
+  shipStatus: StageStatus;
+  /**
    * True when `stage` is `ship` because it is blocked on the merge gate
    * (`stages.blocked_kind === 'awaiting-merge'`), rather than parked pending its
    * first "Confirm ship" click. Both read `stage === 'ship'`, and only this
@@ -45,7 +55,11 @@ const count = (repos: readonly string[]): string =>
 /**
  * The two needs-you sources are genuinely different situations, and a live
  * question outranks a parked stage: the agent is asking RIGHT NOW, and the
- * confirm will still be there afterwards.
+ * confirm will still be there afterwards. A RUNNING ship is the one exception —
+ * ship is the driver's own agent work, and the hook that set the waiting state
+ * fired inside that run, so the banner would contradict the shipping line
+ * (869ed7bpd). Mirrors `needsUser`'s `waitingWhileShipRuns` and `buildNowLine`'s
+ * ship branch.
  *
  * Returns null when nothing is blocked on the user — including once everything
  * has landed, where the gate is about to advance the ticket on its own and
@@ -53,6 +67,7 @@ const count = (repos: readonly string[]): string =>
  */
 export function railNeeds(input: RailNeedsInput): RailNeeds | null {
   if (input.agentWaiting) {
+    if (input.stage === 'ship' && input.shipStatus === 'running') return null;
     return { detail: 'the agent asked you something', action: 'Open session' };
   }
 

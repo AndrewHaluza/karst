@@ -517,6 +517,11 @@ export function buildDashboardState(
         ? railNeeds({
             stage: ticket.stageCurrent,
             agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
+            // A RUNNING ship is the driver's own work, so the agent-waiting
+            // banner must not outrank it (869ed7bpd). `needsUser` already
+            // excludes that case — this is the rail's own guard, belt and
+            // braces with the same exception.
+            shipStatus: cellOf('ship').status,
             shipAwaitingMerge:
               stepper.find((c) => c.stageKey === 'ship')?.blocked?.kind === 'awaiting-merge',
             mergeGate,
