@@ -266,6 +266,10 @@ describe('writeManifest', () => {
         // Same reason: absent debug would round-trip regardless of the overlay,
         // so the populated manifest pins the explicit value.
         debug: true,
+        // Same reason again: absent closeDoneTerminalsWithTicket would round-trip
+        // whether or not the overlay wrote it, so the populated manifest pins the
+        // explicit value.
+        closeDoneTerminalsWithTicket: true,
         id: 'karst-extension',
       };
       writeManifest(path, full);

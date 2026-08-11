@@ -50,6 +50,12 @@ agentProvider: claude
 # number of days.
 archiveDoneAfterDays: 3
 
+# When a ticket is archived, also close its agent terminals whose process has
+# already exited — the dead tabs VS Code keeps with a "Done" suffix (Settings →
+# General). A still-running session is NEVER touched: only exited terminals
+# qualify. Off by default; dead tabs stay until you close them.
+# closeDoneTerminalsWithTicket: false
+
 repositories:
   backend:
     repoPath: /absolute/path/to/backend

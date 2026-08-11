@@ -756,6 +756,7 @@ describe('settings tab-scoped save', () => {
       ['general', { worktreePathDisplay: 'sideways' as never }],
       ['general', { agentProvider: 'nope' as never }],
       ['general', { archiveDoneAfterDays: 0 }],
+      ['general', { closeDoneTerminalsWithTicket: 'yes' as never }],
       ['services', { repositories: {} }],
       ['services', { repositories: { api: { repoPath: 42 as never, hasMigrations: false } } }],
       ['git', { conventions: { branchName: '{nope}' } }],
@@ -1384,6 +1385,51 @@ describe('debug logging toggle (General tab)', () => {
       draft = {};
       renderGeneral();
       const off = el('f-debug').checked;
+      ({ on, off });
+    `;
+    const result = runInNewContext(source, {}) as { on: boolean; off: boolean };
+    expect(result.on).toBe(true);
+    expect(result.off).toBe(false);
+  });
+});
+
+describe('close-done-terminals toggle (General tab)', () => {
+  it('renders a checkbox in the General section with the behavior hint', () => {
+    const generalStart = HTML.indexOf('id="section-general"');
+    const generalEnd = HTML.indexOf('<!-- Git -->');
+    const section = HTML.slice(generalStart, generalEnd);
+    expect(section).toContain('id="f-closeDoneTerminalsWithTicket"');
+    expect(section).toContain('type="checkbox"');
+    expect(section).toContain('id="doneTerminalsHint"');
+    // The hint must say which action closes the terminals — never a bare toggle.
+    expect(section).toContain('archived');
+  });
+
+  it('checks the box only when the draft carries closeDoneTerminalsWithTicket: true (off by default)', () => {
+    const source = `
+      let draft = {};
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      function renderModelPicker() {}
+      function renderPresetOptions() {}
+      function renderDefaultTypeOptions() {}
+      function renderLabelPreview() {}
+      function renderConventions() {}
+      function renderProjectFacts() {}
+      function agentBadgeHtml() { return ''; }
+      const KNOWN_AGENT_PROVIDERS = [];
+      const implementedProviders = [];
+      function esc(s) { return String(s); }
+      ${functionSource('renderGeneral')}
+      draft = { closeDoneTerminalsWithTicket: true };
+      renderGeneral();
+      const on = el('f-closeDoneTerminalsWithTicket').checked;
+      draft = {};
+      renderGeneral();
+      const off = el('f-closeDoneTerminalsWithTicket').checked;
       ({ on, off });
     `;
     const result = runInNewContext(source, {}) as { on: boolean; off: boolean };

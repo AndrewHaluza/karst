@@ -290,6 +290,20 @@ function validateDebug(raw: unknown): boolean | undefined {
 }
 
 /**
+ * Parse `closeDoneTerminalsWithTicket` (default undefined → closing a ticket
+ * leaves its done terminals alone). Must be a boolean when present, like
+ * `debug` — a string `"true"` is a YAML typo, and a non-boolean must fail
+ * loudly rather than silently pinning the behavior on.
+ */
+function validateCloseDoneTerminalsWithTicket(raw: unknown): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') {
+    throw new ManifestError('closeDoneTerminalsWithTicket must be a boolean');
+  }
+  return raw;
+}
+
+/**
  * Parse the project `id`. Must be a string when present; blank/whitespace
  * normalizes to undefined so a cleared field falls back to the path-derived
  * slug rather than pinning every ticket to an empty project. Trimmed, because
@@ -467,6 +481,9 @@ export function validateManifest(raw: unknown): Manifest {
     defaultModel: validateDefaultModel(raw.defaultModel),
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
     debug: validateDebug(raw.debug),
+    closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
+      raw.closeDoneTerminalsWithTicket,
+    ),
     uat: validateUat(raw.uat),
     review: validateReview(raw.review, Object.keys(repositories)),
   };
