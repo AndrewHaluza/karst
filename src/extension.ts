@@ -4703,6 +4703,11 @@ function makeDashboardActions(
         }
       })();
     },
+    // The message protocol seam (Task 3); the host-side read + `stage-log`
+    // push lands with the terminal "detailed mode" view. The webview cannot
+    // post this message yet, so this placeholder satisfies the interface and
+    // nothing else.
+    requestStageLog: () => undefined,
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads
