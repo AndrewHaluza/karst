@@ -4886,7 +4886,14 @@
     const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
     const list = modelCatalog[provider] || [];
     const groupLabel = MODEL_GROUP_LABELS[provider] || provider;
-    let html = '';
+    // The "No default" row is always first: it is how the picker expresses an
+    // explicit none (handoff §7.2), and picking it clears the saved model.
+    let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
+      + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
+      + '<div><div class="model-name">No default (agent picks)</div>'
+      + '<div class="model-sub">Let the provider choose.</div></div>'
+      + (saved === '' ? '<span class="model-tag">saved</span>' : '')
+      + '</div>';
     if (list.length === 0) {
       html += '<div class="model-empty">No models listed for ' + esc(groupLabel) + '.</div>';
     } else {
@@ -4940,7 +4947,12 @@
       const listEl = el('modelList');
       if (!listEl) return;
       if (!q) { renderModelPickerPopup(); return; }
-      let html = '<div class="model-group-label">' + esc(MODEL_GROUP_LABELS[provider] || provider) + '</div>';
+      // "No default" always survives the filter — it is the picker's way to
+      // express an explicit none, not a model to match.
+      let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
+        + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
+        + '<div class="model-name">No default (agent picks)</div></div>';
+      html += '<div class="model-group-label">' + esc(MODEL_GROUP_LABELS[provider] || provider) + '</div>';
       for (const m of list) {
         const hay = (m.label + ' ' + m.id).toLowerCase();
         if (hay.includes(q)) {
@@ -4956,7 +4968,9 @@
           + '<div class="model-name">' + esc(saved) + '</div></div>';
       }
       if (html.indexOf('model-item') === -1) {
-        html = '<div class="model-empty">No models match "' + esc(input.value) + '".</div>';
+        html = '<div class="model-item" role="option" data-model-id="" aria-selected="false">'
+          + '<div class="model-name">No default (agent picks)</div></div>'
+          + '<div class="model-empty">No models match "' + esc(input.value) + '".</div>';
       }
       listEl.innerHTML = html;
     });
