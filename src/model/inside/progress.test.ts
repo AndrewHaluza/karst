@@ -75,6 +75,31 @@ describe('ship lifecycle events (Finding 12)', () => {
     expect(validateInsideProgressEvent(event)).toEqual(event);
   });
 
+  it('carries a completed row DETAIL through the wire, bounded like every other prose value', () => {
+    // The driver words its own gate outcome ("gate test — exit 1"); a
+    // validator that dropped it turned every finished gate into a bare
+    // "Gates" row that said nothing about what just ran.
+    const event = {
+      kind: 'completed' as const,
+      ticketId: 7,
+      stage: 'uat' as const,
+      process: {
+        id: 'gates',
+        kind: 'gates',
+        label: 'Gates',
+        status: 'fail' as const,
+        detail: 'gate test — exit 1',
+      },
+    };
+    expect(validateInsideProgressEvent(event)).toEqual(event);
+    expect(
+      validateInsideProgressEvent({
+        ...event,
+        process: { ...event.process, detail: 'x'.repeat(241) },
+      }),
+    ).toBeNull();
+  });
+
   it('refuses to finish with any status the live/terminal vocabularies reject', () => {
     expect(validateInsideProgressEvent(shipFinishedEvent(7, 'pass'))).not.toBeNull();
     expect(validateInsideProgressEvent(shipFinishedEvent(7, 'fail'))).not.toBeNull();

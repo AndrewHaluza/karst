@@ -4110,6 +4110,10 @@ function makePanelHost(
             context.subscriptions,
           ),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
+        // `visible` — the counterpart of `active` above: the live repaint asks
+        // "can anyone see this?", and a dashboard watched beside a terminal the
+        // user types in is visible and inactive.
+        isVisible: () => panel.visible,
         setIcon: (p: string) => {
           panel.iconPath = vscode.Uri.file(p);
         },
