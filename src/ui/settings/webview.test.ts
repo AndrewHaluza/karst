@@ -2635,7 +2635,7 @@ describe('settings v7 matrix groups', () => {
       claude: [{ id: 'c', label: 'C', providers: ['claude'] }],
       codex: [], antigravity: [], opencode: [],
     };
-    const load = (key) => runInNewContext(`
+    const load = (key: string) => runInNewContext(`
       const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
       const AGENT_PROVIDER_LABELS = {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
