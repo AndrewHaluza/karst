@@ -3162,7 +3162,7 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
           kind: 'prefill',
           label: 'Ticket analysis',
           status: 'pass',
-          detail: 'prompt prefilled · approach, repos and type suggested',
+          detail: 'prompt improved · approach, repos and type suggested',
           execution: { provider: 'opencode', providerLabel: 'OpenCode', model: 'x', modelLabel: 'DeepSeek V4 Flash' },
           tokens: { state: 'measured', total: '4.8k' },
         },

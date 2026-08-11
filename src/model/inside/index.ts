@@ -105,11 +105,11 @@ function prefillProcess(
     status,
     detail:
       status === 'pass'
-        ? 'prompt prefilled · approach, repos and type suggested'
+        ? 'prompt improved · approach, repos and type suggested'
         : status === 'run'
           ? 'analyzing the ticket prompt'
           : status === 'fail'
-            ? 'analysis failed — the prompt was not prefilled'
+            ? 'analysis failed — the prompt was not improved'
             : 'analysis interrupted — no outcome',
     ...(run.startedAt
       ? {
