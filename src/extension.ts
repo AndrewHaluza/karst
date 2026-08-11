@@ -137,7 +137,7 @@ import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
 import { brandIconUri } from './ui/panelIcon.js';
-import { glyphThemeColorKey } from './model/glyphColor.js';
+import { terminalNaming } from './ui/terminalNaming.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
@@ -3297,21 +3297,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             modelCatalog,
           );
 
-      // Terminal name/icon/color are frozen at creation, so resolve the ticket's
-      // glyph ONCE here: the color is the stage-at-launch, and the template keeps
-      // the stage legible as text for the rest of the terminal's life.
-      const glyph = ticketGlyph(t);
-      const naming = {
+      // Terminal name/icon/color are frozen at creation, so the tab carries the
+      // status-free brand mark from the start — never a stage-at-launch glyph
+      // hue, which the tab would keep for the rest of its life (869egvp46-fu2).
+      // The template keeps the stage legible as text.
+      const naming = terminalNaming({
         name: renderTicketLabel(
           t,
           currentManifest()?.terminalNameTemplate ?? DEFAULT_TERMINAL_NAME_TEMPLATE,
         ),
-        iconPath: glyphIconPath(glyph, {
-          storageDir: context.globalStorageUri.fsPath,
-          assetSvgPath: MARK_SVG,
-        }),
-        color: glyphThemeColorKey(glyph),
-      };
+        brandIcon,
+      });
 
         sessions.openSession(
           adapter,

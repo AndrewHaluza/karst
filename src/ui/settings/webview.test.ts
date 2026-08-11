@@ -2460,6 +2460,12 @@ describe('settings v7 script integrity', () => {
 
 
 describe('settings v7 shell', () => {
+  it('the sidebar brand mark is the approved #35 mark, not the old letter badge', () => {
+    expect(HTML).toContain('M 96 20');
+    expect(HTML).toContain('cx="106.5" cy="111.5" r="26.5"');
+    expect(HTML).not.toContain('<span class="brandmark">K</span>');
+  });
+
   it('groups the sidebar nav into Project / Workflow / Integrations with captions', () => {
     expect(HTML).toContain('<nav class="sidebar"');
     expect(HTML).toContain('<div class="nav-caption">Project</div>');
