@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 34;
+export const SCHEMA_VERSION = 35;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -86,6 +86,181 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, mode
 
 /** Tables whose `service` column became `repo` in v10. */
 const V10_RENAMED_TABLES = ['servers', 'port_allocations', 'baseline_refs'] as const;
+
+/**
+ * v35's eight graph tables (Slice 2, design "Persistence"). Byte-identical in
+ * intent to the schema.sql block it mirrors — `db.test.ts` pins that with a
+ * `toContain` over this exact text. Exported so the interruption-atomicity
+ * test can drive the REAL step DDL inside a transaction.
+ *
+ * Insert-only rowid tables (no AUTOINCREMENT): none of the eight deletes a row
+ * outside `deleteTicket`'s explicit ordered sequence, so the largest rowid
+ * never decreases. Closed-value CHECKs enforce status MEMBERSHIP only;
+ * transition legality is application code, pinned by the transition-map tests.
+ */
+export const GRAPH_MIGRATION_DDL = `
+CREATE TABLE IF NOT EXISTS approach_graph_runs (
+  id                INTEGER PRIMARY KEY,
+  ticket_id         INTEGER NOT NULL REFERENCES tickets(id),
+  stage_key         TEXT NOT NULL CHECK (stage_key = 'impl'),
+  stage_attempt     INTEGER NOT NULL,
+  approach_id       TEXT NOT NULL,
+  status            TEXT NOT NULL CHECK (status IN (
+    'planning','awaiting-confirmation','running','draining','blocked',
+    'completed-awaiting-impl-marker','closed','stale','cancelled')),
+  planner_run_count INTEGER NOT NULL DEFAULT 0,
+  expert_run_count  INTEGER NOT NULL DEFAULT 0,
+  node_run_count    INTEGER NOT NULL DEFAULT 0,
+  replan_count      INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT,
+  completed_at      TEXT,
+  UNIQUE (ticket_id, stage_attempt)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
+CREATE TABLE IF NOT EXISTS approach_planner_runs (
+  id                    INTEGER PRIMARY KEY,
+  graph_run_id          INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  target_revision_number INTEGER,
+  planner_run_number    INTEGER NOT NULL,
+  kind                  TEXT NOT NULL CHECK (kind IN ('bootstrap','replan')),
+  status                TEXT NOT NULL CHECK (status IN (
+    'ready','launching','running','submitted','blocked','launch-unknown','stale','cancelled')),
+  profile               TEXT,
+  provider              TEXT,
+  model                 TEXT,
+  effort                TEXT,
+  prompt_hash           TEXT,
+  compile_attempt       INTEGER NOT NULL DEFAULT 0,
+  launch_attempt        INTEGER NOT NULL DEFAULT 0,
+  generation            TEXT,
+  process_run_id        INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce           TEXT,
+  capability_hash       TEXT,
+  graph_snapshot_id     TEXT,
+  artifact_snapshot_id  TEXT,
+  reason                TEXT,
+  started_at            TEXT,
+  submitted_at          TEXT,
+  ended_at              TEXT,
+  UNIQUE (graph_run_id, planner_run_number)
+);
+CREATE INDEX IF NOT EXISTS idx_planner_runs_run ON approach_planner_runs(graph_run_id, id);
+CREATE TABLE IF NOT EXISTS approach_graph_revisions (
+  id                        INTEGER PRIMARY KEY,
+  graph_run_id              INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_number           INTEGER NOT NULL,
+  canonical_graph           TEXT NOT NULL,
+  fingerprint               TEXT NOT NULL,
+  planner_graph_snapshot_id TEXT,
+  planner_artifact_snapshot_id TEXT,
+  command_fingerprints      TEXT,
+  resource_domains          TEXT,
+  supersedes_revision_id    INTEGER,
+  reason                    TEXT,
+  status                    TEXT NOT NULL CHECK (status IN ('active','draining','superseded','completed')),
+  created_at                TEXT NOT NULL,
+  superseded_at             TEXT,
+  UNIQUE (graph_run_id, revision_number)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_revisions_active
+  ON approach_graph_revisions(graph_run_id) WHERE status = 'active';
+CREATE TABLE IF NOT EXISTS approach_node_runs (
+  id                       INTEGER PRIMARY KEY,
+  graph_run_id             INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id              INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id                  TEXT NOT NULL,
+  node_kind                TEXT NOT NULL,
+  visit_number             INTEGER NOT NULL,
+  status                   TEXT NOT NULL CHECK (status IN (
+    'ready','waiting-resource','launching','running','completing','integrating',
+    'completed','blocked','failed-to-launch','launch-unknown','termination-unknown',
+    'stale','cancelled')),
+  outcome                  TEXT,
+  effective_outcome        TEXT,
+  reason                   TEXT,
+  failure_category         TEXT,
+  profile                  TEXT,
+  provider                 TEXT,
+  model                    TEXT,
+  effort                   TEXT,
+  prompt_hash              TEXT,
+  launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  generation               TEXT,
+  process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce              TEXT,
+  capability_hash          TEXT,
+  instruction_artifact_id  INTEGER,
+  input_artifact_id        INTEGER,
+  output_artifact_id       INTEGER,
+  change_set_id            TEXT,
+  started_at               TEXT,
+  ended_at                 TEXT,
+  UNIQUE (revision_id, node_id, visit_number)
+);
+CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
+CREATE TABLE IF NOT EXISTS approach_graph_tokens (
+  id                    INTEGER PRIMARY KEY,
+  revision_id           INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  source_node_run_id    INTEGER,
+  is_entry              INTEGER NOT NULL DEFAULT 0 CHECK (is_entry IN (0,1)),
+  edge_id               TEXT NOT NULL,
+  destination_node_id   TEXT NOT NULL,
+  destination_end       INTEGER NOT NULL DEFAULT 0 CHECK (destination_end IN (0,1)),
+  fork_instance         INTEGER NOT NULL DEFAULT 0,
+  fork_lineage          TEXT,
+  status                TEXT NOT NULL CHECK (status IN ('pending','claimed','consumed','cancelled')),
+  claiming_node_run_id  INTEGER,
+  consuming_node_run_id INTEGER,
+  created_at            TEXT NOT NULL,
+  consumed_at           TEXT,
+  UNIQUE (source_node_run_id, edge_id, fork_instance)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_tokens_revision ON approach_graph_tokens(revision_id, status);
+CREATE TABLE IF NOT EXISTS approach_artifact_instances (
+  id                      INTEGER PRIMARY KEY,
+  graph_run_id            INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id             INTEGER,
+  artifact_id             TEXT NOT NULL,
+  producer_planner_run_id INTEGER,
+  producer_node_run_id    INTEGER,
+  fork_lineage            TEXT,
+  snapshot_path           TEXT NOT NULL,
+  sha256                  TEXT NOT NULL,
+  media_type              TEXT NOT NULL,
+  byte_size               INTEGER NOT NULL,
+  sensitivity             TEXT,
+  created_at              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_instances_run ON approach_artifact_instances(graph_run_id, id);
+CREATE TABLE IF NOT EXISTS approach_resource_leases (
+  id                INTEGER PRIMARY KEY,
+  graph_run_id      INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  owner_node_run_id INTEGER NOT NULL REFERENCES approach_node_runs(id),
+  physical_domain   TEXT NOT NULL,
+  access_mode       TEXT NOT NULL,
+  claimed_paths     TEXT,
+  status            TEXT NOT NULL CHECK (status IN ('held','released','ambiguous-process')),
+  acquired_at       TEXT NOT NULL,
+  released_at       TEXT,
+  UNIQUE (owner_node_run_id, physical_domain)
+);
+CREATE INDEX IF NOT EXISTS idx_resource_leases_domain ON approach_resource_leases(physical_domain, status);
+CREATE TABLE IF NOT EXISTS approach_node_overrides (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER,
+  node_id       TEXT,
+  provider      TEXT,
+  model         TEXT,
+  effort        TEXT,
+  profile       TEXT,
+  row_version   INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
+`;
+
 
 export function migrate(db: Database): void {
   const current = db.pragma('user_version', { simple: true }) as number;
@@ -1109,6 +1284,41 @@ export function migrate(db: Database): void {
     const shipRunCols34 = tableColumns(db, 'ship_runs');
     if (shipRunCols34.size > 0 && !shipRunCols34.has('pid')) {
       db.exec('ALTER TABLE ship_runs ADD COLUMN pid INTEGER');
+    }
+  }
+
+  if (current < 35) {
+    // v35 adds the eight graph tables plus the `token_usage` graph-detachment
+    // FKs (Slice 2, design "Persistence"). This is the ONE step wrapped in an
+    // outer transaction (Decision 21): every other step autocommits and relies
+    // on guards, but a graph migration interrupted midway must leave
+    // `user_version` at 34 so the next open re-runs the same guarded steps.
+    // `BEGIN IMMEDIATE` before the version read: the whole step — guarded DDL
+    // and the version bump — commits together, or rolls back together.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const inside = db.pragma('user_version', { simple: true }) as number;
+      if (inside < 35) {
+        db.exec(GRAPH_MIGRATION_DDL);
+        const tokenCols35 = tableColumns(db, 'token_usage');
+        if (tokenCols35.size > 0 && !tokenCols35.has('approach_planner_run_id')) {
+          db.exec(
+            'ALTER TABLE token_usage ADD COLUMN approach_planner_run_id INTEGER ' +
+              'REFERENCES approach_planner_runs(id) ON DELETE SET NULL',
+          );
+        }
+        if (tokenCols35.size > 0 && !tokenCols35.has('approach_node_run_id')) {
+          db.exec(
+            'ALTER TABLE token_usage ADD COLUMN approach_node_run_id INTEGER ' +
+              'REFERENCES approach_node_runs(id) ON DELETE SET NULL',
+          );
+        }
+        db.pragma('user_version = 35');
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
     }
   }
 
