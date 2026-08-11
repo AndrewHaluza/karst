@@ -51,6 +51,9 @@ import type { WarnFn } from '../review/findings.js';
  * inside it). This function does not itself guarantee a diff editor opened,
  * only that the review surface did — the persisted
  * 'changes' evidence describes it that way, deliberately.
+ * The host's wiring is not enough — `runReview` additionally requires
+ * `review.openChanges` (default OFF); without it the function is never called
+ * and no 'changes' evidence is recorded.
  */
 export type OpenDiff = (ticketId: number, cwd: string) => void;
 
@@ -435,8 +438,11 @@ export async function runReview(
     }
 
     // The changes are worth seeing whatever the gates said, so this runs before
-    // any verdict exists — for exactly the affected target set.
-    if (deps.openDiff) {
+    // any verdict exists — for exactly the affected target set — but ONLY when
+    // `review.openChanges` says so: the host always wires `openDiff`, so absent
+    // the setting nothing opens (the toggle, default OFF, is the user's control
+    // over whether review reveals the Changes panel at all).
+    if (deps.openDiff && opts.manifest?.review?.openChanges) {
       deps.openDiff(opts.ticketId, target.path);
       // The changes surface is evidence exactly like a gate, recorded ONLY when
       // a real `openDiff` ran — and kept out of `entries` so it can never touch

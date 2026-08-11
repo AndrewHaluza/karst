@@ -219,6 +219,42 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('none');
   });
 
+  // opencode's plugin posts `permission.asked` at prompt time, but the session
+  // RESOLVES and keeps processing — and opencode has no PostToolUse or
+  // UserPromptSubmit to flip the amber back. The resolution event is the only
+  // "the wait ended" signal it has; without it, one answered prompt left the
+  // ticket reading "Needs you" for the whole remaining turn (FIX-WRONG-STATUS).
+  it('permission.replied flips a waiting opencode agent back to running', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'permission.asked', cwd: WT, session_id: 'ses_1' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+    dispatchHook(store, { hook_event_name: 'permission.replied', cwd: WT, session_id: 'ses_1' });
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('session.status busy is opencode processing — flips waiting back to running', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'permission.asked', cwd: WT, session_id: 'ses_1' });
+    dispatchHook(store, {
+      hook_event_name: 'session.status',
+      cwd: WT,
+      session_id: 'ses_1',
+      message: 'busy',
+    });
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('session.status idle is no liveness signal (session.idle owns that)', () => {
+    const id = ticketAt();
+    dispatchHook(store, {
+      hook_event_name: 'session.status',
+      cwd: WT,
+      session_id: 'ses_1',
+      message: 'idle',
+    });
+    expect(getTicket(store, id).agentState).toBe('none');
+  });
+
   it('an unknown cwd is ignored (no throw, no mutation)', () => {
     const id = ticketAt();
     expect(() =>

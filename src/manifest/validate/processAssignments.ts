@@ -1,5 +1,5 @@
 /**
- * Validate the `processes:` block (Task 7): five closed inside-process role
+ * Validate the `processes:` block (Task 7): six closed inside-process role
  * keys, each an optional assignment override. Follows `validateAgents`'s
  * shape conventions (house style hand-picks known fields and ignores the
  * rest) but is stricter about REFERENCE integrity: the `agent` field must
@@ -17,13 +17,14 @@ import type {
   ProcessAssignmentsConfig,
 } from '../types.js';
 
-/** Manifest spellings of the five inside processes. */
+/** Manifest spellings of the six inside processes. */
 export const PROCESS_KEYS = [
   'uatTester',
   'uatFix',
   'review',
   'reviewFix',
   'prDescription',
+  'ticketAnalysis',
 ] as const;
 export type ProcessKey = (typeof PROCESS_KEYS)[number];
 
@@ -34,6 +35,7 @@ export const PROCESS_ROLES = [
   'review',
   'review-fix',
   'pr-description',
+  'ticket-analysis',
 ] as const;
 export type ProcessRole = (typeof PROCESS_ROLES)[number];
 
@@ -43,6 +45,7 @@ export const PROCESS_ROLE_BY_KEY: Readonly<Record<ProcessKey, ProcessRole>> = {
   review: 'review',
   reviewFix: 'review-fix',
   prDescription: 'pr-description',
+  ticketAnalysis: 'ticket-analysis',
 };
 
 export const PROCESS_KEY_BY_ROLE: Readonly<Record<ProcessRole, ProcessKey>> = {
@@ -51,6 +54,7 @@ export const PROCESS_KEY_BY_ROLE: Readonly<Record<ProcessRole, ProcessKey>> = {
   review: 'review',
   'review-fix': 'reviewFix',
   'pr-description': 'prDescription',
+  'ticket-analysis': 'ticketAnalysis',
 };
 
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];

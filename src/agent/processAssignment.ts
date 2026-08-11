@@ -75,6 +75,7 @@ export const DEFAULT_PROCESS_AGENT_NAMES: Readonly<
   'uat-fix': 'UAT Fix Agent',
   review: 'Review Agent',
   'review-fix': 'Review Fix Agent',
+  'ticket-analysis': 'Ticket Analysis Agent',
 };
 
 /**

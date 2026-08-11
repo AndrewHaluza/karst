@@ -106,6 +106,7 @@ describe('writeManifest', () => {
         review: {
           maxFixAttempts: 4,
           requireIndependentSignal: false,
+          openChanges: true,
           gates: [{ name: 'lint', kind: 'script', script: 'lint' }],
           findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
           repositories: {},
@@ -130,6 +131,7 @@ describe('writeManifest', () => {
         review: {
           maxFixAttempts: 4,
           requireIndependentSignal: false,
+          openChanges: true,
           findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
           repositories: {},
         },
@@ -169,6 +171,7 @@ describe('writeManifest', () => {
               start: 'npm run dev',
               health: 'http://{host}:{port}/health',
               ports: [{ name: 'http', env: 'PORT', default: 3000 }],
+              portRange: [5000, 5100],
               dependsOn: [],
             },
           },
@@ -247,6 +250,7 @@ describe('writeManifest', () => {
         review: {
           maxFixAttempts: 2,
           requireIndependentSignal: false,
+          openChanges: true,
           gates: [
             { name: 'lint', kind: 'script', script: 'lint' },
             { name: 'clippy', kind: 'command', command: 'cargo', args: ['clippy', '--', '-D', 'warnings'] },
@@ -411,6 +415,39 @@ conventions:
       expect(loadManifest(path).repositories.backend!.service).toBeUndefined();
       // The unmodeled sub-key still survives.
       expect(raw.repositories.backend.customField).toBe('also-keep');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('persists a service.portRange and drops it once cleared', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const backend = m.repositories.backend!;
+      const withRange: Manifest = {
+        ...m,
+        repositories: {
+          backend: {
+            ...backend,
+            service: { ...backend.service!, portRange: [5000, 5100] },
+          },
+        },
+      };
+      writeManifest(path, withRange);
+      let raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.repositories.backend.service.portRange).toEqual([5000, 5100]);
+      expect(loadManifest(path).repositories.backend!.service!.portRange).toEqual([5000, 5100]);
+
+      writeManifest(path, {
+        ...m,
+        repositories: {
+          backend: { ...backend, service: { ...backend.service!, portRange: undefined } },
+        },
+      });
+      raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.repositories.backend.service.portRange).toBeUndefined();
+      expect(loadManifest(path).repositories.backend!.service!.portRange).toBeUndefined();
     } finally {
       cleanup();
     }

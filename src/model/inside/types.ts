@@ -71,6 +71,16 @@ export function formatDuration(
   if (!startedAt || !endedAt) return '';
   const ms = Date.parse(endedAt) - Date.parse(startedAt);
   if (!Number.isFinite(ms) || ms < 0) return '';
+  return formatSpanMs(ms);
+}
+
+/**
+ * A measured millisecond span in the same readable form `formatDuration`
+ * rounds to. The done receipt's Timing strip sums stage spans and states the
+ * total — the same shape each span reads, so the displayed sum IS the
+ * displayed total (869egdr2u-fu1).
+ */
+export function formatSpanMs(ms: number): string {
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   const totalSeconds = Math.round(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -467,6 +477,15 @@ export type ProcessEvidenceView =
       rows: readonly EvidenceRow[];
       hero?: DoneHeroView;
       blocks?: readonly ReceiptBlockView[];
+      /**
+       * The receipt's Timing strip (869egdr2u-fu1): the total span of the
+       * ticket's work stages and every stage's own span, both computed
+       * host-side from the same stamps — the displayed sum is the displayed
+       * total by construction. `items` is the pre-joined host string
+       * (`Scope 2m 10s · Implementation 22m 15s · …`); the webview renders
+       * it verbatim (UI-R31).
+       */
+      timing?: { label: string; total: string; items: string };
     };
 
 /** The closed kind vocabulary, in one place — mirrors the union above. */

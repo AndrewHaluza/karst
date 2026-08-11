@@ -16,7 +16,6 @@ import type { GhRunner } from '../../integrations/github.js';
 import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { manifest, repo } from '../../manifest/fixtures.js';
-import { buildPrDescriptionPrompt } from '../prDescription.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string, path: string): void {
   store.db
@@ -488,6 +487,9 @@ setTimeout(() => {
         'git diff',
         'git push',
         'gh pr view',
+        // The description is written from the branch material — commits,
+        // diffstat, unified diff — collected once, bounded, before the PR opens.
+        'git diff',
         'git diff',
         'gh pr create',
         'gh pr view',
@@ -806,7 +808,15 @@ setTimeout(() => {
       );
 
       expect(createdShipCommit(store, id, 'frontend')?.message).toBe('add search');
-      expect(prompts).toEqual([buildPrDescriptionPrompt('[PROJ-1] add search')]);
+      // The description call carries the branch context, not just the title —
+      // a run told only a title goes exploring for the changes, which is how a
+      // help-request ("where is the worktree") became a PR body (PR #117).
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).toContain('Repository: frontend');
+      expect(prompts[0]).toContain('Title: [PROJ-1] add search');
+      expect(prompts[0]).toContain(
+        'Base the description ONLY on the material above. Do not run commands, open files, or inspect the repository — everything you need is included.',
+      );
       expect(creates[0]).toEqual([
         'pr',
         'create',
@@ -1076,6 +1086,73 @@ setTimeout(() => {
       expect(body).toContain('Ticket PROJ-1');
       expect(body).not.toContain('copy-paste');
       expect(body).not.toContain('Let me know');
+    });
+
+    // The reported bug (PR #117): the model answered a title-only question with
+    // a help-request ("The current directory (/) is not a git repository. Where
+    // is the worktree located?") and that narration shipped as the PR body.
+    // The prompt must hand it the branch facts instead of sending it looking.
+    it('hands the collected branch facts to the description model', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+      const prompts: string[] = [];
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async (opts) => {
+          prompts.push(opts.prompt);
+          return { sessionId: 's', verdict: null, raw: 'Grounded body.' };
+        },
+      };
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff' && args[1] === '--quiet') {
+          return { stdout: '', stderr: '', exitCode: 1 };
+        }
+        if (args[0] === 'log') {
+          return { stdout: '* abc1234 add search\n', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'diff' && args[1] === '--stat') {
+          return { stdout: ' src/a.ts | 3 ++\n', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'diff') {
+          return { stdout: 'diff --git a/src/a.ts b/src/a.ts\n+hello\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await shipTicket(store, { ticketId: id }, gh, adapter, git);
+
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).toContain('Commits on this branch:\n* abc1234 add search');
+      expect(prompts[0]).toContain('Changed files (diffstat):\n src/a.ts | 3 ++');
+      expect(prompts[0]).toContain(
+        'Diff (full):\ndiff --git a/src/a.ts b/src/a.ts\n+hello',
+      );
+      expect(bodyOf(creates)).toBe('Grounded body.');
+    });
+
+    it('never ships "where is the worktree" narration as the PR body', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => ({
+          sessionId: 's',
+          verdict: null,
+          raw: [
+            'The current directory (`/`) is not a git repository. Where is the worktree located?',
+            'Please provide the path to the repository, or I can check common locations: I can\'t locate a git worktree with changes matching "add search".',
+            'Could you provide the path to the repository or worktree you would like me to generate the PR description for?',
+            '',
+            '## Summary',
+            '',
+            'The search feature now works.',
+          ].join('\n'),
+        }),
+      };
+
+      await shipTicket(store, { ticketId: id }, gh, adapter, fakeGit().git);
+
+      expect(bodyOf(creates)).toBe(['## Summary', '', 'The search feature now works.'].join('\n'));
     });
   });
 

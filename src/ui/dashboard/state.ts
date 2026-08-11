@@ -463,6 +463,10 @@ export function buildDashboardState(
         completedAt: cellOf('done').endedAt ?? cellOf('done').startedAt ?? null,
         now,
         attach,
+        // The receipt's Timing strip sums the work stages' spans — the same
+        // cells the strip's rail reads, so the receipt and the strip can
+        // never disagree about how long a stage took.
+        stages: stepper,
       }),
       now,
     ),

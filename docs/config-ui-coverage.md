@@ -18,12 +18,12 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 | `host`, `portRange`, `baselineBranch`, `worktreePathDisplay`, `agentProvider`, `defaultModel`, `ticketLabelTemplate`, `terminalNameTemplate`, `archiveDoneAfterDays` | General |
 | `conventions.branchName` / `.commitMessage` / `.pullRequestTitle` / `.pullRequestDescription` / `.defaultType` | Git (+ presets) |
 | `repositories.<n>.repoPath` / `.baselineBranch` / `.hasMigrations` / `.signals` / `.enabled` | Repositories |
-| `repositories.<n>.service.start` / `.health` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
+| `repositories.<n>.service.start` / `.health` / `.portRange` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
 | `approaches[].id` / `.label` / `.description` / `.entrypoint` / `.recommended` / `.enabled` / `.source` (git: repo/ref/include; npm: package/command/collect) | Approaches |
 | `agents.<n>.enabled` | Agents |
 | `ticketing.provider` / `.teamId` / `.listId` / `.advanceOnStart` / `.startStatus` / `.advanceOnShip` / `.shipStatus` / `.searchEnabled` | Ticketing |
 | `uat.maxFixAttempts`, `uat.gates`, `uat.repositories.<n>.gates` | Quality |
-| `review.maxFixAttempts`, `review.requireIndependentSignal`, `review.findings.{enabled,blockingSeverity,maxFindings}`, `review.gates`, `review.repositories.<n>.gates` | Quality |
+| `review.maxFixAttempts`, `review.requireIndependentSignal`, `review.openChanges`, `review.findings.{enabled,blockingSeverity,maxFindings}`, `review.gates`, `review.repositories.<n>.gates` | Quality |
 | `id` — **read-only**, displayed with provenance (manifest vs. derived) | General |
 
 Implemented as designed: a single **Quality** tab (`src/ui/settings/sections.ts` —
@@ -78,9 +78,9 @@ that reachable from Settings.
 
 ### 2. `review:` block — fully covered, no remaining gap
 
-`maxFixAttempts`, `requireIndependentSignal`, `gates[]`, `findings.{enabled,
-blockingSeverity,maxFindings}`, `repositories.<n>.gates` all moved to Covered
-(Quality tab). Nothing in `review:` remains a gap.
+`maxFixAttempts`, `requireIndependentSignal`, `openChanges`, `gates[]`,
+`findings.{enabled, blockingSeverity,maxFindings}`, `repositories.<n>.gates`
+all moved to Covered (Quality tab). Nothing in `review:` remains a gap.
 
 ### 3. `id:` (project identity) — now covered, read-only
 

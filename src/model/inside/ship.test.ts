@@ -18,6 +18,7 @@ const shipRun: ShipRun = {
   ticketId: 1,
   attempt: 1,
   status: 'passed',
+  pid: null,
   startedAt: '2026-07-20T12:00:00.000Z',
   endedAt: '2026-07-20T12:03:00.000Z',
 };
@@ -395,6 +396,9 @@ describe('shipProcesses', () => {
     expect(merge.status).toBe('wait');
     const rows = rowsOf(merge);
     expect(rows).toHaveLength(2);
+    // The row describes every state — the merged count, like Push's
+    // "1/2 pushed" (869egdr2u-fu1: the row had no description at all).
+    expect(merge.detail).toBe('1/2 merged');
     // The expanded rows name the repo, the PR number with its state chip, and
     // the timestamp of the fact the row reads.
     expect(rows[0]).toMatchObject({
@@ -410,6 +414,34 @@ describe('shipProcesses', () => {
       detail: '#41 · not merged yet',
       prState: 'open',
     });
+  });
+
+  it('describes an all-merged merge row with the full count', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [
+          pr('/web', { number: 40, status: 'merged', mergedAt: NOW }),
+          pr('/api', { number: 41, status: 'merged', mergedAt: NOW }),
+        ],
+      }),
+    );
+    const merge = views[3]!;
+    expect(merge.status).toBe('pass');
+    expect(merge.detail).toBe('2/2 merged');
+  });
+
+  it('never counts a PR that is not literally merged as delivered', () => {
+    const views = shipProcesses(
+      shipInput({
+        prs: [
+          pr('/web', { number: 40, status: 'unknown' }),
+          pr('/api', { number: 41, status: 'open' }),
+        ],
+      }),
+    );
+    const merge = views[3]!;
+    expect(merge.status).toBe('wait');
+    expect(merge.detail).toBe('0/2 merged');
   });
 
   it('reads a draft PR as a wait, not a pass', () => {

@@ -1,4 +1,6 @@
 import type { Store } from './db.js';
+import type { ProjectScope } from './tickets.js';
+import { setStage } from './stages.js';
 
 /**
  * `ship_runs` + `ship_repo_steps` + `ship_operation_intents` + `ship_commits`
@@ -56,6 +58,16 @@ export interface ShipRun {
   ticketId: number;
   attempt: number;
   status: ShipRunStatus;
+  /**
+   * The extension host that opened the run (v34). NULL = unknown (a pre-v34
+   * run, or one whose pid never landed) — never read as "alive": the
+   * stranded-ship sweep treats a NULL-pid running run as stranded (absence of
+   * evidence is not evidence of life), while `reconcileShipRuns` leaves it
+   * strictly alone (absence of evidence is not evidence it died). A pid is a
+   * recollection, not a handle — both sweeps act on it exactly as
+   * conservatively as `reconcileStageRuns` does.
+   */
+  pid: number | null;
   startedAt: string;
   endedAt: string | null;
 }
@@ -146,6 +158,7 @@ interface ShipRunRowShape {
   ticket_id: number;
   attempt: number;
   status: string;
+  pid: number | null;
   started_at: string;
   ended_at: string | null;
 }
@@ -197,6 +210,7 @@ function rowToShipRun(r: ShipRunRowShape): ShipRun {
     // Closed vocabulary at a read boundary: an unrecognized status must never
     // read as `running` (which would authorize a continuation) or as success.
     status: (RUN_STATUSES.includes(r.status) ? r.status : 'failed') as ShipRunStatus,
+    pid: r.pid,
     startedAt: r.started_at,
     endedAt: r.ended_at,
   };
@@ -250,7 +264,7 @@ function rowToShipOperationIntent(r: ShipOperationIntentRowShape): ShipOperation
 }
 
 const RUN_SELECT =
-  'SELECT id, ticket_id, attempt, status, started_at, ended_at FROM ship_runs';
+  'SELECT id, ticket_id, attempt, status, started_at, ended_at, pid FROM ship_runs';
 const STEP_SELECT =
   `SELECT id, ship_run_id, repo, step, status, detail, pr_number,
           existed_before_ship, process_run_id, operation_intent_id,
@@ -266,6 +280,11 @@ const INTENT_SELECT =
 export interface OpenShipRunInput {
   ticketId: number;
   attempt: number;
+  /**
+   * The extension host that opened the run (v34) — the process that will run
+   * the saga. NULL records no evidence, exactly like a pre-v34 row.
+   */
+  pid?: number | null;
   startedAt: string;
 }
 
@@ -273,10 +292,10 @@ export interface OpenShipRunInput {
 export function openShipRun(store: Store, input: OpenShipRunInput): ShipRun {
   const info = store.db
     .prepare(
-      `INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at)
-       VALUES (?, ?, 'running', ?, NULL)`,
+      `INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at, pid)
+       VALUES (?, ?, 'running', ?, NULL, ?)`,
     )
-    .run(input.ticketId, input.attempt, input.startedAt);
+    .run(input.ticketId, input.attempt, input.startedAt, input.pid ?? null);
   const row = store.db
     .prepare(`${RUN_SELECT} WHERE id = ?`)
     .get(Number(info.lastInsertRowid)) as ShipRunRowShape | undefined;
@@ -300,6 +319,84 @@ export function closeShipRun(
       `UPDATE ship_runs SET status = ?, ended_at = ? WHERE id = ? AND status = 'running'`,
     )
     .run(status, endedAt, runId);
+}
+
+/** A ship this sweep found stranded, reported so the loss is never silent. */
+export interface StrandedShipTicket {
+  ticketId: number;
+  /** The still-`running` ship_runs row; NULL when the run never opened. */
+  runId: number | null;
+  startedAt: string | null;
+  pid: number | null;
+}
+
+/**
+ * Select the tickets at `ship` whose ship is stranded — the stage row reads
+ * `running` (a ship began and never finished) and no in-flight run carries a
+ * LIVE pid.
+ *
+ * A killed ship is otherwise a permanent freeze (869egdr2u-fu1): the ticket
+ * sits at `ship` reading `running` with a `running` ship_runs row and no
+ * awaiting-merge block, so `settleShipGate` skips it, the drive sweep covers
+ * only uat/review, and the dashboard offers no button for a running row.
+ * Nothing ever re-drives `shipTicket`, whose saga is built exactly to be
+ * re-run (`reconcilePriorShipOperations` adopts or refutes the interrupted
+ * run's effects). This is the READ that makes the re-run possible — the host
+ * resumes the saga for every ticket listed.
+ *
+ * Liveness is proven from stored state, never guessed: a run still carrying a
+ * live pid is a ship another LIVE window is executing and is left STRICTLY
+ * alone. A run with no pid is treated as stranded — absence of evidence is
+ * not evidence of life, and the alternative is a freeze that survives every
+ * reload (a pre-v34 run, or a host that died before its pid landed).
+ */
+export function listStrandedShipTickets(
+  store: Store,
+  isAlive: (pid: number) => boolean,
+  scope: ProjectScope = {},
+): StrandedShipTicket[] {
+  const projectFilter = scope.projectId === undefined ? '' : 'AND t.project_id = ?';
+  const projectArgs = scope.projectId === undefined ? [] : [scope.projectId];
+  const rows = store.db
+    .prepare(
+      `SELECT t.id AS ticket_id, r.id AS run_id,
+              COALESCE(r.started_at, s.started_at) AS started_at, r.pid AS pid
+         FROM tickets t
+         JOIN stages s ON s.ticket_id = t.id AND s.stage_key = t.stage_current
+         LEFT JOIN ship_runs r ON r.ticket_id = t.id AND r.status = 'running'
+        WHERE t.stage_current = 'ship'
+          AND s.status = 'running'
+          ${projectFilter}
+        ORDER BY t.id`,
+    )
+    .all(...projectArgs) as { ticket_id: number; run_id: number | null; started_at: string | null; pid: number | null }[];
+
+  const stranded: StrandedShipTicket[] = [];
+  const seen = new Set<number>();
+  for (const row of rows) {
+    if (seen.has(row.ticket_id)) continue;
+    seen.add(row.ticket_id);
+    // The ticket's OTHER running runs (a pathological second row) must agree:
+    // any live pid anywhere proves the ship is still executing somewhere.
+    const siblings = rows.filter((r) => r.ticket_id === row.ticket_id);
+    if (siblings.some((r) => r.pid !== null && isAlive(r.pid))) continue;
+    stranded.push({
+      ticketId: row.ticket_id,
+      runId: row.run_id,
+      startedAt: row.started_at,
+      pid: row.pid,
+    });
+  }
+  return stranded;
+}
+
+/** One line naming a ship this sweep found stranded, for the output channel. */
+export function describeStrandedShip(s: StrandedShipTicket): string {
+  return (
+    `karst: ticket ${s.ticketId}: ship ${s.runId === null ? 'stage row' : `run ${s.runId}`} ` +
+    `opened ${s.startedAt ?? 'unknown'} (pid ${s.pid ?? 'unknown'}) did not finish — ` +
+    `resuming the interrupted ship saga`
+  );
 }
 
 export interface OpenShipRepoStepInput {
@@ -688,6 +785,100 @@ export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
   for (const i of intents) repoEv(i.repo).intents[i.step] = i;
 
   return { run, repos };
+}
+
+/** The step detail a sweep-closed step carries. */
+const INTERRUPTED_STEP_DETAIL = 'interrupted — the host that ran it died; retry ship to continue';
+
+/** The stage verdict a sweep-parked ship carries, shown in the fault card. */
+const INTERRUPTED_STAGE_VERDICT =
+  'ship was interrupted — the host that ran it died before the PRs opened; retry ship to continue';
+
+/** A run this sweep found dead, reported so the loss is never silent. */
+export interface StaleShipRun {
+  run: ShipRun;
+  reason: string;
+}
+
+/**
+ * Mark every ship run whose process is gone as `interrupted`, globally.
+ *
+ * A ship run killed by process death (an extension-host crash mid-saga) is a
+ * state nothing can leave on its own: the saga's crash-and-retry
+ * reconciliation runs only at the START of the next `shipTicket` invocation,
+ * and the ticket at `ship` `running` with no block offers no retry anywhere —
+ * the Now line shows no button for a running ship, and no sweep re-drives a
+ * user-confirmed stage. Closing the dead run and parking the stage `failed`
+ * is what turns "a ship that has been running for a day with no PR" into the
+ * one state that HAS a recovery path: the existing failed-ship surface, whose
+ * Now line offers "Retry ship" and whose retry re-invokes the saga, which
+ * reconciles what the dead run persisted and redoes what never landed.
+ *
+ * Global like `reconcileStageRuns` and safe for the same reason: attribution,
+ * not scope. A run opened by ANOTHER LIVE window has a live pid and is left
+ * strictly alone; a run with no recorded pid is left alone too, because
+ * absence of evidence is not evidence that it died. Every write is guarded —
+ * an already-closed run is never rewritten, and the stage row is only parked
+ * when it still reads `running` AND unblocked, so a ticket parked
+ * `awaiting-merge` beside a dead re-run keeps its parked state.
+ *
+ * Reported, never silent — an invisibly-discarded run is the whole failure
+ * this closes, and a sweep that quietly corrected the data would repeat it.
+ */
+export function reconcileShipRuns(
+  store: Store,
+  isAlive: (pid: number) => boolean,
+  now: string,
+): StaleShipRun[] {
+  const rows = store.db
+    .prepare(`${RUN_SELECT} WHERE status = 'running' ORDER BY id`)
+    .all()
+    .map((r) => rowToShipRun(r as ShipRunRowShape));
+
+  const stale: StaleShipRun[] = [];
+  const markRun = store.db.prepare(
+    "UPDATE ship_runs SET status = 'interrupted', ended_at = ? WHERE id = ? AND status = 'running'",
+  );
+  const markSteps = store.db.prepare(
+    `UPDATE ship_repo_steps SET status = 'failed', detail = ?, ended_at = ?
+      WHERE ship_run_id = ? AND status = 'running'`,
+  );
+  const stageRow = store.db.prepare(
+    "SELECT status, blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = 'ship'",
+  );
+  for (const run of rows) {
+    if (run.pid === null) continue;
+    if (isAlive(run.pid)) continue;
+    const apply = store.db.transaction(() => {
+      markRun.run(now, run.id);
+      markSteps.run(INTERRUPTED_STEP_DETAIL, now, run.id);
+      const stage = stageRow.get(run.ticketId) as
+        | { status: string; blocked_kind: string | null }
+        | undefined;
+      // The single-writer rule is still honoured — `setStage` is the only
+      // stage writer; the guarded read only decides whether to call it.
+      if (stage !== undefined && stage.status === 'running' && stage.blocked_kind === null) {
+        setStage(store, run.ticketId, 'ship', {
+          status: 'failed',
+          verdict: INTERRUPTED_STAGE_VERDICT,
+          endedAt: now,
+        });
+      }
+    });
+    apply();
+    stale.push({
+      run: { ...run, status: 'interrupted' },
+      reason:
+        `${run.startedAt} ship run (pid ${run.pid}) did not finish — its process is gone; ` +
+        'ship is parked failed so a retry can resume it',
+    });
+  }
+  return stale;
+}
+
+/** One line naming a run this sweep found dead, for the output channel. */
+export function describeStaleShipRun(s: StaleShipRun): string {
+  return `karst: ticket ${s.run.ticketId}: ${s.reason}`;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

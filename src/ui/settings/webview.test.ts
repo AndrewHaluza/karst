@@ -360,6 +360,10 @@ describe('repository field validation UX', () => {
       .toEqual({ key: 'api.start' });
     expect(parse('repository "api" service.ports[0].env must be a non-empty string'))
       .toEqual({ key: 'api.ports.0.env' });
+    expect(parse('repository "api" service.portRange must be a [min, max] number pair'))
+      .toEqual({ key: 'api.portRange' });
+    expect(parse('repository "api" service.portRange min must be an integer between 1 and 65535 (got 0)'))
+      .toEqual({ key: 'api.portRange' });
     expect(parse('portRange must be a [min, max] number pair')).toBeNull();
   });
 
@@ -439,6 +443,25 @@ describe('repository field placeholders', () => {
     expect(HTML).toContain('placeholder="PORT"'); // port env
     expect(HTML).toContain('placeholder="3000"'); // port default
     expect(HTML).toContain('placeholder="my-repo"'); // repo name field
+    expect(HTML).toContain('data-port-range-field="min"'); // port range min input
+    expect(HTML).toContain('data-port-range-field="max"'); // port range max input
+    expect(HTML).toContain('data-touch-key="${esc(name)}.portRange"');
+  });
+});
+
+describe('per-service port range editing', () => {
+  it('writes draft.repositories[name].service.portRange from the range inputs', () => {
+    expect(HTML).toContain('t.dataset.portRangeField');
+    expect(HTML).toMatch(/svcDef\.portRange = \[Number\(minVal\) \|\| 0, Number\(maxVal\) \|\| 0\];/);
+  });
+
+  it('clears service.portRange when both inputs are blank', () => {
+    expect(HTML).toContain("if (minVal === '' && maxVal === '') delete svcDef.portRange;");
+  });
+
+  it('renders an existing portRange into the min/max inputs', () => {
+    expect(HTML).toContain('value="${svc.portRange ? svc.portRange[0] : \'\'}"');
+    expect(HTML).toContain('value="${svc.portRange ? svc.portRange[1] : \'\'}"');
   });
 });
 
@@ -1416,6 +1439,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       'f-uatMaxFix',
       'f-reviewMaxFix',
       'f-reviewIndependent',
+      'f-reviewOpenChanges',
       'f-findingsEnabled',
       'f-findingsSeverity',
       'f-findingsMax',
@@ -1437,7 +1461,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       "const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];",
     );
     expect(HTML).toMatch(
-      /const REVIEW_DEFAULTS = \{\s*maxFixAttempts: 3,\s*requireIndependentSignal: true,\s*findings: \{ enabled: true, blockingSeverity: 'high', maxFindings: 50 \},\s*\};/,
+      /const REVIEW_DEFAULTS = \{\s*maxFixAttempts: 3,\s*requireIndependentSignal: true,\s*openChanges: false,\s*findings: \{ enabled: true, blockingSeverity: 'high', maxFindings: 50 \},\s*\};/,
     );
   });
 
@@ -1456,6 +1480,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
@@ -1496,6 +1521,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
     expect(field(result, 'f-findingsSeverity').value).toBe('high');
     expect(field(result, 'f-findingsMax').value).toBe(50);
     expect(field(result, 'f-reviewIndependent').checked).toBe(true);
+    expect(field(result, 'f-reviewOpenChanges').checked).toBe(false);
     expect(field(result, 'f-reviewMaxFix').value).toBe(3);
     expect(field(result, 'f-uatMaxFix').value).toBe(3);
   });
@@ -1506,12 +1532,14 @@ describe('settings quality tab (UAT + review scalars)', () => {
       review: {
         maxFixAttempts: 2,
         requireIndependentSignal: false,
+        openChanges: true,
         findings: { enabled: false, blockingSeverity: 'none', maxFindings: 10 },
       },
     });
     expect(field(result, 'f-uatMaxFix').value).toBe(5);
     expect(field(result, 'f-reviewMaxFix').value).toBe(2);
     expect(field(result, 'f-reviewIndependent').checked).toBe(false);
+    expect(field(result, 'f-reviewOpenChanges').checked).toBe(true);
     expect(field(result, 'f-findingsEnabled').checked).toBe(false);
     expect(field(result, 'f-findingsSeverity').value).toBe('none');
     expect(field(result, 'f-findingsMax').value).toBe(10);
@@ -1528,6 +1556,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
@@ -1941,6 +1970,7 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       ${functionSource('updateUat')}
@@ -2002,6 +2032,7 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
+        openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
       };
       ${functionSource('updateReview')}
@@ -2034,13 +2065,13 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
 });
 
 /**
- * Task 7: the five inside-process assignment rows on the Agents tab. ONE
- * renderer (renderProcessAssignmentRow) parameterized by the PROCESS_KEYS
- * vocabulary (mirrored from validate/processAssignments.ts, UI-R34), with the
- * provider/model choices read from the HOST-SUPPLIED catalog (modelCatalog)
- * exactly like the General tab's model picker — never HTML literals. Every
- * string the row renders — role label, description, the four validation
- * states, the Default hints — arrives in a host-computed view
+ * Task 7 (+ ticket-form follow-up): the six inside-process assignment rows on
+ * the Agents tab. ONE renderer (renderProcessAssignmentRow) parameterized by
+ * the PROCESS_KEYS vocabulary (mirrored from validate/processAssignments.ts,
+ * UI-R34), with the provider/model choices read from the HOST-SUPPLIED
+ * catalog (modelCatalog) exactly like the General tab's model picker — never
+ * HTML literals. Every string the row renders — role label, description, the
+ * four validation states, the Default hints — arrives in a host-computed view
  * (processAssignmentViews.ts, handoff §7): the webview derives nothing.
  */
 describe('settings agents tab — process assignments', () => {
@@ -2050,7 +2081,7 @@ describe('settings agents tab — process assignments', () => {
     );
   });
 
-  it('renders five process assignment rows with profile/core/model/name controls and an enabled switch', () => {
+  it('renders six process assignment rows with profile/core/model/name controls and an enabled switch', () => {
     expect(HTML).toContain('id="processAssignments"');
     // The render walks the PROCESS_KEYS vocabulary (pinned above) and the row
     // template stamps every control with the key it edits.

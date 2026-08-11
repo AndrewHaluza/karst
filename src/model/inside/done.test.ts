@@ -16,6 +16,7 @@ const shipRun: ShipRun = {
   ticketId: 1,
   attempt: 1,
   status: 'passed',
+  pid: null,
   startedAt: '2026-07-20T12:00:00.000Z',
   endedAt: '2026-07-20T12:03:00.000Z',
 };
@@ -121,6 +122,7 @@ function receiptInput(extra: Partial<DoneReceiptInput> = {}): DoneReceiptInput {
     tokens: null,
     roles: [],
     now: NOW,
+    stages: [],
     ...extra,
   };
 }
@@ -445,5 +447,60 @@ describe('done receipt process-row description and timestamps (Task 869egdr2u)',
     ) as Extract<DoneReceiptView, { status: 'complete' }>;
     const mergedRow = rowsOf(view).find((r) => r.label === 'merged')!;
     expect(mergedRow.time).toBe(formatTime('2026-07-20T12:05:00.000Z'));
+  });
+});
+
+describe('done receipt timing strip (869egdr2u-fu1)', () => {
+  const stageCell = (
+    stageKey: StageKey,
+    startedAt: string,
+    endedAt: string,
+  ): StepperCell => ({ stageKey, status: 'passed', startedAt, endedAt });
+
+  const timedStages: StepperCell[] = [
+    stageCell('scope', '2026-07-20T09:00:00.000Z', '2026-07-20T09:02:10.000Z'),
+    stageCell('impl', '2026-07-20T09:02:10.000Z', '2026-07-20T09:24:25.000Z'),
+    stageCell('uat', '2026-07-20T09:24:25.000Z', '2026-07-20T09:29:27.000Z'),
+    stageCell('review', '2026-07-20T09:29:27.000Z', '2026-07-20T09:33:57.000Z'),
+    stageCell('ship', '2026-07-20T09:33:57.000Z', '2026-07-20T09:37:08.000Z'),
+  ];
+
+  it('sums every work stage into the stated total — sum of durations equals total', () => {
+    const view = doneReceipt(receiptInput({ stages: timedStages })) as Extract<
+      DoneReceiptView,
+      { status: 'complete' }
+    >;
+    const timing = view.evidence.timing!;
+    expect(timing.label).toBe('Timing');
+    // 2:10 + 22:15 + 5:02 + 4:30 + 3:11 = 37:08
+    expect(timing.total).toBe('37m 8s total');
+    expect(timing.items).toBe(
+      'Scope 2m 10s · Implementation 22m 15s · UAT 5m 2s · Review 4m 30s · Ship 3m 11s',
+    );
+  });
+
+  it('includes the fix stage and omits stages without both stamps', () => {
+    const view = doneReceipt(
+      receiptInput({
+        stages: [
+          ...timedStages,
+          // The fix loop ran between uat attempts — its span belongs to the
+          // ticket's work too.
+          stageCell('fix', '2026-07-20T09:27:00.000Z', '2026-07-20T09:28:00.000Z'),
+          // A stage that never got a stamp contributes nothing.
+          stageCell('uat', '2026-07-20T10:00:00.000Z', null as unknown as string),
+        ],
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    const timing = view.evidence.timing!;
+    expect(timing.items).toContain('Fix 1m 0s');
+    expect(timing.items.split(' · ')).toHaveLength(6);
+  });
+
+  it('omits the strip entirely when no stage recorded both stamps', () => {
+    const view = doneReceipt(
+      receiptInput({ stages: [{ stageKey: 'scope', status: 'passed', startedAt: NOW }] }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(view.evidence.timing).toBeUndefined();
   });
 });

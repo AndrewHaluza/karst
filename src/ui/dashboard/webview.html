@@ -816,6 +816,41 @@
   #inside .ai-usage-item{color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .ai-usage-item strong{color:var(--p-text);font-weight:var(--k-weight-medium)}
 
+  /* The receipt is a STATIC row with an always-visible body: the overview
+     stats are never behind a disclosure chevron (869egdr2u-fu1). The body
+     resets the disclosure-body indent, because there is no disclosure. */
+  #inside .op-body.receipt-body{margin-left:0;border-left:0;padding-left:var(--p-s1);padding-top:var(--p-s1)}
+
+  /* The receipt's own inner disclosure: only the DETAIL lines expand. */
+  #inside .done-details{margin-top:var(--p-s1);border-top:var(--k-border-w) solid var(--p-border)}
+  #inside .done-details summary{list-style:none;display:flex;align-items:center;gap:var(--p-s1);
+    min-height:30px;padding:0 var(--p-s1);color:var(--p-muted);cursor:pointer;font-size:var(--p-sm)}
+  #inside .done-details summary::-webkit-details-marker{display:none}
+  #inside .done-details summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
+    outline-offset:var(--k-focus-offset)}
+  #inside .done-details summary:hover{background:var(--p-hover)}
+  #inside .done-details[open] summary{background:var(--p-surface2)}
+  #inside .done-details .done-chev{width:16px;height:16px;display:grid;place-items:center;flex:none;
+    color:var(--p-muted2)}
+  #inside .done-details .done-chev:before{content:"";width:5px;height:5px;
+    border-right:var(--k-border-w) solid currentColor;border-bottom:var(--k-border-w) solid currentColor;
+    transform:rotate(-45deg);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  #inside .done-details[open] .done-chev:before{transform:rotate(45deg)}
+  #inside .done-detail-body{display:grid;gap:var(--p-s1);padding:var(--p-s1) 0 var(--p-s2) var(--p-s2)}
+
+  /* The Timing strip: the ticket's work-stage spans and their host-computed
+     total — the displayed sum is the displayed total by construction. */
+  #inside .done-timing{display:flex;align-items:baseline;flex-wrap:wrap;
+    gap:var(--p-s1) var(--p-s3);min-height:28px;margin-top:var(--p-s1);
+    padding:var(--p-s1) var(--p-s2);border:var(--k-border-w) solid var(--p-border);
+    border-radius:var(--p-r1);background:var(--p-surface)}
+  #inside .done-timing-label{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+  #inside .done-timing-value{color:var(--p-strong);font-size:var(--p-sm);
+    font-weight:var(--k-weight-semibold);white-space:nowrap}
+  #inside .done-timing-items{min-width:0;color:var(--p-muted);font-family:var(--p-mono);
+    font-size:var(--p-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
   /* Ship · Commit: one block per repository, its provenance pill, its commits */
   #inside .commit-grid{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
     overflow:hidden;background:var(--p-surface)}
@@ -943,7 +978,7 @@
   }
   @media (prefers-reduced-motion: reduce){
     #inside .glyph.run:before{animation:none}
-    #inside .chev:before{transition:none}
+    #inside .chev:before,#inside .done-details .done-chev:before{transition:none}
   }
   /* A live operation in the stage header: one current process, spinner +
      label, host-worded. Never a second process row and never a verdict. */
@@ -1836,9 +1871,12 @@
     return `<div class="pr-branches">${rows}</div>${evidenceOverflowHtml(ev.overflow)}`;
   }
 
-  // Done: the hero line, the three-block receipt grid, then the delivery
-  // lines. Hero and blocks are optional — a receipt that carries only rows
-  // (an older snapshot) renders exactly what it always did.
+  // Done: the hero line, the three-block receipt grid, the Timing strip, then
+  // the delivery lines — the last of these behind the receipt's own inner
+  // <details>, because the overview stats are always visible and only the
+  // details expand (869egdr2u-fu1). Hero/blocks/timing are optional — a
+  // receipt that carries only rows renders exactly what it always did, as the
+  // plain line list behind the Details disclosure.
   function evidenceReceiptHtml(ev) {
     const lines = ev.rows.map((r) => `<div class="done-line">`
       + `<span class="done-key">${esc(r.label)}</span>`
@@ -1846,7 +1884,13 @@
       + (r.action ? evActionHtml(r)
         : `<span class="done-state">${r.time ? `<span class="ev-time">${esc(r.time)}</span> · ` : ''}${esc(r.duration || statusWord(r.status))}</span>`)
       + `</div>`).join('');
-    if (!ev.hero && !(ev.blocks && ev.blocks.length)) return lines;
+    // "Details" is static control copy for the disclosure (UI-R20); the rows
+    // themselves are the host's finished strings.
+    const details = ev.rows.length
+      ? `<details class="done-details"><summary><span class="done-chev" aria-hidden="true"></span>Details</summary>`
+        + `<div class="done-detail-body"><div class="done-lines">${lines}</div></div></details>`
+      : '';
+    if (!ev.hero && !(ev.blocks && ev.blocks.length) && !ev.timing) return details;
     const hero = ev.hero
       ? `<div class="done-hero"><span class="done-check glyph pass" aria-label="delivered"></span>`
         + `<span class="done-hero-main">${esc(ev.hero.title)}</span>`
@@ -1865,7 +1909,15 @@
             + `<strong>${esc(i.amount)}</strong> ${esc(i.label)}</span>`).join('')}</div>` : '')
         + `</div>`).join('')}</div>`
       : '';
-    return `<div class="done-receipt">${hero}${blocks}<div class="done-lines">${lines}</div></div>`;
+    // The Timing strip: the host ships label, total and the pre-joined item
+    // line verbatim — the webview concatenates nothing (UI-R31), and the sum
+    // of the stated durations IS the stated total by construction (host-side).
+    const timing = ev.timing
+      ? `<div class="done-timing"><span class="done-timing-label">${esc(ev.timing.label)}</span>`
+        + `<span class="done-timing-value">${esc(ev.timing.total)}</span>`
+        + `<span class="done-timing-items">${esc(ev.timing.items)}</span></div>`
+      : '';
+    return `<div class="done-receipt">${hero}${blocks}${timing}${details}</div>`;
   }
   function evidenceRecoveryHtml(ev) {
     return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
@@ -1883,11 +1935,22 @@
   // parsing the label, which is prose.
   function timelineRowHtml(r) {
     const tail = `<span class="timeline-tail">${tokenStatHtml(r.tokens, r.status === 'run')}`
+      // The start stamp renders BESIDE the duration in the tail — the same
+      // right-aligned position the phase rows' own time cell occupies, so
+      // every row dates at its end, next to the span it measures
+      // (869egdr2u-fu1).
+      + (r.time ? `<span class="segment-window">${esc(r.time)}</span>` : '')
       + (r.duration ? `<span class="segment-window">${esc(r.duration)}</span>` : '')
       + (r.action ? insideActionBtnHtml(r.action) : '')
       + `</span>`;
-    const identity = r.provider || r.detail
-      ? `<span class="agent-id">${r.provider ? agentLineIconHtml(r.provider) : ''}`
+    // The identity cell states an identity ONLY when the row carries one: a
+    // provider-keyed row shows its core icon and identity prose in the core's
+    // own blue. A provider-less identity row (the run start) has no identity
+    // to claim — its stamp is a plain time fact, and rendering it here would
+    // borrow the identity chip's colour for something that is not an
+    // identity (869egdr2u-fu1).
+    const identity = r.provider
+      ? `<span class="agent-id">${agentLineIconHtml(r.provider)}`
         + `<span class="agent-core">${esc(r.detail || '')}</span></span>`
       : '<span></span>';
     if (r.connector === 'switch' || r.connector === 'resume') {
@@ -1971,6 +2034,19 @@
     const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
     const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(p.statusLabel || statusWord(p.status))}"></span>`;
     const detail = `<span class="op-detail ${esc(p.status)}">${esc(p.detail || '')}</span>`;
+    const footer = p.footer && p.footer.length
+      ? `<div class="session-foot">${p.footer.map((f, i) => `<span${i === p.footer.length - 1 ? ' class="session-rule"' : ''}>${esc(f)}</span>`).join('')}</div>`
+      : '';
+    // The delivery receipt is NOT a disclosure: its overview — hero, receipt
+    // grid and Timing strip — stays visible, and only the detail lines sit
+    // behind the receipt's own inner <details> (869egdr2u-fu1). The row
+    // renders as the static summary with the body always beneath it, so the
+    // overview stats are never behind a chevron the user did not open.
+    if (p.evidence && p.evidence.kind === 'receipt') {
+      const body = `<div class="op-body receipt-body">${evidenceBodyHtml(p.evidence)}${footer}</div>`;
+      return `<div class="op op-static" data-proc-id="${esc(key)}">`
+        + `${glyph}${name}${detail}${tail}<span></span></div>${body}`;
+    }
     // A body exists if ANY of the evidence's shapes carries something. The
     // generic `rows` array is only one of them: a `prs`/`commits`/`receipt`
     // evidence renders from `branches`/`repos`/`blocks`, and testing `rows`
@@ -1982,9 +2058,6 @@
       return `<div class="op"><div class="op-static" data-proc-id="${esc(key)}">`
         + `${glyph}${name}${detail}${tail}<span></span></div></div>`;
     }
-    const footer = hasFooter
-      ? `<div class="session-foot">${p.footer.map((f, i) => `<span${i === p.footer.length - 1 ? ' class="session-rule"' : ''}>${esc(f)}</span>`).join('')}</div>`
-      : '';
     // The body is ALWAYS in the markup. <details> is what shows and hides it,
     // and rendering it only when already open meant the very first click
     // expanded an empty disclosure — the row opened, the chevron rotated, and

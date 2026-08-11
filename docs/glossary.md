@@ -247,9 +247,13 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   blocks on a running hook.
 - **Hook event** — a normalized lifecycle event: `SessionStart`, `SessionEnd`,
   `Stop`, `Notification`, `UserPromptSubmit`, `PostToolUse` (plus the
-  normalized `permission.asked` and `session.idle` from the opencode plugin).
-  Mapped to `agent_state` by `nextAgentState` in `src/hooks/dispatch.ts`; a
-  stage transition is NEVER inferred from a hook.
+  normalized `permission.asked`/`permission.replied`, `session.idle` and
+  `session.status` from the opencode plugin). Mapped to `agent_state` by
+  `nextAgentState` in `src/hooks/dispatch.ts`; a stage transition is NEVER
+  inferred from a hook. opencode posts no `PostToolUse`/`UserPromptSubmit`, so
+  its resolution and status events are the only signals that flip a
+  `permission.asked` amber back to `running` — without them one answered
+  prompt left the ticket reading "Needs you" for the whole remaining turn.
 - **Notification** — the agent's "blocked on the user" envelope. The kind lives
   in `notification_type` (`permission_prompt`, `idle_prompt`,
   `agent_needs_input`, `elicitation_dialog` — the `WAITING_NOTIFICATION_TYPES`
@@ -488,7 +492,7 @@ values are rejected naming the field):
   agent name/provider/model resolved ONCE at launch and immutable afterwards.
 - `uat` — `maxFixAttempts`, `gates`, `testerVerifier`, per-repository gates.
   Everything else under `uat` is validated but not yet active.
-- `review` — `maxFixAttempts`, `requireIndependentSignal`, `gates`,
+- `review` — `maxFixAttempts`, `requireIndependentSignal`, `openChanges`, `gates`,
   `findings`.
 - `conventions` — branch/commit/PR templates, `defaultType` (see *Conventions*).
 - `ticketing` — provider (`manual` default, `clickup`), `teamId`, `listId`,

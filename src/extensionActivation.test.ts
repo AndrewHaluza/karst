@@ -30,8 +30,9 @@ describe('extension activation', () => {
   it('pushes the provider status only for a ticket that actually reached done', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    // Ship: only the nothing-to-merge case walks straight through to done.
-    expect(source).toContain("if (getTicket(store, ticketId).stageCurrent === 'done') {");
+    // Ship: only the nothing-to-merge case walks straight through to done —
+    // the guard rides the shared ship-saga seam (click AND stranded recovery).
+    expect(source).toContain("if (getTicket(localStore, ticketId).stageCurrent === 'done') {");
     // Merge: only the merge that finished the ticket.
     expect(source).toContain('if (result.completedTicket) await onTicketCompleted();');
   });
@@ -104,6 +105,47 @@ describe('extension activation', () => {
     expect(source).toMatch(/reconcileProcessRuns\(localStore, pidAlive\)/);
     expect(source).toMatch(
       /reconcileProcessRuns\(localStore, pidAlive\)[\s\S]{0,80}?logger\.info\(\s*describeStaleProcessRun\(/,
+    );
+  });
+
+  // A ship killed by a dead host freezes the ticket at `ship` reading
+  // `running` forever: no awaiting-merge block for the merge sweep, no
+  // stage_runs row for the drive sweep, no button for a running row — and the
+  // saga built to be re-run is never re-run. The activation sweep is the only
+  // place every window's shared registry can resume it, so the wiring is
+  // pinned here: liveness-gated read + resume through the SAME seam as the
+  // confirm-ship click (one seam, never a second run body).
+  it('resumes a stranded ship on activation, through the same seam as the click', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The READ that finds stranded ships, with the same liveness probe as the
+    // gate-run and process-run sweeps.
+    expect(source).toMatch(/listStrandedShipTickets\(\s*localStore,\s*pidAlive/);
+    expect(source).toMatch(/logger\.info\(\s*describeStrandedShip\(/);
+    // Each stranded ship resumes the saga from the activation sweep…
+    expect(source).toMatch(/runShipSaga\(stranded\.ticketId\)/);
+    // …and the confirm-ship click runs the saga through the same seam, adding
+    // only the capability guard and the failure toast.
+    expect(source).toMatch(/void runShipSaga\(ticketId\)\.catch/);
+    expect(source).not.toMatch(/void runShipTicket\(/);
+  });
+
+  // A dead ship run is ALSO recovered by parking, not just resume: the
+  // reconcile sweep closes a run whose host died and parks the stage `failed`
+  // (the "Retry ship" surface), which runs BEFORE the stranded resume above so
+  // a parked ticket is never ALSO auto-resumed. Pinned like every other
+  // activation sweep: without the wiring, a dead run would only ever be
+  // recovered by the resume path — or by neither, if the block is dropped.
+  it('parks ship runs whose host died on activation, and says which it closed', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toMatch(
+      /reconcileShipRuns\(localStore, pidAlive[\s\S]{0,80}?logger\.info\(\s*describeStaleShipRun\(/,
+    );
+    // The park sweep must run before the stranded resume, or a dead run whose
+    // stage was parked `failed` would read as a ticket that still needs one.
+    expect(source.indexOf('reconcileShipRuns(localStore, pidAlive')).toBeLessThan(
+      source.indexOf('listStrandedShipTickets('),
     );
   });
 
@@ -192,16 +234,21 @@ describe('extension activation', () => {
   });
 
   // Task 3: EVERY configured inside process role must be executable from the
-  // extension composition root — the Tester, the Review findings process, the
-  // two Fix roles (resolved by the gate that failed) and the PR-description
-  // process. The null collapse used to be type-asserted at this seam; the
-  // callbacks now return `DriveProcessBundle | null` natively.
+  // extension composition root — the ticket-form analyzer, the Tester, the
+  // Review findings process, the two Fix roles (resolved by the gate that
+  // failed) and the PR-description process. The null collapse used to be
+  // type-asserted at this seam; the callbacks now return
+  // `DriveProcessBundle | null` natively.
   it('wires every configured inside process role, with no null-collapse type assertion at the seam', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
     expect(source).toContain("processFor(ticketId, 'uat-fix')");
     expect(source).toContain("processFor(ticketId, 'review-fix')");
     expect(source).toContain("processFor(ticketId, 'pr-description')");
+    // The ticket form's analyzer is its own process role, resolved through the
+    // same seam (869edcm45 follow-up).
+    expect(source).toContain("processFor(ticketId, 'ticket-analysis')");
+    expect(source).toContain('resolveAnalysisProcess: analysisProcess');
     // The seam's callbacks return `DriveProcessBundle | null` natively — the
     // old host-side null collapse is gone (the needle is split so the residual
     // guard in Task 7 stays clean).
@@ -225,6 +272,20 @@ describe('extension activation', () => {
     // The override resolves the launch adapter from the assignment's provider —
     // the ticket/manifest precedence is bypassed, never consulted.
     expect(source).toContain('resolveAdapter(options.assignment.provider)');
+  });
+
+  // A fix that can never start (disabled process, unprobeable core) or a fix
+  // whose session died without the marker must park the fix STAGE ROW — the
+  // machine enters fix `running`, and nothing re-read it before, so a ticket
+  // resting at fix for a human kept claiming the agent was actively fixing.
+  it('parks the fix stage row whenever the host leaves a ticket at fix with no execution', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE');
+    expect(source).toContain("!hasFixingRound(localStore, ticketId) &&\n          parkFixStage(localStore, ticketId, FIX_PARKED_NO_EXECUTION");
+    expect(source).toContain('the configured Fix process is disabled');
+    expect(source).toContain('the configured Fix core is not available');
+    expect(source).toContain('its session closed with no fix');
   });
 
   it('delegates configured Fix compatibility so only replacement paths probe before disposal or launch', () => {

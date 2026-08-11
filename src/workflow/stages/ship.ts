@@ -77,6 +77,7 @@ import {
   gateSetChangedSincePreviousRun,
   renderPrDescription,
   sanitizePrDescription,
+  type PrDescriptionContext,
   type PrDiffContext,
 } from '../prDescription.js';
 import { collectPrDiffContext } from '../prDiffContext.js';
@@ -136,24 +137,24 @@ export interface ShipResult {
  * answers with chat-shaped scaffolding (a "no PR open yet … copy-paste ready"
  * status line, a preamble, the whole body inside a code fence), and this text
  * goes straight into public GitHub metadata. `prDescription.ts` owns both halves
- * — the prompt that asks for a clean body and the filter that enforces it.
+ * — the prompt, which hands the model the branch facts and asks for a clean
+ * body, and the filter that enforces it.
  */
 async function describePr(
   adapter: AgentAdapter,
   cwd: string,
-  title: string,
+  ctx: PrDescriptionContext,
   ticketId: number,
   processRunId?: number | null,
   model?: string,
-  gateSetChanged?: boolean,
 ): Promise<string> {
   const r = await adapter.runHeadless({
-    prompt: buildPrDescriptionPrompt(title, gateSetChanged),
+    prompt: buildPrDescriptionPrompt(ctx),
     cwd,
     model,
     tracking: { callSite: 'pr-description', ticketId, processRunId: processRunId ?? undefined },
   });
-  return sanitizePrDescription(r.raw, title);
+  return sanitizePrDescription(r.raw, ctx.title);
 }
 
 /** Deterministic body fingerprint for describe-step reconciliation. */
@@ -230,12 +231,11 @@ async function generateDescription(
   repo: string,
   adapter: AgentAdapter,
   cwd: string,
-  prTitle: string,
+  ctx: PrDescriptionContext,
   ticketId: number,
   onProgress: ShipProgress,
   onInsideProgress: (event: InsideProgressEvent) => void = () => {},
   assignment?: ProcessAssignmentSnapshot,
-  gateSetChanged?: boolean,
 ): Promise<string> {
   onProgress({ repo, step: 'describe', status: 'run' });
   onInsideProgress({
@@ -256,6 +256,9 @@ async function generateDescription(
     agentName: assignment?.agentName ?? null,
     provider: assignment?.provider ?? null,
     model: assignment?.model ?? null,
+    // v34: the host that owns the call, so `reconcileProcessRuns` can mark a
+    // describe run killed by process death stale like every other process.
+    pid: process.pid,
     startedAt: at,
   });
   const step = openShipRepoStep(store, {
@@ -270,11 +273,10 @@ async function generateDescription(
     const body = await describePr(
       adapter,
       cwd,
-      prTitle,
+      ctx,
       ticketId,
       processRun.id,
       assignment?.model,
-      gateSetChanged,
     );
     finishProcessRun(store, processRun.id, 'passed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });
@@ -837,6 +839,12 @@ export async function shipTicket(
   const run = openShipRun(store, {
     ticketId: opts.ticketId,
     attempt: runCount.n + 1,
+    // The run is opened BY this host (v34): when the host dies, this pid is
+    // what tells the activation sweep the run died with it — so it can tell a
+    // ship killed by process death from one another LIVE window is still
+    // executing (reconcileShipRuns parks it failed, the stranded-ship sweep
+    // resumes it).
+    pid: process.pid,
     startedAt,
   });
 
@@ -1164,16 +1172,8 @@ export async function shipTicket(
       // git facts (commit bullets + diffstat) — a ship with no AI process
       // still carries what changed rather than just the title. A failed read
       // degrades to a title-only body and never fails ship.
-      const deterministicDescription = async (): Promise<string> => {
-        let diffContext: PrDiffContext = {};
-        if (base) {
-          try {
-            diffContext = await collectPrDiffContext(git, wt.path, base);
-          } catch {
-            diffContext = {};
-          }
-        }
-        return renderPrDescription({
+      const deterministicDescription = (diffContext: PrDiffContext): string =>
+        renderPrDescription({
           title: prTitle,
           repo: wt.repo,
           branch: wt.branch ?? undefined,
@@ -1181,65 +1181,110 @@ export async function shipTicket(
           ...diffContext,
           gateSetChanged,
         });
-      };
-      const runDescriptionStep = async (process: DriveProcessBundle | null | undefined): Promise<string> => {
+      const runDescriptionStep = async (
+        process: DriveProcessBundle | null | undefined,
+        ctx: PrDescriptionContext,
+      ): Promise<string> => {
         if (process) {
           // Task 3: the configured process bundle — its adapter AND its
           // assignment snapshot. The assignment rides the run; the adapter is
           // the same instrumented adapter the host resolved, so token usage
           // attribution stays centralized.
+          opts.debug?.(
+            `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description via configured process ${process.assignment?.agentName ?? '?'}`,
+          );
           return generateDescription(
             store,
             run,
             wt.repo,
             process.adapter,
             wt.path,
-            prTitle,
+            ctx,
             opts.ticketId,
             onProgress,
             onInsideProgress,
             process.assignment,
-            gateSetChanged,
           );
         }
         if (process === null) {
           // Configured ABSENCE (enabled: false): no model call, no process run —
           // the deterministic branch-facts body is rendered locally instead,
           // and no passed AI process is recorded for work nobody did.
-          return deterministicDescription();
+          opts.debug?.(
+            `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description disabled — deterministic branch-facts body`,
+          );
+          return deterministicDescription(ctx);
         }
         // Legacy caller: no configured bundle, the positional adapter runs the
         // step as before (no identity snapshot — pre-Task-3 behavior).
         if (adapter) {
+          opts.debug?.(
+            `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description via legacy positional adapter`,
+          );
           return generateDescription(
             store,
             run,
             wt.repo,
             adapter,
             wt.path,
-            prTitle,
+            ctx,
             opts.ticketId,
             onProgress,
             onInsideProgress,
             undefined,
-            gateSetChanged,
           );
         }
-        return deterministicDescription();
+        opts.debug?.(
+          `[ship] ticket ${opts.ticketId} ${wt.repo}: no description adapter — deterministic branch-facts body`,
+        );
+        return deterministicDescription(ctx);
       };
       const buildBody = async (): Promise<string> => {
-        if (descriptionTemplate) {
-          let description = prTitle;
-          if (usesDescription(descriptionTemplate)) {
-            description = await runDescriptionStep(opts.prDescriptionProcess);
-          }
-          return renderArtifactTemplate(
-            'pullRequestDescription',
-            descriptionTemplate,
-            { ...templateContext, description },
+        // A configured template that never asks for prose needs no model call
+        // and no branch reads.
+        if (descriptionTemplate && !usesDescription(descriptionTemplate)) {
+          opts.debug?.(
+            `[ship] ticket ${opts.ticketId} ${wt.repo}: description template needs no prose — no model call`,
           );
+          return renderArtifactTemplate('pullRequestDescription', descriptionTemplate, {
+            ...templateContext,
+            description: prTitle,
+          });
         }
-        return runDescriptionStep(opts.prDescriptionProcess);
+        // The branch material the description is written from, collected ONCE
+        // and shared by every path that renders a body — the deterministic
+        // fallback AND the model prompt. A model handed only a title goes
+        // exploring for the changes and can answer "where is the worktree?"
+        // instead of describing them (PR #117); with the facts in the prompt
+        // it needs no tools and no clarification. A failed read degrades to a
+        // title-only prompt — observability must never fail a ship.
+        let diffContext: PrDiffContext = {};
+        if (base) {
+          opts.debug?.(
+            `[ship] ticket ${opts.ticketId} ${wt.repo}: collecting branch facts for the PR description (base ${base})`,
+          );
+          try {
+            diffContext = await collectPrDiffContext(git, wt.path, base);
+          } catch {
+            diffContext = {};
+          }
+        }
+        const promptCtx: PrDescriptionContext = {
+          title: prTitle,
+          repo: wt.repo,
+          branch: wt.branch ?? undefined,
+          baseRef: base,
+          gateSetChanged,
+          ...diffContext,
+        };
+        if (descriptionTemplate) {
+          const description = await runDescriptionStep(opts.prDescriptionProcess, promptCtx);
+          return renderArtifactTemplate('pullRequestDescription', descriptionTemplate, {
+            ...templateContext,
+            description,
+          });
+        }
+        return runDescriptionStep(opts.prDescriptionProcess, promptCtx);
       };
 
       let opened: OpenedPr;

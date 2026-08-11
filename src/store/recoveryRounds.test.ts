@@ -17,8 +17,14 @@ import {
   exhaustRecoveryRound,
   reconcileStrandedFixRounds,
   listRecoveryRounds,
+  parkFixStage,
+  hasFixingRound,
+  FIX_PARKED_INTERRUPTED,
+  FIX_PARKED_EXHAUSTED,
+  FIX_PARKED_NO_EXECUTION,
   type RecoveryRound,
 } from './recoveryRounds.js';
+import { getTicket } from './tickets.js';
 import { listProcessRuns, openProcessRun } from './processRuns.js';
 import { openStageRun, listStageRuns } from './stageRuns.js';
 import {
@@ -349,6 +355,82 @@ describe('recovery rounds — store', () => {
     expect(interruptFixExecution(store, r.id, T2)).toBe(false);
   });
 
+  it('interruptFixExecution re-stamps the fix stage row as parked, so it stops reading running', () => {
+    // The ticket must actually BE at fix for the re-stamp to land — the machine's
+    // transition review-fail → fix is what the production flow uses.
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const r = round();
+    beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T1 });
+
+    expect(interruptFixExecution(store, r.id, T2)).toBe(true);
+
+    const fixStage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('failed');
+    expect(fixStage.verdict).toBe(FIX_PARKED_INTERRUPTED);
+    expect(fixStage.endedAt).toBe(T2);
+    // The ticket stays AT fix — the park is a read fix, never a transition.
+    expect(getTicket(store, ticketId).stageCurrent).toBe('fix');
+  });
+
+  it('parkFixStage re-stamps only a running fix row of a ticket at fix, and only once', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    expect(parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1)).toBe(true);
+    const parked = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+    expect(parked.status).toBe('failed');
+    expect(parked.verdict).toBe(FIX_PARKED_NO_EXECUTION);
+    expect(parked.endedAt).toBe(T1);
+
+    // Idempotent: a second park is a no-op and never overwrites the first verdict.
+    expect(parkFixStage(store, ticketId, FIX_PARKED_EXHAUSTED, T2)).toBe(false);
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.verdict).toBe(
+      FIX_PARKED_NO_EXECUTION,
+    );
+  });
+
+  it('parkFixStage refuses a ticket not at fix, and a fix row that is not running', () => {
+    // Ticket at uat: the fix row is pending here (createTicketFlow seeds rows) —
+    // nothing is re-stamped, whatever the row says.
+    expect(parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1)).toBe(false);
+
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET status = 'passed' WHERE ticket_id = ? AND stage_key = 'fix'").run(ticketId);
+    // A fix row the marker already passed is a finished fact — never re-parked.
+    expect(parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1)).toBe(false);
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe('passed');
+  });
+
+  it('a parked fix row reads running again the moment a fix execution begins', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const r = round();
+    parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1);
+
+    beginLiveFixExecution(store, { ticketId, roundId: r.id, provider: 'claude', startedAt: T1 });
+
+    const fixStage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('running');
+    expect(fixStage.verdict).toBeNull();
+    expect(fixStage.endedAt).toBeNull();
+  });
+
+  it('a parked fix row reads running again when the closed-session launch confirms', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const r = round();
+    parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1);
+    recordFixLaunchIntent(store, {
+      ticketId, launchId: 'launch-fix', provider: 'claude',
+      reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: r.id, at: T1,
+    });
+
+    expect(confirmFixLaunch(store, 'launch-fix', {
+      ticketId, provider: 'claude', providerSessionId: 'claude-session-1', at: T2,
+    })).toBe('confirmed');
+
+    const fixStage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('running');
+    expect(fixStage.verdict).toBeNull();
+  });
+
   it('interruptActiveFixExecution finds the in-flight round; a pending round is left alone', () => {
     const pending = round();
     expect(interruptActiveFixExecution(store, ticketId, T1)).toBe(false);
@@ -428,6 +510,18 @@ describe('recovery rounds — store', () => {
     expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('exhausted');
   });
 
+  it('exhaustRecoveryRound re-stamps the fix stage row as parked at the cap', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const r = round();
+
+    expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(true);
+
+    const fixStage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('failed');
+    expect(fixStage.verdict).toBe(FIX_PARKED_EXHAUSTED);
+    expect(fixStage.endedAt).toBe(T1);
+  });
+
   it('exhaustRecoveryRound never overwrites a fixing or revalidating round', () => {
     const r = round();
     store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(r.id);
@@ -449,7 +543,7 @@ describe('recovery rounds — store', () => {
     const stranded = reconcileStrandedFixRounds(store, T1);
 
     expect(stranded).toEqual([
-      { roundId: r.id, ticketId, sourceStage: 'uat', round: 1, fixProcessRunId: run.id },
+      { kind: 'execution', roundId: r.id, ticketId, sourceStage: 'uat', round: 1, fixProcessRunId: run.id },
     ]);
     expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
       status: 'interrupted',
@@ -457,6 +551,67 @@ describe('recovery rounds — store', () => {
     });
     // Idempotent: a round already interrupted is not reported twice.
     expect(reconcileStrandedFixRounds(store, T2)).toEqual([]);
+  });
+
+  it('reconcileStrandedFixRounds parks a fix stage row that reads running with no round at all', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix, no round
+
+    const stranded = reconcileStrandedFixRounds(store, T1);
+
+    expect(stranded).toEqual([
+      { kind: 'stage', roundId: null, ticketId, sourceStage: null, round: null, fixProcessRunId: null },
+    ]);
+    const fixStage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('failed');
+    expect(fixStage.verdict).toBe(FIX_PARKED_NO_EXECUTION);
+    expect(fixStage.endedAt).toBe(T1);
+    // Idempotent — a second activation parks nothing.
+    expect(reconcileStrandedFixRounds(store, T2)).toEqual([]);
+  });
+
+  it('reconcileStrandedFixRounds parks a running fix row whose round never produced an execution', () => {
+    // The launch never happened and never will (nothing drives fix tickets):
+    // a pending round with no fix run and no launch intent is a parked ticket.
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    round();
+
+    const stranded = reconcileStrandedFixRounds(store, T1);
+
+    expect(stranded).toMatchObject([{ kind: 'stage', ticketId }]);
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe('failed');
+    // The round itself is evidence and stays pending — only the headline is parked.
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('pending');
+  });
+
+  it('reconcileStrandedFixRounds parks a running fix row whose every round is terminal', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const r = round();
+    store.db.prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?").run(T0, r.id);
+
+    const stranded = reconcileStrandedFixRounds(store, T1);
+
+    expect(stranded).toMatchObject([{ kind: 'stage', ticketId }]);
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe('failed');
+  });
+
+  it('reconcileStrandedFixRounds leaves a fix stage row alone while a fix is fixing', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const r = round();
+    beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+
+    expect(reconcileStrandedFixRounds(store, T1)).toEqual([]);
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe('running');
+  });
+
+  it('hasFixingRound is true only while a fix execution is actually attached', () => {
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    expect(hasFixingRound(store, ticketId)).toBe(false); // no round yet
+    const r = round();
+    expect(hasFixingRound(store, ticketId)).toBe(false); // pending is not fixing
+    beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+    expect(hasFixingRound(store, ticketId)).toBe(true);
+    interruptFixExecution(store, r.id, T1);
+    expect(hasFixingRound(store, ticketId)).toBe(false);
   });
 
   it('reconcileStrandedFixRounds interrupts a fixing round that never opened a Fix run', () => {

@@ -115,6 +115,68 @@ describe('issue report UI model', () => {
     expect(buildReviewSummary(value)).not.toContain('Hook channel:')
   })
 
+  function withCores(): FinalizedDiagnosticReport {
+    const value = snapshot()
+    return {
+      ...value,
+      report: {
+        ...value.report,
+        metadata: {
+          ...value.report.metadata,
+          cores: {
+            status: 'available',
+            data: [
+              {
+                core: 'opencode',
+                headlessCalls: 12,
+                headlessTokens: { input: 900000, output: 400000, total: 1300000 },
+                interactiveCalls: 2,
+                interactiveTokens: { input: 10, output: 5, total: 15 },
+                sessions: 2,
+                models: ['opencode-go/deepseek-v4-flash'],
+                firstSeenAt: '2026-08-01T00:00:00.000Z',
+                lastSeenAt: '2026-08-02T00:00:00.000Z',
+              },
+              {
+                core: 'codex',
+                headlessCalls: 3,
+                headlessTokens: { input: 4000, output: 4400, total: 8400 },
+                interactiveCalls: 0,
+                interactiveTokens: { input: 0, output: 0, total: 0 },
+                sessions: 1,
+                models: ['gpt-5-codex'],
+                firstSeenAt: null,
+                lastSeenAt: null,
+              },
+            ],
+          },
+        },
+      },
+    }
+  }
+
+  it('names every used agent core in the review summary', () => {
+    const summary = buildReviewSummary(withCores())
+    expect(summary).toContain('Cores used:')
+    expect(summary).toContain('opencode (12 headless · 2 interactive · 2 sessions · 1.3M tokens)')
+    expect(summary).toContain('codex (3 headless · 1 session · 8.4k tokens)')
+  })
+
+  it('omits the cores line when the section is unavailable', () => {
+    const value = snapshot()
+    const summary = buildReviewSummary({
+      ...value,
+      report: {
+        ...value.report,
+        metadata: {
+          ...value.report.metadata,
+          cores: { status: 'unavailable', reason: 'reader_failed' },
+        },
+      },
+    })
+    expect(summary).not.toContain('Cores used:')
+  })
+
   it('builds a fixed safe GitHub handoff URL without diagnostics', () => {
     const value = snapshot()
     const url = new URL(buildGitHubIssueUrl(value, '1.2.3'))

@@ -7,7 +7,7 @@ import {
   type ConfirmSessionLaunchIntentInput,
   type SessionLaunchIntent,
 } from './sessionLaunchIntents.js';
-import { stageAttempt } from './stages.js';
+import { setStage, stageAttempt } from './stages.js';
 
 /**
  * `recovery_rounds` (v30) — one row per CAUSAL recovery round: a gate failure
@@ -118,6 +118,63 @@ const STATUSES: readonly string[] = [
   'interrupted',
 ];
 
+/**
+ * The karst-authored verdicts a PARKED fix stage row carries — the closed set
+ * of "the fix is no longer in flight" reasons. Written by the interrupt/exhaust
+ * paths and the driver's leave branches, read by the stepper's fault card and
+ * the Now line; never free-form prose, because these are the words the
+ * dashboard repeats back to the user.
+ */
+export const FIX_PARKED_INTERRUPTED = 'fix session ended without the done marker';
+export const FIX_PARKED_EXHAUSTED = 'fix attempts exhausted';
+export const FIX_PARKED_NO_RESUMABLE_ROUND = 'fix parked — no resumable recovery round';
+export const FIX_PARKED_NO_FAILED_GATE = 'fix parked — no failed gate to resume';
+export const FIX_PARKED_PROCESS_UNAVAILABLE = 'fix process not available — parked for a human';
+export const FIX_PARKED_NO_EXECUTION = 'fix parked — no fix execution in flight';
+
+/**
+ * Re-stamp a RUNNING fix stage row as parked (`failed` + a bounded verdict +
+ * endedAt). The machine's `entryPatch` enters fix `running`, and nothing ever
+ * re-read it when a fix ended without the marker — so a ticket resting at fix
+ * for a human kept claiming the agent was actively fixing, forever (the stuck
+ * stage this closes). Every path that leaves the ticket at fix with no live
+ * execution calls this.
+ *
+ * Strictly guarded, so it can never rewrite a truth:
+ *  - the ticket must be AT `fix` (the machine wrote the row, and only it moves
+ *    the ticket on — a `fix` row of a ticket that left is history);
+ *  - the fix row must read `running` (a row the marker already passed is a
+ *    finished fact; a row already parked keeps its first verdict — a second
+ *    park with a different cause must never overwrite what the first said).
+ *
+ * Returns whether the row was actually re-stamped, so callers can report the
+ * park instead of assuming it.
+ */
+export function parkFixStage(store: Store, ticketId: number, verdict: string, at: string): boolean {
+  const current = store.db
+    .prepare('SELECT stage_current FROM tickets WHERE id = ?')
+    .get(ticketId) as { stage_current: string | null } | undefined;
+  if (current === undefined || current.stage_current !== 'fix') return false;
+  const row = store.db
+    .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'fix'")
+    .get(ticketId) as { status: string } | undefined;
+  if (row === undefined || row.status !== 'running') return false;
+  setStage(store, ticketId, 'fix', { status: 'failed', verdict, endedAt: at });
+  return true;
+}
+
+/**
+ * The inverse of `parkFixStage`: re-stamp the fix row as live the moment a fix
+ * execution actually begins (`beginLiveFixExecution` / `confirmFixLaunch`).
+ * Normally a no-op — the machine already entered the row `running` — but a row
+ * parked by an earlier sweep or session close must read `Fixing` again once a
+ * real execution is attached to a pending round, or the headline would keep
+ * saying "Fix failed" beside an agent that is actively working.
+ */
+function markFixStageLive(store: Store, ticketId: number): void {
+  setStage(store, ticketId, 'fix', { status: 'running', verdict: null, endedAt: null });
+}
+
 function rowToRound(r: RecoveryRoundRow): RecoveryRound {
   return {
     id: r.id,
@@ -204,6 +261,26 @@ function activeFixRound(store: Store, ticketId: number): RecoveryRound | null {
     )
     .get(ticketId) as RecoveryRoundRow | undefined;
   return row === undefined ? null : rowToRound(row);
+}
+
+/**
+ * Whether a fix EXECUTION is attached to the ticket right now — a `fixing`
+ * round. This is the one store fact that means "the agent is actually being
+ * fixed": a pending round is a fix that never started, a terminal round a fix
+ * that ended, and neither may claim the fix stage is live. The pending-launch
+ * window (intent recorded, SessionStart not yet arrived) is not a live
+ * execution either — the moment the start is accepted, `confirmFixLaunch`
+ * moves the round to `fixing`, so the row reads live again within the same
+ * transaction.
+ */
+export function hasFixingRound(store: Store, ticketId: number): boolean {
+  return (
+    store.db
+      .prepare(
+        "SELECT 1 FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' LIMIT 1",
+      )
+      .get(ticketId) !== undefined
+  );
 }
 
 /**
@@ -445,6 +522,9 @@ export function beginLiveFixExecution(
           : `cannot begin fix execution: recovery round ${input.roundId} is not pending`,
       );
     }
+    // A real execution is now attached — a row some earlier park re-stamped as
+    // failed reads live again (see `markFixStageLive`).
+    markFixStageLive(store, input.ticketId);
   });
   apply();
   return run;
@@ -588,6 +668,9 @@ export function confirmFixLaunch(
           `cannot confirm fix launch: recovery round ${round.id} is no longer pending for ticket ${round.ticketId}`,
         );
       }
+      // The launch confirmed into a live execution — same re-stamp as
+      // `beginLiveFixExecution` (see `markFixStageLive`).
+      markFixStageLive(store, round.ticketId);
     }
     confirmLaunchIntentRow(store, intent.id, input.providerSessionId, input.at);
   });
@@ -638,6 +721,9 @@ export function interruptFixExecution(store: Store, roundId: number, at: string)
           WHERE id = ? AND status = 'fixing'`,
       )
       .run(at, roundId);
+    // The fix died without the marker: the ticket rests at fix for a human,
+    // and the stage row must stop claiming the agent is still fixing.
+    parkFixStage(store, round.ticketId, FIX_PARKED_INTERRUPTED, at);
   });
   apply();
   return true;
@@ -660,24 +746,37 @@ export function interruptActiveFixExecution(store: Store, ticketId: number, at: 
   return interruptFixExecution(store, row.id, at);
 }
 
-/** A `fixing` round this sweep found stranded, reported so the loss is never silent. */
+/**
+ * One stranded fix this sweep settled, reported so the loss is never silent.
+ * `kind` tells the two halves apart: `execution` is an interrupted fix
+ * execution (round-based), `stage` is a fix stage row that read `running` with
+ * no execution at all — parked, never interrupted, because there was no
+ * execution to interrupt.
+ */
+export type StrandedFixKind = 'execution' | 'stage';
+
 export interface StrandedFixRound {
-  roundId: number;
+  kind: StrandedFixKind;
+  /** The interrupted round, for an execution; null for a stage park. */
+  roundId: number | null;
   ticketId: number;
-  sourceStage: RecoverySourceStage;
-  round: number;
+  /** The round's source stage, for an execution; null for a stage park. */
+  sourceStage: RecoverySourceStage | null;
+  /** The round's number, for an execution; null for a stage park. */
+  round: number | null;
   fixProcessRunId: number | null;
 }
 
 /**
- * Interrupt every `fixing` round whose Fix execution can no longer be running.
+ * Settle every stranded fix state at activation, in two passes.
  *
- * `fixing` is the one recovery status nothing can leave on its own: the marker
- * is the only completion authority, and a session that dies without firing it
- * fires no signal either. The driver reads such a round as "a fix execution is
- * already in flight" and leaves the ticket alone — forever, which is exactly
- * how a ticket sat at fix for ten hours with an idle agent and no session
- * (869ee...): the SessionEnd hook that would have called
+ * PASS 1 — interrupt every `fixing` round whose Fix execution can no longer be
+ * running. `fixing` is the one recovery status nothing can leave on its own:
+ * the marker is the only completion authority, and a session that dies without
+ * firing it fires no signal either. The driver reads such a round as "a fix
+ * execution is already in flight" and leaves the ticket alone — forever, which
+ * is exactly how a ticket sat at fix for ten hours with an idle agent and no
+ * session (869ee...): the SessionEnd hook that would have called
  * `interruptActiveFixExecution` never reached the endpoint, and the process-run
  * sweep marked the run stale without propagating that to the round.
  *
@@ -690,8 +789,15 @@ export interface StrandedFixRound {
  * this sweep runs AFTER `reconcileProcessRuns` rather than judging liveness
  * itself.
  *
+ * PASS 2 — park every fix stage row that reads `running` with NO `fixing`
+ * round at all: a ticket at fix whose execution never started (no round, a
+ * pending round nothing ever attached to, or only terminal rounds) is waiting
+ * for a human, not being fixed, and the row must not claim otherwise. This is
+ * the sweep that heals tickets parked by OLDER builds — the round-level pass
+ * and the terminal-close sweep only settle executions that were ever started.
+ *
  * Global like the run sweeps and for the same reason: the registry is shared by
- * every IDE window, and a stranded round is wrong in whichever project owns it.
+ * every IDE window, and a stranded fix is wrong in whichever project owns it.
  */
 export function reconcileStrandedFixRounds(store: Store, at: string): StrandedFixRound[] {
   const rows = store.db
@@ -709,6 +815,7 @@ export function reconcileStrandedFixRounds(store: Store, at: string): StrandedFi
   for (const round of rows) {
     if (!interruptFixExecution(store, round.id, at)) continue;
     stranded.push({
+      kind: 'execution',
       roundId: round.id,
       ticketId: round.ticketId,
       sourceStage: round.sourceStage,
@@ -716,11 +823,43 @@ export function reconcileStrandedFixRounds(store: Store, at: string): StrandedFi
       fixProcessRunId: round.fixProcessRunId,
     });
   }
+
+  const parked = store.db
+    .prepare(
+      `SELECT id FROM tickets
+        WHERE stage_current = 'fix'
+          AND EXISTS (
+            SELECT 1 FROM stages
+             WHERE ticket_id = tickets.id AND stage_key = 'fix' AND status = 'running')
+          AND NOT EXISTS (
+            SELECT 1 FROM recovery_rounds
+             WHERE ticket_id = tickets.id AND status = 'fixing')
+        ORDER BY id`,
+    )
+    .all() as { id: number }[];
+  for (const row of parked) {
+    if (!parkFixStage(store, row.id, FIX_PARKED_NO_EXECUTION, at)) continue;
+    stranded.push({
+      kind: 'stage',
+      roundId: null,
+      ticketId: row.id,
+      sourceStage: null,
+      round: null,
+      fixProcessRunId: null,
+    });
+  }
+
   return stranded;
 }
 
-/** One line naming a round this sweep found stranded, for the output channel. */
+/** One line naming a stranded fix this sweep settled, for the output channel. */
 export function describeStrandedFixRound(s: StrandedFixRound): string {
+  if (s.kind === 'stage') {
+    return (
+      `karst: ticket ${s.ticketId}: fix stage read running with no fix execution ` +
+      `in flight — parked for a human`
+    );
+  }
   return (
     `karst: ticket ${s.ticketId}: ${s.sourceStage} recovery round ${s.round} was fixing ` +
     `with no live fix execution${s.fixProcessRunId === null ? ' (none was ever opened)' : ''} — ` +
@@ -751,12 +890,17 @@ export function exhaustRecoveryRound(
   roundId: number,
   endedAt: string,
 ): boolean {
-  return (
+  const changes =
     store.db
       .prepare(
         `UPDATE recovery_rounds SET status = 'exhausted', ended_at = ?
           WHERE id = ? AND ticket_id = ? AND status = 'pending'`,
       )
-      .run(endedAt, roundId, ticketId).changes === 1
-  );
+      .run(endedAt, roundId, ticketId).changes === 1;
+  if (changes) {
+    // The budget is spent and the ticket rests at fix for a human — the stage
+    // row must read parked, not running (see `parkFixStage`).
+    parkFixStage(store, ticketId, FIX_PARKED_EXHAUSTED, endedAt);
+  }
+  return changes;
 }

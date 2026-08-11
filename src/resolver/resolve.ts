@@ -92,13 +92,21 @@ export function resolve(
   const hotRunnable = runnableSubset(manifest, hot);
   const hotSet = new Set(hotRunnable);
 
-  // Step 1: allocate alt ports for each hot service's owned slots.
+  // Step 1: allocate alt ports for each hot service's owned slots. A service
+  // with its own portRange allocates ONLY from that window; the rest use the
+  // manifest-global range. The allocator's shared used-set keeps every window
+  // unique against every other, so overlapping ranges cannot double-book.
   const hotPorts: Record<string, Record<string, number>> = {};
   for (const name of hotRunnable) {
     const repo = manifest.repositories[name]!;
     if (!isRunnable(repo)) continue; // unreachable: runnableSubset already filtered
     const slots = repo.service.ports.map((p) => p.name);
-    hotPorts[name] = allocator.allocate(ticketId, name, slots);
+    hotPorts[name] = allocator.allocate(
+      ticketId,
+      name,
+      slots,
+      repo.service.portRange ?? manifest.portRange,
+    );
   }
 
   const services: Record<string, ResolvedService> = {};

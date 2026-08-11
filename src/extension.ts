@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -94,6 +95,10 @@ import {
   interruptActiveFixExecution,
   reconcileStrandedFixRounds,
   describeStrandedFixRound,
+  parkFixStage,
+  hasFixingRound,
+  FIX_PARKED_PROCESS_UNAVAILABLE,
+  FIX_PARKED_NO_EXECUTION,
 } from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
@@ -238,7 +243,13 @@ import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
 import { getPrById } from './store/prs.js';
-import { getShipCommitById } from './store/shipRuns.js';
+import {
+  getShipCommitById,
+  listStrandedShipTickets,
+  describeStrandedShip,
+  reconcileShipRuns,
+  describeStaleShipRun,
+} from './store/shipRuns.js';
 import { advanceTicketOnShip } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
@@ -436,7 +447,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const storageDir = context.globalStorageUri.fsPath;
   mkdirSync(storageDir, { recursive: true });
   const dbPath = join(storageDir, 'karst.db');
-  store = openStore(dbPath);
+  try {
+    store = openStore(dbPath);
+  } catch (err) {
+    // An ABI-mismatched better-sqlite3 addon makes `openStore` throw on the
+    // FIRST `new Database()`, killing activation with a raw dlopen error and a
+    // dead extension. Name the fix instead of dying silently (the modal is the
+    // only surface left — the output channel is created below the store open).
+    const fault = describeStoreOpenFailure(err);
+    console.error('karst: activation aborted — store open failed', err);
+    void vscode.window.showErrorMessage(
+      fault.fixHint ? `${fault.message}\n\n${fault.fixHint}` : fault.message,
+    );
+    return;
+  }
   const localStore = store;
 
   // One "Karst" output channel is the sink for every caught error (§ todo-5).
@@ -583,6 +607,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   } catch (err) {
     logError('karst: stale process-run sweep failed', err);
   }
+  // Stale ship-run sweep (869egdr2u-fu1 follow-up). A ship run killed by
+  // process death mid-saga — the host died between opening the run and closing
+  // it — is a state nothing can leave on its own: the saga's crash-and-retry
+  // reconciliation only runs at the start of the next `shipTicket` invocation,
+  // and a ticket at `ship` `running` with no block offers no retry anywhere
+  // (the Now line shows no button for a running ship, and the driver only
+  // auto-runs gates). Marking the dead run `interrupted` and parking the
+  // stage `failed` is what turns that stuck state into the one that already
+  // has a recovery path: the failed-ship surface's "Retry ship".
+  //
+  // GLOBAL for the same reason as the gate-run pass above, and safe for the
+  // same reason: attribution, not scope. A run opened by ANOTHER LIVE window
+  // has a live pid and is left strictly alone; a run with no recorded pid is
+  // left alone too, because absence of evidence is not evidence that it died.
+  //
+  // Reported, never silent — an invisibly-discarded run is the whole failure
+  // this closes, and a sweep that quietly corrected the data would repeat it.
+  try {
+    for (const s of reconcileShipRuns(localStore, pidAlive, new Date().toISOString())) {
+      logger.info(describeStaleShipRun(s));
+    }
+  } catch (err) {
+    logError('karst: stale ship-run sweep failed', err);
+  }
   // Stranded fix-execution sweep. Runs AFTER the process-run pass above, which
   // is what turns a destroyed Fix run into a non-`running` row this can read:
   // a `fixing` recovery round whose execution is gone is a round nothing can
@@ -689,6 +737,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       } catch (err) {
         logError(`karst: interrupting the fix execution for ticket ${ticketId} failed`, err);
+      }
+      // A fix that NEVER had an execution (a launch that died before its
+      // SessionStart, or a resume that never launched) is parked the moment its
+      // session closes — the same crash the interrupt above covers for a round
+      // already `fixing`, decided from the same terminal-close signal so it
+      // works for every agent core (a closed terminal needs no hook channel).
+      // The park is guarded, so the interrupt's own re-stamp (or a live fixing
+      // round) makes it a no-op.
+      try {
+        const at = new Date().toISOString();
+        if (
+          !hasFixingRound(localStore, ticketId) &&
+          parkFixStage(localStore, ticketId, FIX_PARKED_NO_EXECUTION, at)
+        ) {
+          logger.info(
+            `stage driver: ticket ${ticketId} fix parked — its session closed with no fix ` +
+              `execution in flight; the ticket rests at fix for a human`,
+          );
+        }
+      } catch (err) {
+        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
       }
       provider.refresh();
       dashboard.pushState(ticketId);
@@ -917,6 +986,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Task 3: the configured PR-description process for Ship (nullable). */
   const prDescriptionProcess = (ticketId: number): DriveProcessBundle | null =>
     processFor(ticketId, 'pr-description');
+
+  /** Task 3: the configured ticket-analysis process for the ticket form (nullable). */
+  const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
+    processFor(ticketId, 'ticket-analysis');
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -1304,10 +1377,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // permanently stuck on the fallback ('claude') read at that moment.
       get adapter() {
         const provider = (currentManifest() ?? emptyManifest()).agentProvider ?? 'claude';
-        // Instrumented like every other adapter: the ticket form's analyzer is the
-        // first AI call of a ticket's life and often its most expensive.
+        // Instrumented like every other adapter: the ticket form's signal
+        // suggestion is an AI call that must be measured. The analyzer itself
+        // resolves through `resolveAnalysisProcess` below, which carries the
+        // configured ticket-analysis identity.
         return instrument(resolveAdapter(provider), provider);
       },
+      // The analyzer is its own inside process: resolved at analyze time
+      // through the same `processFor` seam every other role uses, so
+      // `processes.ticketAnalysis` picks its core/model and `enabled: false`
+      // reads as configured absence (the form's analyze refuses).
+      resolveAnalysisProcess: analysisProcess,
       onChange: () => provider.refresh(),
       // Finish handoff: scope the ticket's selected repos (worktrees, no
       // servers) and open the agent session seeded with its chosen approach.
@@ -1932,6 +2012,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Live Ship rides the generic inside-progress union (Finding 12): the
         // manager has no ship-specific progress channel any more.
         (event) => dashboard.postInsideProgress(ticketId, event),
+        // Same deferred-reference pattern as `runPrSync` below: `runShipSaga`
+        // is declared with the activation sweep, read only once a panel is open
+        // (or the sweep fires). The click asks for the status-push warning
+        // toast; the sweep's own call logs instead.
+        (id) => runShipSaga(id, true),
         // The inside-action seam: the panel posts only an opaque id; the
         // manager resolves it through the ticket's CURRENT snapshot registry
         // and dispatches the stored host-only target.
@@ -2320,11 +2405,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Task 3: a configured-ABSENT Fix process (enabled: false) never reaches
     // the session manager — no launch, no nudge, no fabricated process
     // evidence. The pending recovery round is left for a human, exactly as the
-    // driver's fix block reads it.
+    // driver's fix block reads it, and the stage row parks so it stops reading
+    // as if the agent were still fixing.
     if (process === null) {
       logger.info(
         `configured Fix process disabled — ticket ${ticketId} left at fix for a human (${gate} round ${roundId ?? 'untracked'})`,
       );
+      try {
+        if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
+          logger.info(
+            `stage driver: ticket ${ticketId} fix parked — the configured Fix process is disabled`,
+          );
+        }
+      } catch (err) {
+        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
+      }
       return;
     }
     const t = getTicket(localStore, ticketId);
@@ -2377,7 +2472,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
       },
     });
-    if (outcome === 'unavailable') return;
+    if (outcome === 'unavailable') {
+      // The configured Fix core could not be proven ready (missing binary,
+      // unprobeable CLI): nothing launched and nothing will — the ticket is
+      // parked for a human, and the stage row must read that way.
+      try {
+        if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
+          logger.info(
+            `stage driver: ticket ${ticketId} fix parked — the configured Fix core is not available`,
+          );
+        }
+      } catch (err) {
+        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
+      }
+      return;
+    }
     logger.info(
       `stage driver: ticket ${ticketId} → ${outcome === 'nudged' ? 'nudged live session to fix' : 'resuming agent to fix'} (attempt ${attempts})`,
     );
@@ -2488,6 +2597,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       listTickets(localStore, { projectId: startupProject.id }),
     )) {
       maybeDrive(id, 'activation-sweep');
+    }
+  }
+
+  // ONE host seam for running the ship saga, shared by the dashboard's
+  // confirm-ship click and the stranded-ship recovery below: the PRs are open
+  // and the branch pushed — the irreversible part succeeded, and ship's own
+  // settle may already have walked the ticket through to `done` when there was
+  // nothing to merge; that is the one case the status push fires from here.
+  // Everything else waits for the merge sweep. The fresh snapshot that follows
+  // carries the real commit/push/pr/merge ledger, so the transient 'ship'
+  // overlay is superseded and retired rather than left past its snapshot.
+  // `warn` says whether a failed provider status push raises a toast: the
+  // click asks for one (it owns the user's attention), the activation sweep
+  // does not (its failures are logged like every other sweep's).
+  const runShipSaga = async (ticketId: number, warn = false): Promise<void> => {
+    await runShipTicket(
+      localStore,
+      {
+        ticketId,
+        manifest: currentManifest(),
+        // Task 3: the configured pr-description process, resolved once. Its
+        // adapter AND identity snapshot drive the description step; NULL
+        // (enabled: false) skips the AI step for the deterministic fallback.
+        prDescriptionProcess: prDescriptionProcess(ticketId),
+      },
+      undefined,
+      undefined,
+      undefined,
+      (step) => {
+        const event = shipStepEvent(ticketId, step);
+        if (event) dashboard.postInsideProgress(ticketId, event);
+      },
+      (event) => dashboard.postInsideProgress(ticketId, event),
+    );
+    if (getTicket(localStore, ticketId).stageCurrent === 'done') {
+      await pushDoneStatus(ticketId, warn);
+    }
+    provider.refresh();
+    dashboard.pushState(ticketId);
+    showStatusFor(ticketId);
+    dashboard.postInsideProgress(ticketId, shipClearedEvent(ticketId));
+  };
+
+  // Stranded-ship recovery. A ship killed by a dead host leaves the ticket at
+  // `ship` reading `running` with a `running` ship_runs row and no way out:
+  // `settleShipGates` requires the awaiting-merge block the interrupted run
+  // never wrote, the drive sweep above covers only uat/review, and a `running`
+  // row offers no button in the dashboard — a freeze that survives every
+  // reload. The saga is built to be re-run (`reconcilePriorShipOperations`
+  // adopts or refutes the interrupted run's effects; commit/push skip what
+  // already landed), so RESUME it here: the describe step re-runs, the PR
+  // opens, and ship's tail parks awaiting-merge or walks the ticket to done.
+  // `listStrandedShipTickets` proves death from stored state — a run still
+  // carrying a LIVE pid is a ship another window is executing and is left
+  // strictly alone — so this never double-runs a live saga.
+  if (startupProject) {
+    for (const stranded of listStrandedShipTickets(
+      localStore,
+      pidAlive,
+      { projectId: startupProject.id },
+    )) {
+      if (!guardCapability('ship')) continue;
+      logger.info(describeStrandedShip(stranded));
+      void runShipSaga(stranded.ticketId).catch((e) => {
+        logError('karst: stranded ship resume failed', e);
+        provider.refresh();
+        dashboard.pushState(stranded.ticketId);
+      });
     }
   }
 
@@ -4248,6 +4425,11 @@ function makeDashboardActions(
   // of a frozen button — ship rides the same channel as gates and Fix, never
   // the legacy per-repo/per-step `ship-progress` stream (Finding 12).
   onInsideProgress: (event: InsideProgressEvent) => void,
+  // Run the ship saga for a ticket and settle its aftermath. ONE seam, shared
+  // with the stranded-ship recovery at activation (a ship killed by a dead
+  // host resumes through the same path as the click that started it): the
+  // click owns only the capability guard and the failure toast.
+  runShipSaga: (ticketId: number) => Promise<void>,
   // Dispatch one opaque inside action id: the panel posts only the id; the
   // dashboard manager resolves it through the ticket's current registry.
   onInsideAction: (actionId: string) => void,
@@ -4374,55 +4556,24 @@ function makeDashboardActions(
     // next boundary check, never mid-gate — see `shouldContinue`).
     stopDriver: () => driver.requestStop(ticketId),
     // Human confirms ship: open the PR(s) for every hot repo, then let the
-    // caller (dashboard) refresh so `done` (or a fresh PR list) shows up.
+    // caller (dashboard) refresh so `done` (or a fresh PR list) shows up. The
+    // saga run and its aftermath live in ONE host seam (`runShipSaga`), shared
+    // with the stranded-ship recovery at activation — this click only adds the
+    // capability guard and the failure toast.
     shipTicket: () => {
       if (!guardCapability('ship')) return;
-      void runShipTicket(
-        store,
-        {
-          ticketId,
-          manifest: manifest(),
-          // Task 3: the configured pr-description process, resolved once. Its
-          // adapter AND identity snapshot drive the description step; NULL
-          // (enabled: false) skips the AI step for the deterministic fallback.
-          prDescriptionProcess: prDescriptionProcess(ticketId),
-        },
-        undefined,
-        undefined,
-        undefined,
-        (step) => {
-          const event = shipStepEvent(ticketId, step);
-          if (event) onInsideProgress(event);
-        },
-        onInsideProgress,
-      )
-        .then(async () => {
-          // The PRs are open and the branch is pushed — the irreversible part
-          // succeeded, and ship.ts has transitioned to `merge`. The ticket is
-          // NOT done yet unless it had nothing to merge, in which case ship's own
-          // settle already walked it through to `done`; that is the one case the
-          // status push fires from here. Everything else waits for the merge.
-          if (getTicket(store, ticketId).stageCurrent === 'done') {
-            await onTicketCompleted();
-          }
-          afterServerChange();
-          // The fresh snapshot just pushed carries the real commit/push/pr/merge
-          // ledger, so the transient 'ship' overlay is superseded: retire it
-          // rather than leaving a host-authored row past its snapshot.
-          onInsideProgress(shipClearedEvent(ticketId));
-        })
-        .catch((e) => {
-          logError('ship failed', e);
-          // `shipTicket` already recorded the reason on the ship stage, so the
-          // dashboard now explains itself — but the user just clicked a button
-          // and deserves an answer to THAT click, not a ticket that quietly goes
-          // red. Refresh first so the fault card is there when the toast lands.
-          afterServerChange();
-          onInsideProgress(shipClearedEvent(ticketId));
-          void vscode.window.showErrorMessage(
-            `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        });
+      void runShipSaga(ticketId).catch((e) => {
+        logError('ship failed', e);
+        // `shipTicket` already recorded the reason on the ship stage, so the
+        // dashboard now explains itself — but the user just clicked a button
+        // and deserves an answer to THAT click, not a ticket that quietly goes
+        // red. Refresh first so the fault card is there when the toast lands.
+        afterServerChange();
+        onInsideProgress(shipClearedEvent(ticketId));
+        void vscode.window.showErrorMessage(
+          `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      });
     },
     // Resume: same interactive-open path the sidebar/dashboard "open session"
     // action already uses; `SessionManager.openSession` resolves --resume vs.

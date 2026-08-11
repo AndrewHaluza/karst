@@ -38,6 +38,12 @@ export interface ServiceDef {
   start: string;
   health?: string;
   ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
+  /**
+   * Optional per-service allocation window. When present, ticket-hot ports for
+   * this service are allocated ONLY from this inclusive [min, max] window,
+   * overriding the manifest-level `portRange`. Absent → the global range.
+   */
+  portRange?: [number, number];
   dependsOn: DependsOn[];
 }
 
@@ -320,6 +326,14 @@ export interface ReviewFindingsConfig {
 export interface ReviewConfig {
   maxFixAttempts: number;
   requireIndependentSignal: boolean;
+  /**
+   * Whether review reveals the ticket's Changes panel when its gates finish.
+   * DEFAULT OFF (this ticket): opening the panel used to be unconditional
+   * whenever the host wired `openDiff`, so a review could surface a stack of
+   * panels the user never asked for. The host ALWAYS wires `openDiff`; this
+   * flag is the user's control over whether anything opens at all.
+   */
+  openChanges: boolean;
   gates?: GateDef[];
   findings: ReviewFindingsConfig;
   repositories: Record<string, { gates?: GateDef[] }>;
@@ -344,10 +358,10 @@ export interface ProcessAssignmentConfig {
 }
 
 /**
- * The closed five-entry `processes:` block (Task 7). Keys are the manifest
- * spelling (`uatTester`); the resolver consumes the kebab ROLE spellings
- * (`uat-tester`) via `PROCESS_ROLE_BY_KEY` — both vocabularies live in
- * `manifest/validate/processAssignments.ts`.
+ * The closed six-entry `processes:` block (Task 7 + ticket-form follow-up).
+ * Keys are the manifest spelling (`uatTester`); the resolver consumes the
+ * kebab ROLE spellings (`uat-tester`) via `PROCESS_ROLE_BY_KEY` — both
+ * vocabularies live in `manifest/validate/processAssignments.ts`.
  */
 export interface ProcessAssignmentsConfig {
   uatTester?: ProcessAssignmentConfig;
@@ -355,6 +369,12 @@ export interface ProcessAssignmentsConfig {
   review?: ProcessAssignmentConfig;
   reviewFix?: ProcessAssignmentConfig;
   prDescription?: ProcessAssignmentConfig;
+  /**
+   * The ticket form's coupled analyzer (prompt + approach + repos + type
+   * prefill, § ticket form). Absent → the global defaults (manifest
+   * agentProvider/defaultModel) apply, exactly like every other role.
+   */
+  ticketAnalysis?: ProcessAssignmentConfig;
 }
 
 export interface Manifest {
@@ -444,11 +464,11 @@ export interface Manifest {
    */
   review?: ReviewConfig;
   /**
-   * Per-role assignments for the inside AI processes (uat-tester, uat-fix,
-   * review, review-fix, pr-description). Absent entries resolve to the
-   * approved defaults. Optional on the type only so hand-built fixtures need
-   * not supply it; `validateManifest` leaves it undefined when the block is
-   * absent.
+   * Per-role assignments for the inside AI processes (ticket-analysis,
+   * uat-tester, uat-fix, review, review-fix, pr-description). Absent entries
+   * resolve to the approved defaults. Optional on the type only so hand-built
+   * fixtures need not supply it; `validateManifest` leaves it undefined when
+   * the block is absent.
    */
   processes?: ProcessAssignmentsConfig;
 }

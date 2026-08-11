@@ -30,6 +30,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'review',
       'reviewFix',
       'prDescription',
+      'ticketAnalysis',
     ]);
     expect(all.map((v) => v.roleLabel)).toEqual([
       'UAT Tester',
@@ -37,6 +38,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'Review',
       'Review Fix',
       'PR description',
+      'Ticket analysis',
     ]);
     expect(all.map((v) => v.description)).toEqual([
       'Runs after required UAT gates pass',
@@ -44,7 +46,15 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'Runs after required review gates pass',
       'Runs to fix a failed review gate',
       'Writes the pull request description at ship time',
+      'Synthesizes the ticket prompt; suggests approach, repos and type on the ticket form',
     ]);
+  });
+
+  it('defaults the ticket-analysis row like any other omitted role', () => {
+    const v = row(BASE, 'ticketAnalysis');
+    expect(v.state).toBe('omitted');
+    expect(v.profileHint).toBe('Default: Ticket Analysis Agent');
+    expect(v.coreHint).toBe('Default: Claude Code');
   });
 
   it('shows the approved defaults with Default hints when a row is omitted', () => {
