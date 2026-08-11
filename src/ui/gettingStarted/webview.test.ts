@@ -35,6 +35,13 @@ describe('gettingStarted webview.html', () => {
     expect(HTML).toContain('<!--KARST_CSP-->');
   });
 
+  it('the splash header carries the approved full-color mark, not the old graph', () => {
+    expect(HTML).toContain('M 96 20');
+    expect(HTML).toContain('cx="106.5" cy="111.5" r="26.5"');
+    expect(HTML).not.toContain('cx="6"');
+    expect(HTML).not.toContain('7.6 7.6');
+  });
+
   it('contains no raw hex/rgb/px/rem style literal outside the injected tokens (UI-R04)', () => {
     // This was the only webview still using `rem`, with no `:root` block and a
     // hex fallback (#3fb950/#f85149) duplicating the shared status ramp. Every

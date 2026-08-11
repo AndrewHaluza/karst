@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Glyph } from '../model/glyph.js';
 import { glyphHex } from '../model/glyphColor.js';
 
-/** Bake a color into an SVG authored with `stroke="currentColor"` (pure). */
+/** Bake a color into an SVG authored with `currentColor` (pure). */
 export function tintSvg(svg: string, hex: string): string {
   return svg.replaceAll('currentColor', hex);
 }
