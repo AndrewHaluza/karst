@@ -278,6 +278,32 @@ describe('TicketFormManager', () => {
     expect(pushed.type).toBe('state');
   });
 
+  it('a user set-approach flags the picker as touched, forever, and state carries it', async () => {
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    expect(seen[0]!.pickerTouched).toBe(false);
+
+    // A user click on a picker row posts set-approach — the ONLY source of
+    // the touch (the analyzer's own persist path never passes the pump).
+    panels[0]!.posted.length = 0;
+    await panels[0]!.emit({ type: 'set-approach', id: 'rpi' });
+
+    expect(seen[0]!.pickerTouched).toBe(true);
+    // The next state push carries the flag (the set-approach action itself
+    // posts nothing — the webview holds the local pick).
+    seen[0]!.pushState();
+    const pushed = panels[0]!.posted.at(-1) as { type: string; state?: TicketFormState };
+    expect(pushed.type).toBe('state');
+    expect(pushed.state?.pickerTouched).toBe(true);
+
+    // Never cleared within the session — a second touch keeps it set.
+    await panels[0]!.emit({ type: 'set-approach', id: 'rpi' });
+    expect(seen[0]!.pickerTouched).toBe(true);
+  });
+
   it('routes a close-form message to ctx.close, which disposes the panel (Cancel)', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();

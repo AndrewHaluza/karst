@@ -103,6 +103,14 @@ export interface TicketFormState {
   repos: RepoRow[];
   approaches: ApproachRow[];
   selectedApproach: string | null;
+  /**
+   * Host-side: true once the user has interacted with the approach picker in
+   * this form session. Never cleared within the session. Gates the analyzer:
+   * it may set the selection only when `!pickerTouched && approach === null`;
+   * after a touch, later analysis is recommendation-only (design, Selection
+   * and Enablement).
+   */
+  pickerTouched: boolean;
   /** Selectable single-subagent pool (§ single-subagent picker). */
   agents: PoolAgent[];
   /** Persisted (edit mode) or not-yet-chosen (create mode) agent name. */
@@ -205,6 +213,12 @@ export function buildTicketFormState(
    * so the strip renders nothing rather than a broken tile.
    */
   storageDir?: string,
+  /**
+   * Host-side picker-touch flag for this form session. Defaults false; the
+   * panel owns the live value (set on any user picker interaction, never
+   * cleared) and threads it through every state push.
+   */
+  pickerTouched = false,
 ): TicketFormState {
   // The built-in overlay seam: the ticket form resolves packaged built-ins
   // ONLY through `withBuiltInApproaches` (design, Selection and Enablement).
@@ -267,6 +281,7 @@ export function buildTicketFormState(
       repos: makeRepos(new Set(), new Map()),
       approaches,
       selectedApproach: defaultApproach(approaches),
+      pickerTouched,
       agents,
       selectedAgent: null,
       models: [...modelsForProvider(defaultAgentProvider, modelCatalog)],
@@ -312,6 +327,7 @@ export function buildTicketFormState(
     repos: makeRepos(selectedSet, scores),
     approaches,
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
+    pickerTouched,
     agents,
     selectedAgent: ticket.agent ?? null,
     models: [
