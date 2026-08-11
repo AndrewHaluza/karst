@@ -210,6 +210,12 @@ export class DashboardManager {
      * anything that is not a karst checkout.
      */
     private readonly launchCheckout?: (path: string) => boolean,
+    /**
+     * Reports raw panel activation — including LOSING it — so the host can
+     * track which ticket's view is the window's ACTIVE view (sidebar
+     * highlight). Called alongside the terminal binding; absent → no report.
+     */
+    private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
   ) {}
 
   /**
@@ -221,6 +227,10 @@ export class DashboardManager {
     const existing = this.panels.get(ticketId);
     if (existing) {
       existing.reveal(opts?.preserveFocus);
+      // A focus-taking reveal makes the panel the ACTIVE view; `onDidChangeViewState`
+      // fires on changes, so the reveal that caused this one must be reported here
+      // (idempotent and order-safe — a later event can only correct it).
+      if (opts?.preserveFocus !== true) this.onViewActivated?.(ticketId, true);
       return;
     }
 
@@ -282,9 +292,15 @@ export class DashboardManager {
         }
       });
     });
-    panel.onDidChangeViewState((active) => this.binding?.onDidActivate(ticketId, active));
+    panel.onDidChangeViewState((active) => {
+      this.binding?.onDidActivate(ticketId, active);
+      this.onViewActivated?.(ticketId, active);
+    });
     panel.onDidDispose(() => {
       if (this.panels.get(ticketId) !== panel) return;
+      // The ACTIVE view can be closed while focused; the dispose is the only
+      // signal that the focus is gone, so report it exactly like a deactivation.
+      this.onViewActivated?.(ticketId, false);
       this.statsControllers.get(ticketId)?.abort();
       this.gateControllers.get(ticketId)?.abort();
       this.panels.delete(ticketId);
@@ -303,6 +319,9 @@ export class DashboardManager {
     this.refreshIcon(ticketId, panel);
     this.pushState(ticketId);
     this.postBind(panel);
+    // Same explicit report as the reveal path: creation focuses the panel, and
+    // `onDidChangeViewState` fires on changes, not on the initial activation.
+    if (opts?.preserveFocus !== true) this.onViewActivated?.(ticketId, true);
   }
 
   /**

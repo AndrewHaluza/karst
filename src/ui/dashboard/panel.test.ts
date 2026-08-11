@@ -724,4 +724,80 @@ describe('DashboardManager', () => {
       expect(panels[0]!.revealedPreserveFocus).toEqual([undefined]);
     });
   });
+
+  describe('view activation reporting', () => {
+    it('reports the ticket active as soon as a focus-taking open creates the panel', () => {
+      // Creation focuses the panel and fires no `onDidChangeViewState` (that
+      // event only fires on CHANGES), so the manager must report the
+      // activation it just caused itself.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id);
+      expect(seen).toEqual([[t.id, true]]);
+
+      panels[0]!.emitViewState(true); // the (possibly redundant) real event
+      expect(seen).toEqual([[t.id, true], [t.id, true]]);
+    });
+
+    it('does NOT report a preserve-focus reveal as activation', () => {
+      // A preserve-focus reveal makes the panel VISIBLE, not active (the
+      // terminal binding relies on that distinction) — so it must not light
+      // the sidebar highlight either.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(seen).toEqual([]);
+    });
+
+    it('reports a focus-taking reveal of an existing panel', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id);
+      panels[0]!.emitViewState(false); // user moved away
+      mgr.openDashboard(t.id); // plain re-open takes focus again
+      expect(seen).toEqual([[t.id, true], [t.id, false], [t.id, true]]);
+    });
+
+    it('reports the ACTIVE panel losing focus when it is disposed (closing the focused tab)', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id);
+      panels[0]!.dispose();
+
+      expect(seen).toEqual([[t.id, true], [t.id, false]]);
+    });
+  });
 });

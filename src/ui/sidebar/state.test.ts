@@ -148,4 +148,30 @@ describe('buildSidebarState', () => {
     const child = state.rows.find((r) => r.label.startsWith('PROJ-1-fu1'));
     expect(child?.parentKey).toBe('PROJ-1');
   });
+
+  it('marks only the active ticket row when activeTicketId matches', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'first' });
+    const b = createTicket(store, { key: 'B-1', title: 'second' });
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', activeTicketId: b.id });
+    expect(state.rows.find((r) => r.ticketId === a.id)?.isActive).toBe(false);
+    expect(state.rows.find((r) => r.ticketId === b.id)?.isActive).toBe(true);
+  });
+
+  it('marks no row active when activeTicketId is absent or null', () => {
+    createTicket(store, { key: 'A-1', title: 'first' });
+
+    for (const activeTicketId of [undefined, null]) {
+      const state = buildSidebarState(store, { facets: ['all'], filter: '', activeTicketId });
+      expect(state.rows.every((r) => r.isActive === false)).toBe(true);
+    }
+  });
+
+  it('keeps the active mark off rows a facet hides (nothing to highlight there)', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'active ticket' });
+    archiveTicket(store, a.id);
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', activeTicketId: a.id });
+    expect(state.rows).toHaveLength(0);
+  });
 });

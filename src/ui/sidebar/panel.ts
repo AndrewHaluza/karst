@@ -68,6 +68,12 @@ export class SidebarViewManager {
     private readonly projectId?: () => number | undefined,
     /** Live manifest agent core, so the session verb previews the real launch. */
     private readonly defaultProvider?: () => AgentProvider | undefined,
+    /**
+     * Live answer to "which ticket's view is the window's ACTIVE view" — the
+     * highlighted row. A getter because the answer changes while the sidebar
+     * lives; the host re-pushes (`refresh`) on every change.
+     */
+    private readonly activeTicketId?: () => number | null,
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -116,6 +122,7 @@ export class SidebarViewManager {
         filter: this.filter,
         labelTemplate: this.labelTemplate?.(),
         defaultProvider: this.defaultProvider?.(),
+        activeTicketId: this.activeTicketId?.(),
         projectId: this.projectId?.(),
       },
       this.pathContext?.(),
