@@ -41,6 +41,17 @@ describe('readXtermAssets', () => {
     expect(readXtermAssets(dir)).toEqual({ css: 'css-body', js: 'xterm-body\nfit-body' });
   });
 
+  it('strips //# sourceMappingURL trailers the bundles ship with', () => {
+    // The npm bundles end with a sourceMappingURL comment; the .map files are
+    // not shipped, and the browser would fetch them against the webview origin
+    // — a request `default-src 'none'` blocks. The read seam strips them.
+    writeFileSync(join(dir, 'xterm.css'), 'css-body');
+    writeFileSync(join(dir, 'xterm.js'), 'xterm-body\n//# sourceMappingURL=xterm.js.map');
+    writeFileSync(join(dir, 'addon-fit.js'), 'fit-body\n//# sourceMappingURL=addon-fit.js.map');
+    expect(readXtermAssets(dir).js).toBe('xterm-body\nfit-body');
+    expect(readXtermAssets(dir).js).not.toContain('sourceMappingURL');
+  });
+
   it('throws the raw fs error when a vendor file is missing', () => {
     writeFileSync(join(dir, 'xterm.js'), 'x');
     writeFileSync(join(dir, 'addon-fit.js'), 'f');

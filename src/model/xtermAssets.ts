@@ -19,14 +19,29 @@ export interface XtermAssets {
   js: string;
 }
 
+/**
+ * Strip `//# sourceMappingURL=...` trailer comments. The npm bundles end with
+ * one each, and the `.map` files are deliberately NOT shipped — so the comment
+ * would make the browser fetch `vscode-webview://<id>/xterm.js.map` on every
+ * load, a request that violates the webview's `default-src 'none'` and lands a
+ * console violation for a file that does not exist. The strip is a delivery
+ * concern, applied at the read seam so the injected text is what the webview
+ * will actually execute.
+ */
+const SOURCE_MAP_TRAILER = /^\/\/# sourceMappingURL=.*$/gm;
+
+function stripSourceMapTrailers(text: string): string {
+  return text.replace(SOURCE_MAP_TRAILER, '').trimEnd();
+}
+
 /** Read the three vendored files; js is the two UMD bundles concatenated. */
 export function readXtermAssets(dir: string): XtermAssets {
   return {
     css: readFileSync(join(dir, 'xterm.css'), 'utf8'),
     js:
-      readFileSync(join(dir, 'xterm.js'), 'utf8') +
+      stripSourceMapTrailers(readFileSync(join(dir, 'xterm.js'), 'utf8')) +
       '\n' +
-      readFileSync(join(dir, 'addon-fit.js'), 'utf8'),
+      stripSourceMapTrailers(readFileSync(join(dir, 'addon-fit.js'), 'utf8')),
   };
 }
 

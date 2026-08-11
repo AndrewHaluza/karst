@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync, copyFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, copyFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { readXtermAssets } from '../model/xtermAssets.js';
 
@@ -64,5 +64,20 @@ describe('vendored xterm bundles are CSP-safe to inline', () => {
     // globalThis in a browser (no module/exports/define present).
     expect(assets.js).toContain('globalThis');
     expect(assets.js).toContain('exports');
+  });
+
+  it('carries a sourceMappingURL trailer that the delivery seam strips', () => {
+    // The .map files are not shipped and the webview CSP is `default-src
+    // 'none'`: an injected trailer would make the browser fetch
+    // vscode-webview://<id>/xterm.js.map and log a blocked-request violation
+    // for a file that does not exist. readXtermAssets strips these lines; this
+    // pins BOTH facts — the raw bundle carries the trailer (so the strip is
+    // load-bearing) and the delivered text has none.
+    const raw = readFileSync(join(VENDOR, 'xterm', 'lib', 'xterm.js'), 'utf8')
+      + '\n'
+      + readFileSync(join(VENDOR, 'addon-fit', 'lib', 'addon-fit.js'), 'utf8');
+    expect(raw).toMatch(/\/\/# sourceMappingURL=xterm\.js\.map$/m);
+    expect(raw).toMatch(/\/\/# sourceMappingURL=addon-fit\.js\.map$/m);
+    expect(assets.js).not.toContain('sourceMappingURL');
   });
 });
