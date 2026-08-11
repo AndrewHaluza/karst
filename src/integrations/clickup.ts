@@ -27,6 +27,15 @@ const API_BASE = 'https://api.clickup.com/api/v2';
 const RELATION_METADATA_TIMEOUT_MS = 5_000;
 
 /**
+ * ClickUp's documented cap on a task description ("Task descriptions — 256kb",
+ * a performance limit enforced since August 2024, per the ClickUp help center).
+ * A longer description makes the create-task POST fail with HTTP 413 (Payload
+ * Too Large) — the gateway rejects the request outright, so the ONLY correct
+ * handling is to refuse the call before the doomed round trip.
+ */
+export const CLICKUP_DESCRIPTION_MAX_BYTES = 256 * 1024;
+
+/**
  * How many result pages (100 tasks each) one search may scan. The v2 API has no
  * text-search parameter, so matching is CLIENT-SIDE over the fetched pages —
  * the page cap bounds the cost of a broad status filter, and the match cap
@@ -442,8 +451,21 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
       if (!deps.listId) {
         throw new ClickupError('a List ID is required to create tickets');
       }
+      const description = input.description;
+      if (description) {
+        // Checked in BYTES (UTF-8), matching the limit ClickUp documents — the
+        // server's 413 is a payload cap, not a field-length validation error.
+        const bytes = Buffer.byteLength(description, 'utf8');
+        if (bytes > CLICKUP_DESCRIPTION_MAX_BYTES) {
+          throw new ClickupError(
+            `task description is too large (ClickUp's limit is 256 KB; this one is ` +
+              `${Math.ceil(bytes / 1024)} KB). Shorten the description, or create the ` +
+              'ticket without the ClickUp task.',
+          );
+        }
+      }
       const body: Record<string, unknown> = { name: input.title };
-      if (input.description) body.description = input.description;
+      if (description) body.description = description;
       const raw = (await postJson(
         `${API_BASE}/list/${encodeURIComponent(deps.listId)}/task`,
         body,
