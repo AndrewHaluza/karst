@@ -755,6 +755,35 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     expect(body).toContain('aria-selected');
   });
 
+  it('suppresses the k-btn press-scale and the pending/success flashes on the dropdown trigger', () => {
+    // The trigger composes .k-btn (UI-R07), but it is a DROPDOWN control, not
+    // an action button: the primitive's scale-on-active squishes it on every
+    // menu open/close, its aria-busy spinner is injected into the flex row
+    // (shifting the badge), and the settle flash turns it green with a check
+    // — all on a widget whose pick repaints itself. Same call
+    // designComponents.ts makes for .k-btn--row: a trigger is not a button.
+    const [main] = styleBlocks();
+    expect(main).toMatch(/\.agentselect-trigger:active:not\(:disabled\)\{[^}]*transform:none/);
+    expect(main).toMatch(/\.agentselect-trigger\[aria-busy="true"\]::before\{[^}]*content:none/);
+    expect(main).toMatch(/\.agentselect-trigger\.is-success[^{]*::before\{[^}]*content:none/);
+  });
+
+  it('re-renders the model picker for the picked provider from the last catalog', () => {
+    // The Model select sits right below the agent-core picker and must follow
+    // it. In create mode the host no-ops set-provider (no state push follows),
+    // so selectProvider has to re-filter the models locally from the catalog
+    // the state push carried — otherwise the Model select keeps the previous
+    // agent core's models until the next full render.
+    const fn = functionSource('selectProvider');
+    expect(fn).toContain('renderModelPicker(');
+    expect(fn).toContain('modelsForProvider(');
+    expect(fn).toContain('lastDefaultProvider');
+    // The cascade needs the pushed default + session lock to render honestly.
+    const render = functionSource('render');
+    expect(render).toContain('lastModelCatalog = state.modelCatalog');
+    expect(render).toContain('lastDefaultModel = state.defaultModel');
+  });
+
   it('Cancel closes the form instead of posting a dead request-state', () => {
     // requestState re-pushes state, and render() refuses to clobber non-empty
     // fields — so the old Cancel visibly did nothing in both modes. The panel
