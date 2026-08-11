@@ -58,6 +58,14 @@ export function rowToStage(r: StageRow): Stage {
   };
 }
 
+/** Read one stage row; null when the ticket has no row for that stage yet. */
+export function getStage(store: Store, ticketId: number, stageKey: StageKey): Stage | null {
+  const row = store.db
+    .prepare('SELECT * FROM stages WHERE ticket_id = ? AND stage_key = ?')
+    .get(ticketId, stageKey) as StageRow | undefined;
+  return row ? rowToStage(row) : null;
+}
+
 /** Map patch field names → DB columns, so only provided fields are updated. */
 const COLUMN: Record<keyof StagePatch, string> = {
   status: 'status',
