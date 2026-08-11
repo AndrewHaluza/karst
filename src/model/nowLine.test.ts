@@ -102,6 +102,37 @@ describe('buildNowLine', () => {
     });
   });
 
+  it('says the fix did not complete for a PARKED fix row — never that the agent is fixing', () => {
+    // A parked fix row: the execution ended without the done marker (or never
+    // started), and the ticket rests at fix for a human. The old copy claimed
+    // "the agent is resumed" beside a dead fix forever.
+    expect(
+      buildNowLine(cell({ stageKey: 'fix', status: 'failed' }), {
+        fixAttempts: 1,
+        sessionAction: { kind: 'continue', label: 'Continue', detail: 'resume fix' },
+      }),
+    ).toEqual({
+      text: 'Now: the fix did not complete. Continue the agent to retry.',
+      action: { kind: 'session', label: 'Continue session', detail: 'resume fix' },
+    });
+    expect(
+      buildNowLine(cell({ stageKey: 'fix', status: 'failed' }), {
+        fixAttempts: 1,
+        sessionAction: { kind: 'start', label: 'Start', detail: 're-seed from context' },
+      }),
+    ).toEqual({
+      text: 'Now: the fix did not complete. Start the agent to retry.',
+      action: { kind: 'session', label: 'Start session', detail: 're-seed from context' },
+    });
+  });
+
+  it('keeps the exhausted copy for a parked fix at the cap, whatever the row says', () => {
+    expect(buildNowLine(cell({ stageKey: 'fix', status: 'failed' }), { fixAttempts: 3 })).toEqual({
+      text: 'Now: fix attempts ran out after 3 tries. Resume the agent to try again.',
+      action: { kind: 'resume', label: 'Resume agent' },
+    });
+  });
+
   it('offers ship confirmation at the ship boundary', () => {
     // `needsConfirm` (machine.ts) parks a stage requiring confirmation at
     // `pending`, not `running`, until the user clicks — real machine behavior.

@@ -35,12 +35,44 @@ function gateFailed(cell: StepperCell): NowLine {
     : { text };
 }
 
-function fixing(attempts: number, sessionAction?: SessionAction): NowLine {
+function fixing(cell: StepperCell, attempts: number, sessionAction?: SessionAction): NowLine {
   if (attempts >= FIX_ATTEMPT_CAP) {
     return {
       text: `Now: fix attempts ran out after ${FIX_ATTEMPT_CAP} tries. Resume the agent to try again.`,
       action: { kind: 'resume', label: 'Resume agent' },
     };
+  }
+  if (sessionAction?.kind === 'open') {
+    const action: NowAction = {
+      kind: 'session',
+      label: `${sessionAction.label} session`,
+      detail: sessionAction.detail,
+    };
+    return {
+      text: attempts > 0
+        ? `Now: fixing the failed gate — the agent is running (attempt ${attempts} of ${FIX_ATTEMPT_CAP}).`
+        : 'Now: fixing the failed gate — the agent is running.',
+      action,
+    };
+  }
+  // A PARKED fix row (`failed` — the execution ended without the done marker,
+  // or the budget never started): the agent is NOT fixing, and the sentence
+  // must not claim it is. The previous copy ("the agent is resumed") was the
+  // lie this replaces — a ticket resting at fix for a human read as actively
+  // worked, forever.
+  if (cell.status === 'failed') {
+    if (sessionAction) {
+      const action: NowAction = {
+        kind: 'session',
+        label: `${sessionAction.label} session`,
+        detail: sessionAction.detail,
+      };
+      return {
+        text: `Now: the fix did not complete. ${sessionAction.label} the agent to retry.`,
+        action,
+      };
+    }
+    return { text: 'Now: the fix did not complete — it is parked for you to retry.' };
   }
   if (sessionAction) {
     const action: NowAction = {
@@ -48,16 +80,8 @@ function fixing(attempts: number, sessionAction?: SessionAction): NowLine {
       label: `${sessionAction.label} session`,
       detail: sessionAction.detail,
     };
-    if (sessionAction.kind !== 'open') {
-      return {
-        text: `Now: the fix is paused after gate failure. ${sessionAction.label} the agent to retry.`,
-        action,
-      };
-    }
     return {
-      text: attempts > 0
-        ? `Now: fixing the failed gate — the agent is running (attempt ${attempts} of ${FIX_ATTEMPT_CAP}).`
-        : 'Now: fixing the failed gate — the agent is running.',
+      text: `Now: the fix is paused after gate failure. ${sessionAction.label} the agent to retry.`,
       action,
     };
   }
@@ -186,7 +210,7 @@ export function buildNowLine(
         ? gateFailed(cell)
         : { text: 'Now: running the review gate — lint, typecheck and tests.' };
     case 'fix':
-      return fixing(ctx.fixAttempts ?? 0, ctx.sessionAction);
+      return fixing(cell, ctx.fixAttempts ?? 0, ctx.sessionAction);
     case 'ship':
       // Ship has no failed edge (graph.ts): a ship that could not open its PRs
       // leaves the ticket parked right here, so the line has to say so and offer

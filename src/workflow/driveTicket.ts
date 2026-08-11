@@ -15,6 +15,12 @@ import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.j
 import { runUat } from './stages/uat.js';
 import { runReview, type OpenDiff } from './stages/review.js';
 import {
+  parkFixStage,
+  FIX_PARKED_EXHAUSTED,
+  FIX_PARKED_NO_FAILED_GATE,
+  FIX_PARKED_NO_RESUMABLE_ROUND,
+} from '../store/recoveryRounds.js';
+import {
   capForGate,
   countFixAttempts,
   fixAttemptsRemain,
@@ -372,6 +378,9 @@ export async function driveTicket(
           `stage driver: ticket ${ticketId} at fix with no resumable recovery round ` +
             `(${round.status}); leaving it`,
         );
+        // The ticket rests at fix for a human — the stage row must stop reading
+        // as if the agent were still fixing.
+        parkFixStage(deps.store, ticketId, FIX_PARKED_NO_RESUMABLE_ROUND, nowIso());
       } else if (listRecoveryRounds(deps.store, ticketId).length > 0) {
         // Rounds exist but every one is terminal (exhausted/passed/failed/
         // interrupted) — history, never reconsidered. A v30 ticket whose
@@ -381,6 +390,7 @@ export async function driveTicket(
         deps.log(
           `stage driver: ticket ${ticketId} at fix with only terminal recovery rounds; leaving it`,
         );
+        parkFixStage(deps.store, ticketId, FIX_PARKED_NO_RESUMABLE_ROUND, nowIso());
       } else {
         const decision = fixResumeDecision(stages, deps.manifest());
         switch (decision.kind) {
@@ -402,10 +412,12 @@ export async function driveTicket(
               `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +
                 `${decision.gate} failures, at the cap of ${decision.cap}; leaving it for a human`,
             );
+            parkFixStage(deps.store, ticketId, FIX_PARKED_EXHAUSTED, nowIso());
             break;
           case 'no-failed-gate':
             deps.debug?.(`[driver] ticket ${ticketId} at fix: no failed gate found`);
             deps.log(`stage driver: ticket ${ticketId} at fix with no failed gate; leaving it`);
+            parkFixStage(deps.store, ticketId, FIX_PARKED_NO_FAILED_GATE, nowIso());
             break;
           default: {
             const unreachable: never = decision;
