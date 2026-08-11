@@ -172,6 +172,25 @@ describe('spawnHeadlessCli (real processes)', () => {
     throw new Error(`pid file ${path} never appeared`);
   }
 
+  /**
+   * Poll until the pid is gone. A SIGKILLed process stays findable via
+   * `kill(pid, 0)` while it is a not-yet-reaped zombie, so a one-shot assertion
+   * right after the child's 'close' races the grandchild's reap — the group
+   * kill's goal is eventual death, which is what this waits for. Same pattern
+   * as gates/run.test.ts's expectProcessDead.
+   */
+  async function expectProcessDead(pid: number): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(() => process.kill(pid, 0)).toThrow();
+  }
+
   it('kills the whole process group on abort, including a grandchild', async () => {
     // The child spawns a grandchild that would survive a plain child.kill();
     // the group kill must take both down. Same pattern as gates/run.test.ts.
@@ -192,7 +211,7 @@ describe('spawnHeadlessCli (real processes)', () => {
     expect(process.kill(grandchild, 0)).toBe(true); // alive before the abort
     controller.abort();
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
-    expect(() => process.kill(grandchild, 0)).toThrow();
+    await expectProcessDead(grandchild);
     unlinkSync(pidFile);
   });
 
