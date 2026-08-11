@@ -116,18 +116,35 @@ export interface TesterDeps {
  * missing/null ref falls back to the generic wording rather than ever
  * interpolating the literal string "undefined". The service context is
  * host-known and read-only — the Tester is told what it MAY stand up, never
- * asked to invent one.
+ * asked to invent one. `instructions` (optional) replaces the role/strategy
+ * lines with the author's own — the target context and the strict output
+ * rules always remain.
  */
-export function buildTesterPrompt(target: TesterTarget): string {
+export function buildTesterPrompt(target: TesterTarget, instructions?: string): string {
   const baseClause = target.baseRef
     ? `against its base branch, \`${target.baseRef}\` (compare against \`origin/${target.baseRef}\` when available, otherwise the local \`${target.baseRef}\`).`
     : `against its base branch.`;
   const serviceClause = target.service?.start
     ? `\nThe repository's service starts with: \`${target.service.start}\`. You may stand it up to observe behavior.`
     : '';
+  // User instructions REPLACE the role/strategy block (the ticket's
+  // precedence: user override → built-in default). The target context is
+  // kept — repo, base branch and service are facts the agent needs whatever
+  // the strategy — and the output rules below are never replaced.
+  const instructionsText = instructions?.trim() ?? '';
+  const strategy =
+    instructionsText.length > 0
+      ? [
+          instructionsText,
+          `Repository: ${target.repo} ${baseClause}${serviceClause}`,
+          '',
+        ]
+      : [
+          `Act as the UAT tester for the changes in this worktree (repository: ${target.repo}) ${baseClause}`,
+          `Try to BREAK the changes: run them, exercise the acceptance criteria, and report what you observe.${serviceClause}`,
+        ];
   return [
-    `Act as the UAT tester for the changes in this worktree (repository: ${target.repo}) ${baseClause}`,
-    `Try to BREAK the changes: run them, exercise the acceptance criteria, and report what you observe.${serviceClause}`,
+    ...strategy,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
     `- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.`,
@@ -187,7 +204,7 @@ export async function runUatTester(
           `(worktree ${target.worktreePath})`,
       );
       const result = await opts.adapter.runHeadless({
-        prompt: buildTesterPrompt(target),
+        prompt: buildTesterPrompt(target, opts.assignment.instructions),
         cwd: target.worktreePath,
         model: opts.assignment.model,
         signal: opts.signal,
