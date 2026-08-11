@@ -2561,6 +2561,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionProviderFor,
     {
       recorder: hookChannelRecorder,
+      debug: (message) => logger.debug(message),
       ticketApi: {
         // Same getter pattern as the ticket form: the project binds at
         // activation, read it at call time.
