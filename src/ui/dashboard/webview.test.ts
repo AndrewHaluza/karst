@@ -1899,6 +1899,10 @@ interface PreviewHarness {
   /** The most recent message the script dispatched on `window` (the selected snapshot). */
   lastDispatched(): { type: string; state?: DashboardState } | undefined;
   posted: unknown[];
+  /** Every `Terminal` instance the script created, in order (the console view). */
+  terminals(): Array<{ opts: Record<string, unknown>; opened: boolean; written: string; disposed: boolean }>;
+  /** The number of `fit()` calls on each created terminal's FitAddon. */
+  fits(): number[];
 }
 
 function bootPreviewHarness(): PreviewHarness {
@@ -1931,6 +1935,8 @@ function bootPreviewHarness(): PreviewHarness {
     'artViewAll',
     'artifacts',
     'artView',
+    'termView',
+    'termHost',
   ]) {
     elements[id] = previewElement(id);
   }
@@ -1993,6 +1999,38 @@ function bootPreviewHarness(): PreviewHarness {
     },
   };
 
+  // The console view's xterm double: record every instance, its options, and
+  // whether the webview opened/wrote/disposed it — the closest the VM can get
+  // to a real terminal, and exactly the surface the console tests assert on.
+  const terminalInstances: Array<{
+    opts: Record<string, unknown>;
+    opened: boolean;
+    written: string;
+    disposed: boolean;
+    addon: { fit: () => void; fitCalls?: number } | null;
+  }> = [];
+  class FakeTerminal {
+    opts: Record<string, unknown>;
+    opened = false;
+    written = '';
+    disposed = false;
+    addon: { fit: () => void; fitCalls?: number } | null = null;
+    constructor(opts: Record<string, unknown>) {
+      this.opts = opts;
+      terminalInstances.push(this as unknown as (typeof terminalInstances)[number]);
+    }
+    open() { this.opened = true; }
+    write(s: string) { this.written += s; }
+    loadAddon(addon: { fit: () => void }) { this.addon = addon; }
+    dispose() { this.disposed = true; }
+  }
+  class FakeFitAddon {
+    fitCalls = 0;
+    fit() { this.fitCalls += 1; }
+    activate() {}
+    dispose() {}
+  }
+
   runInNewContext(`${previewScriptSource()}\n;globalThis.__karst = { esc };`, {
     acquireVsCodeApi: () => ({
       getState: () => null,
@@ -2001,6 +2039,8 @@ function bootPreviewHarness(): PreviewHarness {
     }),
     document: documentDouble,
     window: windowDouble,
+    Terminal: FakeTerminal,
+    FitAddon: { FitAddon: FakeFitAddon },
     setTimeout: () => 1,
     clearTimeout: () => {},
   });
@@ -2065,6 +2105,8 @@ function bootPreviewHarness(): PreviewHarness {
     bodyClasses,
     lastDispatched: () => dispatched.at(-1),
     posted,
+    terminals: () => terminalInstances,
+    fits: () => terminalInstances.map((t) => t.addon?.fitCalls ?? 0),
   };
 }
 
@@ -3699,5 +3741,88 @@ describe('deferring a live repaint', () => {
   it('defers only a LIVE push; a push that carries news always renders', () => {
     expect(HTML).toMatch(/msg\.live && !liveRepaintSafe\(\)/);
     expect(HTML).toContain('if (!msg.live) worktreeStats = {};');
+  });
+});
+
+describe('terminal console view (VM)', () => {
+  it('opens the console surface and posts stage-log-request with the stage', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    expect(h.bodyClasses).toContain('term-nav');
+    expect(h.htmlOf('termView')).toContain('Console · UAT');
+    expect(h.posted).toContainEqual({ type: 'stage-log-request', stage: 'uat' });
+    expect(h.terminals().length).toBe(1);
+  });
+
+  it('creates the terminal with convertEol, disableStdin and the token theme', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('review') });
+    h.click('[data-act]', { act: 'console', console: 'review' });
+    const t = h.terminals()[0]!;
+    expect(t.opts.convertEol).toBe(true);
+    expect(t.opts.disableStdin).toBe(true);
+    expect(t.opened).toBe(true);
+    expect(h.fits()[0]).toBeGreaterThanOrEqual(1);
+  });
+
+  it('writes the stage-log ok content into the live terminal', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: '\x1b[32mpass\x1b[0m\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('\x1b[32mpass\x1b[0m\n');
+  });
+
+  it('renders the error result in the view instead of writing to the terminal', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'error', message: 'The recorded log file is no longer available.' } });
+    expect(h.terminals()[0]!.written).toBe('');
+    expect(h.htmlOf('termHost')).toContain('no longer available');
+  });
+
+  it('drops a stale stage-log answer for a view that closed', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.key('Escape');
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'late', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('');
+    expect(h.bodyClasses).not.toContain('term-nav');
+  });
+
+  it('disposes the terminal and restores the dashboard on Escape', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    expect(h.bodyClasses).toContain('term-nav');
+    h.key('Escape');
+    expect(h.terminals()[0]!.disposed).toBe(true);
+    expect(h.bodyClasses).not.toContain('term-nav');
+    expect(h.htmlOf('termView')).toBe('');
+  });
+
+  it('renders a Console button only for stages the host flags (view.console)', () => {
+    const h = bootPreviewHarness();
+    const state = renderStateFor('uat');
+    // The uat render fixture carries `console: true` (added in Step 3).
+    expect((state.insideViews as Record<string, { console?: boolean }>).uat!.console).toBe(true);
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).toContain('data-act="console"');
+  });
+
+  it('renders no Console button for a stage the host did not flag', () => {
+    const h = bootPreviewHarness();
+    const state = renderStateFor('uat');
+    // Flip the flag off in the fixture: availability is HOST-derived, so the
+    // webview must render no button when the view does not carry it.
+    const noConsole = {
+      ...state,
+      insideViews: { ...state.insideViews, uat: { ...state.insideViews.uat, console: false } },
+    };
+    h.receive({ type: 'state', state: noConsole as DashboardState });
+    expect(h.htmlOf('inside')).not.toContain('data-act="console"');
   });
 });
