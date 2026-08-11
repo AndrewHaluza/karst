@@ -219,9 +219,9 @@ import {
   runNpmCommand,
 } from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
+import { resolveGraphPrompt } from './agent/graphPrompts.js';
 import {
   approachDelta,
-  BUILT_IN_PACKAGE_PATH,
   isBuiltInApproachId,
   packagedApproachDefs,
   withBuiltInApproaches,
@@ -428,15 +428,6 @@ const PR_SYNC_INTERVAL_MS = 60_000;
  * base moving under an open PR surfaces while the ticket is still on screen.
  */
 const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
-
-/**
- * Graph prompt identity → packaged prompt role. The Settings → Approaches
- * prompt link resolves through this; Slice-1 T7 replaces it with the stable
- * override-aware identity registry (`src/agent/graphPrompts.ts`).
- */
-const GRAPH_PROMPT_ROLE: Readonly<Record<string, string>> = {
-  'karst-graph-planner': 'graph-planner',
-};
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
@@ -1715,25 +1706,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       openManifest: async () => {
         await vscode.commands.executeCommand('karst.openManifest');
       },
-      // The Settings → Approaches planner-prompt link. Identity is a closed
-      // set; the packaged prompt tree ships under dist/.agents/skills/…
-      // (Slice-1 T7 registers the override-aware identity table that will
-      // supersede this inline role map).
+      // The Settings → Approaches prompt links. The identity is a CLOSED set
+      // (graphPrompts); the reveal shows the EFFECTIVE prompt — the project
+      // override when one exists, else the packaged bytes (Slice-1 T7).
       revealGraphPrompt: async (identity: string): Promise<void> => {
-        const role = GRAPH_PROMPT_ROLE[identity];
-        if (!role) {
-          throw new Error(`Unknown graph prompt identity "${identity}".`);
-        }
-        const path = join(
+        const resolved = resolveGraphPrompt(
+          agentsDirOrThrow(),
           context.extensionUri.fsPath,
-          'dist',
-          BUILT_IN_PACKAGE_PATH,
-          'skills',
-          role,
-          'SKILL.md',
+          identity,
         );
-        if (!existsSync(path)) throw new Error(`Graph prompt not found: ${path}`);
-        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+        if (!existsSync(resolved.path)) {
+          throw new Error(`Graph prompt not found: ${resolved.path}`);
+        }
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.path));
         await vscode.window.showTextDocument(doc, { preview: true });
       },
     }),
