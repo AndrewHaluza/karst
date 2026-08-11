@@ -94,13 +94,8 @@
   /* Inline per-field validation message on repository cards — see
      applyFieldValidationUI; only ever shown for a field the user has touched. */
   .field-error{color:var(--k-danger);font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
-  /* Read-only host facts (General tab) — a <dl>, never inputs, so nothing here
-     can enter the editable draft. */
-  dl.facts{margin:var(--k-space-2) var(--k-space-0) var(--k-space-0)}
-  dl.facts dt{font-size:var(--k-text-xs);color:var(--k-text-dim);opacity:.7;margin-top:var(--k-space-3)}
-  dl.facts dd{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0);display:flex;
-    align-items:center;gap:var(--k-space-3)}
-  dl.facts code{font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
+  /* Read-only host facts live in the sidebar footer, not here — the footer is
+     the one surface that renders them (see renderProjectFooter). */
 
   .content{flex:1 1 auto;overflow:auto;padding:var(--k-space-8) var(--k-space-9)}
   .section{max-width:calc(var(--k-space-8) * 38)}
@@ -149,8 +144,13 @@
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
   .provselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
-  .provselect-opt:hover{background:var(--k-surface-hover)}
-  .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .provselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The selected option keeps the theme's ACTIVE selection wash, so it must
+     take the theme's paired foreground too — the wash is a saturated blue on
+     light themes and the inherited `--k-text` is a grey that fails contrast on
+     it (UI-R29). Same rule `.nav-btn.active` already follows. */
+  .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
   .provselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   /* The menu is absolutely positioned below the trigger and is taller than the
      card that hosts it (the ClickUp fields below it are hidden while the
@@ -189,8 +189,9 @@
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
   .agentselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
-  .agentselect-opt:hover{background:var(--k-surface-hover)}
-  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
   .agentselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .agentselect-opt[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
 
@@ -679,8 +680,13 @@
     display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base);
   }
-  .drop-item:hover{background:var(--k-surface-hover)}
-  .drop-item.active,.drop-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .drop-item:hover .ident-meta{color:var(--k-text);opacity:.7}
+  .drop-item.active,.drop-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
+  /* Dim/faint descendant text must not re-grey itself on the paired selection
+     fill — the meta line inherits the selection foreground instead. */
+  .drop-item.active .ident-meta{color:inherit;opacity:.8}
   .drop-item.is-disabled{opacity:.5;cursor:not-allowed}
   .drop-item .mono{font-family:var(--k-font-mono)}
   .drop-divider{height:var(--k-border-w);background:var(--vscode-panel-border);margin:var(--k-space-2) var(--k-space-0)}
@@ -712,7 +718,10 @@
     padding:var(--k-space-3) var(--k-space-4);cursor:pointer;
   }
   .model-item:hover{background:var(--k-surface-hover)}
-  .model-item.active,.model-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}
+  .model-item.active,.model-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
+  .model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}
   .model-item .model-name{font-weight:500;font-size:var(--k-text-base)}
   .model-item .model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
   .model-item .model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
@@ -748,6 +757,18 @@
   .roster-row .cell-path{font-family:var(--k-font-mono)}
   .roster-row .cell-actions{display:flex;align-items:center;justify-content:flex-end;gap:var(--k-space-3)}
   .repo-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 9),1.6fr) minmax(calc(var(--k-space-8) * 4),.7fr) auto}
+  /* Repository cards inside the roster (renderServices): the container owns the
+     ONE border and radius — a card must not draw its own rounded box beside the
+     head's square block, which is the mismatch that made the list read as two
+     different components. Rows are separated by hairlines; the open card's
+     body is inset by the same rule. `.card` stays fully rounded everywhere
+     else (Ticketing, Quality), so these overrides are scoped to `.roster`. */
+  .roster .card{border:none;border-radius:0;margin-bottom:var(--k-space-0);background:transparent}
+  .roster .card + .card{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .roster .card.open .card-body{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .roster .card.is-selected .card-head{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
+  .roster .card .card-head{gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5)}
+  .roster .card .card-head .card-toggle{border-radius:var(--k-radius-sm)}
   .repo-detail{
     display:none;border-top:var(--k-border-w) solid var(--vscode-panel-border);
     padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
@@ -908,7 +929,10 @@
       <span class="manifest-name" id="footManifestName">karst.yml</span>
       <span class="manifest-open">Open &#8599;</span>
     </button>
-    <div class="project-info-pop hidden" id="projectInfoPop" role="dialog" aria-label="Project information">
+    <!-- The pop is closed by its own `display:none` rule — it must NOT carry the
+         `hidden` class: `.hidden` is `display:none !important` and would defeat
+         `.open{display:block}` here and in every other pop that follows. -->
+    <div class="project-info-pop" id="projectInfoPop" role="dialog" aria-label="Project information">
       <div class="project-info-title">Project information</div>
       <div class="project-info-row"><span>Project ID</span><strong class="mono" id="popProjectId"></strong></div>
       <div class="project-info-row"><span>ID source</span><strong id="popIdSource"></strong></div>
@@ -1084,30 +1108,6 @@
         </div>
       </div>
 
-      <div class="section-block">
-        <div class="section-head">
-          <div>
-            <div class="section-title">This project</div>
-            <div class="section-desc">Read-only facts about the manifest this Settings page edits. Also shown compactly in the sidebar.</div>
-          </div>
-        </div>
-        <div class="field-group" id="projectFacts">
-          <dl class="facts">
-            <dt>Manifest</dt>
-            <dd><code id="factManifestPath"></code>
-              <button type="button" class="k-btn k-btn--secondary k-btn--sm fixed"
-                      id="openManifestBtn"
-                      aria-label="Open karst.yml in an editor"
-                      title="Open karst.yml in an editor">Open karst.yml</button></dd>
-            <dt>Project id</dt>
-            <dd><code id="factProjectSlug"></code>
-              <span class="chip" id="factSlugDerived" hidden
-                    title="No id: in karst.yml — derived from the workspace path, changes if it moves">derived</span></dd>
-            <dt>Version</dt>
-            <dd><code id="factVersion"></code></dd>
-          </dl>
-        </div>
-      </div>
     </div>
 
     <!-- Git -->
@@ -1679,11 +1679,11 @@
 <!-- Shared context/overflow menu (handoff §6.7): rebuilt per open with real
      buttons carrying the same data attributes the page's delegated handlers
      own, so a menu action takes the exact same path as an inline one. -->
-<div class="ctx-menu hidden" id="ctxMenu" role="menu"></div>
+<div class="ctx-menu" id="ctxMenu" role="menu"></div>
 
 <!-- Template helper popup (handoff §7.3/§8): contextual variables + transforms
      at the point of use, filled by openTemplateHelper(). -->
-<div class="helper-pop hidden" id="helperPop" role="dialog" aria-label="Template variables and transforms"></div>
+<div class="helper-pop" id="helperPop" role="dialog" aria-label="Template variables and transforms"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -2424,18 +2424,6 @@
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
-    renderProjectFacts();
-  }
-
-  // The two read-only host facts (§ state.ts): this window's manifest file and
-  // its resolved project identity. `projectSlug.derived: true` means the
-  // manifest declares no `id:` and the host fell back to a path-derived slug —
-  // the case worth flagging, because it changes if the repo moves.
-  function renderProjectFacts() {
-    el('factManifestPath').textContent = manifestPath || '(unresolved)';
-    el('factProjectSlug').textContent = (projectSlug && projectSlug.value) || '(unresolved)';
-    el('factSlugDerived').hidden = !(projectSlug && projectSlug.derived);
-    el('factVersion').textContent = extensionVersion || '(unknown)';
   }
 
   // Live preview of the label template against a representative sample ticket,
@@ -2697,12 +2685,18 @@
       return;
     }
     // Roster head: Repository | Path | Baseline | Runtime | Actions (§10). The
-    // head is part of the table so the columns align with every row.
+    // head is part of the table so the columns align with every row — and the
+    // whole list sits in ONE `.roster` container (handoff §6.5) so the head's
+    // square block and the cards' rounded corners share the same outer border
+    // and radius instead of clashing (the head used to float bare above the
+    // cards, square against their rounded edges).
     el('serviceCards').innerHTML =
-      `<div class="roster-head repo-cols">`
+      `<div class="roster">`
+      + `<div class="roster-head repo-cols">`
       + `<div>Repository</div><div>Path</div><div>Baseline</div><div>Runtime</div><div></div>`
       + `</div>`
-      + names.map((name) => renderServiceCard(name)).join('');
+      + names.map((name) => renderServiceCard(name)).join('')
+      + `</div>`;
     // The rebuild threw away the previous inline error nodes; re-apply against
     // the fresh DOM so a touched field keeps its message across a re-render.
     applyFieldValidationUI(lastValidationError);
@@ -4672,8 +4666,6 @@
   });
   el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
   el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
-
-  el('openManifestBtn').addEventListener('click', () => postAction(el('openManifestBtn'), 'open-manifest'));
 
   // The host's answer to set-token/clear-token. The token is keychain state, not
   // manifest state, so this NEVER touches `draft` — a full `state` push would
