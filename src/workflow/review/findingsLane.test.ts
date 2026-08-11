@@ -383,6 +383,35 @@ describe('runFindingsLane', () => {
     });
     expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['spawn ENOENT'] });
   });
+
+  it('threads the process assignment instructions into the prompt and still parses the output', async () => {
+    const runHeadless = vi.fn().mockResolvedValue({
+      sessionId: '',
+      verdict: null,
+      raw: JSON.stringify([{ severity: 'high', title: 'leak', detail: 'x', file: 'src/a.ts' }]),
+    });
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter('[]'),
+      targets: [TARGET],
+      ticketId: 1,
+      process: {
+        assignment: {
+          agentName: 'Review Agent',
+          provider: 'claude',
+          instructions: 'Check error handling.',
+        },
+        adapter: { ...adapter('[]'), runHeadless },
+      },
+    });
+    expect(outcome.kind).toBe('ran');
+    expect(outcome).toEqual({
+      kind: 'ran',
+      findings: [expect.objectContaining({ severity: 'high', title: 'leak' })],
+    });
+    expect(runHeadless.mock.calls[0]![0].prompt).toContain('Check error handling.');
+    expect(runHeadless.mock.calls[0]![0].prompt).toContain('Output rules (strict):');
+  });
 });
 
 /**
@@ -546,5 +575,28 @@ describe('buildFindingsPrompt', () => {
     expect(withUndefined).not.toContain('undefined');
     expect(withNull).toContain('its base branch.');
     expect(withUndefined).toContain('its base branch.');
+  });
+
+  it('replaces the review lines with user instructions, keeping the target context and output rules', () => {
+    const prompt = buildFindingsPrompt(
+      '/web',
+      'develop',
+      'Focus on error handling and regression patterns.',
+    );
+    expect(prompt).toContain('Focus on error handling and regression patterns.');
+    // The facts the agent needs survive — repo and base branch.
+    expect(prompt).toContain('Repository: /web');
+    expect(prompt).toContain('develop');
+    // The default review strategy lines are replaced...
+    expect(prompt).not.toContain('Review the uncommitted and committed changes');
+    expect(prompt).not.toContain('DIFF ONLY');
+    // ...but the structured-output contract is non-negotiable.
+    expect(prompt).toContain('Output rules (strict):');
+    expect(prompt).toContain('JSON array');
+  });
+
+  it('treats blank instructions as absent', () => {
+    const prompt = buildFindingsPrompt('/web', 'develop', '  ');
+    expect(prompt).toContain('Review the uncommitted and committed changes');
   });
 });
