@@ -5208,14 +5208,23 @@
   // ═══ Name-override drawer (handoff §13.3) ══════════════════════════════════
   // One small shared drawer; the row's "Name override" action opens it with
   // that process's key. Writing goes through the same updateProcessAssignment
-  // path the inline input used (spread, never rebuild).
-  function openNameOverride(key) {
+  // path the inline input used (spread, never rebuild). The drawer input keeps
+  // `data-proc-field="agentName"` + a data-proc-key set on open, so the page's
+  // existing delegated input listener already owns the draft write — this
+  // binding only manages open/close and focus.
+  let nameOverrideAnchor = null;
+
+  function openNameOverride(key, anchor) {
     const input = el('nameOverrideInput');
     if (!input) return;
+    nameOverrideAnchor = anchor || null;
     input.dataset.procKey = key;
     input.value = ((draft.processes && draft.processes[key]) || {}).agentName || '';
     const title = el('nameOverrideTitle');
-    if (title) title.textContent = 'Name override — ' + (PROCESS_KEY_LABELS[key] || key);
+    if (title) {
+      const view = processAssignmentViews[key] || {};
+      title.textContent = 'Name override — ' + (view.roleLabel || key);
+    }
     const drawer = el('nameOverrideDrawer');
     if (drawer) {
       drawer.classList.add('open');
@@ -5227,8 +5236,10 @@
     const drawer = el('nameOverrideDrawer');
     if (!drawer || !drawer.classList.contains('open')) return;
     drawer.classList.remove('open');
-    const btn = document.querySelector('[data-name-override].is-active');
-    if (returnFocus && btn && typeof btn.focus === 'function') btn.focus();
+    if (returnFocus && nameOverrideAnchor && typeof nameOverrideAnchor.focus === 'function') {
+      nameOverrideAnchor.focus();
+    }
+    nameOverrideAnchor = null;
   }
 
   function bindNameOverride() {
@@ -5236,13 +5247,17 @@
       const btn = e.target.closest && e.target.closest('[data-name-override]');
       if (btn) {
         e.preventDefault();
-        openNameOverride(btn.dataset.nameOverride);
+        openNameOverride(btn.dataset.nameOverride, btn);
         return;
       }
-      if (e.target.closest && e.target.closest('#nameOverrideClose')) {
+      if (e.target.closest && (e.target.closest('#nameOverrideClose') || e.target.closest('#nameOverrideCancel'))) {
         closeNameOverride(true);
       }
     });
+    // The drawer input's own change listener is a safety net for Enter/blur —
+    // the delegated `input` listener (data-proc-field="agentName") already
+    // wrote on every keystroke with { rerender: false }, so this only needs to
+    // be idempotent, never a second re-render.
     const input = el('nameOverrideInput');
     if (input) {
       input.addEventListener('change', () => {
